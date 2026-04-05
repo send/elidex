@@ -173,7 +173,9 @@ pub(super) fn native_object_prototype_to_string(
         JsValue::Object(obj_id) => {
             // Check @@toStringTag
             let tag_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.to_string_tag);
-            if let Some(JsValue::String(tag_id)) =
+            // TODO(M4-11): accessor @@toStringTag should invoke getter via Get.
+            // Requires VM single dispatcher (NativeContext re-entrancy).
+            if let Some(super::coerce::PropertyResult::Data(JsValue::String(tag_id))) =
                 super::coerce::get_property(ctx.vm, obj_id, tag_key)
             {
                 let tag_str = ctx.get_utf8(tag_id);

@@ -1,6 +1,6 @@
 //! Object and array creation opcode handlers extracted from the main dispatch loop.
 
-use super::value::{JsValue, ObjectKind, Property, PropertyKey, VmError};
+use super::value::{JsValue, ObjectKind, Property, PropertyKey, PropertyValue, VmError};
 use super::Vm;
 
 impl Vm {
@@ -145,17 +145,22 @@ impl Vm {
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
             let is_global = dst_id == self.inner.global_object;
             let src = self.inner.get_object(src_id);
+            // TODO(M4-11): spread should invoke getters via Get for accessor properties.
+            // Requires VM single dispatcher (NativeContext re-entrancy).
             let props: Vec<(PropertyKey, Property)> = src
                 .properties
                 .iter()
                 .filter(|(_, p)| p.enumerable)
-                .map(|(k, p)| (*k, Property::data(p.value)))
+                .map(|(k, p)| (*k, Property::data(p.data_value())))
                 .collect();
             // Sync global object writes to the globals HashMap.
+            // TODO(M4-11): spread should invoke getters via Get for accessor properties.
+            // Requires VM single dispatcher (NativeContext re-entrancy).
             if is_global {
                 for (k, p) in &props {
                     if let PropertyKey::String(sid) = k {
-                        self.inner.globals.insert(*sid, p.value);
+                        // props are always data (constructed via data_value above).
+                        self.inner.globals.insert(*sid, p.data_value());
                     }
                 }
             }
@@ -181,12 +186,50 @@ impl Vm {
         if let JsValue::Object(id) = obj_val {
             let key = PropertyKey::String(name_id);
             let obj = self.get_object_mut(id);
-            // Upsert: overwrite if key exists (e.g. method override in
-            // derived class), otherwise push.
             if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == key) {
                 existing.1 = Property::method(val);
             } else {
                 obj.properties.push((key, Property::method(val)));
+            }
+        }
+        Ok(())
+    }
+
+    /// Define a getter or setter accessor on the object at TOS.
+    pub(crate) fn op_define_accessor(
+        &mut self,
+        name_id: super::value::StringId,
+        is_getter: bool,
+        enumerable: bool,
+    ) -> Result<(), VmError> {
+        let closure = self.pop()?;
+        let obj_val = self.peek()?;
+        if let (JsValue::Object(obj_id), JsValue::Object(fn_id)) = (obj_val, closure) {
+            let pk = PropertyKey::String(name_id);
+            let (init_get, init_set) = if is_getter {
+                (Some(fn_id), None)
+            } else {
+                (None, Some(fn_id))
+            };
+            let obj = self.get_object_mut(obj_id);
+            if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
+                match &mut existing.1.slot {
+                    PropertyValue::Accessor { getter, setter } => {
+                        if is_getter {
+                            *getter = Some(fn_id);
+                        } else {
+                            *setter = Some(fn_id);
+                        }
+                        // Update enumerability to match the latest definition.
+                        existing.1.enumerable = enumerable;
+                    }
+                    PropertyValue::Data(_) => {
+                        existing.1 = Property::accessor(init_get, init_set, enumerable);
+                    }
+                }
+            } else {
+                obj.properties
+                    .push((pk, Property::accessor(init_get, init_set, enumerable)));
             }
         }
         Ok(())

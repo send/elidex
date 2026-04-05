@@ -183,9 +183,9 @@ pub enum Op {
     DefineComputedProperty,
     /// Like DefineComputedProperty but non-enumerable (for class methods). `[object key value -- object]`
     DefineComputedMethod,
-    /// Operand: u16 (constant index for name). `[object closure -- object]`
+    /// Operand: u16 (constant index for name), u8 (flags: bit 0 = enumerable). `[object closure -- object]`
     DefineGetter,
-    /// Operand: u16 (constant index for name). `[object closure -- object]`
+    /// Operand: u16 (constant index for name), u8 (flags: bit 0 = enumerable). `[object closure -- object]`
     DefineSetter,
     /// `[object source -- object]`
     SpreadObject,
@@ -243,6 +243,9 @@ pub enum Op {
     SuperCall,
     /// `[new.target args_array -- this]`
     SuperCallSpread,
+
+    /// Create the `arguments` object from the current frame's actual args. `[ -- arguments_obj]`
+    CreateArguments,
 
     // ── Generator / Async ───────────────────────────────────────────
     /// `[value -- resumed_value]`
@@ -375,6 +378,7 @@ impl Op {
             | Self::SuperCallSpread
             | Self::ForInIterator
             | Self::ForInNext
+            | Self::CreateArguments
             | Self::Wide => 0,
 
             // 1-byte operand (u8 or i8)
@@ -413,8 +417,6 @@ impl Op {
             | Self::JumpIfNotNullish
             | Self::Closure
             | Self::DefineProperty
-            | Self::DefineGetter
-            | Self::DefineSetter
             | Self::TemplateConcat
             | Self::DestructureProp
             | Self::ObjectRest
@@ -429,7 +431,9 @@ impl Op {
             | Self::IncProp
             | Self::DecProp
             | Self::DefineMethod
-            | Self::DefineField => 3,
+            | Self::DefineField
+            | Self::DefineGetter
+            | Self::DefineSetter => 3,
 
             // 4-byte operand (u16 + u16)
             Self::PushExceptionHandler => 4,

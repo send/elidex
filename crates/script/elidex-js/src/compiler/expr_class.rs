@@ -148,7 +148,10 @@ pub(super) fn compile_class(
                         _ => Op::DefineProperty,
                     };
                     let idx = fc.add_name_u16(name_u16);
-                    fc.emit_u16(define_op, idx); // [ctor ctor]
+                    fc.emit_u16(define_op, idx);
+                    if matches!(define_op, Op::DefineGetter | Op::DefineSetter) {
+                        fc.bytecode.push(0); // non-enumerable for class
+                    }
                     fc.emit(Op::Pop); // [ctor]
                 } else {
                     fc.emit(Op::Dup); // [ctor ctor]
@@ -161,7 +164,10 @@ pub(super) fn compile_class(
                         _ => Op::DefineProperty,
                     };
                     let idx = fc.add_name_u16(name_u16);
-                    fc.emit_u16(define_op, idx); // [ctor proto]
+                    fc.emit_u16(define_op, idx);
+                    if matches!(define_op, Op::DefineGetter | Op::DefineSetter) {
+                        fc.bytecode.push(0); // non-enumerable for class
+                    }
                     fc.emit(Op::Pop); // [ctor]
                 }
             }
@@ -366,6 +372,7 @@ fn emit_class_member_name_op(
             message: "computed class member keys not yet supported".into(),
         });
     }
+    let is_accessor = matches!(op, Op::DefineGetter | Op::DefineSetter);
     match key {
         PropertyKey::Identifier(name) | PropertyKey::PrivateIdentifier(name) => {
             let name_u16 = prog.interner.get(*name);
@@ -396,6 +403,10 @@ fn emit_class_member_name_op(
                 message: "unsupported class member key type".into(),
             });
         }
+    }
+    // DefineGetter/DefineSetter have a flags byte: class accessors are non-enumerable.
+    if is_accessor {
+        fc.bytecode.push(0);
     }
     Ok(())
 }

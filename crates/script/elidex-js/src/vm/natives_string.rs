@@ -1,9 +1,95 @@
 //! Native implementations of String.prototype methods.
 
-use super::value::{JsValue, NativeContext, Object, ObjectKind, StringId, VmError};
+use super::value::{
+    JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, StringId, VmError,
+};
 use crate::wtf16::{
     ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16, trim_u16,
 };
+
+// -- Helpers ----------------------------------------------------------------
+
+/// Build an exec-style match result array with `.index` and `.input`.
+fn build_match_result(
+    ctx: &mut NativeContext<'_>,
+    subject: &[u16],
+    m: &regress::Match,
+    input_sid: StringId,
+) -> Result<JsValue, VmError> {
+    let mut elements = vec![JsValue::String(
+        ctx.vm.strings.intern_utf16(&subject[m.start()..m.end()]),
+    )];
+    for group in &m.captures {
+        match group {
+            Some(range) => elements.push(JsValue::String(
+                ctx.vm
+                    .strings
+                    .intern_utf16(&subject[range.start..range.end]),
+            )),
+            None => elements.push(JsValue::Undefined),
+        }
+    }
+    let arr_id = ctx.alloc_object(Object {
+        kind: ObjectKind::Array { elements },
+        properties: Vec::new(),
+        prototype: ctx.vm.array_prototype,
+    });
+    let index_key = PropertyKey::String(ctx.intern("index"));
+    #[allow(clippy::cast_precision_loss)]
+    ctx.get_object_mut(arr_id)
+        .properties
+        .push((index_key, Property::data(JsValue::Number(m.start() as f64))));
+    let input_key = PropertyKey::String(ctx.intern("input"));
+    ctx.get_object_mut(arr_id)
+        .properties
+        .push((input_key, Property::data(JsValue::String(input_sid))));
+    Ok(JsValue::Object(arr_id))
+}
+
+/// Read the current `lastIndex` from a RegExp object (as raw f64).
+pub(super) fn get_regexp_last_index(
+    ctx: &mut NativeContext<'_>,
+    obj_id: super::value::ObjectId,
+) -> f64 {
+    let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
+    let obj = ctx.get_object(obj_id);
+    for (k, p) in &obj.properties {
+        if *k == last_index_key {
+            if let super::value::PropertyValue::Data(JsValue::Number(n)) = p.slot {
+                return n;
+            }
+        }
+    }
+    0.0
+}
+
+/// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
+pub(super) fn set_regexp_last_index(
+    ctx: &mut NativeContext<'_>,
+    obj_id: super::value::ObjectId,
+    idx: usize,
+) {
+    let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
+    #[allow(clippy::cast_precision_loss)]
+    let val = JsValue::Number(idx as f64);
+    let obj = ctx.get_object_mut(obj_id);
+    for prop in &mut obj.properties {
+        if prop.0 == last_index_key {
+            prop.1.slot = super::value::PropertyValue::Data(val);
+            return;
+        }
+    }
+    // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
+    obj.properties.push((
+        last_index_key,
+        Property {
+            slot: super::value::PropertyValue::Data(val),
+            writable: true,
+            enumerable: false,
+            configurable: false,
+        },
+    ));
+}
 
 // -- String.prototype methods -----------------------------------------------
 
@@ -374,12 +460,66 @@ pub(super) fn native_string_replace(
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let search_val = args.first().copied().unwrap_or(JsValue::Undefined);
+
+    // RegExp first argument: operate on WTF-16 via find_from_utf16.
+    if let JsValue::Object(re_id) = search_val {
+        let regexp_flags = {
+            let obj = ctx.get_object(re_id);
+            if let ObjectKind::RegExp { flags, .. } = &obj.kind {
+                let f = ctx.vm.strings.get_utf8(*flags);
+                Some((f.contains('g'), f.contains('y')))
+            } else {
+                None
+            }
+        };
+        if let Some((is_global, _is_sticky)) = regexp_flags {
+            let replacement_id =
+                ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+            let replacement = ctx.vm.strings.get(replacement_id).to_vec();
+            let subject = ctx.vm.strings.get(sid).to_vec();
+
+            // Use run_regexp loop for both global and non-global.
+            // This correctly handles sticky (gy) semantics.
+            set_regexp_last_index(ctx, re_id, 0);
+            let result: Vec<u16> = if is_global {
+                let mut out = Vec::new();
+                let mut last_end = 0;
+                while let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
+                    out.extend_from_slice(&subject[last_end..m.start()]);
+                    out.extend_from_slice(&replacement);
+                    last_end = m.end();
+                    // Prevent infinite loop on zero-length match.
+                    if m.start() == m.end() {
+                        set_regexp_last_index(ctx, re_id, m.end() + 1);
+                    }
+                }
+                out.extend_from_slice(&subject[last_end..]);
+                out
+            } else {
+                let m = super::natives_regexp::run_regexp(ctx, re_id, &subject)?;
+                if let Some(m) = m {
+                    let mut out = Vec::with_capacity(subject.len());
+                    out.extend_from_slice(&subject[..m.start()]);
+                    out.extend_from_slice(&replacement);
+                    out.extend_from_slice(&subject[m.end()..]);
+                    out
+                } else {
+                    subject
+                }
+            };
+            set_regexp_last_index(ctx, re_id, 0);
+            let id = ctx.vm.strings.intern_utf16(&result);
+            return Ok(JsValue::String(id));
+        }
+    }
+
+    // String pattern: replace first occurrence.
+    let search_id = ctx.to_string_val(search_val)?;
     let replacement_id = ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id).to_vec();
     let replacement = ctx.get_u16(replacement_id).to_vec();
     let s = ctx.get_u16(sid).to_vec();
-    // Replace first occurrence only (like JS String.prototype.replace with a string pattern).
     let id = if let Some(pos) = find_u16(&s, &search) {
         let mut r: Vec<u16> = Vec::with_capacity(s.len() - search.len() + replacement.len());
         r.extend_from_slice(&s[..pos]);
@@ -390,4 +530,151 @@ pub(super) fn native_string_replace(
         sid
     };
     Ok(JsValue::String(id))
+}
+
+#[allow(clippy::too_many_lines)]
+pub(super) fn native_string_match(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(sid) = this_string_id(this) else {
+        return Ok(JsValue::Null);
+    };
+    let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
+
+    // Resolve the compiled regex + subject as WTF-16.
+    let subject = ctx.vm.strings.get(sid).to_vec();
+
+    // Non-RegExp: coerce to string and compile a regex on the fly.
+    #[allow(clippy::manual_let_else)]
+    let re_id = if let JsValue::Object(id) = re_val {
+        id
+    } else {
+        let pattern_str = {
+            let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+            ctx.vm.strings.get_utf8(pat_id)
+        };
+        let compiled = regress::Regex::new(&pattern_str)
+            .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
+        let Some(m) = compiled.find_from_utf16(&subject, 0).next() else {
+            return Ok(JsValue::Null);
+        };
+        return build_match_result(ctx, &subject, &m, sid);
+    };
+
+    // RegExp path: extract match data on WTF-16.
+    let (_is_global, match_data) = {
+        let obj = ctx.get_object(re_id);
+        let ObjectKind::RegExp { ref flags, .. } = obj.kind else {
+            // Non-RegExp object: coerce to string and compile (like non-object path).
+            let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+            let pattern_str = ctx.vm.strings.get_utf8(pat_id);
+            let compiled = regress::Regex::new(&pattern_str)
+                .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
+            let Some(m) = compiled.find_from_utf16(&subject, 0).next() else {
+                return Ok(JsValue::Null);
+            };
+            return build_match_result(ctx, &subject, &m, sid);
+        };
+        let flags_str = ctx.vm.strings.get_utf8(*flags);
+        let is_global = flags_str.contains('g');
+
+        if is_global {
+            // Use run_regexp loop for correct sticky (gy) semantics.
+            set_regexp_last_index(ctx, re_id, 0);
+            let mut matches = Vec::new();
+            while let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
+                matches.push(ctx.vm.strings.intern_utf16(&subject[m.start()..m.end()]));
+                if m.start() == m.end() {
+                    set_regexp_last_index(ctx, re_id, m.end() + 1);
+                }
+            }
+            (
+                is_global,
+                if matches.is_empty() {
+                    None
+                } else {
+                    Some(matches)
+                },
+            )
+        } else {
+            // Non-global: delegate to run_regexp for correct lastIndex/sticky.
+            if let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
+                return build_match_result(ctx, &subject, &m, sid);
+            }
+            return Ok(JsValue::Null);
+        }
+    };
+
+    let Some(matches) = match_data else {
+        return Ok(JsValue::Null);
+    };
+
+    // Global: array of match strings.
+    let elements: Vec<JsValue> = matches.into_iter().map(JsValue::String).collect();
+    let arr_id = ctx.alloc_object(Object {
+        kind: ObjectKind::Array { elements },
+        properties: Vec::new(),
+        prototype: ctx.vm.array_prototype,
+    });
+    Ok(JsValue::Object(arr_id))
+}
+
+pub(super) fn native_string_search(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(sid) = this_string_id(this) else {
+        return Ok(JsValue::Number(-1.0));
+    };
+    let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
+
+    let subject = ctx.vm.strings.get(sid).to_vec();
+
+    // Non-RegExp: coerce to string and compile a regex.
+    if !matches!(re_val, JsValue::Object(_)) {
+        // ToString coercion: undefined → "undefined", not "".
+        let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+        let pattern_str = ctx.vm.strings.get_utf8(pat_id);
+        let compiled = regress::Regex::new(&pattern_str)
+            .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
+        #[allow(clippy::cast_precision_loss)]
+        return Ok(JsValue::Number(
+            compiled
+                .find_from_utf16(&subject, 0)
+                .next()
+                .map_or(-1.0, |m| m.start() as f64),
+        ));
+    }
+    let JsValue::Object(re_id) = re_val else {
+        unreachable!();
+    };
+    // §21.1.3.15: save lastIndex, set to 0, run, restore.
+    // For non-RegExp objects, fall through to ToString coercion.
+    {
+        let obj = ctx.get_object(re_id);
+        if !matches!(obj.kind, ObjectKind::RegExp { .. }) {
+            let pat_id = super::coerce::to_string(ctx.vm, re_val)?;
+            let pattern_str = ctx.vm.strings.get_utf8(pat_id);
+            let compiled = regress::Regex::new(&pattern_str)
+                .map_err(|e| VmError::type_error(format!("Invalid RegExp: {e}")))?;
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(JsValue::Number(
+                compiled
+                    .find_from_utf16(&subject, 0)
+                    .next()
+                    .map_or(-1.0, |m| m.start() as f64),
+            ));
+        }
+    }
+    // §21.1.3.15: save lastIndex, set to 0, run, restore.
+    let saved = get_regexp_last_index(ctx, re_id);
+    set_regexp_last_index(ctx, re_id, 0);
+    let result = super::natives_regexp::run_regexp(ctx, re_id, &subject)?.map(|m| m.start());
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    set_regexp_last_index(ctx, re_id, saved as usize);
+    #[allow(clippy::cast_precision_loss)]
+    Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
 }

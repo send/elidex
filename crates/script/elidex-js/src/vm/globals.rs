@@ -14,12 +14,17 @@ use super::natives::{
     native_object_values, native_parse_float, native_parse_int, native_range_error_constructor,
     native_reference_error_constructor, native_string_char_at, native_string_char_code_at,
     native_string_ends_with, native_string_includes, native_string_index_of,
-    native_string_iterator, native_string_iterator_next, native_string_replace,
-    native_string_slice, native_string_split, native_string_starts_with, native_string_substring,
-    native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
-    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
-    native_symbol_prototype_to_string, native_type_error_constructor,
+    native_string_iterator, native_string_iterator_next, native_string_match,
+    native_string_replace, native_string_search, native_string_slice, native_string_split,
+    native_string_starts_with, native_string_substring, native_string_to_lower_case,
+    native_string_to_upper_case, native_string_trim, native_symbol_constructor, native_symbol_for,
+    native_symbol_key_for, native_symbol_prototype_to_string, native_type_error_constructor,
 };
+use super::natives_boolean::{native_boolean_to_string, native_boolean_value_of};
+use super::natives_number::{
+    native_number_to_fixed, native_number_to_string, native_number_value_of,
+};
+use super::natives_regexp::{native_regexp_exec, native_regexp_test, native_regexp_to_string};
 use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
 use super::{NativeFn, Vm};
 
@@ -85,6 +90,11 @@ impl Vm {
         // String.prototype
         self.register_string_prototype();
 
+        // Number.prototype + Boolean.prototype + RegExp.prototype
+        self.register_number_prototype();
+        self.register_boolean_prototype();
+        self.register_regexp_prototype();
+
         // Symbol.prototype + Symbol global
         self.register_symbol_prototype();
         self.register_symbol_global();
@@ -99,6 +109,21 @@ impl Vm {
         let fn_id = self.create_native_function(name, func);
         let name_id = self.inner.strings.intern(name);
         self.inner.globals.insert(name_id, JsValue::Object(fn_id));
+    }
+
+    /// Helper: register a constructor-like global object with a `.prototype` property.
+    fn register_constructor_global(&mut self, name: &str, proto_id: super::value::ObjectId) {
+        let ctor_id = self.alloc_object(super::value::Object {
+            kind: ObjectKind::Ordinary,
+            properties: Vec::new(),
+            prototype: self.inner.object_prototype,
+        });
+        let proto_key = PropertyKey::String(self.inner.well_known.prototype);
+        self.get_object_mut(ctor_id)
+            .properties
+            .push((proto_key, Property::builtin(JsValue::Object(proto_id))));
+        let name_id = self.inner.strings.intern(name);
+        self.inner.globals.insert(name_id, JsValue::Object(ctor_id));
     }
 
     /// Helper: create a global object with named native methods.
@@ -283,6 +308,8 @@ impl Vm {
             ("startsWith", native_string_starts_with),
             ("endsWith", native_string_ends_with),
             ("replace", native_string_replace),
+            ("match", native_string_match),
+            ("search", native_string_search),
         ]);
         // String.prototype[Symbol.iterator] = native_string_iterator
         let iter_fn_id = self.create_native_function("[Symbol.iterator]", native_string_iterator);
@@ -291,6 +318,35 @@ impl Vm {
             .properties
             .push((sym_iter_key, Property::method(JsValue::Object(iter_fn_id))));
         self.inner.string_prototype = Some(proto_id);
+        self.register_constructor_global("String", proto_id);
+    }
+
+    fn register_number_prototype(&mut self) {
+        let proto_id = self.create_object_with_methods(&[
+            ("toString", native_number_to_string),
+            ("valueOf", native_number_value_of),
+            ("toFixed", native_number_to_fixed),
+        ]);
+        self.inner.number_prototype = Some(proto_id);
+        self.register_constructor_global("Number", proto_id);
+    }
+
+    fn register_boolean_prototype(&mut self) {
+        let proto_id = self.create_object_with_methods(&[
+            ("toString", native_boolean_to_string),
+            ("valueOf", native_boolean_value_of),
+        ]);
+        self.inner.boolean_prototype = Some(proto_id);
+        self.register_constructor_global("Boolean", proto_id);
+    }
+
+    fn register_regexp_prototype(&mut self) {
+        let proto_id = self.create_object_with_methods(&[
+            ("test", native_regexp_test),
+            ("exec", native_regexp_exec),
+            ("toString", native_regexp_to_string),
+        ]);
+        self.inner.regexp_prototype = Some(proto_id);
     }
 
     fn register_symbol_prototype(&mut self) {
@@ -347,7 +403,7 @@ impl Vm {
             self.get_object_mut(sym_fn_id).properties.push((
                 proto_key,
                 Property {
-                    value: JsValue::Object(proto_id),
+                    slot: super::value::PropertyValue::Data(JsValue::Object(proto_id)),
                     writable: false,
                     enumerable: false,
                     configurable: false,

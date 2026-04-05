@@ -262,10 +262,26 @@ pub fn compile_expr(
                         }
                     }
                     PropertyKind::Get => {
-                        compile_accessor(fc, prog, analysis, func_scopes, prop, Op::DefineGetter)?;
+                        compile_accessor(
+                            fc,
+                            prog,
+                            analysis,
+                            func_scopes,
+                            prop,
+                            Op::DefineGetter,
+                            true,
+                        )?;
                     }
                     PropertyKind::Set => {
-                        compile_accessor(fc, prog, analysis, func_scopes, prop, Op::DefineSetter)?;
+                        compile_accessor(
+                            fc,
+                            prog,
+                            analysis,
+                            func_scopes,
+                            prop,
+                            Op::DefineSetter,
+                            true,
+                        )?;
                     }
                 }
             }
@@ -808,17 +824,21 @@ fn compile_accessor(
     func_scopes: &mut [FunctionScope],
     property: &Property,
     define_op: Op,
+    enumerable: bool,
 ) -> Result<(), CompileError> {
     if let Some(value) = property.value {
         compile_expr(fc, prog, analysis, func_scopes, value)?;
+        let flags: u8 = u8::from(enumerable);
         match &property.key {
             PropertyKey::Identifier(name) => {
                 let idx = fc.add_name_u16(prog.interner.get(*name));
                 fc.emit_u16(define_op, idx);
+                fc.bytecode.push(flags);
             }
             PropertyKey::Literal(Literal::String(s)) => {
                 let idx = fc.add_name_u16(prog.interner.get(*s));
                 fc.emit_u16(define_op, idx);
+                fc.bytecode.push(flags);
             }
             _ => {
                 fc.emit(Op::Pop);

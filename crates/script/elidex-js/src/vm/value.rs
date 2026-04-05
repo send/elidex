@@ -161,8 +161,12 @@ pub enum ObjectKind {
     },
     /// A native (Rust) function callable from JS.
     NativeFunction(NativeFunction),
-    /// A RegExp value (stores pattern+flags; execution deferred to M4-10.2).
-    RegExp { pattern: StringId, flags: StringId },
+    /// A RegExp value with compiled regex for execution.
+    RegExp {
+        pattern: StringId,
+        flags: StringId,
+        compiled: Box<regress::Regex>,
+    },
     /// An Error instance.
     Error { name: StringId },
     /// For-in iterator state.
@@ -171,6 +175,14 @@ pub enum ObjectKind {
     ArrayIterator(ArrayIterState),
     /// String iterator state (for `String.prototype[Symbol.iterator]()`).
     StringIterator(StringIterState),
+    /// The `arguments` array-like object for non-arrow functions.
+    Arguments { values: Vec<JsValue> },
+    /// Wrapper object for Number primitives (§9.2.1.2 this-boxing).
+    NumberWrapper(f64),
+    /// Wrapper object for String primitives (§9.2.1.2 this-boxing).
+    StringWrapper(StringId),
+    /// Wrapper object for Boolean primitives (§9.2.1.2 this-boxing).
+    BooleanWrapper(bool),
 }
 
 /// A compiled JS function with captured upvalues.
@@ -216,10 +228,23 @@ pub struct NativeContext<'a> {
     pub(crate) vm: &'a mut super::VmInner,
 }
 
-/// A data property on an object.
+/// The value slot of a property: either a data value or an accessor pair.
+#[derive(Clone, Copy, Debug)]
+pub enum PropertyValue {
+    /// A plain data value.
+    Data(JsValue),
+    /// An accessor property with optional getter/setter functions.
+    Accessor {
+        getter: Option<ObjectId>,
+        setter: Option<ObjectId>,
+    },
+}
+
+/// A property descriptor on an object.
 #[derive(Clone, Copy, Debug)]
 pub struct Property {
-    pub value: JsValue,
+    pub slot: PropertyValue,
+    /// Only meaningful for `PropertyValue::Data`.
     pub writable: bool,
     pub enumerable: bool,
     pub configurable: bool,
@@ -229,7 +254,7 @@ impl Property {
     /// Create a writable, enumerable, configurable data property.
     pub fn data(value: JsValue) -> Self {
         Self {
-            value,
+            slot: PropertyValue::Data(value),
             writable: true,
             enumerable: true,
             configurable: true,
@@ -239,7 +264,7 @@ impl Property {
     /// Create a non-enumerable, non-configurable, non-writable property (for built-ins).
     pub fn builtin(value: JsValue) -> Self {
         Self {
-            value,
+            slot: PropertyValue::Data(value),
             writable: false,
             enumerable: false,
             configurable: false,
@@ -249,10 +274,28 @@ impl Property {
     /// Create a writable, non-enumerable, configurable property (for built-in methods).
     pub fn method(value: JsValue) -> Self {
         Self {
-            value,
+            slot: PropertyValue::Data(value),
             writable: true,
             enumerable: false,
             configurable: true,
+        }
+    }
+
+    /// Create a configurable accessor property with the given enumerability.
+    pub fn accessor(getter: Option<ObjectId>, setter: Option<ObjectId>, enumerable: bool) -> Self {
+        Self {
+            slot: PropertyValue::Accessor { getter, setter },
+            writable: false,
+            enumerable,
+            configurable: true,
+        }
+    }
+
+    /// Return the data value, or `Undefined` for accessor properties.
+    pub fn data_value(&self) -> JsValue {
+        match self.slot {
+            PropertyValue::Data(v) => v,
+            PropertyValue::Accessor { .. } => JsValue::Undefined,
         }
     }
 }
@@ -300,6 +343,9 @@ pub struct CallFrame {
     /// TDZ tracking: `true` = slot is uninitialized (in temporal dead zone).
     /// Only `let`/`const` bindings are checked; `var` slots are cleared at frame creation.
     pub tdz_slots: Vec<bool>,
+    /// Actual arguments passed to this call (for `arguments` object creation).
+    /// Only populated when the compiled function has a `CreateArguments` opcode.
+    pub actual_args: Option<Vec<JsValue>>,
 }
 
 /// A registered exception handler within a call frame.

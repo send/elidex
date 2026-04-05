@@ -1,5 +1,7 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
+mod tests_m4_10_2;
+
 use super::value::{JsValue, Object, ObjectKind, VmError};
 use super::Vm;
 

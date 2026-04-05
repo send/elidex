@@ -3,7 +3,9 @@
 //! These are free functions with the `NativeFn` signature, referenced by name
 //! in `globals.rs` when registering built-in objects.
 
-use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
+use super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, Property, PropertyKey, VmError,
+};
 use super::VmInner;
 
 // -- Global functions -------------------------------------------------------
@@ -307,7 +309,9 @@ pub(super) fn native_object_values(
         .properties
         .iter()
         .filter(|(k, p)| p.enumerable && matches!(k, PropertyKey::String(_)))
-        .map(|(_, p)| p.value)
+        // TODO(M4-11): accessor properties should invoke getter via Get.
+        // Requires VM single dispatcher (NativeContext re-entrancy).
+        .map(|(_, p)| p.data_value())
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: values },
@@ -331,12 +335,14 @@ pub(super) fn native_object_assign(
             continue;
         };
         // Collect source properties first to avoid borrow conflict.
+        // TODO(M4-11): should invoke getters via Get for accessor properties.
+        // Requires VM single dispatcher (NativeContext re-entrancy).
         let props: Vec<(PropertyKey, JsValue)> = ctx
             .get_object(src_id)
             .properties
             .iter()
             .filter(|(_, p)| p.enumerable)
-            .map(|(k, p)| (*k, p.value))
+            .map(|(k, p)| (*k, p.data_value()))
             .collect();
         for (key, value) in &props {
             // Sync global object writes to the globals HashMap.
@@ -347,8 +353,8 @@ pub(super) fn native_object_assign(
             }
             // Update existing or push new.
             let target_obj = ctx.get_object_mut(target_id);
-            if let Some(prop) = target_obj.properties.iter_mut().find(|(k, _)| k == key) {
-                prop.1.value = *value;
+            if let Some(prop) = target_obj.properties.iter_mut().find(|(k, _)| *k == *key) {
+                prop.1.slot = super::value::PropertyValue::Data(*value);
             } else {
                 target_obj.properties.push((*key, Property::data(*value)));
             }
@@ -376,6 +382,7 @@ pub(super) fn native_object_create(
     Ok(JsValue::Object(obj_id))
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn native_object_define_property(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -395,29 +402,140 @@ pub(super) fn native_object_define_property(
         other => PropertyKey::String(ctx.to_string_val(other)?),
     };
 
-    // Extract value from descriptor if it's an object.
-    let value = if let JsValue::Object(desc_id) = desc_val {
+    // Extract descriptor fields.
+    let new_prop = if let JsValue::Object(desc_id) = desc_val {
+        let get_key = PropertyKey::String(ctx.intern("get"));
+        let set_key = PropertyKey::String(ctx.intern("set"));
         let value_key = PropertyKey::String(ctx.intern("value"));
-        ctx.get_object(desc_id)
+        let enumerable_key = PropertyKey::String(ctx.intern("enumerable"));
+        let configurable_key = PropertyKey::String(ctx.intern("configurable"));
+        let writable_key = PropertyKey::String(ctx.intern("writable"));
+
+        // TODO(M4-11): descriptor fields should be read via Get (invoking getters).
+        // Requires VM single dispatcher for NativeContext re-entrancy.
+        let desc = ctx.get_object(desc_id);
+        let find = |k: PropertyKey| -> Option<JsValue> {
+            desc.properties
+                .iter()
+                .find(|(pk, _)| *pk == k)
+                .map(|(_, p)| p.data_value())
+        };
+        let has_get = find(get_key);
+        let has_set = find(set_key);
+        let has_value = find(value_key);
+        let has_writable = find(writable_key);
+        let has_enumerable = find(enumerable_key);
+        let has_configurable = find(configurable_key);
+        // ToBoolean coercion for boolean descriptor fields (§6.2.5.1).
+        let enumerable = has_enumerable.map(|v| super::coerce::to_boolean(ctx.vm, v));
+        let configurable = has_configurable.map(|v| super::coerce::to_boolean(ctx.vm, v));
+
+        let has_accessor = has_get.is_some() || has_set.is_some();
+        let has_data = has_value.is_some() || has_writable.is_some();
+
+        // §9.1.6.3 step 2: mixing accessor and data fields is a TypeError.
+        if has_accessor && has_data {
+            return Err(VmError::type_error(
+                "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute",
+            ));
+        }
+
+        // §9.1.6.3 step 7-8: get/set must be callable or undefined.
+        let validate_accessor = |v: JsValue, role: &str| -> Result<Option<ObjectId>, VmError> {
+            match v {
+                JsValue::Undefined => Ok(None),
+                JsValue::Object(id) => {
+                    let is_callable = matches!(
+                        &ctx.get_object(id).kind,
+                        ObjectKind::Function(_)
+                            | ObjectKind::NativeFunction(_)
+                            | ObjectKind::BoundFunction { .. }
+                    );
+                    if is_callable {
+                        Ok(Some(id))
+                    } else {
+                        Err(VmError::type_error(format!(
+                            "Property descriptor {role} must be a function or undefined"
+                        )))
+                    }
+                }
+                _ => Err(VmError::type_error(format!(
+                    "Property descriptor {role} must be a function or undefined"
+                ))),
+            }
+        };
+
+        // Look up the existing property to merge partial descriptors.
+        let existing = ctx
+            .get_object(obj_id)
             .properties
             .iter()
-            .find(|(k, _)| *k == value_key)
-            .map_or(JsValue::Undefined, |(_, p)| p.value)
+            .find(|(k, _)| *k == key)
+            .map(|(_, p)| *p);
+
+        if has_accessor {
+            let getter = match has_get {
+                Some(v) => validate_accessor(v, "get")?,
+                None => existing.and_then(|p| match p.slot {
+                    super::value::PropertyValue::Accessor { getter, .. } => getter,
+                    super::value::PropertyValue::Data(_) => None,
+                }),
+            };
+            let setter = match has_set {
+                Some(v) => validate_accessor(v, "set")?,
+                None => existing.and_then(|p| match p.slot {
+                    super::value::PropertyValue::Accessor { setter, .. } => setter,
+                    super::value::PropertyValue::Data(_) => None,
+                }),
+            };
+            Property {
+                slot: super::value::PropertyValue::Accessor { getter, setter },
+                writable: false,
+                enumerable: enumerable.unwrap_or_else(|| existing.is_some_and(|p| p.enumerable)),
+                configurable: configurable
+                    .unwrap_or_else(|| existing.is_some_and(|p| p.configurable)),
+            }
+        } else {
+            let value = has_value
+                .unwrap_or_else(|| existing.map_or(JsValue::Undefined, |p| p.data_value()));
+            let writable = has_writable.map_or_else(
+                || existing.is_some_and(|p| p.writable),
+                |v| super::coerce::to_boolean(ctx.vm, v),
+            );
+            Property {
+                slot: super::value::PropertyValue::Data(value),
+                writable,
+                enumerable: enumerable.unwrap_or_else(|| existing.is_some_and(|p| p.enumerable)),
+                configurable: configurable
+                    .unwrap_or_else(|| existing.is_some_and(|p| p.configurable)),
+            }
+        }
     } else {
-        JsValue::Undefined
+        return Err(VmError::type_error(
+            "Property description must be an object",
+        ));
     };
 
-    // Sync global object writes to the globals HashMap.
+    // Sync globals HashMap: data properties are cached for GetGlobal fast path;
+    // accessor properties remove any stale data entry so GetGlobal falls back
+    // to the global object.
     if obj_id == ctx.vm.global_object {
         if let PropertyKey::String(sid) = key {
-            ctx.vm.globals.insert(sid, value);
+            match new_prop.slot {
+                super::value::PropertyValue::Data(v) => {
+                    ctx.vm.globals.insert(sid, v);
+                }
+                super::value::PropertyValue::Accessor { .. } => {
+                    ctx.vm.globals.remove(&sid);
+                }
+            }
         }
     }
     let obj = ctx.get_object_mut(obj_id);
     if let Some(prop) = obj.properties.iter_mut().find(|(k, _)| *k == key) {
-        prop.1.value = value;
+        prop.1 = new_prop;
     } else {
-        obj.properties.push((key, Property::data(value)));
+        obj.properties.push((key, new_prop));
     }
     Ok(obj_val)
 }
@@ -680,9 +798,10 @@ pub(super) fn native_console_warn(
 // Re-exports from split modules.
 pub(super) use super::natives_string::{
     native_string_char_at, native_string_char_code_at, native_string_ends_with,
-    native_string_includes, native_string_index_of, native_string_replace, native_string_slice,
-    native_string_split, native_string_starts_with, native_string_substring,
-    native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
+    native_string_includes, native_string_index_of, native_string_match, native_string_replace,
+    native_string_search, native_string_slice, native_string_split, native_string_starts_with,
+    native_string_substring, native_string_to_lower_case, native_string_to_upper_case,
+    native_string_trim,
 };
 pub(super) use super::natives_symbol::{
     native_array_iterator_next, native_array_values, native_iterator_self,

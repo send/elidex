@@ -5,11 +5,15 @@
 
 pub mod coerce;
 mod dispatch;
+mod dispatch_helpers;
 mod dispatch_iter;
 mod dispatch_objects;
 mod globals;
 pub mod interpreter;
 mod natives;
+mod natives_boolean;
+mod natives_number;
+mod natives_regexp;
 mod natives_string;
 mod natives_symbol;
 mod ops;
@@ -115,6 +119,12 @@ pub(crate) struct VmInner {
     pub(crate) object_prototype: Option<ObjectId>,
     /// Array.prototype (prototype for array instances).
     pub(crate) array_prototype: Option<ObjectId>,
+    /// Number.prototype (prototype for number wrapper objects / primitive access).
+    pub(crate) number_prototype: Option<ObjectId>,
+    /// Boolean.prototype (prototype for boolean wrapper objects / primitive access).
+    pub(crate) boolean_prototype: Option<ObjectId>,
+    /// RegExp.prototype (prototype for RegExp instances).
+    pub(crate) regexp_prototype: Option<ObjectId>,
     /// Shared prototype for array iterator objects (next + @@iterator).
     pub(crate) array_iterator_prototype: Option<ObjectId>,
     /// Shared prototype for string iterator objects (next + @@iterator).
@@ -302,6 +312,9 @@ impl Vm {
                 symbol_prototype: None,
                 object_prototype: None,
                 array_prototype: None,
+                number_prototype: None,
+                boolean_prototype: None,
+                regexp_prototype: None,
                 array_iterator_prototype: None,
                 string_iterator_prototype: None,
                 // Placeholder — immediately replaced by register_globals().
