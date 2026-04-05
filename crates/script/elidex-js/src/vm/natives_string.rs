@@ -10,8 +10,12 @@ use crate::wtf16::{
 
 // -- Helpers ----------------------------------------------------------------
 
-/// Set `lastIndex` to 0 on a RegExp object (used after String.prototype methods).
-fn set_regexp_last_index(ctx: &mut NativeContext<'_>, obj_id: super::value::ObjectId, idx: usize) {
+/// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
+pub(super) fn set_regexp_last_index(
+    ctx: &mut NativeContext<'_>,
+    obj_id: super::value::ObjectId,
+    idx: usize,
+) {
     let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
     #[allow(clippy::cast_precision_loss)]
     let val = JsValue::Number(idx as f64);

@@ -61,29 +61,14 @@ fn run_regexp(
         }
     };
 
-    // Update lastIndex for global/sticky.
+    // Update lastIndex for global/sticky (UTF-16 code units).
     if uses_last_index {
-        let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
-        // Convert byte offset back to UTF-16 code units for lastIndex.
-        #[allow(clippy::cast_precision_loss)]
         let new_idx = if let Some(ref m) = found {
-            byte_offset_to_utf16(subject, m.end()) as f64
+            byte_offset_to_utf16(subject, m.end())
         } else {
-            0.0
+            0
         };
-        let obj = ctx.get_object_mut(obj_id);
-        let mut updated = false;
-        for prop in &mut obj.properties {
-            if prop.0 == last_index_key {
-                prop.1.slot = super::value::PropertyValue::Data(JsValue::Number(new_idx));
-                updated = true;
-                break;
-            }
-        }
-        if !updated {
-            obj.properties
-                .push((last_index_key, Property::data(JsValue::Number(new_idx))));
-        }
+        super::natives_string::set_regexp_last_index(ctx, obj_id, new_idx);
     }
 
     Ok(found)
