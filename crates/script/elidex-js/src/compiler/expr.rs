@@ -53,7 +53,7 @@ pub fn compile_expr(
                     );
                     if loc == VarLocation::Global {
                         let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
+                        let idx = fc.add_name_u16(name);
                         fc.emit_u16(Op::TypeOfGlobal, idx);
                         return Ok(());
                     }
@@ -71,7 +71,7 @@ pub fn compile_expr(
                     if !computed {
                         if let MemberProp::Identifier(prop_atom) = property {
                             let prop_name = prog.interner.get(*prop_atom);
-                            let name_idx = fc.add_name(prop_name);
+                            let name_idx = fc.add_name_u16(prop_name);
                             fc.emit_u16(Op::DeleteProp, name_idx);
                         } else {
                             // Private field delete — always returns true per spec stub.
@@ -218,13 +218,13 @@ pub fn compile_expr(
                             match &prop.key {
                                 PropertyKey::Identifier(name)
                                 | PropertyKey::PrivateIdentifier(name) => {
-                                    let name_str = prog.interner.get(*name);
-                                    let idx = fc.add_name(name_str);
+                                    let name_u16 = prog.interner.get(*name);
+                                    let idx = fc.add_name_u16(name_u16);
                                     fc.emit_u16(Op::DefineProperty, idx);
                                 }
                                 PropertyKey::Literal(Literal::String(s)) => {
-                                    let name_str = prog.interner.get(*s);
-                                    let idx = fc.add_name(name_str);
+                                    let name_u16 = prog.interner.get(*s);
+                                    let idx = fc.add_name_u16(name_u16);
                                     fc.emit_u16(Op::DefineProperty, idx);
                                 }
                                 PropertyKey::Literal(Literal::Number(n)) => {
@@ -276,8 +276,11 @@ pub fn compile_expr(
             // Push quasis and expressions interleaved, then concat.
             let total = tpl.quasis.len() + tpl.expressions.len();
             for (i, quasi) in tpl.quasis.iter().enumerate() {
-                let cooked = quasi.cooked.as_ref().map_or("", |a| prog.interner.get(*a));
-                let idx = fc.add_constant(Constant::String(cooked.to_string()));
+                let cooked_u16: Vec<u16> = quasi
+                    .cooked
+                    .as_ref()
+                    .map_or_else(Vec::new, |a| prog.interner.get(*a).to_vec());
+                let idx = fc.add_constant(Constant::Wtf16(cooked_u16));
                 fc.emit_u16(Op::PushConst, idx);
                 if i < tpl.expressions.len() {
                     compile_expr(fc, prog, analysis, func_scopes, tpl.expressions[i])?;
@@ -320,8 +323,8 @@ pub fn compile_expr(
                     }
                     VarLocation::Global => {
                         let name = prog.interner.get(*atom);
-                        let load_idx = fc.add_name(name);
-                        let store_idx = fc.add_name(name);
+                        let load_idx = fc.add_name_u16(name);
+                        let store_idx = fc.add_name_u16(name);
                         emit_update_sequence(
                             fc,
                             *op,
@@ -364,7 +367,7 @@ pub fn compile_expr(
                     if let MemberProp::Identifier(prop_atom) = property {
                         // Static property: use IncProp/DecProp.
                         let prop_name = prog.interner.get(*prop_atom);
-                        let name_idx = fc.add_name(prop_name);
+                        let name_idx = fc.add_name_u16(prop_name);
                         let inc_op = match op {
                             UpdateOp::Increment => Op::IncProp,
                             UpdateOp::Decrement => Op::DecProp,
@@ -442,9 +445,17 @@ pub fn compile_expr(
             // Not nullish — pop the dup, leaving original value: [base_value]
             fc.emit(Op::Pop);
             // Compile chain parts on the base value.
-            for part in chain {
+            for (i, part) in chain.iter().enumerate() {
                 match part {
                     OptionalChainPart::Member { property, computed } => {
+                        // If the next part is a Call, keep the receiver for
+                        // CallMethod so that `obj?.method()` binds `this`
+                        // correctly to `obj`.
+                        let next_is_call =
+                            matches!(chain.get(i + 1), Some(OptionalChainPart::Call(_)));
+                        if next_is_call {
+                            fc.emit(Op::Dup); // keep receiver
+                        }
                         compile_member_property(
                             fc,
                             prog,
@@ -457,7 +468,15 @@ pub fn compile_expr(
                     OptionalChainPart::Call(arguments) => {
                         compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
                         let argc = arguments.len() as u8;
-                        fc.emit_u8(Op::Call, argc);
+                        // Use CallMethod when preceded by a Member access
+                        // (receiver is on the stack below the callee).
+                        let prev_is_member =
+                            i > 0 && matches!(chain[i - 1], OptionalChainPart::Member { .. });
+                        if prev_is_member {
+                            fc.emit_u8(Op::CallMethod, argc);
+                        } else {
+                            fc.emit_u8(Op::Call, argc);
+                        }
                     }
                 }
             }
@@ -475,8 +494,8 @@ pub fn compile_expr(
 
         ExprKind::PrivateIn { name, right } => {
             compile_expr(fc, prog, analysis, func_scopes, *right)?;
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(Op::PrivateIn, idx);
         }
 
@@ -516,21 +535,21 @@ fn compile_literal(fc: &mut FunctionCompiler, prog: &Program, lit: &Literal) {
             }
         }
         Literal::String(atom) => {
-            let s = prog.interner.get(*atom).to_string();
-            let idx = fc.add_constant(Constant::String(s));
+            let units = prog.interner.get(*atom).to_vec();
+            let idx = fc.add_constant(Constant::Wtf16(units));
             fc.emit_u16(Op::PushConst, idx);
         }
         Literal::Boolean(true) => fc.emit(Op::PushTrue),
         Literal::Boolean(false) => fc.emit(Op::PushFalse),
         Literal::Null => fc.emit(Op::PushNull),
         Literal::BigInt(atom) => {
-            let s = prog.interner.get(*atom).to_string();
+            let s = prog.interner.get_utf8(*atom);
             let idx = fc.add_constant(Constant::BigInt(s));
             fc.emit_u16(Op::PushConst, idx);
         }
         Literal::RegExp { pattern, flags } => {
-            let p = prog.interner.get(*pattern).to_string();
-            let f = prog.interner.get(*flags).to_string();
+            let p = prog.interner.get_utf8(*pattern);
+            let f = prog.interner.get_utf8(*flags);
             let idx = fc.add_constant(Constant::RegExp {
                 pattern: p,
                 flags: f,
@@ -572,7 +591,7 @@ fn compile_identifier_load(
         VarLocation::Upvalue(idx) => fc.emit_u16(Op::GetUpvalue, idx),
         VarLocation::Global => {
             let name = prog.interner.get(atom);
-            let idx = fc.add_name(name);
+            let idx = fc.add_name_u16(name);
             fc.emit_u16(Op::GetGlobal, idx);
         }
         VarLocation::Module(idx) => fc.emit_u16(Op::GetModuleVar, idx),
@@ -668,8 +687,8 @@ fn compile_assignment(
                         }
                         match property {
                             MemberProp::Identifier(name) => {
-                                let name_str = prog.interner.get(*name);
-                                let idx = fc.add_name(name_str);
+                                let name_u16 = prog.interner.get(*name);
+                                let idx = fc.add_name_u16(name_u16);
                                 fc.emit_u16(Op::SetProp, idx);
                             }
                             _ => {
@@ -723,7 +742,7 @@ fn compile_identifier_store(
                     return Err(CompileError {
                         message: format!(
                             "Assignment to constant variable '{}'",
-                            prog.interner.get(atom)
+                            prog.interner.get_utf8(atom)
                         ),
                     });
                 }
@@ -737,7 +756,7 @@ fn compile_identifier_store(
         VarLocation::Upvalue(idx) => fc.emit_u16(Op::SetUpvalue, idx),
         VarLocation::Global => {
             let name = prog.interner.get(atom);
-            let idx = fc.add_name(name);
+            let idx = fc.add_name_u16(name);
             fc.emit_u16(Op::SetGlobal, idx);
         }
         VarLocation::Module(_) => {
@@ -758,8 +777,8 @@ fn compile_member_property(
 ) -> Result<(), CompileError> {
     match property {
         MemberProp::Identifier(name) if !computed => {
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(Op::GetProp, idx);
         }
         MemberProp::Expression(e) => {
@@ -768,14 +787,14 @@ fn compile_member_property(
         }
         MemberProp::Identifier(name) => {
             // computed identifier — compile as string key
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(Op::PushConst, idx);
             fc.emit(Op::GetElem);
         }
         MemberProp::PrivateIdentifier(name) => {
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(Op::GetPrivate, idx);
         }
     }
@@ -795,11 +814,11 @@ fn compile_accessor(
         compile_expr(fc, prog, analysis, func_scopes, value)?;
         match &property.key {
             PropertyKey::Identifier(name) => {
-                let idx = fc.add_name(prog.interner.get(*name));
+                let idx = fc.add_name_u16(prog.interner.get(*name));
                 fc.emit_u16(define_op, idx);
             }
             PropertyKey::Literal(Literal::String(s)) => {
-                let idx = fc.add_name(prog.interner.get(*s));
+                let idx = fc.add_name_u16(prog.interner.get(*s));
                 fc.emit_u16(define_op, idx);
             }
             _ => {
@@ -973,7 +992,7 @@ pub(super) fn compile_class(
         // has special completion-value semantics for script-level eval.
         let default_ctor = crate::bytecode::compiled::CompiledFunction {
             bytecode: vec![Op::PushUndefined as u8, Op::Return as u8],
-            name: class.name.map(|a| prog.interner.get(a).to_string()),
+            name: class.name.map(|a| prog.interner.get_utf8(a)),
             ..Default::default()
         };
         let idx = fc.add_constant(Constant::Function(Box::new(default_ctor)));
@@ -1013,25 +1032,17 @@ pub(super) fn compile_class(
                     // Static method: define on the constructor itself.
                     // Stack: [ctor]
                     fc.emit(Op::Dup); // [ctor ctor]
-                    fc.emit_u16(Op::Closure, const_idx); // [ctor ctor method]
-                    match kind {
-                        MethodKind::Get => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineGetter)?;
-                        }
-                        MethodKind::Set => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineSetter)?;
-                        }
-                        _ => {
-                            emit_class_member_name_op(
-                                fc,
-                                prog,
-                                key,
-                                *computed,
-                                Op::DefineProperty,
-                            )?;
-                        }
-                    }
-                    // After DefineProperty/Getter/Setter: [ctor ctor_with_method]
+                    emit_class_method_define(
+                        fc,
+                        prog,
+                        analysis,
+                        func_scopes,
+                        key,
+                        *computed,
+                        *kind,
+                        const_idx,
+                    )?;
+                    // After: [ctor target]
                     fc.emit(Op::Pop); // [ctor]
                 } else {
                     // Prototype method: define on constructor.prototype.
@@ -1039,24 +1050,16 @@ pub(super) fn compile_class(
                     fc.emit(Op::Dup); // [ctor ctor]
                     let proto_name = fc.add_name("prototype");
                     fc.emit_u16(Op::GetProp, proto_name); // [ctor proto]
-                    fc.emit_u16(Op::Closure, const_idx); // [ctor proto method]
-                    match kind {
-                        MethodKind::Get => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineGetter)?;
-                        }
-                        MethodKind::Set => {
-                            emit_class_member_name_op(fc, prog, key, *computed, Op::DefineSetter)?;
-                        }
-                        _ => {
-                            emit_class_member_name_op(
-                                fc,
-                                prog,
-                                key,
-                                *computed,
-                                Op::DefineProperty,
-                            )?;
-                        }
-                    }
+                    emit_class_method_define(
+                        fc,
+                        prog,
+                        analysis,
+                        func_scopes,
+                        key,
+                        *computed,
+                        *kind,
+                        const_idx,
+                    )?;
                     // After: [ctor proto]
                     fc.emit(Op::Pop); // [ctor]
                 }
@@ -1070,7 +1073,7 @@ pub(super) fn compile_class(
                 let child =
                     compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
                 let const_idx = fc.add_constant(Constant::Function(Box::new(child)));
-                let name_str = prog.interner.get(*name);
+                let name_u16 = prog.interner.get(*name);
 
                 if *is_static {
                     fc.emit(Op::Dup); // [ctor ctor]
@@ -1080,7 +1083,7 @@ pub(super) fn compile_class(
                         MethodKind::Set => Op::DefineSetter,
                         _ => Op::DefineProperty,
                     };
-                    let idx = fc.add_name(name_str);
+                    let idx = fc.add_name_u16(name_u16);
                     fc.emit_u16(define_op, idx); // [ctor ctor]
                     fc.emit(Op::Pop); // [ctor]
                 } else {
@@ -1093,7 +1096,7 @@ pub(super) fn compile_class(
                         MethodKind::Set => Op::DefineSetter,
                         _ => Op::DefineProperty,
                     };
-                    let idx = fc.add_name(name_str);
+                    let idx = fc.add_name_u16(name_u16);
                     fc.emit_u16(define_op, idx); // [ctor proto]
                     fc.emit(Op::Pop); // [ctor]
                 }
@@ -1109,13 +1112,27 @@ pub(super) fn compile_class(
                 // for simplicity we skip instance field initializers for now.
                 if *is_static {
                     fc.emit(Op::Dup); // [ctor ctor]
-                    if let Some(val_expr) = value {
-                        compile_expr(fc, prog, analysis, func_scopes, *val_expr)?;
+                    if *computed {
+                        // [ctor ctor] → compile key → [ctor ctor key]
+                        if let PropertyKey::Computed(expr) = key {
+                            compile_expr(fc, prog, analysis, func_scopes, *expr)?;
+                        }
+                        // → compile value → [ctor ctor key value]
+                        if let Some(val_expr) = value {
+                            compile_expr(fc, prog, analysis, func_scopes, *val_expr)?;
+                        } else {
+                            fc.emit(Op::PushUndefined);
+                        }
+                        fc.emit(Op::DefineComputedProperty); // [ctor ctor]
                     } else {
-                        fc.emit(Op::PushUndefined);
+                        if let Some(val_expr) = value {
+                            compile_expr(fc, prog, analysis, func_scopes, *val_expr)?;
+                        } else {
+                            fc.emit(Op::PushUndefined);
+                        }
+                        // [ctor ctor value]
+                        emit_class_member_name_op(fc, prog, key, false, Op::DefineProperty)?;
                     }
-                    // [ctor ctor value]
-                    emit_class_member_name_op(fc, prog, key, *computed, Op::DefineProperty)?;
                     // [ctor ctor]
                     fc.emit(Op::Pop); // [ctor]
                 }
@@ -1133,8 +1150,8 @@ pub(super) fn compile_class(
                     } else {
                         fc.emit(Op::PushUndefined);
                     }
-                    let name_str = prog.interner.get(*name);
-                    let idx = fc.add_name(name_str);
+                    let name_u16 = prog.interner.get(*name);
+                    let idx = fc.add_name_u16(name_u16);
                     fc.emit_u16(Op::DefineProperty, idx); // [ctor ctor]
                     fc.emit(Op::Pop); // [ctor]
                 }
@@ -1181,6 +1198,80 @@ pub(super) fn compile_class(
     Ok(())
 }
 
+/// Emit a method definition on a target object (class prototype or constructor).
+///
+/// Stack on entry: `[target]`. Stack on exit: `[target]`.
+/// Handles both computed and static keys, and getter/setter kinds.
+#[allow(clippy::too_many_arguments)]
+fn emit_class_method_define(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    key: &PropertyKey,
+    computed: bool,
+    kind: MethodKind,
+    closure_const_idx: u16,
+) -> Result<(), CompileError> {
+    if computed {
+        if !matches!(kind, MethodKind::Method) {
+            return Err(CompileError {
+                message: "computed getter/setter keys not yet supported (deferred to M4-10.2)"
+                    .into(),
+            });
+        }
+        // Stack: [target]
+        // → compile key → [target key]
+        if let PropertyKey::Computed(expr) = key {
+            compile_expr(fc, prog, analysis, func_scopes, *expr)?;
+        }
+        // → closure → [target key closure]
+        fc.emit_u16(Op::Closure, closure_const_idx);
+        // → DefineComputedMethod → [target] (non-enumerable per §14.3.8)
+        fc.emit(Op::DefineComputedMethod);
+        return Ok(());
+    }
+    // Non-computed: push closure then emit named define.
+    fc.emit_u16(Op::Closure, closure_const_idx); // [target closure]
+    let op = match kind {
+        MethodKind::Get => Op::DefineGetter,
+        MethodKind::Set => Op::DefineSetter,
+        // Class methods are non-enumerable (§14.3.8).
+        // Use DefineMethod (u16 name + u8 flags) for the correct descriptor.
+        _ => Op::DefineMethod,
+    };
+    if op == Op::DefineMethod {
+        // DefineMethod has u16 name + u8 flags format.
+        let name_idx = match key {
+            PropertyKey::Identifier(name) | PropertyKey::PrivateIdentifier(name) => {
+                fc.add_name_u16(prog.interner.get(*name))
+            }
+            PropertyKey::Literal(Literal::String(s)) => fc.add_name_u16(prog.interner.get(*s)),
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss
+            )]
+            PropertyKey::Literal(Literal::Number(n)) => {
+                let key_str = if *n == (*n as i64) as f64 && *n >= 0.0 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{n}")
+                };
+                fc.add_name(&key_str)
+            }
+            _ => {
+                return Err(CompileError {
+                    message: "unsupported class member key type".into(),
+                })
+            }
+        };
+        fc.emit_u16_u8(Op::DefineMethod, name_idx, 0); // flags byte (unused)
+        return Ok(());
+    }
+    emit_class_member_name_op(fc, prog, key, false, op)
+}
+
 /// Emit a DefineProperty/DefineGetter/DefineSetter with the appropriate key.
 ///
 /// For computed keys, falls back to `DefineComputedProperty`.
@@ -1198,13 +1289,13 @@ fn emit_class_member_name_op(
     }
     match key {
         PropertyKey::Identifier(name) | PropertyKey::PrivateIdentifier(name) => {
-            let name_str = prog.interner.get(*name);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*name);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(op, idx);
         }
         PropertyKey::Literal(Literal::String(s)) => {
-            let name_str = prog.interner.get(*s);
-            let idx = fc.add_name(name_str);
+            let name_u16 = prog.interner.get(*s);
+            let idx = fc.add_name_u16(name_u16);
             fc.emit_u16(op, idx);
         }
         #[allow(
@@ -1273,7 +1364,7 @@ pub(super) fn compile_nested_function(
     let is_strict = analysis.scopes[root_scope_idx].is_strict;
 
     let mut child_fc = FunctionCompiler::new(child_func_idx, root_scope_idx, is_strict);
-    child_fc.name = func.name.map(|a| prog.interner.get(a).to_string());
+    child_fc.name = func.name.map(|a| prog.interner.get_utf8(a));
     child_fc.is_async = func.is_async;
     child_fc.is_generator = func.is_generator;
 
@@ -1341,8 +1432,8 @@ pub(super) fn compile_nested_function(
                         child_fc.emit(Op::Pop);
                     }
                     super::resolve::VarLocation::Global => {
-                        let name_str = prog.interner.get(*name);
-                        let name_idx = child_fc.add_name(name_str);
+                        let name_u16 = prog.interner.get(*name);
+                        let name_idx = child_fc.add_name_u16(name_u16);
                         child_fc.emit_u16(Op::SetGlobal, name_idx);
                         child_fc.emit(Op::Pop);
                     }

@@ -231,9 +231,9 @@ impl<'a> Parser<'a> {
         self.lexer.interner.intern(s)
     }
 
-    /// Resolve an `Atom` to its string slice.
-    pub(crate) fn resolve(&self, atom: Atom) -> &str {
-        self.lexer.interner.get(atom)
+    /// Resolve an `Atom` to its UTF-8 string (lossy for lone surrogates).
+    pub(crate) fn resolve(&self, atom: Atom) -> String {
+        self.lexer.interner.get_utf8(atom)
     }
 
     /// Check if current is a contextual keyword by atom comparison (u32 == u32).

@@ -95,8 +95,8 @@ impl Default for CompiledFunction {
 pub enum Constant {
     /// f64 number literal.
     Number(f64),
-    /// String value (identifier names, string literals).
-    String(String),
+    /// WTF-16 string value (identifier names, string literals).
+    Wtf16(Vec<u16>),
     /// BigInt literal (string representation, parsed lazily by VM).
     BigInt(String),
     /// Nested compiled function (for closures, class methods).
@@ -105,8 +105,8 @@ pub enum Constant {
     RegExp { pattern: String, flags: String },
     /// Template object (cooked + raw arrays for tagged templates).
     TemplateObject {
-        cooked: Vec<Option<String>>,
-        raw: Vec<String>,
+        cooked: Vec<Option<Vec<u16>>>,
+        raw: Vec<Vec<u16>>,
     },
 }
 

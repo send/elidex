@@ -2,8 +2,8 @@ use crate::ast::*;
 use crate::atom::Atom;
 use crate::parse_script;
 
-fn r(prog: &Program, atom: Atom) -> &str {
-    prog.interner.get(atom)
+fn r(prog: &Program, atom: Atom) -> String {
+    prog.interner.get_utf8(atom)
 }
 
 #[test]
@@ -11,7 +11,7 @@ fn function_declaration() {
     let out = parse_script("function foo(a, b) { return a + b; }");
     assert!(out.errors.is_empty(), "{:?}", out.errors);
     if let StmtKind::FunctionDeclaration(f) = &out.program.stmts.get(out.program.body[0]).kind {
-        assert_eq!(f.name.map(|a| r(&out.program, a)), Some("foo"));
+        assert_eq!(f.name.map(|a| r(&out.program, a)), Some("foo".to_string()));
         assert_eq!(f.params.len(), 2);
         assert!(!f.is_async);
         assert!(!f.is_generator);
@@ -37,7 +37,10 @@ fn async_function() {
     assert!(out.errors.is_empty(), "{:?}", out.errors);
     if let StmtKind::FunctionDeclaration(f) = &out.program.stmts.get(out.program.body[0]).kind {
         assert!(f.is_async);
-        assert_eq!(f.name.map(|a| r(&out.program, a)), Some("fetchData"));
+        assert_eq!(
+            f.name.map(|a| r(&out.program, a)),
+            Some("fetchData".to_string())
+        );
     } else {
         panic!("Expected async function declaration");
     }
@@ -48,7 +51,7 @@ fn class_declaration() {
     let out = parse_script("class Foo extends Bar { constructor() {} method() {} }");
     assert!(out.errors.is_empty(), "{:?}", out.errors);
     if let StmtKind::ClassDeclaration(c) = &out.program.stmts.get(out.program.body[0]).kind {
-        assert_eq!(c.name.map(|a| r(&out.program, a)), Some("Foo"));
+        assert_eq!(c.name.map(|a| r(&out.program, a)), Some("Foo".to_string()));
         assert!(c.super_class.is_some());
         assert_eq!(c.body.len(), 2);
     } else {

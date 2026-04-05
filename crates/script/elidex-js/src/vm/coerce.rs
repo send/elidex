@@ -3,7 +3,7 @@
 //! Implements ES2020 abstract operations: ToNumber, ToString, ToBoolean,
 //! ToInt32, ToUint32, and the equality/relational/arithmetic operators.
 
-use super::value::{JsValue, ObjectId, ObjectKind, StringId};
+use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, StringId};
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
         JsValue::Boolean(b) => b,
         JsValue::Number(n) => n != 0.0 && !n.is_nan(),
         JsValue::String(id) => !vm.strings.get(id).is_empty(),
-        JsValue::Object(_) => true,
+        JsValue::Symbol(_) | JsValue::Object(_) => true,
     }
 }
 
@@ -28,17 +28,54 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 /// ToNumber. Objects are converted via ToPrimitive (simplified: valueOf → NaN).
 pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> f64 {
     match val {
-        JsValue::Undefined | JsValue::Object(_) => f64::NAN, // Object: simplified ToPrimitive
+        JsValue::Undefined | JsValue::Object(_) | JsValue::Symbol(_) => f64::NAN,
         JsValue::Null | JsValue::Boolean(false) => 0.0,
         JsValue::Boolean(true) => 1.0,
         JsValue::Number(n) => n,
-        JsValue::String(id) => string_to_number(vm.strings.get(id)),
+        JsValue::String(id) => string_to_number(&vm.strings.get_utf8(id)),
     }
+}
+
+/// Check if a character is ES2020 whitespace (WhiteSpace + LineTerminator).
+fn is_js_whitespace_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{0009}'
+            | '\u{000A}'
+            | '\u{000B}'
+            | '\u{000C}'
+            | '\u{000D}'
+            | '\u{0020}'
+            | '\u{00A0}'
+            | '\u{1680}'
+            | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+    )
+}
+
+/// Trim leading and trailing ES2020 whitespace from a `&str`.
+fn trim_js(s: &str) -> &str {
+    let start = s
+        .char_indices()
+        .find(|(_, ch)| !is_js_whitespace_char(*ch))
+        .map_or(s.len(), |(i, _)| i);
+    let end = s
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !is_js_whitespace_char(*ch))
+        .map_or(start, |(i, ch)| i + ch.len_utf8());
+    &s[start..end]
 }
 
 /// Parse a string to a number following ES2020 rules.
 fn string_to_number(s: &str) -> f64 {
-    let trimmed = s.trim();
+    let trimmed = trim_js(s);
     if trimmed.is_empty() {
         return 0.0;
     }
@@ -102,6 +139,18 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> StringId {
         JsValue::Boolean(false) => vm.well_known.r#false,
         JsValue::Number(n) => number_to_string_id(vm, n),
         JsValue::String(id) => id,
+        JsValue::Symbol(sid) => {
+            // For now, return "Symbol(description)" without throwing TypeError.
+            // (Result-based to_string will come in a later phase.)
+            let desc = vm.symbols[sid.0 as usize]
+                .description
+                .map(|d| vm.strings.get_utf8(d));
+            let s = match desc {
+                Some(d) => format!("Symbol({d})"),
+                None => "Symbol()".to_string(),
+            };
+            vm.strings.intern(&s)
+        }
         JsValue::Object(_) => {
             // Simplified ToPrimitive → "[object Object]"
             vm.well_known.object_to_string
@@ -209,13 +258,17 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
 
         // Number == String → Number == ToNumber(String)
         (JsValue::Number(_), JsValue::String(s)) => {
-            let n = string_to_number(vm.strings.get(s));
+            let n = string_to_number(&vm.strings.get_utf8(s));
             abstract_eq(vm, a, JsValue::Number(n))
         }
         (JsValue::String(s), JsValue::Number(_)) => {
-            let n = string_to_number(vm.strings.get(s));
+            let n = string_to_number(&vm.strings.get_utf8(s));
             abstract_eq(vm, JsValue::Number(n), b)
         }
+
+        // Symbol == non-Symbol → false (symbols are unique; same-type
+        // comparison is handled by strict_eq above).
+        (JsValue::Symbol(_), _) | (_, JsValue::Symbol(_)) => false,
 
         // Boolean == x → ToNumber(Boolean) == x
         (JsValue::Boolean(bl), _) => {
@@ -249,6 +302,7 @@ pub(crate) fn typeof_str(vm: &VmInner, val: JsValue) -> StringId {
         JsValue::Boolean(_) => vm.well_known.boolean_type,
         JsValue::Number(_) => vm.well_known.number_type,
         JsValue::String(_) => vm.well_known.string_type,
+        JsValue::Symbol(_) => vm.well_known.symbol_type,
         JsValue::Object(id) => {
             if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
                 match &obj.kind {
@@ -267,35 +321,6 @@ pub(crate) fn typeof_str(vm: &VmInner, val: JsValue) -> StringId {
 // ---------------------------------------------------------------------------
 // Arithmetic operators
 // ---------------------------------------------------------------------------
-
-/// The `+` operator (ES2020 §12.8.3). Handles both addition and string concat.
-pub(crate) fn op_add(vm: &mut VmInner, lhs: JsValue, rhs: JsValue) -> JsValue {
-    // ToPrimitive for objects (simplified: always becomes "[object Object]").
-    let lhs = to_primitive(vm, lhs);
-    let rhs = to_primitive(vm, rhs);
-    // If either operand is a string, concatenate.
-    if matches!(lhs, JsValue::String(_)) || matches!(rhs, JsValue::String(_)) {
-        let ls = to_string(vm, lhs);
-        let rs = to_string(vm, rhs);
-        let concat = format!("{}{}", vm.strings.get(ls), vm.strings.get(rs));
-        let id = vm.strings.intern(&concat);
-        return JsValue::String(id);
-    }
-    let a = to_number(vm, lhs);
-    let b = to_number(vm, rhs);
-    JsValue::Number(a + b)
-}
-
-/// Simplified ToPrimitive (ES2020 §7.1.1): converts Object to its string hint.
-fn to_primitive(vm: &mut VmInner, val: JsValue) -> JsValue {
-    match val {
-        JsValue::Object(_) => {
-            let id = vm.well_known.object_to_string;
-            JsValue::String(id)
-        }
-        other => other,
-    }
-}
 
 /// Binary numeric operator (-, *, /, %, **).
 pub(crate) fn op_numeric_binary(
@@ -344,11 +369,9 @@ pub(crate) fn abstract_relational(
     y: JsValue,
     left_first: bool,
 ) -> Option<bool> {
-    // Both strings → lexicographic comparison.
+    // Both strings → lexicographic UTF-16 code unit comparison (spec-compliant).
     if let (JsValue::String(a), JsValue::String(b)) = (x, y) {
-        let sa = vm.strings.get(a);
-        let sb = vm.strings.get(b);
-        return Some(sa < sb);
+        return Some(vm.strings.get(a) < vm.strings.get(b));
     }
 
     let (nx, ny) = if left_first {
@@ -437,18 +460,18 @@ pub(crate) fn op_void() -> JsValue {
 // ---------------------------------------------------------------------------
 
 /// Look up a property on an object, following the prototype chain.
-pub(crate) fn get_property(vm: &VmInner, obj_id: ObjectId, key: StringId) -> Option<JsValue> {
+pub(crate) fn get_property(vm: &VmInner, obj_id: ObjectId, key: PropertyKey) -> Option<JsValue> {
     let mut current = Some(obj_id);
     while let Some(id) = current {
         if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
             // Check own properties.
-            for &(k, ref prop) in &obj.properties {
-                if k == key {
+            for (k, prop) in &obj.properties {
+                if *k == key {
                     return Some(prop.value);
                 }
             }
             // Check array length.
-            if key == vm.well_known.length {
+            if key == PropertyKey::String(vm.well_known.length) {
                 if let ObjectKind::Array { ref elements } = obj.kind {
                     #[allow(clippy::cast_precision_loss)] // JS array length is always safe
                     return Some(JsValue::Number(elements.len() as f64));
@@ -525,23 +548,23 @@ mod tests {
         let i = &mut vm.inner;
 
         let id = to_string(i, JsValue::Undefined);
-        assert_eq!(i.strings.get(id), "undefined");
+        assert_eq!(i.strings.get_utf8(id), "undefined");
         let id = to_string(i, JsValue::Null);
-        assert_eq!(i.strings.get(id), "null");
+        assert_eq!(i.strings.get_utf8(id), "null");
         let id = to_string(i, JsValue::Boolean(true));
-        assert_eq!(i.strings.get(id), "true");
+        assert_eq!(i.strings.get_utf8(id), "true");
         let id = to_string(i, JsValue::Boolean(false));
-        assert_eq!(i.strings.get(id), "false");
+        assert_eq!(i.strings.get_utf8(id), "false");
         let id = to_string(i, JsValue::Number(0.0));
-        assert_eq!(i.strings.get(id), "0");
+        assert_eq!(i.strings.get_utf8(id), "0");
         let id = to_string(i, JsValue::Number(42.0));
-        assert_eq!(i.strings.get(id), "42");
+        assert_eq!(i.strings.get_utf8(id), "42");
         let id = to_string(i, JsValue::Number(-1.5));
-        assert_eq!(i.strings.get(id), "-1.5");
+        assert_eq!(i.strings.get_utf8(id), "-1.5");
         let id = to_string(i, JsValue::Number(f64::NAN));
-        assert_eq!(i.strings.get(id), "NaN");
+        assert_eq!(i.strings.get_utf8(id), "NaN");
         let id = to_string(i, JsValue::Number(f64::INFINITY));
-        assert_eq!(i.strings.get(id), "Infinity");
+        assert_eq!(i.strings.get_utf8(id), "Infinity");
     }
 
     #[test]
@@ -626,16 +649,16 @@ mod tests {
         let i = &vm.inner;
 
         let id = typeof_str(i, JsValue::Undefined);
-        assert_eq!(i.strings.get(id), "undefined");
+        assert_eq!(i.strings.get_utf8(id), "undefined");
         let id = typeof_str(i, JsValue::Null);
-        assert_eq!(i.strings.get(id), "object");
+        assert_eq!(i.strings.get_utf8(id), "object");
         let id = typeof_str(i, JsValue::Boolean(true));
-        assert_eq!(i.strings.get(id), "boolean");
+        assert_eq!(i.strings.get_utf8(id), "boolean");
         let id = typeof_str(i, JsValue::Number(0.0));
-        assert_eq!(i.strings.get(id), "number");
+        assert_eq!(i.strings.get_utf8(id), "number");
         let s = i.well_known.empty;
         let id = typeof_str(i, JsValue::String(s));
-        assert_eq!(i.strings.get(id), "string");
+        assert_eq!(i.strings.get_utf8(id), "string");
     }
 
     #[test]
@@ -643,32 +666,34 @@ mod tests {
         let mut vm = Vm::new();
         let hello = vm.inner.strings.intern("hello");
         let world = vm.inner.strings.intern(" world");
-        let result = op_add(
-            &mut vm.inner,
-            JsValue::String(hello),
-            JsValue::String(world),
-        );
+        let result = vm
+            .op_add(JsValue::String(hello), JsValue::String(world))
+            .unwrap();
         let JsValue::String(id) = result else {
             panic!("expected string");
         };
-        assert_eq!(vm.inner.strings.get(id), "hello world");
+        assert_eq!(vm.inner.strings.get_utf8(id), "hello world");
     }
 
     #[test]
     fn add_number_plus_string() {
         let mut vm = Vm::new();
         let s = vm.inner.strings.intern("px");
-        let result = op_add(&mut vm.inner, JsValue::Number(42.0), JsValue::String(s));
+        let result = vm
+            .op_add(JsValue::Number(42.0), JsValue::String(s))
+            .unwrap();
         let JsValue::String(id) = result else {
             panic!("expected string");
         };
-        assert_eq!(vm.inner.strings.get(id), "42px");
+        assert_eq!(vm.inner.strings.get_utf8(id), "42px");
     }
 
     #[test]
     fn add_numbers() {
         let mut vm = Vm::new();
-        let result = op_add(&mut vm.inner, JsValue::Number(1.0), JsValue::Number(2.0));
+        let result = vm
+            .op_add(JsValue::Number(1.0), JsValue::Number(2.0))
+            .unwrap();
         assert_eq!(result, JsValue::Number(3.0));
     }
 

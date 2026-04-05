@@ -46,7 +46,16 @@ impl Vm {
                     super::value::ThisMode::Lexical => {
                         fo.captured_this.unwrap_or(JsValue::Undefined)
                     }
-                    super::value::ThisMode::Global | super::value::ThisMode::Strict => this,
+                    super::value::ThisMode::Global => {
+                        // §9.2.1.2: non-strict functions coerce undefined/null
+                        // this to the global object.
+                        if matches!(this, JsValue::Undefined | JsValue::Null) {
+                            JsValue::Object(self.inner.global_object)
+                        } else {
+                            this
+                        }
+                    }
+                    super::value::ThisMode::Strict => this,
                 };
                 self.call_internal(func_id, effective_this, args, upvalue_ids)
             }

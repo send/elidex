@@ -57,8 +57,8 @@ pub fn compile_stmt(
                         fc.emit(Op::Pop);
                     }
                     super::resolve::VarLocation::Global => {
-                        let name_str = prog.interner.get(*name);
-                        let name_idx = fc.add_name(name_str);
+                        let name_u16 = prog.interner.get(*name);
+                        let name_idx = fc.add_name_u16(name_u16);
                         fc.emit_u16(Op::SetGlobal, name_idx);
                         fc.emit(Op::Pop);
                     }
@@ -110,7 +110,7 @@ pub fn compile_stmt(
             compile_expr(fc, prog, analysis, func_scopes, *right)?;
             fc.emit(Op::GetIterator);
             let loop_start = fc.pc();
-            fc.push_loop(loop_start);
+            fc.push_for_of_loop(loop_start);
             fc.emit(Op::IteratorNext); // [iterator value done]
             let exit_patch = fc.emit_jump(Op::JumpIfTrue); // if done, exit
                                                            // Bind `left` to value (value is on stack).
@@ -121,7 +121,7 @@ pub fn compile_stmt(
             fc.emit_jump_to(Op::Jump, loop_start);
             fc.patch_jump(exit_patch);
             fc.emit(Op::Pop); // pop leftover value from done path
-            fc.emit(Op::Pop); // pop iterator
+            fc.emit(Op::IteratorClose); // close iterator (pops it, calls .return() if exists)
             fc.pop_loop();
             fc.current_scope_idx = saved_scope;
         }
@@ -342,9 +342,22 @@ pub fn compile_stmt(
 
         StmtKind::Break(label) => {
             emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
+            // For for-of loops, emit IteratorClose before the break jump
+            // so the iterator's .return() is called on abrupt completion.
+            let target_is_for_of = if let Some(label_atom) = label {
+                fc.label_map
+                    .get(label_atom)
+                    .and_then(|&idx| fc.loop_stack.get(idx))
+                    .is_some_and(|ctx| ctx.for_of)
+            } else {
+                fc.loop_stack.last().is_some_and(|ctx| ctx.for_of)
+            };
+            if target_is_for_of {
+                fc.emit(Op::IteratorClose);
+            }
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
-                let label_name = prog.interner.get(*label_atom);
+                let label_name = prog.interner.get_utf8(*label_atom);
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
                     if loop_idx >= fc.loop_stack.len() {
                         return Err(CompileError {
@@ -368,7 +381,7 @@ pub fn compile_stmt(
             emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
-                let label_name = prog.interner.get(*label_atom);
+                let label_name = prog.interner.get_utf8(*label_atom);
                 if let Some(&loop_idx) = fc.label_map.get(label_atom) {
                     if loop_idx >= fc.loop_stack.len() {
                         return Err(CompileError {
@@ -768,7 +781,7 @@ fn compile_forin_left_binding(
                     }
                     super::resolve::VarLocation::Global => {
                         let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
+                        let idx = fc.add_name_u16(name);
                         fc.emit_u16(Op::SetGlobal, idx);
                         fc.emit(Op::Pop);
                     }
@@ -852,21 +865,35 @@ fn compile_destructure_pattern(
         }
         PatternKind::Object { properties, rest } => {
             // Stack: [value]
+            // When rest is present, save computed key values to temp locals
+            // so we can exclude them from the rest object later.
+            let has_rest = rest.is_some();
+            let mut computed_key_slots: Vec<u16> = Vec::new();
+
             for prop in properties {
                 fc.emit(Op::Dup); // [value value]
                 match &prop.key {
                     PropertyKey::Identifier(atom) => {
                         let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
+                        let idx = fc.add_name_u16(name);
                         fc.emit_u16(Op::GetProp, idx); // [value prop_value]
                     }
                     PropertyKey::Literal(Literal::String(atom)) => {
                         let name = prog.interner.get(*atom);
-                        let idx = fc.add_name(name);
+                        let idx = fc.add_name_u16(name);
                         fc.emit_u16(Op::GetProp, idx);
                     }
                     PropertyKey::Computed(expr) => {
                         compile_expr(fc, prog, analysis, func_scopes, *expr)?;
+                        if has_rest {
+                            // Save computed key to a temp local for rest exclusion.
+                            let slot = func_scopes[fc.func_scope_idx].next_local;
+                            func_scopes[fc.func_scope_idx].next_local += 1;
+                            fc.emit(Op::Dup); // [value key key]
+                            fc.emit_u16(Op::SetLocal, slot); // [value key key]
+                            fc.emit(Op::Pop); // [value key]
+                            computed_key_slots.push(slot);
+                        }
                         fc.emit(Op::GetElem);
                     }
                     _ => {
@@ -889,21 +916,28 @@ fn compile_destructure_pattern(
                     match &prop.key {
                         PropertyKey::Identifier(atom) => {
                             let name = prog.interner.get(*atom);
-                            let idx = fc.add_name(name);
+                            let idx = fc.add_name_u16(name);
                             fc.emit(Op::Dup); // [value rest_obj rest_obj]
                             fc.emit_u16(Op::DeleteProp, idx); // [value rest_obj bool]
                             fc.emit(Op::Pop); // [value rest_obj]
                         }
                         PropertyKey::Literal(Literal::String(atom)) => {
                             let name = prog.interner.get(*atom);
-                            let idx = fc.add_name(name);
+                            let idx = fc.add_name_u16(name);
                             fc.emit(Op::Dup);
                             fc.emit_u16(Op::DeleteProp, idx);
                             fc.emit(Op::Pop);
                         }
-                        // Computed/other keys: can't statically delete, skip
+                        // Computed/other keys: handled below via temp locals
                         _ => {}
                     }
+                }
+                // Delete computed keys from rest_obj using saved temp locals.
+                for slot in &computed_key_slots {
+                    fc.emit(Op::Dup); // [value rest_obj rest_obj]
+                    fc.emit_u16(Op::GetLocal, *slot); // [value rest_obj rest_obj key]
+                    fc.emit(Op::DeleteElem); // [value rest_obj bool]
+                    fc.emit(Op::Pop); // [value rest_obj]
                 }
                 // Stack: [value rest_obj]
                 compile_destructure_pattern(fc, prog, analysis, func_scopes, *rest_pat, var_kind)?;
@@ -963,7 +997,7 @@ fn compile_pattern_store(
         }
         super::resolve::VarLocation::Global => {
             let name = prog.interner.get(atom);
-            let idx = fc.add_name(name);
+            let idx = fc.add_name_u16(name);
             fc.emit_u16(Op::SetGlobal, idx);
             fc.emit(Op::Pop);
         }

@@ -35,10 +35,12 @@ impl Lexer<'_> {
         loop {
             match self.peek() {
                 Some(b) if b == quote => {
-                    // Simple string — use source slice directly, no allocation.
-                    let s = std::str::from_utf8(&self.source[content_start..self.pos])
-                        .expect("ASCII bytes are valid UTF-8");
-                    let atom = self.interner.intern(s);
+                    // Simple string — each ASCII byte becomes a u16.
+                    let units: Vec<u16> = self.source[content_start..self.pos]
+                        .iter()
+                        .map(|&b| u16::from(b))
+                        .collect();
+                    let atom = self.interner.intern_wtf16(&units);
                     self.pos += 1; // skip closing quote
                     return TokenKind::StringLiteral(atom);
                 }
@@ -48,12 +50,12 @@ impl Lexer<'_> {
             }
         }
 
-        // Slow path: reset and build String char-by-char.
+        // Slow path: reset and build Vec<u16> char-by-char.
         self.pos = content_start;
-        let mut value = String::new();
+        let mut units: Vec<u16> = Vec::new();
 
         loop {
-            if value.len() >= Self::MAX_LITERAL_LEN {
+            if units.len() >= Self::MAX_LITERAL_LEN {
                 self.push_error(JsParseError {
                     kind: JsParseErrorKind::InvalidString,
                     span: Span::new(start, self.pos as u32),
@@ -75,7 +77,7 @@ impl Lexer<'_> {
                 }
                 Some(b'\\') => {
                     self.pos += 1;
-                    self.lex_escape_sequence(&mut value, start);
+                    self.lex_escape_sequence_u16(&mut units, start);
                 }
                 // Line terminators are not allowed in string literals (except LS/PS per ES2019)
                 None | Some(b'\n' | b'\r') => {
@@ -91,32 +93,65 @@ impl Lexer<'_> {
                     if self.pos + 3 <= self.source.len() {
                         let bytes = &self.source[self.pos..self.pos + 3];
                         if let Ok(s) = std::str::from_utf8(bytes) {
-                            value.push_str(s);
+                            let mut buf = [0u16; 2];
+                            for ch in s.chars() {
+                                let encoded = ch.encode_utf16(&mut buf);
+                                units.extend_from_slice(encoded);
+                            }
                         }
                     }
                     self.pos += 3;
                 }
                 Some(b) if b < 0x80 => {
-                    value.push(b as char);
+                    units.push(u16::from(b));
                     self.pos += 1;
                 }
                 _ => {
                     // Multi-byte UTF-8
                     if let Some(c) = self.read_utf8_char() {
-                        value.push(c);
+                        let mut buf = [0u16; 2];
+                        let encoded = c.encode_utf16(&mut buf);
+                        units.extend_from_slice(encoded);
                     }
                 }
             }
         }
 
-        let atom = self.interner.intern(&value);
+        let atom = self.interner.intern_wtf16(&units);
         TokenKind::StringLiteral(atom)
     }
 
-    /// Read an escape sequence after `\` has been consumed.
+    /// WTF-16 variant: push a Unicode code point to a `Vec<u16>`.
+    /// Lone surrogates are preserved directly (valid in WTF-16).
+    fn push_unicode_codepoint_u16(&mut self, val: u32, out: &mut Vec<u16>, literal_start: u32) {
+        if (0xD800..=0xDFFF).contains(&val) {
+            // Lone surrogate — push directly as u16
+            #[allow(clippy::cast_possible_truncation)]
+            out.push(val as u16);
+        } else if val <= 0xFFFF {
+            // BMP
+            #[allow(clippy::cast_possible_truncation)]
+            out.push(val as u16);
+        } else if val <= 0x10_FFFF {
+            // Supplementary — encode as surrogate pair
+            let v = val - 0x1_0000;
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                out.push((0xD800 + (v >> 10)) as u16);
+                out.push((0xDC00 + (v & 0x3FF)) as u16);
+            }
+        } else {
+            self.push_error(JsParseError {
+                kind: JsParseErrorKind::InvalidEscape,
+                span: Span::new(literal_start, self.pos as u32),
+                message: format!("Unicode code point U+{val:X} is out of range"),
+            });
+        }
+    }
+
+    /// WTF-16 variant of `lex_escape_sequence`: pushes u16 code units.
     #[allow(clippy::too_many_lines)]
-    // Single match dispatcher over token/AST variants.
-    pub(super) fn lex_escape_sequence(&mut self, out: &mut String, literal_start: u32) {
+    pub(super) fn lex_escape_sequence_u16(&mut self, out: &mut Vec<u16>, literal_start: u32) {
         match self.advance() {
             None => {
                 self.push_error(JsParseError {
@@ -125,33 +160,30 @@ impl Lexer<'_> {
                     message: "Unterminated escape sequence".into(),
                 });
             }
-            Some(b'n') => out.push('\n'),
-            Some(b'r') => out.push('\r'),
-            Some(b't') => out.push('\t'),
-            Some(b'\\') => out.push('\\'),
-            Some(b'\'') => out.push('\''),
-            Some(b'"') => out.push('"'),
+            Some(b'n') => out.push(u16::from(b'\n')),
+            Some(b'r') => out.push(u16::from(b'\r')),
+            Some(b't') => out.push(u16::from(b'\t')),
+            Some(b'\\') => out.push(u16::from(b'\\')),
+            Some(b'\'') => out.push(u16::from(b'\'')),
+            Some(b'"') => out.push(u16::from(b'"')),
             Some(b'0') => {
-                // H6: check for legacy octal like \01, \07 — invalid in strict mode
                 if matches!(self.peek(), Some(b'0'..=b'9')) {
                     self.push_error(JsParseError {
                         kind: JsParseErrorKind::InvalidEscape,
                         span: Span::new(literal_start, self.pos as u32),
                         message: "Octal escape sequences are not allowed in strict mode".into(),
                     });
-                    // Don't push NUL — the entire escape is invalid per §12.9.4.1
                 } else {
-                    out.push('\0');
+                    out.push(0);
                 }
             }
-            Some(b'b') => out.push('\u{0008}'),
-            Some(b'f') => out.push('\u{000C}'),
-            Some(b'v') => out.push('\u{000B}'),
+            Some(b'b') => out.push(0x0008),
+            Some(b'f') => out.push(0x000C),
+            Some(b'v') => out.push(0x000B),
             Some(b'x') => {
                 if let Some(val) = self.read_hex_digits(2) {
-                    if let Some(c) = char::from_u32(val) {
-                        out.push(c);
-                    }
+                    #[allow(clippy::cast_possible_truncation)]
+                    out.push(val as u16);
                 } else {
                     self.push_error(JsParseError {
                         kind: JsParseErrorKind::InvalidEscape,
@@ -161,7 +193,6 @@ impl Lexer<'_> {
                 }
             }
             Some(b'u') => {
-                // R3: consolidated braced \u{HHHH...} and fixed \uHHHH paths
                 let val = if self.peek() == Some(b'{') {
                     self.pos += 1;
                     self.read_braced_unicode_codepoint()
@@ -169,7 +200,7 @@ impl Lexer<'_> {
                     self.read_hex_digits(4)
                 };
                 if let Some(v) = val {
-                    self.push_unicode_codepoint(v, out, literal_start);
+                    self.push_unicode_codepoint_u16(v, out, literal_start);
                 } else {
                     self.push_error(JsParseError {
                         kind: JsParseErrorKind::InvalidEscape,
@@ -188,28 +219,21 @@ impl Lexer<'_> {
                 }
                 self.record_line_start();
             }
-            // A1: LS U+2028 / PS U+2029 line continuation (3-byte UTF-8: E2 80 A8/A9)
-            // Note: after consuming 0xE2, peek()/peek_at(1) check remaining bytes
             Some(0xE2)
                 if self.peek() == Some(0x80) && matches!(self.peek_at(1), Some(0xA8 | 0xA9)) =>
             {
-                self.pos += 2; // consume 80 A8/A9
+                self.pos += 2;
                 self.record_line_start();
             }
             Some(b) if matches!(b, b'1'..=b'9') => {
-                // H7: \1-\9 are Annex B legacy numeric escape sequences (not supported).
-                // All are forbidden; we don't distinguish octal (\1-\7) from
-                // non-octal (\8-\9) since Annex B is intentionally excluded.
                 self.push_error(JsParseError {
                     kind: JsParseErrorKind::InvalidEscape,
                     span: Span::new(literal_start, self.pos as u32),
                     message: "Numeric escape sequences are not allowed in strict mode".into(),
                 });
-                out.push(b as char);
+                out.push(u16::from(b));
             }
             Some(b) => {
-                // E1: In strict mode (elidex always strict), only specific escape characters
-                // are allowed. §12.9.4.1 — reject unknown identity escapes.
                 if b < 0x80 {
                     self.push_error(JsParseError {
                         kind: JsParseErrorKind::InvalidEscape,
@@ -219,9 +243,8 @@ impl Lexer<'_> {
                             b as char
                         ),
                     });
-                    out.push(b as char);
+                    out.push(u16::from(b));
                 } else {
-                    // S14: lead byte already consumed by advance(); back up to read full char
                     self.pos -= 1;
                     if let Some(c) = self.read_utf8_char() {
                         self.push_error(JsParseError {
@@ -229,28 +252,12 @@ impl Lexer<'_> {
                             span: Span::new(literal_start, self.pos as u32),
                             message: format!("Invalid escape sequence '\\{c}' in strict mode"),
                         });
-                        out.push(c);
+                        let mut buf = [0u16; 2];
+                        let encoded = c.encode_utf16(&mut buf);
+                        out.extend_from_slice(encoded);
                     }
                 }
             }
-        }
-    }
-
-    /// R10: Validate and push a Unicode code point, or emit an error.
-    /// S5: Lone surrogates (U+D800..U+DFFF) are valid in ES string literals but cannot be
-    /// represented in Rust's UTF-8 strings; replace with U+FFFD and continue.
-    fn push_unicode_codepoint(&mut self, val: u32, out: &mut String, literal_start: u32) {
-        if let Some(c) = char::from_u32(val) {
-            out.push(c);
-        } else if (0xD800..=0xDFFF).contains(&val) {
-            // Lone surrogate — valid in ES but not representable in UTF-8
-            out.push('\u{FFFD}');
-        } else {
-            self.push_error(JsParseError {
-                kind: JsParseErrorKind::InvalidEscape,
-                span: Span::new(literal_start, self.pos as u32),
-                message: format!("Unicode code point U+{val:X} is out of range"),
-            });
         }
     }
 
@@ -484,12 +491,12 @@ impl Lexer<'_> {
         is_head: bool,
         is_end: bool,
         cooked_valid: bool,
-        cooked: &str,
-        raw: &str,
+        cooked: &[u16],
+        raw: &[u16],
     ) -> TokenKind {
-        let raw_atom = self.interner.intern(raw);
+        let raw_atom = self.interner.intern_wtf16(raw);
         let cooked_opt = if cooked_valid {
-            Some(self.interner.intern(cooked))
+            Some(self.interner.intern_wtf16(cooked))
         } else {
             None
         };
@@ -522,8 +529,8 @@ impl Lexer<'_> {
     // Single match dispatcher over token/AST variants.
     pub(super) fn lex_template_inner(&mut self, is_head: bool) -> TokenKind {
         let start_pos = self.pos as u32;
-        let mut cooked = String::new();
-        let mut raw = String::new();
+        let mut cooked: Vec<u16> = Vec::new();
+        let mut raw: Vec<u16> = Vec::new();
         let mut cooked_valid = true;
 
         loop {
@@ -567,7 +574,7 @@ impl Lexer<'_> {
                     let esc_start = self.pos;
                     let err_count = self.errors.len();
                     self.pos += 1;
-                    self.lex_escape_sequence(&mut cooked, start_pos);
+                    self.lex_escape_sequence_u16(&mut cooked, start_pos);
                     if self.errors.len() > err_count {
                         cooked_valid = false;
                         // Remove errors generated during template escape processing
@@ -576,27 +583,29 @@ impl Lexer<'_> {
                     // Raw: capture source bytes, normalize CR/CRLF → LF
                     let esc_bytes = &self.source[esc_start..self.pos];
                     let esc_raw = std::str::from_utf8(esc_bytes).unwrap_or("\\");
+                    let mut buf = [0u16; 2];
                     for c in esc_raw.chars() {
                         if c == '\r' {
                             // skip — \n follows (CRLF) or we push \n below
                         } else {
-                            raw.push(c);
+                            let encoded = c.encode_utf16(&mut buf);
+                            raw.extend_from_slice(encoded);
                         }
                     }
                     // If CR was present without following LF, push LF
                     if esc_bytes.contains(&b'\r') && !esc_bytes.contains(&b'\n') {
-                        raw.push('\n');
+                        raw.push(u16::from(b'\n'));
                     }
                 }
                 Some(b'\n') => {
-                    cooked.push('\n');
-                    raw.push('\n');
+                    cooked.push(u16::from(b'\n'));
+                    raw.push(u16::from(b'\n'));
                     self.pos += 1;
                     self.record_line_start();
                 }
                 Some(b'\r') => {
-                    cooked.push('\n'); // normalize CR/CRLF to LF
-                    raw.push('\n');
+                    cooked.push(u16::from(b'\n')); // normalize CR/CRLF to LF
+                    raw.push(u16::from(b'\n'));
                     self.pos += 1;
                     if self.peek() == Some(b'\n') {
                         self.pos += 1;
@@ -607,30 +616,28 @@ impl Lexer<'_> {
                 // TV preserves actual LS/PS (ES2023 §12.9.6); TRV preserves original
                 Some(0xE2) if self.is_ls_ps() => {
                     // A8: push actual LS/PS char, not '\n' (CR/CRLF normalize, LS/PS do not)
-                    let ls_ps_char = if self.peek_at(2) == Some(0xA8) {
-                        '\u{2028}'
+                    let ls_ps_u16 = if self.peek_at(2) == Some(0xA8) {
+                        0x2028u16
                     } else {
-                        '\u{2029}'
+                        0x2029u16
                     };
-                    cooked.push(ls_ps_char);
-                    if self.pos + 3 <= self.source.len() {
-                        let bytes = &self.source[self.pos..self.pos + 3];
-                        if let Ok(s) = std::str::from_utf8(bytes) {
-                            raw.push_str(s);
-                        }
-                    }
+                    cooked.push(ls_ps_u16);
+                    // Raw: encode the LS/PS char to u16 (BMP, single code unit)
+                    raw.push(ls_ps_u16);
                     self.pos += 3;
                     self.record_line_start();
                 }
                 Some(b) if b < 0x80 => {
-                    cooked.push(b as char);
-                    raw.push(b as char);
+                    cooked.push(u16::from(b));
+                    raw.push(u16::from(b));
                     self.pos += 1;
                 }
                 _ => {
                     if let Some(c) = self.read_utf8_char() {
-                        cooked.push(c);
-                        raw.push(c);
+                        let mut buf = [0u16; 2];
+                        let encoded = c.encode_utf16(&mut buf);
+                        cooked.extend_from_slice(encoded);
+                        raw.extend_from_slice(encoded);
                     }
                 }
             }

@@ -19,7 +19,7 @@ fn eval_string(source: &str) -> String {
     let mut vm = Vm::new();
     let result = vm.eval(source).unwrap();
     match result {
-        JsValue::String(id) => vm.get_string(id).to_string(),
+        JsValue::String(id) => vm.get_string(id),
         other => panic!("expected string, got {other:?}"),
     }
 }
@@ -164,6 +164,69 @@ fn eval_typeof() {
 #[test]
 fn eval_typeof_global_undeclared() {
     assert_eq!(eval_string("typeof nonexistent;"), "undefined");
+}
+
+#[test]
+fn eval_get_global_reference_error() {
+    // Accessing an undeclared variable should throw ReferenceError.
+    assert_eq!(
+        eval_string("var r; try { undeclared; } catch(e) { r = e.message; } r;"),
+        "undeclared is not defined",
+    );
+}
+
+#[test]
+fn eval_set_global_strict_mode_reference_error() {
+    // §8.1.1.2.5: In strict mode, assigning to an undeclared variable
+    // should throw ReferenceError.
+    assert_eq!(
+        eval_string(
+            "var r = 'ok'; try { (function() { 'use strict'; undeclared = 1; })(); } catch(e) { r = e.message; } r;"
+        ),
+        "undeclared is not defined",
+    );
+}
+
+#[test]
+fn eval_set_global_sloppy_creates_global() {
+    // Sloppy mode: assigning to undeclared variable creates a global.
+    assert_eq!(
+        eval_number("(function() { sloppyGlobal = 42; })(); sloppyGlobal;"),
+        42.0
+    );
+}
+
+#[test]
+fn eval_this_coercion_global_object() {
+    // Non-strict function: `this` should be coerced to the global object
+    // when called without a receiver (§9.2.1.2).
+    assert_eq!(
+        eval_string("function f() { return typeof this; } f();"),
+        "object"
+    );
+}
+
+#[test]
+fn eval_this_coercion_method_receiver() {
+    // Method call: `this` should be the receiver, not coerced.
+    assert_eq!(
+        eval_number("var o = { v: 42, f() { return this.v; } }; o.f();"),
+        42.0,
+    );
+}
+
+#[test]
+fn eval_optional_chain_this_binding() {
+    // obj?.method() should bind `this` to `obj`.
+    assert_eq!(
+        eval_number("var o = { v: 99, m() { return this.v; } }; o?.m();"),
+        99.0,
+    );
+}
+
+#[test]
+fn eval_optional_chain_nullish_returns_undefined() {
+    assert_eq!(eval_string("var x = null; typeof (x?.foo());"), "undefined",);
 }
 
 #[test]
@@ -788,16 +851,17 @@ fn string_pool_intern_dedup() {
     let c = pool.intern("world");
     assert_eq!(a, b);
     assert_ne!(a, c);
-    assert_eq!(pool.get(a), "hello");
-    assert_eq!(pool.get(c), "world");
-    assert_eq!(pool.len(), 2);
+    assert_eq!(pool.get_utf8(a), "hello");
+    assert_eq!(pool.get_utf8(c), "world");
+    // +1 for the pre-interned empty string at index 0
+    assert_eq!(pool.len(), 3);
 }
 
 #[test]
 fn string_pool_empty_string() {
     let mut pool = super::StringPool::new();
     let id = pool.intern("");
-    assert_eq!(pool.get(id), "");
+    assert_eq!(pool.get_utf8(id), "");
 }
 
 #[test]
@@ -1088,5 +1152,399 @@ fn eval_function_hoisting() {
     assert_eq!(
         eval_number("var x = f(); function f() { return 42; } x;"),
         42.0
+    );
+}
+
+// ── M4-10.1: Computed class member keys ────────────────────────────
+
+#[test]
+fn eval_computed_class_method() {
+    assert_eq!(
+        eval_number("const k = 'greet'; class C { [k]() { return 42; } } new C().greet();"),
+        42.0,
+    );
+}
+
+#[test]
+fn eval_computed_class_static_property() {
+    assert_eq!(
+        eval_number("const k = 'val'; class C { static [k] = 99; } C.val;"),
+        99.0,
+    );
+}
+
+#[test]
+fn eval_computed_class_prototype_method_this() {
+    assert_eq!(
+        eval_number(
+            "const k = 'f'; class C { constructor() { this.v = 7; } [k]() { return this.v; } } new C().f();"
+        ),
+        7.0,
+    );
+}
+
+#[test]
+fn eval_class_method_not_enumerable() {
+    // Class methods should not appear in Object.keys (enumerable: false per §14.3.8).
+    // Note: constructor back-link uses DefineProperty (enumerable) — accepted for now.
+    // We verify the user method 'foo' is NOT in the keys.
+    assert_eq!(
+        eval_number("class C { foo() {} } var k = Object.keys(C.prototype); var found = false; for (var i = 0; i < k.length; i++) { if (k[i] === 'foo') found = true; } found ? 1 : 0;"),
+        0.0,
+    );
+}
+
+#[test]
+fn eval_computed_class_method_not_enumerable() {
+    assert_eq!(
+        eval_number("const k = 'foo'; class C { [k]() {} } var keys = Object.keys(C.prototype); var found = false; for (var i = 0; i < keys.length; i++) { if (keys[i] === 'foo') found = true; } found ? 1 : 0;"),
+        0.0,
+    );
+}
+
+// ── M4-10.1: Object rest computed key exclusion ────────────────────
+
+#[test]
+fn eval_object_rest_computed_key_exclusion() {
+    // Computed key should be excluded from the rest object.
+    assert_eq!(
+        eval_number("const k = 'a'; const { [k]: v, ...rest } = { a: 1, b: 2, c: 3 }; rest.b;"),
+        2.0,
+    );
+}
+
+#[test]
+fn eval_object_rest_computed_key_not_in_rest() {
+    assert_eq!(
+        eval_string("const k = 'a'; const { [k]: v, ...rest } = { a: 1, b: 2 }; typeof rest.a;"),
+        "undefined",
+    );
+}
+
+// ── M4-10.1: String UTF-16 support ─────────────────────────────────
+
+#[test]
+fn eval_string_bracket_access() {
+    assert_eq!(eval_string("'hello'[1];"), "e");
+}
+
+#[test]
+fn eval_string_bracket_access_out_of_bounds() {
+    assert_eq!(eval_string("typeof 'hi'[5];"), "undefined");
+}
+
+#[test]
+fn eval_string_char_code_at_utf16() {
+    // U+1F600 (😀) encodes as surrogate pair: 0xD83D 0xDE00.
+    // charCodeAt(0) should return the high surrogate 0xD83D = 55357.
+    assert_eq!(eval_number("'\u{1F600}'.charCodeAt(0);"), 55357.0);
+}
+
+#[test]
+fn eval_string_char_code_at_low_surrogate() {
+    // charCodeAt(1) should return the low surrogate 0xDE00 = 56832.
+    assert_eq!(eval_number("'\u{1F600}'.charCodeAt(1);"), 56832.0);
+}
+
+#[test]
+fn eval_char_at_negative_index() {
+    // §21.1.3.1: if pos < 0, return ""
+    assert_eq!(eval_string("'abc'.charAt(-1);"), "");
+}
+
+#[test]
+fn eval_char_code_at_negative_index() {
+    // §21.1.3.2: if pos < 0, return NaN
+    assert!(eval_number("'abc'.charCodeAt(-1);").is_nan());
+}
+
+#[test]
+fn eval_string_index_of_utf16() {
+    // 'a' + U+1F600 (2 code units) + 'b' → indexOf('b') = 3.
+    assert_eq!(eval_number("'a\u{1F600}b'.indexOf('b');"), 3.0);
+}
+
+#[test]
+fn eval_string_slice_utf16() {
+    // slice(1, 3) on 'a' + U+1F600 + 'b' extracts the emoji.
+    assert_eq!(eval_string("'a\u{1F600}b'.slice(1, 3);"), "\u{1F600}");
+}
+
+#[test]
+fn eval_string_substring_utf16() {
+    assert_eq!(eval_string("'a\u{1F600}b'.substring(1, 3);"), "\u{1F600}");
+}
+
+#[test]
+fn eval_string_length_utf16() {
+    // Surrogate pair = 2 code units.
+    assert_eq!(eval_number("'\u{1F600}'.length;"), 2.0);
+}
+
+#[test]
+fn eval_string_char_at_bmp() {
+    assert_eq!(eval_string("'abc'.charAt(1);"), "b");
+}
+
+#[test]
+fn eval_string_index_of_bmp() {
+    assert_eq!(eval_number("'abcdef'.indexOf('cd');"), 2.0);
+}
+
+// ── M4-10.1: String method position arguments ──────────────────────
+
+#[test]
+fn eval_string_includes_position() {
+    assert_eq!(eval_number("'abcabc'.includes('abc', 4) ? 1 : 0;"), 0.0);
+    assert_eq!(eval_number("'abcabc'.includes('abc', 3) ? 1 : 0;"), 1.0);
+}
+
+#[test]
+fn eval_string_starts_with_position() {
+    assert_eq!(eval_number("'foobar'.startsWith('bar', 3) ? 1 : 0;"), 1.0);
+    assert_eq!(eval_number("'foobar'.startsWith('foo', 1) ? 1 : 0;"), 0.0);
+}
+
+#[test]
+fn eval_string_ends_with_end_position() {
+    assert_eq!(eval_number("'foobar'.endsWith('foo', 3) ? 1 : 0;"), 1.0);
+    assert_eq!(eval_number("'foobar'.endsWith('bar', 3) ? 1 : 0;"), 0.0);
+}
+
+// -- Symbol runtime ---------------------------------------------------------
+
+#[test]
+fn eval_symbol_typeof() {
+    assert_eq!(eval_string("typeof Symbol();"), "symbol");
+}
+
+#[test]
+fn eval_symbol_description() {
+    assert_eq!(eval_string("Symbol('foo').toString();"), "Symbol(foo)");
+}
+
+#[test]
+fn eval_symbol_unique() {
+    assert_eq!(eval_number("Symbol('a') === Symbol('a') ? 1 : 0;"), 0.0);
+}
+
+#[test]
+fn eval_symbol_for_registry() {
+    assert_eq!(
+        eval_number("Symbol.for('x') === Symbol.for('x') ? 1 : 0;"),
+        1.0,
+    );
+}
+
+#[test]
+fn eval_symbol_key_for() {
+    assert_eq!(
+        eval_string("var s = Symbol.for('test'); Symbol.keyFor(s);"),
+        "test",
+    );
+}
+
+#[test]
+fn eval_symbol_key_for_non_registered() {
+    assert_eq!(
+        eval_string("typeof Symbol.keyFor(Symbol('x'));"),
+        "undefined"
+    );
+}
+
+#[test]
+fn eval_symbol_as_property_key() {
+    assert_eq!(
+        eval_number("var s = Symbol('k'); var o = {}; o[s] = 42; o[s];"),
+        42.0,
+    );
+}
+
+#[test]
+fn eval_symbol_not_in_object_keys() {
+    assert_eq!(
+        eval_number("var s = Symbol('k'); var o = {}; o[s] = 1; o.a = 2; Object.keys(o).length;"),
+        1.0,
+    );
+}
+
+#[test]
+fn eval_well_known_symbol_iterator() {
+    assert_eq!(eval_string("typeof Symbol.iterator;"), "symbol");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8: Well-known symbol usage integration
+// ---------------------------------------------------------------------------
+
+#[test]
+fn eval_symbol_has_instance() {
+    assert_eq!(
+        eval_number("function Foo() {} var f = new Foo(); f instanceof Foo ? 1 : 0;"),
+        1.0,
+    );
+}
+
+#[test]
+fn eval_symbol_has_instance_custom() {
+    assert_eq!(
+        eval_number(
+            "var Even = { [Symbol.hasInstance](x) { return x % 2 === 0; } }; 4 instanceof Even ? 1 : 0;",
+        ),
+        1.0,
+    );
+}
+
+#[test]
+fn eval_symbol_has_instance_custom_false() {
+    assert_eq!(
+        eval_number(
+            "var Even = { [Symbol.hasInstance](x) { return x % 2 === 0; } }; 3 instanceof Even ? 1 : 0;",
+        ),
+        0.0,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Iterator protocol (Symbol.iterator)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn eval_custom_iterable_for_of() {
+    assert_eq!(
+        eval_number(
+            "var obj = { [Symbol.iterator]() { var i = 0; return { next() { i++; return { value: i, done: i > 3 }; } }; } }; var sum = 0; for (var x of obj) { sum += x; } sum;",
+        ),
+        6.0,
+    );
+}
+
+#[test]
+fn eval_array_destructuring_via_iterator() {
+    assert_eq!(eval_number("var [a, b, c] = [10, 20, 30]; b;"), 20.0);
+}
+
+#[test]
+fn eval_array_destructuring_rest_via_iterator() {
+    assert_eq!(
+        eval_number("var [a, ...rest] = [1, 2, 3, 4]; rest.length;"),
+        3.0,
+    );
+}
+
+#[test]
+fn eval_custom_iterable_spread() {
+    assert_eq!(
+        eval_number(
+            "var obj = { [Symbol.iterator]() { var i = 0; return { next() { i++; return { value: i * 10, done: i > 2 }; } }; } }; var arr = [...obj]; arr[0] + arr[1];",
+        ),
+        30.0,
+    );
+}
+
+// -- Symbol.toPrimitive (§7.1.1) -------------------------------------------
+
+#[test]
+fn eval_symbol_to_primitive_add() {
+    assert_eq!(
+        eval_number("var obj = { [Symbol.toPrimitive](hint) { return 42; } }; obj + 0;",),
+        42.0,
+    );
+}
+
+#[test]
+fn eval_symbol_to_primitive_hint_default() {
+    assert_eq!(
+        eval_string("var obj = { [Symbol.toPrimitive](hint) { return hint; } }; '' + obj;",),
+        "default",
+    );
+}
+
+#[test]
+fn eval_symbol_to_primitive_returns_object_throws() {
+    let result = eval("var obj = { [Symbol.toPrimitive](hint) { return {}; } }; obj + 1;");
+    assert!(result.is_err());
+}
+
+#[test]
+fn eval_symbol_to_primitive_string_concat() {
+    assert_eq!(
+        eval_string(
+            "var obj = { [Symbol.toPrimitive](hint) { return 'hello'; } }; obj + ' world';",
+        ),
+        "hello world",
+    );
+}
+
+// -- Symbol.toStringTag (§19.1.3.6) ----------------------------------------
+
+#[test]
+fn eval_object_prototype_to_string_default() {
+    assert_eq!(eval_string("({}).toString();"), "[object Object]",);
+}
+
+#[test]
+fn eval_object_prototype_to_string_custom_tag() {
+    assert_eq!(
+        eval_string("var obj = { [Symbol.toStringTag]: 'MyTag' }; obj.toString();",),
+        "[object MyTag]",
+    );
+}
+
+#[test]
+fn eval_object_prototype_to_string_inherits() {
+    // Objects without a custom @@toStringTag get "[object Object]".
+    assert_eq!(
+        eval_string("var obj = {}; obj.toString();"),
+        "[object Object]",
+    );
+}
+
+// -- IteratorClose on break (for-of) ---------------------------------------
+
+#[test]
+fn eval_for_of_break_closes_iterator() {
+    // The iterator's .return() should be called on break.
+    assert_eq!(
+        eval_number(
+            "var closed = 0; var obj = { [Symbol.iterator]() { return { next() { return { value: 1, done: false }; }, return() { closed = 1; return { done: true }; } }; } }; for (var x of obj) { break; } closed;",
+        ),
+        1.0,
+    );
+}
+
+#[test]
+fn eval_for_of_break_without_return_method() {
+    // break should work even if iterator has no .return() method.
+    assert_eq!(
+        eval_number(
+            "var sum = 0; var obj = { [Symbol.iterator]() { var i = 0; return { next() { i++; return { value: i, done: i > 5 }; } }; } }; for (var x of obj) { sum = x; break; } sum;",
+        ),
+        1.0,
+    );
+}
+
+#[test]
+fn eval_for_of_normal_completion_still_closes() {
+    // Normal completion (exhausting iterator) should also call IteratorClose.
+    assert_eq!(
+        eval_number(
+            "var closed = 0; var obj = { [Symbol.iterator]() { var i = 0; return { next() { i++; return { value: i, done: i > 2 }; }, return() { closed = 1; return { done: true }; } }; } }; for (var x of obj) {} closed;",
+        ),
+        1.0,
+    );
+}
+
+#[test]
+fn eval_lone_surrogate_length() {
+    // \uD800 is a lone high surrogate — length should be 1
+    assert_eq!(eval_number("'\\uD800'.length;"), 1.0);
+}
+
+#[test]
+fn eval_lone_surrogate_char_code_at() {
+    assert_eq!(
+        eval_number("'\\uD800'.charCodeAt(0);"),
+        f64::from(0xD800_i32)
     );
 }

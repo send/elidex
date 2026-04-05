@@ -216,7 +216,7 @@ impl ScopeState {
             return;
         }
         if !self.exported_names.insert(name) {
-            let s = prog.interner.get(name);
+            let s = prog.interner.get_utf8(name);
             self.errors.push(JsParseError {
                 kind: JsParseErrorKind::DuplicateBinding,
                 span,
@@ -248,7 +248,7 @@ impl ScopeState {
         ) && (name == prog.atoms.eval || name == prog.atoms.arguments)
             && self.is_strict()
         {
-            let name_str = prog.interner.get(name);
+            let name_str = prog.interner.get_utf8(name);
             self.errors.push(JsParseError {
                 kind: JsParseErrorKind::StrictModeViolation,
                 span,
@@ -295,7 +295,7 @@ impl ScopeState {
                 BindingKind::Implicit => false,
             };
             if conflict {
-                let s = prog.interner.get(name);
+                let s = prog.interner.get_utf8(name);
                 self.errors.push(JsParseError {
                     kind: JsParseErrorKind::DuplicateBinding,
                     span,
@@ -338,7 +338,7 @@ impl ScopeState {
             if self.scopes[idx].kind == ScopeKind::Catch {
                 for b in &self.scopes[idx].bindings {
                     if b.name == name && b.kind == BindingKind::CatchParam {
-                        let s = prog.interner.get(name);
+                        let s = prog.interner.get_utf8(name);
                         self.errors.push(JsParseError {
                             kind: JsParseErrorKind::DuplicateBinding,
                             span,
@@ -359,7 +359,8 @@ pub(super) fn has_use_strict(prog: &Program, body: &[NodeId<Stmt>]) -> bool {
         if let StmtKind::Expression(expr_id) = &stmt.kind {
             let expr = prog.exprs.get(*expr_id);
             if let ExprKind::Literal(Literal::String(s)) = expr.kind {
-                if prog.interner.get(s) == "use strict" {
+                let use_strict: Vec<u16> = "use strict".encode_utf16().collect();
+                if prog.interner.get(s) == use_strict.as_slice() {
                     return true;
                 }
                 continue; // other string directives

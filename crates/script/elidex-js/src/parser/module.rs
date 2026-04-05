@@ -390,8 +390,8 @@ impl Parser<'_> {
 mod tests {
     use crate::{ast::*, parse_module};
 
-    fn r(program: &Program, atom: crate::atom::Atom) -> &str {
-        program.interner.get(atom)
+    fn r(program: &Program, atom: crate::atom::Atom) -> String {
+        program.interner.get_utf8(atom)
     }
 
     #[test]

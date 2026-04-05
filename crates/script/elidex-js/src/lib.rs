@@ -31,6 +31,7 @@ pub mod error;
 pub mod regexp;
 pub mod span;
 pub mod token;
+pub mod wtf16;
 // Native functions share a fixed `fn(...) -> Result<JsValue, VmError>` pointer
 // signature even when infallible, so wraps are inherent to the design.
 #[allow(clippy::unnecessary_wraps)]

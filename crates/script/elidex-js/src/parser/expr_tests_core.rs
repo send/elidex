@@ -1,8 +1,8 @@
 use crate::atom::Atom;
 use crate::{ast::*, parse_script, NodeId};
 
-pub(super) fn r(prog: &Program, atom: Atom) -> &str {
-    prog.interner.get(atom)
+pub(super) fn r(prog: &Program, atom: Atom) -> String {
+    prog.interner.get_utf8(atom)
 }
 
 pub(super) fn parse_expr(src: &str) -> (Program, NodeId<Expr>) {

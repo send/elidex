@@ -3,8 +3,14 @@
 //! These are free functions with the `NativeFn` signature, referenced by name
 //! in `globals.rs` when registering built-in objects.
 
-use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, VmError};
+use super::value::{
+    ArrayIterState, JsValue, NativeContext, NativeFunction, Object, ObjectKind, Property,
+    PropertyKey, StringId, VmError,
+};
 use super::VmInner;
+use crate::wtf16::{
+    ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16, trim_u16,
+};
 
 // -- Global functions -------------------------------------------------------
 
@@ -15,7 +21,7 @@ pub(super) fn native_parse_int(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let s_id = ctx.to_string_val(val);
-    let s = ctx.get_string(s_id).trim().to_string();
+    let s = ctx.get_utf8(s_id).trim().to_string();
 
     // ES2020 §18.2.5: strip sign first, then detect 0x prefix.
     let mut negative = false;
@@ -93,7 +99,7 @@ pub(super) fn native_parse_float(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let s_id = ctx.to_string_val(val);
-    let trimmed = ctx.get_string(s_id).trim_start().to_string();
+    let trimmed = ctx.get_utf8(s_id).trim_start().to_string();
     let n = parse_float_prefix(&trimmed);
     Ok(JsValue::Number(n))
 }
@@ -200,7 +206,7 @@ fn error_ctor_impl(
     error_name: &str,
 ) -> Result<JsValue, VmError> {
     if let JsValue::Object(id) = this {
-        let name_key = ctx.vm.well_known.name;
+        let name_key = PropertyKey::String(ctx.vm.well_known.name);
         let name_val = JsValue::String(ctx.intern(error_name));
         ctx.get_object_mut(id)
             .properties
@@ -210,7 +216,7 @@ fn error_ctor_impl(
             .copied()
             .unwrap_or(JsValue::String(ctx.vm.well_known.empty));
         let msg_id = ctx.to_string_val(msg);
-        let msg_key = ctx.vm.well_known.message;
+        let msg_key = PropertyKey::String(ctx.vm.well_known.message);
         ctx.get_object_mut(id)
             .properties
             .push((msg_key, Property::data(JsValue::String(msg_id))));
@@ -272,7 +278,13 @@ pub(super) fn native_object_keys(
         .properties
         .iter()
         .filter(|(_, p)| p.enumerable)
-        .map(|(k, _)| JsValue::String(*k))
+        .filter_map(|(k, _)| {
+            if let PropertyKey::String(sid) = k {
+                Some(JsValue::String(*sid))
+            } else {
+                None
+            }
+        })
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: keys },
@@ -300,7 +312,7 @@ pub(super) fn native_object_values(
         .get_object(obj_id)
         .properties
         .iter()
-        .filter(|(_, p)| p.enumerable)
+        .filter(|(k, p)| p.enumerable && matches!(k, PropertyKey::String(_)))
         .map(|(_, p)| p.value)
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
@@ -324,7 +336,7 @@ pub(super) fn native_object_assign(
             continue;
         };
         // Collect source properties first to avoid borrow conflict.
-        let props: Vec<(super::value::StringId, JsValue)> = ctx
+        let props: Vec<(PropertyKey, JsValue)> = ctx
             .get_object(src_id)
             .properties
             .iter()
@@ -377,11 +389,11 @@ pub(super) fn native_object_define_property(
             "Object.defineProperty called on non-object",
         ));
     };
-    let key = ctx.to_string_val(prop_val);
+    let key = PropertyKey::String(ctx.to_string_val(prop_val));
 
     // Extract value from descriptor if it's an object.
     let value = if let JsValue::Object(desc_id) = desc_val {
-        let value_key = ctx.intern("value");
+        let value_key = PropertyKey::String(ctx.intern("value"));
         ctx.get_object(desc_id)
             .properties
             .iter()
@@ -551,11 +563,32 @@ pub(super) fn native_math_log(
 
 // -- String.prototype methods -----------------------------------------------
 
-/// Helper: extract the string from `this` for String.prototype methods.
-fn this_to_string(ctx: &NativeContext<'_>, this: JsValue) -> Option<String> {
-    match this {
-        JsValue::String(id) => Some(ctx.get_string(id).to_string()),
-        _ => None,
+/// Helper: extract the `StringId` from `this` for String.prototype methods.
+fn this_string_id(this: JsValue) -> Option<StringId> {
+    if let JsValue::String(id) = this {
+        Some(id)
+    } else {
+        None
+    }
+}
+
+/// Convert an f64 to a non-negative integer index per ES2020 `ToInteger`.
+/// Returns `None` for negative values (meaning "out of range").
+/// `NaN` maps to `Some(0)` per spec (`ToInteger(NaN) = +0`).
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss
+)]
+fn to_integer_index(n: f64) -> Option<usize> {
+    if n.is_nan() {
+        return Some(0);
+    }
+    let i = n.floor();
+    if i < 0.0 || i >= (usize::MAX as f64) {
+        None
+    } else {
+        Some(i as usize)
     }
 }
 
@@ -564,17 +597,17 @@ pub(super) fn native_string_char_at(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let index = args.first().map_or(0, |a| ctx.to_number(*a) as usize);
-    let ch = s
-        .chars()
-        .nth(index)
-        .map_or(String::new(), |c| c.to_string());
-    let id = ctx.intern(&ch);
+    let index = to_integer_index(args.first().map_or(0.0, |a| ctx.to_number(*a)));
+    let s = ctx.get_u16(sid);
+    let unit = index.and_then(|i| s.get(i).copied());
+    let id = match unit {
+        Some(u) => ctx.intern_utf16(&[u]),
+        None => ctx.intern(""),
+    };
     Ok(JsValue::String(id))
 }
 
@@ -583,15 +616,14 @@ pub(super) fn native_string_char_code_at(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Number(f64::NAN));
     };
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let index = args.first().map_or(0, |a| ctx.to_number(*a) as usize);
-    let code = s
-        .chars()
-        .nth(index)
-        .map_or(f64::NAN, |c| f64::from(c as u32));
+    let index = to_integer_index(args.first().map_or(0.0, |a| ctx.to_number(*a)));
+    let s = ctx.get_u16(sid);
+    let code = index
+        .and_then(|i| s.get(i))
+        .map_or(f64::NAN, |&u| f64::from(u));
     Ok(JsValue::Number(code))
 }
 
@@ -600,31 +632,23 @@ pub(super) fn native_string_index_of(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Number(-1.0));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
+    let search = ctx.get_u16(search_id).to_vec();
+    let s = ctx.get_u16(sid);
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let from = args.get(1).map_or(0, |a| {
+    let from = args.get(1).map_or(0usize, |a| {
         let n = ctx.to_number(*a);
         if n.is_nan() || n < 0.0 {
             0usize
         } else {
-            n as usize
+            (n as usize).min(s.len())
         }
     });
-    // Work with char indices: find starting from `from`-th char.
-    let byte_from = s
-        .char_indices()
-        .nth(from)
-        .map_or(s.len(), |(byte_idx, _)| byte_idx);
-    let result = s[byte_from..].find(&search).map_or(-1.0, |byte_pos| {
-        // Convert byte position back to char index.
-        #[allow(clippy::cast_precision_loss)]
-        let char_idx = s[..byte_from + byte_pos].chars().count() as f64;
-        char_idx
-    });
+    #[allow(clippy::cast_precision_loss)]
+    let result = find_u16(&s[from..], &search).map_or(-1.0, |pos| (from + pos) as f64);
     Ok(JsValue::Number(result))
 }
 
@@ -633,12 +657,23 @@ pub(super) fn native_string_includes(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Boolean(false));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
-    Ok(JsValue::Boolean(s.contains(&search)))
+    let search = ctx.get_u16(search_id).to_vec();
+    let s = ctx.get_u16(sid);
+    // §21.1.3.7 step 4-5: position argument (UTF-16 index, default 0).
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let pos = args.get(1).map_or(0usize, |a| {
+        let n = ctx.to_number(*a);
+        if n.is_nan() || n < 0.0 {
+            0usize
+        } else {
+            (n as usize).min(s.len())
+        }
+    });
+    Ok(JsValue::Boolean(find_u16(&s[pos..], &search).is_some()))
 }
 
 pub(super) fn native_string_slice(
@@ -646,36 +681,36 @@ pub(super) fn native_string_slice(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let char_len = s.chars().count();
+    let s = ctx.get_u16(sid).to_vec();
+    let u16_len = s.len();
     #[allow(clippy::cast_possible_wrap)]
-    let len = char_len as isize;
+    let len_i = u16_len as isize;
     let raw_start = args.first().map_or(0.0, |a| ctx.to_number(*a));
     #[allow(clippy::cast_possible_truncation)]
-    let resolve_index = |n_raw: f64, char_len_usize: usize, len_i: isize| -> usize {
+    let resolve_index = |n_raw: f64, total: usize, total_i: isize| -> usize {
         let n = n_raw as isize;
         if n < 0 {
-            (len_i + n).max(0).cast_unsigned()
+            (total_i + n).max(0).cast_unsigned()
         } else {
-            n.cast_unsigned().min(char_len_usize)
+            n.cast_unsigned().min(total)
         }
     };
-    let start = resolve_index(raw_start, char_len, len);
+    let start = resolve_index(raw_start, u16_len, len_i);
     let end = if args.len() > 1 {
         let raw_end = ctx.to_number(args[1]);
-        resolve_index(raw_end, char_len, len)
+        resolve_index(raw_end, u16_len, len_i)
     } else {
-        char_len
+        u16_len
     };
-    let result: String = if start <= end {
-        s.chars().skip(start).take(end - start).collect()
+    let id = if start <= end {
+        ctx.intern_utf16(&s[start..end])
     } else {
-        String::new()
+        ctx.intern("")
     };
-    let id = ctx.intern(&result);
     Ok(JsValue::String(id))
 }
 
@@ -684,30 +719,30 @@ pub(super) fn native_string_substring(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let len = s.chars().count();
+    let s = ctx.get_u16(sid).to_vec();
+    let u16len = s.len();
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let clamp = |n: f64| -> usize {
         if n.is_nan() || n < 0.0 {
             0
         } else {
-            (n as usize).min(len)
+            (n as usize).min(u16len)
         }
     };
     let mut a = clamp(args.first().map_or(0.0, |v| ctx.to_number(*v)));
     let mut b = if args.len() > 1 {
         clamp(ctx.to_number(args[1]))
     } else {
-        len
+        u16len
     };
     if a > b {
         std::mem::swap(&mut a, &mut b);
     }
-    let result: String = s.chars().skip(a).take(b - a).collect();
-    let id = ctx.intern(&result);
+    let id = ctx.intern_utf16(&s[a..b]);
     Ok(JsValue::String(id))
 }
 
@@ -716,12 +751,13 @@ pub(super) fn native_string_to_lower_case(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let lower = s.to_lowercase();
-    let id = ctx.intern(&lower);
+    let s = ctx.get_u16(sid);
+    let lower = to_lower_u16(s);
+    let id = ctx.intern_utf16(&lower);
     Ok(JsValue::String(id))
 }
 
@@ -730,12 +766,13 @@ pub(super) fn native_string_to_upper_case(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let upper = s.to_uppercase();
-    let id = ctx.intern(&upper);
+    let s = ctx.get_u16(sid);
+    let upper = to_upper_u16(s);
+    let id = ctx.intern_utf16(&upper);
     Ok(JsValue::String(id))
 }
 
@@ -744,12 +781,13 @@ pub(super) fn native_string_trim(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
-    let trimmed = s.trim();
-    let id = ctx.intern(trimmed);
+    let s = ctx.get_u16(sid).to_vec();
+    let trimmed = trim_u16(&s);
+    let id = ctx.intern_utf16(trimmed);
     Ok(JsValue::String(id))
 }
 
@@ -758,7 +796,7 @@ pub(super) fn native_string_split(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Object(ctx.alloc_object(Object {
             kind: ObjectKind::Array {
                 elements: Vec::new(),
@@ -768,14 +806,29 @@ pub(super) fn native_string_split(
         })));
     };
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let sep = ctx.get_string(sep_id).to_string();
-    let parts: Vec<JsValue> = s
-        .split(&sep)
-        .map(|part| {
-            let id = ctx.intern(part);
-            JsValue::String(id)
-        })
-        .collect();
+    let sep = ctx.get_u16(sep_id).to_vec();
+    let s = ctx.get_u16(sid).to_vec();
+    let mut parts: Vec<JsValue> = Vec::new();
+    if sep.is_empty() {
+        // Split into individual code units.
+        for &unit in &s {
+            let id = ctx.intern_utf16(&[unit]);
+            parts.push(JsValue::String(id));
+        }
+    } else {
+        let mut start = 0;
+        while start <= s.len() {
+            if let Some(pos) = find_u16(&s[start..], &sep) {
+                let id = ctx.intern_utf16(&s[start..start + pos]);
+                parts.push(JsValue::String(id));
+                start += pos + sep.len();
+            } else {
+                let id = ctx.intern_utf16(&s[start..]);
+                parts.push(JsValue::String(id));
+                break;
+            }
+        }
+    }
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: parts },
         properties: Vec::new(),
@@ -788,12 +841,23 @@ pub(super) fn native_string_starts_with(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Boolean(false));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
-    Ok(JsValue::Boolean(s.starts_with(&search)))
+    let search = ctx.get_u16(search_id).to_vec();
+    let s = ctx.get_u16(sid);
+    // §21.1.3.20 step 5-8: position argument (UTF-16 index, default 0).
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let pos = args.get(1).map_or(0usize, |a| {
+        let n = ctx.to_number(*a);
+        if n.is_nan() || n < 0.0 {
+            0usize
+        } else {
+            (n as usize).min(s.len())
+        }
+    });
+    Ok(JsValue::Boolean(starts_with_u16(s, &search, pos)))
 }
 
 pub(super) fn native_string_ends_with(
@@ -801,12 +865,24 @@ pub(super) fn native_string_ends_with(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         return Ok(JsValue::Boolean(false));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
-    Ok(JsValue::Boolean(s.ends_with(&search)))
+    let search = ctx.get_u16(search_id).to_vec();
+    let s = ctx.get_u16(sid);
+    // §21.1.3.6 step 5-8: endPosition (UTF-16 index, default len).
+    let u16len = s.len();
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let end_pos = args.get(1).map_or(u16len, |a| {
+        let n = ctx.to_number(*a);
+        if n.is_nan() || n < 0.0 {
+            0usize
+        } else {
+            (n as usize).min(u16len)
+        }
+    });
+    Ok(JsValue::Boolean(ends_with_u16(s, &search, end_pos)))
 }
 
 pub(super) fn native_string_replace(
@@ -814,23 +890,128 @@ pub(super) fn native_string_replace(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(s) = this_to_string(ctx, this) else {
+    let Some(sid) = this_string_id(this) else {
         let id = ctx.intern("");
         return Ok(JsValue::String(id));
     };
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
-    let search = ctx.get_string(search_id).to_string();
     let replacement_id = ctx.to_string_val(args.get(1).copied().unwrap_or(JsValue::Undefined));
-    let replacement = ctx.get_string(replacement_id).to_string();
+    let search = ctx.get_u16(search_id).to_vec();
+    let replacement = ctx.get_u16(replacement_id).to_vec();
+    let s = ctx.get_u16(sid).to_vec();
     // Replace first occurrence only (like JS String.prototype.replace with a string pattern).
-    let result = if let Some(pos) = s.find(&search) {
-        let mut r = String::with_capacity(s.len() - search.len() + replacement.len());
-        r.push_str(&s[..pos]);
-        r.push_str(&replacement);
-        r.push_str(&s[pos + search.len()..]);
-        r
+    let id = if let Some(pos) = find_u16(&s, &search) {
+        let mut r: Vec<u16> = Vec::with_capacity(s.len() - search.len() + replacement.len());
+        r.extend_from_slice(&s[..pos]);
+        r.extend_from_slice(&replacement);
+        r.extend_from_slice(&s[pos + search.len()..]);
+        ctx.intern_utf16(&r)
     } else {
-        s
+        sid
+    };
+    Ok(JsValue::String(id))
+}
+
+// -- Object.getOwnPropertySymbols ---------------------------------------------
+
+pub(super) fn native_object_get_own_property_symbols(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let JsValue::Object(obj_id) = obj_val else {
+        return Ok(JsValue::Object(ctx.alloc_object(Object {
+            kind: ObjectKind::Array {
+                elements: Vec::new(),
+            },
+            properties: Vec::new(),
+            prototype: ctx.vm.array_prototype,
+        })));
+    };
+    let syms: Vec<JsValue> = ctx
+        .get_object(obj_id)
+        .properties
+        .iter()
+        .filter_map(|(k, _)| {
+            if let PropertyKey::Symbol(sid) = k {
+                Some(JsValue::Symbol(*sid))
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(JsValue::Object(ctx.alloc_object(Object {
+        kind: ObjectKind::Array { elements: syms },
+        properties: Vec::new(),
+        prototype: ctx.vm.array_prototype,
+    })))
+}
+
+// -- Symbol constructor & methods -------------------------------------------
+
+pub(super) fn native_symbol_constructor(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // NOTE: `new Symbol()` should throw TypeError, but detecting constructor
+    // calls requires knowing if invoked via the New opcode. Deferred.
+    let desc = match args.first().copied() {
+        Some(JsValue::Undefined) | None => None,
+        Some(val) => Some(ctx.to_string_val(val)),
+    };
+    let sid = ctx.vm.alloc_symbol(desc);
+    Ok(JsValue::Symbol(sid))
+}
+
+pub(super) fn native_symbol_for(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let key_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined));
+    if let Some(&sid) = ctx.vm.symbol_registry.get(&key_id) {
+        return Ok(JsValue::Symbol(sid));
+    }
+    let sid = ctx.vm.alloc_symbol(Some(key_id));
+    ctx.vm.symbol_registry.insert(key_id, sid);
+    Ok(JsValue::Symbol(sid))
+}
+
+pub(super) fn native_symbol_key_for(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let JsValue::Symbol(sid) = val else {
+        return Err(VmError::type_error("Symbol.keyFor requires a symbol"));
+    };
+    for (&key, &reg_sid) in &ctx.vm.symbol_registry {
+        if reg_sid == sid {
+            return Ok(JsValue::String(key));
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+pub(super) fn native_symbol_prototype_to_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::Symbol(sid) = this else {
+        return Err(VmError::type_error(
+            "Symbol.prototype.toString requires a symbol value",
+        ));
+    };
+    let desc = ctx.vm.symbols[sid.0 as usize]
+        .description
+        .map(|d| ctx.vm.strings.get_utf8(d));
+    let result = match desc {
+        Some(d) => format!("Symbol({d})"),
+        None => "Symbol()".to_string(),
     };
     let id = ctx.intern(&result);
     Ok(JsValue::String(id))
@@ -858,7 +1039,7 @@ pub(super) fn native_json_parse_stub(
 
 fn format_value_for_console(vm: &mut VmInner, val: JsValue) -> String {
     let id = super::coerce::to_string(vm, val);
-    vm.strings.get(id).to_string()
+    vm.strings.get_utf8(id)
 }
 
 fn console_output(
@@ -896,4 +1077,144 @@ pub(super) fn native_console_warn(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     console_output(ctx, args, "[warn] ")
+}
+
+// -- Array iterator (Symbol.iterator protocol) --------------------------------
+
+/// `Array.prototype[Symbol.iterator]()` — creates an ArrayIterator.
+pub(super) fn native_array_values(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::Object(arr_id) = this else {
+        return Err(VmError::type_error(
+            "Array.prototype[Symbol.iterator] called on non-object",
+        ));
+    };
+    // Create a "next" native function object inline.
+    let next_name = ctx.vm.well_known.next;
+    let next_fn_id = ctx.alloc_object(Object {
+        kind: ObjectKind::NativeFunction(NativeFunction {
+            name: next_name,
+            func: native_array_iterator_next,
+        }),
+        properties: Vec::new(),
+        prototype: None,
+    });
+    let iter_obj = ctx.alloc_object(Object {
+        kind: ObjectKind::ArrayIterator(ArrayIterState {
+            array_id: arr_id,
+            index: 0,
+        }),
+        properties: vec![(
+            PropertyKey::String(next_name),
+            Property::method(JsValue::Object(next_fn_id)),
+        )],
+        prototype: None,
+    });
+    Ok(JsValue::Object(iter_obj))
+}
+
+/// `ArrayIterator.prototype.next()` — returns `{ value, done }`.
+pub(super) fn native_array_iterator_next(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::Object(iter_id) = this else {
+        return create_iter_result(ctx, JsValue::Undefined, true);
+    };
+    // Read state.
+    let (array_id, idx) = {
+        let iter_obj = ctx.get_object(iter_id);
+        if let ObjectKind::ArrayIterator(state) = &iter_obj.kind {
+            (state.array_id, state.index)
+        } else {
+            return create_iter_result(ctx, JsValue::Undefined, true);
+        }
+    };
+    // Get value from array.
+    let (value, done) = {
+        let arr_obj = ctx.get_object(array_id);
+        if let ObjectKind::Array { elements } = &arr_obj.kind {
+            if idx < elements.len() {
+                (elements[idx], false)
+            } else {
+                (JsValue::Undefined, true)
+            }
+        } else {
+            (JsValue::Undefined, true)
+        }
+    };
+    // Advance index.
+    if !done {
+        let iter_obj = ctx.get_object_mut(iter_id);
+        if let ObjectKind::ArrayIterator(state) = &mut iter_obj.kind {
+            state.index += 1;
+        }
+    }
+    create_iter_result(ctx, value, done)
+}
+
+// -- Object.prototype.toString (ES2020 §19.1.3.6) -------------------------
+
+pub(super) fn native_object_prototype_to_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let tag = match this {
+        JsValue::Undefined => "Undefined",
+        JsValue::Null => "Null",
+        JsValue::Boolean(_) => "Boolean",
+        JsValue::Number(_) => "Number",
+        JsValue::String(_) => "String",
+        JsValue::Symbol(_) => "Symbol",
+        JsValue::Object(obj_id) => {
+            // Check @@toStringTag
+            let tag_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.to_string_tag);
+            if let Some(JsValue::String(tag_id)) =
+                super::coerce::get_property(ctx.vm, obj_id, tag_key)
+            {
+                let tag_str = ctx.get_utf8(tag_id);
+                let result = format!("[object {tag_str}]");
+                let id = ctx.intern(&result);
+                return Ok(JsValue::String(id));
+            }
+            // Default tags based on object kind
+            let obj = ctx.get_object(obj_id);
+            match &obj.kind {
+                ObjectKind::Array { .. } => "Array",
+                ObjectKind::Function(_)
+                | ObjectKind::NativeFunction(_)
+                | ObjectKind::BoundFunction { .. } => "Function",
+                ObjectKind::Error { .. } => "Error",
+                ObjectKind::RegExp { .. } => "RegExp",
+                _ => "Object",
+            }
+        }
+    };
+    let result = format!("[object {tag}]");
+    let id = ctx.intern(&result);
+    Ok(JsValue::String(id))
+}
+
+/// Helper: create a `{ value, done }` iterator result object.
+fn create_iter_result(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    done: bool,
+) -> Result<JsValue, VmError> {
+    let value_key = PropertyKey::String(ctx.vm.well_known.value);
+    let done_key = PropertyKey::String(ctx.vm.well_known.done);
+    let obj = ctx.alloc_object(Object {
+        kind: ObjectKind::Ordinary,
+        properties: vec![
+            (value_key, Property::data(value)),
+            (done_key, Property::data(JsValue::Boolean(done))),
+        ],
+        prototype: None,
+    });
+    Ok(JsValue::Object(obj))
 }

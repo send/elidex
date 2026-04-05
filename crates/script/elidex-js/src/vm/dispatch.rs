@@ -7,11 +7,11 @@ use crate::bytecode::compiled::Constant;
 use crate::bytecode::opcode::Op;
 
 use super::coerce::{
-    abstract_eq, op_add, op_bitnot, op_neg, op_not, op_pos, op_void, strict_eq, to_boolean,
+    abstract_eq, get_property, op_bitnot, op_neg, op_not, op_pos, op_void, strict_eq, to_boolean,
     to_number, to_string, typeof_str, BitwiseOp, NumericBinaryOp,
 };
 use super::value::{
-    ArrayIterState, ForInState, FuncId, JsValue, Object, ObjectKind, Property, StringId, VmError,
+    ForInState, FuncId, JsValue, Object, ObjectKind, Property, PropertyKey, StringId, VmError,
     VmErrorKind,
 };
 use super::Vm;
@@ -133,30 +133,10 @@ impl Vm {
                     let slot = self.read_u16_op() as usize;
                     let frame = &self.inner.frames[frame_idx];
                     if frame.tdz_slots.get(slot).copied().unwrap_or(false) {
-                        // Create a ReferenceError object and throw it through
-                        // the JS exception handling path (try/catch).
-                        let msg = "Cannot access variable before initialization";
-                        let msg_id = self.inner.strings.intern(msg);
-                        let err_name_id = self.inner.strings.intern("ReferenceError");
-                        let err_obj = self.alloc_object(Object {
-                            kind: ObjectKind::Error { name: err_name_id },
-                            properties: vec![
-                                (
-                                    self.inner.well_known.message,
-                                    Property::data(JsValue::String(msg_id)),
-                                ),
-                                (
-                                    self.inner.well_known.name,
-                                    Property::data(JsValue::String(err_name_id)),
-                                ),
-                            ],
-                            prototype: None,
-                        });
-                        let thrown = JsValue::Object(err_obj);
-                        if self.handle_exception(thrown, entry_frame_depth) {
-                            continue;
-                        }
-                        return Err(VmError::reference_error(msg));
+                        let err = VmError::reference_error(
+                            "Cannot access variable before initialization",
+                        );
+                        self.throw_error(err, entry_frame_depth)?;
                     }
                 }
                 Op::InitLocal => {
@@ -185,26 +165,40 @@ impl Vm {
                 Op::GetGlobal => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
-                    let val = self
-                        .inner
-                        .globals
-                        .get(&name_id)
-                        .copied()
-                        .unwrap_or(JsValue::Undefined);
-                    self.inner.stack.push(val);
+                    if let Some(val) = self.inner.globals.get(&name_id).copied() {
+                        self.inner.stack.push(val);
+                    } else {
+                        // typeof uses TypeOfGlobal, so this only fires for
+                        // actual undeclared variable access.
+                        let name_str = self.inner.strings.get_utf8(name_id);
+                        let msg = format!("{name_str} is not defined");
+                        let err = VmError::reference_error(&msg);
+                        self.throw_error(err, entry_frame_depth)?;
+                    }
                 }
                 Op::SetGlobal => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let val = self.peek()?;
-                    self.inner.globals.insert(name_id, val);
+                    // §8.1.1.2.5: In strict mode, assigning to an undeclared
+                    // variable is a ReferenceError.
+                    if self.inner.compiled_functions[func_id.0 as usize].is_strict
+                        && !self.inner.globals.contains_key(&name_id)
+                    {
+                        let name_str = self.inner.strings.get_utf8(name_id);
+                        let msg = format!("{name_str} is not defined");
+                        let err = VmError::reference_error(&msg);
+                        self.throw_error(err, entry_frame_depth)?;
+                    } else {
+                        self.inner.globals.insert(name_id, val);
+                    }
                 }
 
                 // ── Arithmetic ──────────────────────────────────────
                 Op::Add => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let r = op_add(&mut self.inner, a, b);
+                    let r = self.op_add(a, b)?;
                     self.inner.stack.push(r);
                 }
                 Op::Sub => self.binary_numeric(NumericBinaryOp::Sub)?,
@@ -252,10 +246,25 @@ impl Vm {
                 Op::Instanceof => {
                     let rhs = self.pop()?; // constructor
                     let lhs = self.pop()?; // object
-                                           // Walk lhs's prototype chain looking for rhs.prototype
+
+                    // §12.10.4 step 2: Check rhs[@@hasInstance]
+                    if let JsValue::Object(rhs_id) = rhs {
+                        let has_instance_key =
+                            PropertyKey::Symbol(self.inner.well_known_symbols.has_instance);
+                        if let Some(has_instance_fn) =
+                            super::coerce::get_property(&self.inner, rhs_id, has_instance_key)
+                        {
+                            let result = self.call_value(has_instance_fn, rhs, &[lhs])?;
+                            let bool_result = to_boolean(&self.inner, result);
+                            self.inner.stack.push(JsValue::Boolean(bool_result));
+                            continue;
+                        }
+                    }
+
+                    // OrdinaryHasInstance: walk lhs's prototype chain looking for rhs.prototype
                     let result =
                         if let (JsValue::Object(obj_id), JsValue::Object(ctor_id)) = (lhs, rhs) {
-                            let proto_key = self.inner.well_known.prototype;
+                            let proto_key = PropertyKey::String(self.inner.well_known.prototype);
                             let ctor_proto =
                                 super::coerce::get_property(&self.inner, ctor_id, proto_key);
                             if let Some(JsValue::Object(target_proto)) = ctor_proto {
@@ -282,46 +291,24 @@ impl Vm {
                     let lhs = self.pop()?; // key
                     if let JsValue::Object(obj_id) = rhs {
                         let key_id = to_string(&mut self.inner, lhs);
+                        let pk = PropertyKey::String(key_id);
                         let obj = self.inner.get_object(obj_id);
                         let found = if let ObjectKind::Array { ref elements } = obj.kind {
-                            let key_str = self.inner.strings.get(key_id);
+                            let key_str = self.inner.strings.get_utf8(key_id);
                             if let Ok(idx) = key_str.parse::<usize>() {
                                 idx < elements.len()
                             } else {
-                                super::coerce::get_property(&self.inner, obj_id, key_id).is_some()
+                                super::coerce::get_property(&self.inner, obj_id, pk).is_some()
                             }
                         } else {
-                            super::coerce::get_property(&self.inner, obj_id, key_id).is_some()
+                            super::coerce::get_property(&self.inner, obj_id, pk).is_some()
                         };
                         self.inner.stack.push(JsValue::Boolean(found));
                     } else {
-                        let msg_str = self.inner.strings.intern(
+                        let err = VmError::type_error(
                             "Cannot use 'in' operator to search for property in non-object",
                         );
-                        let type_error_name = self.inner.strings.intern("TypeError");
-                        let error_obj = self.alloc_object(Object {
-                            kind: ObjectKind::Error {
-                                name: type_error_name,
-                            },
-                            properties: vec![
-                                (
-                                    self.inner.well_known.message,
-                                    Property::data(JsValue::String(msg_str)),
-                                ),
-                                (
-                                    self.inner.well_known.name,
-                                    Property::data(JsValue::String(type_error_name)),
-                                ),
-                            ],
-                            prototype: None,
-                        });
-                        let val = JsValue::Object(error_obj);
-                        if self.handle_exception(val, entry_frame_depth) {
-                            continue;
-                        }
-                        return Err(VmError::type_error(
-                            "Cannot use 'in' operator to search for property in non-object",
-                        ));
+                        self.throw_error(err, entry_frame_depth)?;
                     }
                 }
 
@@ -385,7 +372,7 @@ impl Vm {
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let obj_val = self.pop()?;
                     let old = if let JsValue::Object(id) = obj_val {
-                        super::coerce::get_property(&self.inner, id, name_id)
+                        super::coerce::get_property(&self.inner, id, PropertyKey::String(name_id))
                             .unwrap_or(JsValue::Undefined)
                     } else {
                         JsValue::Undefined
@@ -509,10 +496,11 @@ impl Vm {
                 Op::DeleteProp => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    let pk = PropertyKey::String(name_id);
                     let obj_val = self.pop()?;
                     if let JsValue::Object(id) = obj_val {
                         let obj = self.get_object_mut(id);
-                        obj.properties.retain(|(k, _)| *k != name_id);
+                        obj.properties.retain(|(k, _)| *k != pk);
                     }
                     self.inner.stack.push(JsValue::Boolean(true));
                 }
@@ -521,8 +509,9 @@ impl Vm {
                     let obj_val = self.pop()?;
                     if let JsValue::Object(id) = obj_val {
                         let key_id = to_string(&mut self.inner, key);
+                        let pk = PropertyKey::String(key_id);
                         let obj = self.get_object_mut(id);
-                        obj.properties.retain(|(k, _)| *k != key_id);
+                        obj.properties.retain(|(k, _)| *k != pk);
                     }
                     self.inner.stack.push(JsValue::Boolean(true));
                 }
@@ -540,17 +529,16 @@ impl Vm {
                 Op::DefineProperty => {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    let pk = PropertyKey::String(name_id);
                     let val = self.pop()?;
                     let obj_val = self.peek()?;
                     if let JsValue::Object(id) = obj_val {
                         let obj = self.get_object_mut(id);
                         // Overwrite if key already exists (e.g. after spread).
-                        if let Some(existing) =
-                            obj.properties.iter_mut().find(|(k, _)| *k == name_id)
-                        {
+                        if let Some(existing) = obj.properties.iter_mut().find(|(k, _)| *k == pk) {
                             existing.1 = Property::data(val);
                         } else {
-                            obj.properties.push((name_id, Property::data(val)));
+                            obj.properties.push((pk, Property::data(val)));
                         }
                     }
                 }
@@ -559,10 +547,22 @@ impl Vm {
                     let key = self.pop()?;
                     let obj_val = self.peek()?;
                     if let JsValue::Object(id) = obj_val {
-                        let key_id = to_string(&mut self.inner, key);
+                        let pk = self.make_property_key(key);
                         self.get_object_mut(id)
                             .properties
-                            .push((key_id, Property::data(val)));
+                            .push((pk, Property::data(val)));
+                    }
+                }
+                Op::DefineComputedMethod => {
+                    // Like DefineComputedProperty but non-enumerable (§14.3.8).
+                    let val = self.pop()?;
+                    let key = self.pop()?;
+                    let obj_val = self.peek()?;
+                    if let JsValue::Object(id) = obj_val {
+                        let pk = self.make_property_key(key);
+                        self.get_object_mut(id)
+                            .properties
+                            .push((pk, Property::method(val)));
                     }
                 }
                 Op::CreateArray => {
@@ -598,16 +598,24 @@ impl Vm {
                 Op::ArraySpread => {
                     let source = self.pop()?;
                     let arr_val = self.peek()?;
-                    if let (JsValue::Object(src_id), JsValue::Object(arr_id)) = (source, arr_val) {
-                        let src = self.inner.get_object(src_id);
-                        if let ObjectKind::Array { elements } = &src.kind {
-                            let elems: Vec<JsValue> = elements.clone();
-                            let arr = self.inner.get_object_mut(arr_id);
-                            if let ObjectKind::Array {
-                                elements: ref mut target,
-                            } = arr.kind
-                            {
-                                target.extend(elems);
+                    if let JsValue::Object(src_id) = source {
+                        // Get iterator via Symbol.iterator protocol.
+                        let iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+                        if let Some(iter_fn) = get_property(&self.inner, src_id, iter_key) {
+                            let iterator = self.call_value(iter_fn, source, &[])?;
+                            if matches!(iterator, JsValue::Object(_)) {
+                                loop {
+                                    let Some(value) = self.iter_next(iterator)? else {
+                                        break;
+                                    };
+                                    // Push to target array.
+                                    if let JsValue::Object(arr_id) = arr_val {
+                                        let arr = self.inner.get_object_mut(arr_id);
+                                        if let ObjectKind::Array { ref mut elements } = arr.kind {
+                                            elements.push(value);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -617,7 +625,7 @@ impl Vm {
                     let obj_val = self.peek()?;
                     if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
                         let src = self.inner.get_object(src_id);
-                        let props: Vec<(StringId, Property)> = src
+                        let props: Vec<(PropertyKey, Property)> = src
                             .properties
                             .iter()
                             .filter(|(_, p)| p.enumerable)
@@ -642,12 +650,12 @@ impl Vm {
                     let start = self.inner.stack.len() - count;
                     let parts: Vec<JsValue> = self.inner.stack[start..].to_vec();
                     self.inner.stack.truncate(start);
-                    let mut result = String::new();
+                    let mut result: Vec<u16> = Vec::new();
                     for val in parts {
                         let s_id = to_string(&mut self.inner, val);
-                        result.push_str(self.inner.strings.get(s_id));
+                        result.extend_from_slice(self.inner.strings.get(s_id));
                     }
-                    let id = self.inner.strings.intern(&result);
+                    let id = self.inner.strings.intern_utf16(&result);
                     self.inner.stack.push(JsValue::String(id));
                 }
 
@@ -777,27 +785,20 @@ impl Vm {
                 // ── Iteration ───────────────────────────────────────
                 Op::GetIterator => {
                     let val = self.pop()?;
-                    // For arrays, create an ArrayIterator.
                     if let JsValue::Object(obj_id) = val {
-                        let obj_ref = self.inner.objects[obj_id.0 as usize]
-                            .as_ref()
-                            .ok_or_else(|| VmError::type_error("cannot iterate freed object"))?;
-                        if matches!(obj_ref.kind, ObjectKind::Array { .. }) {
-                            let iter_obj = self.alloc_object(Object {
-                                kind: ObjectKind::ArrayIterator(ArrayIterState {
-                                    array_id: obj_id,
-                                    index: 0,
-                                }),
-                                properties: Vec::new(),
-                                prototype: None,
-                            });
-                            self.inner.stack.push(JsValue::Object(iter_obj));
+                        // Look up Symbol.iterator on the object.
+                        let iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+                        if let Some(iter_fn) = get_property(&self.inner, obj_id, iter_key) {
+                            // Call the @@iterator method with the object as `this`.
+                            let result = self.call_value(iter_fn, val, &[])?;
+                            self.inner.stack.push(result);
                         } else {
-                            // Non-array objects: not iterable for now.
-                            self.inner.stack.push(JsValue::Undefined);
+                            let err = VmError::type_error("object is not iterable");
+                            self.throw_error(err, entry_frame_depth)?;
                         }
                     } else {
-                        self.inner.stack.push(JsValue::Undefined);
+                        let err = VmError::type_error("value is not iterable");
+                        self.throw_error(err, entry_frame_depth)?;
                     }
                 }
                 Op::IteratorNext => {
@@ -807,45 +808,9 @@ impl Vm {
                         .stack
                         .last()
                         .ok_or_else(|| VmError::internal("empty stack on IteratorNext"))?;
-                    if let JsValue::Object(iter_id) = iter_val {
-                        let (array_id, idx) = {
-                            let iter_obj = self.inner.objects[iter_id.0 as usize]
-                                .as_ref()
-                                .ok_or_else(|| VmError::internal("freed iterator"))?;
-                            if let ObjectKind::ArrayIterator(state) = &iter_obj.kind {
-                                (state.array_id, state.index)
-                            } else {
-                                self.inner.stack.push(JsValue::Undefined);
-                                self.inner.stack.push(JsValue::Boolean(true));
-                                continue;
-                            }
-                        };
-                        // Read element from array.
-                        let (value, done) = {
-                            let arr_obj = self.inner.objects[array_id.0 as usize]
-                                .as_ref()
-                                .ok_or_else(|| VmError::internal("freed array in iterator"))?;
-                            if let ObjectKind::Array { elements } = &arr_obj.kind {
-                                if idx < elements.len() {
-                                    (elements[idx], false)
-                                } else {
-                                    (JsValue::Undefined, true)
-                                }
-                            } else {
-                                (JsValue::Undefined, true)
-                            }
-                        };
-                        // Advance index.
-                        if !done {
-                            let iter_obj = self.inner.objects[iter_id.0 as usize]
-                                .as_mut()
-                                .ok_or_else(|| VmError::internal("freed iterator"))?;
-                            if let ObjectKind::ArrayIterator(state) = &mut iter_obj.kind {
-                                state.index += 1;
-                            }
-                        }
+                    if let Some(value) = self.iter_next(iter_val)? {
                         self.inner.stack.push(value);
-                        self.inner.stack.push(JsValue::Boolean(done));
+                        self.inner.stack.push(JsValue::Boolean(false));
                     } else {
                         self.inner.stack.push(JsValue::Undefined);
                         self.inner.stack.push(JsValue::Boolean(true));
@@ -856,42 +821,8 @@ impl Vm {
                     // Collect remaining iterator elements into a new array.
                     let iter_val = self.pop()?;
                     let mut elements = Vec::new();
-                    if let JsValue::Object(iter_id) = iter_val {
-                        loop {
-                            let (array_id, idx) = {
-                                let iter_obj = self.inner.objects[iter_id.0 as usize]
-                                    .as_ref()
-                                    .ok_or_else(|| VmError::internal("freed iterator"))?;
-                                if let ObjectKind::ArrayIterator(state) = &iter_obj.kind {
-                                    (state.array_id, state.index)
-                                } else {
-                                    break;
-                                }
-                            };
-                            let value = {
-                                let arr_obj = self.inner.objects[array_id.0 as usize]
-                                    .as_ref()
-                                    .ok_or_else(|| VmError::internal("freed array"))?;
-                                if let ObjectKind::Array {
-                                    elements: arr_elems,
-                                } = &arr_obj.kind
-                                {
-                                    if idx >= arr_elems.len() {
-                                        break;
-                                    }
-                                    arr_elems[idx]
-                                } else {
-                                    break;
-                                }
-                            };
-                            elements.push(value);
-                            // Advance index.
-                            if let Some(obj) = self.inner.objects[iter_id.0 as usize].as_mut() {
-                                if let ObjectKind::ArrayIterator(state) = &mut obj.kind {
-                                    state.index += 1;
-                                }
-                            }
-                        }
+                    while let Some(value) = self.iter_next(iter_val)? {
+                        elements.push(value);
                     }
                     let proto = self.inner.array_prototype;
                     let arr = self.alloc_object(Object {
@@ -901,7 +832,18 @@ impl Vm {
                     });
                     self.inner.stack.push(JsValue::Object(arr));
                 }
-                Op::IteratorClose | Op::DestructureElem | Op::Debugger => {
+                Op::IteratorClose => {
+                    // Stack: [iterator] → []
+                    let iter_val = self.pop()?;
+                    if let JsValue::Object(iter_id) = iter_val {
+                        let return_key = PropertyKey::String(self.inner.well_known.return_str);
+                        if let Some(return_fn) = get_property(&self.inner, iter_id, return_key) {
+                            // Call .return(), ignore result per spec.
+                            let _ = self.call_value(return_fn, iter_val, &[]);
+                        }
+                    }
+                }
+                Op::DestructureElem | Op::Debugger => {
                     // Destructuring stubs / no-op instructions.
                 }
                 Op::DestructureProp | Op::ObjectRest | Op::DefaultIfUndefined => {
@@ -924,7 +866,7 @@ impl Vm {
                         // Class methods are non-enumerable per ES2020 spec.
                         self.get_object_mut(id)
                             .properties
-                            .push((name_id, Property::method(val)));
+                            .push((PropertyKey::String(name_id), Property::method(val)));
                     }
                 }
                 Op::DefineField => {
@@ -953,8 +895,10 @@ impl Vm {
                                     VmError::type_error("cannot iterate freed object")
                                 })?;
                             for (key, prop) in &obj_ref.properties {
-                                if prop.enumerable && seen.insert(*key) {
-                                    keys.push(*key);
+                                if let PropertyKey::String(sid) = key {
+                                    if prop.enumerable && seen.insert(*sid) {
+                                        keys.push(*sid);
+                                    }
                                 }
                             }
                             current = obj_ref.prototype;
@@ -1107,8 +1051,8 @@ impl Vm {
             .ok_or_else(|| VmError::internal("constant index out of bounds"))?;
         match constant {
             Constant::Number(n) => Ok(JsValue::Number(*n)),
-            Constant::String(s) => {
-                let id = self.inner.strings.intern(s);
+            Constant::Wtf16(v) => {
+                let id = self.inner.strings.intern_utf16(v);
                 Ok(JsValue::String(id))
             }
             Constant::BigInt(_) // deferred to M4-12
@@ -1124,8 +1068,8 @@ impl Vm {
             .get(idx as usize)
             .ok_or_else(|| VmError::internal("constant index out of bounds"))?;
         match constant {
-            Constant::String(s) => {
-                let id = self.inner.strings.intern(s);
+            Constant::Wtf16(v) => {
+                let id = self.inner.strings.intern_utf16(v);
                 Ok(id)
             }
             _ => Err(VmError::internal("expected string constant")),

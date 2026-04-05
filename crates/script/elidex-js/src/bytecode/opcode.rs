@@ -181,6 +181,8 @@ pub enum Op {
     DefineProperty,
     /// `[object key value -- object]`
     DefineComputedProperty,
+    /// Like DefineComputedProperty but non-enumerable (for class methods). `[object key value -- object]`
+    DefineComputedMethod,
     /// Operand: u16 (constant index for name). `[object closure -- object]`
     DefineGetter,
     /// Operand: u16 (constant index for name). `[object closure -- object]`
@@ -345,6 +347,7 @@ impl Op {
             | Self::PushThis
             | Self::CreateObject
             | Self::DefineComputedProperty
+            | Self::DefineComputedMethod
             | Self::SpreadObject
             | Self::CreateArray
             | Self::ArrayPush
