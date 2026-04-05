@@ -145,18 +145,17 @@ impl VmInner {
         let obj_val = self.peek()?;
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
             let is_global = dst_id == self.global_object;
-            // Snapshot enumerable (key, slot) pairs before invoking getters.
-            let entries: Vec<(PropertyKey, PropertyValue)> = self
+            // §12.2.6.8 CopyDataProperties: snapshot keys, then Get per key.
+            let keys: Vec<PropertyKey> = self
                 .get_object(src_id)
                 .properties
                 .iter()
                 .filter(|(_, p)| p.enumerable)
-                .map(|(k, p)| (*k, p.slot))
+                .map(|(k, _)| *k)
                 .collect();
-            let src_this = JsValue::Object(src_id);
-            let mut props: Vec<(PropertyKey, JsValue)> = Vec::with_capacity(entries.len());
-            for (key, slot) in entries {
-                props.push((key, self.resolve_slot(slot, src_this)?));
+            let mut props: Vec<(PropertyKey, JsValue)> = Vec::with_capacity(keys.len());
+            for key in keys {
+                props.push((key, self.get_property_value(src_id, key)?));
             }
             // Apply resolved values to destination.
             if is_global {

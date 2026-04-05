@@ -304,18 +304,17 @@ pub(super) fn native_object_values(
             prototype: ctx.vm.array_prototype,
         })));
     };
-    // Snapshot enumerable property slots before invoking getters (borrow split).
-    let slots: Vec<super::value::PropertyValue> = ctx
+    // §7.3.21 EnumerableOwnPropertyNames: snapshot keys, then Get per key.
+    let keys: Vec<PropertyKey> = ctx
         .get_object(obj_id)
         .properties
         .iter()
         .filter(|(k, p)| p.enumerable && matches!(k, PropertyKey::String(_)))
-        .map(|(_, p)| p.slot)
+        .map(|(k, _)| *k)
         .collect();
-    let this = JsValue::Object(obj_id);
-    let mut values = Vec::with_capacity(slots.len());
-    for slot in slots {
-        values.push(ctx.resolve_slot(slot, this)?);
+    let mut values = Vec::with_capacity(keys.len());
+    for key in keys {
+        values.push(ctx.get_property_value(obj_id, key)?);
     }
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: values },
@@ -338,18 +337,17 @@ pub(super) fn native_object_assign(
         let JsValue::Object(src_id) = source else {
             continue;
         };
-        // Snapshot enumerable property (key, slot) pairs before invoking getters.
-        let prop_entries: Vec<(PropertyKey, super::value::PropertyValue)> = ctx
+        // §19.1.2.1 step 5c: snapshot keys, then Get per key.
+        let keys: Vec<PropertyKey> = ctx
             .get_object(src_id)
             .properties
             .iter()
             .filter(|(_, p)| p.enumerable)
-            .map(|(k, p)| (*k, p.slot))
+            .map(|(k, _)| *k)
             .collect();
-        let src_this = JsValue::Object(src_id);
-        let mut props = Vec::with_capacity(prop_entries.len());
-        for (key, slot) in prop_entries {
-            props.push((key, ctx.resolve_slot(slot, src_this)?));
+        let mut props = Vec::with_capacity(keys.len());
+        for key in keys {
+            props.push((key, ctx.get_property_value(src_id, key)?));
         }
         for (key, value) in &props {
             // Sync global object writes to the globals HashMap.

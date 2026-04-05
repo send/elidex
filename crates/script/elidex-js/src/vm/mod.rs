@@ -311,6 +311,20 @@ impl VmInner {
             value::PropertyValue::Accessor { getter: None, .. } => Ok(JsValue::Undefined),
         }
     }
+
+    /// Perform a fresh `Get` (§7.3.1) on an object by `PropertyKey`.
+    pub(crate) fn get_property_value(
+        &mut self,
+        obj_id: value::ObjectId,
+        key: value::PropertyKey,
+    ) -> Result<JsValue, VmError> {
+        let result = coerce::get_property(self, obj_id, key);
+        match result {
+            Some(coerce::PropertyResult::Data(v)) => Ok(v),
+            Some(coerce::PropertyResult::Getter(g)) => self.call(g, JsValue::Object(obj_id), &[]),
+            None => Ok(JsValue::Undefined),
+        }
+    }
 }
 
 /// The elidex-js bytecode VM.
@@ -619,5 +633,16 @@ impl NativeContext<'_> {
         this: JsValue,
     ) -> Result<JsValue, VmError> {
         self.vm.resolve_slot(slot, this)
+    }
+
+    /// Perform a fresh `Get` (§7.3.1) on an object by `PropertyKey`.
+    /// Looks up the property (own + prototype chain), resolves accessors.
+    /// Returns `JsValue::Undefined` when the property does not exist.
+    pub fn get_property_value(
+        &mut self,
+        obj_id: value::ObjectId,
+        key: value::PropertyKey,
+    ) -> Result<JsValue, VmError> {
+        self.vm.get_property_value(obj_id, key)
     }
 }

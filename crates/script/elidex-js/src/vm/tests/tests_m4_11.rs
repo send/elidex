@@ -37,6 +37,48 @@ fn object_assign_invokes_getter() {
 }
 
 #[test]
+fn object_values_getter_mutates_later_data_property() {
+    // Getter on 'a' (defined first) mutates 'b' (defined second).
+    // Object.values enumerates in creation order: a then b.
+    // a's getter sets b=99, so b must be read as 99.
+    assert_eq!(
+        eval_number(
+            "var o = {}; \
+             Object.defineProperty(o, 'a', { get: function() { o.b = 99; return 1; }, enumerable: true }); \
+             Object.defineProperty(o, 'b', { value: 2, writable: true, enumerable: true, configurable: true }); \
+             Object.values(o)[1];"
+        ),
+        99.0
+    );
+}
+
+#[test]
+fn object_assign_getter_mutates_later_data_property() {
+    assert_eq!(
+        eval_number(
+            "var src = {}; \
+             Object.defineProperty(src, 'a', { get: function() { src.b = 99; return 1; }, enumerable: true }); \
+             Object.defineProperty(src, 'b', { value: 2, writable: true, enumerable: true, configurable: true }); \
+             var dst = {}; Object.assign(dst, src); dst.b;"
+        ),
+        99.0
+    );
+}
+
+#[test]
+fn spread_getter_mutates_later_data_property() {
+    assert_eq!(
+        eval_number(
+            "var src = {}; \
+             Object.defineProperty(src, 'a', { get: function() { src.b = 99; return 1; }, enumerable: true }); \
+             Object.defineProperty(src, 'b', { value: 2, writable: true, enumerable: true, configurable: true }); \
+             var dst = { ...src }; dst.b;"
+        ),
+        99.0
+    );
+}
+
+#[test]
 fn spread_invokes_getter() {
     assert_eq!(
         eval_number(
