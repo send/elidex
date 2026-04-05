@@ -198,6 +198,16 @@ fn eval_string_bracket_string_key_zero() {
 
 #[test]
 fn eval_string_bracket_non_numeric_string_key() {
-    // Non-numeric string keys return undefined.
-    assert!(eval_bool("'abc'['foo'] === undefined;"));
+    // Non-numeric string keys fall through to String.prototype.
+    assert!(eval_bool("typeof 'abc'['foo'] === 'undefined';"));
+}
+
+#[test]
+fn eval_string_bracket_length() {
+    assert_eq!(eval_number("'abc'['length'];"), 3.0);
+}
+
+#[test]
+fn eval_string_bracket_method() {
+    assert_eq!(eval_string("'abc'['charAt'](1);"), "b");
 }

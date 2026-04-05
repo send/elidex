@@ -432,8 +432,22 @@ impl Vm {
                     return Ok(JsValue::String(ch_id));
                 }
             }
-            // String property access (e.g. "length" handled elsewhere).
-            Ok(JsValue::Undefined)
+            // Non-index string property access: handle "length" and
+            // fall back to String.prototype (e.g. "charAt", Symbol.iterator).
+            let pk = match key {
+                JsValue::Symbol(sym) => PropertyKey::Symbol(sym),
+                other => PropertyKey::String(to_string(&mut self.inner, other)?),
+            };
+            if pk == PropertyKey::String(self.inner.well_known.length) {
+                #[allow(clippy::cast_precision_loss)]
+                let len = self.inner.strings.get(sid).len() as f64;
+                return Ok(JsValue::Number(len));
+            }
+            if let Some(proto_id) = self.inner.string_prototype {
+                Ok(get_property(&self.inner, proto_id, pk).unwrap_or(JsValue::Undefined))
+            } else {
+                Ok(JsValue::Undefined)
+            }
         } else {
             Ok(JsValue::Undefined)
         }
