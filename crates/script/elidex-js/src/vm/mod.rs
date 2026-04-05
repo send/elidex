@@ -100,6 +100,8 @@ pub(crate) struct VmInner {
     pub(crate) symbols: Vec<SymbolRecord>,
     /// Global Symbol registry for `Symbol.for()` / `Symbol.keyFor()`.
     pub(crate) symbol_registry: HashMap<StringId, SymbolId>,
+    /// Reverse map for `Symbol.keyFor()`: O(1) lookup from SymbolId → key.
+    pub(crate) symbol_reverse_registry: HashMap<SymbolId, StringId>,
     /// Well-known interned strings (cached for fast lookup).
     pub(crate) well_known: WellKnownStrings,
     /// Well-known symbols (cached for fast property lookup).
@@ -288,6 +290,7 @@ impl Vm {
                 globals: HashMap::new(),
                 symbols,
                 symbol_registry: HashMap::new(),
+                symbol_reverse_registry: HashMap::new(),
                 well_known,
                 well_known_symbols,
                 string_prototype: None,

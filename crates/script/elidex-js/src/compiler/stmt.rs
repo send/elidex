@@ -109,8 +109,14 @@ pub fn compile_stmt(
             }
             compile_expr(fc, prog, analysis, func_scopes, *right)?;
             fc.emit(Op::GetIterator);
+            // Save iterator to a temp local so return/throw can close it.
+            let iter_slot = func_scopes[fc.func_scope_idx].next_local;
+            func_scopes[fc.func_scope_idx].next_local += 1;
+            fc.emit(Op::Dup);
+            fc.emit_u16(Op::SetLocal, iter_slot);
+            fc.emit(Op::Pop);
             let loop_start = fc.pc();
-            fc.push_for_of_loop(loop_start);
+            fc.push_for_of_loop(loop_start, iter_slot);
             fc.emit(Op::IteratorNext); // [iterator value done]
             let exit_patch = fc.emit_jump(Op::JumpIfTrue); // if done, exit
                                                            // Bind `left` to value (value is on stack).
@@ -328,6 +334,15 @@ pub fn compile_stmt(
                 compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
             } else {
                 fc.emit(Op::PushUndefined);
+            }
+            // If inside for-of loop(s), close iterators before returning.
+            // Walk from innermost to outermost; the iterator is saved in a
+            // temp local so we can retrieve it without disturbing the stack.
+            for i in (0..fc.loop_stack.len()).rev() {
+                if let Some(slot) = fc.loop_stack[i].iter_local {
+                    fc.emit_u16(Op::GetLocal, slot);
+                    fc.emit(Op::IteratorClose);
+                }
             }
             // If inside try/finally, emit finally bodies before returning.
             // The return value is on the stack; finally bodies must not consume it.

@@ -2,18 +2,22 @@
 
 use super::value::{
     ArrayIterState, JsValue, NativeContext, NativeFunction, Object, ObjectKind, Property,
-    PropertyKey, VmError,
+    PropertyKey, StringIterState, VmError,
 };
 
 // -- Symbol constructor & methods -------------------------------------------
 
 pub(super) fn native_symbol_constructor(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // NOTE: `new Symbol()` should throw TypeError, but detecting constructor
-    // calls requires knowing if invoked via the New opcode. Deferred.
+    // `new Symbol()` must throw TypeError (ES2020 §19.4.1).
+    // When called via `new`, `this` is the newly created instance (an Object).
+    // When called normally, `this` is Undefined.
+    if matches!(this, JsValue::Object(_)) {
+        return Err(VmError::type_error("Symbol is not a constructor"));
+    }
     let desc = match args.first().copied() {
         Some(JsValue::Undefined) | None => None,
         Some(val) => Some(ctx.to_string_val(val)?),
@@ -33,6 +37,7 @@ pub(super) fn native_symbol_for(
     }
     let sid = ctx.vm.alloc_symbol(Some(key_id));
     ctx.vm.symbol_registry.insert(key_id, sid);
+    ctx.vm.symbol_reverse_registry.insert(sid, key_id);
     Ok(JsValue::Symbol(sid))
 }
 
@@ -45,10 +50,8 @@ pub(super) fn native_symbol_key_for(
     let JsValue::Symbol(sid) = val else {
         return Err(VmError::type_error("Symbol.keyFor requires a symbol"));
     };
-    for (&key, &reg_sid) in &ctx.vm.symbol_registry {
-        if reg_sid == sid {
-            return Ok(JsValue::String(key));
-        }
+    if let Some(&key) = ctx.vm.symbol_reverse_registry.get(&sid) {
+        return Ok(JsValue::String(key));
     }
     Ok(JsValue::Undefined)
 }
@@ -195,6 +198,88 @@ pub(super) fn native_object_prototype_to_string(
     let result = format!("[object {tag}]");
     let id = ctx.intern(&result);
     Ok(JsValue::String(id))
+}
+
+// -- String iterator (Symbol.iterator protocol) ------------------------------
+
+/// `String.prototype[Symbol.iterator]()` — creates a StringIterator.
+pub(super) fn native_string_iterator(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::String(sid) = this else {
+        return Err(VmError::type_error(
+            "String.prototype[Symbol.iterator] called on non-string",
+        ));
+    };
+    let code_units = ctx.get_u16(sid).to_vec();
+    let next_name = ctx.vm.well_known.next;
+    let next_fn_id = ctx.alloc_object(Object {
+        kind: ObjectKind::NativeFunction(NativeFunction {
+            name: next_name,
+            func: native_string_iterator_next,
+        }),
+        properties: Vec::new(),
+        prototype: None,
+    });
+    let iter_obj = ctx.alloc_object(Object {
+        kind: ObjectKind::StringIterator(StringIterState {
+            code_units,
+            index: 0,
+        }),
+        properties: vec![(
+            PropertyKey::String(next_name),
+            Property::method(JsValue::Object(next_fn_id)),
+        )],
+        prototype: None,
+    });
+    Ok(JsValue::Object(iter_obj))
+}
+
+/// `StringIterator.prototype.next()` — returns `{ value, done }`.
+///
+/// Yields individual code points (combining surrogate pairs for supplementary
+/// characters per ES2020 §21.1.5.2.1).
+pub(super) fn native_string_iterator_next(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::Object(iter_id) = this else {
+        return create_iter_result(ctx, JsValue::Undefined, true);
+    };
+    // Read state.
+    let (units_clone, idx) = {
+        let iter_obj = ctx.get_object(iter_id);
+        if let ObjectKind::StringIterator(state) = &iter_obj.kind {
+            (state.code_units.clone(), state.index)
+        } else {
+            return create_iter_result(ctx, JsValue::Undefined, true);
+        }
+    };
+    if idx >= units_clone.len() {
+        return create_iter_result(ctx, JsValue::Undefined, true);
+    }
+    // Check for surrogate pair (supplementary code point).
+    let first = units_clone[idx];
+    let (ch_units, advance) = if (0xD800..=0xDBFF).contains(&first)
+        && idx + 1 < units_clone.len()
+        && (0xDC00..=0xDFFF).contains(&units_clone[idx + 1])
+    {
+        (vec![first, units_clone[idx + 1]], 2)
+    } else {
+        (vec![first], 1)
+    };
+    // Advance index.
+    {
+        let iter_obj = ctx.get_object_mut(iter_id);
+        if let ObjectKind::StringIterator(state) = &mut iter_obj.kind {
+            state.index += advance;
+        }
+    }
+    let str_id = ctx.intern_utf16(&ch_units);
+    create_iter_result(ctx, JsValue::String(str_id), false)
 }
 
 /// Helper: create a `{ value, done }` iterator result object.

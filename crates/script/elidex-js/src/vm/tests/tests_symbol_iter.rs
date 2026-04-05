@@ -288,3 +288,85 @@ fn eval_for_of_normal_completion_does_not_close() {
         0.0,
     );
 }
+
+// -- Fix 1: IteratorClose on return from for-of ----------------------------
+
+#[test]
+fn eval_for_of_return_closes_iterator() {
+    // return inside for-of should call .return() on the iterator.
+    assert_eq!(
+        eval_number(
+            "var closed = 0; var obj = { [Symbol.iterator]() { return { next() { return { value: 1, done: false }; }, return() { closed = 1; return { done: true }; } }; } }; function f() { for (var x of obj) { return x; } } f(); closed;",
+        ),
+        1.0,
+    );
+}
+
+#[test]
+fn eval_for_of_return_nested_closes_all() {
+    // return inside nested for-of loops should close all active iterators.
+    assert_eq!(
+        eval_number(
+            "var c1 = 0; var c2 = 0; var o1 = { [Symbol.iterator]() { return { next() { return { value: 1, done: false }; }, return() { c1 = 1; return { done: true }; } }; } }; var o2 = { [Symbol.iterator]() { return { next() { return { value: 2, done: false }; }, return() { c2 = 1; return { done: true }; } }; } }; function f() { for (var x of o1) { for (var y of o2) { return x + y; } } } f(); c1 + c2;",
+        ),
+        2.0,
+    );
+}
+
+// -- Fix 2: String iteration (for-of over strings) -------------------------
+
+#[test]
+fn eval_string_for_of_basic() {
+    assert_eq!(
+        eval_string("var s = ''; for (var ch of 'abc') { s += ch; } s;"),
+        "abc",
+    );
+}
+
+#[test]
+fn eval_string_for_of_empty() {
+    assert_eq!(
+        eval_string("var s = 'X'; for (var ch of '') { s += ch; } s;"),
+        "X",
+    );
+}
+
+#[test]
+fn eval_string_spread() {
+    assert_eq!(eval_number("var a = [...'hi']; a.length;"), 2.0,);
+}
+
+#[test]
+fn eval_string_destructure() {
+    assert_eq!(eval_string("var [a, b, c] = 'xyz'; b;"), "y",);
+}
+
+// -- Fix 3: new Symbol() TypeError -----------------------------------------
+
+#[test]
+fn eval_new_symbol_throws() {
+    let result = eval("new Symbol();");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.message.contains("not a constructor"),
+        "expected constructor error, got: {err}"
+    );
+}
+
+#[test]
+fn eval_symbol_call_still_works() {
+    // Calling Symbol() (not via new) should still work.
+    assert_eq!(eval_string("typeof Symbol('test');"), "symbol");
+}
+
+// -- Fix 4: Symbol.keyFor reverse map (O(1)) --------------------------------
+
+#[test]
+fn eval_symbol_key_for_o1() {
+    // Same as existing test, but verifies the reverse map path works.
+    assert_eq!(
+        eval_string("Symbol.for('alpha'); Symbol.for('beta'); var s = Symbol.for('alpha'); Symbol.keyFor(s);"),
+        "alpha",
+    );
+}

@@ -13,11 +13,11 @@ use super::natives::{
     native_object_keys, native_object_prototype_to_string, native_object_values,
     native_parse_float, native_parse_int, native_range_error_constructor,
     native_reference_error_constructor, native_string_char_at, native_string_char_code_at,
-    native_string_ends_with, native_string_includes, native_string_index_of, native_string_replace,
-    native_string_slice, native_string_split, native_string_starts_with, native_string_substring,
-    native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
-    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
-    native_symbol_prototype_to_string, native_type_error_constructor,
+    native_string_ends_with, native_string_includes, native_string_index_of,
+    native_string_iterator, native_string_replace, native_string_slice, native_string_split,
+    native_string_starts_with, native_string_substring, native_string_to_lower_case,
+    native_string_to_upper_case, native_string_trim, native_symbol_constructor, native_symbol_for,
+    native_symbol_key_for, native_symbol_prototype_to_string, native_type_error_constructor,
 };
 use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
 use super::{NativeFn, Vm};
@@ -241,6 +241,12 @@ impl Vm {
             ("endsWith", native_string_ends_with),
             ("replace", native_string_replace),
         ]);
+        // String.prototype[Symbol.iterator] = native_string_iterator
+        let iter_fn_id = self.create_native_function("[Symbol.iterator]", native_string_iterator);
+        let sym_iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+        self.get_object_mut(proto_id)
+            .properties
+            .push((sym_iter_key, Property::method(JsValue::Object(iter_fn_id))));
         self.inner.string_prototype = Some(proto_id);
     }
 

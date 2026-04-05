@@ -672,6 +672,7 @@ pub(super) use super::natives_string::{
     native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
 };
 pub(super) use super::natives_symbol::{
-    native_array_values, native_object_prototype_to_string, native_symbol_constructor,
-    native_symbol_for, native_symbol_key_for, native_symbol_prototype_to_string,
+    native_array_values, native_object_prototype_to_string, native_string_iterator,
+    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
+    native_symbol_prototype_to_string,
 };

@@ -169,6 +169,8 @@ pub enum ObjectKind {
     ForInIterator(ForInState),
     /// Array/iterable iterator state.
     ArrayIterator(ArrayIterState),
+    /// String iterator state (for `String.prototype[Symbol.iterator]()`).
+    StringIterator(StringIterState),
 }
 
 /// A compiled JS function with captured upvalues.
@@ -326,6 +328,14 @@ pub struct ArrayIterState {
     /// The array being iterated.
     pub array_id: ObjectId,
     /// Current index.
+    pub index: usize,
+}
+
+/// State for a string iterator (yields individual code points).
+pub struct StringIterState {
+    /// The string being iterated (WTF-16 code units, owned).
+    pub code_units: Vec<u16>,
+    /// Current UTF-16 index.
     pub index: usize,
 }
 

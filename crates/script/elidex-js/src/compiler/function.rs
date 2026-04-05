@@ -58,6 +58,9 @@ pub struct LoopContext {
     pub is_switch: bool,
     /// `true` for for-of loops — `break` must emit `IteratorClose` before jumping.
     pub for_of: bool,
+    /// For for-of loops: local slot storing the iterator value, used to emit
+    /// `IteratorClose` on `return`/`throw` from inside the loop body.
+    pub iter_local: Option<u16>,
 }
 
 impl FunctionCompiler {
@@ -223,17 +226,20 @@ impl FunctionCompiler {
             continue_patches: Vec::new(),
             is_switch: false,
             for_of: false,
+            iter_local: None,
         });
     }
 
     /// Push a for-of loop context (break emits `IteratorClose`).
-    pub fn push_for_of_loop(&mut self, continue_target: u32) {
+    /// `iter_local` is the local slot where the iterator is saved for cleanup.
+    pub fn push_for_of_loop(&mut self, continue_target: u32, iter_local: u16) {
         self.loop_stack.push(LoopContext {
             continue_target,
             break_patches: Vec::new(),
             continue_patches: Vec::new(),
             is_switch: false,
             for_of: true,
+            iter_local: Some(iter_local),
         });
     }
 
@@ -245,6 +251,7 @@ impl FunctionCompiler {
             continue_patches: Vec::new(),
             is_switch: true,
             for_of: false,
+            iter_local: None,
         });
     }
 
