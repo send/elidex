@@ -94,7 +94,7 @@ pub(super) fn native_array_values(
         kind: ObjectKind::NativeFunction(NativeFunction {
             name: next_name,
             func: native_array_iterator_next,
-            constructable: true,
+            constructable: false,
         }),
         properties: Vec::new(),
         prototype: None,
@@ -216,7 +216,7 @@ pub(super) fn native_string_iterator(
         kind: ObjectKind::NativeFunction(NativeFunction {
             name: next_name,
             func: native_string_iterator_next,
-            constructable: true,
+            constructable: false,
         }),
         properties: Vec::new(),
         prototype: None,

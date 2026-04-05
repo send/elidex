@@ -36,11 +36,17 @@ impl Lexer<'_> {
             match self.peek() {
                 Some(b) if b == quote => {
                     // Simple string — each ASCII byte becomes a u16.
-                    let units: Vec<u16> = self.source[content_start..self.pos]
-                        .iter()
-                        .map(|&b| u16::from(b))
-                        .collect();
-                    let atom = self.interner.intern_wtf16(&units);
+                    let bytes = &self.source[content_start..self.pos];
+                    let atom = if bytes.len() <= 64 {
+                        let mut stack = [0u16; 64];
+                        for (i, &b) in bytes.iter().enumerate() {
+                            stack[i] = u16::from(b);
+                        }
+                        self.interner.intern_wtf16(&stack[..bytes.len()])
+                    } else {
+                        let units: Vec<u16> = bytes.iter().map(|&b| u16::from(b)).collect();
+                        self.interner.intern_wtf16(&units)
+                    };
                     self.pos += 1; // skip closing quote
                     return TokenKind::StringLiteral(atom);
                 }

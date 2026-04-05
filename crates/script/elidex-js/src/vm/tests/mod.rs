@@ -924,5 +924,15 @@ fn eval_global_object_property_lookup_falls_back_to_globals() {
     );
 }
 
+#[test]
+fn eval_global_object_set_property_syncs_to_globals() {
+    // Writing to `this.<prop>` in a non-strict function (which resolves to
+    // globalThis) must be visible via bare identifier lookup (GetGlobal).
+    assert_eq!(
+        eval_number("function f() { this.testGlobal = 42; } f(); testGlobal;"),
+        42.0,
+    );
+}
+
 mod tests_string;
 mod tests_symbol_iter;

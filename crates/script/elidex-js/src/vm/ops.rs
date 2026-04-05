@@ -357,6 +357,11 @@ impl Vm {
     ) -> Result<(), VmError> {
         let pk = PropertyKey::String(key);
         if let JsValue::Object(id) = obj {
+            // Mirror writes to the global object into the globals HashMap
+            // so that GetGlobal can find them.
+            if id == self.inner.global_object {
+                self.inner.globals.insert(key, val);
+            }
             let obj = self.get_object_mut(id);
             // Check if property exists.
             for prop in &mut obj.properties {
