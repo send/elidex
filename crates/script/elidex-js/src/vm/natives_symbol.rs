@@ -249,35 +249,43 @@ pub(super) fn native_string_iterator_next(
     let JsValue::Object(iter_id) = this else {
         return create_iter_result(ctx, JsValue::Undefined, true);
     };
-    // Read state.
-    let (units_clone, idx) = {
+    // Step 1: read only the needed code units under an immutable borrow (O(1)).
+    let (first, second) = {
         let iter_obj = ctx.get_object(iter_id);
         if let ObjectKind::StringIterator(state) = &iter_obj.kind {
-            (state.code_units.clone(), state.index)
+            if state.index >= state.code_units.len() {
+                return create_iter_result(ctx, JsValue::Undefined, true);
+            }
+            (
+                state.code_units[state.index],
+                state.code_units.get(state.index + 1).copied(),
+            )
         } else {
             return create_iter_result(ctx, JsValue::Undefined, true);
         }
     };
-    if idx >= units_clone.len() {
-        return create_iter_result(ctx, JsValue::Undefined, true);
-    }
-    // Check for surrogate pair (supplementary code point).
-    let first = units_clone[idx];
-    let (ch_units, advance) = if (0xD800..=0xDBFF).contains(&first)
-        && idx + 1 < units_clone.len()
-        && (0xDC00..=0xDFFF).contains(&units_clone[idx + 1])
-    {
-        (vec![first, units_clone[idx + 1]], 2)
+    // Step 2: compute character and advance amount (no borrow held).
+    let (ch_units, advance) = if (0xD800..=0xDBFF).contains(&first) {
+        if let Some(low) = second {
+            if (0xDC00..=0xDFFF).contains(&low) {
+                (vec![first, low], 2) // surrogate pair
+            } else {
+                (vec![first], 1) // lone high surrogate
+            }
+        } else {
+            (vec![first], 1)
+        }
     } else {
         (vec![first], 1)
     };
-    // Advance index.
+    // Step 3: advance index (mutable borrow).
     {
         let iter_obj = ctx.get_object_mut(iter_id);
         if let ObjectKind::StringIterator(state) = &mut iter_obj.kind {
             state.index += advance;
         }
     }
+    // Step 4: create result.
     let str_id = ctx.intern_utf16(&ch_units);
     create_iter_result(ctx, JsValue::String(str_id), false)
 }

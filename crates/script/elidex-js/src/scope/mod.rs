@@ -354,13 +354,26 @@ impl ScopeState {
 
 /// Check for "use strict" directive prologue.
 pub(super) fn has_use_strict(prog: &Program, body: &[NodeId<Stmt>]) -> bool {
+    // "use strict" is pure ASCII — use a const UTF-16 array to avoid
+    // allocating inside the loop.
+    const USE_STRICT_U16: &[u16] = &[
+        b'u' as u16,
+        b's' as u16,
+        b'e' as u16,
+        b' ' as u16,
+        b's' as u16,
+        b't' as u16,
+        b'r' as u16,
+        b'i' as u16,
+        b'c' as u16,
+        b't' as u16,
+    ];
     for &stmt_id in body {
         let stmt = prog.stmts.get(stmt_id);
         if let StmtKind::Expression(expr_id) = &stmt.kind {
             let expr = prog.exprs.get(*expr_id);
             if let ExprKind::Literal(Literal::String(s)) = expr.kind {
-                let use_strict: Vec<u16> = "use strict".encode_utf16().collect();
-                if prog.interner.get(s) == use_strict.as_slice() {
+                if prog.interner.get(s) == USE_STRICT_U16 {
                     return true;
                 }
                 continue; // other string directives

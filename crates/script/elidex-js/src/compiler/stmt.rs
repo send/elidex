@@ -357,18 +357,22 @@ pub fn compile_stmt(
 
         StmtKind::Break(label) => {
             emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
-            // For for-of loops, emit IteratorClose before the break jump
-            // so the iterator's .return() is called on abrupt completion.
-            let target_is_for_of = if let Some(label_atom) = label {
-                fc.label_map
-                    .get(label_atom)
-                    .and_then(|&idx| fc.loop_stack.get(idx))
-                    .is_some_and(|ctx| ctx.for_of)
+            // For for-of loops, emit IteratorClose for each for-of context
+            // being exited so every iterator's .return() is called on
+            // abrupt completion — same pattern as Return.
+            let target_idx = if let Some(label_atom) = label {
+                fc.label_map.get(label_atom).copied()
             } else {
-                fc.loop_stack.last().is_some_and(|ctx| ctx.for_of)
+                // Unlabeled break exits only the innermost loop.
+                fc.loop_stack.len().checked_sub(1)
             };
-            if target_is_for_of {
-                fc.emit(Op::IteratorClose);
+            if let Some(target) = target_idx {
+                for i in (target..fc.loop_stack.len()).rev() {
+                    if let Some(slot) = fc.loop_stack[i].iter_local {
+                        fc.emit_u16(Op::GetLocal, slot);
+                        fc.emit(Op::IteratorClose);
+                    }
+                }
             }
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
