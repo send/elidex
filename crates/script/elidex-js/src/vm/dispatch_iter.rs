@@ -5,31 +5,42 @@ use super::value::{ForInState, JsValue, Object, ObjectKind, PropertyKey, VmError
 use super::Vm;
 
 impl Vm {
+    /// Resolve the `@@iterator` for a value and call it to get an iterator object.
+    ///
+    /// Returns `Ok(Some(iterator))` on success, `Ok(None)` when the value has no
+    /// iterator protocol (e.g. numbers, booleans), or propagates call errors.
+    fn resolve_iterator(&mut self, val: JsValue) -> Result<Option<JsValue>, VmError> {
+        let lookup_id = match val {
+            JsValue::Object(id) => Some(id),
+            JsValue::String(_) => self.inner.string_prototype,
+            _ => None,
+        };
+        let Some(obj_id) = lookup_id else {
+            return Ok(None);
+        };
+        let iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
+        let Some(iter_fn) = get_property(&self.inner, obj_id, iter_key) else {
+            return Ok(None);
+        };
+        let result = self.call_value(iter_fn, val, &[])?;
+        Ok(Some(result))
+    }
+
     /// `Op::ArraySpread` — spread an iterable into the array on the stack top.
     pub(super) fn op_array_spread(&mut self) -> Result<(), VmError> {
         let source = self.pop()?;
         let arr_val = self.peek()?;
-        // Resolve the object to look up @@iterator on (supports strings via prototype).
-        let iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
-        let lookup_id = match source {
-            JsValue::Object(src_id) => Some(src_id),
-            JsValue::String(_) => self.inner.string_prototype,
-            _ => None,
-        };
-        if let Some(obj_id) = lookup_id {
-            if let Some(iter_fn) = get_property(&self.inner, obj_id, iter_key) {
-                let iterator = self.call_value(iter_fn, source, &[])?;
-                if matches!(iterator, JsValue::Object(_)) {
-                    loop {
-                        let Some(value) = self.iter_next(iterator)? else {
-                            break;
-                        };
-                        // Push to target array.
-                        if let JsValue::Object(arr_id) = arr_val {
-                            let arr = self.inner.get_object_mut(arr_id);
-                            if let ObjectKind::Array { ref mut elements } = arr.kind {
-                                elements.push(value);
-                            }
+        if let Some(iterator) = self.resolve_iterator(source)? {
+            if matches!(iterator, JsValue::Object(_)) {
+                loop {
+                    let Some(value) = self.iter_next(iterator)? else {
+                        break;
+                    };
+                    // Push to target array.
+                    if let JsValue::Object(arr_id) = arr_val {
+                        let arr = self.inner.get_object_mut(arr_id);
+                        if let ObjectKind::Array { ref mut elements } = arr.kind {
+                            elements.push(value);
                         }
                     }
                 }
@@ -44,24 +55,8 @@ impl Vm {
     /// For strings, looks up `@@iterator` on `String.prototype`.
     pub(super) fn op_get_iterator(&mut self, entry_frame_depth: usize) -> Result<(), VmError> {
         let val = self.pop()?;
-        let iter_key = PropertyKey::Symbol(self.inner.well_known_symbols.iterator);
-        let (lookup_id, this_val) = match val {
-            JsValue::Object(obj_id) => (Some(obj_id), val),
-            JsValue::String(_) => (self.inner.string_prototype, val),
-            _ => {
-                let err = VmError::type_error("value is not iterable");
-                self.throw_error(err, entry_frame_depth)?;
-                return Ok(());
-            }
-        };
-        if let Some(obj_id) = lookup_id {
-            if let Some(iter_fn) = get_property(&self.inner, obj_id, iter_key) {
-                let result = self.call_value(iter_fn, this_val, &[])?;
-                self.inner.stack.push(result);
-            } else {
-                let err = VmError::type_error("object is not iterable");
-                self.throw_error(err, entry_frame_depth)?;
-            }
+        if let Some(iter) = self.resolve_iterator(val)? {
+            self.inner.stack.push(iter);
         } else {
             let err = VmError::type_error("value is not iterable");
             self.throw_error(err, entry_frame_depth)?;

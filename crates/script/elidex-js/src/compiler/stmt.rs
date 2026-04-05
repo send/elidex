@@ -338,12 +338,7 @@ pub fn compile_stmt(
             // If inside for-of loop(s), close iterators before returning.
             // Walk from innermost to outermost; the iterator is saved in a
             // temp local so we can retrieve it without disturbing the stack.
-            for i in (0..fc.loop_stack.len()).rev() {
-                if let Some(slot) = fc.loop_stack[i].iter_local {
-                    fc.emit_u16(Op::GetLocal, slot);
-                    fc.emit(Op::IteratorClose);
-                }
-            }
+            emit_iter_close_range(fc, 0, fc.loop_stack.len());
             // If inside try/finally, emit finally bodies before returning.
             // The return value is on the stack; finally bodies must not consume it.
             emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
@@ -356,10 +351,10 @@ pub fn compile_stmt(
         }
 
         StmtKind::Break(label) => {
-            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
             // For for-of loops, emit IteratorClose for each for-of context
             // being exited so every iterator's .return() is called on
-            // abrupt completion — same pattern as Return.
+            // abrupt completion — same pattern as Return (iterator close
+            // must happen BEFORE finally bodies per spec).
             let target_idx = if let Some(label_atom) = label {
                 fc.label_map.get(label_atom).copied()
             } else {
@@ -367,13 +362,9 @@ pub fn compile_stmt(
                 fc.loop_stack.len().checked_sub(1)
             };
             if let Some(target) = target_idx {
-                for i in (target..fc.loop_stack.len()).rev() {
-                    if let Some(slot) = fc.loop_stack[i].iter_local {
-                        fc.emit_u16(Op::GetLocal, slot);
-                        fc.emit(Op::IteratorClose);
-                    }
-                }
+                emit_iter_close_range(fc, target, fc.loop_stack.len());
             }
+            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
             let patch = fc.emit_jump(Op::Jump);
             if let Some(label_atom) = label {
                 let label_name = prog.interner.get_utf8(*label_atom);
@@ -1042,6 +1033,18 @@ fn find_child_block_scope(
         }
     }
     None
+}
+
+/// Emit `IteratorClose` for all for-of loops in the given range of the loop stack.
+///
+/// Walks from innermost (top) to outermost so iterators are closed in LIFO order.
+fn emit_iter_close_range(fc: &mut FunctionCompiler, from: usize, to: usize) {
+    for i in (from..to).rev() {
+        if let Some(slot) = fc.loop_stack[i].iter_local {
+            fc.emit_u16(Op::GetLocal, slot);
+            fc.emit(Op::IteratorClose);
+        }
+    }
 }
 
 /// Emit all pending finally bodies (innermost first) before a return/break/continue.

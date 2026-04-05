@@ -87,10 +87,28 @@ impl Wtf16Interner {
         idx
     }
 
-    /// Intern from UTF-8 &str (convenience -- converts internally).
+    /// Intern from UTF-8 &str (convenience — converts to WTF-16 internally).
+    /// Uses a stack buffer for short strings (≤64 code units) to avoid heap allocation.
     pub fn intern(&mut self, s: &str) -> u32 {
-        let units: Vec<u16> = s.encode_utf16().collect();
-        self.intern_wtf16(&units)
+        // Most interned strings (property names, keywords) are short ASCII.
+        // Stack buffer avoids heap allocation for the common case.
+        let mut stack_buf = [0u16; 64];
+        let mut i = 0;
+        let mut needs_heap = false;
+        for u in s.encode_utf16() {
+            if i >= stack_buf.len() {
+                needs_heap = true;
+                break;
+            }
+            stack_buf[i] = u;
+            i += 1;
+        }
+        if needs_heap {
+            let units: Vec<u16> = s.encode_utf16().collect();
+            self.intern_wtf16(&units)
+        } else {
+            self.intern_wtf16(&stack_buf[..i])
+        }
     }
 
     /// Get WTF-16 content for an interned string.

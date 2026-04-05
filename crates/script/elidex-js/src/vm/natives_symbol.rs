@@ -265,18 +265,13 @@ pub(super) fn native_string_iterator_next(
         }
     };
     // Step 2: compute character and advance amount (no borrow held).
-    let (ch_units, advance) = if (0xD800..=0xDBFF).contains(&first) {
-        if let Some(low) = second {
-            if (0xDC00..=0xDFFF).contains(&low) {
-                (vec![first, low], 2) // surrogate pair
-            } else {
-                (vec![first], 1) // lone high surrogate
-            }
-        } else {
-            (vec![first], 1)
-        }
+    // Use a stack buffer to avoid heap allocation.
+    let is_surrogate_pair = (0xD800..=0xDBFF).contains(&first)
+        && second.is_some_and(|low| (0xDC00..=0xDFFF).contains(&low));
+    let (buf, len, advance) = if is_surrogate_pair {
+        ([first, second.unwrap()], 2, 2)
     } else {
-        (vec![first], 1)
+        ([first, 0], 1, 1)
     };
     // Step 3: advance index (mutable borrow).
     {
@@ -286,7 +281,7 @@ pub(super) fn native_string_iterator_next(
         }
     }
     // Step 4: create result.
-    let str_id = ctx.intern_utf16(&ch_units);
+    let str_id = ctx.intern_utf16(&buf[..len]);
     create_iter_result(ctx, JsValue::String(str_id), false)
 }
 

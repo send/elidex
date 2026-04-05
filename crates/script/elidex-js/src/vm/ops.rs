@@ -437,6 +437,68 @@ impl Vm {
         let JsValue::Object(iter_id) = iter_val else {
             return Err(VmError::type_error("iterator value is not an object"));
         };
+
+        // Fast path: built-in ArrayIterator — read element directly, no
+        // {value, done} object allocation or .next() property lookup.
+        {
+            let obj = self.get_object(iter_id);
+            if let ObjectKind::ArrayIterator(state) = &obj.kind {
+                let (array_id, idx) = (state.array_id, state.index);
+                // Check element (separate borrow scope).
+                let done = {
+                    let arr = self.get_object(array_id);
+                    if let ObjectKind::Array { elements } = &arr.kind {
+                        idx >= elements.len()
+                    } else {
+                        true
+                    }
+                };
+                if done {
+                    return Ok(None);
+                }
+                let value = {
+                    let arr = self.get_object(array_id);
+                    if let ObjectKind::Array { elements } = &arr.kind {
+                        elements[idx]
+                    } else {
+                        JsValue::Undefined
+                    }
+                };
+                let obj = self.get_object_mut(iter_id);
+                if let ObjectKind::ArrayIterator(state) = &mut obj.kind {
+                    state.index += 1;
+                }
+                return Ok(Some(value));
+            }
+        }
+
+        // Fast path: built-in StringIterator — read code units directly.
+        {
+            let obj = self.get_object(iter_id);
+            if let ObjectKind::StringIterator(state) = &obj.kind {
+                if state.index >= state.code_units.len() {
+                    return Ok(None);
+                }
+                let first = state.code_units[state.index];
+                let second = state.code_units.get(state.index + 1).copied();
+                let is_pair = (0xD800..=0xDBFF).contains(&first)
+                    && second.is_some_and(|low| (0xDC00..=0xDFFF).contains(&low));
+                let (buf, len, advance) = if is_pair {
+                    ([first, second.unwrap()], 2, 2)
+                } else {
+                    ([first, 0], 1, 1)
+                };
+                // Drop immutable borrow, take mutable.
+                let obj = self.get_object_mut(iter_id);
+                if let ObjectKind::StringIterator(state) = &mut obj.kind {
+                    state.index += advance;
+                }
+                let ch_id = self.inner.strings.intern_utf16(&buf[..len]);
+                return Ok(Some(JsValue::String(ch_id)));
+            }
+        }
+
+        // Slow path: generic iterator protocol (.next() call + {value, done}).
         let next_key = PropertyKey::String(self.inner.well_known.next);
         let Some(next_fn) = get_property(&self.inner, iter_id, next_key) else {
             return Err(VmError::type_error("iterator.next is not defined"));
