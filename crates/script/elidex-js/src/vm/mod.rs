@@ -485,18 +485,39 @@ impl VmInner {
             obj.storage.get(key, shapes).map(|(_, a)| a)
         };
         match existing_attrs {
-            Some(current_attrs) => {
-                // Property exists — update value.
+            Some(current_attrs) if current_attrs == attrs => {
+                // Same attrs — just update the slot value.
                 let shapes = &self.shapes;
                 let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
                 if let Some((slot, _)) = obj.storage.get_mut(key, shapes) {
                     *slot = value::PropertyValue::Data(val);
                 }
-                // If attrs or accessor kind differ, reconfigure the shape.
-                if current_attrs != attrs {
-                    self.reconfigure_property(
-                        obj_id, key, attrs, None, // value already written above
-                    );
+            }
+            Some(_) => {
+                // Attrs differ — update both value and attrs.
+                let new_val = value::PropertyValue::Data(val);
+                let is_shaped = matches!(
+                    self.objects[obj_id.0 as usize].as_ref().unwrap().storage,
+                    value::PropertyStorage::Shaped { .. }
+                );
+                if is_shaped {
+                    // Shaped: write value then reconfigure shape.
+                    {
+                        let shapes = &self.shapes;
+                        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                        if let Some((slot, _)) = obj.storage.get_mut(key, shapes) {
+                            *slot = new_val;
+                        }
+                    }
+                    self.reconfigure_property(obj_id, key, attrs, None);
+                } else {
+                    // Dictionary: replace the entire Property.
+                    let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                    if let value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
+                        if let Some((_, prop)) = vec.iter_mut().find(|(k, _)| *k == key) {
+                            *prop = value::Property::from_attrs(new_val, attrs);
+                        }
+                    }
                 }
             }
             None => {

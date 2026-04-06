@@ -15,7 +15,7 @@ pub fn disassemble_script(script: &CompiledScript) -> String {
 }
 
 /// Disassemble a single function.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::too_many_lines)]
 fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, indent: usize) {
     let prefix = " ".repeat(indent);
     let _ = writeln!(
@@ -73,12 +73,7 @@ fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, i
                         // Annotate with constant value if it's a constant reference.
                         if matches!(
                             op,
-                            Op::PushConst
-                                | Op::GetGlobal
-                                | Op::SetGlobal
-                                | Op::GetProp
-                                | Op::SetProp
-                                | Op::TypeOfGlobal
+                            Op::PushConst | Op::GetGlobal | Op::SetGlobal | Op::TypeOfGlobal
                         ) {
                             if let Some(constant) = func.constants.get(val as usize) {
                                 let _ = write!(operand_str, " ; {}", format_constant(constant));
@@ -89,16 +84,33 @@ fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, i
             }
             3 => {
                 if pc + 4 <= func.bytecode.len() {
-                    let val = read_u16(&func.bytecode, pc + 1);
-                    let flag = func.bytecode[pc + 3];
-                    operand_str = format!(" {val}, {flag}");
+                    if matches!(op, Op::Call | Op::CallMethod) {
+                        // u8 argc + u16 call_ic_idx
+                        let argc = func.bytecode[pc + 1];
+                        let ic_idx = read_u16(&func.bytecode, pc + 2);
+                        operand_str = format!(" argc={argc}, ic={ic_idx}");
+                    } else {
+                        // u16 + u8 (default for DefineMethod etc.)
+                        let val = read_u16(&func.bytecode, pc + 1);
+                        let flag = func.bytecode[pc + 3];
+                        operand_str = format!(" {val}, {flag}");
+                    }
                 }
             }
             4 => {
                 if pc + 5 <= func.bytecode.len() {
                     let a = read_u16(&func.bytecode, pc + 1);
                     let b = read_u16(&func.bytecode, pc + 3);
-                    operand_str = format!(" {a}, {b}");
+                    if matches!(op, Op::GetProp | Op::SetProp) {
+                        // u16 name_idx + u16 ic_idx: annotate name from constants
+                        let mut name_str = format!(" {a}, ic={b}");
+                        if let Some(constant) = func.constants.get(a as usize) {
+                            let _ = write!(name_str, " ; {}", format_constant(constant));
+                        }
+                        operand_str = name_str;
+                    } else {
+                        operand_str = format!(" {a}, {b}");
+                    }
                 }
             }
         }
