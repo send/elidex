@@ -194,9 +194,8 @@ where
 /// Attribute changes (including data↔accessor conversion) use Shape
 /// reconfigure transitions and stay in Shaped mode.
 pub enum PropertyStorage {
-    /// Shape-based storage: the [`Shape`](super::shape::Shape) defines property
-    /// names, order and attributes; `slots[i]` holds the value for
-    /// `shape.ordered_entries[i]`.
+    /// Shape-based storage: the Shape defines property names, order and
+    /// attributes; `slots[i]` holds the value for `shape.ordered_entries[i]`.
     Shaped {
         shape: super::shape::ShapeId,
         slots: Vec<PropertyValue>,
