@@ -113,7 +113,10 @@ pub(super) fn compile_class(
                     // Stack: [ctor]
                     fc.emit(Op::Dup); // [ctor ctor]
                     let proto_name = fc.add_name("prototype");
-                    fc.emit_u16(Op::GetProp, proto_name); // [ctor proto]
+                    {
+                        let ic = fc.alloc_ic_slot();
+                        fc.emit_u16_u16(Op::GetProp, proto_name, ic);
+                    } // [ctor proto]
                     emit_class_method_define(
                         fc,
                         prog,
@@ -156,7 +159,10 @@ pub(super) fn compile_class(
                 } else {
                     fc.emit(Op::Dup); // [ctor ctor]
                     let proto_name = fc.add_name("prototype");
-                    fc.emit_u16(Op::GetProp, proto_name); // [ctor proto]
+                    {
+                        let ic = fc.alloc_ic_slot();
+                        fc.emit_u16_u16(Op::GetProp, proto_name, ic);
+                    } // [ctor proto]
                     fc.emit_u16(Op::Closure, const_idx); // [ctor proto method]
                     let define_op = match kind {
                         MethodKind::Get => Op::DefineGetter,
@@ -245,7 +251,10 @@ pub(super) fn compile_class(
                 let child = child_fc.finish(&func_scopes[fc.func_scope_idx]);
                 let const_idx = fc.add_constant(Constant::Function(Box::new(child)));
                 fc.emit_u16(Op::Closure, const_idx); // [ctor ctor closure]
-                fc.emit_u8(Op::CallMethod, 0); // [ctor result] — this=ctor
+                {
+                    let call_ic = fc.alloc_call_ic_slot();
+                    fc.emit_u8_u16(Op::CallMethod, 0, call_ic);
+                } // [ctor result] — this=ctor
                 fc.emit(Op::Pop); // [ctor] — discard result
             }
             ClassMemberKind::Empty => {}

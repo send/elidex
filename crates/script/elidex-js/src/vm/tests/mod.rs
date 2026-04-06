@@ -637,7 +637,7 @@ fn object_alloc_and_access() {
     let mut vm = Vm::new();
     let id = vm.alloc_object(Object {
         kind: ObjectKind::Ordinary,
-        properties: Vec::new(),
+        storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: None,
     });
     assert!(matches!(vm.get_object(id).kind, ObjectKind::Ordinary));
@@ -648,7 +648,7 @@ fn object_free_list_reuse() {
     let mut vm = Vm::new();
     let id1 = vm.alloc_object(Object {
         kind: ObjectKind::Ordinary,
-        properties: Vec::new(),
+        storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: None,
     });
     // Simulate free
@@ -657,7 +657,7 @@ fn object_free_list_reuse() {
 
     let id2 = vm.alloc_object(Object {
         kind: ObjectKind::Ordinary,
-        properties: Vec::new(),
+        storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: None,
     });
     assert_eq!(id1, id2); // Reused slot

@@ -141,12 +141,14 @@ pub fn compile_expr(
                 compile_member_property(fc, prog, analysis, func_scopes, property, *computed)?;
                 compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
                 let argc = arguments.len() as u8;
-                fc.emit_u8(Op::CallMethod, argc);
+                let call_ic = fc.alloc_call_ic_slot();
+                fc.emit_u8_u16(Op::CallMethod, argc, call_ic);
             } else {
                 compile_expr(fc, prog, analysis, func_scopes, *callee)?;
                 compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
                 let argc = arguments.len() as u8;
-                fc.emit_u8(Op::Call, argc);
+                let call_ic = fc.alloc_call_ic_slot();
+                fc.emit_u8_u16(Op::Call, argc, call_ic);
             }
         }
 
@@ -487,10 +489,11 @@ pub fn compile_expr(
                         // (receiver is on the stack below the callee).
                         let prev_is_member =
                             i > 0 && matches!(chain[i - 1], OptionalChainPart::Member { .. });
+                        let call_ic = fc.alloc_call_ic_slot();
                         if prev_is_member {
-                            fc.emit_u8(Op::CallMethod, argc);
+                            fc.emit_u8_u16(Op::CallMethod, argc, call_ic);
                         } else {
-                            fc.emit_u8(Op::Call, argc);
+                            fc.emit_u8_u16(Op::Call, argc, call_ic);
                         }
                     }
                 }
@@ -704,7 +707,8 @@ fn compile_assignment(
                             MemberProp::Identifier(name) => {
                                 let name_u16 = prog.interner.get(*name);
                                 let idx = fc.add_name_u16(name_u16);
-                                fc.emit_u16(Op::SetProp, idx);
+                                let ic = fc.alloc_ic_slot();
+                                fc.emit_u16_u16(Op::SetProp, idx, ic);
                             }
                             _ => {
                                 // PrivateIdentifier or computed (shouldn't reach here
@@ -794,7 +798,8 @@ fn compile_member_property(
         MemberProp::Identifier(name) if !computed => {
             let name_u16 = prog.interner.get(*name);
             let idx = fc.add_name_u16(name_u16);
-            fc.emit_u16(Op::GetProp, idx);
+            let ic = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, idx, ic);
         }
         MemberProp::Expression(e) => {
             compile_expr(fc, prog, analysis, func_scopes, *e)?;

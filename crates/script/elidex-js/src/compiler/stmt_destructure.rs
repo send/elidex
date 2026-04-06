@@ -92,12 +92,14 @@ pub(super) fn compile_destructure_pattern(
                     PropertyKey::Identifier(atom) => {
                         let name = prog.interner.get(*atom);
                         let idx = fc.add_name_u16(name);
-                        fc.emit_u16(Op::GetProp, idx); // [value prop_value]
+                        let ic = fc.alloc_ic_slot();
+                        fc.emit_u16_u16(Op::GetProp, idx, ic); // [value prop_value]
                     }
                     PropertyKey::Literal(Literal::String(atom)) => {
                         let name = prog.interner.get(*atom);
                         let idx = fc.add_name_u16(name);
-                        fc.emit_u16(Op::GetProp, idx);
+                        let ic = fc.alloc_ic_slot();
+                        fc.emit_u16_u16(Op::GetProp, idx, ic);
                     }
                     PropertyKey::Computed(expr) => {
                         compile_expr(fc, prog, analysis, func_scopes, *expr)?;

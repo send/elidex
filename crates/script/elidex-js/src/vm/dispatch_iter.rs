@@ -1,7 +1,9 @@
 //! Iterator-protocol opcode handlers extracted from the main dispatch loop.
 
 use super::coerce::get_property;
-use super::value::{ForInState, JsValue, Object, ObjectKind, PropertyKey, VmError};
+use super::value::{
+    ForInState, JsValue, Object, ObjectKind, PropertyKey, PropertyStorage, VmError,
+};
 use super::VmInner;
 
 impl VmInner {
@@ -101,10 +103,10 @@ impl VmInner {
                 let obj_ref = self.objects[id.0 as usize]
                     .as_ref()
                     .ok_or_else(|| VmError::type_error("cannot iterate freed object"))?;
-                for (key, prop) in &obj_ref.properties {
+                for (key, attrs) in obj_ref.storage.iter_keys(&self.shapes) {
                     if let PropertyKey::String(sid) = key {
-                        if prop.enumerable && seen.insert(*sid) {
-                            keys.push(*sid);
+                        if attrs.enumerable && seen.insert(sid) {
+                            keys.push(sid);
                         }
                     }
                 }
@@ -116,7 +118,7 @@ impl VmInner {
         };
         let iter_obj = self.alloc_object(Object {
             kind: ObjectKind::ForInIterator(ForInState { keys, index: 0 }),
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: None,
         });
         self.stack.push(JsValue::Object(iter_obj));
@@ -153,6 +155,60 @@ impl VmInner {
         } else {
             self.stack.push(JsValue::Undefined);
             self.stack.push(JsValue::Boolean(true));
+        }
+        Ok(())
+    }
+
+    /// `Op::IteratorNext` — call `iterator.next()` and push `value` + `done`.
+    pub(super) fn op_iterator_next(&mut self) -> Result<(), VmError> {
+        let iter_val = *self
+            .stack
+            .last()
+            .ok_or_else(|| VmError::internal("empty stack on IteratorNext"))?;
+        match self.iter_next(iter_val) {
+            Ok(Some(value)) => {
+                self.stack.push(value);
+                self.stack.push(JsValue::Boolean(false));
+            }
+            Ok(None) => {
+                self.stack.push(JsValue::Undefined);
+                self.stack.push(JsValue::Boolean(true));
+            }
+            Err(e) => return Err(e),
+        }
+        Ok(())
+    }
+
+    /// `Op::IteratorRest` — collect remaining iterator elements into a new array.
+    pub(super) fn op_iterator_rest(&mut self) -> Result<(), VmError> {
+        let iter_val = self.pop()?;
+        let mut elements = Vec::new();
+        loop {
+            match self.iter_next(iter_val) {
+                Ok(Some(value)) => elements.push(value),
+                Ok(None) => break,
+                Err(e) => return Err(e),
+            }
+        }
+        let proto = self.array_prototype;
+        let arr = self.alloc_object(Object {
+            kind: ObjectKind::Array { elements },
+            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+            prototype: proto,
+        });
+        self.stack.push(JsValue::Object(arr));
+        Ok(())
+    }
+
+    /// `Op::IteratorClose` — call `iterator.return()` if present.
+    pub(super) fn op_iterator_close(&mut self) -> Result<(), VmError> {
+        let iter_val = self.pop()?;
+        if let JsValue::Object(iter_id) = iter_val {
+            let return_key = PropertyKey::String(self.well_known.return_str);
+            if let Some(return_result) = get_property(self, iter_id, return_key) {
+                let return_fn = self.resolve_property(return_result, iter_val)?;
+                self.call_value(return_fn, iter_val, &[])?;
+            }
         }
         Ok(())
     }

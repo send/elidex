@@ -4,7 +4,9 @@
 
 use crate::bytecode::compiled::Constant;
 
-use super::value::{FuncId, JsValue, Object, ObjectKind, Property, PropertyKey, StringId, VmError};
+use super::value::{
+    FuncId, JsValue, Object, ObjectKind, PropertyKey, PropertyValue, StringId, VmError,
+};
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -122,31 +124,32 @@ impl VmInner {
                         flags: flags_id,
                         compiled: Box::new(compiled),
                     },
-                    properties: Vec::new(),
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                     prototype: proto,
                 });
                 // source and flags are non-enumerable, non-writable (§21.2.5.10, §21.2.5.3).
                 let source_key = PropertyKey::String(self.strings.intern("source"));
-                self.get_object_mut(obj_id).properties.push((
+                self.define_shaped_property(
+                    obj_id,
                     source_key,
-                    Property::builtin(JsValue::String(pat_id)),
-                ));
+                    PropertyValue::Data(JsValue::String(pat_id)),
+                    super::shape::PropertyAttrs::BUILTIN,
+                );
                 let flags_key = PropertyKey::String(self.strings.intern("flags"));
-                self.get_object_mut(obj_id).properties.push((
+                self.define_shaped_property(
+                    obj_id,
                     flags_key,
-                    Property::builtin(JsValue::String(flags_id)),
-                ));
+                    PropertyValue::Data(JsValue::String(flags_id)),
+                    super::shape::PropertyAttrs::BUILTIN,
+                );
                 // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
                 let last_index_key = PropertyKey::String(self.strings.intern("lastIndex"));
-                self.get_object_mut(obj_id).properties.push((
+                self.define_shaped_property(
+                    obj_id,
                     last_index_key,
-                    Property {
-                        slot: super::value::PropertyValue::Data(JsValue::Number(0.0)),
-                        writable: true,
-                        enumerable: false,
-                        configurable: false,
-                    },
-                ));
+                    PropertyValue::Data(JsValue::Number(0.0)),
+                    super::shape::PropertyAttrs::WRITABLE_HIDDEN,
+                );
                 Ok(JsValue::Object(obj_id))
             }
             Constant::BigInt(_) // deferred to M4-12

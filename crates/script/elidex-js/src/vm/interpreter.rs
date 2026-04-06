@@ -57,7 +57,9 @@ impl VmInner {
                             JsValue::Number(n) => {
                                 let wrapper = self.alloc_object(super::value::Object {
                                     kind: ObjectKind::NumberWrapper(n),
-                                    properties: Vec::new(),
+                                    storage: super::value::PropertyStorage::shaped(
+                                        super::shape::ROOT_SHAPE,
+                                    ),
                                     prototype: self.number_prototype,
                                 });
                                 JsValue::Object(wrapper)
@@ -65,7 +67,9 @@ impl VmInner {
                             JsValue::String(s) => {
                                 let wrapper = self.alloc_object(super::value::Object {
                                     kind: ObjectKind::StringWrapper(s),
-                                    properties: Vec::new(),
+                                    storage: super::value::PropertyStorage::shaped(
+                                        super::shape::ROOT_SHAPE,
+                                    ),
                                     prototype: self.string_prototype,
                                 });
                                 JsValue::Object(wrapper)
@@ -73,7 +77,9 @@ impl VmInner {
                             JsValue::Boolean(b) => {
                                 let wrapper = self.alloc_object(super::value::Object {
                                     kind: ObjectKind::BooleanWrapper(b),
-                                    properties: Vec::new(),
+                                    storage: super::value::PropertyStorage::shaped(
+                                        super::shape::ROOT_SHAPE,
+                                    ),
                                     prototype: self.boolean_prototype,
                                 });
                                 JsValue::Object(wrapper)
@@ -83,24 +89,30 @@ impl VmInner {
                     }
                     super::value::ThisMode::Strict => this,
                 };
-                self.call_internal(func_id, effective_this, args, upvalue_ids)
+                self.call_internal(func_id, effective_this, args, &upvalue_ids)
             }
             ObjectKind::NativeFunction(nf) => {
                 let func = nf.func;
+                // Disable GC during native calls: Rust stack locals holding
+                // ObjectId are invisible to the GC root scanner.
+                let saved_gc = self.gc_enabled;
+                self.gc_enabled = false;
                 let mut ctx = NativeContext { vm: self };
-                func(&mut ctx, this, args)
+                let result = func(&mut ctx, this, args);
+                ctx.vm.gc_enabled = saved_gc;
+                result
             }
             _ => Err(VmError::type_error("not a function")),
         }
     }
 
     /// Internal: push a frame and run a compiled function.
-    fn call_internal(
+    pub(crate) fn call_internal(
         &mut self,
         func_id: FuncId,
         this: JsValue,
         args: &[JsValue],
-        upvalue_ids: Vec<super::value::UpvalueId>,
+        upvalue_ids: &[super::value::UpvalueId],
     ) -> Result<JsValue, VmError> {
         let compiled = self.get_compiled(func_id);
         let local_count = compiled.local_count as usize;
@@ -126,7 +138,7 @@ impl VmInner {
             func_id,
             ip: 0,
             base,
-            upvalue_ids,
+            upvalue_ids: upvalue_ids.to_vec(),
             local_upvalue_ids: Vec::new(),
             this_value: this,
             exception_handlers: Vec::new(),
@@ -162,7 +174,7 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        self.call_internal(func_id, this, args, Vec::new())
+        self.call_internal(func_id, this, args, &[])
     }
 }
 

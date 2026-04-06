@@ -44,6 +44,10 @@ pub struct FunctionCompiler {
     /// these bodies are emitted inline before the jump/return.
     /// Each entry is a list of statement IDs constituting one finally block.
     pub finally_stack: Vec<Vec<NodeId<Stmt>>>,
+    /// Number of property IC slots allocated so far.
+    pub ic_slot_count: u16,
+    /// Number of call IC slots allocated so far.
+    pub call_ic_slot_count: u16,
 }
 
 /// Loop context for break/continue jump patching.
@@ -86,7 +90,23 @@ impl FunctionCompiler {
             func_scope_idx,
             current_scope_idx: initial_scope_idx,
             finally_stack: Vec::new(),
+            ic_slot_count: 0,
+            call_ic_slot_count: 0,
         }
+    }
+
+    /// Allocate a property IC slot, returning its index.
+    pub fn alloc_ic_slot(&mut self) -> u16 {
+        let idx = self.ic_slot_count;
+        self.ic_slot_count += 1;
+        idx
+    }
+
+    /// Allocate a call IC slot, returning its index.
+    pub fn alloc_call_ic_slot(&mut self) -> u16 {
+        let idx = self.call_ic_slot_count;
+        self.call_ic_slot_count += 1;
+        idx
     }
 
     /// Current bytecode offset (program counter).
@@ -125,6 +145,13 @@ impl FunctionCompiler {
         self.bytecode.push(op.to_byte());
         self.bytecode.extend_from_slice(&val.to_le_bytes());
         self.bytecode.push(flag);
+    }
+
+    /// Emit an opcode with a u8 + u16 operand (e.g., Call with argc + call_ic_idx).
+    pub fn emit_u8_u16(&mut self, op: Op, val: u8, ic: u16) {
+        self.bytecode.push(op.to_byte());
+        self.bytecode.push(val);
+        self.bytecode.extend_from_slice(&ic.to_le_bytes());
     }
 
     /// Emit an opcode with two u16 operands.
@@ -334,6 +361,8 @@ impl FunctionCompiler {
             is_arrow: self.is_arrow,
             is_strict: self.is_strict,
             needs_arguments: self.needs_arguments,
+            ic_slots: vec![None; self.ic_slot_count as usize],
+            call_ic_slots: vec![None; self.call_ic_slot_count as usize],
         }
     }
 }

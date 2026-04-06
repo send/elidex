@@ -545,18 +545,16 @@ pub(crate) fn get_property(
     while let Some(id) = current {
         if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
             // Check own properties.
-            for (k, prop) in &obj.properties {
-                if *k == key {
-                    return Some(match prop.slot {
-                        super::value::PropertyValue::Data(v) => PropertyResult::Data(v),
-                        super::value::PropertyValue::Accessor {
-                            getter: Some(g), ..
-                        } => PropertyResult::Getter(g),
-                        super::value::PropertyValue::Accessor { getter: None, .. } => {
-                            PropertyResult::Data(JsValue::Undefined)
-                        }
-                    });
-                }
+            if let Some((val, _attrs)) = obj.storage.get(key, &vm.shapes) {
+                return Some(match val {
+                    super::value::PropertyValue::Data(v) => PropertyResult::Data(*v),
+                    super::value::PropertyValue::Accessor {
+                        getter: Some(g), ..
+                    } => PropertyResult::Getter(*g),
+                    super::value::PropertyValue::Accessor { getter: None, .. } => {
+                        PropertyResult::Data(JsValue::Undefined)
+                    }
+                });
             }
             // Check array length.
             if key == PropertyKey::String(vm.well_known.length) {
@@ -602,21 +600,19 @@ pub(crate) fn find_inherited_property(
     let mut current = start;
     while let Some(id) = current {
         if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
-            for (k, prop) in &obj.properties {
-                if *k == key {
-                    return match &prop.slot {
-                        super::value::PropertyValue::Accessor {
-                            setter: Some(s), ..
-                        } => InheritedProperty::Setter(*s),
-                        super::value::PropertyValue::Accessor { setter: None, .. } => {
-                            InheritedProperty::AccessorNoSetter
-                        }
-                        super::value::PropertyValue::Data(_) if !prop.writable => {
-                            InheritedProperty::WritableFalse
-                        }
-                        super::value::PropertyValue::Data(_) => InheritedProperty::None,
-                    };
-                }
+            if let Some((val, attrs)) = obj.storage.get(key, &vm.shapes) {
+                return match val {
+                    super::value::PropertyValue::Accessor {
+                        setter: Some(s), ..
+                    } => InheritedProperty::Setter(*s),
+                    super::value::PropertyValue::Accessor { setter: None, .. } => {
+                        InheritedProperty::AccessorNoSetter
+                    }
+                    super::value::PropertyValue::Data(_) if !attrs.writable => {
+                        InheritedProperty::WritableFalse
+                    }
+                    super::value::PropertyValue::Data(_) => InheritedProperty::None,
+                };
             }
             current = obj.prototype;
         } else {

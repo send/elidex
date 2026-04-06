@@ -163,6 +163,8 @@ mod tests {
             is_arrow: false,
             is_strict: false,
             needs_arguments: false,
+            ic_slots: Vec::new(),
+            call_ic_slots: Vec::new(),
         }
     }
 

@@ -1,7 +1,7 @@
 //! Native implementations of Symbol, Array iterator, and Object.prototype.toString.
 
 use super::value::{
-    ArrayIterState, JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey,
+    ArrayIterState, JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage,
     StringIterState, VmError,
 };
 
@@ -109,7 +109,7 @@ pub(super) fn native_array_values(
             array_id: arr_id,
             index: 0,
         }),
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_iterator_prototype,
     });
     Ok(JsValue::Object(iter_obj))
@@ -224,7 +224,7 @@ pub(super) fn native_string_iterator(
             string_id: sid,
             index: 0,
         }),
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.string_iterator_prototype,
     });
     Ok(JsValue::Object(iter_obj))
@@ -286,11 +286,20 @@ fn create_iter_result(
     let done_key = PropertyKey::String(ctx.vm.well_known.done);
     let obj = ctx.alloc_object(Object {
         kind: ObjectKind::Ordinary,
-        properties: vec![
-            (value_key, Property::data(value)),
-            (done_key, Property::data(JsValue::Boolean(done))),
-        ],
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: None,
     });
+    ctx.vm.define_shaped_property(
+        obj,
+        value_key,
+        super::value::PropertyValue::Data(value),
+        super::shape::PropertyAttrs::DATA,
+    );
+    ctx.vm.define_shaped_property(
+        obj,
+        done_key,
+        super::value::PropertyValue::Data(JsValue::Boolean(done)),
+        super::shape::PropertyAttrs::DATA,
+    );
     Ok(JsValue::Object(obj))
 }
