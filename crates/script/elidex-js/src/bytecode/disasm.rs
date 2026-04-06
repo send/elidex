@@ -15,7 +15,11 @@ pub fn disassemble_script(script: &CompiledScript) -> String {
 }
 
 /// Disassemble a single function.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::too_many_lines)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::too_many_lines
+)]
 fn disassemble_function(func: &CompiledFunction, name: &str, out: &mut String, indent: usize) {
     let prefix = " ".repeat(indent);
     let _ = writeln!(
