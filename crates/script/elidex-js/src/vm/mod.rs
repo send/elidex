@@ -479,18 +479,29 @@ impl VmInner {
         val: JsValue,
         attrs: shape::PropertyAttrs,
     ) {
-        let exists = {
+        let existing_attrs = {
             let shapes = &self.shapes;
-            let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
-            if let Some((slot, _)) = obj.storage.get_mut(key, shapes) {
-                *slot = value::PropertyValue::Data(val);
-                true
-            } else {
-                false
-            }
+            let obj = self.objects[obj_id.0 as usize].as_ref().unwrap();
+            obj.storage.get(key, shapes).map(|(_, a)| a)
         };
-        if !exists {
-            self.define_shaped_property(obj_id, key, value::PropertyValue::Data(val), attrs);
+        match existing_attrs {
+            Some(current_attrs) => {
+                // Property exists — update value.
+                let shapes = &self.shapes;
+                let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                if let Some((slot, _)) = obj.storage.get_mut(key, shapes) {
+                    *slot = value::PropertyValue::Data(val);
+                }
+                // If attrs or accessor kind differ, reconfigure the shape.
+                if current_attrs != attrs {
+                    self.reconfigure_property(
+                        obj_id, key, attrs, None, // value already written above
+                    );
+                }
+            }
+            None => {
+                self.define_shaped_property(obj_id, key, value::PropertyValue::Data(val), attrs);
+            }
         }
     }
 

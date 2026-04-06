@@ -509,6 +509,9 @@ impl VmInner {
         // Non-arrow functions get a `.prototype` property (a plain object with
         // a `.constructor` back-reference), matching ES2020 §9.2.5.
         if !is_arrow {
+            // Push func_obj onto the stack to protect it from GC during
+            // proto_obj allocation (alloc_object may trigger collection).
+            self.stack.push(JsValue::Object(func_obj));
             let obj_proto = self.object_prototype;
             let proto_obj = self.alloc_object(super::value::Object {
                 kind: ObjectKind::Ordinary,
@@ -534,7 +537,12 @@ impl VmInner {
             );
         }
 
-        self.stack.push(JsValue::Object(func_obj));
+        if is_arrow {
+            // Arrow functions have no prototype — push func_obj now.
+            self.stack.push(JsValue::Object(func_obj));
+        }
+        // Non-arrow: func_obj was already pushed above for GC protection
+        // during proto_obj allocation; it's at the correct stack position.
         Ok(())
     }
 }
