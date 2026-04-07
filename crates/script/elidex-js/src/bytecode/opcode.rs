@@ -383,8 +383,6 @@ impl Op {
 
             // 1-byte operand (u8 or i8)
             Self::PushI8
-            | Self::Call
-            | Self::CallMethod
             | Self::New
             | Self::SuperCall
             | Self::TaggedTemplate
@@ -401,8 +399,6 @@ impl Op {
             | Self::SetUpvalue
             | Self::GetGlobal
             | Self::SetGlobal
-            | Self::GetProp
-            | Self::SetProp
             | Self::DeleteProp
             | Self::GetPrivate
             | Self::SetPrivate
@@ -425,8 +421,10 @@ impl Op {
             | Self::GetModuleVar
             | Self::SwitchJump => 2,
 
-            // 3-byte operand (u16 + u8)
-            Self::IncLocal
+            // 3-byte operand (u8 + u16 call IC index, or u16 + u8)
+            Self::Call
+            | Self::CallMethod
+            | Self::IncLocal
             | Self::DecLocal
             | Self::IncProp
             | Self::DecProp
@@ -436,7 +434,7 @@ impl Op {
             | Self::DefineSetter => 3,
 
             // 4-byte operand (u16 + u16)
-            Self::PushExceptionHandler => 4,
+            Self::GetProp | Self::SetProp | Self::PushExceptionHandler => 4,
         }
     }
 }

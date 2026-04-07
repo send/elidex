@@ -63,6 +63,11 @@ pub struct CompiledFunction {
     pub is_strict: bool,
     /// Whether this function uses `arguments` (has `CreateArguments` opcode).
     pub needs_arguments: bool,
+    /// Inline cache slots for property access (GetProp/SetProp).
+    /// Allocated by the compiler; populated at runtime.
+    pub ic_slots: Vec<Option<crate::vm::ic::PropertyIC>>,
+    /// Inline cache slots for call sites (Call/CallMethod).
+    pub call_ic_slots: Vec<Option<crate::vm::ic::CallIC>>,
 }
 
 impl CompiledFunction {
@@ -83,6 +88,8 @@ impl CompiledFunction {
             is_arrow: false,
             is_strict: false,
             needs_arguments: false,
+            ic_slots: Vec::new(),
+            call_ic_slots: Vec::new(),
         }
     }
 }

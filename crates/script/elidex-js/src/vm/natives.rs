@@ -4,7 +4,8 @@
 //! in `globals.rs` when registering built-in objects.
 
 use super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, Property, PropertyKey, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, Property, PropertyKey, PropertyStorage,
+    VmError,
 };
 use super::VmInner;
 
@@ -204,18 +205,24 @@ fn error_ctor_impl(
     if let JsValue::Object(id) = this {
         let name_key = PropertyKey::String(ctx.vm.well_known.name);
         let name_val = JsValue::String(ctx.intern(error_name));
-        ctx.get_object_mut(id)
-            .properties
-            .push((name_key, Property::data(name_val)));
+        ctx.vm.define_shaped_property(
+            id,
+            name_key,
+            super::value::PropertyValue::Data(name_val),
+            super::shape::PropertyAttrs::DATA,
+        );
         let msg = args
             .first()
             .copied()
             .unwrap_or(JsValue::String(ctx.vm.well_known.empty));
         let msg_id = ctx.to_string_val(msg)?;
         let msg_key = PropertyKey::String(ctx.vm.well_known.message);
-        ctx.get_object_mut(id)
-            .properties
-            .push((msg_key, Property::data(JsValue::String(msg_id))));
+        ctx.vm.define_shaped_property(
+            id,
+            msg_key,
+            super::value::PropertyValue::Data(JsValue::String(msg_id)),
+            super::shape::PropertyAttrs::DATA,
+        );
     }
     Ok(this)
 }
@@ -265,18 +272,18 @@ pub(super) fn native_object_keys(
             kind: ObjectKind::Array {
                 elements: Vec::new(),
             },
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: ctx.vm.array_prototype,
         })));
     };
     let keys: Vec<JsValue> = ctx
         .get_object(obj_id)
-        .properties
-        .iter()
-        .filter(|(_, p)| p.enumerable)
+        .storage
+        .iter_keys(&ctx.vm.shapes)
+        .filter(|(_, attrs)| attrs.enumerable)
         .filter_map(|(k, _)| {
             if let PropertyKey::String(sid) = k {
-                Some(JsValue::String(*sid))
+                Some(JsValue::String(sid))
             } else {
                 None
             }
@@ -284,7 +291,7 @@ pub(super) fn native_object_keys(
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: keys },
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
     })))
 }
@@ -300,17 +307,17 @@ pub(super) fn native_object_values(
             kind: ObjectKind::Array {
                 elements: Vec::new(),
             },
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: ctx.vm.array_prototype,
         })));
     };
     // §7.3.21 EnumerableOwnPropertyNames: snapshot keys, then Get per key.
     let keys: Vec<PropertyKey> = ctx
         .get_object(obj_id)
-        .properties
-        .iter()
-        .filter(|(k, p)| p.enumerable && matches!(k, PropertyKey::String(_)))
-        .map(|(k, _)| *k)
+        .storage
+        .iter_keys(&ctx.vm.shapes)
+        .filter(|(k, attrs)| attrs.enumerable && matches!(k, PropertyKey::String(_)))
+        .map(|(k, _)| k)
         .collect();
     let mut values = Vec::with_capacity(keys.len());
     for key in keys {
@@ -318,7 +325,7 @@ pub(super) fn native_object_values(
     }
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: values },
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
     })))
 }
@@ -340,10 +347,10 @@ pub(super) fn native_object_assign(
         // §19.1.2.1 step 5c: snapshot keys, then Get per key.
         let keys: Vec<PropertyKey> = ctx
             .get_object(src_id)
-            .properties
-            .iter()
-            .filter(|(_, p)| p.enumerable)
-            .map(|(k, _)| *k)
+            .storage
+            .iter_keys(&ctx.vm.shapes)
+            .filter(|(_, attrs)| attrs.enumerable)
+            .map(|(k, _)| k)
             .collect();
         let mut props = Vec::with_capacity(keys.len());
         for key in keys {
@@ -356,13 +363,8 @@ pub(super) fn native_object_assign(
                     ctx.vm.globals.insert(*sid, *value);
                 }
             }
-            // Update existing or push new.
-            let target_obj = ctx.get_object_mut(target_id);
-            if let Some(prop) = target_obj.properties.iter_mut().find(|(k, _)| *k == *key) {
-                prop.1.slot = super::value::PropertyValue::Data(*value);
-            } else {
-                target_obj.properties.push((*key, Property::data(*value)));
-            }
+            ctx.vm
+                .upsert_data_property(target_id, *key, *value, super::shape::PropertyAttrs::DATA);
         }
     }
     Ok(target)
@@ -381,7 +383,7 @@ pub(super) fn native_object_create(
     };
     let obj_id = ctx.alloc_object(Object {
         kind: ObjectKind::Ordinary,
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype,
     });
     Ok(JsValue::Object(obj_id))
@@ -468,10 +470,9 @@ pub(super) fn native_object_define_property(
         // Look up the existing property to merge partial descriptors.
         let existing = ctx
             .get_object(obj_id)
-            .properties
-            .iter()
-            .find(|(k, _)| *k == key)
-            .map(|(_, p)| *p);
+            .storage
+            .get(key, &ctx.vm.shapes)
+            .map(|(pv, attrs)| Property::from_attrs(*pv, attrs));
 
         if has_accessor {
             let getter = match has_get {
@@ -519,10 +520,9 @@ pub(super) fn native_object_define_property(
     // §9.1.6.3: Validate attribute changes against existing non-configurable property.
     if let Some(existing) = ctx
         .get_object(obj_id)
-        .properties
-        .iter()
-        .find(|(k, _)| *k == key)
-        .map(|(_, p)| *p)
+        .storage
+        .get(key, &ctx.vm.shapes)
+        .map(|(pv, attrs)| Property::from_attrs(*pv, attrs))
     {
         if !existing.configurable {
             // Cannot change configurable from false to true.
@@ -612,11 +612,40 @@ pub(super) fn native_object_define_property(
             }
         }
     }
-    let obj = ctx.get_object_mut(obj_id);
-    if let Some(prop) = obj.properties.iter_mut().find(|(k, _)| *k == key) {
-        prop.1 = new_prop;
+    // Write the property using shape transitions (preserves IC caching).
+    let new_attrs = super::shape::PropertyAttrs {
+        writable: new_prop.writable,
+        enumerable: new_prop.enumerable,
+        configurable: new_prop.configurable,
+        is_accessor: matches!(new_prop.slot, super::value::PropertyValue::Accessor { .. }),
+    };
+    let existing_info = {
+        let obj = ctx.vm.objects[obj_id.0 as usize].as_ref().unwrap();
+        obj.storage.get(key, &ctx.vm.shapes).map(|(_, attrs)| attrs)
+    };
+    if let Some(existing_attrs) = existing_info {
+        if existing_attrs == new_attrs {
+            // Attrs unchanged — just write the slot value.
+            let obj = ctx.vm.objects[obj_id.0 as usize].as_mut().unwrap();
+            if let Some((slot, _)) = obj.storage.get_mut(key, &ctx.vm.shapes) {
+                *slot = new_prop.slot;
+            }
+        } else {
+            // Attrs changed — reconfigure transition + slot write.
+            ctx.vm
+                .reconfigure_property(obj_id, key, new_attrs, Some(new_prop.slot));
+            // Dictionary mode: reconfigure_property is a no-op, update in place.
+            let obj = ctx.vm.objects[obj_id.0 as usize].as_mut().unwrap();
+            if let super::value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
+                if let Some((_, p)) = vec.iter_mut().find(|(k, _)| *k == key) {
+                    *p = new_prop;
+                }
+            }
+        }
     } else {
-        obj.properties.push((key, new_prop));
+        // New property — use add transition.
+        ctx.vm
+            .define_shaped_property(obj_id, key, new_prop.slot, new_attrs);
     }
     Ok(obj_val)
 }
@@ -791,17 +820,17 @@ pub(super) fn native_object_get_own_property_symbols(
             kind: ObjectKind::Array {
                 elements: Vec::new(),
             },
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: ctx.vm.array_prototype,
         })));
     };
     let syms: Vec<JsValue> = ctx
         .get_object(obj_id)
-        .properties
-        .iter()
+        .storage
+        .iter_keys(&ctx.vm.shapes)
         .filter_map(|(k, _)| {
             if let PropertyKey::Symbol(sid) = k {
-                Some(JsValue::Symbol(*sid))
+                Some(JsValue::Symbol(sid))
             } else {
                 None
             }
@@ -809,7 +838,7 @@ pub(super) fn native_object_get_own_property_symbols(
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: syms },
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
     })))
 }

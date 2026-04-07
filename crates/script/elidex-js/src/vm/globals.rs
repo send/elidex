@@ -25,7 +25,11 @@ use super::natives_number::{
     native_number_to_fixed, native_number_to_string, native_number_value_of,
 };
 use super::natives_regexp::{native_regexp_exec, native_regexp_test, native_regexp_to_string};
-use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
+use super::shape::{self, PropertyAttrs};
+use super::value::{
+    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
+    VmError,
+};
 use super::{NativeFn, VmInner};
 
 impl VmInner {
@@ -38,7 +42,7 @@ impl VmInner {
         // access in non-strict functions (§9.2.1.2).
         let global_obj = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None, // will be set after Object.prototype exists
         });
         self.global_object = global_obj;
@@ -110,15 +114,18 @@ impl VmInner {
 
     /// Helper: register a constructor-like global object with a `.prototype` property.
     fn register_constructor_global(&mut self, name: &str, proto_id: super::value::ObjectId) {
-        let ctor_id = self.alloc_object(super::value::Object {
+        let ctor_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.object_prototype,
         });
         let proto_key = PropertyKey::String(self.well_known.prototype);
-        self.get_object_mut(ctor_id)
-            .properties
-            .push((proto_key, Property::builtin(JsValue::Object(proto_id))));
+        self.define_shaped_property(
+            ctor_id,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
         let name_id = self.strings.intern(name);
         self.globals.insert(name_id, JsValue::Object(ctor_id));
     }
@@ -130,15 +137,18 @@ impl VmInner {
     ) -> super::value::ObjectId {
         let obj_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.object_prototype,
         });
         for &(name, func) in methods {
             let fn_id = self.create_native_function(name, func);
             let key = PropertyKey::String(self.strings.intern(name));
-            self.get_object_mut(obj_id)
-                .properties
-                .push((key, Property::method(JsValue::Object(fn_id))));
+            self.define_shaped_property(
+                obj_id,
+                key,
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
         }
         obj_id
     }
@@ -147,7 +157,7 @@ impl VmInner {
         // Object.prototype — root of the prototype chain.
         let obj_proto = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
         });
         self.object_prototype = Some(obj_proto);
@@ -155,9 +165,12 @@ impl VmInner {
         // Object.prototype.toString (ES2020 §19.1.3.6)
         let to_str_fn = self.create_native_function("toString", native_object_prototype_to_string);
         let to_str_key = PropertyKey::String(self.strings.intern("toString"));
-        self.get_object_mut(obj_proto)
-            .properties
-            .push((to_str_key, Property::method(JsValue::Object(to_str_fn))));
+        self.define_shaped_property(
+            obj_proto,
+            to_str_key,
+            PropertyValue::Data(JsValue::Object(to_str_fn)),
+            PropertyAttrs::METHOD,
+        );
 
         // Set the global object's prototype now that Object.prototype exists.
         self.get_object_mut(self.global_object).prototype = Some(obj_proto);
@@ -165,7 +178,7 @@ impl VmInner {
         // Array.prototype — inherits from Object.prototype.
         let arr_proto = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: Some(obj_proto),
         });
         self.array_prototype = Some(arr_proto);
@@ -173,9 +186,12 @@ impl VmInner {
         // Array.prototype[Symbol.iterator] = native_array_values
         let iter_fn_id = self.create_native_function("[Symbol.iterator]", native_array_values);
         let sym_iter_key = PropertyKey::Symbol(self.well_known_symbols.iterator);
-        self.get_object_mut(arr_proto)
-            .properties
-            .push((sym_iter_key, Property::method(JsValue::Object(iter_fn_id))));
+        self.define_shaped_property(
+            arr_proto,
+            sym_iter_key,
+            PropertyValue::Data(JsValue::Object(iter_fn_id)),
+            PropertyAttrs::METHOD,
+        );
     }
 
     fn register_iterator_prototypes(&mut self) {
@@ -188,15 +204,21 @@ impl VmInner {
             self.create_native_function("[Symbol.iterator]", native_iterator_self);
         let arr_iter_proto = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
-            properties: vec![
-                (next_key, Property::method(JsValue::Object(arr_next_fn))),
-                (
-                    sym_iter_key,
-                    Property::method(JsValue::Object(arr_iter_self_fn)),
-                ),
-            ],
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.object_prototype,
         });
+        self.define_shaped_property(
+            arr_iter_proto,
+            next_key,
+            PropertyValue::Data(JsValue::Object(arr_next_fn)),
+            PropertyAttrs::METHOD,
+        );
+        self.define_shaped_property(
+            arr_iter_proto,
+            sym_iter_key,
+            PropertyValue::Data(JsValue::Object(arr_iter_self_fn)),
+            PropertyAttrs::METHOD,
+        );
         self.array_iterator_prototype = Some(arr_iter_proto);
 
         // String iterator prototype with `next` + `@@iterator`
@@ -205,15 +227,21 @@ impl VmInner {
             self.create_native_function("[Symbol.iterator]", native_iterator_self);
         let str_iter_proto = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
-            properties: vec![
-                (next_key, Property::method(JsValue::Object(str_next_fn))),
-                (
-                    sym_iter_key,
-                    Property::method(JsValue::Object(str_iter_self_fn)),
-                ),
-            ],
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.object_prototype,
         });
+        self.define_shaped_property(
+            str_iter_proto,
+            next_key,
+            PropertyValue::Data(JsValue::Object(str_next_fn)),
+            PropertyAttrs::METHOD,
+        );
+        self.define_shaped_property(
+            str_iter_proto,
+            sym_iter_key,
+            PropertyValue::Data(JsValue::Object(str_iter_self_fn)),
+            PropertyAttrs::METHOD,
+        );
         self.string_iterator_prototype = Some(str_iter_proto);
     }
 
@@ -268,15 +296,19 @@ impl VmInner {
         ]);
         // Math.PI, Math.E
         let pi_key = PropertyKey::String(self.strings.intern("PI"));
-        self.get_object_mut(obj_id).properties.push((
+        self.define_shaped_property(
+            obj_id,
             pi_key,
-            Property::builtin(JsValue::Number(std::f64::consts::PI)),
-        ));
+            PropertyValue::Data(JsValue::Number(std::f64::consts::PI)),
+            PropertyAttrs::BUILTIN,
+        );
         let e_key = PropertyKey::String(self.strings.intern("E"));
-        self.get_object_mut(obj_id).properties.push((
+        self.define_shaped_property(
+            obj_id,
             e_key,
-            Property::builtin(JsValue::Number(std::f64::consts::E)),
-        ));
+            PropertyValue::Data(JsValue::Number(std::f64::consts::E)),
+            PropertyAttrs::BUILTIN,
+        );
         let name = self.strings.intern("Math");
         self.globals.insert(name, JsValue::Object(obj_id));
     }
@@ -311,9 +343,12 @@ impl VmInner {
         // String.prototype[Symbol.iterator] = native_string_iterator
         let iter_fn_id = self.create_native_function("[Symbol.iterator]", native_string_iterator);
         let sym_iter_key = PropertyKey::Symbol(self.well_known_symbols.iterator);
-        self.get_object_mut(proto_id)
-            .properties
-            .push((sym_iter_key, Property::method(JsValue::Object(iter_fn_id))));
+        self.define_shaped_property(
+            proto_id,
+            sym_iter_key,
+            PropertyValue::Data(JsValue::Object(iter_fn_id)),
+            PropertyAttrs::METHOD,
+        );
         self.string_prototype = Some(proto_id);
         self.register_constructor_global("String", proto_id);
     }
@@ -363,16 +398,22 @@ impl VmInner {
         // Symbol.for
         let for_fn = self.create_native_function("for", native_symbol_for);
         let for_key = PropertyKey::String(self.strings.intern("for"));
-        self.get_object_mut(sym_fn_id)
-            .properties
-            .push((for_key, Property::method(JsValue::Object(for_fn))));
+        self.define_shaped_property(
+            sym_fn_id,
+            for_key,
+            PropertyValue::Data(JsValue::Object(for_fn)),
+            PropertyAttrs::METHOD,
+        );
 
         // Symbol.keyFor
         let key_for_fn = self.create_native_function("keyFor", native_symbol_key_for);
         let key_for_key = PropertyKey::String(self.strings.intern("keyFor"));
-        self.get_object_mut(sym_fn_id)
-            .properties
-            .push((key_for_key, Property::method(JsValue::Object(key_for_fn))));
+        self.define_shaped_property(
+            sym_fn_id,
+            key_for_key,
+            PropertyValue::Data(JsValue::Object(key_for_fn)),
+            PropertyAttrs::METHOD,
+        );
 
         // Well-known symbols as properties
         let wk = &self.well_known_symbols;
@@ -387,59 +428,71 @@ impl VmInner {
         ];
         for (prop_name, sid) in well_known_props {
             let key = PropertyKey::String(self.strings.intern(prop_name));
-            self.get_object_mut(sym_fn_id)
-                .properties
-                .push((key, Property::builtin(JsValue::Symbol(sid))));
+            self.define_shaped_property(
+                sym_fn_id,
+                key,
+                PropertyValue::Data(JsValue::Symbol(sid)),
+                PropertyAttrs::BUILTIN,
+            );
         }
 
         // Symbol.prototype (non-enumerable, non-configurable, non-writable per spec)
         if let Some(proto_id) = self.symbol_prototype {
             let proto_key = PropertyKey::String(self.well_known.prototype);
-            self.get_object_mut(sym_fn_id).properties.push((
+            self.define_shaped_property(
+                sym_fn_id,
                 proto_key,
-                Property {
-                    slot: super::value::PropertyValue::Data(JsValue::Object(proto_id)),
-                    writable: false,
-                    enumerable: false,
-                    configurable: false,
-                },
-            ));
+                PropertyValue::Data(JsValue::Object(proto_id)),
+                PropertyAttrs::BUILTIN,
+            );
 
             // Symbol.prototype.constructor = Symbol
             let ctor_key = PropertyKey::String(self.well_known.constructor);
-            self.get_object_mut(proto_id)
-                .properties
-                .push((ctor_key, Property::method(JsValue::Object(sym_fn_id))));
+            self.define_shaped_property(
+                proto_id,
+                ctor_key,
+                PropertyValue::Data(JsValue::Object(sym_fn_id)),
+                PropertyAttrs::METHOD,
+            );
         }
     }
 
     fn register_console(&mut self) {
         let console_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
         });
 
         // console.log
         let log_fn = self.create_native_function("log", native_console_log);
         let log_key = PropertyKey::String(self.well_known.log);
-        self.get_object_mut(console_id)
-            .properties
-            .push((log_key, Property::method(JsValue::Object(log_fn))));
+        self.define_shaped_property(
+            console_id,
+            log_key,
+            PropertyValue::Data(JsValue::Object(log_fn)),
+            PropertyAttrs::METHOD,
+        );
 
         // console.error
         let error_fn = self.create_native_function("error", native_console_error);
         let error_key = PropertyKey::String(self.well_known.error);
-        self.get_object_mut(console_id)
-            .properties
-            .push((error_key, Property::method(JsValue::Object(error_fn))));
+        self.define_shaped_property(
+            console_id,
+            error_key,
+            PropertyValue::Data(JsValue::Object(error_fn)),
+            PropertyAttrs::METHOD,
+        );
 
         // console.warn
         let warn_fn = self.create_native_function("warn", native_console_warn);
         let warn_key = PropertyKey::String(self.well_known.warn);
-        self.get_object_mut(console_id)
-            .properties
-            .push((warn_key, Property::method(JsValue::Object(warn_fn))));
+        self.define_shaped_property(
+            console_id,
+            warn_key,
+            PropertyValue::Data(JsValue::Object(warn_fn)),
+            PropertyAttrs::METHOD,
+        );
 
         let console_name = self.strings.intern("console");
         self.globals

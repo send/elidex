@@ -6,9 +6,12 @@
 pub mod coerce;
 mod dispatch;
 mod dispatch_helpers;
+mod dispatch_ic;
 mod dispatch_iter;
 mod dispatch_objects;
+pub(crate) mod gc;
 mod globals;
+pub(crate) mod ic;
 pub mod interpreter;
 mod natives;
 mod natives_boolean;
@@ -17,6 +20,8 @@ mod natives_regexp;
 mod natives_string;
 mod natives_symbol;
 mod ops;
+mod ops_property;
+pub(crate) mod shape;
 pub mod value;
 
 #[cfg(test)]
@@ -139,6 +144,21 @@ pub(crate) struct VmInner {
     pub(crate) current_exception: JsValue,
     /// xorshift64 PRNG state for `Math.random()`.
     pub(crate) rng_state: u64,
+    /// Hidden class (Shape) table.  `shapes[0]` is always the root (empty) shape.
+    pub(crate) shapes: Vec<shape::Shape>,
+    // -- GC state --
+    /// Mark bits for objects (one bit per `objects` slot).
+    pub(crate) gc_object_marks: Vec<u64>,
+    /// Mark bits for upvalues (one bit per `upvalues` slot).
+    pub(crate) gc_upvalue_marks: Vec<u64>,
+    /// Reusable work list for GC mark phase (avoids per-cycle allocation).
+    pub(crate) gc_work_list: Vec<u32>,
+    /// Estimated bytes allocated since the last GC cycle.
+    pub(crate) gc_bytes_since_last: usize,
+    /// Byte threshold for triggering the next collection.
+    pub(crate) gc_threshold: usize,
+    /// GC enabled flag.  `false` during init and native function calls.
+    pub(crate) gc_enabled: bool,
 }
 
 /// Frequently used interned string IDs, cached at VM creation.
@@ -195,7 +215,33 @@ impl VmInner {
     }
 
     /// Allocate an object, returning its `ObjectId`.
+    ///
+    /// May trigger a GC cycle if the allocation pressure threshold is exceeded.
+    /// GC runs **before** the new object is placed in the heap, so the new
+    /// object cannot be prematurely collected.
+    /// Estimated byte cost per object allocation (struct size + inline overhead).
+    const OBJECT_ALLOC_ESTIMATE: usize = std::mem::size_of::<Object>() + 64;
+
     pub(crate) fn alloc_object(&mut self, obj: Object) -> ObjectId {
+        // GC trigger BEFORE insertion.  Callers must ensure that any
+        // ObjectIds reachable only through `obj`'s fields (prototype,
+        // array elements, property slots) are already rooted on the VM
+        // stack or otherwise reachable from GC roots.  Prototype ObjectIds
+        // from VmInner fields (e.g., `self.object_prototype`) are always
+        // rooted.  For complex cases (e.g., `create_closure`, `do_new`),
+        // callers temporarily push values onto the stack or disable GC.
+        if self.gc_enabled
+            && self
+                .gc_bytes_since_last
+                .saturating_add(Self::OBJECT_ALLOC_ESTIMATE)
+                >= self.gc_threshold
+        {
+            self.collect_garbage();
+        }
+        // Increment AFTER potential GC so the current allocation is still
+        // counted towards the next cycle's threshold.
+        self.gc_bytes_since_last += Self::OBJECT_ALLOC_ESTIMATE;
+
         if let Some(idx) = self.free_objects.pop() {
             self.objects[idx as usize] = Some(obj);
             ObjectId(idx)
@@ -226,6 +272,156 @@ impl VmInner {
         self.objects[id.0 as usize]
             .as_mut()
             .expect("object already freed")
+    }
+
+    // -- Shape helpers --------------------------------------------------------
+
+    /// Add-transition: add a new property to a Shape, returning the child ShapeId.
+    /// Reuses an existing transition if the same (key, attrs) was added before.
+    pub(crate) fn shape_add_transition(
+        &mut self,
+        parent: shape::ShapeId,
+        key: value::PropertyKey,
+        attrs: shape::PropertyAttrs,
+    ) -> shape::ShapeId {
+        let tk = shape::TransitionKey::Add(key, attrs);
+        if let Some(&child) = self.shapes[parent as usize].transitions.get(&tk) {
+            return child;
+        }
+        let parent_shape = &self.shapes[parent as usize];
+        debug_assert!(
+            !parent_shape.property_map.contains_key(&key),
+            "shape_add_transition called for existing key; use shape_reconfigure_transition instead"
+        );
+        let mut property_map = parent_shape.property_map.clone();
+        let slot_index = parent_shape.ordered_entries.len() as u16;
+        property_map.insert(key, slot_index);
+        let mut ordered_entries = parent_shape.ordered_entries.clone();
+        ordered_entries.push((key, attrs));
+        let child_id = self.shapes.len() as shape::ShapeId;
+        self.shapes.push(shape::Shape {
+            transitions: HashMap::new(),
+            property_map,
+            ordered_entries,
+        });
+        self.shapes[parent as usize]
+            .transitions
+            .insert(tk, child_id);
+        child_id
+    }
+
+    /// Reconfigure-transition: change the attributes of an existing property.
+    /// Slot index is unchanged; only attrs in ordered_entries are updated.
+    pub(crate) fn shape_reconfigure_transition(
+        &mut self,
+        parent: shape::ShapeId,
+        key: value::PropertyKey,
+        attrs: shape::PropertyAttrs,
+    ) -> shape::ShapeId {
+        let tk = shape::TransitionKey::Reconfigure(key, attrs);
+        if let Some(&child) = self.shapes[parent as usize].transitions.get(&tk) {
+            return child;
+        }
+        let parent_shape = &self.shapes[parent as usize];
+        debug_assert!(
+            parent_shape.property_map.contains_key(&key),
+            "shape_reconfigure_transition called for non-existent key"
+        );
+        let slot_index = parent_shape.property_map[&key];
+        let property_map = parent_shape.property_map.clone();
+        let mut ordered_entries = parent_shape.ordered_entries.clone();
+        ordered_entries[slot_index as usize].1 = attrs;
+        let child_id = self.shapes.len() as shape::ShapeId;
+        self.shapes.push(shape::Shape {
+            transitions: HashMap::new(),
+            property_map,
+            ordered_entries,
+        });
+        self.shapes[parent as usize]
+            .transitions
+            .insert(tk, child_id);
+        child_id
+    }
+
+    /// Reconfigure an existing property's attributes on a Shaped object.
+    /// Updates the shape via reconfigure transition and optionally writes a new slot value.
+    pub(crate) fn reconfigure_property(
+        &mut self,
+        obj_id: ObjectId,
+        key: value::PropertyKey,
+        new_attrs: shape::PropertyAttrs,
+        new_value: Option<value::PropertyValue>,
+    ) {
+        let current_shape = match &self.objects[obj_id.0 as usize].as_ref().unwrap().storage {
+            value::PropertyStorage::Shaped { shape, .. } => *shape,
+            value::PropertyStorage::Dictionary(_) => return, // no-op for dictionary
+        };
+        let new_shape = self.shape_reconfigure_transition(current_shape, key, new_attrs);
+        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+        if let value::PropertyStorage::Shaped { shape, slots } = &mut obj.storage {
+            *shape = new_shape;
+            if let Some(val) = new_value {
+                let slot_idx = self.shapes[new_shape as usize].property_map[&key];
+                slots[slot_idx as usize] = val;
+            }
+        }
+    }
+
+    /// Define a new property on a Shaped object: transition + slot push.
+    /// If the object is in Dictionary mode, pushes directly.
+    pub(crate) fn define_shaped_property(
+        &mut self,
+        obj_id: ObjectId,
+        key: value::PropertyKey,
+        value: value::PropertyValue,
+        attrs: shape::PropertyAttrs,
+    ) {
+        // Read current shape.
+        let current_shape = match &self.objects[obj_id.0 as usize].as_ref().unwrap().storage {
+            value::PropertyStorage::Shaped { shape, .. } => *shape,
+            value::PropertyStorage::Dictionary(_) => {
+                let prop = value::Property::from_attrs(value, attrs);
+                self.get_object_mut(obj_id).storage.push_dict(key, prop);
+                return;
+            }
+        };
+        // Transition shape.
+        let new_shape = self.shape_add_transition(current_shape, key, attrs);
+        // Update object.
+        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+        if let value::PropertyStorage::Shaped { shape, slots } = &mut obj.storage {
+            *shape = new_shape;
+            slots.push(value);
+        }
+    }
+
+    /// Convert a Shaped object to Dictionary mode (for delete).
+    pub(crate) fn convert_to_dictionary(&mut self, obj_id: ObjectId) {
+        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+        let new_storage = match &obj.storage {
+            value::PropertyStorage::Dictionary(_) => return, // already dictionary
+            value::PropertyStorage::Shaped { shape, slots } => {
+                let s = &self.shapes[*shape as usize];
+                let vec: Vec<(value::PropertyKey, value::Property)> = s
+                    .ordered_entries
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (key, attrs))| {
+                        (
+                            *key,
+                            value::Property {
+                                slot: slots[i],
+                                writable: attrs.writable,
+                                enumerable: attrs.enumerable,
+                                configurable: attrs.configurable,
+                            },
+                        )
+                    })
+                    .collect();
+                value::PropertyStorage::Dictionary(vec)
+            }
+        };
+        obj.storage = new_storage;
     }
 
     // -- Compiled functions --------------------------------------------------
@@ -273,7 +469,7 @@ impl VmInner {
                 func,
                 constructable: false,
             }),
-            properties: Vec::new(),
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
         })
     }
@@ -291,9 +487,64 @@ impl VmInner {
                 func,
                 constructable: true,
             }),
-            properties: Vec::new(),
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
         })
+    }
+
+    /// Update an existing data property or define a new one.
+    pub(crate) fn upsert_data_property(
+        &mut self,
+        obj_id: ObjectId,
+        key: value::PropertyKey,
+        val: JsValue,
+        attrs: shape::PropertyAttrs,
+    ) {
+        let existing_attrs = {
+            let shapes = &self.shapes;
+            let obj = self.objects[obj_id.0 as usize].as_ref().unwrap();
+            obj.storage.get(key, shapes).map(|(_, a)| a)
+        };
+        match existing_attrs {
+            Some(current_attrs) if current_attrs == attrs => {
+                // Same attrs — just update the slot value.
+                let shapes = &self.shapes;
+                let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                if let Some((slot, _)) = obj.storage.get_mut(key, shapes) {
+                    *slot = value::PropertyValue::Data(val);
+                }
+            }
+            Some(_) => {
+                // Attrs differ — update both value and attrs.
+                let new_val = value::PropertyValue::Data(val);
+                let is_shaped = matches!(
+                    self.objects[obj_id.0 as usize].as_ref().unwrap().storage,
+                    value::PropertyStorage::Shaped { .. }
+                );
+                if is_shaped {
+                    // Shaped: write value then reconfigure shape.
+                    {
+                        let shapes = &self.shapes;
+                        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                        if let Some((slot, _)) = obj.storage.get_mut(key, shapes) {
+                            *slot = new_val;
+                        }
+                    }
+                    self.reconfigure_property(obj_id, key, attrs, None);
+                } else {
+                    // Dictionary: replace the entire Property.
+                    let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                    if let value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
+                        if let Some((_, prop)) = vec.iter_mut().find(|(k, _)| *k == key) {
+                            *prop = value::Property::from_attrs(new_val, attrs);
+                        }
+                    }
+                }
+            }
+            None => {
+                self.define_shaped_property(obj_id, key, value::PropertyValue::Data(val), attrs);
+            }
+        }
     }
 
     /// Resolve a `PropertyValue` slot to a `JsValue`, invoking the getter
@@ -434,10 +685,18 @@ impl Vm {
                         seed
                     }
                 },
+                shapes: vec![shape::Shape::root()],
+                gc_object_marks: Vec::new(),
+                gc_upvalue_marks: Vec::new(),
+                gc_work_list: Vec::new(),
+                gc_bytes_since_last: 0,
+                gc_threshold: 65536,
+                gc_enabled: false,
             },
         };
 
         vm.inner.register_globals();
+        vm.inner.gc_enabled = true;
         vm
     }
 

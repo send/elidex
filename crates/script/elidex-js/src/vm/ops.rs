@@ -1,14 +1,13 @@
-//! VM operation helpers: property access, function calls, exception handling,
-//! upvalue management, and operator helpers.
+//! VM operation helpers: function calls, exception handling, upvalue management,
+//! and operator helpers. Property access methods live in `ops_property.rs`.
 
 use super::coerce::{
-    abstract_relational, find_inherited_property, get_property, op_bitwise, op_numeric_binary,
-    to_boolean, to_number, to_string, BitwiseOp, InheritedProperty, NumericBinaryOp,
-    PropertyResult,
+    abstract_relational, get_property, op_bitwise, op_numeric_binary, to_boolean, to_number,
+    to_string, BitwiseOp, NumericBinaryOp, PropertyResult,
 };
 use super::value::{
-    FuncId, JsValue, ObjectId, ObjectKind, Property, PropertyKey, PropertyValue, StringId, Upvalue,
-    UpvalueState, VmError, VmErrorKind,
+    FuncId, JsValue, ObjectKind, PropertyKey, PropertyValue, Upvalue, UpvalueState, VmError,
+    VmErrorKind,
 };
 use super::VmInner;
 use crate::bytecode::compiled::Constant;
@@ -79,18 +78,21 @@ impl VmInner {
                 let msg_id = self.strings.intern(&error.message);
                 let error_obj = self.alloc_object(super::value::Object {
                     kind: ObjectKind::Error { name: name_id },
-                    properties: vec![
-                        (
-                            PropertyKey::String(self.well_known.name),
-                            Property::data(JsValue::String(name_id)),
-                        ),
-                        (
-                            PropertyKey::String(self.well_known.message),
-                            Property::data(JsValue::String(msg_id)),
-                        ),
-                    ],
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                     prototype: self.object_prototype,
                 });
+                self.define_shaped_property(
+                    error_obj,
+                    PropertyKey::String(self.well_known.name),
+                    PropertyValue::Data(JsValue::String(name_id)),
+                    super::shape::PropertyAttrs::DATA,
+                );
+                self.define_shaped_property(
+                    error_obj,
+                    PropertyKey::String(self.well_known.message),
+                    PropertyValue::Data(JsValue::String(msg_id)),
+                    super::shape::PropertyAttrs::DATA,
+                );
                 JsValue::Object(error_obj)
             }
         }
@@ -312,390 +314,7 @@ impl VmInner {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Property access
-// ---------------------------------------------------------------------------
-
-impl VmInner {
-    /// Resolve a `PropertyResult` to a `JsValue`, invoking the getter if needed.
-    pub(crate) fn resolve_property(
-        &mut self,
-        result: PropertyResult,
-        receiver: JsValue,
-    ) -> Result<JsValue, VmError> {
-        match result {
-            PropertyResult::Data(v) => Ok(v),
-            PropertyResult::Getter(g) => self.call(g, receiver, &[]),
-        }
-    }
-
-    /// Look up `pk` on a prototype object and resolve (invoke getter if accessor).
-    /// Returns `Undefined` if the prototype is `None` or the property is not found.
-    fn lookup_on_proto(
-        &mut self,
-        proto: Option<super::value::ObjectId>,
-        pk: PropertyKey,
-        receiver: JsValue,
-    ) -> Result<JsValue, VmError> {
-        if let Some(proto_id) = proto {
-            match get_property(self, proto_id, pk) {
-                Some(result) => self.resolve_property(result, receiver),
-                None => Ok(JsValue::Undefined),
-            }
-        } else {
-            Ok(JsValue::Undefined)
-        }
-    }
-
-    pub(crate) fn get_property_val(
-        &mut self,
-        obj: JsValue,
-        key: StringId,
-    ) -> Result<JsValue, VmError> {
-        let pk = PropertyKey::String(key);
-        match obj {
-            JsValue::Object(id) => {
-                if id == self.global_object {
-                    if let Some(result) = get_property(self, id, pk) {
-                        return self.resolve_property(result, obj);
-                    }
-                    if let Some(&val) = self.globals.get(&key) {
-                        return Ok(val);
-                    }
-                    return Ok(JsValue::Undefined);
-                }
-                match get_property(self, id, pk) {
-                    Some(result) => self.resolve_property(result, obj),
-                    None => Ok(JsValue::Undefined),
-                }
-            }
-            JsValue::String(sid) => {
-                if key == self.well_known.length {
-                    #[allow(clippy::cast_precision_loss)]
-                    let len = self.strings.get(sid).len() as f64;
-                    Ok(JsValue::Number(len))
-                } else {
-                    self.lookup_on_proto(self.string_prototype, pk, obj)
-                }
-            }
-            // TODO(M4-11): strict-mode getters on primitive prototypes should
-            // receive a ToObject wrapper as `this`, not the raw primitive.
-            // Requires VM single dispatcher for correct receiver boxing.
-            JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
-            JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
-            JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),
-            _ => Ok(JsValue::Undefined),
-        }
-    }
-
-    /// Check if the current call frame is in strict mode.
-    pub(crate) fn is_strict_mode(&self) -> bool {
-        self.frames
-            .last()
-            .is_some_and(|f| self.compiled_functions[f.func_id.0 as usize].is_strict)
-    }
-
-    /// Delete a named property from an object (single-pass).
-    /// Returns `Ok(true)` if deleted, `Ok(false)` if non-configurable in
-    /// sloppy mode, or `Err(TypeError)` if non-configurable in strict mode.
-    pub(crate) fn try_delete_property(
-        &mut self,
-        id: ObjectId,
-        pk: PropertyKey,
-    ) -> Result<bool, VmError> {
-        let obj = self.get_object_mut(id);
-        if let Some(pos) = obj.properties.iter().position(|(k, _)| *k == pk) {
-            if !obj.properties[pos].1.configurable {
-                if self.is_strict_mode() {
-                    return Err(VmError::type_error(
-                        "Cannot delete property: property is not configurable",
-                    ));
-                }
-                return Ok(false);
-            }
-            obj.properties.remove(pos);
-            // Sync global object deletes to the globals HashMap.
-            if id == self.global_object {
-                if let PropertyKey::String(sid) = pk {
-                    self.globals.remove(&sid);
-                }
-            }
-            Ok(true)
-        } else {
-            Ok(true) // Property doesn't exist — delete succeeds.
-        }
-    }
-
-    pub(crate) fn set_property_val(
-        &mut self,
-        obj: JsValue,
-        key: StringId,
-        val: JsValue,
-    ) -> Result<(), VmError> {
-        let pk = PropertyKey::String(key);
-        if let JsValue::Object(id) = obj {
-            let is_strict = self.is_strict_mode();
-            let is_global = id == self.global_object;
-            // §9.1.9 OrdinarySet step 1: check own property first.
-            let own = self
-                .get_object(id)
-                .properties
-                .iter()
-                .find(|(k, _)| *k == pk)
-                .map(|(_, p)| (p.slot, p.writable));
-            if let Some((slot, writable)) = own {
-                match slot {
-                    PropertyValue::Data(_) if writable => {
-                        let obj_ref = self.get_object_mut(id);
-                        for prop in &mut obj_ref.properties {
-                            if prop.0 == pk {
-                                prop.1.slot = PropertyValue::Data(val);
-                                break;
-                            }
-                        }
-                        if is_global {
-                            self.globals.insert(key, val);
-                        }
-                    }
-                    PropertyValue::Data(_) => {
-                        if is_strict {
-                            return Err(VmError::type_error("Cannot assign to read only property"));
-                        }
-                    }
-                    PropertyValue::Accessor {
-                        setter: Some(s), ..
-                    } => {
-                        self.call(s, obj, &[val])?;
-                    }
-                    PropertyValue::Accessor { setter: None, .. } => {
-                        if is_strict {
-                            return Err(VmError::type_error(
-                                "Cannot set property which has only a getter",
-                            ));
-                        }
-                    }
-                }
-                return Ok(());
-            }
-            // §9.1.9 step 2: no own property — check prototype chain.
-            match find_inherited_property(self, id, pk) {
-                InheritedProperty::Setter(setter_id) => {
-                    self.call(setter_id, obj, &[val])?;
-                    return Ok(());
-                }
-                InheritedProperty::WritableFalse | InheritedProperty::AccessorNoSetter => {
-                    if is_strict {
-                        return Err(VmError::type_error(
-                            "Cannot set property: inherited descriptor prevents it",
-                        ));
-                    }
-                    return Ok(());
-                }
-                InheritedProperty::None => {}
-            }
-            // §9.1.9 step 3: create own data property.
-            self.get_object_mut(id)
-                .properties
-                .push((pk, Property::data(val)));
-            if is_global {
-                self.globals.insert(key, val);
-            }
-        }
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_lines)]
-    pub(crate) fn get_element(&mut self, obj: JsValue, key: JsValue) -> Result<JsValue, VmError> {
-        if let JsValue::Object(id) = obj {
-            // Numeric index for arrays.
-            if let JsValue::Number(n) = key {
-                #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                let (idx, is_index) = {
-                    let i = n as usize;
-                    (i, n >= 0.0 && (i as f64) == n)
-                };
-                if is_index {
-                    let obj_ref = self.get_object(id);
-                    match &obj_ref.kind {
-                        ObjectKind::Array { ref elements } => {
-                            return Ok(elements.get(idx).copied().unwrap_or(JsValue::Undefined));
-                        }
-                        ObjectKind::Arguments { ref values } if idx < values.len() => {
-                            return Ok(values[idx]);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            // Symbol key → direct property lookup.
-            if let JsValue::Symbol(sid) = key {
-                let pk = PropertyKey::Symbol(sid);
-                return match get_property(self, id, pk) {
-                    Some(result) => self.resolve_property(result, obj),
-                    None => Ok(JsValue::Undefined),
-                };
-            }
-            // Fall back to string key property lookup.
-            let key_id = to_string(self, key)?;
-            let pk = PropertyKey::String(key_id);
-            match get_property(self, id, pk) {
-                Some(result) => self.resolve_property(result, obj),
-                None => Ok(JsValue::Undefined),
-            }
-        } else if let JsValue::String(sid) = obj {
-            // String bracket access: str[index] returns a single UTF-16 code unit.
-            if let JsValue::Number(n) = key {
-                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                let idx = n as usize;
-                #[allow(clippy::cast_precision_loss)]
-                if n >= 0.0 && (idx as f64) == n {
-                    let unit = self.strings.get(sid).get(idx).copied();
-                    if let Some(u) = unit {
-                        let id = self.strings.intern_utf16(&[u]);
-                        return Ok(JsValue::String(id));
-                    }
-                }
-            } else if let JsValue::String(key_sid) = key {
-                let unit = {
-                    let key_units = self.strings.get(key_sid);
-                    parse_array_index_u16(key_units)
-                        .and_then(|idx| self.strings.get(sid).get(idx).copied())
-                };
-                if let Some(u) = unit {
-                    let ch_id = self.strings.intern_utf16(&[u]);
-                    return Ok(JsValue::String(ch_id));
-                }
-            }
-            let pk = match key {
-                JsValue::Symbol(sym) => PropertyKey::Symbol(sym),
-                other => PropertyKey::String(to_string(self, other)?),
-            };
-            if pk == PropertyKey::String(self.well_known.length) {
-                #[allow(clippy::cast_precision_loss)]
-                let len = self.strings.get(sid).len() as f64;
-                return Ok(JsValue::Number(len));
-            }
-            if let Some(proto_id) = self.string_prototype {
-                match get_property(self, proto_id, pk) {
-                    Some(result) => self.resolve_property(result, obj),
-                    None => Ok(JsValue::Undefined),
-                }
-            } else {
-                Ok(JsValue::Undefined)
-            }
-        } else if matches!(obj, JsValue::Number(_) | JsValue::Boolean(_)) {
-            let proto = match obj {
-                JsValue::Number(_) => self.number_prototype,
-                _ => self.boolean_prototype,
-            };
-            let pk = match key {
-                JsValue::Symbol(sym) => PropertyKey::Symbol(sym),
-                other => PropertyKey::String(to_string(self, other)?),
-            };
-            self.lookup_on_proto(proto, pk, obj)
-        } else {
-            Ok(JsValue::Undefined)
-        }
-    }
-
-    pub(crate) fn set_element(
-        &mut self,
-        obj: JsValue,
-        key: JsValue,
-        val: JsValue,
-    ) -> Result<(), VmError> {
-        if let JsValue::Object(id) = obj {
-            if let JsValue::Number(n) = key {
-                #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                let (idx, is_index) = {
-                    let i = n as usize;
-                    (i, n >= 0.0 && (i as f64) == n)
-                };
-                if is_index {
-                    let obj_ref = self.get_object_mut(id);
-                    match &mut obj_ref.kind {
-                        ObjectKind::Array { ref mut elements } => {
-                            if idx >= elements.len() {
-                                elements.resize(idx + 1, JsValue::Undefined);
-                            }
-                            elements[idx] = val;
-                            return Ok(());
-                        }
-                        ObjectKind::Arguments { ref mut values } if idx < values.len() => {
-                            values[idx] = val;
-                            return Ok(());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            // Symbol key → §9.1.9 OrdinarySet (same logic as set_property_val).
-            if let JsValue::Symbol(sid) = key {
-                let pk = PropertyKey::Symbol(sid);
-                let is_strict = self.is_strict_mode();
-                // Step 1: check own property first.
-                let own = self
-                    .get_object(id)
-                    .properties
-                    .iter()
-                    .find(|(k, _)| *k == pk)
-                    .map(|(_, p)| (p.slot, p.writable));
-                if let Some((slot, writable)) = own {
-                    match slot {
-                        PropertyValue::Data(_) if writable => {
-                            let obj_ref = self.get_object_mut(id);
-                            for prop in &mut obj_ref.properties {
-                                if prop.0 == pk {
-                                    prop.1.slot = PropertyValue::Data(val);
-                                    break;
-                                }
-                            }
-                        }
-                        PropertyValue::Data(_) if is_strict => {
-                            return Err(VmError::type_error("Cannot assign to read only property"));
-                        }
-                        PropertyValue::Accessor {
-                            setter: Some(s), ..
-                        } => {
-                            self.call(s, obj, &[val])?;
-                        }
-                        PropertyValue::Accessor { setter: None, .. } if is_strict => {
-                            return Err(VmError::type_error(
-                                "Cannot set property which has only a getter",
-                            ));
-                        }
-                        _ => {}
-                    }
-                    return Ok(());
-                }
-                // Step 2: no own property — check prototype chain.
-                match find_inherited_property(self, id, pk) {
-                    InheritedProperty::Setter(setter_id) => {
-                        self.call(setter_id, obj, &[val])?;
-                        return Ok(());
-                    }
-                    InheritedProperty::WritableFalse | InheritedProperty::AccessorNoSetter => {
-                        if is_strict {
-                            return Err(VmError::type_error(
-                                "Cannot set property: inherited descriptor prevents it",
-                            ));
-                        }
-                        return Ok(());
-                    }
-                    InheritedProperty::None => {}
-                }
-                // Step 3: create own data property.
-                self.get_object_mut(id)
-                    .properties
-                    .push((pk, Property::data(val)));
-                return Ok(());
-            }
-            let key_id = to_string(self, key)?;
-            self.set_property_val(JsValue::Object(id), key_id, val)?;
-        }
-        Ok(())
-    }
-}
+// Property access methods live in ops_property.rs.
 
 // ---------------------------------------------------------------------------
 // Iterator helper
@@ -791,11 +410,16 @@ impl VmInner {
                 _ => None,
             };
             // Create new instance with prototype chain.
+            // GC safety: ctor_args are in a Rust-local Vec (off the stack),
+            // so suppress GC during alloc_object to prevent collecting them.
+            let saved_gc = self.gc_enabled;
+            self.gc_enabled = false;
             let instance = self.alloc_object(super::value::Object {
                 kind: ObjectKind::Ordinary,
-                properties: Vec::new(),
+                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                 prototype: proto_id,
             });
+            self.gc_enabled = saved_gc;
             let result = self.call(ctor_id, JsValue::Object(instance), &ctor_args)?;
             // If constructor returns an object, use that; otherwise use instance.
             let final_val = if matches!(result, JsValue::Object(_)) {
@@ -883,39 +507,47 @@ impl VmInner {
                 name: name_id,
                 captured_this,
             }),
-            properties: Vec::new(),
+            storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: None,
         });
 
         // Non-arrow functions get a `.prototype` property (a plain object with
         // a `.constructor` back-reference), matching ES2020 §9.2.5.
         if !is_arrow {
+            // Push func_obj onto the stack to protect it from GC during
+            // proto_obj allocation (alloc_object may trigger collection).
+            self.stack.push(JsValue::Object(func_obj));
             let obj_proto = self.object_prototype;
             let proto_obj = self.alloc_object(super::value::Object {
                 kind: ObjectKind::Ordinary,
-                properties: Vec::new(),
+                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                 prototype: obj_proto,
             });
             // Set constructor back-reference on the prototype.
             let ctor_key = PropertyKey::String(self.well_known.constructor);
-            self.get_object_mut(proto_obj)
-                .properties
-                .push((ctor_key, Property::method(JsValue::Object(func_obj))));
+            self.define_shaped_property(
+                proto_obj,
+                ctor_key,
+                PropertyValue::Data(JsValue::Object(func_obj)),
+                super::shape::PropertyAttrs::METHOD,
+            );
             // Set .prototype on the function object (writable, non-enumerable,
             // non-configurable per ES2020 §9.2.5).
             let proto_key = PropertyKey::String(self.well_known.prototype);
-            self.get_object_mut(func_obj).properties.push((
+            self.define_shaped_property(
+                func_obj,
                 proto_key,
-                Property {
-                    slot: PropertyValue::Data(JsValue::Object(proto_obj)),
-                    writable: true,
-                    enumerable: false,
-                    configurable: false,
-                },
-            ));
+                PropertyValue::Data(JsValue::Object(proto_obj)),
+                super::shape::PropertyAttrs::WRITABLE_HIDDEN,
+            );
         }
 
-        self.stack.push(JsValue::Object(func_obj));
+        if is_arrow {
+            // Arrow functions have no prototype — push func_obj now.
+            self.stack.push(JsValue::Object(func_obj));
+        }
+        // Non-arrow: func_obj was already pushed above for GC protection
+        // during proto_obj allocation; it's at the correct stack position.
         Ok(())
     }
 }

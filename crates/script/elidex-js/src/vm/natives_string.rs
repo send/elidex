@@ -1,7 +1,7 @@
 //! Native implementations of String.prototype methods.
 
 use super::value::{
-    JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, StringId, VmError,
+    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, StringId, VmError,
 };
 use crate::wtf16::{
     ends_with_u16, find_u16, starts_with_u16, to_lower_u16, to_upper_u16, trim_u16,
@@ -31,18 +31,24 @@ fn build_match_result(
     }
     let arr_id = ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements },
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
     });
     let index_key = PropertyKey::String(ctx.intern("index"));
     #[allow(clippy::cast_precision_loss)]
-    ctx.get_object_mut(arr_id)
-        .properties
-        .push((index_key, Property::data(JsValue::Number(m.start() as f64))));
+    ctx.vm.define_shaped_property(
+        arr_id,
+        index_key,
+        super::value::PropertyValue::Data(JsValue::Number(m.start() as f64)),
+        super::shape::PropertyAttrs::DATA,
+    );
     let input_key = PropertyKey::String(ctx.intern("input"));
-    ctx.get_object_mut(arr_id)
-        .properties
-        .push((input_key, Property::data(JsValue::String(input_sid))));
+    ctx.vm.define_shaped_property(
+        arr_id,
+        input_key,
+        super::value::PropertyValue::Data(JsValue::String(input_sid)),
+        super::shape::PropertyAttrs::DATA,
+    );
     Ok(JsValue::Object(arr_id))
 }
 
@@ -53,12 +59,10 @@ pub(super) fn get_regexp_last_index(
 ) -> f64 {
     let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
     let obj = ctx.get_object(obj_id);
-    for (k, p) in &obj.properties {
-        if *k == last_index_key {
-            if let super::value::PropertyValue::Data(JsValue::Number(n)) = p.slot {
-                return n;
-            }
-        }
+    if let Some((super::value::PropertyValue::Data(JsValue::Number(n)), _)) =
+        obj.storage.get(last_index_key, &ctx.vm.shapes)
+    {
+        return *n;
     }
     0.0
 }
@@ -72,23 +76,19 @@ pub(super) fn set_regexp_last_index(
     let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
     #[allow(clippy::cast_precision_loss)]
     let val = JsValue::Number(idx as f64);
-    let obj = ctx.get_object_mut(obj_id);
-    for prop in &mut obj.properties {
-        if prop.0 == last_index_key {
-            prop.1.slot = super::value::PropertyValue::Data(val);
-            return;
-        }
+    // Split borrow: access object storage + shapes simultaneously.
+    let obj = ctx.vm.objects[obj_id.0 as usize].as_mut().unwrap();
+    if let Some((slot, _)) = obj.storage.get_mut(last_index_key, &ctx.vm.shapes) {
+        *slot = super::value::PropertyValue::Data(val);
+        return;
     }
     // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
-    obj.properties.push((
+    ctx.vm.define_shaped_property(
+        obj_id,
         last_index_key,
-        Property {
-            slot: super::value::PropertyValue::Data(val),
-            writable: true,
-            enumerable: false,
-            configurable: false,
-        },
-    ));
+        super::value::PropertyValue::Data(val),
+        super::shape::PropertyAttrs::WRITABLE_HIDDEN,
+    );
 }
 
 // -- String.prototype methods -----------------------------------------------
@@ -353,7 +353,7 @@ pub(super) fn native_string_split(
             kind: ObjectKind::Array {
                 elements: Vec::new(),
             },
-            properties: Vec::new(),
+            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: ctx.vm.array_prototype,
         })));
     };
@@ -393,7 +393,7 @@ pub(super) fn native_string_split(
     }
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: parts },
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
     })))
 }
@@ -615,7 +615,7 @@ pub(super) fn native_string_match(
     let elements: Vec<JsValue> = matches.into_iter().map(JsValue::String).collect();
     let arr_id = ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements },
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
     });
     Ok(JsValue::Object(arr_id))

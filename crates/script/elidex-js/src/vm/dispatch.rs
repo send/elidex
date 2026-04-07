@@ -6,11 +6,11 @@
 use crate::bytecode::opcode::Op;
 
 use super::coerce::{
-    abstract_eq, get_property, op_bitnot, op_neg, op_not, op_pos, op_void, strict_eq, to_boolean,
-    to_number, to_string, typeof_str, BitwiseOp, NumericBinaryOp,
+    abstract_eq, op_bitnot, op_neg, op_not, op_pos, op_void, strict_eq, to_boolean, to_number,
+    to_string, typeof_str, BitwiseOp, NumericBinaryOp,
 };
 use super::ops::parse_array_index_u16;
-use super::value::{JsValue, Object, ObjectKind, Property, PropertyKey, VmError, VmErrorKind};
+use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -591,9 +591,9 @@ impl VmInner {
                 // ── Property access (Step 4 stubs) ──────────────────
                 Op::GetProp => {
                     let name_idx = self.read_u16_op();
-                    let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    let ic_idx = self.read_u16_op() as usize;
                     let obj_val = self.pop()?;
-                    match self.get_property_val(obj_val, name_id) {
+                    match self.ic_get_prop(func_id, name_idx, ic_idx, obj_val) {
                         Ok(val) => self.stack.push(val),
                         Err(e) => {
                             self.throw_error(e, entry_frame_depth)?;
@@ -602,14 +602,15 @@ impl VmInner {
                 }
                 Op::SetProp => {
                     let name_idx = self.read_u16_op();
-                    let name_id = self.constant_to_string_id(func_id, name_idx)?;
+                    let ic_idx = self.read_u16_op() as usize;
                     let val = self.pop()?;
                     let obj_val = self.pop()?;
-                    if let Err(e) = self.set_property_val(obj_val, name_id, val) {
-                        self.throw_error(e, entry_frame_depth)?;
-                        continue;
+                    match self.ic_set_prop(func_id, name_idx, ic_idx, obj_val, val) {
+                        Ok(v) => self.stack.push(v),
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                        }
                     }
-                    self.stack.push(val);
                 }
                 Op::GetElem => {
                     let key = self.pop()?;
@@ -727,7 +728,8 @@ impl VmInner {
                 // ── Function call ───────────────────────────────────
                 Op::Call => {
                     let argc = self.read_u8_op() as usize;
-                    if let Err(e) = self.do_call(argc, JsValue::Undefined) {
+                    let call_ic_idx = self.read_u16_op() as usize;
+                    if let Err(e) = self.ic_call(func_id, argc, call_ic_idx) {
                         let thrown = self.vm_error_to_thrown(&e);
                         if self.handle_exception(thrown, entry_frame_depth) {
                             continue;
@@ -737,27 +739,18 @@ impl VmInner {
                 }
                 Op::CallMethod => {
                     let argc = self.read_u8_op() as usize;
-                    // Stack: [receiver, callee, arg0..argN]
-                    let args_start = self.stack.len() - argc;
-                    let callee = self.stack[args_start - 1];
-                    let receiver = self.stack[args_start - 2];
-                    // PERF: M4-11 — eliminate this allocation by restructuring call_internal
-                    let call_args: Vec<JsValue> = self.stack[args_start..].to_vec();
-                    self.stack.truncate(args_start - 2);
-                    match self.call_value(callee, receiver, &call_args) {
-                        Ok(result) => self.stack.push(result),
-                        Err(e) => {
-                            let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
-                                val
-                            } else {
-                                let msg = self.strings.intern(&e.to_string());
-                                JsValue::String(msg)
-                            };
-                            if self.handle_exception(thrown, entry_frame_depth) {
-                                continue;
-                            }
-                            return Err(e);
+                    let call_ic_idx = self.read_u16_op() as usize;
+                    if let Err(e) = self.ic_call_method(func_id, argc, call_ic_idx) {
+                        let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
+                            val
+                        } else {
+                            let msg = self.strings.intern(&e.to_string());
+                            JsValue::String(msg)
+                        };
+                        if self.handle_exception(thrown, entry_frame_depth) {
+                            continue;
                         }
+                        return Err(e);
                     }
                 }
                 Op::New => {
@@ -853,18 +846,25 @@ impl VmInner {
                         .take()
                         .unwrap_or_default();
                     let len = args.len();
+                    // GC safety: args (taken from frame) are in a Rust-local Vec.
+                    let saved_gc = self.gc_enabled;
+                    self.gc_enabled = false;
                     let args_obj = self.alloc_object(super::value::Object {
                         kind: ObjectKind::Arguments { values: args },
-                        properties: Vec::new(),
+                        storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                         prototype: self.object_prototype,
                     });
+                    self.gc_enabled = saved_gc;
                     // Set the `length` property.
                     let length_key = PropertyKey::String(self.well_known.length);
                     #[allow(clippy::cast_precision_loss)]
                     // arguments.length is non-enumerable (§10.4.4.5).
-                    self.get_object_mut(args_obj)
-                        .properties
-                        .push((length_key, Property::method(JsValue::Number(len as f64))));
+                    self.define_shaped_property(
+                        args_obj,
+                        length_key,
+                        super::value::PropertyValue::Data(JsValue::Number(len as f64)),
+                        super::shape::PropertyAttrs::METHOD,
+                    );
                     self.stack.push(JsValue::Object(args_obj));
                 }
 
@@ -887,66 +887,18 @@ impl VmInner {
                     }
                 }
                 Op::IteratorNext => {
-                    // Stack: [iterator] → [iterator value done]
-                    let iter_val = *self
-                        .stack
-                        .last()
-                        .ok_or_else(|| VmError::internal("empty stack on IteratorNext"))?;
-                    match self.iter_next(iter_val) {
-                        Ok(Some(value)) => {
-                            self.stack.push(value);
-                            self.stack.push(JsValue::Boolean(false));
-                        }
-                        Ok(None) => {
-                            self.stack.push(JsValue::Undefined);
-                            self.stack.push(JsValue::Boolean(true));
-                        }
-                        Err(e) => {
-                            self.throw_error(e, entry_frame_depth)?;
-                        }
+                    if let Err(e) = self.op_iterator_next() {
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::IteratorRest => {
-                    // Stack: [iterator] → [rest_array]
-                    // Collect remaining iterator elements into a new array.
-                    let iter_val = self.pop()?;
-                    let mut elements = Vec::new();
-                    loop {
-                        match self.iter_next(iter_val) {
-                            Ok(Some(value)) => elements.push(value),
-                            Ok(None) => break,
-                            Err(e) => {
-                                self.throw_error(e, entry_frame_depth)?;
-                                break;
-                            }
-                        }
+                    if let Err(e) = self.op_iterator_rest() {
+                        self.throw_error(e, entry_frame_depth)?;
                     }
-                    let proto = self.array_prototype;
-                    let arr = self.alloc_object(Object {
-                        kind: ObjectKind::Array { elements },
-                        properties: Vec::new(),
-                        prototype: proto,
-                    });
-                    self.stack.push(JsValue::Object(arr));
                 }
                 Op::IteratorClose => {
-                    // Stack: [iterator] → []
-                    let iter_val = self.pop()?;
-                    if let JsValue::Object(iter_id) = iter_val {
-                        let return_key = PropertyKey::String(self.well_known.return_str);
-                        if let Some(return_result) = get_property(self, iter_id, return_key) {
-                            let return_fn = match self.resolve_property(return_result, iter_val) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    self.throw_error(e, entry_frame_depth)?;
-                                    continue;
-                                }
-                            };
-                            // Call .return() and route errors through exception handling.
-                            if let Err(e) = self.call_value(return_fn, iter_val, &[]) {
-                                self.throw_error(e, entry_frame_depth)?;
-                            }
-                        }
+                    if let Err(e) = self.op_iterator_close() {
+                        self.throw_error(e, entry_frame_depth)?;
                     }
                 }
                 Op::DestructureElem | Op::Debugger => {

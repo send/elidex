@@ -5,7 +5,9 @@
 //! UTF-8 ↔ UTF-16 round-trip conversions and ensures that `lastIndex`,
 //! `.index`, and capture ranges are correct UTF-16 code unit indices.
 
-use super::value::{JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, VmError};
+use super::value::{
+    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, VmError,
+};
 
 /// Helper: intern a WTF-16 sub-slice.
 fn intern_u16_range(
@@ -39,18 +41,16 @@ pub(super) fn run_regexp(
         let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
         let obj = ctx.get_object(obj_id);
         let mut idx = 0usize;
-        for (k, p) in &obj.properties {
-            if *k == last_index_key {
-                if let super::value::PropertyValue::Data(JsValue::Number(n)) = p.slot {
-                    // ToLength: NaN/negative → 0, Infinity → subject.len().
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    if n > 0.0 {
-                        if n.is_finite() {
-                            idx = (n.trunc() as usize).min(subject.len());
-                        } else {
-                            idx = subject.len();
-                        }
-                    }
+        if let Some((super::value::PropertyValue::Data(JsValue::Number(n)), _)) =
+            obj.storage.get(last_index_key, &ctx.vm.shapes)
+        {
+            // ToLength: NaN/negative → 0, Infinity → subject.len().
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            if *n > 0.0 {
+                if n.is_finite() {
+                    idx = (n.trunc() as usize).min(subject.len());
+                } else {
+                    idx = subject.len();
                 }
             }
         }
@@ -129,20 +129,26 @@ pub(super) fn native_regexp_exec(
 
     let arr_id = ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements },
-        properties: Vec::new(),
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
     });
 
     // .index is already a UTF-16 code unit index (no conversion).
     let index_key = PropertyKey::String(ctx.intern("index"));
     #[allow(clippy::cast_precision_loss)]
-    ctx.get_object_mut(arr_id)
-        .properties
-        .push((index_key, Property::data(JsValue::Number(m.start() as f64))));
+    ctx.vm.define_shaped_property(
+        arr_id,
+        index_key,
+        super::value::PropertyValue::Data(JsValue::Number(m.start() as f64)),
+        super::shape::PropertyAttrs::DATA,
+    );
     let input_key = PropertyKey::String(ctx.intern("input"));
-    ctx.get_object_mut(arr_id)
-        .properties
-        .push((input_key, Property::data(JsValue::String(sid))));
+    ctx.vm.define_shaped_property(
+        arr_id,
+        input_key,
+        super::value::PropertyValue::Data(JsValue::String(sid)),
+        super::shape::PropertyAttrs::DATA,
+    );
 
     Ok(JsValue::Object(arr_id))
 }

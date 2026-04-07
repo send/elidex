@@ -156,10 +156,213 @@ pub fn same_value(a: JsValue, b: JsValue) -> bool {
 /// A JS object stored in `Vm::objects`.
 pub struct Object {
     pub kind: ObjectKind,
-    /// Property list. Linear scan for now; M4-11 adds hidden classes.
-    pub properties: Vec<(PropertyKey, Property)>,
+    /// Property storage — either Shape-based (fast) or Dictionary (fallback).
+    pub storage: PropertyStorage,
     /// Prototype chain link (`__proto__`).
     pub prototype: Option<ObjectId>,
+}
+
+/// Iterator over property entries that avoids heap allocation.
+///
+/// Each variant wraps the concrete iterator type from one of the
+/// [`PropertyStorage`] representations (Shaped vs Dictionary).
+pub enum PropertyIter<S, D> {
+    Shaped(S),
+    Dictionary(D),
+}
+
+impl<S, D, T> Iterator for PropertyIter<S, D>
+where
+    S: Iterator<Item = T>,
+    D: Iterator<Item = T>,
+{
+    type Item = T;
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        match self {
+            Self::Shaped(s) => s.next(),
+            Self::Dictionary(d) => d.next(),
+        }
+    }
+}
+
+/// Property storage for an object.
+///
+/// New objects start in [`Shaped`](PropertyStorage::Shaped) mode with the root
+/// shape.  The only operation that triggers a fallback to
+/// [`Dictionary`](PropertyStorage::Dictionary) mode is property deletion.
+/// Attribute changes (including data↔accessor conversion) use Shape
+/// reconfigure transitions and stay in Shaped mode.
+pub enum PropertyStorage {
+    /// Shape-based storage: the Shape defines property names, order and
+    /// attributes; `slots[i]` holds the value for `shape.ordered_entries[i]`.
+    Shaped {
+        shape: super::shape::ShapeId,
+        slots: Vec<PropertyValue>,
+    },
+    /// Dictionary fallback after `delete`: identical to the old `Vec` storage.
+    Dictionary(Vec<(PropertyKey, Property)>),
+}
+
+impl PropertyStorage {
+    /// Create a new Shaped storage with the given shape and no slots.
+    #[inline]
+    pub fn shaped(shape: super::shape::ShapeId) -> Self {
+        Self::Shaped {
+            shape,
+            slots: Vec::new(),
+        }
+    }
+
+    /// Create a new empty Dictionary storage.
+    #[inline]
+    pub fn dictionary() -> Self {
+        Self::Dictionary(Vec::new())
+    }
+
+    /// Return the shape ID if in Shaped mode.
+    #[inline]
+    pub fn shape_id(&self) -> Option<super::shape::ShapeId> {
+        match self {
+            Self::Shaped { shape, .. } => Some(*shape),
+            Self::Dictionary(_) => None,
+        }
+    }
+
+    /// Iterate all properties in insertion order as `(key, &value, attrs)`.
+    pub fn iter_properties<'a>(
+        &'a self,
+        shapes: &'a [super::shape::Shape],
+    ) -> PropertyIter<
+        impl Iterator<Item = (PropertyKey, &'a PropertyValue, super::shape::PropertyAttrs)> + 'a,
+        impl Iterator<Item = (PropertyKey, &'a PropertyValue, super::shape::PropertyAttrs)> + 'a,
+    > {
+        match self {
+            Self::Shaped { shape, slots } => {
+                let s = &shapes[*shape as usize];
+                PropertyIter::Shaped(
+                    s.ordered_entries
+                        .iter()
+                        .enumerate()
+                        .map(move |(i, (key, attrs))| (*key, &slots[i], *attrs)),
+                )
+            }
+            Self::Dictionary(vec) => {
+                PropertyIter::Dictionary(vec.iter().map(|(k, p)| (*k, &p.slot, p.attrs())))
+            }
+        }
+    }
+
+    /// Iterate all keys in insertion order as `(key, attrs)`.
+    pub fn iter_keys<'a>(
+        &'a self,
+        shapes: &'a [super::shape::Shape],
+    ) -> PropertyIter<
+        impl Iterator<Item = (PropertyKey, super::shape::PropertyAttrs)> + 'a,
+        impl Iterator<Item = (PropertyKey, super::shape::PropertyAttrs)> + 'a,
+    > {
+        match self {
+            Self::Shaped { shape, .. } => {
+                let s = &shapes[*shape as usize];
+                PropertyIter::Shaped(s.ordered_entries.iter().copied())
+            }
+            Self::Dictionary(vec) => {
+                PropertyIter::Dictionary(vec.iter().map(|(k, p)| (*k, p.attrs())))
+            }
+        }
+    }
+
+    /// O(1) property lookup by key.
+    pub fn get(
+        &self,
+        key: PropertyKey,
+        shapes: &[super::shape::Shape],
+    ) -> Option<(&PropertyValue, super::shape::PropertyAttrs)> {
+        match self {
+            Self::Shaped { shape, slots } => {
+                let s = &shapes[*shape as usize];
+                s.lookup(key)
+                    .map(|(idx, attrs)| (&slots[idx as usize], attrs))
+            }
+            Self::Dictionary(vec) => vec
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, p)| (&p.slot, p.attrs())),
+        }
+    }
+
+    /// O(1) mutable slot access.  Returns the mutable value reference and attrs.
+    pub fn get_mut(
+        &mut self,
+        key: PropertyKey,
+        shapes: &[super::shape::Shape],
+    ) -> Option<(&mut PropertyValue, super::shape::PropertyAttrs)> {
+        match self {
+            Self::Shaped { shape, slots } => {
+                let s = &shapes[*shape as usize];
+                s.lookup(key)
+                    .map(move |(idx, attrs)| (&mut slots[idx as usize], attrs))
+            }
+            Self::Dictionary(vec) => vec.iter_mut().find(|(k, _)| *k == key).map(|(_, p)| {
+                let attrs = p.attrs();
+                (&mut p.slot, attrs)
+            }),
+        }
+    }
+
+    /// Check whether a property exists.
+    pub fn has(&self, key: PropertyKey, shapes: &[super::shape::Shape]) -> bool {
+        match self {
+            Self::Shaped { shape, .. } => shapes[*shape as usize].has(key),
+            Self::Dictionary(vec) => vec.iter().any(|(k, _)| *k == key),
+        }
+    }
+
+    /// Push a property in Dictionary mode.
+    ///
+    /// # Panics
+    /// Panics if not in Dictionary mode.
+    pub fn push_dict(&mut self, key: PropertyKey, prop: Property) {
+        match self {
+            Self::Dictionary(vec) => vec.push((key, prop)),
+            Self::Shaped { .. } => panic!("push_dict called on Shaped storage"),
+        }
+    }
+
+    /// Remove a property by position in Dictionary mode.
+    ///
+    /// # Panics
+    /// Panics if not in Dictionary mode.
+    pub fn remove_dict(&mut self, pos: usize) -> (PropertyKey, Property) {
+        match self {
+            Self::Dictionary(vec) => vec.remove(pos),
+            Self::Shaped { .. } => panic!("remove_dict called on Shaped storage"),
+        }
+    }
+
+    /// Write a value to a specific slot (by index).
+    pub fn set_slot_value(&mut self, index: u16, val: PropertyValue) {
+        match self {
+            Self::Shaped { slots, .. } => slots[index as usize] = val,
+            Self::Dictionary(_) => panic!("set_slot_value called on Dictionary storage"),
+        }
+    }
+
+    /// Find a property's position in Dictionary mode (for deletion).
+    pub fn dict_position(&self, key: PropertyKey) -> Option<usize> {
+        match self {
+            Self::Dictionary(vec) => vec.iter().position(|(k, _)| *k == key),
+            Self::Shaped { .. } => None,
+        }
+    }
+
+    /// Get a property by position in Dictionary mode.
+    pub fn dict_get(&self, pos: usize) -> &Property {
+        match self {
+            Self::Dictionary(vec) => &vec[pos].1,
+            Self::Shaped { .. } => panic!("dict_get called on Shaped storage"),
+        }
+    }
 }
 
 /// The internal kind of an object.
@@ -313,6 +516,26 @@ impl Property {
         match self.slot {
             PropertyValue::Data(v) => v,
             PropertyValue::Accessor { .. } => JsValue::Undefined,
+        }
+    }
+
+    /// Extract `PropertyAttrs` from this property descriptor.
+    pub fn attrs(&self) -> super::shape::PropertyAttrs {
+        super::shape::PropertyAttrs {
+            writable: self.writable,
+            enumerable: self.enumerable,
+            configurable: self.configurable,
+            is_accessor: matches!(self.slot, PropertyValue::Accessor { .. }),
+        }
+    }
+
+    /// Construct a `Property` from a `PropertyValue` and `PropertyAttrs`.
+    pub fn from_attrs(value: PropertyValue, attrs: super::shape::PropertyAttrs) -> Self {
+        Self {
+            slot: value,
+            writable: attrs.writable,
+            enumerable: attrs.enumerable,
+            configurable: attrs.configurable,
         }
     }
 }
