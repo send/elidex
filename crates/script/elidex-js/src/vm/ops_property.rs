@@ -17,6 +17,15 @@ use super::ops::parse_array_index_u16;
 // Property access
 // ---------------------------------------------------------------------------
 
+/// Whether `ordinary_set` wrote or created an own data property.
+/// Used by `set_property_val` to decide whether to sync `globals`.
+/// Note: setter calls are ES2020-successful but do NOT produce a
+/// `DataWritten` result, because the setter controls its own writes.
+enum SetOutcome {
+    DataWritten,
+    NoDataWrite,
+}
+
 impl VmInner {
     /// Resolve a `PropertyResult` to a `JsValue`, invoking the getter if needed.
     pub(crate) fn resolve_property(
@@ -274,7 +283,7 @@ impl VmInner {
         pk: PropertyKey,
         val: JsValue,
         receiver: JsValue,
-    ) -> Result<bool, VmError> {
+    ) -> Result<SetOutcome, VmError> {
         /// Action determined from own property in a single `get_mut` lookup.
         enum OwnAction {
             Written,
@@ -307,16 +316,16 @@ impl VmInner {
         };
 
         match own_action {
-            OwnAction::Written => return Ok(true),
+            OwnAction::Written => return Ok(SetOutcome::DataWritten),
             OwnAction::NonWritable => {
                 if is_strict {
                     return Err(VmError::type_error("Cannot assign to read only property"));
                 }
-                return Ok(false);
+                return Ok(SetOutcome::NoDataWrite);
             }
             OwnAction::CallSetter(s) => {
                 self.call(s, receiver, &[val])?;
-                return Ok(false);
+                return Ok(SetOutcome::NoDataWrite);
             }
             OwnAction::NoSetter => {
                 if is_strict {
@@ -324,7 +333,7 @@ impl VmInner {
                         "Cannot set property which has only a getter",
                     ));
                 }
-                return Ok(false);
+                return Ok(SetOutcome::NoDataWrite);
             }
             OwnAction::NotFound => {} // fall through to prototype chain
         }
@@ -332,7 +341,7 @@ impl VmInner {
         match find_inherited_property(self, id, pk) {
             InheritedProperty::Setter(setter_id) => {
                 self.call(setter_id, receiver, &[val])?;
-                return Ok(false);
+                return Ok(SetOutcome::NoDataWrite);
             }
             InheritedProperty::WritableFalse | InheritedProperty::AccessorNoSetter => {
                 if is_strict {
@@ -340,7 +349,7 @@ impl VmInner {
                         "Cannot set property: inherited descriptor prevents it",
                     ));
                 }
-                return Ok(false);
+                return Ok(SetOutcome::NoDataWrite);
             }
             InheritedProperty::None => {}
         }
@@ -351,7 +360,7 @@ impl VmInner {
             PropertyValue::Data(val),
             super::shape::PropertyAttrs::DATA,
         );
-        Ok(true)
+        Ok(SetOutcome::DataWritten)
     }
 
     pub(crate) fn set_property_val(
@@ -363,11 +372,11 @@ impl VmInner {
         let pk = PropertyKey::String(key);
         if let JsValue::Object(id) = obj {
             let is_global = id == self.global_object;
-            let written = self.ordinary_set(id, pk, val, obj)?;
+            let outcome = self.ordinary_set(id, pk, val, obj)?;
             // Sync the global variable table only when a data property was
             // actually written or created.  Accessor calls (setter / no-setter)
             // and non-writable rejections must NOT desynchronize the table.
-            if is_global && written {
+            if is_global && matches!(outcome, SetOutcome::DataWritten) {
                 self.globals.insert(key, val);
             }
         }

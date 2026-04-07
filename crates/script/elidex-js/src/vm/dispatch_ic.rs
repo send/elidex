@@ -211,6 +211,9 @@ impl VmInner {
         let callee_val = self.stack[args_start - 1];
 
         if let JsValue::Object(callee_id) = callee_val {
+            // PERF(PR4): call_args Vec alloc happens before IC check.
+            // PR4 (VM single dispatcher) will eliminate this by passing
+            // stack ranges directly to call_internal.
             let call_args: Vec<JsValue> = self.stack[args_start..].to_vec();
             self.stack.truncate(args_start - 1);
             if let Some(result) = self.try_call_ic_fast(

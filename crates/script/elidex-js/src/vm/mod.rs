@@ -276,6 +276,10 @@ impl VmInner {
             return child;
         }
         let parent_shape = &self.shapes[parent as usize];
+        debug_assert!(
+            !parent_shape.property_map.contains_key(&key),
+            "shape_add_transition called for existing key; use shape_reconfigure_transition instead"
+        );
         let mut property_map = parent_shape.property_map.clone();
         let slot_index = parent_shape.ordered_entries.len() as u16;
         property_map.insert(key, slot_index);
