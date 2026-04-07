@@ -182,14 +182,20 @@ impl VmInner {
     /// `Op::IteratorRest` — collect remaining iterator elements into a new array.
     pub(super) fn op_iterator_rest(&mut self) -> Result<(), VmError> {
         let iter_val = self.pop()?;
-        let mut elements = Vec::new();
+        // Root collected elements on the stack so GC (triggered by
+        // alloc_object) can see them.
+        let stack_root_base = self.stack.len();
         loop {
             match self.iter_next(iter_val) {
-                Ok(Some(value)) => elements.push(value),
+                Ok(Some(value)) => self.stack.push(value),
                 Ok(None) => break,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    self.stack.truncate(stack_root_base);
+                    return Err(e);
+                }
             }
         }
+        let elements: Vec<JsValue> = self.stack.drain(stack_root_base..).collect();
         let proto = self.array_prototype;
         let arr = self.alloc_object(Object {
             kind: ObjectKind::Array { elements },

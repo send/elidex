@@ -410,11 +410,16 @@ impl VmInner {
                 _ => None,
             };
             // Create new instance with prototype chain.
+            // GC safety: ctor_args are in a Rust-local Vec (off the stack),
+            // so suppress GC during alloc_object to prevent collecting them.
+            let saved_gc = self.gc_enabled;
+            self.gc_enabled = false;
             let instance = self.alloc_object(super::value::Object {
                 kind: ObjectKind::Ordinary,
                 storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                 prototype: proto_id,
             });
+            self.gc_enabled = saved_gc;
             let result = self.call(ctor_id, JsValue::Object(instance), &ctor_args)?;
             // If constructor returns an object, use that; otherwise use instance.
             let final_val = if matches!(result, JsValue::Object(_)) {

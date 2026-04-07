@@ -137,10 +137,15 @@ impl VmInner {
                 .filter(|(_, attrs)| attrs.enumerable)
                 .map(|(k, _)| k)
                 .collect();
-            let mut props: Vec<(PropertyKey, JsValue)> = Vec::with_capacity(keys.len());
-            for key in keys {
-                props.push((key, self.get_property_value(src_id, key)?));
+            // GC safety: root resolved values on the stack while getters
+            // for subsequent properties may trigger allocations / GC.
+            let stack_base = self.stack.len();
+            for key in &keys {
+                let val = self.get_property_value(src_id, *key)?;
+                self.stack.push(val);
             }
+            let values: Vec<JsValue> = self.stack.drain(stack_base..).collect();
+            let props: Vec<(PropertyKey, JsValue)> = keys.into_iter().zip(values).collect();
             // Apply resolved values to destination.
             if is_global {
                 for (k, v) in &props {
@@ -234,8 +239,17 @@ impl VmInner {
                         }
                     };
                     if needs_reconfigure {
-                        // Reconfigure to update enumerable attribute in the shape.
-                        self.reconfigure_property(obj_id, pk, accessor_attrs, None);
+                        // reconfigure_property handles Shaped mode; for Dictionary
+                        // we must update the Property flags directly.
+                        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                        if let super::value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
+                            if let Some((_, prop)) = vec.iter_mut().find(|(k, _)| *k == pk) {
+                                prop.enumerable = accessor_attrs.enumerable;
+                                prop.configurable = accessor_attrs.configurable;
+                            }
+                        } else {
+                            self.reconfigure_property(obj_id, pk, accessor_attrs, None);
+                        }
                     }
                 }
                 AccessorAction::ReconfigureData => {
@@ -244,17 +258,25 @@ impl VmInner {
                         getter: init_get,
                         setter: init_set,
                     };
-                    // reconfigure_property handles Shaped mode; for Dictionary
-                    // it's a no-op so we fall through to manual update.
-                    self.reconfigure_property(obj_id, pk, accessor_attrs, Some(accessor_slot));
-                    let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
-                    if let super::value::PropertyStorage::Dictionary(_) = &obj.storage {
-                        if let Some((slot, _)) = obj.storage.get_mut(pk, &self.shapes) {
-                            *slot = PropertyValue::Accessor {
-                                getter: init_get,
-                                setter: init_set,
-                            };
+                    let obj = self.objects[obj_id.0 as usize].as_ref().unwrap();
+                    let is_dict =
+                        matches!(&obj.storage, super::value::PropertyStorage::Dictionary(_));
+                    if is_dict {
+                        // Dictionary mode: replace the full Property entry
+                        // (slot + flags) directly since reconfigure_property is
+                        // a no-op for Dictionary.
+                        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                        if let super::value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
+                            if let Some((_, prop)) = vec.iter_mut().find(|(k, _)| *k == pk) {
+                                prop.slot = accessor_slot;
+                                prop.writable = accessor_attrs.writable;
+                                prop.enumerable = accessor_attrs.enumerable;
+                                prop.configurable = accessor_attrs.configurable;
+                            }
                         }
+                    } else {
+                        // Shaped mode: reconfigure_property handles transition.
+                        self.reconfigure_property(obj_id, pk, accessor_attrs, Some(accessor_slot));
                     }
                 }
                 AccessorAction::New => {
