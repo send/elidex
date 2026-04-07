@@ -610,52 +610,77 @@ mod tests {
 
     #[test]
     fn gc_invalidates_call_ic() {
+        use crate::bytecode::compiled::CompiledFunction;
+
         let mut vm = test_vm();
         let callee = vm.inner.alloc_object(ordinary(None));
-        // Set up a call IC referencing the callee (not rooted).
-        if let Some(cf) = vm.inner.compiled_functions.first_mut() {
-            cf.call_ic_slots.push(Some(super::super::ic::CallIC {
-                callee,
-                func_id: super::super::value::FuncId(0),
-                this_mode: super::super::value::ThisMode::Strict,
-            }));
+        // Ensure at least one compiled function exists.
+        if vm.inner.compiled_functions.is_empty() {
+            vm.inner.compiled_functions.push(CompiledFunction::new());
         }
+        // Set up a call IC referencing the callee (not rooted).
+        let cf = vm
+            .inner
+            .compiled_functions
+            .first_mut()
+            .expect("compiled_functions must not be empty");
+        cf.call_ic_slots.push(Some(super::super::ic::CallIC {
+            callee,
+            func_id: super::super::value::FuncId(0),
+            this_mode: super::super::value::ThisMode::Strict,
+        }));
         vm.inner.collect_garbage();
         // The callee was collected → IC should be invalidated.
-        if let Some(cf) = vm.inner.compiled_functions.first() {
-            if let Some(slot) = cf.call_ic_slots.last() {
-                assert!(
-                    slot.is_none(),
-                    "call IC should be invalidated after callee collected"
-                );
-            }
-        }
+        let cf = vm
+            .inner
+            .compiled_functions
+            .first()
+            .expect("compiled_functions must not be empty");
+        let slot = cf
+            .call_ic_slots
+            .last()
+            .expect("call_ic_slots must not be empty");
+        assert!(
+            slot.is_none(),
+            "call IC should be invalidated after callee collected"
+        );
     }
 
     #[test]
     fn gc_invalidates_proto_ic() {
+        use crate::bytecode::compiled::CompiledFunction;
+
         let mut vm = test_vm();
         let proto = vm.inner.alloc_object(ordinary(None));
-        if let Some(cf) = vm.inner.compiled_functions.first_mut() {
-            cf.ic_slots.push(Some(super::super::ic::PropertyIC {
-                receiver_shape: shape::ROOT_SHAPE,
-                slot: 0,
-                holder: super::super::ic::ICHolder::Proto {
-                    proto_shape: shape::ROOT_SHAPE,
-                    proto_slot: 0,
-                    proto_id: proto,
-                },
-            }));
+        // Ensure at least one compiled function exists.
+        if vm.inner.compiled_functions.is_empty() {
+            vm.inner.compiled_functions.push(CompiledFunction::new());
         }
+        let cf = vm
+            .inner
+            .compiled_functions
+            .first_mut()
+            .expect("compiled_functions must not be empty");
+        cf.ic_slots.push(Some(super::super::ic::PropertyIC {
+            receiver_shape: shape::ROOT_SHAPE,
+            slot: 0,
+            holder: super::super::ic::ICHolder::Proto {
+                proto_shape: shape::ROOT_SHAPE,
+                proto_slot: 0,
+                proto_id: proto,
+            },
+        }));
         vm.inner.collect_garbage();
-        if let Some(cf) = vm.inner.compiled_functions.first() {
-            if let Some(slot) = cf.ic_slots.last() {
-                assert!(
-                    slot.is_none(),
-                    "proto IC should be invalidated after proto collected"
-                );
-            }
-        }
+        let cf = vm
+            .inner
+            .compiled_functions
+            .first()
+            .expect("compiled_functions must not be empty");
+        let slot = cf.ic_slots.last().expect("ic_slots must not be empty");
+        assert!(
+            slot.is_none(),
+            "proto IC should be invalidated after proto collected"
+        );
     }
 
     // ── E2E ───────────────────────────────────────────────

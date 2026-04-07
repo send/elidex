@@ -274,7 +274,7 @@ impl VmInner {
         pk: PropertyKey,
         val: JsValue,
         receiver: JsValue,
-    ) -> Result<(), VmError> {
+    ) -> Result<bool, VmError> {
         /// Action determined from own property in a single `get_mut` lookup.
         enum OwnAction {
             Written,
@@ -307,16 +307,16 @@ impl VmInner {
         };
 
         match own_action {
-            OwnAction::Written => return Ok(()),
+            OwnAction::Written => return Ok(true),
             OwnAction::NonWritable => {
                 if is_strict {
                     return Err(VmError::type_error("Cannot assign to read only property"));
                 }
-                return Ok(());
+                return Ok(false);
             }
             OwnAction::CallSetter(s) => {
                 self.call(s, receiver, &[val])?;
-                return Ok(());
+                return Ok(false);
             }
             OwnAction::NoSetter => {
                 if is_strict {
@@ -324,7 +324,7 @@ impl VmInner {
                         "Cannot set property which has only a getter",
                     ));
                 }
-                return Ok(());
+                return Ok(false);
             }
             OwnAction::NotFound => {} // fall through to prototype chain
         }
@@ -332,7 +332,7 @@ impl VmInner {
         match find_inherited_property(self, id, pk) {
             InheritedProperty::Setter(setter_id) => {
                 self.call(setter_id, receiver, &[val])?;
-                return Ok(());
+                return Ok(false);
             }
             InheritedProperty::WritableFalse | InheritedProperty::AccessorNoSetter => {
                 if is_strict {
@@ -340,7 +340,7 @@ impl VmInner {
                         "Cannot set property: inherited descriptor prevents it",
                     ));
                 }
-                return Ok(());
+                return Ok(false);
             }
             InheritedProperty::None => {}
         }
@@ -351,7 +351,7 @@ impl VmInner {
             PropertyValue::Data(val),
             super::shape::PropertyAttrs::DATA,
         );
-        Ok(())
+        Ok(true)
     }
 
     pub(crate) fn set_property_val(
@@ -363,9 +363,11 @@ impl VmInner {
         let pk = PropertyKey::String(key);
         if let JsValue::Object(id) = obj {
             let is_global = id == self.global_object;
-            self.ordinary_set(id, pk, val, obj)?;
-            // Sync the global variable table for string-keyed global properties.
-            if is_global {
+            let written = self.ordinary_set(id, pk, val, obj)?;
+            // Sync the global variable table only when a data property was
+            // actually written or created.  Accessor calls (setter / no-setter)
+            // and non-writable rejections must NOT desynchronize the table.
+            if is_global && written {
                 self.globals.insert(key, val);
             }
         }

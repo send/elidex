@@ -98,14 +98,20 @@ impl FunctionCompiler {
     /// Allocate a property IC slot, returning its index.
     pub fn alloc_ic_slot(&mut self) -> u16 {
         let idx = self.ic_slot_count;
-        self.ic_slot_count += 1;
+        self.ic_slot_count = self
+            .ic_slot_count
+            .checked_add(1)
+            .expect("too many property IC slots in a single function");
         idx
     }
 
     /// Allocate a call IC slot, returning its index.
     pub fn alloc_call_ic_slot(&mut self) -> u16 {
         let idx = self.call_ic_slot_count;
-        self.call_ic_slot_count += 1;
+        self.call_ic_slot_count = self
+            .call_ic_slot_count
+            .checked_add(1)
+            .expect("too many call IC slots in a single function");
         idx
     }
 
