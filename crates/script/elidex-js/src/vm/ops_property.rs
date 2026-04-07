@@ -250,28 +250,35 @@ impl VmInner {
         id: ObjectId,
         pk: PropertyKey,
     ) -> Result<bool, VmError> {
+        // Check existence and configurability while still in Shaped mode
+        // to avoid unnecessary Dictionary conversion.
+        {
+            let obj = self.objects[id.0 as usize].as_ref().unwrap();
+            match obj.storage.get(pk, &self.shapes) {
+                None => return Ok(true), // Property doesn't exist — delete succeeds.
+                Some((_, attrs)) if !attrs.configurable => {
+                    if self.is_strict_mode() {
+                        return Err(VmError::type_error(
+                            "Cannot delete property: property is not configurable",
+                        ));
+                    }
+                    return Ok(false);
+                }
+                Some(_) => {} // configurable — proceed with delete
+            }
+        }
+        // Only convert to Dictionary when we're actually going to remove.
         self.convert_to_dictionary(id);
         let obj = self.get_object_mut(id);
         if let Some(pos) = obj.storage.dict_position(pk) {
-            if !obj.storage.dict_get(pos).configurable {
-                if self.is_strict_mode() {
-                    return Err(VmError::type_error(
-                        "Cannot delete property: property is not configurable",
-                    ));
-                }
-                return Ok(false);
-            }
             obj.storage.remove_dict(pos);
-            // Sync global object deletes to the globals HashMap.
             if id == self.global_object {
                 if let PropertyKey::String(sid) = pk {
                     self.globals.remove(&sid);
                 }
             }
-            Ok(true)
-        } else {
-            Ok(true) // Property doesn't exist -- delete succeeds.
         }
+        Ok(true)
     }
 
     /// §9.1.9 OrdinarySet: set a property on an object, checking own/inherited
