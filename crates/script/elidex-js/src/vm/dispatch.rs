@@ -846,11 +846,15 @@ impl VmInner {
                         .take()
                         .unwrap_or_default();
                     let len = args.len();
+                    // GC safety: args (taken from frame) are in a Rust-local Vec.
+                    let saved_gc = self.gc_enabled;
+                    self.gc_enabled = false;
                     let args_obj = self.alloc_object(super::value::Object {
                         kind: ObjectKind::Arguments { values: args },
                         storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                         prototype: self.object_prototype,
                     });
+                    self.gc_enabled = saved_gc;
                     // Set the `length` property.
                     let length_key = PropertyKey::String(self.well_known.length);
                     #[allow(clippy::cast_precision_loss)]

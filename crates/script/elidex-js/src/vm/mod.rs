@@ -223,11 +223,24 @@ impl VmInner {
     const OBJECT_ALLOC_ESTIMATE: usize = std::mem::size_of::<Object>() + 64;
 
     pub(crate) fn alloc_object(&mut self, obj: Object) -> ObjectId {
-        // GC trigger: estimate allocation cost and collect if threshold exceeded.
-        self.gc_bytes_since_last += Self::OBJECT_ALLOC_ESTIMATE;
-        if self.gc_enabled && self.gc_bytes_since_last >= self.gc_threshold {
+        // GC trigger BEFORE insertion.  Callers must ensure that any
+        // ObjectIds reachable only through `obj`'s fields (prototype,
+        // array elements, property slots) are already rooted on the VM
+        // stack or otherwise reachable from GC roots.  Prototype ObjectIds
+        // from VmInner fields (e.g., `self.object_prototype`) are always
+        // rooted.  For complex cases (e.g., `create_closure`, `do_new`),
+        // callers temporarily push values onto the stack or disable GC.
+        if self.gc_enabled
+            && self
+                .gc_bytes_since_last
+                .saturating_add(Self::OBJECT_ALLOC_ESTIMATE)
+                >= self.gc_threshold
+        {
             self.collect_garbage();
         }
+        // Increment AFTER potential GC so the current allocation is still
+        // counted towards the next cycle's threshold.
+        self.gc_bytes_since_last += Self::OBJECT_ALLOC_ESTIMATE;
 
         if let Some(idx) = self.free_objects.pop() {
             self.objects[idx as usize] = Some(obj);

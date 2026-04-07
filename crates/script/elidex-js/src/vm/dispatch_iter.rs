@@ -195,13 +195,17 @@ impl VmInner {
                 }
             }
         }
-        let elements: Vec<JsValue> = self.stack.drain(stack_root_base..).collect();
+        // Copy elements (keeping originals on stack as GC roots during alloc).
+        let elements: Vec<JsValue> = self.stack[stack_root_base..].to_vec();
         let proto = self.array_prototype;
+        // alloc_object may trigger GC — elements are rooted on the stack.
         let arr = self.alloc_object(Object {
             kind: ObjectKind::Array { elements },
             storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: proto,
         });
+        // Now safe to remove the temporary roots.
+        self.stack.truncate(stack_root_base);
         self.stack.push(JsValue::Object(arr));
         Ok(())
     }
