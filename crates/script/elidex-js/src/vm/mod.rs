@@ -310,6 +310,10 @@ impl VmInner {
             return child;
         }
         let parent_shape = &self.shapes[parent as usize];
+        debug_assert!(
+            parent_shape.property_map.contains_key(&key),
+            "shape_reconfigure_transition called for non-existent key"
+        );
         let slot_index = parent_shape.property_map[&key];
         let property_map = parent_shape.property_map.clone();
         let mut ordered_entries = parent_shape.ordered_entries.clone();
