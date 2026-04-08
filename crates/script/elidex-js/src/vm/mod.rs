@@ -17,6 +17,7 @@ pub mod interpreter;
 mod natives;
 mod natives_bigint;
 mod natives_boolean;
+mod natives_json;
 mod natives_number;
 mod natives_regexp;
 mod natives_string;

@@ -422,6 +422,17 @@ pub enum ObjectKind {
     BigIntWrapper(BigIntId),
 }
 
+impl ObjectKind {
+    /// Returns `true` if this object kind is callable (Function, NativeFunction, or BoundFunction).
+    #[inline]
+    pub fn is_callable(&self) -> bool {
+        matches!(
+            self,
+            Self::Function(_) | Self::NativeFunction(_) | Self::BoundFunction { .. }
+        )
+    }
+}
+
 /// A compiled JS function with captured upvalues.
 pub struct FunctionObject {
     /// Index into `Vm::compiled_functions`.

@@ -447,13 +447,7 @@ pub(super) fn native_object_define_property(
             match v {
                 JsValue::Undefined => Ok(None),
                 JsValue::Object(id) => {
-                    let is_callable = matches!(
-                        &ctx.get_object(id).kind,
-                        ObjectKind::Function(_)
-                            | ObjectKind::NativeFunction(_)
-                            | ObjectKind::BoundFunction { .. }
-                    );
-                    if is_callable {
+                    if ctx.get_object(id).kind.is_callable() {
                         Ok(Some(id))
                     } else {
                         Err(VmError::type_error(format!(
@@ -841,24 +835,6 @@ pub(super) fn native_object_get_own_property_symbols(
         storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
     })))
-}
-
-// -- JSON stubs ---------------------------------------------------------------
-
-pub(super) fn native_json_stringify_stub(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Ok(JsValue::Undefined)
-}
-
-pub(super) fn native_json_parse_stub(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Ok(JsValue::Undefined)
 }
 
 // -- Console ----------------------------------------------------------------

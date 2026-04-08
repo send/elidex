@@ -440,11 +440,10 @@ pub(crate) fn typeof_str(vm: &VmInner, val: JsValue) -> StringId {
         JsValue::BigInt(_) => vm.well_known.bigint_type,
         JsValue::Object(id) => {
             if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
-                match &obj.kind {
-                    ObjectKind::Function(_)
-                    | ObjectKind::BoundFunction { .. }
-                    | ObjectKind::NativeFunction(_) => vm.well_known.function_type,
-                    _ => vm.well_known.object_type,
+                if obj.kind.is_callable() {
+                    vm.well_known.function_type
+                } else {
+                    vm.well_known.object_type
                 }
             } else {
                 vm.well_known.object_type

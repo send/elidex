@@ -6,19 +6,19 @@
 use super::natives::{
     native_array_is_array, native_array_iterator_next, native_array_values, native_console_error,
     native_console_log, native_console_warn, native_error_constructor, native_is_finite,
-    native_is_nan, native_iterator_self, native_json_parse_stub, native_json_stringify_stub,
-    native_math_abs, native_math_ceil, native_math_floor, native_math_log, native_math_max,
-    native_math_min, native_math_pow, native_math_random, native_math_round, native_math_sqrt,
-    native_object_assign, native_object_create, native_object_define_property,
-    native_object_get_own_property_symbols, native_object_keys, native_object_prototype_to_string,
-    native_object_values, native_parse_float, native_parse_int, native_range_error_constructor,
-    native_reference_error_constructor, native_string_char_at, native_string_char_code_at,
-    native_string_ends_with, native_string_includes, native_string_index_of,
-    native_string_iterator, native_string_iterator_next, native_string_match,
-    native_string_replace, native_string_search, native_string_slice, native_string_split,
-    native_string_starts_with, native_string_substring, native_string_to_lower_case,
-    native_string_to_upper_case, native_string_trim, native_symbol_constructor, native_symbol_for,
-    native_symbol_key_for, native_symbol_prototype_to_string, native_type_error_constructor,
+    native_is_nan, native_iterator_self, native_math_abs, native_math_ceil, native_math_floor,
+    native_math_log, native_math_max, native_math_min, native_math_pow, native_math_random,
+    native_math_round, native_math_sqrt, native_object_assign, native_object_create,
+    native_object_define_property, native_object_get_own_property_symbols, native_object_keys,
+    native_object_prototype_to_string, native_object_values, native_parse_float, native_parse_int,
+    native_range_error_constructor, native_reference_error_constructor, native_string_char_at,
+    native_string_char_code_at, native_string_ends_with, native_string_includes,
+    native_string_index_of, native_string_iterator, native_string_iterator_next,
+    native_string_match, native_string_replace, native_string_search, native_string_slice,
+    native_string_split, native_string_starts_with, native_string_substring,
+    native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
+    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
+    native_symbol_prototype_to_string, native_type_error_constructor,
 };
 use super::natives_boolean::{native_boolean_to_string, native_boolean_value_of};
 use super::natives_number::{
@@ -318,8 +318,8 @@ impl VmInner {
 
     fn register_json_global(&mut self) {
         let obj_id = self.create_object_with_methods(&[
-            ("stringify", native_json_stringify_stub),
-            ("parse", native_json_parse_stub),
+            ("stringify", super::natives_json::native_json_stringify),
+            ("parse", super::natives_json::native_json_parse),
         ]);
         let name = self.strings.intern("JSON");
         self.globals.insert(name, JsValue::Object(obj_id));
