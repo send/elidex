@@ -401,12 +401,9 @@ impl JsRuntime {
             eprintln!("[JS Event Error] {err}");
         }
 
-        // Microtask checkpoint after each listener (HTML §8.1.7.3).
-        if let Err(err) = boa_ctx.run_jobs() {
-            eprintln!("[JS Microtask Error] {err}");
-        }
-
         // Sync flags back.
+        // Microtask checkpoint is handled by the shared dispatch loop
+        // (script_dispatch_event_core calls engine.run_microtasks after each listener).
         event.flags.default_prevented = prevent_default_flag.get();
         event.flags.propagation_stopped = stop_propagation_flag.get();
         event.flags.immediate_propagation_stopped = stop_immediate_flag.get();
