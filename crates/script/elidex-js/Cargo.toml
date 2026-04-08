@@ -17,6 +17,7 @@ engine = ["elidex-script-session", "elidex-ecs"]
 [dependencies]
 hashbrown = "0.15"
 num-bigint = "0.4"
+num-traits = "0.2"
 regress = { workspace = true }
 unicode-ident = "1.0"
 elidex-script-session = { workspace = true, optional = true }

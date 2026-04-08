@@ -513,20 +513,11 @@ fn bigint_binary(
 }
 
 /// Convert a `num_bigint::BigInt` to f64 (lossy but spec-compliant for
-/// cross-type relational comparison).
-#[allow(clippy::cast_precision_loss)]
+/// cross-type relational comparison). Delegates to `num_traits::ToPrimitive`
+/// which constructs the f64 directly from limbs (zero allocation).
 fn bigint_to_f64(bi: &BigIntValue) -> f64 {
-    let (sign, digits) = bi.to_u64_digits();
-    if digits.is_empty() {
-        return 0.0;
-    }
-    // For values that fit in i64, use direct conversion.
-    if digits.len() == 1 {
-        let v = digits[0] as f64;
-        return if sign == Sign::Minus { -v } else { v };
-    }
-    // Multi-digit: use string conversion as fallback.
-    bi.to_string().parse::<f64>().unwrap_or(f64::INFINITY)
+    use num_traits::ToPrimitive;
+    bi.to_f64().unwrap_or(f64::INFINITY)
 }
 
 #[derive(Clone, Copy)]

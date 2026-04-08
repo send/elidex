@@ -2008,6 +2008,7 @@ dependencies = [
  "elidex-script-session",
  "hashbrown 0.15.5",
  "num-bigint",
+ "num-traits",
  "regress",
  "unicode-ident",
 ]
