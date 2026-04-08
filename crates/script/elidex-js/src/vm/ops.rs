@@ -161,6 +161,13 @@ impl VmInner {
             let id = self.strings.intern_utf16(&concat);
             return Ok(JsValue::String(id));
         }
+        // BigInt + BigInt → BigInt addition.
+        if let (JsValue::BigInt(ai), JsValue::BigInt(bi)) = (lhs, rhs) {
+            let result = self.bigints.get(ai).clone() + self.bigints.get(bi).clone();
+            let id = self.bigints.alloc(result);
+            return Ok(JsValue::BigInt(id));
+        }
+        // Mixed BigInt + Number → TypeError (to_number will throw for BigInt).
         let a = to_number(self, lhs)?;
         let b = to_number(self, rhs)?;
         Ok(JsValue::Number(a + b))

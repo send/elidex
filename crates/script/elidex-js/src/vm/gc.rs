@@ -70,6 +70,7 @@ fn mark_value(val: JsValue, obj_marks: &mut [u64], work: &mut Vec<u32>) {
     if let JsValue::Object(id) = val {
         mark_object(id, obj_marks, work);
     }
+    // BigInts, strings, symbols are permanent (pooled) — no tracing needed.
 }
 
 /// Mark an ObjectId as live and enqueue it for tracing (if not already marked).
@@ -230,7 +231,8 @@ fn trace_work_list(
             | ObjectKind::StringIterator(_)
             | ObjectKind::NumberWrapper(_)
             | ObjectKind::StringWrapper(_)
-            | ObjectKind::BooleanWrapper(_) => {}
+            | ObjectKind::BooleanWrapper(_)
+            | ObjectKind::BigIntWrapper(_) => {}
         }
     }
 }

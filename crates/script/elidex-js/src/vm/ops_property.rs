@@ -94,6 +94,7 @@ impl VmInner {
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),
+            JsValue::BigInt(_) => self.lookup_on_proto(self.bigint_prototype, pk, obj),
             _ => Ok(JsValue::Undefined),
         }
     }
@@ -471,9 +472,13 @@ impl VmInner {
             } else {
                 Ok(JsValue::Undefined)
             }
-        } else if matches!(obj, JsValue::Number(_) | JsValue::Boolean(_)) {
+        } else if matches!(
+            obj,
+            JsValue::Number(_) | JsValue::Boolean(_) | JsValue::BigInt(_)
+        ) {
             let proto = match obj {
                 JsValue::Number(_) => self.number_prototype,
+                JsValue::BigInt(_) => self.bigint_prototype,
                 _ => self.boolean_prototype,
             };
             let pk = match key {

@@ -14,6 +14,7 @@ mod globals;
 pub(crate) mod ic;
 pub mod interpreter;
 mod natives;
+mod natives_bigint;
 mod natives_boolean;
 mod natives_number;
 mod natives_regexp;
@@ -92,6 +93,33 @@ impl StringPool {
 }
 
 // ---------------------------------------------------------------------------
+// BigIntPool
+// ---------------------------------------------------------------------------
+
+/// Pool of arbitrary-precision BigInt values. Allocated BigInts are permanent
+/// (not garbage-collected), following the same strategy as `StringPool`.
+pub(crate) struct BigIntPool(Vec<num_bigint::BigInt>);
+
+impl BigIntPool {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Allocate a new BigInt, returning its `BigIntId`.
+    pub(crate) fn alloc(&mut self, val: num_bigint::BigInt) -> value::BigIntId {
+        let id = value::BigIntId(self.0.len() as u32);
+        self.0.push(val);
+        id
+    }
+
+    /// Get a reference to a BigInt by its ID.
+    #[inline]
+    pub(crate) fn get(&self, id: value::BigIntId) -> &num_bigint::BigInt {
+        &self.0[id.0 as usize]
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Vm (public wrapper) + VmInner (internal state)
 // ---------------------------------------------------------------------------
 
@@ -100,6 +128,7 @@ pub(crate) struct VmInner {
     pub(crate) stack: Vec<JsValue>,
     pub(crate) frames: Vec<CallFrame>,
     pub(crate) strings: StringPool,
+    pub(crate) bigints: BigIntPool,
     pub(crate) objects: Vec<Option<Object>>,
     pub(crate) free_objects: Vec<u32>,
     pub(crate) compiled_functions: Vec<CompiledFunction>,
@@ -128,6 +157,8 @@ pub(crate) struct VmInner {
     pub(crate) number_prototype: Option<ObjectId>,
     /// Boolean.prototype (prototype for boolean wrapper objects / primitive access).
     pub(crate) boolean_prototype: Option<ObjectId>,
+    /// BigInt.prototype (prototype for BigInt primitive access).
+    pub(crate) bigint_prototype: Option<ObjectId>,
     /// RegExp.prototype (prototype for RegExp instances).
     pub(crate) regexp_prototype: Option<ObjectId>,
     /// Shared prototype for array iterator objects (next + @@iterator).
@@ -187,6 +218,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) string_type: StringId,
     pub(crate) function_type: StringId,
     pub(crate) symbol_type: StringId,
+    pub(crate) bigint_type: StringId,
     pub(crate) object_to_string: StringId,
     pub(crate) next: StringId,
     pub(crate) value: StringId,
@@ -588,6 +620,7 @@ pub struct Vm {
 
 impl Vm {
     /// Create a new VM with built-in globals registered.
+    #[allow(clippy::too_many_lines)]
     pub fn new() -> Self {
         let mut strings = StringPool::new();
 
@@ -615,6 +648,7 @@ impl Vm {
             string_type: strings.intern("string"),
             function_type: strings.intern("function"),
             symbol_type: strings.intern("symbol"),
+            bigint_type: strings.intern("bigint"),
             object_to_string: strings.intern("[object Object]"),
             next: strings.intern("next"),
             value: strings.intern("value"),
@@ -646,6 +680,7 @@ impl Vm {
                 stack: Vec::with_capacity(256),
                 frames: Vec::with_capacity(16),
                 strings,
+                bigints: BigIntPool::new(),
                 objects: Vec::new(),
                 free_objects: Vec::new(),
                 compiled_functions: Vec::new(),
@@ -663,6 +698,7 @@ impl Vm {
                 array_prototype: None,
                 number_prototype: None,
                 boolean_prototype: None,
+                bigint_prototype: None,
                 regexp_prototype: None,
                 array_iterator_prototype: None,
                 string_iterator_prototype: None,

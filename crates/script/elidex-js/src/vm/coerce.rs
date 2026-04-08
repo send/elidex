@@ -3,8 +3,10 @@
 //! Implements ES2020 abstract operations: ToNumber, ToString, ToBoolean,
 //! ToInt32, ToUint32, and the equality/relational/arithmetic operators.
 
-use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, StringId, VmError};
+use super::value::{BigIntId, JsValue, ObjectId, ObjectKind, PropertyKey, StringId, VmError};
 use super::VmInner;
+use num_bigint::BigInt as BigIntValue;
+use num_bigint::Sign;
 
 // ---------------------------------------------------------------------------
 // ToBoolean (ES2020 §7.1.2)
@@ -17,6 +19,7 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
         JsValue::Boolean(b) => b,
         JsValue::Number(n) => n != 0.0 && !n.is_nan(),
         JsValue::String(id) => !vm.strings.get(id).is_empty(),
+        JsValue::BigInt(id) => vm.bigints.get(id).sign() != Sign::NoSign,
         JsValue::Symbol(_) | JsValue::Object(_) => true,
     }
 }
@@ -38,6 +41,9 @@ pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> Result<f64, VmError> {
         },
         JsValue::Symbol(_) => Err(VmError::type_error(
             "Cannot convert a Symbol value to a number",
+        )),
+        JsValue::BigInt(_) => Err(VmError::type_error(
+            "Cannot convert a BigInt value to a number",
         )),
         JsValue::Null | JsValue::Boolean(false) => Ok(0.0),
         JsValue::Boolean(true) => Ok(1.0),
@@ -189,6 +195,10 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
         JsValue::Symbol(_) => Err(VmError::type_error(
             "Cannot convert a Symbol value to a string",
         )),
+        JsValue::BigInt(id) => {
+            let s = vm.bigints.get(id).to_string();
+            Ok(vm.strings.intern(&s))
+        }
         JsValue::Object(id) => match vm.get_object(id).kind {
             ObjectKind::NumberWrapper(n) => Ok(number_to_string_id(vm, n)),
             ObjectKind::StringWrapper(sid) => Ok(sid),
@@ -213,6 +223,10 @@ pub(crate) fn to_display_string(vm: &mut VmInner, val: JsValue) -> StringId {
                 Some(d) => format!("Symbol({d})"),
                 None => "Symbol()".to_string(),
             };
+            vm.strings.intern(&s)
+        }
+        JsValue::BigInt(id) => {
+            let s = vm.bigints.get(id).to_string();
             vm.strings.intern(&s)
         }
         other => to_string(vm, other).unwrap_or(vm.well_known.empty),
@@ -298,8 +312,14 @@ fn f64_to_uint32(n: f64) -> u32 {
 // ---------------------------------------------------------------------------
 
 /// Strict equality (`===`). Never throws.
-pub(crate) fn strict_eq(a: JsValue, b: JsValue) -> bool {
-    a == b // JsValue's PartialEq implements the correct semantics
+///
+/// BigInt values are compared by mathematical value, not by handle identity,
+/// so the VM's `BigIntPool` is required.
+pub(crate) fn strict_eq(vm: &VmInner, a: JsValue, b: JsValue) -> bool {
+    match (a, b) {
+        (JsValue::BigInt(ai), JsValue::BigInt(bi)) => vm.bigints.get(ai) == vm.bigints.get(bi),
+        _ => a == b,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +330,7 @@ pub(crate) fn strict_eq(a: JsValue, b: JsValue) -> bool {
 pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
     // Same type → strict_eq
     if same_type(a, b) {
-        return strict_eq(a, b);
+        return strict_eq(vm, a, b);
     }
 
     match (a, b) {
@@ -325,6 +345,45 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
         (JsValue::String(s), JsValue::Number(_)) => {
             let n = string_to_number(&vm.strings.get_utf8(s));
             abstract_eq(vm, JsValue::Number(n), b)
+        }
+
+        // BigInt == BigInt handled by same_type above.
+        // BigInt == Number (§7.2.14 step 5/6)
+        (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) => {
+            if n.is_nan() || n.is_infinite() {
+                return false;
+            }
+            if n != n.floor() {
+                return false;
+            }
+            // Integer Number → compare with BigInt value.
+            #[allow(clippy::cast_possible_truncation)]
+            let n_big = if n.abs() < 2.0f64.powi(53) {
+                BigIntValue::from(n as i64)
+            } else {
+                // Large integer — use string round-trip.
+                match format!("{n:.0}").parse::<BigIntValue>() {
+                    Ok(v) => v,
+                    Err(_) => return false,
+                }
+            };
+            vm.bigints.get(bi) == &n_big
+        }
+
+        // BigInt == String → parse string as BigInt
+        (JsValue::BigInt(bi), JsValue::String(s)) | (JsValue::String(s), JsValue::BigInt(bi)) => {
+            let text = vm.strings.get_utf8(s);
+            match text.parse::<BigIntValue>() {
+                Ok(parsed) => vm.bigints.get(bi) == &parsed,
+                Err(_) => false,
+            }
+        }
+
+        // BigInt == Boolean → convert boolean to BigInt
+        (JsValue::BigInt(bi), JsValue::Boolean(bl))
+        | (JsValue::Boolean(bl), JsValue::BigInt(bi)) => {
+            let bool_big = BigIntValue::from(i32::from(bl));
+            vm.bigints.get(bi) == &bool_big
         }
 
         // Symbol == non-Symbol → false (symbols are unique; same-type
@@ -364,6 +423,7 @@ pub(crate) fn typeof_str(vm: &VmInner, val: JsValue) -> StringId {
         JsValue::Number(_) => vm.well_known.number_type,
         JsValue::String(_) => vm.well_known.string_type,
         JsValue::Symbol(_) => vm.well_known.symbol_type,
+        JsValue::BigInt(_) => vm.well_known.bigint_type,
         JsValue::Object(id) => {
             if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
                 match &obj.kind {
@@ -385,11 +445,15 @@ pub(crate) fn typeof_str(vm: &VmInner, val: JsValue) -> StringId {
 
 /// Binary numeric operator (-, *, /, %, **).
 pub(crate) fn op_numeric_binary(
-    vm: &VmInner,
+    vm: &mut VmInner,
     lhs: JsValue,
     rhs: JsValue,
     op: NumericBinaryOp,
 ) -> Result<JsValue, VmError> {
+    // BigInt path
+    if let (JsValue::BigInt(ai), JsValue::BigInt(bi)) = (lhs, rhs) {
+        return bigint_binary(vm, ai, bi, op);
+    }
     let a = to_number(vm, lhs)?;
     let b = to_number(vm, rhs)?;
     let result = match op {
@@ -407,6 +471,61 @@ pub(crate) fn op_numeric_binary(
         }
     };
     Ok(JsValue::Number(result))
+}
+
+/// BigInt binary arithmetic.
+fn bigint_binary(
+    vm: &mut VmInner,
+    ai: BigIntId,
+    bi: BigIntId,
+    op: NumericBinaryOp,
+) -> Result<JsValue, VmError> {
+    let a = vm.bigints.get(ai).clone();
+    let b = vm.bigints.get(bi).clone();
+    let result = match op {
+        NumericBinaryOp::Sub => a - b,
+        NumericBinaryOp::Mul => a * b,
+        NumericBinaryOp::Div => {
+            if b.sign() == Sign::NoSign {
+                return Err(VmError::range_error("Division by zero"));
+            }
+            a / b
+        }
+        NumericBinaryOp::Rem => {
+            if b.sign() == Sign::NoSign {
+                return Err(VmError::range_error("Division by zero"));
+            }
+            a % b
+        }
+        NumericBinaryOp::Exp => {
+            if b.sign() == Sign::Minus {
+                return Err(VmError::range_error("Exponent must be positive for BigInt"));
+            }
+            let exp: u32 = b
+                .try_into()
+                .map_err(|_| VmError::range_error("BigInt exponent too large"))?;
+            a.pow(exp)
+        }
+    };
+    let id = vm.bigints.alloc(result);
+    Ok(JsValue::BigInt(id))
+}
+
+/// Convert a `num_bigint::BigInt` to f64 (lossy but spec-compliant for
+/// cross-type relational comparison).
+#[allow(clippy::cast_precision_loss)]
+fn bigint_to_f64(bi: &BigIntValue) -> f64 {
+    let (sign, digits) = bi.to_u64_digits();
+    if digits.is_empty() {
+        return 0.0;
+    }
+    // For values that fit in i64, use direct conversion.
+    if digits.len() == 1 {
+        let v = digits[0] as f64;
+        return if sign == Sign::Minus { -v } else { v };
+    }
+    // Multi-digit: use string conversion as fallback.
+    bi.to_string().parse::<f64>().unwrap_or(f64::INFINITY)
 }
 
 #[derive(Clone, Copy)]
@@ -436,6 +555,26 @@ pub(crate) fn abstract_relational(
         return Ok(Some(vm.strings.get(a) < vm.strings.get(b)));
     }
 
+    // BigInt comparisons
+    if let (JsValue::BigInt(a), JsValue::BigInt(b)) = (x, y) {
+        return Ok(Some(vm.bigints.get(a) < vm.bigints.get(b)));
+    }
+    #[allow(clippy::cast_precision_loss)]
+    if let (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) =
+        (x, y)
+    {
+        if n.is_nan() {
+            return Ok(None);
+        }
+        // Lossy but spec-compliant: convert BigInt to f64 for comparison.
+        let bi_f64 = bigint_to_f64(vm.bigints.get(bi));
+        return if matches!(x, JsValue::BigInt(_)) {
+            Ok(Some(bi_f64 < n))
+        } else {
+            Ok(Some(n < bi_f64))
+        };
+    }
+
     let (nx, ny) = if left_first {
         (to_number(vm, x)?, to_number(vm, y)?)
     } else {
@@ -456,11 +595,53 @@ pub(crate) fn abstract_relational(
 
 /// Bitwise binary operator.
 pub(crate) fn op_bitwise(
-    vm: &VmInner,
+    vm: &mut VmInner,
     lhs: JsValue,
     rhs: JsValue,
     op: BitwiseOp,
 ) -> Result<JsValue, VmError> {
+    // BigInt path — mixed BigInt+Number is TypeError.
+    if let (JsValue::BigInt(ai), JsValue::BigInt(bi)) = (lhs, rhs) {
+        let a = vm.bigints.get(ai).clone();
+        let b = vm.bigints.get(bi).clone();
+        let result = match op {
+            BitwiseOp::And => a & b,
+            BitwiseOp::Or => a | b,
+            BitwiseOp::Xor => a ^ b,
+            BitwiseOp::Shl => {
+                let shift: i64 = (&b)
+                    .try_into()
+                    .map_err(|_| VmError::range_error("BigInt shift amount too large"))?;
+                if shift >= 0 {
+                    a << shift.cast_unsigned()
+                } else {
+                    a >> (-shift).cast_unsigned()
+                }
+            }
+            BitwiseOp::Shr => {
+                let shift: i64 = (&b)
+                    .try_into()
+                    .map_err(|_| VmError::range_error("BigInt shift amount too large"))?;
+                if shift >= 0 {
+                    a >> shift.cast_unsigned()
+                } else {
+                    a << (-shift).cast_unsigned()
+                }
+            }
+            BitwiseOp::UShr => {
+                return Err(VmError::type_error(
+                    "Cannot mix BigInt and other types, use explicit conversions",
+                ));
+            }
+        };
+        let id = vm.bigints.alloc(result);
+        return Ok(JsValue::BigInt(id));
+    }
+    if matches!(lhs, JsValue::BigInt(_)) || matches!(rhs, JsValue::BigInt(_)) {
+        return Err(VmError::type_error(
+            "Cannot mix BigInt and other types, use explicit conversions",
+        ));
+    }
     Ok(match op {
         BitwiseOp::And => JsValue::Number(f64::from(to_int32(vm, lhs)? & to_int32(vm, rhs)?)),
         BitwiseOp::Or => JsValue::Number(f64::from(to_int32(vm, lhs)? | to_int32(vm, rhs)?)),
@@ -498,12 +679,22 @@ pub(crate) enum BitwiseOp {
 // ---------------------------------------------------------------------------
 
 /// Unary `-` (negate).
-pub(crate) fn op_neg(vm: &VmInner, val: JsValue) -> Result<JsValue, VmError> {
+pub(crate) fn op_neg(vm: &mut VmInner, val: JsValue) -> Result<JsValue, VmError> {
+    if let JsValue::BigInt(id) = val {
+        let v = -vm.bigints.get(id).clone();
+        let new_id = vm.bigints.alloc(v);
+        return Ok(JsValue::BigInt(new_id));
+    }
     Ok(JsValue::Number(-to_number(vm, val)?))
 }
 
 /// Unary `+` (ToNumber).
 pub(crate) fn op_pos(vm: &VmInner, val: JsValue) -> Result<JsValue, VmError> {
+    if matches!(val, JsValue::BigInt(_)) {
+        return Err(VmError::type_error(
+            "Cannot convert a BigInt value to a number",
+        ));
+    }
     Ok(JsValue::Number(to_number(vm, val)?))
 }
 
@@ -513,7 +704,12 @@ pub(crate) fn op_not(vm: &VmInner, val: JsValue) -> JsValue {
 }
 
 /// Unary `~` (bitwise NOT).
-pub(crate) fn op_bitnot(vm: &VmInner, val: JsValue) -> Result<JsValue, VmError> {
+pub(crate) fn op_bitnot(vm: &mut VmInner, val: JsValue) -> Result<JsValue, VmError> {
+    if let JsValue::BigInt(id) = val {
+        let v = !vm.bigints.get(id).clone();
+        let new_id = vm.bigints.alloc(v);
+        return Ok(JsValue::BigInt(new_id));
+    }
     Ok(JsValue::Number(f64::from(!to_int32(vm, val)?)))
 }
 
@@ -742,20 +938,25 @@ mod tests {
 
     #[test]
     fn strict_eq_cases() {
-        assert!(strict_eq(JsValue::Undefined, JsValue::Undefined));
-        assert!(strict_eq(JsValue::Null, JsValue::Null));
-        assert!(!strict_eq(JsValue::Undefined, JsValue::Null));
-        assert!(strict_eq(JsValue::Number(1.0), JsValue::Number(1.0)));
+        let vm = Vm::new();
+        let i = &vm.inner;
+        assert!(strict_eq(i, JsValue::Undefined, JsValue::Undefined));
+        assert!(strict_eq(i, JsValue::Null, JsValue::Null));
+        assert!(!strict_eq(i, JsValue::Undefined, JsValue::Null));
+        assert!(strict_eq(i, JsValue::Number(1.0), JsValue::Number(1.0)));
         assert!(!strict_eq(
+            i,
             JsValue::Number(f64::NAN),
             JsValue::Number(f64::NAN)
         ));
-        assert!(strict_eq(JsValue::Number(0.0), JsValue::Number(-0.0)));
+        assert!(strict_eq(i, JsValue::Number(0.0), JsValue::Number(-0.0)));
         assert!(strict_eq(
+            i,
             JsValue::String(StringId(0)),
             JsValue::String(StringId(0))
         ));
         assert!(!strict_eq(
+            i,
             JsValue::String(StringId(0)),
             JsValue::String(StringId(1))
         ));
@@ -908,8 +1109,8 @@ mod tests {
 
     #[test]
     fn bitwise_operations() {
-        let vm = Vm::new();
-        let i = &vm.inner;
+        let mut vm = Vm::new();
+        let i = &mut vm.inner;
         assert_eq!(
             op_bitwise(
                 i,
@@ -958,8 +1159,8 @@ mod tests {
 
     #[test]
     fn unary_operators() {
-        let vm = Vm::new();
-        let i = &vm.inner;
+        let mut vm = Vm::new();
+        let i = &mut vm.inner;
         assert_eq!(
             op_neg(i, JsValue::Number(5.0)).unwrap(),
             JsValue::Number(-5.0)

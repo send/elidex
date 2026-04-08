@@ -262,12 +262,12 @@ impl VmInner {
                 Op::StrictEq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    self.stack.push(JsValue::Boolean(strict_eq(a, b)));
+                    self.stack.push(JsValue::Boolean(strict_eq(self, a, b)));
                 }
                 Op::StrictNotEq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    self.stack.push(JsValue::Boolean(!strict_eq(a, b)));
+                    self.stack.push(JsValue::Boolean(!strict_eq(self, a, b)));
                 }
                 Op::Lt => {
                     if let Err(e) = self.relational_op(false, false) {

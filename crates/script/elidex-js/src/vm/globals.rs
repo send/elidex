@@ -99,6 +99,9 @@ impl VmInner {
         // Symbol.prototype + Symbol global
         self.register_symbol_prototype();
         self.register_symbol_global();
+
+        // BigInt global (not a constructor)
+        self.register_bigint_global();
     }
 
     /// Helper: register a native function as a global.
@@ -455,6 +458,58 @@ impl VmInner {
                 PropertyAttrs::METHOD,
             );
         }
+    }
+
+    fn register_bigint_global(&mut self) {
+        use super::natives_bigint::{
+            native_bigint_as_int_n, native_bigint_as_uint_n, native_bigint_constructor,
+            native_bigint_to_string, native_bigint_value_of,
+        };
+
+        // BigInt is callable but NOT constructable (like Symbol).
+        let bigint_fn = self.create_native_function("BigInt", native_bigint_constructor);
+
+        // Static methods: BigInt.asIntN, BigInt.asUintN
+        for (name, func) in [
+            ("asIntN", native_bigint_as_int_n as NativeFn),
+            ("asUintN", native_bigint_as_uint_n as NativeFn),
+        ] {
+            let method_fn = self.create_native_function(name, func);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                bigint_fn,
+                key,
+                PropertyValue::Data(JsValue::Object(method_fn)),
+                PropertyAttrs::METHOD,
+            );
+        }
+
+        // BigInt.prototype
+        let proto_id = self.create_object_with_methods(&[
+            ("toString", native_bigint_to_string),
+            ("valueOf", native_bigint_value_of),
+            ("toLocaleString", native_bigint_to_string),
+        ]);
+        self.bigint_prototype = Some(proto_id);
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            bigint_fn,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+
+        // BigInt.prototype.constructor = BigInt
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(bigint_fn)),
+            PropertyAttrs::METHOD,
+        );
+
+        let bigint_name = self.strings.intern("BigInt");
+        self.globals.insert(bigint_name, JsValue::Object(bigint_fn));
     }
 
     fn register_console(&mut self) {

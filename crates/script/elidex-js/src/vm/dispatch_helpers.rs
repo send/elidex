@@ -2,12 +2,27 @@
 //! dispatch loop. Extracted from `dispatch.rs` to keep that file focused
 //! on the main opcode dispatch.
 
+use num_bigint::BigInt;
+
 use crate::bytecode::compiled::Constant;
 
 use super::value::{
     FuncId, JsValue, Object, ObjectKind, PropertyKey, PropertyValue, StringId, VmError,
 };
 use super::VmInner;
+
+/// Parse a BigInt literal string that may have 0x/0b/0o prefix.
+fn parse_bigint_literal(s: &str) -> Option<BigInt> {
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        BigInt::parse_bytes(hex.as_bytes(), 16)
+    } else if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {
+        BigInt::parse_bytes(bin.as_bytes(), 2)
+    } else if let Some(oct) = s.strip_prefix("0o").or_else(|| s.strip_prefix("0O")) {
+        BigInt::parse_bytes(oct.as_bytes(), 8)
+    } else {
+        s.parse::<BigInt>().ok()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Bytecode reading (free functions, used by methods below)
@@ -152,8 +167,13 @@ impl VmInner {
                 );
                 Ok(JsValue::Object(obj_id))
             }
-            Constant::BigInt(_) // deferred to M4-12
-            | Constant::Function(_) // loaded via Closure opcode, not PushConst
+            Constant::BigInt(ref s) => {
+                let bi = parse_bigint_literal(s)
+                    .ok_or_else(|| VmError::internal("invalid bigint constant"))?;
+                let id = self.bigints.alloc(bi);
+                Ok(JsValue::BigInt(id))
+            }
+            Constant::Function(_) // loaded via Closure opcode, not PushConst
             | Constant::TemplateObject { .. } => Ok(JsValue::Undefined),
         }
     }
