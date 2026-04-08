@@ -373,9 +373,9 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
         // BigInt == String → parse string as BigInt
         (JsValue::BigInt(bi), JsValue::String(s)) | (JsValue::String(s), JsValue::BigInt(bi)) => {
             let text = vm.strings.get_utf8(s);
-            match text.parse::<BigIntValue>() {
-                Ok(parsed) => vm.bigints.get(bi) == &parsed,
-                Err(_) => false,
+            match super::dispatch_helpers::parse_bigint_literal(text.trim()) {
+                Some(parsed) => vm.bigints.get(bi) == &parsed,
+                None => false,
             }
         }
 

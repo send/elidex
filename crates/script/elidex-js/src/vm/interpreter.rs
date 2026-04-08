@@ -229,6 +229,14 @@ impl VmInner {
                 });
                 JsValue::Object(wrapper)
             }
+            JsValue::BigInt(id) => {
+                let wrapper = self.alloc_object(super::value::Object {
+                    kind: ObjectKind::BigIntWrapper(id),
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                    prototype: self.bigint_prototype,
+                });
+                JsValue::Object(wrapper)
+            }
             _ => this,
         }
     }
