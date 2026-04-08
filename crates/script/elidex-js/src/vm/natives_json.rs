@@ -208,17 +208,22 @@ impl JsonSerializer {
 
         // Collect keys.
         let keys: Vec<StringId> = if let Some(ref pl) = self.property_list {
-            pl.clone()
-        } else {
-            ctx.get_object(obj_id)
-                .storage
-                .iter_keys(&ctx.vm.shapes)
-                .filter(|(k, attrs)| attrs.enumerable && matches!(k, PropertyKey::String(_)))
-                .map(|(k, _)| match k {
-                    PropertyKey::String(s) => s,
-                    PropertyKey::Symbol(_) => unreachable!(),
+            // Replacer array: only include keys that are own + enumerable (§24.5.2 step 4.b.iii).
+            pl.iter()
+                .copied()
+                .filter(|&sid| {
+                    let pk = PropertyKey::String(sid);
+                    match ctx.get_object(obj_id).storage.get(pk, &ctx.vm.shapes) {
+                        Some((_, attrs)) => attrs.enumerable,
+                        None => false,
+                    }
                 })
                 .collect()
+        } else {
+            // §24.5.2.3 step 5: EnumerableOwnPropertyNames / OrdinaryOwnPropertyKeys.
+            // Array-index keys come first in ascending numeric order, then
+            // other string keys in insertion order.
+            collect_own_keys_es_order(ctx, obj_id)
         };
 
         self.output.push('{');
@@ -275,6 +280,59 @@ impl JsonSerializer {
         self.stack.pop();
         Ok(true)
     }
+}
+
+/// Collect own enumerable string keys in ES spec order (§9.1.11.1):
+/// array-index keys in ascending numeric order, then other string keys
+/// in insertion order.
+fn collect_own_keys_es_order(ctx: &NativeContext<'_>, obj_id: ObjectId) -> Vec<StringId> {
+    let mut index_keys: Vec<(u32, StringId)> = Vec::new();
+    let mut other_keys: Vec<StringId> = Vec::new();
+
+    for (k, attrs) in ctx.get_object(obj_id).storage.iter_keys(&ctx.vm.shapes) {
+        if !attrs.enumerable {
+            continue;
+        }
+        let sid = match k {
+            PropertyKey::String(s) => s,
+            PropertyKey::Symbol(_) => continue,
+        };
+        match parse_array_index(ctx.get_u16(sid)) {
+            Some(idx) => index_keys.push((idx, sid)),
+            None => other_keys.push(sid),
+        }
+    }
+
+    index_keys.sort_by_key(|(idx, _)| *idx);
+
+    let mut keys = Vec::with_capacity(index_keys.len() + other_keys.len());
+    keys.extend(index_keys.into_iter().map(|(_, sid)| sid));
+    keys.extend(other_keys);
+    keys
+}
+
+/// Parse a string as an ES array index (0..2^32-2). Returns `None` for
+/// non-index strings, leading-zero forms like "01", and out-of-range values.
+fn parse_array_index(units: &[u16]) -> Option<u32> {
+    if units.is_empty() || units.len() > 10 {
+        return None;
+    }
+    // Reject leading zeros ("00", "01", etc.) but allow "0".
+    if units.len() > 1 && units[0] == u16::from(b'0') {
+        return None;
+    }
+    let mut val: u64 = 0;
+    for &u in units {
+        let d = u.wrapping_sub(u16::from(b'0'));
+        if d > 9 {
+            return None;
+        }
+        val = val * 10 + u64::from(d);
+        if val > u64::from(u32::MAX) - 1 {
+            return None;
+        }
+    }
+    Some(val as u32)
 }
 
 /// JSON string escaping: surround with `"` and escape special characters.
@@ -867,6 +925,7 @@ fn internalize(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
     reviver: ObjectId,
+    index_buf: &mut String,
 ) -> Result<JsValue, VmError> {
     match val {
         JsValue::Object(obj_id) => {
@@ -880,8 +939,10 @@ fn internalize(
                             }
                             _ => JsValue::Undefined,
                         };
-                        let new_val = internalize(ctx, elem, reviver)?;
-                        let key_str = ctx.intern(&i.to_string());
+                        let new_val = internalize(ctx, elem, reviver, index_buf)?;
+                        index_buf.clear();
+                        let _ = write!(index_buf, "{i}");
+                        let key_str = ctx.intern(index_buf);
                         let result = ctx.call_function(
                             reviver,
                             JsValue::Object(obj_id),
@@ -912,7 +973,7 @@ fn internalize(
 
                     for key_sid in keys {
                         let child = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;
-                        let new_val = internalize(ctx, child, reviver)?;
+                        let new_val = internalize(ctx, child, reviver, index_buf)?;
                         let result = ctx.call_function(
                             reviver,
                             JsValue::Object(obj_id),
@@ -976,7 +1037,8 @@ pub(super) fn native_json_parse(
                 PropertyAttrs::DATA,
             );
 
-            let internalized = internalize(ctx, result, rev_id)?;
+            let mut index_buf = String::with_capacity(8);
+            let internalized = internalize(ctx, result, rev_id, &mut index_buf)?;
             let final_val = ctx.call_function(
                 rev_id,
                 JsValue::Object(wrapper_id),

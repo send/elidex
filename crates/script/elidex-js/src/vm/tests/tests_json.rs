@@ -210,6 +210,41 @@ fn stringify_replacer_array() {
     );
 }
 
+#[test]
+fn stringify_replacer_array_skips_non_enumerable() {
+    // Replacer array should only include own + enumerable properties.
+    assert_eq!(
+        eval_string(
+            r#"var obj = {a: 1};
+            Object.defineProperty(obj, 'b', { value: 2, enumerable: false });
+            JSON.stringify(obj, ["a", "b"])"#
+        ),
+        r#"{"a":1}"#
+    );
+}
+
+// ============================================================================
+// JSON.stringify — key enumeration order
+// ============================================================================
+
+#[test]
+fn stringify_key_order_numeric_first() {
+    // Array-index keys come first in ascending numeric order per ES spec.
+    assert_eq!(
+        eval_string(r#"JSON.stringify({"1": 1, "0": 0})"#),
+        r#"{"0":0,"1":1}"#
+    );
+}
+
+#[test]
+fn stringify_key_order_mixed() {
+    // Numeric keys first, then other keys in insertion order.
+    assert_eq!(
+        eval_string(r#"JSON.stringify({"b": 2, "1": 1, "a": 3, "0": 0})"#),
+        r#"{"0":0,"1":1,"b":2,"a":3}"#
+    );
+}
+
 // ============================================================================
 // JSON.stringify — toJSON
 // ============================================================================
