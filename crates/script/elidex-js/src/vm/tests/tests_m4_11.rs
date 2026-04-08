@@ -525,3 +525,8 @@ fn native_reentrant_during_inline_call() {
         77.0
     );
 }
+
+#[test]
+fn new_arrow_function_throws() {
+    eval_throws("var f = () => {}; new f();");
+}

@@ -388,6 +388,13 @@ impl VmInner {
 
         let js_callee = self.extract_js_callee(ctor_id);
 
+        // Arrow functions are not constructors (§9.2.1 [[Construct]]).
+        if let Some(ref callee) = js_callee {
+            if callee.this_mode == super::value::ThisMode::Lexical {
+                return Err(VmError::type_error("not a constructor"));
+            }
+        }
+
         // For non-JS callees, validate native constructability.
         if js_callee.is_none() {
             let obj = self.get_object(ctor_id);
