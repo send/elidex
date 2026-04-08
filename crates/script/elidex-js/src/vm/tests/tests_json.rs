@@ -23,8 +23,17 @@ fn stringify_false() {
 #[test]
 fn stringify_number() {
     assert_eq!(eval_string("JSON.stringify(42)"), "42");
-    assert_eq!(eval_string("JSON.stringify(3.14)"), "3.14");
+    assert_eq!(eval_string("JSON.stringify(3.125)"), "3.125");
     assert_eq!(eval_string("JSON.stringify(-0)"), "0");
+}
+
+#[test]
+fn stringify_number_exponent() {
+    // 1e20 = 10^20 (21 digits, n=21 ≤ 21): integer form per ES §7.1.12.1 step 6.
+    assert_eq!(eval_string("JSON.stringify(1e20)"), "100000000000000000000");
+    // 1e21 = 10^21 (22 digits, n=22 > 21): exponent form with '+'.
+    assert_eq!(eval_string("JSON.stringify(1e21)"), "1e+21");
+    assert_eq!(eval_string("JSON.stringify(1e100)"), "1e+100");
 }
 
 #[test]

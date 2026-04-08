@@ -166,10 +166,17 @@ impl JsonSerializer {
                 _ => JsValue::Undefined,
             };
 
-            self.index_buf.clear();
-            let _ = write!(self.index_buf, "{i}");
-            let key_str = ctx.intern(&self.index_buf);
-            let wrote = self.serialize_property(ctx, elem, obj_id, JsValue::String(key_str))?;
+            // Only intern the index string when toJSON or replacer needs it.
+            // This avoids permanently growing the StringPool for large arrays.
+            let needs_key = self.replacer_fn.is_some() || matches!(elem, JsValue::Object(_));
+            let key = if needs_key {
+                self.index_buf.clear();
+                let _ = write!(self.index_buf, "{i}");
+                JsValue::String(ctx.intern(&self.index_buf))
+            } else {
+                JsValue::Undefined
+            };
+            let wrote = self.serialize_property(ctx, elem, obj_id, key)?;
             if !wrote {
                 // undefined/Symbol/Function in array → "null"
                 self.output.push_str("null");
@@ -323,18 +330,67 @@ fn quote(units: &[u16], output: &mut String) {
     output.push('"');
 }
 
-/// Write a finite f64 to the output buffer in JS number format.
+/// Write a finite f64 to the output buffer in ES Number::toString format
+/// (§7.1.12.1).
+///
+/// ES rules:
+/// - Integers with ≤ 20 digits: decimal without exponent
+/// - Integers with ≥ 21 digits: exponent form with `e+`
+/// - Decimals with fraction: shortest representation, exponent form when
+///   the decimal point position falls outside the significant digits
 fn write_number(n: f64, output: &mut String) {
     debug_assert!(n.is_finite());
+    // -0.0 == 0.0 in IEEE 754; ES §7.1.12.1 step 2 says "0".
     if n == 0.0 {
         output.push('0');
         return;
     }
-    #[allow(clippy::cast_precision_loss)]
-    if n == (n as i64 as f64) && n.abs() < 1e15 {
-        let _ = write!(output, "{}", n as i64);
+    if n < 0.0 {
+        output.push('-');
+        write_number(-n, output);
+        return;
+    }
+    // Use Rust Display for the shortest decimal representation, then
+    // re-format according to ES rules.
+    let s = format!("{n}");
+    // If Rust already chose exponent form, fix the sign format.
+    if let Some(e_pos) = s.find('e') {
+        let (mantissa, exp_part) = s.split_at(e_pos);
+        output.push_str(mantissa);
+        output.push('e');
+        let exp_rest = &exp_part[1..];
+        if !exp_rest.starts_with('-') {
+            output.push('+');
+        }
+        output.push_str(exp_rest);
+        return;
+    }
+    // Rust chose decimal form. Check if ES would use exponent form.
+    if s.contains('.') {
+        // Has decimal point — Rust already used shortest form. ES uses the
+        // same representation for these cases.
+        output.push_str(&s);
     } else {
-        let _ = write!(output, "{n}");
+        // Pure integer string from Rust. ES uses exponent form for ≥ 21 digits.
+        let digits = s.len();
+        // ES §7.1.12.1 step 6: integer form when n ≤ 21.
+        // `digits` equals n (number of digits = floor(log10(x)) + 1).
+        if digits <= 21 {
+            output.push_str(&s);
+        } else {
+            // e.g. "1000000000000000000000" → "1e+21"
+            // Trim trailing zeros to find significant digits.
+            let trimmed = s.trim_end_matches('0');
+            let sig_len = trimmed.len();
+            if sig_len == 1 {
+                output.push_str(trimmed);
+            } else {
+                output.push(trimmed.as_bytes()[0] as char);
+                output.push('.');
+                output.push_str(&trimmed[1..]);
+            }
+            let _ = write!(output, "e+{}", digits - 1);
+        }
     }
 }
 
