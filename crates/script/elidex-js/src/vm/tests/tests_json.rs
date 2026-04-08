@@ -85,7 +85,7 @@ fn stringify_array() {
 #[test]
 fn stringify_nested() {
     assert_eq!(
-        eval_string(r#"JSON.stringify({a: [1, {b: 2}]})"#),
+        eval_string(r"JSON.stringify({a: [1, {b: 2}]})"),
         r#"{"a":[1,{"b":2}]}"#
     );
 }
@@ -250,11 +250,11 @@ fn stringify_symbol_key_skip() {
     // Symbol-keyed properties are not enumerated.
     assert_eq!(
         eval_string(
-            r#"var obj = {};
+            r"var obj = {};
             obj.a = 1;
             obj[Symbol('hidden')] = 2;
             obj.b = 3;
-            JSON.stringify(obj)"#
+            JSON.stringify(obj)"
         ),
         r#"{"a":1,"b":3}"#
     );
@@ -268,10 +268,10 @@ fn stringify_symbol_key_skip() {
 fn stringify_getter() {
     assert_eq!(
         eval_string(
-            r#"var obj = {};
+            r"var obj = {};
             Object.defineProperty(obj, 'x', { get: function() { return 42; }, enumerable: true });
             obj.y = 10;
-            JSON.stringify(obj)"#
+            JSON.stringify(obj)"
         ),
         r#"{"x":42,"y":10}"#
     );
@@ -313,18 +313,18 @@ fn parse_null() {
 
 #[test]
 fn parse_true() {
-    assert_eq!(eval_bool("JSON.parse('true')"), true);
+    assert!(eval_bool("JSON.parse('true')"));
 }
 
 #[test]
 fn parse_false() {
-    assert_eq!(eval_bool("JSON.parse('false')"), false);
+    assert!(!eval_bool("JSON.parse('false')"));
 }
 
 #[test]
 fn parse_number() {
     assert_eq!(eval_number("JSON.parse('42')"), 42.0);
-    assert_eq!(eval_number("JSON.parse('3.14')"), 3.14);
+    assert_eq!(eval_number("JSON.parse('3.125')"), 3.125);
     assert_eq!(eval_number("JSON.parse('-1')"), -1.0);
     assert_eq!(eval_number("JSON.parse('1e2')"), 100.0);
 }
