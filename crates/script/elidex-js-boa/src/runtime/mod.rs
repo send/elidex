@@ -280,7 +280,8 @@ impl JsRuntime {
     /// Invoke a single event listener by ID (internal implementation).
     ///
     /// Binds the bridge, creates the JS event object, calls the listener function,
-    /// runs microtasks, and syncs flags back to `event.flags`.
+    /// and syncs flags back to `event.flags`. The microtask checkpoint is handled
+    /// by the shared dispatch loop (`run_microtasks` after each listener).
     #[allow(clippy::too_many_lines)]
     fn call_listener_impl(
         &mut self,
