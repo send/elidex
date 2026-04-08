@@ -208,17 +208,10 @@ impl JsonSerializer {
 
         // Collect keys.
         let keys: Vec<StringId> = if let Some(ref pl) = self.property_list {
-            // Replacer array: only include keys that are own + enumerable (§24.5.2 step 4.b.iii).
-            pl.iter()
-                .copied()
-                .filter(|&sid| {
-                    let pk = PropertyKey::String(sid);
-                    match ctx.get_object(obj_id).storage.get(pk, &ctx.vm.shapes) {
-                        Some((_, attrs)) => attrs.enumerable,
-                        None => false,
-                    }
-                })
-                .collect()
+            // Replacer array: §24.5.2.3 step 5.a uses PropertyList as-is.
+            // Values are retrieved via Get(holder, key), so non-enumerable
+            // and inherited properties are included if present in the list.
+            pl.clone()
         } else {
             // §24.5.2.3 step 5: EnumerableOwnPropertyNames / OrdinaryOwnPropertyKeys.
             // Array-index keys come first in ascending numeric order, then
@@ -865,10 +858,13 @@ impl<'a> JsonParser<'a> {
             }
         }
 
-        // Number tokens are pure ASCII — collect into a small buffer.
+        // Number tokens are pure ASCII (guarded by peek() checks above).
         let num_str: String = self.input[start..self.pos]
             .iter()
-            .map(|&c| char::from(c as u8))
+            .map(|&c| {
+                debug_assert!(c <= 0x7F, "non-ASCII in number token");
+                char::from(c as u8)
+            })
             .collect();
         let n: f64 = num_str.parse().map_err(|_| self.err("invalid number"))?;
         Ok(JsValue::Number(n))

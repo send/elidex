@@ -216,15 +216,16 @@ fn stringify_replacer_array() {
 }
 
 #[test]
-fn stringify_replacer_array_skips_non_enumerable() {
-    // Replacer array should only include own + enumerable properties.
+fn stringify_replacer_array_includes_non_enumerable() {
+    // Replacer array includes non-enumerable properties per spec
+    // (§24.5.2.3 uses Get, not filtered by enumerability).
     assert_eq!(
         eval_string(
             r#"var obj = {a: 1};
             Object.defineProperty(obj, 'b', { value: 2, enumerable: false });
             JSON.stringify(obj, ["a", "b"])"#
         ),
-        r#"{"a":1}"#
+        r#"{"a":1,"b":2}"#
     );
 }
 
