@@ -108,6 +108,10 @@ impl EventListeners {
     }
 
     /// Iterate over listener entries matching the given event type.
+    ///
+    /// The `event_type` lifetime is tied to `self` because the returned
+    /// iterator's closure captures the reference. Callers needing a
+    /// temporary `String` should bind it to a local variable first.
     pub fn iter_matching<'a>(
         &'a self,
         event_type: &'a str,
