@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use super::coerce::{collect_own_keys_es_order, write_number_es};
+use super::coerce_format::{collect_own_keys_es_order, write_number_es};
 use super::shape::{PropertyAttrs, ROOT_SHAPE};
 use super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
