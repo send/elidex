@@ -52,7 +52,7 @@ impl VmInner {
                     super::value::ThisMode::Global => self.bind_this_global(this),
                     super::value::ThisMode::Strict => this,
                 };
-                self.call_internal(func_id, effective_this, args, &upvalue_ids)
+                self.call_internal(func_id, effective_this, args, upvalue_ids)
             }
             ObjectKind::NativeFunction(nf) => {
                 let func = nf.func;
@@ -78,7 +78,7 @@ impl VmInner {
         func_id: FuncId,
         this: JsValue,
         args: &[JsValue],
-        upvalue_ids: &[UpvalueId],
+        upvalue_ids: Arc<[UpvalueId]>,
     ) -> Result<JsValue, VmError> {
         let compiled = self.get_compiled(func_id);
         let local_count = compiled.local_count as usize;
@@ -105,7 +105,7 @@ impl VmInner {
             func_id,
             ip: 0,
             base,
-            upvalue_ids: Arc::from(upvalue_ids),
+            upvalue_ids,
             local_upvalue_ids: Vec::new(),
             this_value: this,
             exception_handlers: Vec::new(),
@@ -240,7 +240,7 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        self.call_internal(func_id, this, args, &[])
+        self.call_internal(func_id, this, args, Arc::from([]))
     }
 }
 

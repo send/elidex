@@ -622,7 +622,14 @@ impl CallFrame {
         let overflow = if local_count <= 64 {
             Box::default()
         } else {
-            vec![u64::MAX; (local_count - 64).div_ceil(64)].into_boxed_slice()
+            let overflow_bits = local_count - 64;
+            let mut v = vec![u64::MAX; overflow_bits.div_ceil(64)];
+            let remainder = overflow_bits % 64;
+            if remainder != 0 {
+                let last = v.len() - 1;
+                v[last] = (1u64 << remainder) - 1;
+            }
+            v.into_boxed_slice()
         };
         (bits, overflow)
     }
