@@ -1,9 +1,9 @@
 //! VM operation helpers: function calls, exception handling, upvalue management,
 //! and operator helpers. Property access methods live in `ops_property.rs`.
 
-use super::coerce::{
-    abstract_relational, get_property, op_bitwise, op_numeric_binary, to_boolean, to_number,
-    to_string, BitwiseOp, NumericBinaryOp, PropertyResult,
+use super::coerce::{get_property, to_boolean, to_number, to_string, PropertyResult};
+use super::coerce_ops::{
+    abstract_relational, op_bitwise, op_numeric_binary, BitwiseOp, NumericBinaryOp,
 };
 use super::value::{
     FuncId, JsValue, ObjectKind, PropertyKey, PropertyValue, Upvalue, UpvalueState, VmError,
@@ -116,6 +116,7 @@ impl VmInner {
                     ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
                     ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
                     ObjectKind::BooleanWrapper(b) => return Ok(JsValue::Boolean(b)),
+                    ObjectKind::BigIntWrapper(id) => return Ok(JsValue::BigInt(id)),
                     _ => {}
                 }
                 // §7.1.1 step 2d: Check @@toPrimitive
@@ -161,6 +162,13 @@ impl VmInner {
             let id = self.strings.intern_utf16(&concat);
             return Ok(JsValue::String(id));
         }
+        // BigInt + BigInt → BigInt addition.
+        if let (JsValue::BigInt(ai), JsValue::BigInt(bi)) = (lhs, rhs) {
+            let result = self.bigints.get(ai) + self.bigints.get(bi);
+            let id = self.bigints.alloc(result);
+            return Ok(JsValue::BigInt(id));
+        }
+        // Mixed BigInt + Number → TypeError (to_number will throw for BigInt).
         let a = to_number(self, lhs)?;
         let b = to_number(self, rhs)?;
         Ok(JsValue::Number(a + b))

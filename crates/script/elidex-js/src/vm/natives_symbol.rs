@@ -170,6 +170,7 @@ pub(super) fn native_object_prototype_to_string(
         JsValue::Number(_) => "Number",
         JsValue::String(_) => "String",
         JsValue::Symbol(_) => "Symbol",
+        JsValue::BigInt(_) => "BigInt",
         JsValue::Object(obj_id) => {
             // Check @@toStringTag (invoke getter if accessor).
             let tag_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.to_string_tag);

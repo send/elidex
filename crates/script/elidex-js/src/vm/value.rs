@@ -60,6 +60,16 @@ impl fmt::Debug for SymbolId {
     }
 }
 
+/// Index into `VmInner::bigints`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BigIntId(pub(crate) u32);
+
+impl fmt::Debug for BigIntId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BigIntId({})", self.0)
+    }
+}
+
 /// A Symbol record stored in the VM's symbol table.
 pub struct SymbolRecord {
     /// Optional description (e.g., `Symbol("foo")` → `"foo"`).
@@ -92,6 +102,7 @@ pub enum JsValue {
     Number(f64),
     String(StringId),
     Symbol(SymbolId),
+    BigInt(BigIntId),
     Object(ObjectId),
 }
 
@@ -111,6 +122,8 @@ impl JsValue {
             Self::Undefined | Self::Null => true,
             Self::Boolean(b) => !b,
             Self::Number(n) => n == 0.0 || n.is_nan(),
+            // BigIntPool guarantees canonical 0n at BigIntId(0).
+            Self::BigInt(id) => id.0 == 0,
             Self::String(_) | Self::Symbol(_) | Self::Object(_) => false,
         }
     }
@@ -127,6 +140,7 @@ impl PartialEq for JsValue {
             }
             (Self::String(a), Self::String(b)) => a == b,
             (Self::Symbol(a), Self::Symbol(b)) => a == b,
+            (Self::BigInt(a), Self::BigInt(b)) => a == b,
             (Self::Object(a), Self::Object(b)) => a == b,
             _ => false,
         }
@@ -404,6 +418,8 @@ pub enum ObjectKind {
     StringWrapper(StringId),
     /// Wrapper object for Boolean primitives (§9.2.1.2 this-boxing).
     BooleanWrapper(bool),
+    /// Wrapper object for BigInt primitives.
+    BigIntWrapper(BigIntId),
 }
 
 /// A compiled JS function with captured upvalues.
@@ -754,6 +770,13 @@ impl VmError {
     pub fn reference_error(message: impl Into<String>) -> Self {
         Self {
             kind: VmErrorKind::ReferenceError,
+            message: message.into(),
+        }
+    }
+
+    pub fn syntax_error(message: impl Into<String>) -> Self {
+        Self {
+            kind: VmErrorKind::SyntaxError,
             message: message.into(),
         }
     }
