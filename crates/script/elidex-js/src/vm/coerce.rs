@@ -37,6 +37,9 @@ pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> Result<f64, VmError> {
             ObjectKind::BooleanWrapper(false) => Ok(0.0),
             ObjectKind::BooleanWrapper(true) => Ok(1.0),
             ObjectKind::StringWrapper(sid) => Ok(string_to_number_u16(vm.strings.get(sid))),
+            ObjectKind::BigIntWrapper(_) => Err(VmError::type_error(
+                "Cannot convert a BigInt value to a number",
+            )),
             _ => Ok(f64::NAN),
         },
         JsValue::Symbol(_) => Err(VmError::type_error(
@@ -204,7 +207,10 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
             ObjectKind::StringWrapper(sid) => Ok(sid),
             ObjectKind::BooleanWrapper(true) => Ok(vm.well_known.r#true),
             ObjectKind::BooleanWrapper(false) => Ok(vm.well_known.r#false),
-            // Simplified ToPrimitive → "[object Object]"
+            ObjectKind::BigIntWrapper(bi_id) => {
+                let s = vm.bigints.get(bi_id).to_string();
+                Ok(vm.strings.intern(&s))
+            }
             _ => Ok(vm.well_known.object_to_string),
         },
     }
@@ -400,7 +406,15 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
             abstract_eq(vm, a, JsValue::Number(n))
         }
 
-        // Object == primitive → simplified (no ToPrimitive)
+        // Object == primitive → ToPrimitive (§7.2.15 steps 10, 12)
+        (JsValue::Object(_), _) => match vm.to_primitive(a, "default") {
+            Ok(prim) => abstract_eq(vm, prim, b),
+            Err(_) => false,
+        },
+        (_, JsValue::Object(_)) => match vm.to_primitive(b, "default") {
+            Ok(prim) => abstract_eq(vm, a, prim),
+            Err(_) => false,
+        },
         _ => false,
     }
 }
