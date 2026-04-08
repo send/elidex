@@ -384,3 +384,144 @@ fn own_property_takes_precedence_over_inherited_writable_false() {
         42.0
     );
 }
+
+// ─── PR4: VM single dispatcher ─────────────────────────────────────────
+
+#[test]
+fn deep_call_chain_no_stack_overflow() {
+    // 1000-deep JS→JS call chain. With recursive run() this would consume
+    // ~1000 Rust stack frames; with single dispatcher it uses 0 extra frames.
+    assert_eq!(
+        eval_number(
+            "function countdown(n) { if (n <= 0) return 0; return countdown(n - 1); } \
+             countdown(1000);"
+        ),
+        0.0
+    );
+}
+
+#[test]
+fn deep_call_chain_return_value() {
+    assert_eq!(
+        eval_number("function sum(n) { if (n <= 0) return 0; return n + sum(n - 1); } sum(100);"),
+        5050.0
+    );
+}
+
+#[test]
+fn deep_method_call_chain() {
+    assert_eq!(
+        eval_number(
+            "var obj = { count: function(n) { if (n <= 0) return 0; return obj.count(n - 1); } }; \
+             obj.count(500);"
+        ),
+        0.0
+    );
+}
+
+#[test]
+fn constructor_in_single_dispatcher() {
+    assert_eq!(
+        eval_number(
+            "function Foo(x) { this.val = x; } \
+             var f = new Foo(42); f.val;"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn constructor_returning_object() {
+    assert_eq!(
+        eval_number(
+            "function Foo() { return { val: 99 }; } \
+             var f = new Foo(); f.val;"
+        ),
+        99.0
+    );
+}
+
+#[test]
+fn constructor_returning_primitive_uses_instance() {
+    assert_eq!(
+        eval_number(
+            "function Foo() { this.val = 7; return 42; } \
+             var f = new Foo(); f.val;"
+        ),
+        7.0
+    );
+}
+
+#[test]
+fn nested_constructor_calls() {
+    assert_eq!(
+        eval_number(
+            "function Inner(x) { this.x = x; } \
+             function Outer(y) { this.inner = new Inner(y * 2); } \
+             var o = new Outer(5); o.inner.x;"
+        ),
+        10.0
+    );
+}
+
+#[test]
+fn closure_across_single_dispatcher_frames() {
+    assert_eq!(
+        eval_number(
+            "function make() { var x = 10; return function() { return x + 5; }; } \
+             var f = make(); f();"
+        ),
+        15.0
+    );
+}
+
+#[test]
+fn exception_across_inline_frames() {
+    assert_eq!(
+        eval_number(
+            "function inner() { throw 42; } \
+             function outer() { try { inner(); } catch(e) { return e; } } \
+             outer();"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn exception_unwinds_multiple_inline_frames() {
+    assert_eq!(
+        eval_number(
+            "function a() { throw 1; } \
+             function b() { return a(); } \
+             function c() { try { return b(); } catch(e) { return e + 10; } } \
+             c();"
+        ),
+        11.0
+    );
+}
+
+#[test]
+fn mutual_recursion_single_dispatcher() {
+    assert!(eval_bool(
+        "function isEven(n) { if (n === 0) return true; return isOdd(n - 1); } \
+         function isOdd(n) { if (n === 0) return false; return isEven(n - 1); } \
+         isEven(100);"
+    ));
+}
+
+#[test]
+fn native_reentrant_during_inline_call() {
+    // Object.values invokes a getter (native → JS re-entrant call) while
+    // the top-level call chain uses the single dispatcher.
+    assert_eq!(
+        eval_number(
+            "function outer() { \
+                 var o = {}; \
+                 Object.defineProperty(o, 'x', { get: function() { return 77; }, enumerable: true }); \
+                 return Object.values(o)[0]; \
+             } \
+             outer();"
+        ),
+        77.0
+    );
+}

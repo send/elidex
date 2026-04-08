@@ -4,6 +4,7 @@
 //! VM-owned tables, making `JsValue` `Copy` and trivially `Send + Sync`.
 
 use std::fmt;
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // Handle types (u32 indices into Vm tables)
@@ -409,8 +410,8 @@ pub enum ObjectKind {
 pub struct FunctionObject {
     /// Index into `Vm::compiled_functions`.
     pub func_id: FuncId,
-    /// Captured upvalue handles.
-    pub upvalue_ids: Vec<UpvalueId>,
+    /// Captured upvalue handles (shared via `Arc` to avoid clone overhead).
+    pub upvalue_ids: Arc<[UpvalueId]>,
     /// How `this` is resolved.
     pub this_mode: ThisMode,
     /// Function name (for stack traces / `.name` property).
@@ -428,6 +429,15 @@ pub enum ThisMode {
     Global,
     /// Strict function: `this` is exactly what was passed.
     Strict,
+}
+
+/// Extracted callee info for JS function calls via the single dispatcher.
+/// Produced by `extract_js_callee`, consumed by `push_js_call_frame`.
+pub struct JsCalleeInfo {
+    pub func_id: FuncId,
+    pub upvalue_ids: Arc<[UpvalueId]>,
+    pub this_mode: ThisMode,
+    pub captured_this: Option<JsValue>,
 }
 
 /// A native function callable from JS.
@@ -572,20 +582,75 @@ pub struct CallFrame {
     pub ip: usize,
     /// Stack base: `stack[base..base+local_count]` are this frame's locals.
     pub base: usize,
-    /// Upvalue handles for this invocation (captures from parent).
-    pub upvalue_ids: Vec<UpvalueId>,
+    /// Upvalue handles for this invocation (shared via `Arc`).
+    pub upvalue_ids: Arc<[UpvalueId]>,
     /// Upvalues that capture *this* frame's local slots (closed on frame pop).
     pub local_upvalue_ids: Vec<UpvalueId>,
     /// The `this` value for this call.
     pub this_value: JsValue,
     /// Active exception handlers (try/catch/finally).
     pub exception_handlers: Vec<HandlerEntry>,
-    /// TDZ tracking: `true` = slot is uninitialized (in temporal dead zone).
-    /// Only `let`/`const` bindings are checked; `var` slots are cleared at frame creation.
-    pub tdz_slots: Vec<bool>,
+    /// Bit-packed TDZ tracking. Bit N set = slot N is uninitialized (in TDZ).
+    /// Inline word covers slots 0–63 with no heap allocation.
+    pub tdz_bits: u64,
+    /// Extended TDZ bits for functions with > 64 locals (rare).
+    pub tdz_overflow: Box<[u64]>,
     /// Actual arguments passed to this call (for `arguments` object creation).
     /// Only populated when the compiled function has a `CreateArguments` opcode.
     pub actual_args: Option<Vec<JsValue>>,
+    /// Stack position to truncate to on return (accounts for callee/receiver
+    /// slots below `base` that the caller left on the stack).
+    pub cleanup_base: usize,
+    /// For `new` calls: the instance `ObjectId` to return if the constructor
+    /// does not return an object.
+    pub new_target: Option<ObjectId>,
+    /// Saved `completion_value` from the parent scope, restored on return.
+    pub saved_completion: JsValue,
+}
+
+impl CallFrame {
+    /// Initialize TDZ bits for `local_count` locals (all slots start in TDZ).
+    pub fn tdz_init(local_count: usize) -> (u64, Box<[u64]>) {
+        let bits = if local_count == 0 {
+            0
+        } else if local_count >= 64 {
+            u64::MAX
+        } else {
+            (1u64 << local_count) - 1
+        };
+        let overflow = if local_count <= 64 {
+            Box::default()
+        } else {
+            vec![u64::MAX; (local_count - 64).div_ceil(64)].into_boxed_slice()
+        };
+        (bits, overflow)
+    }
+
+    /// Check whether `slot` is in the temporal dead zone.
+    #[inline]
+    pub fn is_in_tdz(&self, slot: usize) -> bool {
+        if slot < 64 {
+            self.tdz_bits & (1u64 << slot) != 0
+        } else {
+            let adj = slot - 64;
+            self.tdz_overflow
+                .get(adj / 64)
+                .is_some_and(|w| w & (1u64 << (adj % 64)) != 0)
+        }
+    }
+
+    /// Clear the TDZ flag for `slot` (mark as initialized).
+    #[inline]
+    pub fn clear_tdz(&mut self, slot: usize) {
+        if slot < 64 {
+            self.tdz_bits &= !(1u64 << slot);
+        } else {
+            let adj = slot - 64;
+            if let Some(w) = self.tdz_overflow.get_mut(adj / 64) {
+                *w &= !(1u64 << (adj % 64));
+            }
+        }
+    }
 }
 
 /// A registered exception handler within a call frame.
