@@ -227,6 +227,15 @@ fn stringify_to_json_with_key() {
     );
 }
 
+#[test]
+fn stringify_to_json_non_callable_ignored() {
+    // Non-callable toJSON is ignored per spec (IsCallable check).
+    assert_eq!(
+        eval_string(r"JSON.stringify({ toJSON: {} })"),
+        r#"{"toJSON":{}}"#
+    );
+}
+
 // ============================================================================
 // JSON.stringify — Symbol handling
 // ============================================================================
@@ -344,6 +353,24 @@ fn parse_string_escapes() {
 #[test]
 fn parse_string_unicode_escape() {
     assert_eq!(eval_string(r#"JSON.parse('"\\u0041"')"#), "A");
+}
+
+#[test]
+fn parse_string_surrogate_pair() {
+    // Surrogate pair \uD83D\uDE00 → 😀
+    assert_eq!(
+        eval_string(r#"JSON.parse('"\\uD83D\\uDE00"')"#),
+        "\u{1F600}"
+    );
+}
+
+#[test]
+fn parse_lone_surrogate_round_trip() {
+    // Lone surrogate preserved through parse → stringify round-trip.
+    assert_eq!(
+        eval_string(r#"JSON.stringify(JSON.parse('"\\uD800"'))"#),
+        r#""\ud800""#
+    );
 }
 
 // ============================================================================

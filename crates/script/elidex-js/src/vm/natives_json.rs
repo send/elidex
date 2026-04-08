@@ -46,9 +46,11 @@ impl JsonSerializer {
         // Step 2: If value is Object, check for toJSON.
         if let JsValue::Object(obj_id) = val {
             let to_json_pk = PropertyKey::String(self.to_json_key);
-            if let Some(to_json_val) = ctx.try_get_property_value(obj_id, to_json_pk)? {
-                if matches!(to_json_val, JsValue::Object(_)) {
-                    val = ctx.call_value(to_json_val, val, &[key])?;
+            if let Some(JsValue::Object(to_json_obj)) =
+                ctx.try_get_property_value(obj_id, to_json_pk)?
+            {
+                if ctx.get_object(to_json_obj).kind.is_callable() {
+                    val = ctx.call_function(to_json_obj, val, &[key])?;
                 }
             }
         }
@@ -321,17 +323,6 @@ fn quote(units: &[u16], output: &mut String) {
     output.push('"');
 }
 
-/// Determine the length of a UTF-8 character from its leading byte.
-#[inline]
-fn utf8_char_len(lead: u8) -> usize {
-    match lead {
-        0xC0..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF7 => 4,
-        _ => 1,
-    }
-}
-
 /// Write a finite f64 to the output buffer in JS number format.
 fn write_number(n: f64, output: &mut String) {
     debug_assert!(n.is_finite());
@@ -388,11 +379,11 @@ pub(super) fn native_json_stringify(
     // Step 5-8: Process space.
     let gap = compute_gap(ctx, space_arg);
 
-    // Build wrapper object: { "": value }
+    // Build wrapper object: { "": value } (§24.5.2 step 9)
     let wrapper_id = ctx.alloc_object(Object {
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(ROOT_SHAPE),
-        prototype: None,
+        prototype: ctx.vm.object_prototype,
     });
     let empty_key = ctx.vm.well_known.empty;
     ctx.vm.define_shaped_property(
@@ -456,18 +447,20 @@ fn compute_gap(ctx: &mut NativeContext<'_>, space: JsValue) -> String {
 // JSON.parse (§24.5.1)
 // ============================================================================
 
-/// Recursive-descent JSON parser operating on UTF-8 bytes.
+/// Recursive-descent JSON parser operating on WTF-16 code units.
+///
+/// JSON structural characters and keywords are all ASCII, so each `u16`
+/// in the range 0-127 is compared directly.  Non-ASCII code units only
+/// appear inside string values and are preserved as-is (including lone
+/// surrogates), matching JS `JSON.parse` semantics.
 struct JsonParser<'a> {
-    input: &'a [u8],
+    input: &'a [u16],
     pos: usize,
 }
 
 impl<'a> JsonParser<'a> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            input: input.as_bytes(),
-            pos: 0,
-        }
+    fn new(input: &'a [u16]) -> Self {
+        Self { input, pos: 0 }
     }
 
     fn err(&self, msg: &str) -> VmError {
@@ -477,20 +470,43 @@ impl<'a> JsonParser<'a> {
     fn skip_ws(&mut self) {
         while self.pos < self.input.len() {
             match self.input[self.pos] {
-                b' ' | b'\t' | b'\n' | b'\r' => self.pos += 1,
+                0x20 | 0x09 | 0x0A | 0x0D => self.pos += 1,
                 _ => break,
             }
         }
     }
 
-    fn peek(&self) -> Option<u8> {
+    /// Peek the current code unit as a `u16`.
+    fn peek_u16(&self) -> Option<u16> {
         self.input.get(self.pos).copied()
     }
 
-    fn advance(&mut self) -> Option<u8> {
-        let b = self.input.get(self.pos).copied()?;
+    /// Advance and return the current code unit.
+    fn advance_u16(&mut self) -> Option<u16> {
+        let c = self.input.get(self.pos).copied()?;
         self.pos += 1;
-        Some(b)
+        Some(c)
+    }
+
+    /// Peek as ASCII byte (returns `None` for non-ASCII code units).
+    fn peek(&self) -> Option<u8> {
+        let c = self.peek_u16()?;
+        if c <= 0x7F {
+            Some(c as u8)
+        } else {
+            None
+        }
+    }
+
+    /// Advance and return as ASCII byte (`None` for non-ASCII).
+    fn advance(&mut self) -> Option<u8> {
+        let c = self.peek_u16()?;
+        self.pos += 1;
+        if c <= 0x7F {
+            Some(c as u8)
+        } else {
+            None
+        }
     }
 
     fn expect(&mut self, expected: u8) -> Result<(), VmError> {
@@ -532,91 +548,82 @@ impl<'a> JsonParser<'a> {
                 Ok(JsValue::Null)
             }
             Some(b'-' | b'0'..=b'9') => self.parse_number(),
-            Some(_) => Err(self.err("unexpected character")),
-            None => Err(self.err("unexpected end of input")),
+            Some(_) | None => {
+                // Non-ASCII code unit or end of input.
+                if self.pos < self.input.len() {
+                    Err(self.err("unexpected character"))
+                } else {
+                    Err(self.err("unexpected end of input"))
+                }
+            }
         }
     }
 
-    /// Parse a JSON string, returning the raw Rust `String` (with escapes resolved).
-    fn parse_string_raw(&mut self) -> Result<String, VmError> {
+    /// Parse a JSON string into WTF-16 code units, preserving lone surrogates.
+    fn parse_string_u16(&mut self) -> Result<Vec<u16>, VmError> {
         self.expect(b'"')?;
-        let mut s = String::new();
+        let mut s: Vec<u16> = Vec::new();
         loop {
-            match self.advance() {
+            match self.advance_u16() {
                 None => return Err(self.err("unterminated string")),
-                Some(b'"') => return Ok(s),
-                Some(b'\\') => {
+                Some(0x22) => return Ok(s), // '"'
+                Some(0x5C) => {
+                    // '\\'
                     match self.advance() {
-                        Some(b'"') => s.push('"'),
-                        Some(b'\\') => s.push('\\'),
-                        Some(b'/') => s.push('/'),
-                        Some(b'b') => s.push('\u{08}'),
-                        Some(b'f') => s.push('\u{0C}'),
-                        Some(b'n') => s.push('\n'),
-                        Some(b'r') => s.push('\r'),
-                        Some(b't') => s.push('\t'),
+                        Some(b'"') => s.push(0x22),
+                        Some(b'\\') => s.push(0x5C),
+                        Some(b'/') => s.push(0x2F),
+                        Some(b'b') => s.push(0x08),
+                        Some(b'f') => s.push(0x0C),
+                        Some(b'n') => s.push(0x0A),
+                        Some(b'r') => s.push(0x0D),
+                        Some(b't') => s.push(0x09),
                         Some(b'u') => {
                             let cp = self.parse_hex4()?;
-                            // Handle surrogate pairs.
+                            // Preserve raw UTF-16 code units (including lone surrogates).
                             if (0xD800..=0xDBFF).contains(&cp) {
-                                // High surrogate — expect \uXXXX for low surrogate.
+                                // High surrogate — check for trailing low surrogate.
                                 if self.peek() == Some(b'\\')
-                                    && self.input.get(self.pos + 1) == Some(&b'u')
+                                    && self.input.get(self.pos + 1) == Some(&u16::from(b'u'))
                                 {
+                                    let saved = self.pos;
                                     self.pos += 2; // skip \u
                                     let lo = self.parse_hex4()?;
                                     if (0xDC00..=0xDFFF).contains(&lo) {
-                                        let full = 0x10000
-                                            + ((u32::from(cp) - 0xD800) << 10)
-                                            + (u32::from(lo) - 0xDC00);
-                                        if let Some(ch) = char::from_u32(full) {
-                                            s.push(ch);
-                                        }
+                                        s.push(cp);
+                                        s.push(lo);
                                     } else {
-                                        // Invalid pair — emit both as replacement chars.
-                                        s.push(char::REPLACEMENT_CHARACTER);
-                                        if let Some(ch) = char::from_u32(u32::from(lo)) {
-                                            s.push(ch);
-                                        }
+                                        // Not a valid pair — rewind, keep high surrogate.
+                                        self.pos = saved;
+                                        s.push(cp);
                                     }
                                 } else {
-                                    // Lone high surrogate.
-                                    s.push(char::REPLACEMENT_CHARACTER);
+                                    s.push(cp);
                                 }
-                            } else if (0xDC00..=0xDFFF).contains(&cp) {
-                                // Lone low surrogate.
-                                s.push(char::REPLACEMENT_CHARACTER);
-                            } else if let Some(ch) = char::from_u32(u32::from(cp)) {
-                                s.push(ch);
+                            } else {
+                                // BMP scalar or lone low surrogate — preserve as-is.
+                                s.push(cp);
                             }
                         }
                         _ => return Err(self.err("invalid escape sequence")),
                     }
                 }
-                Some(b) if b < 0x20 => {
+                Some(c) if c < 0x20 => {
                     return Err(self.err("control character in string"));
                 }
-                Some(b) => {
-                    if b < 0x80 {
-                        s.push(char::from(b));
-                    } else {
-                        // Multi-byte UTF-8. Input is guaranteed valid UTF-8
-                        // (&str), so decode the leading byte to determine length.
-                        self.pos -= 1;
-                        let len = utf8_char_len(b);
-                        let end = (self.pos + len).min(self.input.len());
-                        let slice = &self.input[self.pos..end];
-                        // SAFETY: input originates from &str, so valid UTF-8.
-                        if let Ok(ch_str) = std::str::from_utf8(slice) {
-                            if let Some(ch) = ch_str.chars().next() {
-                                s.push(ch);
-                            }
-                        }
-                        self.pos = end;
-                    }
+                Some(c) => {
+                    // Regular character (including non-ASCII / surrogates from input).
+                    s.push(c);
                 }
             }
         }
+    }
+
+    /// Parse a JSON string key as a Rust `String` (for object property keys
+    /// that are always valid Unicode in JSON text).
+    fn parse_string_raw(&mut self) -> Result<String, VmError> {
+        let units = self.parse_string_u16()?;
+        Ok(String::from_utf16_lossy(&units))
     }
 
     fn parse_hex4(&mut self) -> Result<u16, VmError> {
@@ -637,8 +644,8 @@ impl<'a> JsonParser<'a> {
     }
 
     fn parse_string(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
-        let s = self.parse_string_raw()?;
-        let id = ctx.intern(&s);
+        let units = self.parse_string_u16()?;
+        let id = ctx.intern_utf16(&units);
         Ok(JsValue::String(id))
     }
 
@@ -654,7 +661,6 @@ impl<'a> JsonParser<'a> {
         match self.peek() {
             Some(b'0') => {
                 self.pos += 1;
-                // No leading zeros allowed (except "0" or "0.xxx").
             }
             Some(b'1'..=b'9') => {
                 self.pos += 1;
@@ -690,8 +696,11 @@ impl<'a> JsonParser<'a> {
             }
         }
 
-        let num_str = std::str::from_utf8(&self.input[start..self.pos])
-            .map_err(|_| self.err("invalid number"))?;
+        // Number tokens are pure ASCII — collect into a small buffer.
+        let num_str: String = self.input[start..self.pos]
+            .iter()
+            .map(|&c| char::from(c as u8))
+            .collect();
         let n: f64 = num_str.parse().map_err(|_| self.err("invalid number"))?;
         Ok(JsValue::Number(n))
     }
@@ -829,8 +838,9 @@ fn internalize(
                             JsValue::Object(obj_id),
                             &[JsValue::String(key_str), new_val],
                         )?;
-                        // If reviver returns undefined, set element to undefined.
-                        // (Arrays use index assignment, not delete.)
+                        // Spec says [[Delete]] for undefined, but our dense Vec<JsValue>
+                        // arrays don't support holes. Assign undefined instead.
+                        // This is observable via `in` but matches practical behavior.
                         if let ObjectKind::Array { elements } = &mut ctx.get_object_mut(obj_id).kind
                         {
                             if i < elements.len() {
@@ -889,7 +899,7 @@ pub(super) fn native_json_parse(
 ) -> Result<JsValue, VmError> {
     let text_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let text_sid = ctx.to_string_val(text_val)?;
-    let text = ctx.get_utf8(text_sid);
+    let text: Vec<u16> = ctx.get_u16(text_sid).to_vec();
 
     let mut parser = JsonParser::new(&text);
     let result = parser.parse_value(ctx)?;
@@ -907,11 +917,11 @@ pub(super) fn native_json_parse(
     let reviver_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     if let JsValue::Object(rev_id) = reviver_arg {
         if ctx.get_object(rev_id).kind.is_callable() {
-            // Build wrapper { "": result }.
+            // Build wrapper { "": result } (§24.5.1 step 7)
             let wrapper_id = ctx.alloc_object(Object {
                 kind: ObjectKind::Ordinary,
                 storage: PropertyStorage::shaped(ROOT_SHAPE),
-                prototype: None,
+                prototype: ctx.vm.object_prototype,
             });
             let empty_key = ctx.vm.well_known.empty;
             ctx.vm.define_shaped_property(
