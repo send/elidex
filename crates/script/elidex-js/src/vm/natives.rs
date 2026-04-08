@@ -276,18 +276,9 @@ pub(super) fn native_object_keys(
             prototype: ctx.vm.array_prototype,
         })));
     };
-    let keys: Vec<JsValue> = ctx
-        .get_object(obj_id)
-        .storage
-        .iter_keys(&ctx.vm.shapes)
-        .filter(|(_, attrs)| attrs.enumerable)
-        .filter_map(|(k, _)| {
-            if let PropertyKey::String(sid) = k {
-                Some(JsValue::String(sid))
-            } else {
-                None
-            }
-        })
+    let keys: Vec<JsValue> = super::coerce::collect_own_keys_es_order(ctx.vm, obj_id)
+        .into_iter()
+        .map(JsValue::String)
         .collect();
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: keys },
@@ -311,17 +302,11 @@ pub(super) fn native_object_values(
             prototype: ctx.vm.array_prototype,
         })));
     };
-    // §7.3.21 EnumerableOwnPropertyNames: snapshot keys, then Get per key.
-    let keys: Vec<PropertyKey> = ctx
-        .get_object(obj_id)
-        .storage
-        .iter_keys(&ctx.vm.shapes)
-        .filter(|(k, attrs)| attrs.enumerable && matches!(k, PropertyKey::String(_)))
-        .map(|(k, _)| k)
-        .collect();
+    // §7.3.21 EnumerableOwnPropertyNames in ES key order, then Get per key.
+    let keys = super::coerce::collect_own_keys_es_order(ctx.vm, obj_id);
     let mut values = Vec::with_capacity(keys.len());
-    for key in keys {
-        values.push(ctx.get_property_value(obj_id, key)?);
+    for sid in &keys {
+        values.push(ctx.get_property_value(obj_id, PropertyKey::String(*sid))?);
     }
     Ok(JsValue::Object(ctx.alloc_object(Object {
         kind: ObjectKind::Array { elements: values },

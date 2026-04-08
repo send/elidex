@@ -2,6 +2,7 @@
 
 use std::fmt::Write;
 
+use super::coerce::{collect_own_keys_es_order, write_number_es};
 use super::shape::{PropertyAttrs, ROOT_SHAPE};
 use super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
@@ -87,7 +88,7 @@ impl JsonSerializer {
             }
             JsValue::Number(n) => {
                 if n.is_finite() {
-                    write_number(n, &mut self.output);
+                    write_number_es(n, &mut self.output);
                 } else {
                     // NaN, Infinity, -Infinity → "null"
                     self.output.push_str("null");
@@ -216,7 +217,7 @@ impl JsonSerializer {
             // §24.5.2.3 step 5: EnumerableOwnPropertyNames / OrdinaryOwnPropertyKeys.
             // Array-index keys come first in ascending numeric order, then
             // other string keys in insertion order.
-            collect_own_keys_es_order(ctx, obj_id)
+            collect_own_keys_es_order(ctx.vm, obj_id)
         };
 
         self.output.push('{');
@@ -275,59 +276,6 @@ impl JsonSerializer {
     }
 }
 
-/// Collect own enumerable string keys in ES spec order (§9.1.11.1):
-/// array-index keys in ascending numeric order, then other string keys
-/// in insertion order.
-fn collect_own_keys_es_order(ctx: &NativeContext<'_>, obj_id: ObjectId) -> Vec<StringId> {
-    let mut index_keys: Vec<(u32, StringId)> = Vec::new();
-    let mut other_keys: Vec<StringId> = Vec::new();
-
-    for (k, attrs) in ctx.get_object(obj_id).storage.iter_keys(&ctx.vm.shapes) {
-        if !attrs.enumerable {
-            continue;
-        }
-        let sid = match k {
-            PropertyKey::String(s) => s,
-            PropertyKey::Symbol(_) => continue,
-        };
-        match parse_array_index(ctx.get_u16(sid)) {
-            Some(idx) => index_keys.push((idx, sid)),
-            None => other_keys.push(sid),
-        }
-    }
-
-    index_keys.sort_by_key(|(idx, _)| *idx);
-
-    let mut keys = Vec::with_capacity(index_keys.len() + other_keys.len());
-    keys.extend(index_keys.into_iter().map(|(_, sid)| sid));
-    keys.extend(other_keys);
-    keys
-}
-
-/// Parse a string as an ES array index (0..2^32-2). Returns `None` for
-/// non-index strings, leading-zero forms like "01", and out-of-range values.
-fn parse_array_index(units: &[u16]) -> Option<u32> {
-    if units.is_empty() || units.len() > 10 {
-        return None;
-    }
-    // Reject leading zeros ("00", "01", etc.) but allow "0".
-    if units.len() > 1 && units[0] == u16::from(b'0') {
-        return None;
-    }
-    let mut val: u64 = 0;
-    for &u in units {
-        let d = u.wrapping_sub(u16::from(b'0'));
-        if d > 9 {
-            return None;
-        }
-        val = val * 10 + u64::from(d);
-        if val > u64::from(u32::MAX) - 1 {
-            return None;
-        }
-    }
-    Some(val as u32)
-}
-
 /// JSON string escaping: surround with `"` and escape special characters.
 /// Operates on WTF-16 code units to correctly handle lone surrogates.
 fn quote(units: &[u16], output: &mut String) {
@@ -379,132 +327,6 @@ fn quote(units: &[u16], output: &mut String) {
         i += 1;
     }
     output.push('"');
-}
-
-/// Write a finite f64 to the output buffer in ES Number::toString format
-/// (§7.1.12.1).
-///
-/// Extracts the shortest significant digits and decimal exponent from Rust's
-/// Display, then formats according to ES rules:
-/// - k ≤ n ≤ 21: integer form (digits + trailing zeros)
-/// - 0 < n < k: decimal form (digits with decimal point)
-/// - n ≤ 0: "0." + leading zeros + digits
-/// - otherwise: exponent form
-#[allow(
-    clippy::cast_possible_wrap,
-    clippy::cast_sign_loss,
-    clippy::cast_possible_truncation
-)]
-fn write_number(n: f64, output: &mut String) {
-    debug_assert!(n.is_finite());
-    // -0.0 == 0.0 in IEEE 754; ES §7.1.12.1 step 2 says "0".
-    if n == 0.0 {
-        output.push('0');
-        return;
-    }
-    if n < 0.0 {
-        output.push('-');
-        write_number(-n, output);
-        return;
-    }
-
-    // Get shortest significant digits and exponent from Rust Display.
-    let (sig, exp) = extract_sig_exp(n);
-    let k = sig.len() as i32; // number of significant digits
-
-    // ES §7.1.12.1 steps 6-11:
-    if k <= exp && exp <= 21 {
-        // Step 6: integer form — digits + trailing zeros.
-        output.push_str(&sig);
-        for _ in 0..(exp - k) {
-            output.push('0');
-        }
-    } else if 0 < exp && exp < k {
-        // Step 8 (adjusted): decimal within digits.
-        let e = exp as usize;
-        output.push_str(&sig[..e]);
-        output.push('.');
-        output.push_str(&sig[e..]);
-    } else if exp <= 0 {
-        // Step 9/10: "0." + leading zeros + digits, or exponent if too many zeros.
-        let leading_zeros = (-exp) as usize;
-        if leading_zeros < 6 {
-            // Step 9/10: 0.000...digits (total zeros < 6).
-            output.push_str("0.");
-            for _ in 0..leading_zeros {
-                output.push('0');
-            }
-            output.push_str(&sig);
-        } else {
-            // Step 11: exponent form.
-            write_es_exponent(&sig, exp, output);
-        }
-    } else {
-        // Step 7/11: exp > 21 — exponent form.
-        write_es_exponent(&sig, exp, output);
-    }
-}
-
-/// Format significant digits + exponent in ES exponent notation.
-fn write_es_exponent(sig: &str, exp: i32, output: &mut String) {
-    if sig.len() == 1 {
-        output.push_str(sig);
-    } else {
-        output.push(sig.as_bytes()[0] as char);
-        output.push('.');
-        output.push_str(&sig[1..]);
-    }
-    let e = exp - 1;
-    if e >= 0 {
-        let _ = write!(output, "e+{e}");
-    } else {
-        let _ = write!(output, "e{e}");
-    }
-}
-
-/// Extract the significant digits (no trailing zeros, no decimal point)
-/// and the decimal exponent n such that the number equals
-/// `0.<sig> × 10^n`.  In other words, `sig` represents an integer s
-/// and the value is `s × 10^(n - k)` where k = sig.len().
-#[allow(clippy::cast_possible_wrap)]
-fn extract_sig_exp(n: f64) -> (String, i32) {
-    let s = format!("{n}");
-    if let Some(e_pos) = s.find('e') {
-        // Rust chose exponent form: "1.23e45" or "1.23e-45"
-        let mantissa = &s[..e_pos];
-        let exp_str = &s[e_pos + 1..];
-        let rust_exp: i32 = exp_str.parse().unwrap_or(0);
-        let sig: String = mantissa.replace('.', "");
-        let sig = sig.trim_end_matches('0');
-        let dot_offset = mantissa.find('.').map_or(mantissa.len(), |p| p);
-        // exp = rust_exp + dot_offset (digits before '.')
-        let exp = rust_exp + dot_offset as i32;
-        (sig.to_string(), exp)
-    } else if let Some(dot_pos) = s.find('.') {
-        // Rust chose decimal form: "123.456" or "0.001"
-        let sig: String = s.replace('.', "");
-        let sig = sig.trim_start_matches('0');
-        let sig_trimmed = sig.trim_end_matches('0');
-        // exp = number of digits before decimal point (excluding leading zeros
-        // that are part of "0.00X" forms).
-        let before_dot = &s[..dot_pos];
-        if before_dot == "0" {
-            // "0.00123" → sig="123", exp = -(number of leading frac zeros)
-            let frac = &s[dot_pos + 1..];
-            let leading_zeros = frac.bytes().take_while(|&b| b == b'0').count();
-            let exp = -(leading_zeros as i32);
-            (sig_trimmed.to_string(), exp)
-        } else {
-            // "123.456" → sig="123456", exp = 3
-            let exp = before_dot.len() as i32;
-            (sig_trimmed.to_string(), exp)
-        }
-    } else {
-        // Pure integer: "12345"
-        let sig = s.trim_end_matches('0');
-        let exp = s.len() as i32;
-        (sig.to_string(), exp)
-    }
 }
 
 /// Entry point for `JSON.stringify(value, replacer?, space?)`.
@@ -1019,7 +841,7 @@ fn internalize(
                 }
                 ObjectKind::Ordinary | ObjectKind::Arguments { .. } => {
                     // Snapshot keys in ES spec order (§24.5.1.1 step 5).
-                    let keys = collect_own_keys_es_order(ctx, obj_id);
+                    let keys = collect_own_keys_es_order(ctx.vm, obj_id);
 
                     for key_sid in keys {
                         let child = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;
