@@ -391,11 +391,17 @@ fn quote(units: &[u16], output: &mut String) {
 /// Write a finite f64 to the output buffer in ES Number::toString format
 /// (§7.1.12.1).
 ///
-/// ES rules:
-/// - Integers with ≤ 20 digits: decimal without exponent
-/// - Integers with ≥ 21 digits: exponent form with `e+`
-/// - Decimals with fraction: shortest representation, exponent form when
-///   the decimal point position falls outside the significant digits
+/// Extracts the shortest significant digits and decimal exponent from Rust's
+/// Display, then formats according to ES rules:
+/// - k ≤ n ≤ 21: integer form (digits + trailing zeros)
+/// - 0 < n < k: decimal form (digits with decimal point)
+/// - n ≤ 0: "0." + leading zeros + digits
+/// - otherwise: exponent form
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
 fn write_number(n: f64, output: &mut String) {
     debug_assert!(n.is_finite());
     // -0.0 == 0.0 in IEEE 754; ES §7.1.12.1 step 2 says "0".
@@ -408,47 +414,103 @@ fn write_number(n: f64, output: &mut String) {
         write_number(-n, output);
         return;
     }
-    // Use Rust Display for the shortest decimal representation, then
-    // re-format according to ES rules.
-    let s = format!("{n}");
-    // If Rust already chose exponent form, fix the sign format.
-    if let Some(e_pos) = s.find('e') {
-        let (mantissa, exp_part) = s.split_at(e_pos);
-        output.push_str(mantissa);
-        output.push('e');
-        let exp_rest = &exp_part[1..];
-        if !exp_rest.starts_with('-') {
-            output.push('+');
+
+    // Get shortest significant digits and exponent from Rust Display.
+    let (sig, exp) = extract_sig_exp(n);
+    let k = sig.len() as i32; // number of significant digits
+
+    // ES §7.1.12.1 steps 6-11:
+    if k <= exp && exp <= 21 {
+        // Step 6: integer form — digits + trailing zeros.
+        output.push_str(&sig);
+        for _ in 0..(exp - k) {
+            output.push('0');
         }
-        output.push_str(exp_rest);
-        return;
-    }
-    // Rust chose decimal form. Check if ES would use exponent form.
-    if s.contains('.') {
-        // Has decimal point — Rust already used shortest form. ES uses the
-        // same representation for these cases.
-        output.push_str(&s);
-    } else {
-        // Pure integer string from Rust. ES uses exponent form for ≥ 21 digits.
-        let digits = s.len();
-        // ES §7.1.12.1 step 6: integer form when n ≤ 21.
-        // `digits` equals n (number of digits = floor(log10(x)) + 1).
-        if digits <= 21 {
-            output.push_str(&s);
-        } else {
-            // e.g. "1000000000000000000000" → "1e+21"
-            // Trim trailing zeros to find significant digits.
-            let trimmed = s.trim_end_matches('0');
-            let sig_len = trimmed.len();
-            if sig_len == 1 {
-                output.push_str(trimmed);
-            } else {
-                output.push(trimmed.as_bytes()[0] as char);
-                output.push('.');
-                output.push_str(&trimmed[1..]);
+    } else if 0 < exp && exp < k {
+        // Step 8 (adjusted): decimal within digits.
+        let e = exp as usize;
+        output.push_str(&sig[..e]);
+        output.push('.');
+        output.push_str(&sig[e..]);
+    } else if exp <= 0 {
+        // Step 9/10: "0." + leading zeros + digits, or exponent if too many zeros.
+        let leading_zeros = (-exp) as usize;
+        if leading_zeros < 6 {
+            // Step 9/10: 0.000...digits (total zeros < 6).
+            output.push_str("0.");
+            for _ in 0..leading_zeros {
+                output.push('0');
             }
-            let _ = write!(output, "e+{}", digits - 1);
+            output.push_str(&sig);
+        } else {
+            // Step 11: exponent form.
+            write_es_exponent(&sig, exp, output);
         }
+    } else {
+        // Step 7/11: exp > 21 — exponent form.
+        write_es_exponent(&sig, exp, output);
+    }
+}
+
+/// Format significant digits + exponent in ES exponent notation.
+fn write_es_exponent(sig: &str, exp: i32, output: &mut String) {
+    if sig.len() == 1 {
+        output.push_str(sig);
+    } else {
+        output.push(sig.as_bytes()[0] as char);
+        output.push('.');
+        output.push_str(&sig[1..]);
+    }
+    let e = exp - 1;
+    if e >= 0 {
+        let _ = write!(output, "e+{e}");
+    } else {
+        let _ = write!(output, "e{e}");
+    }
+}
+
+/// Extract the significant digits (no trailing zeros, no decimal point)
+/// and the decimal exponent n such that the number equals
+/// `0.<sig> × 10^n`.  In other words, `sig` represents an integer s
+/// and the value is `s × 10^(n - k)` where k = sig.len().
+#[allow(clippy::cast_possible_wrap)]
+fn extract_sig_exp(n: f64) -> (String, i32) {
+    let s = format!("{n}");
+    if let Some(e_pos) = s.find('e') {
+        // Rust chose exponent form: "1.23e45" or "1.23e-45"
+        let mantissa = &s[..e_pos];
+        let exp_str = &s[e_pos + 1..];
+        let rust_exp: i32 = exp_str.parse().unwrap_or(0);
+        let sig: String = mantissa.replace('.', "");
+        let sig = sig.trim_end_matches('0');
+        let dot_offset = mantissa.find('.').map_or(mantissa.len(), |p| p);
+        // exp = rust_exp + dot_offset (digits before '.')
+        let exp = rust_exp + dot_offset as i32;
+        (sig.to_string(), exp)
+    } else if let Some(dot_pos) = s.find('.') {
+        // Rust chose decimal form: "123.456" or "0.001"
+        let sig: String = s.replace('.', "");
+        let sig = sig.trim_start_matches('0');
+        let sig_trimmed = sig.trim_end_matches('0');
+        // exp = number of digits before decimal point (excluding leading zeros
+        // that are part of "0.00X" forms).
+        let before_dot = &s[..dot_pos];
+        if before_dot == "0" {
+            // "0.00123" → sig="123", exp = -(number of leading frac zeros)
+            let frac = &s[dot_pos + 1..];
+            let leading_zeros = frac.bytes().take_while(|&b| b == b'0').count();
+            let exp = -(leading_zeros as i32);
+            (sig_trimmed.to_string(), exp)
+        } else {
+            // "123.456" → sig="123456", exp = 3
+            let exp = before_dot.len() as i32;
+            (sig_trimmed.to_string(), exp)
+        }
+    } else {
+        // Pure integer: "12345"
+        let sig = s.trim_end_matches('0');
+        let exp = s.len() as i32;
+        (sig.to_string(), exp)
     }
 }
 
@@ -960,16 +1022,8 @@ fn internalize(
                     }
                 }
                 ObjectKind::Ordinary | ObjectKind::Arguments { .. } => {
-                    // Snapshot keys.
-                    let keys: Vec<StringId> = ctx
-                        .get_object(obj_id)
-                        .storage
-                        .iter_keys(&ctx.vm.shapes)
-                        .filter_map(|(k, _)| match k {
-                            PropertyKey::String(s) => Some(s),
-                            PropertyKey::Symbol(_) => None,
-                        })
-                        .collect();
+                    // Snapshot keys in ES spec order (§24.5.1.1 step 5).
+                    let keys = collect_own_keys_es_order(ctx, obj_id);
 
                     for key_sid in keys {
                         let child = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;

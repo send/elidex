@@ -34,6 +34,11 @@ fn stringify_number_exponent() {
     // 1e21 = 10^21 (22 digits, n=22 > 21): exponent form with '+'.
     assert_eq!(eval_string("JSON.stringify(1e21)"), "1e+21");
     assert_eq!(eval_string("JSON.stringify(1e100)"), "1e+100");
+    // Small numbers use negative exponent form.
+    assert_eq!(eval_string("JSON.stringify(1e-7)"), "1e-7");
+    assert_eq!(eval_string("JSON.stringify(1.5e-10)"), "1.5e-10");
+    // Numbers above 1e-6 stay in decimal form.
+    assert_eq!(eval_string("JSON.stringify(0.000001)"), "0.000001");
 }
 
 #[test]
