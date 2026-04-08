@@ -33,6 +33,7 @@ impl VmInner {
                 // Fell off the end → implicit ReturnUndefined.
                 if frame_idx == entry_frame_depth {
                     let completion = self.completion_value;
+                    self.pop_frame();
                     self.completion_value = JsValue::Undefined;
                     return Ok(completion);
                 }
