@@ -801,7 +801,8 @@ impl VmInner {
                     while self.frames.len() > entry_frame_depth + 1 {
                         let frame = self.frames.pop().unwrap();
                         self.close_upvalues(&frame.local_upvalue_ids);
-                        self.stack.truncate(frame.base);
+                        self.completion_value = frame.saved_completion;
+                        self.stack.truncate(frame.cleanup_base);
                     }
                     return Err(VmError {
                         kind: VmErrorKind::ThrowValue(val),
