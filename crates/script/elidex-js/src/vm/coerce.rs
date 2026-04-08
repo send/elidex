@@ -480,8 +480,9 @@ fn bigint_binary(
     bi: BigIntId,
     op: NumericBinaryOp,
 ) -> Result<JsValue, VmError> {
-    let a = vm.bigints.get(ai).clone();
-    let b = vm.bigints.get(bi).clone();
+    // Use references to avoid cloning — num_bigint supports &BigInt op &BigInt.
+    let a = vm.bigints.get(ai);
+    let b = vm.bigints.get(bi);
     let result = match op {
         NumericBinaryOp::Sub => a - b,
         NumericBinaryOp::Mul => a * b,
@@ -630,7 +631,7 @@ pub(crate) fn op_bitwise(
             }
             BitwiseOp::UShr => {
                 return Err(VmError::type_error(
-                    "Cannot mix BigInt and other types, use explicit conversions",
+                    "BigInt does not support unsigned right shift",
                 ));
             }
         };

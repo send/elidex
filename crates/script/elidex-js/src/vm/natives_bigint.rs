@@ -21,7 +21,15 @@ pub(super) fn native_bigint_constructor(
                     "The number is not safe to convert to a BigInt",
                 ));
             }
-            BigIntValue::from(n as i64)
+            // Use i64 for safe integers, string roundtrip for larger values.
+            #[allow(clippy::cast_possible_truncation)]
+            if n.abs() < 9_007_199_254_740_992.0 {
+                BigIntValue::from(n as i64)
+            } else {
+                format!("{n:.0}")
+                    .parse::<BigIntValue>()
+                    .map_err(|_| VmError::range_error("Cannot convert to BigInt"))?
+            }
         }
         JsValue::String(id) => {
             let s = ctx.vm.strings.get_utf8(id);
@@ -78,16 +86,17 @@ pub(super) fn native_bigint_value_of(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // Validate this is a BigInt (reuses this_bigint_value for type checking).
     match this {
         JsValue::BigInt(_) => Ok(this),
         JsValue::Object(id) => match &ctx.get_object(id).kind {
             super::value::ObjectKind::BigIntWrapper(bi_id) => Ok(JsValue::BigInt(*bi_id)),
             _ => Err(VmError::type_error(
-                "BigInt.prototype.valueOf called on non-bigint",
+                "BigInt.prototype.valueOf requires a BigInt",
             )),
         },
         _ => Err(VmError::type_error(
-            "BigInt.prototype.valueOf called on non-bigint",
+            "BigInt.prototype.valueOf requires a BigInt",
         )),
     }
 }
@@ -112,9 +121,12 @@ pub(super) fn native_bigint_as_int_n(
         _ => return Err(VmError::type_error("expected BigInt")),
     };
     let bi = ctx.vm.bigints.get(bi_id);
+    if bits == 0 {
+        let id = ctx.vm.bigints.alloc(BigIntValue::from(0));
+        return Ok(JsValue::BigInt(id));
+    }
     let modulus = BigIntValue::from(1) << bits;
     let result = bi % &modulus;
-    // Sign-extend: if result >= 2^(bits-1), subtract modulus
     let half = BigIntValue::from(1) << (bits - 1);
     let result = if result >= half {
         result - modulus

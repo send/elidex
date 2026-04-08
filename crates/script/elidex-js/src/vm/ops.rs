@@ -163,7 +163,7 @@ impl VmInner {
         }
         // BigInt + BigInt → BigInt addition.
         if let (JsValue::BigInt(ai), JsValue::BigInt(bi)) = (lhs, rhs) {
-            let result = self.bigints.get(ai).clone() + self.bigints.get(bi).clone();
+            let result = self.bigints.get(ai) + self.bigints.get(bi);
             let id = self.bigints.alloc(result);
             return Ok(JsValue::BigInt(id));
         }
