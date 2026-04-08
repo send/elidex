@@ -267,16 +267,15 @@ impl VmInner {
             }
             let frame = self.frames.pop().unwrap();
             self.close_upvalues(&frame.local_upvalue_ids);
-            self.stack.truncate(frame.base);
+            self.completion_value = frame.saved_completion;
+            self.stack.truncate(frame.cleanup_base);
         }
     }
 
     pub(crate) fn pop_frame(&mut self) {
         if let Some(frame) = self.frames.pop() {
-            // Close open upvalues that capture this frame's local slots.
             self.close_upvalues(&frame.local_upvalue_ids);
-            // Truncate stack to frame base.
-            self.stack.truncate(frame.base);
+            self.stack.truncate(frame.cleanup_base);
         }
     }
 
@@ -363,17 +362,6 @@ impl VmInner {
 // ---------------------------------------------------------------------------
 
 impl VmInner {
-    pub(crate) fn do_call(&mut self, argc: usize, default_this: JsValue) -> Result<(), VmError> {
-        let args_start = self.stack.len() - argc;
-        let callee = self.stack[args_start - 1];
-        // PERF: M4-11 — eliminate this allocation by restructuring call_internal
-        let call_args: Vec<JsValue> = self.stack[args_start..].to_vec();
-        self.stack.truncate(args_start - 1);
-        let result = self.call_value(callee, default_this, &call_args)?;
-        self.stack.push(result);
-        Ok(())
-    }
-
     pub(crate) fn call_value(
         &mut self,
         callee: JsValue,
@@ -386,42 +374,69 @@ impl VmInner {
         }
     }
 
+    /// `new` constructor call. For JS constructors, pushes a frame inline
+    /// with `new_instance` set (single dispatcher); the Return opcode handles
+    /// the "if constructor returns non-object, use instance" logic.
+    /// For native constructors, calls synchronously.
     pub(crate) fn do_new(&mut self, argc: usize) -> Result<(), VmError> {
         let args_start = self.stack.len() - argc;
         let constructor = self.stack[args_start - 1];
-        // PERF: M4-11 — eliminate this allocation by restructuring call_internal
-        let ctor_args: Vec<JsValue> = self.stack[args_start..].to_vec();
-        self.stack.truncate(args_start - 1);
 
-        if let JsValue::Object(ctor_id) = constructor {
-            // Non-constructable native functions (e.g. Symbol) must reject `new`.
-            if let ObjectKind::NativeFunction(ref nf) = self.get_object(ctor_id).kind {
-                if !nf.constructable {
+        let JsValue::Object(ctor_id) = constructor else {
+            return Err(VmError::type_error("not a constructor"));
+        };
+
+        let js_callee = self.extract_js_callee(ctor_id);
+
+        // Arrow functions are not constructors (§9.2.1 [[Construct]]).
+        if let Some(ref callee) = js_callee {
+            if callee.this_mode == super::value::ThisMode::Lexical {
+                return Err(VmError::type_error("not a constructor"));
+            }
+        }
+
+        // For non-JS callees, validate native constructability.
+        if js_callee.is_none() {
+            let obj = self.get_object(ctor_id);
+            match &obj.kind {
+                ObjectKind::NativeFunction(ref nf) if !nf.constructable => {
                     let name_str = self.strings.get_utf8(nf.name);
                     return Err(VmError::type_error(format!(
                         "{name_str} is not a constructor"
                     )));
                 }
+                ObjectKind::NativeFunction(_) => {}
+                _ => return Err(VmError::type_error("not a constructor")),
             }
-            // Look up constructor.prototype for the new instance's [[Prototype]].
-            let proto_key = PropertyKey::String(self.well_known.prototype);
-            let proto_id = match get_property(self, ctor_id, proto_key) {
-                Some(PropertyResult::Data(JsValue::Object(id))) => Some(id),
-                _ => None,
-            };
-            // Create new instance with prototype chain.
-            // GC safety: ctor_args are in a Rust-local Vec (off the stack),
-            // so suppress GC during alloc_object to prevent collecting them.
-            let saved_gc = self.gc_enabled;
-            self.gc_enabled = false;
-            let instance = self.alloc_object(super::value::Object {
-                kind: ObjectKind::Ordinary,
-                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                prototype: proto_id,
-            });
-            self.gc_enabled = saved_gc;
+        }
+
+        // Look up constructor.prototype for the new instance's [[Prototype]].
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        let proto_id = match get_property(self, ctor_id, proto_key) {
+            Some(PropertyResult::Data(JsValue::Object(id))) => Some(id),
+            _ => None,
+        };
+
+        // GC safety: suppress GC during alloc_object. The instance is rooted
+        // via CallFrame.new_instance (JS) or this_value (JS) / Rust local (native)
+        // immediately after allocation.
+        let saved_gc = self.gc_enabled;
+        self.gc_enabled = false;
+        let instance = self.alloc_object(super::value::Object {
+            kind: ObjectKind::Ordinary,
+            storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+            prototype: proto_id,
+        });
+        self.gc_enabled = saved_gc;
+
+        if let Some(callee) = js_callee {
+            self.push_js_call_frame(callee, JsValue::Object(instance), argc, 1, Some(instance));
+            Ok(())
+        } else {
+            // Native constructor: call synchronously.
+            let ctor_args: Vec<JsValue> = self.stack[args_start..].to_vec();
+            self.stack.truncate(args_start - 1);
             let result = self.call(ctor_id, JsValue::Object(instance), &ctor_args)?;
-            // If constructor returns an object, use that; otherwise use instance.
             let final_val = if matches!(result, JsValue::Object(_)) {
                 result
             } else {
@@ -429,8 +444,6 @@ impl VmInner {
             };
             self.stack.push(final_val);
             Ok(())
-        } else {
-            Err(VmError::type_error("not a constructor"))
         }
     }
 
@@ -502,7 +515,7 @@ impl VmInner {
         let func_obj = self.alloc_object(super::value::Object {
             kind: ObjectKind::Function(super::value::FunctionObject {
                 func_id,
-                upvalue_ids,
+                upvalue_ids: upvalue_ids.into(),
                 this_mode,
                 name: name_id,
                 captured_this,

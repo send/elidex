@@ -5,8 +5,11 @@
 
 use crate::bytecode::compiled::CompiledScript;
 
+use std::sync::Arc;
+
 use super::value::{
-    CallFrame, FuncId, JsValue, NativeContext, ObjectId, ObjectKind, VmError, VmErrorKind,
+    CallFrame, FuncId, JsCalleeInfo, JsValue, NativeContext, ObjectId, ObjectKind, UpvalueId,
+    VmError, VmErrorKind,
 };
 use super::VmInner;
 
@@ -46,50 +49,10 @@ impl VmInner {
                     super::value::ThisMode::Lexical => {
                         fo.captured_this.unwrap_or(JsValue::Undefined)
                     }
-                    super::value::ThisMode::Global => {
-                        // §9.2.1.2 OrdinaryCallBindThis:
-                        // Step 5: undefined/null → globalThis
-                        // Step 6.b.ii: primitive → ToObject wrapper
-                        match this {
-                            JsValue::Undefined | JsValue::Null => {
-                                JsValue::Object(self.global_object)
-                            }
-                            JsValue::Number(n) => {
-                                let wrapper = self.alloc_object(super::value::Object {
-                                    kind: ObjectKind::NumberWrapper(n),
-                                    storage: super::value::PropertyStorage::shaped(
-                                        super::shape::ROOT_SHAPE,
-                                    ),
-                                    prototype: self.number_prototype,
-                                });
-                                JsValue::Object(wrapper)
-                            }
-                            JsValue::String(s) => {
-                                let wrapper = self.alloc_object(super::value::Object {
-                                    kind: ObjectKind::StringWrapper(s),
-                                    storage: super::value::PropertyStorage::shaped(
-                                        super::shape::ROOT_SHAPE,
-                                    ),
-                                    prototype: self.string_prototype,
-                                });
-                                JsValue::Object(wrapper)
-                            }
-                            JsValue::Boolean(b) => {
-                                let wrapper = self.alloc_object(super::value::Object {
-                                    kind: ObjectKind::BooleanWrapper(b),
-                                    storage: super::value::PropertyStorage::shaped(
-                                        super::shape::ROOT_SHAPE,
-                                    ),
-                                    prototype: self.boolean_prototype,
-                                });
-                                JsValue::Object(wrapper)
-                            }
-                            _ => this,
-                        }
-                    }
+                    super::value::ThisMode::Global => self.bind_this_global(this),
                     super::value::ThisMode::Strict => this,
                 };
-                self.call_internal(func_id, effective_this, args, &upvalue_ids)
+                self.call_internal(func_id, effective_this, args, upvalue_ids)
             }
             ObjectKind::NativeFunction(nf) => {
                 let func = nf.func;
@@ -107,12 +70,15 @@ impl VmInner {
     }
 
     /// Internal: push a frame and run a compiled function.
+    ///
+    /// Used by the public `call()` API and `NativeContext` re-entrant calls.
+    /// The inline dispatch path uses `push_js_call_frame` instead.
     pub(crate) fn call_internal(
         &mut self,
         func_id: FuncId,
         this: JsValue,
         args: &[JsValue],
-        upvalue_ids: &[super::value::UpvalueId],
+        upvalue_ids: Arc<[UpvalueId]>,
     ) -> Result<JsValue, VmError> {
         let compiled = self.get_compiled(func_id);
         let local_count = compiled.local_count as usize;
@@ -133,21 +99,26 @@ impl VmInner {
         // function calls does not leak the parent scope's completion value.
         let saved_completion = self.completion_value;
         self.completion_value = JsValue::Undefined;
+        let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
 
         self.frames.push(CallFrame {
             func_id,
             ip: 0,
             base,
-            upvalue_ids: upvalue_ids.to_vec(),
+            upvalue_ids,
             local_upvalue_ids: Vec::new(),
             this_value: this,
             exception_handlers: Vec::new(),
-            tdz_slots: vec![true; local_count],
+            tdz_bits,
+            tdz_overflow,
             actual_args: if needs_arguments {
                 Some(args.to_vec())
             } else {
                 None
             },
+            cleanup_base: base,
+            new_instance: None,
+            saved_completion,
         });
 
         let result = self.run();
@@ -167,6 +138,101 @@ impl VmInner {
         result
     }
 
+    /// Push a JS function call frame for the single dispatcher.
+    ///
+    /// Args are already on the stack. `cleanup_offset` is the number of
+    /// extra slots below the args (1 for callee, 2 for receiver + callee).
+    /// Does **not** call `run()` — the caller must `continue` the dispatch loop.
+    pub(crate) fn push_js_call_frame(
+        &mut self,
+        callee: JsCalleeInfo,
+        this: JsValue,
+        argc: usize,
+        cleanup_offset: usize,
+        new_instance: Option<ObjectId>,
+    ) {
+        let base = self.stack.len() - argc;
+        let cleanup_base = base - cleanup_offset;
+        let compiled = self.get_compiled(callee.func_id);
+        let local_count = compiled.local_count as usize;
+        let param_count = compiled.param_count as usize;
+        let needs_arguments = compiled.needs_arguments;
+
+        // Capture actual args before mutating the stack (only when needed).
+        let actual_args = if needs_arguments {
+            Some(self.stack[base..base + argc].to_vec())
+        } else {
+            None
+        };
+
+        // Clear extra arg slots beyond param_count (they should be
+        // non-param locals, initialized to Undefined).
+        let clear_end = argc.min(local_count);
+        for i in param_count..clear_end {
+            self.stack[base + i] = JsValue::Undefined;
+        }
+
+        // Adjust stack to exactly local_count slots.
+        if argc > local_count {
+            self.stack.truncate(base + local_count);
+        } else {
+            self.stack.resize(base + local_count, JsValue::Undefined);
+        }
+
+        let saved_completion = self.completion_value;
+        self.completion_value = JsValue::Undefined;
+        let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
+
+        self.frames.push(CallFrame {
+            func_id: callee.func_id,
+            ip: 0,
+            base,
+            upvalue_ids: callee.upvalue_ids,
+            local_upvalue_ids: Vec::new(),
+            this_value: this,
+            exception_handlers: Vec::new(),
+            tdz_bits,
+            tdz_overflow,
+            actual_args,
+            cleanup_base,
+            new_instance,
+            saved_completion,
+        });
+    }
+
+    /// §9.2.1.2 OrdinaryCallBindThis for Global (non-strict) this mode:
+    /// undefined/null → globalThis, primitives → ToObject wrapper.
+    pub(crate) fn bind_this_global(&mut self, this: JsValue) -> JsValue {
+        match this {
+            JsValue::Undefined | JsValue::Null => JsValue::Object(self.global_object),
+            JsValue::Number(n) => {
+                let wrapper = self.alloc_object(super::value::Object {
+                    kind: ObjectKind::NumberWrapper(n),
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                    prototype: self.number_prototype,
+                });
+                JsValue::Object(wrapper)
+            }
+            JsValue::String(s) => {
+                let wrapper = self.alloc_object(super::value::Object {
+                    kind: ObjectKind::StringWrapper(s),
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                    prototype: self.string_prototype,
+                });
+                JsValue::Object(wrapper)
+            }
+            JsValue::Boolean(b) => {
+                let wrapper = self.alloc_object(super::value::Object {
+                    kind: ObjectKind::BooleanWrapper(b),
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                    prototype: self.boolean_prototype,
+                });
+                JsValue::Object(wrapper)
+            }
+            _ => this,
+        }
+    }
+
     /// Run a function as the initial (or only) frame.
     fn run_function(
         &mut self,
@@ -174,7 +240,7 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        self.call_internal(func_id, this, args, &[])
+        self.call_internal(func_id, this, args, Arc::from([]))
     }
 }
 

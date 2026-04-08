@@ -33,10 +33,11 @@ impl VmInner {
                 // Fell off the end → implicit ReturnUndefined.
                 if frame_idx == entry_frame_depth {
                     let completion = self.completion_value;
+                    self.pop_frame();
                     self.completion_value = JsValue::Undefined;
                     return Ok(completion);
                 }
-                self.pop_frame();
+                self.complete_inline_frame(JsValue::Undefined);
                 continue;
             }
 
@@ -95,8 +96,7 @@ impl VmInner {
                 }
                 Op::CheckTdz => {
                     let slot = self.read_u16_op() as usize;
-                    let frame = &self.frames[frame_idx];
-                    if frame.tdz_slots.get(slot).copied().unwrap_or(false) {
+                    if self.frames[frame_idx].is_in_tdz(slot) {
                         let err = VmError::reference_error(
                             "Cannot access variable before initialization",
                         );
@@ -105,10 +105,7 @@ impl VmInner {
                 }
                 Op::InitLocal => {
                     let slot = self.read_u16_op() as usize;
-                    let frame = &mut self.frames[frame_idx];
-                    if let Some(v) = frame.tdz_slots.get_mut(slot) {
-                        *v = false;
-                    }
+                    self.frames[frame_idx].clear_tdz(slot);
                 }
 
                 // ── Upvalue access ──────────────────────────────────
@@ -576,7 +573,7 @@ impl VmInner {
                         self.pop_frame();
                         return Ok(val);
                     }
-                    self.pop_frame();
+                    self.complete_inline_frame(val);
                 }
                 Op::ReturnUndefined => {
                     if frame_idx == entry_frame_depth {
@@ -585,7 +582,7 @@ impl VmInner {
                         self.completion_value = JsValue::Undefined;
                         return Ok(completion);
                     }
-                    self.pop_frame();
+                    self.complete_inline_frame(JsValue::Undefined);
                 }
 
                 // ── Property access (Step 4 stubs) ──────────────────
@@ -804,7 +801,8 @@ impl VmInner {
                     while self.frames.len() > entry_frame_depth + 1 {
                         let frame = self.frames.pop().unwrap();
                         self.close_upvalues(&frame.local_upvalue_ids);
-                        self.stack.truncate(frame.base);
+                        self.completion_value = frame.saved_completion;
+                        self.stack.truncate(frame.cleanup_base);
                     }
                     return Err(VmError {
                         kind: VmErrorKind::ThrowValue(val),
@@ -990,6 +988,28 @@ impl VmInner {
                 }
             }
         }
+    }
+
+    /// Pop a non-entry call frame pushed by the single dispatcher, restore
+    /// parent state, and push the return value onto the caller's stack.
+    ///
+    /// Handles constructor semantics: if `new_instance` is set and `return_value`
+    /// is not an object, the instance is returned instead.
+    fn complete_inline_frame(&mut self, return_value: JsValue) {
+        let frame = self.frames.pop().unwrap();
+        self.close_upvalues(&frame.local_upvalue_ids);
+        self.completion_value = frame.saved_completion;
+        let final_val = if let Some(instance_id) = frame.new_instance {
+            if matches!(return_value, JsValue::Object(_)) {
+                return_value
+            } else {
+                JsValue::Object(instance_id)
+            }
+        } else {
+            return_value
+        };
+        self.stack.truncate(frame.cleanup_base);
+        self.stack.push(final_val);
     }
 
     // Helper methods live in dispatch_helpers.rs.

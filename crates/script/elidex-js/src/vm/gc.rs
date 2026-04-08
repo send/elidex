@@ -130,7 +130,7 @@ fn mark_roots(
     // (b) Call frame roots
     for frame in roots.frames {
         mark_value(frame.this_value, obj_marks, work);
-        for &uv_id in &frame.upvalue_ids {
+        for &uv_id in frame.upvalue_ids.iter() {
             mark_upvalue(uv_id, roots.upvalues, uv_marks, obj_marks, work);
         }
         for &uv_id in &frame.local_upvalue_ids {
@@ -141,6 +141,10 @@ fn mark_roots(
                 mark_value(val, obj_marks, work);
             }
         }
+        if let Some(id) = frame.new_instance {
+            mark_object(id, obj_marks, work);
+        }
+        mark_value(frame.saved_completion, obj_marks, work);
     }
 
     // (c) Global variables
@@ -191,7 +195,7 @@ fn trace_work_list(
                 }
             }
             ObjectKind::Function(fo) => {
-                for &uv_id in &fo.upvalue_ids {
+                for &uv_id in fo.upvalue_ids.iter() {
                     mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
                 }
                 if let Some(ct) = fo.captured_this {
@@ -511,7 +515,7 @@ mod tests {
         let func = vm.inner.alloc_object(Object {
             kind: ObjectKind::Function(FunctionObject {
                 func_id: super::super::value::FuncId(0),
-                upvalue_ids: vec![uv_id],
+                upvalue_ids: vec![uv_id].into(),
                 this_mode: super::super::value::ThisMode::Strict,
                 name: None,
                 captured_this: None,
@@ -628,6 +632,8 @@ mod tests {
             callee,
             func_id: super::super::value::FuncId(0),
             this_mode: super::super::value::ThisMode::Strict,
+            upvalue_ids: std::sync::Arc::from([]),
+            captured_this: None,
         }));
         vm.inner.collect_garbage();
         // The callee was collected → IC should be invalidated.

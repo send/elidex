@@ -3,7 +3,7 @@
 //! Extracted from `dispatch.rs` to keep the main dispatch loop concise.
 //! Each method encapsulates the IC hit/miss logic for a single opcode.
 
-use super::value::{FuncId, JsValue, ObjectKind, VmError};
+use super::value::{FuncId, JsCalleeInfo, JsValue, ObjectKind, VmError};
 use super::VmInner;
 
 impl VmInner {
@@ -161,86 +161,112 @@ impl VmInner {
         Ok(val)
     }
 
-    /// Shared Call IC fast path. Returns `Some(result)` on IC hit, `None` on miss.
-    fn try_call_ic_fast(
-        &mut self,
-        func_id: FuncId,
-        call_ic_idx: usize,
+    /// Extract JS function info from a callee object.
+    /// Returns `Some(JsCalleeInfo)` for JS functions, `None` for native/other.
+    pub(super) fn extract_js_callee(
+        &self,
         callee_id: super::value::ObjectId,
-        receiver: JsValue,
-        call_args: &[JsValue],
-    ) -> Option<Result<JsValue, VmError>> {
-        let ic_hit = self.compiled_functions[func_id.0 as usize]
-            .call_ic_slots
-            .get(call_ic_idx)
-            .and_then(|s| s.as_ref())
-            .filter(|ic| ic.callee == callee_id)
-            .map(|ic| (ic.func_id, ic.this_mode))?;
-
-        let (cached_func_id, cached_this_mode) = ic_hit;
-
-        let (upvalue_ids, captured_this) = {
-            let obj = self.get_object(callee_id);
-            if let ObjectKind::Function(fo) = &obj.kind {
-                (fo.upvalue_ids.clone(), fo.captured_this)
-            } else {
-                return None; // Not a JS function — fall through to slow path
-            }
-        };
-
-        let effective_this = match cached_this_mode {
-            super::value::ThisMode::Lexical => captured_this.unwrap_or(JsValue::Undefined),
-            super::value::ThisMode::Global => match receiver {
-                JsValue::Undefined | JsValue::Null => JsValue::Object(self.global_object),
-                _ => receiver,
-            },
-            super::value::ThisMode::Strict => receiver,
-        };
-
-        Some(self.call_internal(cached_func_id, effective_this, call_args, &upvalue_ids))
+    ) -> Option<JsCalleeInfo> {
+        let obj = self.get_object(callee_id);
+        if let ObjectKind::Function(fo) = &obj.kind {
+            Some(JsCalleeInfo {
+                func_id: fo.func_id,
+                upvalue_ids: fo.upvalue_ids.clone(),
+                this_mode: fo.this_mode,
+                captured_this: fo.captured_this,
+            })
+        } else {
+            None
+        }
     }
 
-    /// Call with IC. Executes the call and pushes the result onto the stack.
+    /// Compute the effective `this` for a call, applying §9.2.1.2
+    /// OrdinaryCallBindThis: Global mode coerces null/undefined to globalThis
+    /// and boxes primitives via ToObject.
+    fn compute_this_for_call(
+        &mut self,
+        this_mode: super::value::ThisMode,
+        receiver: JsValue,
+        captured_this: Option<JsValue>,
+    ) -> JsValue {
+        match this_mode {
+            super::value::ThisMode::Lexical => captured_this.unwrap_or(JsValue::Undefined),
+            super::value::ThisMode::Global => self.bind_this_global(receiver),
+            super::value::ThisMode::Strict => receiver,
+        }
+    }
+
+    /// Try the call IC fast path. Returns `Some(JsCalleeInfo)` on hit.
+    fn try_call_ic(
+        &self,
+        caller_func_id: FuncId,
+        call_ic_idx: usize,
+        callee_id: super::value::ObjectId,
+    ) -> Option<JsCalleeInfo> {
+        let ic = self.compiled_functions[caller_func_id.0 as usize]
+            .call_ic_slots
+            .get(call_ic_idx)?
+            .as_ref()
+            .filter(|ic| ic.callee == callee_id)?;
+        Some(JsCalleeInfo {
+            func_id: ic.func_id,
+            upvalue_ids: ic.upvalue_ids.clone(),
+            this_mode: ic.this_mode,
+            captured_this: ic.captured_this,
+        })
+    }
+
+    /// Call with IC. For JS callees, pushes a frame inline (single dispatcher).
+    /// For native callees, calls synchronously via `self.call()`.
     pub(super) fn ic_call(
         &mut self,
-        func_id: FuncId,
+        caller_func_id: FuncId,
         argc: usize,
         call_ic_idx: usize,
     ) -> Result<(), VmError> {
         let args_start = self.stack.len() - argc;
         let callee_val = self.stack[args_start - 1];
 
-        if let JsValue::Object(callee_id) = callee_val {
-            // PERF(PR4): call_args Vec alloc happens before IC check.
-            // PR4 (VM single dispatcher) will eliminate this by passing
-            // stack ranges directly to call_internal.
-            let call_args: Vec<JsValue> = self.stack[args_start..].to_vec();
-            self.stack.truncate(args_start - 1);
-            if let Some(result) = self.try_call_ic_fast(
-                func_id,
-                call_ic_idx,
-                callee_id,
+        let JsValue::Object(callee_id) = callee_val else {
+            return Err(VmError::type_error("not a function"));
+        };
+
+        // IC hit: skip object-table lookup entirely.
+        if let Some(callee) = self.try_call_ic(caller_func_id, call_ic_idx, callee_id) {
+            let this = self.compute_this_for_call(
+                callee.this_mode,
                 JsValue::Undefined,
-                &call_args,
-            ) {
-                self.stack.push(result?);
-                return Ok(());
-            }
-            // IC miss -> slow path + populate IC
-            // Restore stack for do_call: it expects [callee, arg0..argN]
-            self.stack.push(callee_val);
-            self.stack.extend_from_slice(&call_args);
+                callee.captured_this,
+            );
+            self.push_js_call_frame(callee, this, argc, 1, None);
+            return Ok(());
         }
 
-        self.do_call(argc, JsValue::Undefined)?;
-        self.populate_call_ic(func_id, call_ic_idx, callee_val);
+        // IC miss: extract callee info from object.
+        if let Some(callee) = self.extract_js_callee(callee_id) {
+            let this = self.compute_this_for_call(
+                callee.this_mode,
+                JsValue::Undefined,
+                callee.captured_this,
+            );
+            self.populate_call_ic(caller_func_id, call_ic_idx, callee_val);
+            self.push_js_call_frame(callee, this, argc, 1, None);
+            return Ok(());
+        }
+
+        // Native function or non-callable: delegate to call() (synchronous).
+        let call_args: Vec<JsValue> = self.stack[args_start..].to_vec();
+        self.stack.truncate(args_start - 1);
+        let result = self.call(callee_id, JsValue::Undefined, &call_args)?;
+        self.stack.push(result);
+        self.populate_call_ic(caller_func_id, call_ic_idx, callee_val);
         Ok(())
     }
 
-    /// CallMethod with IC. Executes the method call and pushes the result onto the stack.
+    /// CallMethod with IC. For JS callees, pushes a frame inline.
     pub(super) fn ic_call_method(
         &mut self,
-        func_id: FuncId,
+        caller_func_id: FuncId,
         argc: usize,
         call_ic_idx: usize,
     ) -> Result<(), VmError> {
@@ -249,28 +275,39 @@ impl VmInner {
         let callee = self.stack[args_start - 1];
         let receiver = self.stack[args_start - 2];
 
-        if let JsValue::Object(callee_id) = callee {
-            let call_args: Vec<JsValue> = self.stack[args_start..].to_vec();
-            self.stack.truncate(args_start - 2);
-            if let Some(result) =
-                self.try_call_ic_fast(func_id, call_ic_idx, callee_id, receiver, &call_args)
-            {
-                self.stack.push(result?);
-                return Ok(());
-            }
-            // IC miss -> slow path
-            let result = self.call_value(callee, receiver, &call_args)?;
-            self.stack.push(result);
-            self.populate_call_ic(func_id, call_ic_idx, callee);
+        let JsValue::Object(callee_id) = callee else {
+            return Err(VmError::type_error("not a function"));
+        };
+
+        // IC hit: skip object-table lookup entirely.
+        if let Some(callee_info) = self.try_call_ic(caller_func_id, call_ic_idx, callee_id) {
+            let this = self.compute_this_for_call(
+                callee_info.this_mode,
+                receiver,
+                callee_info.captured_this,
+            );
+            self.push_js_call_frame(callee_info, this, argc, 2, None);
             return Ok(());
         }
 
-        // Non-object callee -> slow path
+        // IC miss: extract callee info from object.
+        if let Some(callee_info) = self.extract_js_callee(callee_id) {
+            let this = self.compute_this_for_call(
+                callee_info.this_mode,
+                receiver,
+                callee_info.captured_this,
+            );
+            self.populate_call_ic(caller_func_id, call_ic_idx, callee);
+            self.push_js_call_frame(callee_info, this, argc, 2, None);
+            return Ok(());
+        }
+
+        // Native function or non-callable: delegate to call() (synchronous).
         let call_args: Vec<JsValue> = self.stack[args_start..].to_vec();
         self.stack.truncate(args_start - 2);
-        let result = self.call_value(callee, receiver, &call_args)?;
+        let result = self.call(callee_id, receiver, &call_args)?;
         self.stack.push(result);
-        self.populate_call_ic(func_id, call_ic_idx, callee);
+        self.populate_call_ic(caller_func_id, call_ic_idx, callee);
         Ok(())
     }
 

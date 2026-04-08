@@ -229,6 +229,8 @@ impl VmInner {
                 callee: callee_id,
                 func_id: fo.func_id,
                 this_mode: fo.this_mode,
+                upvalue_ids: fo.upvalue_ids.clone(),
+                captured_this: fo.captured_this,
             })
         } else {
             None

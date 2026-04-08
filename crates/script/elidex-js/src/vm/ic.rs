@@ -10,8 +10,10 @@
 //! All ICs are **self-invalidating**: a shape guard mismatch falls through to
 //! the slow path which re-resolves and overwrites the IC slot.
 
+use std::sync::Arc;
+
 use super::shape::ShapeId;
-use super::value::{FuncId, ObjectId, ThisMode};
+use super::value::{FuncId, JsValue, ObjectId, ThisMode, UpvalueId};
 
 /// Inline cache for a property access site (GetProp / SetProp).
 #[derive(Clone, Debug)]
@@ -46,11 +48,13 @@ pub enum ICHolder {
 
 /// Inline cache for a call site (Call / CallMethod).
 ///
-/// Caches the resolved function metadata so that repeated calls to the same
-/// callee skip the ObjectId → FuncId resolution.
+/// Caches all resolved function metadata so that IC-hit calls skip the
+/// object-table lookup entirely.
 #[derive(Clone, Debug)]
 pub struct CallIC {
     pub callee: ObjectId,
     pub func_id: FuncId,
     pub this_mode: ThisMode,
+    pub upvalue_ids: Arc<[UpvalueId]>,
+    pub captured_this: Option<JsValue>,
 }
