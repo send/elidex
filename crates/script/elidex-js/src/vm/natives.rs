@@ -18,7 +18,7 @@ pub(super) fn native_parse_int(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let s_id = ctx.to_string_val(val)?;
-    let s = ctx.get_utf8(s_id).trim().to_string();
+    let s = super::coerce::trim_js(&ctx.get_utf8(s_id)).to_string();
 
     // ES2020 §18.2.5: strip sign first, then detect 0x prefix.
     let mut negative = false;
@@ -96,7 +96,7 @@ pub(super) fn native_parse_float(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let s_id = ctx.to_string_val(val)?;
-    let trimmed = ctx.get_utf8(s_id).trim_start().to_string();
+    let trimmed = super::coerce::trim_js(&ctx.get_utf8(s_id)).to_string();
     let n = parse_float_prefix(&trimmed);
     Ok(JsValue::Number(n))
 }
