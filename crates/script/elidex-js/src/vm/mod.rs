@@ -98,24 +98,43 @@ impl StringPool {
 
 /// Pool of arbitrary-precision BigInt values. Allocated BigInts are permanent
 /// (not garbage-collected), following the same strategy as `StringPool`.
-pub(crate) struct BigIntPool(Vec<num_bigint::BigInt>);
+/// Canonical 0n and 1n are pre-allocated to avoid repeated allocation in
+/// common patterns like `i + 1n`.
+pub(crate) struct BigIntPool {
+    values: Vec<num_bigint::BigInt>,
+    /// Pre-allocated ID for `0n`.
+    pub(crate) zero: value::BigIntId,
+    /// Pre-allocated ID for `1n`.
+    pub(crate) one: value::BigIntId,
+}
 
 impl BigIntPool {
     fn new() -> Self {
-        Self(Vec::new())
+        Self {
+            values: vec![num_bigint::BigInt::from(0), num_bigint::BigInt::from(1)],
+            zero: value::BigIntId(0),
+            one: value::BigIntId(1),
+        }
     }
 
     /// Allocate a new BigInt, returning its `BigIntId`.
+    /// Returns cached IDs for 0 and 1.
     pub(crate) fn alloc(&mut self, val: num_bigint::BigInt) -> value::BigIntId {
-        let id = value::BigIntId(self.0.len() as u32);
-        self.0.push(val);
+        use num_bigint::Sign;
+        match val.sign() {
+            Sign::NoSign => return self.zero,
+            Sign::Plus if val == num_bigint::BigInt::from(1) => return self.one,
+            _ => {}
+        }
+        let id = value::BigIntId(self.values.len() as u32);
+        self.values.push(val);
         id
     }
 
     /// Get a reference to a BigInt by its ID.
     #[inline]
     pub(crate) fn get(&self, id: value::BigIntId) -> &num_bigint::BigInt {
-        &self.0[id.0 as usize]
+        &self.values[id.0 as usize]
     }
 }
 
