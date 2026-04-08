@@ -122,9 +122,9 @@ impl JsValue {
             Self::Undefined | Self::Null => true,
             Self::Boolean(b) => !b,
             Self::Number(n) => n == 0.0 || n.is_nan(),
-            // BigInt 0n is falsy, but we can't check without the pool here;
-            // handled in `to_boolean` instead. Conservatively return false.
-            Self::String(_) | Self::Symbol(_) | Self::BigInt(_) | Self::Object(_) => false,
+            // BigIntPool guarantees canonical 0n at BigIntId(0).
+            Self::BigInt(id) => id.0 == 0,
+            Self::String(_) | Self::Symbol(_) | Self::Object(_) => false,
         }
     }
 }

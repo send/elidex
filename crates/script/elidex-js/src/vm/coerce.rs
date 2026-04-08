@@ -79,7 +79,7 @@ fn is_js_whitespace_char(ch: char) -> bool {
 }
 
 /// Trim leading and trailing ES2020 whitespace from a `&str`.
-fn trim_js(s: &str) -> &str {
+pub(super) fn trim_js(s: &str) -> &str {
     let start = s
         .char_indices()
         .find(|(_, ch)| !is_js_whitespace_char(*ch))

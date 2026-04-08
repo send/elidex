@@ -33,7 +33,7 @@ pub(super) fn native_bigint_constructor(
         }
         JsValue::String(id) => {
             let s = ctx.vm.strings.get_utf8(id);
-            let s = s.trim();
+            let s = super::coerce::trim_js(&s);
             crate::vm::dispatch_helpers::parse_bigint_literal(s).ok_or_else(|| {
                 VmError::syntax_error(format!(
                     "Cannot convert \"{}\" to a BigInt",

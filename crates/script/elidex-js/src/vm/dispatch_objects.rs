@@ -300,29 +300,33 @@ impl VmInner {
 
     /// `instanceof` operator (§12.10.4).
     pub(crate) fn op_instanceof(&mut self, lhs: JsValue, rhs: JsValue) -> Result<bool, VmError> {
+        let JsValue::Object(rhs_id) = rhs else {
+            return Err(VmError::type_error(
+                "Right-hand side of 'instanceof' is not an object",
+            ));
+        };
+
         // Step 2: Check rhs[@@hasInstance]
-        if let JsValue::Object(rhs_id) = rhs {
-            let has_instance_key = PropertyKey::Symbol(self.well_known_symbols.has_instance);
-            if let Some(has_instance_result) = coerce::get_property(self, rhs_id, has_instance_key)
-            {
-                let has_instance_fn = self.resolve_property(has_instance_result, rhs)?;
-                let result = self.call_value(has_instance_fn, rhs, &[lhs])?;
-                return Ok(coerce::to_boolean(self, result));
-            }
+        let has_instance_key = PropertyKey::Symbol(self.well_known_symbols.has_instance);
+        if let Some(has_instance_result) = coerce::get_property(self, rhs_id, has_instance_key) {
+            let has_instance_fn = self.resolve_property(has_instance_result, rhs)?;
+            let result = self.call_value(has_instance_fn, rhs, &[lhs])?;
+            return Ok(coerce::to_boolean(self, result));
         }
 
         // OrdinaryHasInstance: walk lhs's prototype chain looking for rhs.prototype
-        if let (JsValue::Object(obj_id), JsValue::Object(ctor_id)) = (lhs, rhs) {
-            let proto_key = PropertyKey::String(self.well_known.prototype);
-            let ctor_proto = coerce::get_property(self, ctor_id, proto_key);
-            if let Some(coerce::PropertyResult::Data(JsValue::Object(target_proto))) = ctor_proto {
-                let mut current = self.get_object(obj_id).prototype;
-                while let Some(proto_id) = current {
-                    if proto_id == target_proto {
-                        return Ok(true);
-                    }
-                    current = self.get_object(proto_id).prototype;
+        let JsValue::Object(obj_id) = lhs else {
+            return Ok(false);
+        };
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        let ctor_proto = coerce::get_property(self, rhs_id, proto_key);
+        if let Some(coerce::PropertyResult::Data(JsValue::Object(target_proto))) = ctor_proto {
+            let mut current = self.get_object(obj_id).prototype;
+            while let Some(proto_id) = current {
+                if proto_id == target_proto {
+                    return Ok(true);
                 }
+                current = self.get_object(proto_id).prototype;
             }
         }
         Ok(false)
