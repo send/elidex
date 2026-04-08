@@ -7,7 +7,6 @@ use crate::bytecode::opcode::Op;
 
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, to_string, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
-use super::ops::parse_array_index_u16;
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
@@ -289,93 +288,19 @@ impl VmInner {
                 }
 
                 Op::Instanceof => {
-                    let rhs = self.pop()?; // constructor
-                    let lhs = self.pop()?; // object
-
-                    // §12.10.4 step 2: Check rhs[@@hasInstance]
-                    if let JsValue::Object(rhs_id) = rhs {
-                        let has_instance_key =
-                            PropertyKey::Symbol(self.well_known_symbols.has_instance);
-                        if let Some(has_instance_result) =
-                            super::coerce::get_property(self, rhs_id, has_instance_key)
-                        {
-                            let has_instance_fn =
-                                match self.resolve_property(has_instance_result, rhs) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        self.throw_error(e, entry_frame_depth)?;
-                                        continue;
-                                    }
-                                };
-                            let result = match self.call_value(has_instance_fn, rhs, &[lhs]) {
-                                Ok(r) => r,
-                                Err(e) => {
-                                    self.throw_error(e, entry_frame_depth)?;
-                                    continue;
-                                }
-                            };
-                            let bool_result = to_boolean(self, result);
-                            self.stack.push(JsValue::Boolean(bool_result));
-                            continue;
-                        }
+                    let rhs = self.pop()?;
+                    let lhs = self.pop()?;
+                    match self.op_instanceof(lhs, rhs) {
+                        Ok(result) => self.stack.push(JsValue::Boolean(result)),
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
-
-                    // OrdinaryHasInstance: walk lhs's prototype chain looking for rhs.prototype
-                    let result =
-                        if let (JsValue::Object(obj_id), JsValue::Object(ctor_id)) = (lhs, rhs) {
-                            let proto_key = PropertyKey::String(self.well_known.prototype);
-                            let ctor_proto = super::coerce::get_property(self, ctor_id, proto_key);
-                            if let Some(super::coerce::PropertyResult::Data(JsValue::Object(
-                                target_proto,
-                            ))) = ctor_proto
-                            {
-                                let mut current = self.get_object(obj_id).prototype;
-                                let mut found = false;
-                                while let Some(proto_id) = current {
-                                    if proto_id == target_proto {
-                                        found = true;
-                                        break;
-                                    }
-                                    current = self.get_object(proto_id).prototype;
-                                }
-                                found
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        };
-                    self.stack.push(JsValue::Boolean(result));
                 }
                 Op::In => {
-                    let rhs = self.pop()?; // object
-                    let lhs = self.pop()?; // key
-                    if let JsValue::Object(obj_id) = rhs {
-                        let pk = match self.make_property_key(lhs) {
-                            Ok(pk) => pk,
-                            Err(e) => {
-                                self.throw_error(e, entry_frame_depth)?;
-                                continue;
-                            }
-                        };
-                        let obj = self.get_object(obj_id);
-                        let found = match (&obj.kind, &pk) {
-                            (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
-                                let key_units = self.strings.get(*key_id);
-                                if let Some(idx) = parse_array_index_u16(key_units) {
-                                    idx < elements.len()
-                                } else {
-                                    super::coerce::get_property(self, obj_id, pk).is_some()
-                                }
-                            }
-                            _ => super::coerce::get_property(self, obj_id, pk).is_some(),
-                        };
-                        self.stack.push(JsValue::Boolean(found));
-                    } else {
-                        let err = VmError::type_error(
-                            "Cannot use 'in' operator to search for property in non-object",
-                        );
-                        self.throw_error(err, entry_frame_depth)?;
+                    let rhs = self.pop()?;
+                    let lhs = self.pop()?;
+                    match self.op_in(lhs, rhs) {
+                        Ok(result) => self.stack.push(JsValue::Boolean(result)),
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
                     }
                 }
 

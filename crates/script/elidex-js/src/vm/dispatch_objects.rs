@@ -1,5 +1,7 @@
 //! Object and array creation opcode handlers extracted from the main dispatch loop.
 
+use super::coerce;
+use super::ops::parse_array_index_u16;
 use super::value::{JsValue, ObjectKind, PropertyKey, PropertyValue, VmError};
 use super::VmInner;
 
@@ -294,5 +296,57 @@ impl VmInner {
             }
         }
         Ok(())
+    }
+
+    /// `instanceof` operator (§12.10.4).
+    pub(crate) fn op_instanceof(&mut self, lhs: JsValue, rhs: JsValue) -> Result<bool, VmError> {
+        // Step 2: Check rhs[@@hasInstance]
+        if let JsValue::Object(rhs_id) = rhs {
+            let has_instance_key = PropertyKey::Symbol(self.well_known_symbols.has_instance);
+            if let Some(has_instance_result) = coerce::get_property(self, rhs_id, has_instance_key)
+            {
+                let has_instance_fn = self.resolve_property(has_instance_result, rhs)?;
+                let result = self.call_value(has_instance_fn, rhs, &[lhs])?;
+                return Ok(coerce::to_boolean(self, result));
+            }
+        }
+
+        // OrdinaryHasInstance: walk lhs's prototype chain looking for rhs.prototype
+        if let (JsValue::Object(obj_id), JsValue::Object(ctor_id)) = (lhs, rhs) {
+            let proto_key = PropertyKey::String(self.well_known.prototype);
+            let ctor_proto = coerce::get_property(self, ctor_id, proto_key);
+            if let Some(coerce::PropertyResult::Data(JsValue::Object(target_proto))) = ctor_proto {
+                let mut current = self.get_object(obj_id).prototype;
+                while let Some(proto_id) = current {
+                    if proto_id == target_proto {
+                        return Ok(true);
+                    }
+                    current = self.get_object(proto_id).prototype;
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// `in` operator (§13.10.1).
+    pub(crate) fn op_in(&mut self, lhs: JsValue, rhs: JsValue) -> Result<bool, VmError> {
+        let JsValue::Object(obj_id) = rhs else {
+            return Err(VmError::type_error(
+                "Cannot use 'in' operator to search for property in non-object",
+            ));
+        };
+        let pk = self.make_property_key(lhs)?;
+        let obj = self.get_object(obj_id);
+        Ok(match (&obj.kind, &pk) {
+            (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
+                let key_units = self.strings.get(*key_id);
+                if let Some(idx) = parse_array_index_u16(key_units) {
+                    idx < elements.len()
+                } else {
+                    coerce::get_property(self, obj_id, pk).is_some()
+                }
+            }
+            _ => coerce::get_property(self, obj_id, pk).is_some(),
+        })
     }
 }
