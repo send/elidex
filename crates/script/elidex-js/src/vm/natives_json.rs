@@ -619,13 +619,6 @@ impl<'a> JsonParser<'a> {
         }
     }
 
-    /// Parse a JSON string key as a Rust `String` (for object property keys
-    /// that are always valid Unicode in JSON text).
-    fn parse_string_raw(&mut self) -> Result<String, VmError> {
-        let units = self.parse_string_u16()?;
-        Ok(String::from_utf16_lossy(&units))
-    }
-
     fn parse_hex4(&mut self) -> Result<u16, VmError> {
         let mut val: u16 = 0;
         for _ in 0..4 {
@@ -763,8 +756,8 @@ impl<'a> JsonParser<'a> {
             if self.peek() != Some(b'"') {
                 return Err(self.err("expected string key"));
             }
-            let key_str = self.parse_string_raw()?;
-            let key_sid = ctx.intern(&key_str);
+            let key_units = self.parse_string_u16()?;
+            let key_sid = ctx.intern_utf16(&key_units);
 
             self.skip_ws();
             self.expect(b':')?;
@@ -844,11 +837,7 @@ fn internalize(
                         if let ObjectKind::Array { elements } = &mut ctx.get_object_mut(obj_id).kind
                         {
                             if i < elements.len() {
-                                elements[i] = if matches!(result, JsValue::Undefined) {
-                                    JsValue::Undefined
-                                } else {
-                                    result
-                                };
+                                elements[i] = result;
                             }
                         }
                     }
