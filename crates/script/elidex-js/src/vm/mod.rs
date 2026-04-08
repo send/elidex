@@ -4,6 +4,7 @@
 //! VM-owned tables. `JsValue` is `Copy`, and the `Vm` is naturally `Send`.
 
 pub mod coerce;
+pub(crate) mod coerce_ops;
 mod dispatch;
 mod dispatch_helpers;
 mod dispatch_ic;

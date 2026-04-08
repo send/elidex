@@ -1,9 +1,9 @@
 //! VM operation helpers: function calls, exception handling, upvalue management,
 //! and operator helpers. Property access methods live in `ops_property.rs`.
 
-use super::coerce::{
-    abstract_relational, get_property, op_bitwise, op_numeric_binary, to_boolean, to_number,
-    to_string, BitwiseOp, NumericBinaryOp, PropertyResult,
+use super::coerce::{get_property, to_boolean, to_number, to_string, PropertyResult};
+use super::coerce_ops::{
+    abstract_relational, op_bitwise, op_numeric_binary, BitwiseOp, NumericBinaryOp,
 };
 use super::value::{
     FuncId, JsValue, ObjectKind, PropertyKey, PropertyValue, Upvalue, UpvalueState, VmError,

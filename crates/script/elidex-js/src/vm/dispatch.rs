@@ -5,10 +5,8 @@
 
 use crate::bytecode::opcode::Op;
 
-use super::coerce::{
-    abstract_eq, op_bitnot, op_neg, op_not, op_pos, op_void, strict_eq, to_boolean, to_number,
-    to_string, typeof_str, BitwiseOp, NumericBinaryOp,
-};
+use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, to_string, typeof_str};
+use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
 use super::ops::parse_array_index_u16;
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
