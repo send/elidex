@@ -56,6 +56,10 @@ impl ScriptEngine for ElidexJsEngine {
         // Stub — event listener invocation requires full DOM integration.
     }
 
+    fn remove_listener(&mut self, _listener_id: ListenerId) {
+        // Stub — no listener store in the VM yet.
+    }
+
     fn run_microtasks(&mut self, _ctx: &mut ScriptContext<'_>) {
         // Stub — no microtask queue in the VM yet.
     }

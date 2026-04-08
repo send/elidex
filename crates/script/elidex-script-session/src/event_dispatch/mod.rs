@@ -303,8 +303,7 @@ fn collect_listeners(
         .ok()
         .map(|listeners| {
             listeners
-                .matching_all(event_type)
-                .into_iter()
+                .iter_matching(event_type)
                 .filter(|e| capture.is_none_or(|cap| e.capture == cap))
                 .map(|e| ListenerPlanEntry {
                     id: e.id,
@@ -459,6 +458,11 @@ pub fn script_dispatch_event_core(
                 }
 
                 engine.call_listener(entry.id, event, *entity, entry.passive, ctx);
+
+                // Clean up engine-side function store after invocation.
+                if entry.once {
+                    engine.remove_listener(entry.id);
+                }
             }
         }
     };

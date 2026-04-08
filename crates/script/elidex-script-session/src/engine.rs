@@ -67,6 +67,12 @@ pub trait ScriptEngine {
         ctx: &mut ScriptContext<'_>,
     );
 
+    /// Remove the engine-side callback for a listener (e.g. from `HostBridge`).
+    ///
+    /// Called by the shared dispatch function after removing a `{ once: true }`
+    /// listener from `EventListeners` to prevent leaking the JS function object.
+    fn remove_listener(&mut self, listener_id: ListenerId);
+
     /// Drain the microtask queue (Promise .then(), queueMicrotask, etc.).
     fn run_microtasks(&mut self, ctx: &mut ScriptContext<'_>);
 

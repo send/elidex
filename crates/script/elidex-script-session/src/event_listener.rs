@@ -107,6 +107,16 @@ impl EventListeners {
             .collect()
     }
 
+    /// Iterate over listener entries matching the given event type.
+    pub fn iter_matching<'a>(
+        &'a self,
+        event_type: &'a str,
+    ) -> impl Iterator<Item = &'a ListenerEntry> {
+        self.entries
+            .iter()
+            .filter(move |e| e.event_type == event_type)
+    }
+
     /// Return all listener entries matching the given event type (both capture and bubble).
     #[must_use]
     pub fn matching_all(&self, event_type: &str) -> Vec<&ListenerEntry> {

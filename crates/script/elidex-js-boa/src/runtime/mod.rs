@@ -840,6 +840,10 @@ impl ScriptEngine for JsRuntime {
         self.call_listener_impl(listener_id, event, current_target, passive, ctx);
     }
 
+    fn remove_listener(&mut self, listener_id: ListenerId) {
+        self.bridge.remove_listener(listener_id);
+    }
+
     fn run_microtasks(&mut self, ctx: &mut ScriptContext<'_>) {
         self.bridge.bind(ctx.session, ctx.dom, ctx.document);
         let _guard = UnbindGuard(&self.bridge);
