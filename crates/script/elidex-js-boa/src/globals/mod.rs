@@ -607,25 +607,17 @@ pub(crate) fn dispatch_event_for(
 
     // Helper closure: invoke a list of listeners on an entity.
     let mut invoke_phase_listeners =
-        |ids: &[elidex_script_session::ListenerId],
+        |plan_entries: &[elidex_script_session::ListenerPlanEntry],
          phase_entity: elidex_ecs::Entity,
          ev: &mut elidex_script_session::DispatchEvent| {
-            for &listener_id in ids {
+            for entry in plan_entries {
                 if ev.flags.immediate_propagation_stopped {
                     break;
                 }
 
-                // Look up listener metadata for once/passive options.
-                let (is_once, is_passive) = bridge.with(|_session, dom| {
-                    dom.world()
-                        .get::<&EventListeners>(phase_entity)
-                        .ok()
-                        .map_or((false, false), |listeners| {
-                            listeners
-                                .find_entry(listener_id)
-                                .map_or((false, false), |entry| (entry.once, entry.passive))
-                        })
-                });
+                let listener_id = entry.id;
+                let is_once = entry.once;
+                let is_passive = entry.passive;
 
                 let Some(js_func) = bridge.get_listener(listener_id) else {
                     continue;
@@ -750,7 +742,7 @@ pub(crate) fn dispatch_event_for(
 
     // Phase 1: Capture (root → target, exclusive).
     dispatch_event.phase = elidex_plugin::EventPhase::Capturing;
-    for (phase_entity, ids) in &plan.capture {
+    for (phase_entity, entries) in &plan.capture {
         if dispatch_event.flags.propagation_stopped
             || dispatch_event.flags.immediate_propagation_stopped
         {
@@ -766,19 +758,19 @@ pub(crate) fn dispatch_event_for(
             );
         });
         dispatch_event.current_target = Some(*phase_entity);
-        invoke_phase_listeners(ids, *phase_entity, &mut dispatch_event);
+        invoke_phase_listeners(entries, *phase_entity, &mut dispatch_event);
     }
 
     // Phase 2: At-target.
     if !dispatch_event.flags.propagation_stopped
         && !dispatch_event.flags.immediate_propagation_stopped
     {
-        if let Some((target, ref ids)) = plan.at_target {
+        if let Some((target, ref entries)) = plan.at_target {
             dispatch_event.phase = elidex_plugin::EventPhase::AtTarget;
             dispatch_event.target = saved_target;
             dispatch_event.original_target = None;
             dispatch_event.current_target = Some(target);
-            invoke_phase_listeners(ids, target, &mut dispatch_event);
+            invoke_phase_listeners(entries, target, &mut dispatch_event);
         }
     }
 
@@ -788,7 +780,7 @@ pub(crate) fn dispatch_event_for(
         && !dispatch_event.flags.immediate_propagation_stopped
     {
         dispatch_event.phase = elidex_plugin::EventPhase::Bubbling;
-        for (phase_entity, ids) in &plan.bubble {
+        for (phase_entity, entries) in &plan.bubble {
             if dispatch_event.flags.propagation_stopped
                 || dispatch_event.flags.immediate_propagation_stopped
             {
@@ -803,7 +795,7 @@ pub(crate) fn dispatch_event_for(
                 );
             });
             dispatch_event.current_target = Some(*phase_entity);
-            invoke_phase_listeners(ids, *phase_entity, &mut dispatch_event);
+            invoke_phase_listeners(entries, *phase_entity, &mut dispatch_event);
         }
     }
 

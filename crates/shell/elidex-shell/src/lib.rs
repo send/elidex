@@ -40,7 +40,7 @@ use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_plugin::{Size, Vector, ViewportOverflow};
 use elidex_render::{build_display_list, build_display_list_with_scroll, DisplayList};
-use elidex_script_session::SessionCore;
+use elidex_script_session::{ScriptContext, SessionCore};
 use elidex_style::resolve_styles_with_compat;
 use elidex_text::FontDatabase;
 use winit::event_loop::EventLoop;
@@ -367,6 +367,26 @@ pub struct PipelineResult {
 }
 
 impl PipelineResult {
+    /// Dispatch a DOM event through the propagation path.
+    ///
+    /// Returns `true` if `preventDefault()` was called.
+    pub fn dispatch_event(&mut self, event: &mut elidex_script_session::DispatchEvent) -> bool {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        elidex_script_session::script_dispatch_event(&mut self.runtime, event, &mut ctx)
+    }
+
+    /// Evaluate a JavaScript source string.
+    pub fn eval_script(&mut self, source: &str) -> elidex_script_session::EvalResult {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        elidex_script_session::ScriptEngine::eval(&mut self.runtime, source, &mut ctx)
+    }
+
+    /// Drain and execute all ready timers.
+    pub fn drain_timers(&mut self) -> Vec<elidex_script_session::EvalResult> {
+        let mut ctx = ScriptContext::new(&mut self.session, &mut self.dom, self.document);
+        elidex_script_session::ScriptEngine::drain_timers(&mut self.runtime, &mut ctx)
+    }
+
     /// Remove animation/transition state for entities that no longer exist in the DOM.
     pub(crate) fn prune_dead_animation_entities(&mut self) {
         self.animation_engine.prune_dead_entities(&|entity_id| {

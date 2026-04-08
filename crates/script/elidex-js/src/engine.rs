@@ -1,13 +1,10 @@
 //! ScriptEngine trait implementation for the elidex-js VM.
 //!
 //! Enabled by the `engine` feature flag. Provides a thin delegation layer
-//! from the current ScriptEngine trait to the VM's ideal API (`eval`/`call`).
-//!
-//! When boa is removed (M4-12), the ScriptEngine trait itself will be
-//! refactored to match the VM's native API, eliminating this wrapper.
+//! from the ScriptEngine trait to the VM's native API.
 
-use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::{DispatchEvent, EvalResult, ScriptEngine, SessionCore};
+use elidex_ecs::Entity;
+use elidex_script_session::{DispatchEvent, EvalResult, ListenerId, ScriptContext, ScriptEngine};
 
 use crate::vm::Vm;
 
@@ -35,13 +32,7 @@ impl Default for ElidexJsEngine {
 }
 
 impl ScriptEngine for ElidexJsEngine {
-    fn eval(
-        &mut self,
-        source: &str,
-        _session: &mut SessionCore,
-        _dom: &mut EcsDom,
-        _document: Entity,
-    ) -> EvalResult {
+    fn eval(&mut self, source: &str, _ctx: &mut ScriptContext<'_>) -> EvalResult {
         match self.vm.eval(source) {
             Ok(_) => EvalResult {
                 success: true,
@@ -54,26 +45,27 @@ impl ScriptEngine for ElidexJsEngine {
         }
     }
 
-    fn dispatch_event(
+    fn call_listener(
         &mut self,
+        _listener_id: ListenerId,
         _event: &mut DispatchEvent,
-        _session: &mut SessionCore,
-        _dom: &mut EcsDom,
-        _document: Entity,
-    ) -> bool {
-        // M4-10: Stub — event dispatch requires DOM listener integration
-        // which is handled by elidex-js-boa. Full implementation in M4-12
-        // when boa is replaced.
-        false
+        _current_target: Entity,
+        _passive: bool,
+        _ctx: &mut ScriptContext<'_>,
+    ) {
+        // Stub — event listener invocation requires full DOM integration.
     }
 
-    fn drain_timers(
-        &mut self,
-        _session: &mut SessionCore,
-        _dom: &mut EcsDom,
-        _document: Entity,
-    ) -> Vec<EvalResult> {
-        // M4-10: Stub — timer management remains in elidex-js-boa.
+    fn run_microtasks(&mut self, _ctx: &mut ScriptContext<'_>) {
+        // Stub — no microtask queue in the VM yet.
+    }
+
+    fn drain_reactions(&mut self, _ctx: &mut ScriptContext<'_>) {
+        // Stub — no custom element support in the VM yet.
+    }
+
+    fn drain_timers(&mut self, _ctx: &mut ScriptContext<'_>) -> Vec<EvalResult> {
+        // Stub — timer management is not yet implemented.
         Vec::new()
     }
 }

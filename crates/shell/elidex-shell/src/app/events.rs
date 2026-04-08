@@ -82,12 +82,7 @@ impl App {
                     event.cancelable = false;
                 }
                 event.payload = EventPayload::Mouse(mouse_init.clone());
-                let prevented = pipeline.runtime.dispatch_event(
-                    &mut event,
-                    &mut pipeline.session,
-                    &mut pipeline.dom,
-                    pipeline.document,
-                );
+                let prevented = pipeline.dispatch_event(&mut event);
                 if *event_type == "click" {
                     click_prevented = prevented;
                 }
@@ -139,12 +134,7 @@ impl App {
         let mut event = DispatchEvent::new_composed(event_type, target);
         event.payload = EventPayload::Keyboard(init);
 
-        let _default_prevented = pipeline.runtime.dispatch_event(
-            &mut event,
-            &mut pipeline.session,
-            &mut pipeline.dom,
-            pipeline.document,
-        );
+        let _default_prevented = pipeline.dispatch_event(&mut event);
 
         crate::re_render(pipeline);
 

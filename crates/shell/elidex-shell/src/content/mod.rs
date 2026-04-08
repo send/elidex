@@ -444,12 +444,7 @@ fn dispatch_storage_event(
         new_value,
         url,
     };
-    state.pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    state.pipeline.dispatch_event(&mut event);
 }
 
 /// Dispatch a `MessageEvent` on the parent document (WHATWG HTML §9.4.3).
@@ -463,12 +458,7 @@ fn dispatch_message_event(state: &mut ContentState, data: &str, origin: &str) {
         origin: origin.to_string(),
         last_event_id: String::new(),
     };
-    state.pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    state.pipeline.dispatch_event(&mut event);
 }
 
 /// Drain pending script-initiated animations from the bridge and apply them

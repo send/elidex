@@ -218,18 +218,29 @@ pub fn build_propagation_path(dom: &EcsDom, target: Entity, composed: bool) -> V
     path
 }
 
-/// Pre-collected dispatch plan: propagation path with listener IDs per entity.
+/// Pre-collected metadata for a single listener in a dispatch plan.
+#[derive(Clone, Debug)]
+pub struct ListenerPlanEntry {
+    /// The listener's unique ID.
+    pub id: ListenerId,
+    /// Whether the listener was registered with `{ once: true }`.
+    pub once: bool,
+    /// Whether the listener was registered with `{ passive: true }`.
+    pub passive: bool,
+}
+
+/// Pre-collected dispatch plan: propagation path with listener entries per entity.
 ///
 /// Built from `&EcsDom` before invoking any callbacks, so the DOM borrow
 /// is released before listener functions execute (enabling DOM mutation
 /// from callbacks).
 pub struct DispatchPlan {
-    /// `(entity, capture_listener_ids)` for capture phase (root → target exclusive).
-    pub capture: Vec<(Entity, Vec<ListenerId>)>,
-    /// `(entity, all_listener_ids)` for at-target phase.
-    pub at_target: Option<(Entity, Vec<ListenerId>)>,
-    /// `(entity, bubble_listener_ids)` for bubble phase (target exclusive → root).
-    pub bubble: Vec<(Entity, Vec<ListenerId>)>,
+    /// `(entity, capture_listeners)` for capture phase (root → target exclusive).
+    pub capture: Vec<(Entity, Vec<ListenerPlanEntry>)>,
+    /// `(entity, all_listeners)` for at-target phase.
+    pub at_target: Option<(Entity, Vec<ListenerPlanEntry>)>,
+    /// `(entity, bubble_listeners)` for bubble phase (target exclusive → root).
+    pub bubble: Vec<(Entity, Vec<ListenerPlanEntry>)>,
 }
 
 /// Build a dispatch plan by pre-collecting all listener IDs from the DOM.
@@ -280,35 +291,43 @@ pub fn build_dispatch_plan(dom: &EcsDom, event: &DispatchEvent) -> DispatchPlan 
     }
 }
 
-/// Collect listener IDs matching (`event_type`, `capture`) on an entity.
+/// Collect listener entries matching (`event_type`, `capture`) on an entity.
 fn collect_listeners(
     dom: &EcsDom,
     entity: Entity,
     event_type: &str,
     capture: Option<bool>,
-) -> Vec<ListenerId> {
+) -> Vec<ListenerPlanEntry> {
     dom.world()
         .get::<&EventListeners>(entity)
         .ok()
-        .map(|listeners| match capture {
-            Some(cap) => listeners.matching(event_type, cap),
-            None => listeners.matching_all_ids(event_type),
+        .map(|listeners| {
+            listeners
+                .matching_all(event_type)
+                .into_iter()
+                .filter(|e| capture.is_none_or(|cap| e.capture == cap))
+                .map(|e| ListenerPlanEntry {
+                    id: e.id,
+                    once: e.once,
+                    passive: e.passive,
+                })
+                .collect()
         })
         .unwrap_or_default()
 }
 
 /// Invoke listeners on an entity, stopping if immediate propagation is halted.
 fn invoke_listeners(
-    ids: &[ListenerId],
+    entries: &[ListenerPlanEntry],
     entity: Entity,
     event: &mut DispatchEvent,
     invoke: &mut dyn FnMut(ListenerId, Entity, &mut DispatchEvent),
 ) {
-    for &id in ids {
+    for entry in entries {
         if event.flags.immediate_propagation_stopped {
             break;
         }
-        invoke(id, entity, event);
+        invoke(entry.id, entity, event);
     }
 }
 
@@ -325,8 +344,10 @@ fn invoke_listeners(
 /// allows callbacks to safely mutate the DOM.
 ///
 /// The `invoke` callback is called for each matching listener, receiving
-/// the `ListenerId`, the current entity, and the event. The JS layer
-/// uses this to look up and call the actual JS function.
+/// the `ListenerId`, the current entity, and the event.
+///
+/// For `ScriptEngine`-based dispatch, prefer [`script_dispatch_event`] which
+/// handles `once`/`passive` listener options and post-dispatch reactions.
 ///
 /// Returns `true` if `preventDefault()` was called.
 pub fn dispatch_event(
@@ -345,24 +366,24 @@ pub fn dispatch_event(
 
     // Phase 1: Capture (root → target, exclusive)
     event.phase = EventPhase::Capturing;
-    for (entity, ids) in &plan.capture {
+    for (entity, entries) in &plan.capture {
         if event.flags.propagation_stopped || event.flags.immediate_propagation_stopped {
             break;
         }
         // B3: Per-listener retarget using WHATWG iterative algorithm.
         apply_retarget(event, *entity, saved_target, dom);
         event.current_target = Some(*entity);
-        invoke_listeners(ids, *entity, event, invoke);
+        invoke_listeners(entries, *entity, event, invoke);
     }
 
     // Phase 2: At-target
     if !event.flags.propagation_stopped && !event.flags.immediate_propagation_stopped {
-        if let Some((target, ids)) = &plan.at_target {
+        if let Some((target, entries)) = &plan.at_target {
             event.phase = EventPhase::AtTarget;
             event.target = saved_target;
             event.original_target = None;
             event.current_target = Some(*target);
-            invoke_listeners(ids, *target, event, invoke);
+            invoke_listeners(entries, *target, event, invoke);
         }
     }
 
@@ -372,13 +393,13 @@ pub fn dispatch_event(
         && !event.flags.immediate_propagation_stopped
     {
         event.phase = EventPhase::Bubbling;
-        for (entity, ids) in &plan.bubble {
+        for (entity, entries) in &plan.bubble {
             if event.flags.propagation_stopped || event.flags.immediate_propagation_stopped {
                 break;
             }
             apply_retarget(event, *entity, saved_target, dom);
             event.current_target = Some(*entity);
-            invoke_listeners(ids, *entity, event, invoke);
+            invoke_listeners(entries, *entity, event, invoke);
         }
     }
 
@@ -389,6 +410,109 @@ pub fn dispatch_event(
     event.dispatch_flag = false;
 
     event.flags.default_prevented
+}
+
+/// Core 3-phase dispatch loop without post-dispatch drains.
+///
+/// Used by both `script_dispatch_event` (public, with drain_reactions) and
+/// internally by `drain_queued_events` (which must NOT drain recursively).
+///
+/// Prefer [`script_dispatch_event`] unless you need to suppress the
+/// post-dispatch `drain_reactions` call to avoid recursion.
+#[doc(hidden)]
+pub fn script_dispatch_event_core(
+    engine: &mut impl crate::engine::ScriptEngine,
+    event: &mut DispatchEvent,
+    ctx: &mut crate::engine::ScriptContext<'_>,
+) -> bool {
+    let plan = build_dispatch_plan(ctx.dom, event);
+    event.composed_path = build_propagation_path(ctx.dom, event.target, event.composed);
+    event.dispatch_flag = true;
+    let saved_target = event.target;
+
+    // Helper: iterate a phase's entries, calling call_listener per listener.
+    let run_phase = |entries: &[(Entity, Vec<ListenerPlanEntry>)],
+                     phase: EventPhase,
+                     event: &mut DispatchEvent,
+                     engine: &mut dyn crate::engine::ScriptEngine,
+                     ctx: &mut crate::engine::ScriptContext<'_>| {
+        for (entity, listener_entries) in entries {
+            if event.flags.propagation_stopped || event.flags.immediate_propagation_stopped {
+                break;
+            }
+            apply_retarget(event, *entity, saved_target, ctx.dom);
+            event.current_target = Some(*entity);
+            event.phase = phase;
+
+            for entry in listener_entries {
+                if event.flags.immediate_propagation_stopped {
+                    break;
+                }
+
+                // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
+                if entry.once {
+                    if let Ok(mut listeners) =
+                        ctx.dom.world_mut().get::<&mut EventListeners>(*entity)
+                    {
+                        listeners.remove(entry.id);
+                    }
+                }
+
+                engine.call_listener(entry.id, event, *entity, entry.passive, ctx);
+            }
+        }
+    };
+
+    // Phase 1: Capture (root → target, exclusive).
+    run_phase(&plan.capture, EventPhase::Capturing, event, engine, ctx);
+
+    // Phase 2: At-target.
+    if !event.flags.propagation_stopped && !event.flags.immediate_propagation_stopped {
+        if let Some(ref at_target) = plan.at_target {
+            event.target = saved_target;
+            event.original_target = None;
+            run_phase(
+                std::slice::from_ref(at_target),
+                EventPhase::AtTarget,
+                event,
+                engine,
+                ctx,
+            );
+        }
+    }
+
+    // Phase 3: Bubble (target → root, exclusive, reversed).
+    if event.bubbles
+        && !event.flags.propagation_stopped
+        && !event.flags.immediate_propagation_stopped
+    {
+        run_phase(&plan.bubble, EventPhase::Bubbling, event, engine, ctx);
+    }
+
+    event.phase = EventPhase::None;
+    event.current_target = None;
+    event.target = saved_target;
+    event.original_target = None;
+    event.dispatch_flag = false;
+
+    event.flags.default_prevented
+}
+
+/// Dispatch an event through the propagation path using a `ScriptEngine`.
+///
+/// Performs the full 3-phase dispatch followed by draining queued events
+/// and custom element reactions. This is the main entry point for
+/// dispatching events from the shell.
+///
+/// Returns `true` if `preventDefault()` was called.
+pub fn script_dispatch_event(
+    engine: &mut impl crate::engine::ScriptEngine,
+    event: &mut DispatchEvent,
+    ctx: &mut crate::engine::ScriptContext<'_>,
+) -> bool {
+    let prevented = script_dispatch_event_core(engine, event, ctx);
+    engine.drain_reactions(ctx);
+    prevented
 }
 
 /// WHATWG DOM §2.5 `retarget(A, B)` — iterative retarget algorithm.

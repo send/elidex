@@ -6,7 +6,9 @@ use std::rc::Rc;
 use boa_engine::{js_string, Context, JsValue, Source};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::EventPayload;
-use elidex_script_session::{ComponentKind, DispatchEvent, ScriptEngine, SessionCore};
+use elidex_script_session::{
+    ComponentKind, DispatchEvent, ListenerId, ScriptContext, ScriptEngine, SessionCore,
+};
 
 use crate::bridge::HostBridge;
 use crate::globals::console::ConsoleOutput;
@@ -260,15 +262,13 @@ impl JsRuntime {
         dom: &mut EcsDom,
         document_entity: Entity,
     ) -> bool {
-        let prevented = self.dispatch_event_inner(event, session, dom, document_entity);
-        self.drain_queued_events(session, dom, document_entity);
-        self.drain_custom_element_reactions(session, dom, document_entity);
-        prevented
+        let mut ctx = ScriptContext::new(session, dom, document_entity);
+        elidex_script_session::script_dispatch_event(self, event, &mut ctx)
     }
 
     /// Check if an entity is an `<iframe>` element.
     ///
-    /// Used by `dispatch_event_inner` to pass the `is_iframe` flag to
+    /// Used by `call_listener_impl` to pass the `is_iframe` flag to
     /// `create_element_wrapper` (which registers iframe-specific JS properties).
     fn is_iframe_entity(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
         dom.world()
@@ -277,236 +277,145 @@ impl JsRuntime {
             .is_some_and(|t| t.0 == "iframe")
     }
 
-    /// Internal dispatch without draining the event queue.
+    /// Invoke a single event listener by ID (internal implementation).
     ///
-    /// Used by `drain_queued_events` to avoid recursion.
+    /// Binds the bridge, creates the JS event object, calls the listener function,
+    /// runs microtasks, and syncs flags back to `event.flags`.
     #[allow(clippy::too_many_lines)]
-    fn dispatch_event_inner(
+    fn call_listener_impl(
         &mut self,
+        listener_id: ListenerId,
         event: &mut DispatchEvent,
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-        document_entity: Entity,
-    ) -> bool {
-        self.bridge.bind(session, dom, document_entity);
+        current_target: Entity,
+        passive: bool,
+        ctx: &mut ScriptContext<'_>,
+    ) {
+        let Some(js_func) = self.bridge.get_listener(listener_id) else {
+            return;
+        };
+
+        self.bridge.bind(ctx.session, ctx.dom, ctx.document);
         let _guard = UnbindGuard(&self.bridge);
 
-        // Phase 1: Pre-compute dispatch plan and composed path under a short
-        // DOM borrow. The borrow is released before any listener callbacks run,
-        // eliminating the aliased &EcsDom / &mut EcsDom UB.
-        let plan = self.bridge.with(|_session, dom| {
-            let plan = elidex_script_session::build_dispatch_plan(dom, event);
-            event.composed_path =
-                elidex_script_session::build_propagation_path(dom, event.target, event.composed);
-            event.dispatch_flag = true;
-            plan
+        // Clone bridge and take &mut ctx to avoid borrow conflicts with self.
+        let bridge = self.bridge.clone();
+        let boa_ctx = &mut self.ctx;
+
+        // Create element wrappers for target and currentTarget.
+        let target_wrapper = bridge.with(|session, dom| {
+            let obj_ref = session.get_or_create_wrapper(event.target, ComponentKind::Element);
+            let is_iframe = Self::is_iframe_entity(dom, event.target);
+            crate::globals::element::create_element_wrapper(
+                event.target,
+                &bridge,
+                obj_ref,
+                boa_ctx,
+                is_iframe,
+            )
+        });
+        let current_target_wrapper = bridge.with(|session, dom| {
+            let obj_ref = session.get_or_create_wrapper(current_target, ComponentKind::Element);
+            let is_iframe = Self::is_iframe_entity(dom, current_target);
+            crate::globals::element::create_element_wrapper(
+                current_target,
+                &bridge,
+                obj_ref,
+                boa_ctx,
+                is_iframe,
+            )
         });
 
-        // Shared flags for JS event methods to write back into the dispatch loop.
+        // Build composedPath() array with per-listener filtering.
+        let filtered_path =
+            bridge.with(|_session, dom| elidex_script_session::composed_path_for_js(event, dom));
+        let composed_path_array = if filtered_path.is_empty() {
+            None
+        } else {
+            let arr = boa_engine::object::builtins::JsArray::new(boa_ctx);
+            for &path_entity in &filtered_path {
+                let wrapper = bridge.with(|session, dom| {
+                    let obj_ref =
+                        session.get_or_create_wrapper(path_entity, ComponentKind::Element);
+                    let is_iframe = Self::is_iframe_entity(dom, path_entity);
+                    crate::globals::element::create_element_wrapper(
+                        path_entity,
+                        &bridge,
+                        obj_ref,
+                        boa_ctx,
+                        is_iframe,
+                    )
+                });
+                let _ = arr.push(wrapper, boa_ctx);
+            }
+            Some(JsValue::from(arr))
+        };
+
+        // Passive listeners: preventDefault() is a no-op — use a disconnected Cell.
         let prevent_default_flag = Rc::new(Cell::new(event.flags.default_prevented));
         let stop_propagation_flag = Rc::new(Cell::new(event.flags.propagation_stopped));
         let stop_immediate_flag = Rc::new(Cell::new(event.flags.immediate_propagation_stopped));
 
-        let bridge = self.bridge.clone();
-        let ctx = &mut self.ctx;
-        let saved_target = event.target;
+        let event_flags = crate::globals::events::EventFlags {
+            prevent_default: if passive {
+                Rc::new(Cell::new(prevent_default_flag.get()))
+            } else {
+                Rc::clone(&prevent_default_flag)
+            },
+            stop_propagation: Rc::clone(&stop_propagation_flag),
+            stop_immediate: Rc::clone(&stop_immediate_flag),
+        };
+        let event_obj = crate::globals::events::create_event_object(
+            event,
+            &target_wrapper,
+            &current_target_wrapper,
+            &event_flags,
+            composed_path_array,
+            boa_ctx,
+        );
 
-        // Phase 2: Iterate the pre-built plan, invoking listeners with bridge.with()
-        // for each DOM access. No aliased borrows.
-        let at_target_slice: &[(Entity, Vec<elidex_script_session::ListenerId>)] = plan
-            .at_target
-            .as_ref()
-            .map_or(&[], |t| std::slice::from_ref(t));
-        #[allow(clippy::type_complexity)]
-        let phases: [(
-            &[(Entity, Vec<elidex_script_session::ListenerId>)],
-            elidex_plugin::EventPhase,
-        ); 3] = [
-            (&plan.capture, elidex_plugin::EventPhase::Capturing),
-            (at_target_slice, elidex_plugin::EventPhase::AtTarget),
-            (&plan.bubble, elidex_plugin::EventPhase::Bubbling),
-        ];
-
-        for (entries, phase) in &phases {
-            // Skip bubble phase if event doesn't bubble.
-            if *phase == elidex_plugin::EventPhase::Bubbling && !event.bubbles {
-                continue;
-            }
-
-            for (entity, listener_ids) in *entries {
-                if stop_propagation_flag.get() {
-                    break;
-                }
-
-                // Retarget for shadow DOM.
-                let retargeted_target = bridge.with(|_session, dom| {
-                    elidex_script_session::retarget(dom, saved_target, *entity)
-                });
-                event.target = retargeted_target;
-                event.current_target = Some(*entity);
-                event.phase = *phase;
-
-                for listener_id in listener_ids {
-                    if stop_immediate_flag.get() {
-                        break;
-                    }
-
-                    // Look up listener metadata for once/passive options.
-                    let (is_once, is_passive) = bridge.with(|_session, dom| {
-                        dom.world()
-                            .get::<&elidex_script_session::EventListeners>(*entity)
-                            .ok()
-                            .map_or((false, false), |listeners| {
-                                listeners
-                                    .find_entry(*listener_id)
-                                    .map_or((false, false), |e| (e.once, e.passive))
-                            })
-                    });
-
-                    let Some(js_func) = bridge.get_listener(*listener_id) else {
-                        continue;
-                    };
-
-                    // WHATWG DOM §2.10 step 15: remove once listeners BEFORE invoking.
-                    if is_once {
-                        bridge.with(|_session, dom| {
-                            if let Ok(mut listeners) =
-                                dom.world_mut()
-                                    .get::<&mut elidex_script_session::EventListeners>(*entity)
-                            {
-                                listeners.remove(*listener_id);
-                            }
-                        });
-                        bridge.remove_listener(*listener_id);
-                    }
-
-                    // Create element wrappers for target and currentTarget.
-                    let target_wrapper = bridge.with(|session, dom| {
+        // UI Events §5.2: resolve relatedTarget for focus events.
+        if let EventPayload::Focus(ref f) = event.payload {
+            if let Some(related_bits) = f.related_target {
+                if let Some(related_entity) = Entity::from_bits(related_bits) {
+                    let wrapper = bridge.with(|session, dom| {
                         let obj_ref =
-                            session.get_or_create_wrapper(event.target, ComponentKind::Element);
-                        let is_iframe = Self::is_iframe_entity(dom, event.target);
+                            session.get_or_create_wrapper(related_entity, ComponentKind::Element);
+                        let is_iframe = Self::is_iframe_entity(dom, related_entity);
                         crate::globals::element::create_element_wrapper(
-                            event.target,
+                            related_entity,
                             &bridge,
                             obj_ref,
-                            ctx,
+                            boa_ctx,
                             is_iframe,
                         )
                     });
-                    let current_target_wrapper = bridge.with(|session, dom| {
-                        let obj_ref =
-                            session.get_or_create_wrapper(*entity, ComponentKind::Element);
-                        let is_iframe = Self::is_iframe_entity(dom, *entity);
-                        crate::globals::element::create_element_wrapper(
-                            *entity, &bridge, obj_ref, ctx, is_iframe,
-                        )
-                    });
-
-                    // Build composedPath() array with per-listener filtering.
-                    let filtered_path = bridge.with(|_session, dom| {
-                        elidex_script_session::composed_path_for_js(event, dom)
-                    });
-                    let composed_path_array = if filtered_path.is_empty() {
-                        None
-                    } else {
-                        let arr = boa_engine::object::builtins::JsArray::new(ctx);
-                        for &path_entity in &filtered_path {
-                            let wrapper = bridge.with(|session, dom| {
-                                let obj_ref = session
-                                    .get_or_create_wrapper(path_entity, ComponentKind::Element);
-                                let is_iframe = Self::is_iframe_entity(dom, path_entity);
-                                crate::globals::element::create_element_wrapper(
-                                    path_entity,
-                                    &bridge,
-                                    obj_ref,
-                                    ctx,
-                                    is_iframe,
-                                )
-                            });
-                            let _ = arr.push(wrapper, ctx);
-                        }
-                        Some(JsValue::from(arr))
-                    };
-
-                    // Passive listeners: event.cancelable stays true (observable),
-                    // but preventDefault() is a no-op — use a disconnected Cell
-                    // seeded with the current state so defaultPrevented is readable.
-                    let event_flags = crate::globals::events::EventFlags {
-                        prevent_default: if is_passive {
-                            Rc::new(Cell::new(prevent_default_flag.get()))
-                        } else {
-                            Rc::clone(&prevent_default_flag)
-                        },
-                        stop_propagation: Rc::clone(&stop_propagation_flag),
-                        stop_immediate: Rc::clone(&stop_immediate_flag),
-                    };
-                    let event_obj = crate::globals::events::create_event_object(
-                        event,
-                        &target_wrapper,
-                        &current_target_wrapper,
-                        &event_flags,
-                        composed_path_array,
-                        ctx,
-                    );
-
-                    // UI Events §5.2: resolve relatedTarget for focus events.
-                    if let EventPayload::Focus(ref f) = event.payload {
-                        if let Some(related_bits) = f.related_target {
-                            if let Some(related_entity) = Entity::from_bits(related_bits) {
-                                let wrapper = bridge.with(|session, dom| {
-                                    let obj_ref = session.get_or_create_wrapper(
-                                        related_entity,
-                                        ComponentKind::Element,
-                                    );
-                                    let is_iframe = Self::is_iframe_entity(dom, related_entity);
-                                    crate::globals::element::create_element_wrapper(
-                                        related_entity,
-                                        &bridge,
-                                        obj_ref,
-                                        ctx,
-                                        is_iframe,
-                                    )
-                                });
-                                if let Some(obj) = event_obj.as_object() {
-                                    let _ =
-                                        obj.set(js_string!("relatedTarget"), wrapper, false, ctx);
-                                }
-                            }
-                        }
+                    if let Some(obj) = event_obj.as_object() {
+                        let _ = obj.set(js_string!("relatedTarget"), wrapper, false, boa_ctx);
                     }
-
-                    // Call the listener function with `this` = currentTarget.
-                    if let Err(err) = js_func.call(&current_target_wrapper, &[event_obj], ctx) {
-                        eprintln!("[JS Event Error] {err}");
-                    }
-
-                    // Microtask checkpoint after each listener (HTML §8.1.7.3).
-                    if let Err(err) = ctx.run_jobs() {
-                        eprintln!("[JS Microtask Error] {err}");
-                    }
-
-                    // Sync flags back.
-                    event.flags.default_prevented = prevent_default_flag.get();
-                    event.flags.propagation_stopped = stop_propagation_flag.get();
-                    event.flags.immediate_propagation_stopped = stop_immediate_flag.get();
                 }
             }
         }
 
-        event.dispatch_flag = false;
-        event.phase = elidex_plugin::EventPhase::None;
-        event.current_target = None;
-        // Restore original target after dispatch (retargeting is per-listener only).
-        event.target = saved_target;
+        // Call the listener function with `this` = currentTarget.
+        if let Err(err) = js_func.call(&current_target_wrapper, &[event_obj], boa_ctx) {
+            eprintln!("[JS Event Error] {err}");
+        }
 
-        event.flags.default_prevented
+        // Microtask checkpoint after each listener (HTML §8.1.7.3).
+        if let Err(err) = boa_ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
+
+        // Sync flags back.
+        event.flags.default_prevented = prevent_default_flag.get();
+        event.flags.propagation_stopped = stop_propagation_flag.get();
+        event.flags.immediate_propagation_stopped = stop_immediate_flag.get();
     }
 
     /// Drain and dispatch all queued events from the session's event queue.
     ///
-    /// Queued events are dispatched via `dispatch_event_inner` (which does
-    /// not recurse into this method). Iterates up to `MAX_EVENT_DRAIN_ITERATIONS`
-    /// to prevent infinite loops from events that enqueue more events.
+    /// Uses `script_dispatch_event_core` (no drain_reactions) to avoid
+    /// infinite recursion — this method is itself called from `drain_reactions`.
     fn drain_queued_events(
         &mut self,
         session: &mut SessionCore,
@@ -527,8 +436,8 @@ impl JsRuntime {
                 let mut event = DispatchEvent::new(&qe.event_type, qe.target);
                 event.cancelable = qe.cancelable;
                 event.payload = qe.payload;
-                // Non-composed by default for form validation events.
-                self.dispatch_event_inner(&mut event, session, dom, document_entity);
+                let mut ctx = ScriptContext::new(session, dom, document_entity);
+                elidex_script_session::script_dispatch_event_core(self, &mut event, &mut ctx);
             }
         }
     }
@@ -915,33 +824,38 @@ pub(crate) fn is_connected_to_document(entity: Entity, dom: &EcsDom) -> bool {
 }
 
 impl ScriptEngine for JsRuntime {
-    fn eval(
-        &mut self,
-        source: &str,
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-        document: Entity,
-    ) -> EvalResult {
-        self.eval(source, session, dom, document)
+    fn eval(&mut self, source: &str, ctx: &mut ScriptContext<'_>) -> EvalResult {
+        // Inherent `eval` is resolved by Rust's method resolution (inherent > trait).
+        self.eval(source, ctx.session, ctx.dom, ctx.document)
     }
 
-    fn dispatch_event(
+    fn call_listener(
         &mut self,
+        listener_id: ListenerId,
         event: &mut DispatchEvent,
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-        document: Entity,
-    ) -> bool {
-        self.dispatch_event(event, session, dom, document)
+        current_target: Entity,
+        passive: bool,
+        ctx: &mut ScriptContext<'_>,
+    ) {
+        self.call_listener_impl(listener_id, event, current_target, passive, ctx);
     }
 
-    fn drain_timers(
-        &mut self,
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-        document: Entity,
-    ) -> Vec<EvalResult> {
-        self.drain_timers(session, dom, document)
+    fn run_microtasks(&mut self, ctx: &mut ScriptContext<'_>) {
+        self.bridge.bind(ctx.session, ctx.dom, ctx.document);
+        let _guard = UnbindGuard(&self.bridge);
+        if let Err(err) = self.ctx.run_jobs() {
+            eprintln!("[JS Microtask Error] {err}");
+        }
+    }
+
+    fn drain_reactions(&mut self, ctx: &mut ScriptContext<'_>) {
+        self.drain_queued_events(ctx.session, ctx.dom, ctx.document);
+        self.drain_custom_element_reactions(ctx.session, ctx.dom, ctx.document);
+    }
+
+    fn drain_timers(&mut self, ctx: &mut ScriptContext<'_>) -> Vec<EvalResult> {
+        // Inherent `drain_timers` is resolved by Rust's method resolution.
+        self.drain_timers(ctx.session, ctx.dom, ctx.document)
     }
 }
 

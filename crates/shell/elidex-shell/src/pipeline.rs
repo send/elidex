@@ -8,7 +8,7 @@ use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
 use elidex_js_boa::JsRuntime;
 use elidex_layout::layout_tree;
-use elidex_script_session::{DispatchEvent, SessionCore};
+use elidex_script_session::{DispatchEvent, ScriptContext, SessionCore};
 
 use elidex_plugin::ViewportOverflow;
 
@@ -79,9 +79,13 @@ pub(super) fn run_scripts_and_finalize(
     }
 
     for source in script_sources {
-        runtime.eval(source, &mut session, dom, document);
+        let mut ctx = ScriptContext::new(&mut session, dom, document);
+        elidex_script_session::ScriptEngine::eval(&mut runtime, source, &mut ctx);
     }
-    runtime.drain_timers(&mut session, dom, document);
+    {
+        let mut ctx = ScriptContext::new(&mut session, dom, document);
+        elidex_script_session::ScriptEngine::drain_timers(&mut runtime, &mut ctx);
+    }
     flush_with_ce_reactions(&mut runtime, &mut session, dom, document);
 
     // Dispatch lifecycle events.
@@ -144,7 +148,11 @@ fn dispatch_lifecycle_events(
     // 2. DOMContentLoaded: bubbles, not cancelable.
     let mut dcl_event = DispatchEvent::new("DOMContentLoaded", document);
     dcl_event.cancelable = false;
-    runtime.dispatch_event(&mut dcl_event, session, dom, document);
+    elidex_script_session::script_dispatch_event(
+        runtime,
+        &mut dcl_event,
+        &mut ScriptContext::new(session, dom, document),
+    );
     flush_with_ce_reactions(runtime, session, dom, document);
 
     // 3. Transition to "complete" and fire readystatechange.
@@ -167,7 +175,11 @@ fn dispatch_lifecycle_events(
     let mut load_event = DispatchEvent::new("load", document);
     load_event.bubbles = false;
     load_event.cancelable = false;
-    runtime.dispatch_event(&mut load_event, session, dom, document);
+    elidex_script_session::script_dispatch_event(
+        runtime,
+        &mut load_event,
+        &mut ScriptContext::new(session, dom, document),
+    );
 }
 
 /// Transition `document.readyState` and dispatch `readystatechange`.
@@ -185,7 +197,11 @@ fn transition_ready_state(
     let mut event = DispatchEvent::new("readystatechange", document);
     event.bubbles = false;
     event.cancelable = false;
-    runtime.dispatch_event(&mut event, session, dom, document);
+    elidex_script_session::script_dispatch_event(
+        runtime,
+        &mut event,
+        &mut ScriptContext::new(session, dom, document),
+    );
     flush_with_ce_reactions(runtime, session, dom, document);
 }
 
@@ -205,7 +221,11 @@ pub(crate) fn dispatch_unload_events(
     let mut beforeunload = DispatchEvent::new("beforeunload", document);
     beforeunload.cancelable = true;
     beforeunload.bubbles = false;
-    let prevented = runtime.dispatch_event(&mut beforeunload, session, dom, document);
+    let prevented = elidex_script_session::script_dispatch_event(
+        runtime,
+        &mut beforeunload,
+        &mut ScriptContext::new(session, dom, document),
+    );
     // Always flush mutations from beforeunload handlers, regardless of
     // whether the event was prevented, so the page state remains consistent.
     flush_with_ce_reactions(runtime, session, dom, document);
@@ -217,7 +237,11 @@ pub(crate) fn dispatch_unload_events(
     let mut unload = DispatchEvent::new("unload", document);
     unload.bubbles = false;
     unload.cancelable = false;
-    runtime.dispatch_event(&mut unload, session, dom, document);
+    elidex_script_session::script_dispatch_event(
+        runtime,
+        &mut unload,
+        &mut ScriptContext::new(session, dom, document),
+    );
     flush_with_ce_reactions(runtime, session, dom, document);
     true
 }

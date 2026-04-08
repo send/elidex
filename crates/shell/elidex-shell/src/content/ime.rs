@@ -90,12 +90,7 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                     start_event.payload = EventPayload::Composition(CompositionEventInit {
                         data: selected_text,
                     });
-                    state.pipeline.runtime.dispatch_event(
-                        &mut start_event,
-                        &mut state.pipeline.session,
-                        &mut state.pipeline.dom,
-                        state.pipeline.document,
-                    );
+                    state.pipeline.dispatch_event(&mut start_event);
                 }
 
                 // Dispatch compositionupdate event.
@@ -103,12 +98,7 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                 event.cancelable = false;
                 event.payload =
                     EventPayload::Composition(CompositionEventInit { data: capped_text });
-                state.pipeline.runtime.dispatch_event(
-                    &mut event,
-                    &mut state.pipeline.session,
-                    &mut state.pipeline.dom,
-                    state.pipeline.document,
-                );
+                state.pipeline.dispatch_event(&mut event);
 
                 // Re-render to show preedit text visually (P12).
                 state.re_render();
@@ -154,12 +144,7 @@ pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
                 end_event.cancelable = false;
                 end_event.payload =
                     EventPayload::Composition(CompositionEventInit { data: text.clone() });
-                state.pipeline.runtime.dispatch_event(
-                    &mut end_event,
-                    &mut state.pipeline.session,
-                    &mut state.pipeline.dom,
-                    state.pipeline.document,
-                );
+                state.pipeline.dispatch_event(&mut end_event);
 
                 // Dispatch input event.
                 dispatch_input_event_typed(state, target, "insertFromComposition", Some(&text));

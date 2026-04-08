@@ -95,12 +95,7 @@ fn dispatch_focus_event_with_related(
     event.payload = EventPayload::Focus(FocusEventInit {
         related_target: related_target.map(|e| e.to_bits().get()),
     });
-    state.pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    state.pipeline.dispatch_event(&mut event);
 }
 
 /// Dispatch "change" event on text control blur when value differs from initial.
@@ -122,12 +117,7 @@ fn dispatch_change_on_blur(state: &mut ContentState, entity: Entity) {
         // "change" event does NOT compose (does not cross shadow boundaries).
         let mut event = DispatchEvent::new("change", entity);
         event.cancelable = false;
-        state.pipeline.runtime.dispatch_event(
-            &mut event,
-            &mut state.pipeline.session,
-            &mut state.pipeline.dom,
-            state.pipeline.document,
-        );
+        state.pipeline.dispatch_event(&mut event);
     }
 }
 

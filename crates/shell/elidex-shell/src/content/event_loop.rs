@@ -72,11 +72,7 @@ pub(super) fn run_event_loop(state: &mut ContentState) {
             .next_timer_deadline()
             .is_some_and(|d| d <= now)
         {
-            state.pipeline.runtime.drain_timers(
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
+            state.pipeline.drain_timers();
             needs_render = true;
         }
 
@@ -281,12 +277,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
                 );
                 resize_event.bubbles = false;
                 resize_event.cancelable = false;
-                state.pipeline.runtime.dispatch_event(
-                    &mut resize_event,
-                    &mut state.pipeline.session,
-                    &mut state.pipeline.dom,
-                    state.pipeline.document,
-                );
+                state.pipeline.dispatch_event(&mut resize_event);
 
                 state.re_render();
                 state.send_display_list();
@@ -301,12 +292,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
             event.bubbles = false;
             event.cancelable = false;
             state.pipeline.runtime.bridge().set_visibility(visible);
-            state.pipeline.runtime.dispatch_event(
-                &mut event,
-                &mut state.pipeline.session,
-                &mut state.pipeline.dom,
-                state.pipeline.document,
-            );
+            state.pipeline.dispatch_event(&mut event);
             state.re_render();
             state.send_display_list();
         }

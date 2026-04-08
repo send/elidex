@@ -372,12 +372,7 @@ fn dispatch_iframe_load_event(state: &mut crate::content::ContentState, iframe_e
     let mut event = elidex_script_session::DispatchEvent::new("load", iframe_entity);
     event.bubbles = false;
     event.cancelable = false;
-    state.pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    state.pipeline.dispatch_event(&mut event);
 }
 
 /// Recursively collect entities with `IframeData` components.
