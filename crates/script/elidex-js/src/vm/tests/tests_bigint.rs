@@ -262,3 +262,20 @@ fn bigint_relational_precision() {
 fn bigint_relational_negative_large() {
     assert!(eval_bool("-9007199254740993n < -9007199254740992"));
 }
+
+#[test]
+fn bigint_as_int_n_coerces_string_arg() {
+    // Second arg coerced via ToBigInt: '255' → 255n
+    assert_eq!(eval_string("BigInt.asIntN(8, '127').toString()"), "127");
+}
+
+#[test]
+fn bigint_as_uint_n_coerces_string_arg() {
+    assert_eq!(eval_string("BigInt.asUintN(8, '256').toString()"), "0");
+}
+
+#[test]
+fn bigint_as_int_n_fractional_bits_truncates() {
+    // ToIndex truncates: 8.5 → 8 (per §7.1.22 ToIntegerOrInfinity).
+    assert_eq!(eval_string("BigInt.asIntN(8.5, 127n).toString()"), "127");
+}

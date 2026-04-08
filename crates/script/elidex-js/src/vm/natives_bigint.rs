@@ -101,24 +101,35 @@ pub(super) fn native_bigint_value_of(
     }
 }
 
+/// Coerce a value to a non-negative integer index (§7.1.22 ToIndex).
+fn to_index(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {
+    let n = super::coerce::to_number(ctx.vm, val)?;
+    let n = n.trunc();
+    if !n.is_finite() || !(0.0..9_007_199_254_740_992.0).contains(&n) {
+        return Err(VmError::range_error("index out of range"));
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Ok(n as u64)
+}
+
+/// Coerce a value to BigInt via ToBigInt (§7.1.13).
+fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmError> {
+    match val {
+        JsValue::BigInt(_) => Ok(val),
+        other => native_bigint_constructor(ctx, JsValue::Undefined, &[other]),
+    }
+}
+
 /// `BigInt.asIntN(bits, bigint)`
 pub(super) fn native_bigint_as_int_n(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let bits = match args.first() {
-        Some(&JsValue::Number(n)) if n >= 0.0 && n < 2.0f64.powi(53) => {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            {
-                n as u64
-            }
-        }
-        _ => return Err(VmError::type_error("expected non-negative number for bits")),
-    };
-    let bi_id = match args.get(1) {
-        Some(JsValue::BigInt(id)) => *id,
-        _ => return Err(VmError::type_error("expected BigInt")),
+    let bits = to_index(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let bi_val = to_bigint(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+    let JsValue::BigInt(bi_id) = bi_val else {
+        unreachable!()
     };
     let bi = ctx.vm.bigints.get(bi_id);
     if bits == 0 {
@@ -143,18 +154,10 @@ pub(super) fn native_bigint_as_uint_n(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let bits = match args.first() {
-        Some(&JsValue::Number(n)) if n >= 0.0 && n < 2.0f64.powi(53) => {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            {
-                n as u64
-            }
-        }
-        _ => return Err(VmError::type_error("expected non-negative number for bits")),
-    };
-    let bi_id = match args.get(1) {
-        Some(JsValue::BigInt(id)) => *id,
-        _ => return Err(VmError::type_error("expected BigInt")),
+    let bits = to_index(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let bi_val = to_bigint(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+    let JsValue::BigInt(bi_id) = bi_val else {
+        unreachable!()
     };
     let bi = ctx.vm.bigints.get(bi_id);
     let modulus = BigIntValue::from(1) << bits;
