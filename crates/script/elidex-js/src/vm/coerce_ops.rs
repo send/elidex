@@ -153,6 +153,17 @@ pub(crate) fn abstract_relational(
         };
     }
 
+    // BigInt vs non-Number (String/Boolean/etc.): coerce the non-BigInt
+    // to Number, then compare BigInt vs Number.
+    if matches!(x, JsValue::BigInt(_)) {
+        let ny = to_number(vm, y)?;
+        return abstract_relational(vm, x, JsValue::Number(ny), left_first);
+    }
+    if matches!(y, JsValue::BigInt(_)) {
+        let nx = to_number(vm, x)?;
+        return abstract_relational(vm, JsValue::Number(nx), y, left_first);
+    }
+
     let (nx, ny) = if left_first {
         (to_number(vm, x)?, to_number(vm, y)?)
     } else {

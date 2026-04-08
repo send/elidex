@@ -34,13 +34,12 @@ pub(super) fn native_bigint_constructor(
         JsValue::String(id) => {
             let s = ctx.vm.strings.get_utf8(id);
             let s = s.trim();
-            if s.is_empty() {
-                BigIntValue::from(0)
-            } else {
-                crate::vm::dispatch_helpers::parse_bigint_literal(s).ok_or_else(|| {
-                    VmError::syntax_error(format!("Cannot convert \"{s}\" to a BigInt"))
-                })?
-            }
+            crate::vm::dispatch_helpers::parse_bigint_literal(s).ok_or_else(|| {
+                VmError::syntax_error(format!(
+                    "Cannot convert \"{}\" to a BigInt",
+                    ctx.vm.strings.get_utf8(id)
+                ))
+            })?
         }
         _ => {
             return Err(VmError::type_error("Cannot convert value to a BigInt"));
@@ -103,6 +102,9 @@ pub(super) fn native_bigint_value_of(
 
 /// Coerce a value to a non-negative integer index (§7.1.22 ToIndex).
 fn to_index(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {
+    if matches!(val, JsValue::Undefined) {
+        return Ok(0);
+    }
     let n = super::coerce::to_number(ctx.vm, val)?;
     let n = n.trunc();
     if !n.is_finite() || !(0.0..9_007_199_254_740_992.0).contains(&n) {
@@ -120,6 +122,9 @@ fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmErr
     }
 }
 
+/// Maximum bit-width for asIntN/asUintN to prevent OOM from `1 << bits`.
+const MAX_AS_INT_BITS: u64 = 1_000_000;
+
 /// `BigInt.asIntN(bits, bigint)`
 pub(super) fn native_bigint_as_int_n(
     ctx: &mut NativeContext<'_>,
@@ -127,6 +132,9 @@ pub(super) fn native_bigint_as_int_n(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let bits = to_index(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    if bits > MAX_AS_INT_BITS {
+        return Err(VmError::range_error("bit width too large"));
+    }
     let bi_val = to_bigint(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
     let JsValue::BigInt(bi_id) = bi_val else {
         unreachable!()
@@ -155,6 +163,9 @@ pub(super) fn native_bigint_as_uint_n(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let bits = to_index(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    if bits > MAX_AS_INT_BITS {
+        return Err(VmError::range_error("bit width too large"));
+    }
     let bi_val = to_bigint(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
     let JsValue::BigInt(bi_id) = bi_val else {
         unreachable!()
@@ -195,8 +206,8 @@ fn bigint_to_radix_string(bi: &BigIntValue, radix: u32) -> String {
     if digits.is_empty() {
         s.push('0');
     } else {
-        for d in &digits {
-            let c = if *d < 10 {
+        for &d in &digits {
+            let c = if d < 10 {
                 (b'0' + d) as char
             } else {
                 (b'a' + d - 10) as char
