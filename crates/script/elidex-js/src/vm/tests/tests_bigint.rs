@@ -227,3 +227,38 @@ fn bigint_large_value() {
 fn bigint_string_concat() {
     assert_eq!(eval_string("'' + 42n"), "42");
 }
+
+// ─── Copilot review: additional coverage ────────────────────────────────
+
+#[test]
+fn bigint_from_hex_string() {
+    assert_eq!(eval_string("BigInt('0xFF').toString()"), "255");
+}
+
+#[test]
+fn bigint_from_binary_string() {
+    assert_eq!(eval_string("BigInt('0b1010').toString()"), "10");
+}
+
+#[test]
+fn bigint_from_octal_string() {
+    assert_eq!(eval_string("BigInt('0o77').toString()"), "63");
+}
+
+#[test]
+fn bigint_to_string_radix_coercion() {
+    // Radix is coerced via ToNumber: string '16' → 16.
+    assert_eq!(eval_string("(255n).toString('16')"), "ff");
+}
+
+#[test]
+fn bigint_relational_precision() {
+    // 2^53 + 1 cannot be represented exactly as f64 (rounds to 2^53).
+    // The comparison must still be correct.
+    assert!(eval_bool("9007199254740993n > 9007199254740992"));
+}
+
+#[test]
+fn bigint_relational_negative_large() {
+    assert!(eval_bool("-9007199254740993n < -9007199254740992"));
+}

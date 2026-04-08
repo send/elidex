@@ -512,12 +512,38 @@ fn bigint_binary(
     Ok(JsValue::BigInt(id))
 }
 
-/// Convert a `num_bigint::BigInt` to f64 (lossy but spec-compliant for
-/// cross-type relational comparison). Delegates to `num_traits::ToPrimitive`
-/// which constructs the f64 directly from limbs (zero allocation).
-fn bigint_to_f64(bi: &BigIntValue) -> f64 {
-    use num_traits::ToPrimitive;
-    bi.to_f64().unwrap_or(f64::INFINITY)
+/// Exact comparison of a BigInt against a Number (§6.1.6.2.14).
+/// Returns `None` if the Number is NaN, otherwise the ordering.
+fn compare_bigint_number(bi: &BigIntValue, n: f64) -> Option<std::cmp::Ordering> {
+    use num_traits::FromPrimitive;
+    use std::cmp::Ordering;
+
+    if n.is_nan() {
+        return None;
+    }
+    if n == f64::INFINITY {
+        return Some(Ordering::Less);
+    }
+    if n == f64::NEG_INFINITY {
+        return Some(Ordering::Greater);
+    }
+
+    let n_floor = n.floor();
+    // from_f64 is exact for finite integer f64 values.
+    let n_bi = BigIntValue::from_f64(n_floor).unwrap();
+
+    match bi.cmp(&n_bi) {
+        Ordering::Less => Some(Ordering::Less),
+        Ordering::Greater => Some(Ordering::Greater),
+        Ordering::Equal => {
+            if n == n_floor {
+                Some(Ordering::Equal)
+            } else {
+                // bi == floor(n) but n > floor(n), so bi < n
+                Some(Ordering::Less)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -551,19 +577,15 @@ pub(crate) fn abstract_relational(
     if let (JsValue::BigInt(a), JsValue::BigInt(b)) = (x, y) {
         return Ok(Some(vm.bigints.get(a) < vm.bigints.get(b)));
     }
-    #[allow(clippy::cast_precision_loss)]
     if let (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) =
         (x, y)
     {
-        if n.is_nan() {
-            return Ok(None);
-        }
-        // Lossy but spec-compliant: convert BigInt to f64 for comparison.
-        let bi_f64 = bigint_to_f64(vm.bigints.get(bi));
+        use std::cmp::Ordering;
+        let cmp = compare_bigint_number(vm.bigints.get(bi), n);
         return if matches!(x, JsValue::BigInt(_)) {
-            Ok(Some(bi_f64 < n))
+            Ok(cmp.map(|o| o == Ordering::Less))
         } else {
-            Ok(Some(n < bi_f64))
+            Ok(cmp.map(|o| o == Ordering::Greater))
         };
     }
 
@@ -594,30 +616,30 @@ pub(crate) fn op_bitwise(
 ) -> Result<JsValue, VmError> {
     // BigInt path — mixed BigInt+Number is TypeError.
     if let (JsValue::BigInt(ai), JsValue::BigInt(bi)) = (lhs, rhs) {
-        let a = vm.bigints.get(ai).clone();
-        let b = vm.bigints.get(bi).clone();
+        let a = vm.bigints.get(ai);
+        let b = vm.bigints.get(bi);
         let result = match op {
             BitwiseOp::And => a & b,
             BitwiseOp::Or => a | b,
             BitwiseOp::Xor => a ^ b,
             BitwiseOp::Shl => {
-                let shift: i64 = (&b)
+                let shift: i64 = b
                     .try_into()
                     .map_err(|_| VmError::range_error("BigInt shift amount too large"))?;
                 if shift >= 0 {
-                    a << shift.cast_unsigned()
+                    a.clone() << shift.cast_unsigned()
                 } else {
-                    a >> (-shift).cast_unsigned()
+                    a.clone() >> (-shift).cast_unsigned()
                 }
             }
             BitwiseOp::Shr => {
-                let shift: i64 = (&b)
+                let shift: i64 = b
                     .try_into()
                     .map_err(|_| VmError::range_error("BigInt shift amount too large"))?;
                 if shift >= 0 {
-                    a >> shift.cast_unsigned()
+                    a.clone() >> shift.cast_unsigned()
                 } else {
-                    a << (-shift).cast_unsigned()
+                    a.clone() << (-shift).cast_unsigned()
                 }
             }
             BitwiseOp::UShr => {

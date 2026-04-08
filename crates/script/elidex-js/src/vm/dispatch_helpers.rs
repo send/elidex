@@ -12,7 +12,7 @@ use super::value::{
 use super::VmInner;
 
 /// Parse a BigInt literal string that may have 0x/0b/0o prefix.
-fn parse_bigint_literal(s: &str) -> Option<BigInt> {
+pub(super) fn parse_bigint_literal(s: &str) -> Option<BigInt> {
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         BigInt::parse_bytes(hex.as_bytes(), 16)
     } else if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {

@@ -18,7 +18,7 @@ pub(super) fn native_bigint_constructor(
         JsValue::Number(n) => {
             if !n.is_finite() || n.fract() != 0.0 {
                 return Err(VmError::range_error(
-                    "The number is not safe to convert to a BigInt",
+                    "Cannot convert non-finite or non-integer number to a BigInt",
                 ));
             }
             // Use i64 for safe integers, string roundtrip for larger values.
@@ -37,7 +37,7 @@ pub(super) fn native_bigint_constructor(
             if s.is_empty() {
                 BigIntValue::from(0)
             } else {
-                s.parse::<BigIntValue>().map_err(|_| {
+                crate::vm::dispatch_helpers::parse_bigint_literal(s).ok_or_else(|| {
                     VmError::syntax_error(format!("Cannot convert \"{s}\" to a BigInt"))
                 })?
             }
@@ -57,18 +57,18 @@ pub(super) fn native_bigint_to_string(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let bi = this_bigint_value(ctx, this)?;
-    let radix = match args.first() {
-        Some(&JsValue::Number(n)) => {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let r = n as u32;
-            if !(2..=36).contains(&r) || (f64::from(r) - n).abs() > f64::EPSILON {
+    let radix = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => 10,
+        val => {
+            let n = super::coerce::to_number(ctx.vm, val)?;
+            let n = n.trunc();
+            if !n.is_finite() || !(2.0..=36.0).contains(&n) {
                 return Err(VmError::range_error("radix must be between 2 and 36"));
             }
-            r
-        }
-        Some(JsValue::Undefined) | None => 10,
-        _ => {
-            return Err(VmError::range_error("radix must be between 2 and 36"));
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                n as u32
+            }
         }
     };
     let s = if radix == 10 {
