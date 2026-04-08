@@ -3,6 +3,7 @@
 //! Implements ES2020 abstract operations: ToNumber, ToString, ToBoolean,
 //! ToInt32, ToUint32, and the equality/relational/arithmetic operators.
 
+use super::coerce_format::write_number_es;
 use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, StringId, VmError};
 use super::VmInner;
 use num_bigint::BigInt as BigIntValue;
@@ -240,6 +241,7 @@ pub(crate) fn to_display_string(vm: &mut VmInner, val: JsValue) -> StringId {
 }
 
 /// Convert a number to its string representation and intern it.
+/// Uses ES §7.1.12.1 Number::toString formatting.
 fn number_to_string_id(vm: &mut VmInner, n: f64) -> StringId {
     if n.is_nan() {
         return vm.well_known.nan;
@@ -254,18 +256,9 @@ fn number_to_string_id(vm: &mut VmInner, n: f64) -> StringId {
     if n == 0.0 {
         return vm.well_known.zero;
     }
-    // Use integer format if the number is a safe integer.
-    #[allow(clippy::cast_precision_loss)] // round-trip check is intentional
-    let s = if n == (n as i64 as f64) && n.abs() < 1e15 {
-        format!("{}", n as i64)
-    } else {
-        // Use Rust's default f64 Display which matches JS for most values.
-        let s = format!("{n}");
-        // JS uses "1e+21" style for very large numbers, Rust may differ.
-        // For M4-10 this is acceptable; full Number.prototype.toString in M4-10.2.
-        s
-    };
-    vm.strings.intern(&s)
+    let mut buf = String::with_capacity(24);
+    write_number_es(n, &mut buf);
+    vm.strings.intern(&buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -440,11 +433,10 @@ pub(crate) fn typeof_str(vm: &VmInner, val: JsValue) -> StringId {
         JsValue::BigInt(_) => vm.well_known.bigint_type,
         JsValue::Object(id) => {
             if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
-                match &obj.kind {
-                    ObjectKind::Function(_)
-                    | ObjectKind::BoundFunction { .. }
-                    | ObjectKind::NativeFunction(_) => vm.well_known.function_type,
-                    _ => vm.well_known.object_type,
+                if obj.kind.is_callable() {
+                    vm.well_known.function_type
+                } else {
+                    vm.well_known.object_type
                 }
             } else {
                 vm.well_known.object_type

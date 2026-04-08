@@ -1,6 +1,7 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
 mod tests_bigint;
+mod tests_json;
 mod tests_m4_10_2;
 mod tests_m4_11;
 
@@ -601,13 +602,11 @@ fn eval_type_error_constructor() {
 }
 
 #[test]
-fn eval_json_stubs() {
-    // JSON stubs return undefined for M4-10.
-    assert!(matches!(
-        eval("JSON.stringify({});"),
-        Ok(JsValue::Undefined)
-    ));
-    assert!(matches!(eval("JSON.parse('{}');"), Ok(JsValue::Undefined)));
+fn eval_json_basic() {
+    // JSON.stringify returns a string for objects.
+    assert_eq!(eval_string("JSON.stringify({})"), "{}");
+    // JSON.parse returns an object for "{}".
+    assert!(matches!(eval("JSON.parse('{}')"), Ok(JsValue::Object(_))));
 }
 
 // ── StringPool / Object heap / Globals tests ────────────────────
