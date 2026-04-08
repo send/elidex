@@ -180,21 +180,40 @@ impl VmInner {
         }
     }
 
-    /// Compute the effective `this` for a call (non-method: this=Undefined).
+    /// Compute the effective `this` for a call, applying §9.2.1.2
+    /// OrdinaryCallBindThis: Global mode coerces null/undefined to globalThis
+    /// and boxes primitives via ToObject.
     fn compute_this_for_call(
-        &self,
+        &mut self,
         this_mode: super::value::ThisMode,
         receiver: JsValue,
         captured_this: Option<JsValue>,
     ) -> JsValue {
         match this_mode {
             super::value::ThisMode::Lexical => captured_this.unwrap_or(JsValue::Undefined),
-            super::value::ThisMode::Global => match receiver {
-                JsValue::Undefined | JsValue::Null => JsValue::Object(self.global_object),
-                _ => receiver,
-            },
+            super::value::ThisMode::Global => self.bind_this_global(receiver),
             super::value::ThisMode::Strict => receiver,
         }
+    }
+
+    /// Try the call IC fast path. Returns `Some(JsCalleeInfo)` on hit.
+    fn try_call_ic(
+        &self,
+        caller_func_id: FuncId,
+        call_ic_idx: usize,
+        callee_id: super::value::ObjectId,
+    ) -> Option<JsCalleeInfo> {
+        let ic = self.compiled_functions[caller_func_id.0 as usize]
+            .call_ic_slots
+            .get(call_ic_idx)?
+            .as_ref()
+            .filter(|ic| ic.callee == callee_id)?;
+        Some(JsCalleeInfo {
+            func_id: ic.func_id,
+            upvalue_ids: ic.upvalue_ids.clone(),
+            this_mode: ic.this_mode,
+            captured_this: ic.captured_this,
+        })
     }
 
     /// Call with IC. For JS callees, pushes a frame inline (single dispatcher).
@@ -212,6 +231,18 @@ impl VmInner {
             return Err(VmError::type_error("not a function"));
         };
 
+        // IC hit: skip object-table lookup entirely.
+        if let Some(callee) = self.try_call_ic(caller_func_id, call_ic_idx, callee_id) {
+            let this = self.compute_this_for_call(
+                callee.this_mode,
+                JsValue::Undefined,
+                callee.captured_this,
+            );
+            self.push_js_call_frame(callee, this, argc, 1, None);
+            return Ok(());
+        }
+
+        // IC miss: extract callee info from object.
         if let Some(callee) = self.extract_js_callee(callee_id) {
             let this = self.compute_this_for_call(
                 callee.this_mode,
@@ -248,6 +279,18 @@ impl VmInner {
             return Err(VmError::type_error("not a function"));
         };
 
+        // IC hit: skip object-table lookup entirely.
+        if let Some(callee_info) = self.try_call_ic(caller_func_id, call_ic_idx, callee_id) {
+            let this = self.compute_this_for_call(
+                callee_info.this_mode,
+                receiver,
+                callee_info.captured_this,
+            );
+            self.push_js_call_frame(callee_info, this, argc, 2, None);
+            return Ok(());
+        }
+
+        // IC miss: extract callee info from object.
         if let Some(callee_info) = self.extract_js_callee(callee_id) {
             let this = self.compute_this_for_call(
                 callee_info.this_mode,

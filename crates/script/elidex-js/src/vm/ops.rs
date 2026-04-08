@@ -375,7 +375,7 @@ impl VmInner {
     }
 
     /// `new` constructor call. For JS constructors, pushes a frame inline
-    /// with `new_target` set (single dispatcher); the Return opcode handles
+    /// with `new_instance` set (single dispatcher); the Return opcode handles
     /// the "if constructor returns non-object, use instance" logic.
     /// For native constructors, calls synchronously.
     pub(crate) fn do_new(&mut self, argc: usize) -> Result<(), VmError> {
@@ -411,7 +411,7 @@ impl VmInner {
         };
 
         // GC safety: suppress GC during alloc_object. The instance is rooted
-        // via CallFrame.new_target (JS) or this_value (JS) / Rust local (native)
+        // via CallFrame.new_instance (JS) or this_value (JS) / Rust local (native)
         // immediately after allocation.
         let saved_gc = self.gc_enabled;
         self.gc_enabled = false;

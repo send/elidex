@@ -601,9 +601,10 @@ pub struct CallFrame {
     /// Stack position to truncate to on return (accounts for callee/receiver
     /// slots below `base` that the caller left on the stack).
     pub cleanup_base: usize,
-    /// For `new` calls: the instance `ObjectId` to return if the constructor
-    /// does not return an object.
-    pub new_target: Option<ObjectId>,
+    /// For `new` calls: the constructed instance to return if the constructor
+    /// does not return an object. Not ECMAScript `new.target` (which refers
+    /// to the constructor function).
+    pub new_instance: Option<ObjectId>,
     /// Saved `completion_value` from the parent scope, restored on return.
     pub saved_completion: JsValue,
 }

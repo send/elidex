@@ -991,13 +991,13 @@ impl VmInner {
     /// Pop a non-entry call frame pushed by the single dispatcher, restore
     /// parent state, and push the return value onto the caller's stack.
     ///
-    /// Handles constructor semantics: if `new_target` is set and `return_value`
+    /// Handles constructor semantics: if `new_instance` is set and `return_value`
     /// is not an object, the instance is returned instead.
     fn complete_inline_frame(&mut self, return_value: JsValue) {
         let frame = self.frames.pop().unwrap();
         self.close_upvalues(&frame.local_upvalue_ids);
         self.completion_value = frame.saved_completion;
-        let final_val = if let Some(instance_id) = frame.new_target {
+        let final_val = if let Some(instance_id) = frame.new_instance {
             if matches!(return_value, JsValue::Object(_)) {
                 return_value
             } else {

@@ -49,47 +49,7 @@ impl VmInner {
                     super::value::ThisMode::Lexical => {
                         fo.captured_this.unwrap_or(JsValue::Undefined)
                     }
-                    super::value::ThisMode::Global => {
-                        // §9.2.1.2 OrdinaryCallBindThis:
-                        // Step 5: undefined/null → globalThis
-                        // Step 6.b.ii: primitive → ToObject wrapper
-                        match this {
-                            JsValue::Undefined | JsValue::Null => {
-                                JsValue::Object(self.global_object)
-                            }
-                            JsValue::Number(n) => {
-                                let wrapper = self.alloc_object(super::value::Object {
-                                    kind: ObjectKind::NumberWrapper(n),
-                                    storage: super::value::PropertyStorage::shaped(
-                                        super::shape::ROOT_SHAPE,
-                                    ),
-                                    prototype: self.number_prototype,
-                                });
-                                JsValue::Object(wrapper)
-                            }
-                            JsValue::String(s) => {
-                                let wrapper = self.alloc_object(super::value::Object {
-                                    kind: ObjectKind::StringWrapper(s),
-                                    storage: super::value::PropertyStorage::shaped(
-                                        super::shape::ROOT_SHAPE,
-                                    ),
-                                    prototype: self.string_prototype,
-                                });
-                                JsValue::Object(wrapper)
-                            }
-                            JsValue::Boolean(b) => {
-                                let wrapper = self.alloc_object(super::value::Object {
-                                    kind: ObjectKind::BooleanWrapper(b),
-                                    storage: super::value::PropertyStorage::shaped(
-                                        super::shape::ROOT_SHAPE,
-                                    ),
-                                    prototype: self.boolean_prototype,
-                                });
-                                JsValue::Object(wrapper)
-                            }
-                            _ => this,
-                        }
-                    }
+                    super::value::ThisMode::Global => self.bind_this_global(this),
                     super::value::ThisMode::Strict => this,
                 };
                 self.call_internal(func_id, effective_this, args, &upvalue_ids)
@@ -157,7 +117,7 @@ impl VmInner {
                 None
             },
             cleanup_base: base,
-            new_target: None,
+            new_instance: None,
             saved_completion,
         });
 
@@ -189,7 +149,7 @@ impl VmInner {
         this: JsValue,
         argc: usize,
         cleanup_offset: usize,
-        new_target: Option<ObjectId>,
+        new_instance: Option<ObjectId>,
     ) {
         let base = self.stack.len() - argc;
         let cleanup_base = base - cleanup_offset;
@@ -235,9 +195,42 @@ impl VmInner {
             tdz_overflow,
             actual_args,
             cleanup_base,
-            new_target,
+            new_instance,
             saved_completion,
         });
+    }
+
+    /// §9.2.1.2 OrdinaryCallBindThis for Global (non-strict) this mode:
+    /// undefined/null → globalThis, primitives → ToObject wrapper.
+    pub(crate) fn bind_this_global(&mut self, this: JsValue) -> JsValue {
+        match this {
+            JsValue::Undefined | JsValue::Null => JsValue::Object(self.global_object),
+            JsValue::Number(n) => {
+                let wrapper = self.alloc_object(super::value::Object {
+                    kind: ObjectKind::NumberWrapper(n),
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                    prototype: self.number_prototype,
+                });
+                JsValue::Object(wrapper)
+            }
+            JsValue::String(s) => {
+                let wrapper = self.alloc_object(super::value::Object {
+                    kind: ObjectKind::StringWrapper(s),
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                    prototype: self.string_prototype,
+                });
+                JsValue::Object(wrapper)
+            }
+            JsValue::Boolean(b) => {
+                let wrapper = self.alloc_object(super::value::Object {
+                    kind: ObjectKind::BooleanWrapper(b),
+                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                    prototype: self.boolean_prototype,
+                });
+                JsValue::Object(wrapper)
+            }
+            _ => this,
+        }
     }
 
     /// Run a function as the initial (or only) frame.
