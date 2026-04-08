@@ -97,11 +97,7 @@ pub(super) fn iframe_thread_main(
             .next_timer_deadline()
             .is_some_and(|d| d <= now)
         {
-            pipeline.runtime.drain_timers(
-                &mut pipeline.session,
-                &mut pipeline.dom,
-                pipeline.document,
-            );
+            pipeline.drain_timers();
         }
 
         // Re-render and send updated display list.
@@ -143,12 +139,7 @@ fn dispatch_click_in_pipeline(
             event.cancelable = false;
         }
         event.payload = elidex_plugin::EventPayload::Mouse(mouse_init.clone());
-        pipeline.runtime.dispatch_event(
-            &mut event,
-            &mut pipeline.session,
-            &mut pipeline.dom,
-            pipeline.document,
-        );
+        pipeline.dispatch_event(&mut event);
     }
 }
 
@@ -172,12 +163,7 @@ fn dispatch_key_in_pipeline(
     let mut event =
         elidex_script_session::DispatchEvent::new_composed(event_type, pipeline.document);
     event.payload = elidex_plugin::EventPayload::Keyboard(init);
-    pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut pipeline.session,
-        &mut pipeline.dom,
-        pipeline.document,
-    );
+    pipeline.dispatch_event(&mut event);
 }
 
 fn dispatch_message_in_pipeline(pipeline: &mut crate::PipelineResult, data: &str, origin: &str) {
@@ -190,12 +176,7 @@ fn dispatch_message_in_pipeline(pipeline: &mut crate::PipelineResult, data: &str
         origin: origin.to_string(),
         last_event_id: String::new(),
     };
-    pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut pipeline.session,
-        &mut pipeline.dom,
-        pipeline.document,
-    );
+    pipeline.dispatch_event(&mut event);
 }
 
 /// Handle Navigate in OOP iframe: rebuild pipeline, applying sandbox origin (B1 fix).

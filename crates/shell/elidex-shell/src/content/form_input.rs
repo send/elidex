@@ -65,12 +65,7 @@ pub(super) fn handle_label_click(
     // Dispatch a synthetic click event on the target control.
     let mut synthetic_click = DispatchEvent::new_composed("click", target);
     synthetic_click.payload = EventPayload::Mouse(MouseEventInit::default());
-    let prevented = state.pipeline.runtime.dispatch_event(
-        &mut synthetic_click,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    let prevented = state.pipeline.dispatch_event(&mut synthetic_click);
 
     // If the target is a checkbox, toggle it (unless already toggled by direct click
     // or the synthetic click was prevented).
@@ -88,12 +83,7 @@ pub(super) fn dispatch_state_change_events(state: &mut ContentState, target: Ent
     // DOM spec: "change" event is NOT composed (does not cross shadow boundaries).
     let mut change_event = DispatchEvent::new("change", target);
     change_event.cancelable = false;
-    state.pipeline.runtime.dispatch_event(
-        &mut change_event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    state.pipeline.dispatch_event(&mut change_event);
 }
 
 /// Dispatch an "input" event on the given entity (HTML spec §4.10.5.5).
@@ -121,12 +111,7 @@ pub(super) fn dispatch_input_event_typed(
         data: data.map(String::from),
         is_composing: false,
     });
-    state.pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    state.pipeline.dispatch_event(&mut event);
 }
 
 /// Handle implicit form submission (Enter on text input/password).
@@ -150,12 +135,7 @@ pub(super) fn handle_form_submit(state: &mut ContentState, target: Entity) {
     // Dispatch the "submit" event on the form element.
     let mut submit_event = DispatchEvent::new("submit", form_entity);
     submit_event.cancelable = true;
-    let prevented = state.pipeline.runtime.dispatch_event(
-        &mut submit_event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    let prevented = state.pipeline.dispatch_event(&mut submit_event);
 
     if !prevented {
         let mut submission =
@@ -272,12 +252,7 @@ pub(super) fn handle_form_reset(state: &mut ContentState, target: Entity) {
 
     let mut reset_event = DispatchEvent::new("reset", form_entity);
     reset_event.cancelable = true;
-    let prevented = state.pipeline.runtime.dispatch_event(
-        &mut reset_event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    let prevented = state.pipeline.dispatch_event(&mut reset_event);
 
     if !prevented {
         elidex_form::reset_form(&mut state.pipeline.dom, form_entity);

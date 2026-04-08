@@ -61,11 +61,7 @@ pub(in crate::content) fn tick_iframe_timers(state: &mut crate::content::Content
                 .next_timer_deadline()
                 .is_some_and(|d| d <= now)
             {
-                ip.pipeline.runtime.drain_timers(
-                    &mut ip.pipeline.session,
-                    &mut ip.pipeline.dom,
-                    ip.pipeline.document,
-                );
+                ip.pipeline.drain_timers();
                 ip.needs_render = true;
             }
         }

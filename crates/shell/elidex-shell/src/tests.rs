@@ -22,12 +22,7 @@ fn simulate_click(result: &mut PipelineResult, entity: Entity) {
         client_y: 50.0,
         ..Default::default()
     });
-    result.runtime.dispatch_event(
-        &mut event,
-        &mut result.session,
-        &mut result.dom,
-        result.document,
-    );
+    result.dispatch_event(&mut event);
     re_render(result);
 }
 
@@ -400,12 +395,15 @@ fn domcontentloaded_fires_before_load() {
     let mut session = result.session;
     let mut dom = result.dom;
     let mut runtime = result.runtime;
-    runtime.eval(
-        "console.log('order=' + order.join(','));",
-        &mut session,
-        &mut dom,
-        result.document,
-    );
+    {
+        let mut ctx =
+            elidex_script_session::ScriptContext::new(&mut session, &mut dom, result.document);
+        elidex_script_session::ScriptEngine::eval(
+            &mut runtime,
+            "console.log('order=' + order.join(','));",
+            &mut ctx,
+        );
+    }
     let messages = runtime.console_output().messages();
     assert!(
         messages.iter().any(|m| m.1.contains("order=dcl,load")),
@@ -794,12 +792,7 @@ fn transition_event_dispatched_to_js_listener() {
         elapsed_time: 0.3,
         pseudo_element: String::new(),
     });
-    result.runtime.dispatch_event(
-        &mut event,
-        &mut result.session,
-        &mut result.dom,
-        result.document,
-    );
+    result.dispatch_event(&mut event);
 
     let messages = result.runtime.console_output().messages();
     assert!(
@@ -830,12 +823,7 @@ fn animation_event_dispatched_to_js_listener() {
         elapsed_time: 1.0,
         pseudo_element: String::new(),
     });
-    result.runtime.dispatch_event(
-        &mut event,
-        &mut result.session,
-        &mut result.dom,
-        result.document,
-    );
+    result.dispatch_event(&mut event);
 
     let messages = result.runtime.console_output().messages();
     assert!(

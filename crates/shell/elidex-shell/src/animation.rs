@@ -385,12 +385,7 @@ pub(crate) fn dispatch_anim_events(events: &[(u64, AnimationEvent)], result: &mu
         let mut dispatch = DispatchEvent::new_composed(event_type, entity);
         dispatch.cancelable = false;
         dispatch.payload = payload;
-        result.runtime.dispatch_event(
-            &mut dispatch,
-            &mut result.session,
-            &mut result.dom,
-            result.document,
-        );
+        result.dispatch_event(&mut dispatch);
     }
 }
 

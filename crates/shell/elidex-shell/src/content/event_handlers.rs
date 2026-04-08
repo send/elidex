@@ -91,12 +91,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
             event.cancelable = false;
         }
         event.payload = EventPayload::Mouse(mouse_init.clone());
-        let prevented = state.pipeline.runtime.dispatch_event(
-            &mut event,
-            &mut state.pipeline.session,
-            &mut state.pipeline.dom,
-            state.pipeline.document,
-        );
+        let prevented = state.pipeline.dispatch_event(&mut event);
         if *event_type == "click" {
             click_prevented = prevented;
         }
@@ -326,12 +321,7 @@ pub(super) fn handle_key(
     let mut event = DispatchEvent::new_composed(event_type, target);
     event.payload = EventPayload::Keyboard(init);
 
-    let default_prevented = state.pipeline.runtime.dispatch_event(
-        &mut event,
-        &mut state.pipeline.session,
-        &mut state.pipeline.dom,
-        state.pipeline.document,
-    );
+    let default_prevented = state.pipeline.dispatch_event(&mut event);
 
     // Tab/Shift+Tab: move focus to next/previous focusable element.
     if event_type == "keydown" && !default_prevented && key == "Tab" {
@@ -588,12 +578,7 @@ fn handle_key_widget(
                 // S15: Checkbox Space fires a synthetic click event.
                 let mut click_event = DispatchEvent::new_composed("click", target);
                 click_event.payload = EventPayload::Mouse(MouseEventInit::default());
-                state.pipeline.runtime.dispatch_event(
-                    &mut click_event,
-                    &mut state.pipeline.session,
-                    &mut state.pipeline.dom,
-                    state.pipeline.document,
-                );
+                state.pipeline.dispatch_event(&mut click_event);
                 dispatch_state_change_events(state, target);
             }
         }
@@ -804,12 +789,7 @@ pub(super) fn try_route_click_to_iframe(
                         event.cancelable = false;
                     }
                     event.payload = elidex_plugin::EventPayload::Mouse(mouse_init.clone());
-                    iframe.pipeline.runtime.dispatch_event(
-                        &mut event,
-                        &mut iframe.pipeline.session,
-                        &mut iframe.pipeline.dom,
-                        iframe.pipeline.document,
-                    );
+                    iframe.pipeline.dispatch_event(&mut event);
                 }
             }
             iframe.needs_render = true;
@@ -858,12 +838,7 @@ pub(super) fn try_route_key_to_iframe(
                     let mut event =
                         elidex_script_session::DispatchEvent::new_composed(event_type, target);
                     event.payload = elidex_plugin::EventPayload::Keyboard(init);
-                    iframe.pipeline.runtime.dispatch_event(
-                        &mut event,
-                        &mut iframe.pipeline.session,
-                        &mut iframe.pipeline.dom,
-                        iframe.pipeline.document,
-                    );
+                    iframe.pipeline.dispatch_event(&mut event);
                     iframe.needs_render = true;
                 }
             }
