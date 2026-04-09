@@ -402,11 +402,11 @@ impl VmInner {
                     let obj_ref = self.get_object(id);
                     match &obj_ref.kind {
                         ObjectKind::Array { ref elements } => {
-                            return Ok(elements
-                                .get(idx)
-                                .copied()
-                                .unwrap_or(JsValue::Empty)
-                                .or_undefined());
+                            let elem = elements.get(idx).copied().unwrap_or(JsValue::Empty);
+                            if !elem.is_empty() {
+                                return Ok(elem);
+                            }
+                            // Hole or out-of-range: fall through to property/prototype lookup.
                         }
                         ObjectKind::Arguments { ref values } if idx < values.len() => {
                             return Ok(values[idx]);

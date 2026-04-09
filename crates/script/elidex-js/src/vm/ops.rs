@@ -37,9 +37,9 @@ pub(crate) fn try_as_array_index(n: f64) -> Option<usize> {
     }
 }
 
-/// Parse a WTF-16 string as a non-negative integer array index (e.g. "0", "42").
+/// Parse a WTF-16 string as a valid ES array index (0..=2^32−2).
 /// Returns `None` for empty strings, leading zeros (except "0"), non-digit chars,
-/// or overflow.
+/// overflow, or values beyond the ES array index range.
 pub(crate) fn parse_array_index_u16(units: &[u16]) -> Option<usize> {
     if units.is_empty() {
         return None;
@@ -55,6 +55,9 @@ pub(crate) fn parse_array_index_u16(units: &[u16]) -> Option<usize> {
             return None;
         }
         n = n.checked_mul(10)?.checked_add(digit as usize)?;
+    }
+    if n > MAX_ES_ARRAY_INDEX {
+        return None;
     }
     Some(n)
 }
