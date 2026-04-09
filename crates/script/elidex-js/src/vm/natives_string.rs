@@ -1,5 +1,6 @@
 //! Native implementations of String.prototype methods.
 
+use super::ops::MAX_DENSE_ARRAY_LEN;
 use super::value::{
     JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, StringId, VmError,
 };
@@ -364,6 +365,9 @@ pub(super) fn native_string_split(
     if sep.is_empty() {
         // Split into individual code units — no full-string clone needed.
         let len = ctx.get_u16(sid).len();
+        if len >= MAX_DENSE_ARRAY_LEN {
+            return Err(VmError::range_error("Array allocation failed"));
+        }
         for i in 0..len {
             let unit = ctx.get_u16(sid)[i];
             let id = ctx.intern_utf16(&[unit]);
@@ -383,6 +387,9 @@ pub(super) fn native_string_split(
                 ranges.push((start, s_len));
                 break;
             }
+        }
+        if ranges.len() >= MAX_DENSE_ARRAY_LEN {
+            return Err(VmError::range_error("Array allocation failed"));
         }
         for (a, b) in ranges {
             // Copy only each part slice to release the borrow before intern.
@@ -585,6 +592,9 @@ pub(super) fn native_string_match(
             set_regexp_last_index(ctx, re_id, 0);
             let mut matches = Vec::new();
             while let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
+                if matches.len() >= MAX_DENSE_ARRAY_LEN {
+                    return Err(VmError::range_error("Array allocation failed"));
+                }
                 matches.push(ctx.vm.strings.intern_utf16(&subject[m.start()..m.end()]));
                 if m.start() == m.end() {
                     set_regexp_last_index(ctx, re_id, m.end() + 1);

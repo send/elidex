@@ -121,6 +121,9 @@ impl VmInner {
         let arr_val = self.peek()?;
         if let JsValue::Object(id) = arr_val {
             if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind {
+                if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                    return Err(VmError::range_error("Array allocation failed"));
+                }
                 elements.push(JsValue::Empty);
             }
         }

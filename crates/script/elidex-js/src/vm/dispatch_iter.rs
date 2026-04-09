@@ -215,7 +215,13 @@ impl VmInner {
         let stack_root_base = self.stack.len();
         loop {
             match self.iter_next(iter_val) {
-                Ok(Some(value)) => self.stack.push(value),
+                Ok(Some(value)) => {
+                    if self.stack.len() - stack_root_base >= MAX_DENSE_ARRAY_LEN {
+                        self.stack.truncate(stack_root_base);
+                        return Err(VmError::range_error("Array allocation failed"));
+                    }
+                    self.stack.push(value);
+                }
                 Ok(None) => break,
                 Err(e) => {
                     self.stack.truncate(stack_root_base);
