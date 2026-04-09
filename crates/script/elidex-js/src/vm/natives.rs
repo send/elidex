@@ -329,14 +329,32 @@ pub(super) fn native_object_assign(
         let JsValue::Object(src_id) = source else {
             continue;
         };
-        // §19.1.2.1 step 5c: snapshot keys, then Get per key.
-        let keys: Vec<PropertyKey> = ctx
-            .get_object(src_id)
-            .storage
-            .iter_keys(&ctx.vm.shapes)
-            .filter(|(_, attrs)| attrs.enumerable)
-            .map(|(k, _)| k)
-            .collect();
+        // §19.1.2.1 step 5c: snapshot keys in ES order, then Get per key.
+        // Array element indices (ascending) come before string keys.
+        let keys: Vec<PropertyKey> = {
+            // Collect element indices first (needs mutable strings access).
+            let elem_indices: Vec<usize> = match &ctx.get_object(src_id).kind {
+                ObjectKind::Array { ref elements } => elements
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| !e.is_empty())
+                    .map(|(i, _)| i)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let mut ks = Vec::new();
+            for i in elem_indices {
+                let sid = ctx.vm.strings.intern(&i.to_string());
+                ks.push(PropertyKey::String(sid));
+            }
+            let obj = ctx.get_object(src_id);
+            for (k, attrs) in obj.storage.iter_keys(&ctx.vm.shapes) {
+                if attrs.enumerable {
+                    ks.push(k);
+                }
+            }
+            ks
+        };
         let mut props = Vec::with_capacity(keys.len());
         for key in keys {
             props.push((key, ctx.get_property_value(src_id, key)?));
@@ -629,7 +647,52 @@ pub(super) fn native_object_define_property(
     Ok(obj_val)
 }
 
-// -- Array static methods ---------------------------------------------------
+// -- Array constructor & static methods --------------------------------------
+
+/// `Array(n)` / `Array(a, b, c)` constructor (ES2020 §22.1.1).
+use super::ops::MAX_DENSE_ARRAY_LEN;
+
+pub(super) fn native_array_constructor(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let elements = if args.len() == 1 {
+        if let JsValue::Number(n) = args[0] {
+            // Single numeric arg → sparse array of that length.
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            let len = n as u32;
+            #[allow(clippy::cast_possible_truncation)]
+            if n < 0.0
+                || !n.is_finite()
+                || f64::from(len) != n
+                || (len as usize) >= MAX_DENSE_ARRAY_LEN
+            {
+                return Err(VmError::range_error("Invalid array length"));
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            let len_usize = len as usize;
+            let mut elems = Vec::new();
+            elems
+                .try_reserve_exact(len_usize)
+                .map_err(|_| VmError::range_error("Array allocation failed"))?;
+            elems.resize(len_usize, JsValue::Empty);
+            elems
+        } else {
+            // Single non-numeric arg → array with that element.
+            vec![args[0]]
+        }
+    } else {
+        // Zero or 2+ args → array of those elements.
+        args.to_vec()
+    };
+    let arr_id = ctx.alloc_object(super::value::Object {
+        kind: ObjectKind::Array { elements },
+        storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+        prototype: ctx.vm.array_prototype,
+    });
+    Ok(JsValue::Object(arr_id))
+}
 
 pub(super) fn native_array_is_array(
     ctx: &mut NativeContext<'_>,

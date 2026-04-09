@@ -16,7 +16,7 @@ use num_bigint::Sign;
 /// ToBoolean. Never throws.
 pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
     match val {
-        JsValue::Undefined | JsValue::Null => false,
+        JsValue::Empty | JsValue::Undefined | JsValue::Null => false,
         JsValue::Boolean(b) => b,
         JsValue::Number(n) => n != 0.0 && !n.is_nan(),
         JsValue::String(id) => !vm.strings.get(id).is_empty(),
@@ -32,7 +32,7 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 /// ToNumber (ES2020 §7.1.4). Symbol → TypeError per spec.
 pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> Result<f64, VmError> {
     match val {
-        JsValue::Undefined => Ok(f64::NAN),
+        JsValue::Empty | JsValue::Undefined => Ok(f64::NAN),
         JsValue::Object(id) => match vm.get_object(id).kind {
             ObjectKind::NumberWrapper(n) => Ok(n),
             ObjectKind::BooleanWrapper(false) => Ok(0.0),
@@ -190,7 +190,7 @@ fn string_to_number_u16(units: &[u16]) -> f64 {
 /// for Symbol values, per spec.
 pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmError> {
     match val {
-        JsValue::Undefined => Ok(vm.well_known.undefined),
+        JsValue::Empty | JsValue::Undefined => Ok(vm.well_known.undefined),
         JsValue::Null => Ok(vm.well_known.null),
         JsValue::Boolean(true) => Ok(vm.well_known.r#true),
         JsValue::Boolean(false) => Ok(vm.well_known.r#false),
@@ -327,6 +327,10 @@ pub(crate) fn strict_eq(vm: &VmInner, a: JsValue, b: JsValue) -> bool {
 
 /// Abstract equality (`==`). May need string/number coercions.
 pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
+    // Empty (sparse hole) is treated as Undefined in all coercions.
+    let a = if a.is_empty() { JsValue::Undefined } else { a };
+    let b = if b.is_empty() { JsValue::Undefined } else { b };
+
     // Same type → strict_eq
     if same_type(a, b) {
         return strict_eq(vm, a, b);
@@ -424,7 +428,7 @@ fn same_type(a: JsValue, b: JsValue) -> bool {
 /// Returns the typeof string ID for a value.
 pub(crate) fn typeof_str(vm: &VmInner, val: JsValue) -> StringId {
     match val {
-        JsValue::Undefined => vm.well_known.undefined,
+        JsValue::Empty | JsValue::Undefined => vm.well_known.undefined,
         JsValue::Null => vm.well_known.object_type,
         JsValue::Boolean(_) => vm.well_known.boolean_type,
         JsValue::Number(_) => vm.well_known.number_type,

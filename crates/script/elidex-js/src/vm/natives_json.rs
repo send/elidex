@@ -3,6 +3,7 @@
 use std::fmt::Write;
 
 use super::coerce_format::{collect_own_keys_es_order, write_number_es};
+use super::ops::MAX_DENSE_ARRAY_LEN;
 use super::shape::{PropertyAttrs, ROOT_SHAPE};
 use super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
@@ -42,7 +43,8 @@ impl JsonSerializer {
         holder: ObjectId,
         key: JsValue,
     ) -> Result<bool, VmError> {
-        let mut val = value;
+        // Normalize Empty (sparse hole) to Undefined so user code never sees it.
+        let mut val = value.or_undefined();
 
         // Step 2: If value is Object, check for toJSON.
         if let JsValue::Object(obj_id) = val {
@@ -112,8 +114,8 @@ impl JsonSerializer {
                     self.serialize_object(ctx, obj_id)
                 }
             }
-            // undefined, Symbol → skip
-            JsValue::Undefined | JsValue::Symbol(_) => Ok(false),
+            // undefined, Symbol → skip (holes normalized to Undefined above)
+            JsValue::Empty | JsValue::Undefined | JsValue::Symbol(_) => Ok(false),
         }
     }
 
@@ -159,13 +161,11 @@ impl JsonSerializer {
                 self.output.push_str(&self.indent);
             }
 
-            // Read element (must re-borrow each iteration due to ctx mutation).
-            let elem = match &ctx.get_object(obj_id).kind {
-                ObjectKind::Array { elements } => {
-                    elements.get(i).copied().unwrap_or(JsValue::Undefined)
-                }
-                _ => JsValue::Undefined,
-            };
+            // Read element via Get semantics (includes prototype lookup for holes).
+            #[allow(clippy::cast_precision_loss)]
+            let elem = ctx
+                .vm
+                .get_element(JsValue::Object(obj_id), JsValue::Number(i as f64))?;
 
             // Only intern the index string when toJSON or replacer needs it.
             // This avoids permanently growing the StringPool for large arrays.
@@ -708,6 +708,9 @@ impl<'a> JsonParser<'a> {
 
         loop {
             let val = self.parse_value(ctx)?;
+            if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                return Err(VmError::range_error("Array allocation failed"));
+            }
             elements.push(val);
             self.skip_ws();
             match self.peek() {
@@ -813,12 +816,10 @@ fn internalize(
                 ObjectKind::Array { elements } => {
                     let len = elements.len();
                     for i in 0..len {
-                        let elem = match &ctx.get_object(obj_id).kind {
-                            ObjectKind::Array { elements } => {
-                                elements.get(i).copied().unwrap_or(JsValue::Undefined)
-                            }
-                            _ => JsValue::Undefined,
-                        };
+                        #[allow(clippy::cast_precision_loss)]
+                        let elem = ctx
+                            .vm
+                            .get_element(JsValue::Object(obj_id), JsValue::Number(i as f64))?;
                         let new_val = internalize(ctx, elem, reviver, index_buf)?;
                         index_buf.clear();
                         let _ = write!(index_buf, "{i}");
@@ -828,13 +829,18 @@ fn internalize(
                             JsValue::Object(obj_id),
                             &[JsValue::String(key_str), new_val],
                         )?;
-                        // Spec says [[Delete]] for undefined, but our dense Vec<JsValue>
-                        // arrays don't support holes. Assign undefined instead.
-                        // This is observable via `in` but matches practical behavior.
+                        // Spec §24.5.1.1: reviver returning undefined → [[Delete]].
+                        // With JsValue::Empty this creates a proper sparse hole.
+                        // JS code cannot produce Empty, so only check Undefined.
+                        debug_assert!(!result.is_empty(), "reviver should never return Empty");
                         if let ObjectKind::Array { elements } = &mut ctx.get_object_mut(obj_id).kind
                         {
                             if i < elements.len() {
-                                elements[i] = result;
+                                elements[i] = if matches!(result, JsValue::Undefined) {
+                                    JsValue::Empty
+                                } else {
+                                    result
+                                };
                             }
                         }
                     }

@@ -1,10 +1,21 @@
 //! Iterator-protocol opcode handlers extracted from the main dispatch loop.
 
 use super::coerce::get_property;
+use super::ops::MAX_DENSE_ARRAY_LEN;
 use super::value::{
     ForInState, JsValue, Object, ObjectKind, PropertyKey, PropertyStorage, VmError,
 };
 use super::VmInner;
+
+/// Format a `usize` into a stack-allocated buffer, returning a `&str`.
+/// Avoids heap allocation from `i.to_string()`.
+fn format_usize(n: usize, buf: &mut [u8; 20]) -> &str {
+    use std::io::Write;
+    let mut cursor = std::io::Cursor::new(&mut buf[..]);
+    write!(cursor, "{n}").unwrap();
+    let len = cursor.position() as usize;
+    std::str::from_utf8(&buf[..len]).unwrap()
+}
 
 impl VmInner {
     /// Resolve the `@@iterator` for a value and call it to get an iterator object.
@@ -64,6 +75,9 @@ impl VmInner {
             if let JsValue::Object(arr_id) = arr_val {
                 let arr = self.get_object_mut(arr_id);
                 if let ObjectKind::Array { ref mut elements } = arr.kind {
+                    if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                        return Err(VmError::range_error("Array allocation failed"));
+                    }
                     elements.push(value);
                 }
             }
@@ -99,6 +113,43 @@ impl VmInner {
             let mut keys = Vec::new();
             let mut seen = std::collections::HashSet::new();
             let mut current = Some(obj_id);
+            // ES §13.7.5.15: integer indices in ascending numeric order first,
+            // then string keys in insertion order.
+            if let Some(obj_ref) = self.objects[obj_id.0 as usize].as_ref() {
+                // Collect integer indices from elements (non-Empty) + storage.
+                let mut index_keys: Vec<(usize, super::value::StringId)> = Vec::new();
+                let mut non_index_keys: Vec<super::value::StringId> = Vec::new();
+                if let ObjectKind::Array { ref elements } = obj_ref.kind {
+                    let mut buf = [0u8; 20];
+                    for (i, elem) in elements.iter().enumerate() {
+                        if !elem.is_empty() {
+                            let s = format_usize(i, &mut buf);
+                            let idx_str = self.strings.intern(s);
+                            if seen.insert(idx_str) {
+                                index_keys.push((i, idx_str));
+                            }
+                        }
+                    }
+                }
+                // Own storage properties on the first object.
+                for (key, attrs) in obj_ref.storage.iter_keys(&self.shapes) {
+                    if let PropertyKey::String(sid) = key {
+                        if attrs.enumerable && seen.insert(sid) {
+                            let units = self.strings.get(sid);
+                            if let Some(idx) = super::ops::parse_array_index_u16(units) {
+                                index_keys.push((idx, sid));
+                            } else {
+                                non_index_keys.push(sid);
+                            }
+                        }
+                    }
+                }
+                index_keys.sort_unstable_by_key(|(idx, _)| *idx);
+                keys.extend(index_keys.into_iter().map(|(_, sid)| sid));
+                keys.extend(non_index_keys);
+                // Continue with prototype chain (skip obj_id, already processed).
+                current = obj_ref.prototype;
+            }
             while let Some(id) = current {
                 let obj_ref = self.objects[id.0 as usize]
                     .as_ref()
@@ -187,7 +238,13 @@ impl VmInner {
         let stack_root_base = self.stack.len();
         loop {
             match self.iter_next(iter_val) {
-                Ok(Some(value)) => self.stack.push(value),
+                Ok(Some(value)) => {
+                    if self.stack.len() - stack_root_base >= MAX_DENSE_ARRAY_LEN {
+                        self.stack.truncate(stack_root_base);
+                        return Err(VmError::range_error("Array allocation failed"));
+                    }
+                    self.stack.push(value);
+                }
                 Ok(None) => break,
                 Err(e) => {
                     self.stack.truncate(stack_root_base);

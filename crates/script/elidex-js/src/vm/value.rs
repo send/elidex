@@ -96,6 +96,10 @@ pub enum PropertyKey {
 /// represented as a handle into VM-owned storage, making this type `Copy`.
 #[derive(Clone, Copy, Debug)]
 pub enum JsValue {
+    /// Sparse array hole sentinel — never observable from JS code.
+    /// Reading a hole returns `Undefined`; the distinction matters for
+    /// `in`, `for-in`, `delete`, and `JSON.stringify`.
+    Empty,
     Undefined,
     Null,
     Boolean(bool),
@@ -107,10 +111,38 @@ pub enum JsValue {
 }
 
 impl JsValue {
+    /// Returns `true` for the array-hole sentinel.
+    #[inline]
+    pub fn is_empty(self) -> bool {
+        matches!(self, Self::Empty)
+    }
+
+    /// Convert a sparse hole to `Undefined`. Used at all read boundaries
+    /// so that `Empty` never leaks to JS code.
+    #[inline]
+    #[must_use]
+    pub fn or_undefined(self) -> Self {
+        if self.is_empty() {
+            Self::Undefined
+        } else {
+            self
+        }
+    }
+
+    /// Extract the `f64` payload if this is a `Number`.
+    #[inline]
+    pub fn as_number(self) -> Option<f64> {
+        match self {
+            Self::Number(n) => Some(n),
+            _ => None,
+        }
+    }
+
     /// Returns `true` if the value is `undefined` or `null`.
+    /// Empty is treated as nullish as a safety net.
     #[inline]
     pub fn is_nullish(self) -> bool {
-        matches!(self, Self::Undefined | Self::Null)
+        matches!(self, Self::Empty | Self::Undefined | Self::Null)
     }
 
     /// Returns `true` if the value is the boolean `false`, numeric `0`/`NaN`,
@@ -119,7 +151,7 @@ impl JsValue {
     #[inline]
     pub fn is_primitive_falsy(self) -> bool {
         match self {
-            Self::Undefined | Self::Null => true,
+            Self::Empty | Self::Undefined | Self::Null => true,
             Self::Boolean(b) => !b,
             Self::Number(n) => n == 0.0 || n.is_nan(),
             // BigIntPool guarantees canonical 0n at BigIntId(0).
@@ -132,7 +164,9 @@ impl JsValue {
 impl PartialEq for JsValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Undefined, Self::Undefined) | (Self::Null, Self::Null) => true,
+            (Self::Empty, Self::Empty)
+            | (Self::Undefined, Self::Undefined)
+            | (Self::Null, Self::Null) => true,
             (Self::Boolean(a), Self::Boolean(b)) => a == b,
             (Self::Number(a), Self::Number(b)) => {
                 // JS strict equality: NaN !== NaN, +0 === -0

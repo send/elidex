@@ -133,12 +133,19 @@ pub(super) fn native_array_iterator_next(
             return create_iter_result(ctx, JsValue::Undefined, true);
         }
     };
-    // Get value from array.
+    // Get array length, then use Get semantics (includes prototype lookup for holes).
     let (value, done) = {
-        let arr_obj = ctx.get_object(array_id);
-        if let ObjectKind::Array { elements } = &arr_obj.kind {
-            if idx < elements.len() {
-                (elements[idx], false)
+        let len = match &ctx.get_object(array_id).kind {
+            ObjectKind::Array { elements } => Some(elements.len()),
+            _ => None,
+        };
+        if let Some(len) = len {
+            if idx < len {
+                #[allow(clippy::cast_precision_loss)]
+                let val = ctx
+                    .vm
+                    .get_element(JsValue::Object(array_id), JsValue::Number(idx as f64))?;
+                (val, false)
             } else {
                 (JsValue::Undefined, true)
             }
@@ -164,7 +171,7 @@ pub(super) fn native_object_prototype_to_string(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let tag = match this {
-        JsValue::Undefined => "Undefined",
+        JsValue::Empty | JsValue::Undefined => "Undefined",
         JsValue::Null => "Null",
         JsValue::Boolean(_) => "Boolean",
         JsValue::Number(_) => "Number",

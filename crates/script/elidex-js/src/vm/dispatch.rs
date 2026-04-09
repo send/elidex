@@ -7,6 +7,7 @@ use crate::bytecode::opcode::Op;
 
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, to_string, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
+use super::ops::{parse_array_index_u16, try_as_array_index};
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
@@ -574,17 +575,57 @@ impl VmInner {
                     let key = self.pop()?;
                     let obj_val = self.pop()?;
                     let deleted = if let JsValue::Object(id) = obj_val {
-                        match self.make_property_key(key) {
-                            Ok(pk) => match self.try_delete_property(id, pk) {
-                                Ok(d) => d,
+                        // Resolve array index from Number or String key.
+                        let arr_idx = match key {
+                            JsValue::Number(n) => try_as_array_index(n),
+                            JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
+                            _ => None,
+                        };
+                        // Fast path: array element present → set to Empty.
+                        // Only applies when the index has a live element;
+                        // otherwise fall back to property delete for
+                        // configurable/strict-mode semantics.
+                        if let Some(idx) = arr_idx {
+                            let can_fast_delete = matches!(
+                                &self.get_object(id).kind,
+                                ObjectKind::Array { elements }
+                                    if idx < elements.len()
+                                        && !elements[idx].is_empty()
+                            );
+                            if can_fast_delete {
+                                let obj_ref = self.get_object_mut(id);
+                                if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
+                                    elements[idx] = JsValue::Empty;
+                                }
+                                true
+                            } else {
+                                match self.make_property_key(key) {
+                                    Ok(pk) => match self.try_delete_property(id, pk) {
+                                        Ok(d) => d,
+                                        Err(e) => {
+                                            self.throw_error(e, entry_frame_depth)?;
+                                            continue;
+                                        }
+                                    },
+                                    Err(e) => {
+                                        self.throw_error(e, entry_frame_depth)?;
+                                        continue;
+                                    }
+                                }
+                            }
+                        } else {
+                            match self.make_property_key(key) {
+                                Ok(pk) => match self.try_delete_property(id, pk) {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        self.throw_error(e, entry_frame_depth)?;
+                                        continue;
+                                    }
+                                },
                                 Err(e) => {
                                     self.throw_error(e, entry_frame_depth)?;
                                     continue;
                                 }
-                            },
-                            Err(e) => {
-                                self.throw_error(e, entry_frame_depth)?;
-                                continue;
                             }
                         }
                     } else {

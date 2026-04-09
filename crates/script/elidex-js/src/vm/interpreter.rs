@@ -204,7 +204,9 @@ impl VmInner {
     /// undefined/null → globalThis, primitives → ToObject wrapper.
     pub(crate) fn bind_this_global(&mut self, this: JsValue) -> JsValue {
         match this {
-            JsValue::Undefined | JsValue::Null => JsValue::Object(self.global_object),
+            JsValue::Empty | JsValue::Undefined | JsValue::Null => {
+                JsValue::Object(self.global_object)
+            }
             JsValue::Number(n) => {
                 let wrapper = self.alloc_object(super::value::Object {
                     kind: ObjectKind::NumberWrapper(n),

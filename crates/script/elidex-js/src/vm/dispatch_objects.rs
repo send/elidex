@@ -1,7 +1,7 @@
 //! Object and array creation opcode handlers extracted from the main dispatch loop.
 
 use super::coerce;
-use super::ops::parse_array_index_u16;
+use super::ops::{parse_array_index_u16, MAX_DENSE_ARRAY_LEN};
 use super::value::{JsValue, ObjectKind, PropertyKey, PropertyValue, VmError};
 use super::VmInner;
 
@@ -107,18 +107,24 @@ impl VmInner {
         let arr_val = self.peek()?;
         if let JsValue::Object(id) = arr_val {
             if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind {
+                if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                    return Err(VmError::range_error("Array allocation failed"));
+                }
                 elements.push(val);
             }
         }
         Ok(())
     }
 
-    /// `ArrayHole` — push `undefined` onto the array at TOS (elision).
+    /// `ArrayHole` — push a sparse hole (`Empty`) onto the array at TOS (elision).
     pub(crate) fn op_array_hole(&mut self) -> Result<(), VmError> {
         let arr_val = self.peek()?;
         if let JsValue::Object(id) = arr_val {
             if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind {
-                elements.push(JsValue::Undefined);
+                if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                    return Err(VmError::range_error("Array allocation failed"));
+                }
+                elements.push(JsValue::Empty);
             }
         }
         Ok(())
@@ -131,14 +137,31 @@ impl VmInner {
         let obj_val = self.peek()?;
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
             let is_global = dst_id == self.global_object;
-            // §12.2.6.8 CopyDataProperties: snapshot keys, then Get per key.
-            let keys: Vec<PropertyKey> = self
-                .get_object(src_id)
-                .storage
-                .iter_keys(&self.shapes)
-                .filter(|(_, attrs)| attrs.enumerable)
-                .map(|(k, _)| k)
-                .collect();
+            // §12.2.6.8 CopyDataProperties: snapshot keys in ES order, then Get per key.
+            // Array element indices (ascending) come before string keys.
+            let keys: Vec<PropertyKey> = {
+                let elem_indices: Vec<usize> = match &self.get_object(src_id).kind {
+                    ObjectKind::Array { ref elements } => elements
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, e)| !e.is_empty())
+                        .map(|(i, _)| i)
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let mut ks = Vec::new();
+                for i in elem_indices {
+                    let sid = self.strings.intern(&i.to_string());
+                    ks.push(PropertyKey::String(sid));
+                }
+                let obj = self.get_object(src_id);
+                for (k, attrs) in obj.storage.iter_keys(&self.shapes) {
+                    if attrs.enumerable {
+                        ks.push(k);
+                    }
+                }
+                ks
+            };
             // GC safety: root resolved values on the stack while getters
             // for subsequent properties may trigger allocations / GC.
             let stack_base = self.stack.len();
@@ -345,7 +368,12 @@ impl VmInner {
             (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
                 let key_units = self.strings.get(*key_id);
                 if let Some(idx) = parse_array_index_u16(key_units) {
-                    idx < elements.len()
+                    if idx < elements.len() && !elements[idx].is_empty() {
+                        true
+                    } else {
+                        // Index beyond elements or hole — fall back to property storage.
+                        coerce::get_property(self, obj_id, pk).is_some()
+                    }
                 } else {
                     coerce::get_property(self, obj_id, pk).is_some()
                 }

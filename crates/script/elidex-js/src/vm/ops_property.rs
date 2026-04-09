@@ -11,7 +11,7 @@ use super::value::{
 };
 use super::VmInner;
 
-use super::ops::parse_array_index_u16;
+use super::ops::{parse_array_index_u16, try_as_array_index, MAX_DENSE_ARRAY_LEN};
 
 // ---------------------------------------------------------------------------
 // Property access
@@ -398,16 +398,15 @@ impl VmInner {
         if let JsValue::Object(id) = obj {
             // Numeric index for arrays.
             if let JsValue::Number(n) = key {
-                #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                let (idx, is_index) = {
-                    let i = n as usize;
-                    (i, n >= 0.0 && (i as f64) == n)
-                };
-                if is_index {
+                if let Some(idx) = try_as_array_index(n) {
                     let obj_ref = self.get_object(id);
                     match &obj_ref.kind {
                         ObjectKind::Array { ref elements } => {
-                            return Ok(elements.get(idx).copied().unwrap_or(JsValue::Undefined));
+                            let elem = elements.get(idx).copied().unwrap_or(JsValue::Empty);
+                            if !elem.is_empty() {
+                                return Ok(elem);
+                            }
+                            // Hole or out-of-range: fall through to property/prototype lookup.
                         }
                         ObjectKind::Arguments { ref values } if idx < values.len() => {
                             return Ok(values[idx]);
@@ -426,6 +425,24 @@ impl VmInner {
             }
             // Fall back to string key property lookup.
             let key_id = to_string(self, key)?;
+            // String key that parses as array index → check elements first.
+            if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
+                let key_units = self.strings.get(key_id);
+                if let Some(idx) = parse_array_index_u16(key_units) {
+                    let elem = {
+                        let obj_ref = self.get_object(id);
+                        if let ObjectKind::Array { ref elements } = obj_ref.kind {
+                            elements.get(idx).copied().unwrap_or(JsValue::Empty)
+                        } else {
+                            JsValue::Empty
+                        }
+                    };
+                    if !elem.is_empty() {
+                        return Ok(elem);
+                    }
+                    // Hole: fall through to property/prototype lookup.
+                }
+            }
             let pk = PropertyKey::String(key_id);
             match get_property(self, id, pk) {
                 Some(result) => self.resolve_property(result, obj),
@@ -499,17 +516,19 @@ impl VmInner {
     ) -> Result<(), VmError> {
         if let JsValue::Object(id) = obj {
             if let JsValue::Number(n) = key {
-                #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                let (idx, is_index) = {
-                    let i = n as usize;
-                    (i, n >= 0.0 && (i as f64) == n)
-                };
-                if is_index {
+                if let Some(idx) = try_as_array_index(n) {
                     let obj_ref = self.get_object_mut(id);
                     match &mut obj_ref.kind {
                         ObjectKind::Array { ref mut elements } => {
                             if idx >= elements.len() {
-                                elements.resize(idx + 1, JsValue::Undefined);
+                                if idx >= MAX_DENSE_ARRAY_LEN {
+                                    return Err(VmError::range_error("Array allocation failed"));
+                                }
+                                let new_len = idx + 1;
+                                elements
+                                    .try_reserve(new_len - elements.len())
+                                    .map_err(|_| VmError::range_error("Array allocation failed"))?;
+                                elements.resize(new_len, JsValue::Empty);
                             }
                             elements[idx] = val;
                             return Ok(());
@@ -529,6 +548,27 @@ impl VmInner {
                 return Ok(());
             }
             let key_id = to_string(self, key)?;
+            // String key that parses as array index → store in elements.
+            if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
+                let key_units = self.strings.get(key_id);
+                if let Some(idx) = parse_array_index_u16(key_units) {
+                    let obj_ref = self.get_object_mut(id);
+                    if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
+                        if idx >= elements.len() {
+                            if idx >= MAX_DENSE_ARRAY_LEN {
+                                return Err(VmError::range_error("Array allocation failed"));
+                            }
+                            let new_len = idx + 1;
+                            elements
+                                .try_reserve(new_len - elements.len())
+                                .map_err(|_| VmError::range_error("Array allocation failed"))?;
+                            elements.resize(new_len, JsValue::Empty);
+                        }
+                        elements[idx] = val;
+                        return Ok(());
+                    }
+                }
+            }
             self.set_property_val(JsValue::Object(id), key_id, val)?;
         }
         Ok(())

@@ -16,9 +16,34 @@ use crate::bytecode::compiled::Constant;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Parse a WTF-16 string as a non-negative integer array index (e.g. "0", "42").
+/// ES array index upper bound: 2^32 − 2 (§6.1.7, max valid array index).
+pub(crate) const MAX_ES_ARRAY_INDEX: usize = (u32::MAX as usize) - 1;
+
+/// Practical dense array length cap: 2^27 = 128M entries ≈ 2 GiB at 16 B/JsValue.
+/// Applied to both `Array(n)` constructor and `set_element` resize to prevent OOM.
+pub(crate) const MAX_DENSE_ARRAY_LEN: usize = 1 << 27;
+
+/// Try to interpret an `f64` as a valid ES array index (0..=2^32−2).
+/// Returns `None` for negative, non-integer, or out-of-range values.
+#[inline]
+pub(crate) fn try_as_array_index(n: f64) -> Option<usize> {
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation
+    )]
+    let i = n as usize;
+    #[allow(clippy::cast_precision_loss)]
+    if n >= 0.0 && (i as f64) == n && i <= MAX_ES_ARRAY_INDEX {
+        Some(i)
+    } else {
+        None
+    }
+}
+
+/// Parse a WTF-16 string as a valid ES array index (0..=2^32−2).
 /// Returns `None` for empty strings, leading zeros (except "0"), non-digit chars,
-/// or overflow.
+/// overflow, or values beyond the ES array index range.
 pub(crate) fn parse_array_index_u16(units: &[u16]) -> Option<usize> {
     if units.is_empty() {
         return None;
@@ -34,6 +59,9 @@ pub(crate) fn parse_array_index_u16(units: &[u16]) -> Option<usize> {
             return None;
         }
         n = n.checked_mul(10)?.checked_add(digit as usize)?;
+    }
+    if n > MAX_ES_ARRAY_INDEX {
+        return None;
     }
     Some(n)
 }
