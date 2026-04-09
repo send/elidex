@@ -11,7 +11,7 @@ use super::value::{
 };
 use super::VmInner;
 
-use super::ops::{parse_array_index_u16, try_as_array_index};
+use super::ops::{parse_array_index_u16, try_as_array_index, MAX_ES_ARRAY_INDEX};
 
 // ---------------------------------------------------------------------------
 // Property access
@@ -503,7 +503,14 @@ impl VmInner {
                     match &mut obj_ref.kind {
                         ObjectKind::Array { ref mut elements } => {
                             if idx >= elements.len() {
-                                elements.resize(idx + 1, JsValue::Empty);
+                                if idx > MAX_ES_ARRAY_INDEX {
+                                    return Err(VmError::range_error("Invalid array length"));
+                                }
+                                let new_len = idx + 1;
+                                elements
+                                    .try_reserve(new_len - elements.len())
+                                    .map_err(|_| VmError::range_error("Array allocation failed"))?;
+                                elements.resize(new_len, JsValue::Empty);
                             }
                             elements[idx] = val;
                             return Ok(());

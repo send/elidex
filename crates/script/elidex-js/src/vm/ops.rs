@@ -16,7 +16,10 @@ use crate::bytecode::compiled::Constant;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Try to interpret an `f64` as a non-negative integer array index.
+/// ES array index upper bound: 2^32 − 2 (§6.1.7, max valid array index).
+pub(crate) const MAX_ES_ARRAY_INDEX: usize = (u32::MAX as usize) - 1;
+
+/// Try to interpret an `f64` as a valid ES array index (0..=2^32−2).
 /// Returns `None` for negative, non-integer, or out-of-range values.
 #[inline]
 pub(crate) fn try_as_array_index(n: f64) -> Option<usize> {
@@ -27,7 +30,7 @@ pub(crate) fn try_as_array_index(n: f64) -> Option<usize> {
     )]
     let i = n as usize;
     #[allow(clippy::cast_precision_loss)]
-    if n >= 0.0 && (i as f64) == n {
+    if n >= 0.0 && (i as f64) == n && i <= MAX_ES_ARRAY_INDEX {
         Some(i)
     } else {
         None

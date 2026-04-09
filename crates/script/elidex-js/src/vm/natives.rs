@@ -632,8 +632,8 @@ pub(super) fn native_object_define_property(
 // -- Array constructor & static methods --------------------------------------
 
 /// `Array(n)` / `Array(a, b, c)` constructor (ES2020 §22.1.1).
-// 2^28 = 268M entries ≈ 2 GB — practical upper bound to prevent OOM.
-const MAX_ARRAY_LEN: u32 = 1 << 28;
+// 2^27 = 128M entries ≈ 2 GiB at 16 B/JsValue — practical upper bound to prevent OOM.
+const MAX_ARRAY_LEN: u32 = 1 << 27;
 
 pub(super) fn native_array_constructor(
     ctx: &mut NativeContext<'_>,
@@ -645,10 +645,17 @@ pub(super) fn native_array_constructor(
             // Single numeric arg → sparse array of that length.
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let len = n as u32;
-            if n < 0.0 || !n.is_finite() || f64::from(len) != n || len > MAX_ARRAY_LEN {
+            if n < 0.0 || !n.is_finite() || f64::from(len) != n || len >= MAX_ARRAY_LEN {
                 return Err(VmError::range_error("Invalid array length"));
             }
-            vec![JsValue::Empty; len as usize]
+            #[allow(clippy::cast_possible_truncation)]
+            let len_usize = len as usize;
+            let mut elems = Vec::new();
+            elems
+                .try_reserve_exact(len_usize)
+                .map_err(|_| VmError::range_error("Array allocation failed"))?;
+            elems.resize(len_usize, JsValue::Empty);
+            elems
         } else {
             // Single non-numeric arg → array with that element.
             vec![args[0]]

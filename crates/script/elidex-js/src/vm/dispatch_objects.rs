@@ -345,7 +345,12 @@ impl VmInner {
             (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
                 let key_units = self.strings.get(*key_id);
                 if let Some(idx) = parse_array_index_u16(key_units) {
-                    idx < elements.len() && !elements[idx].is_empty()
+                    if idx < elements.len() && !elements[idx].is_empty() {
+                        true
+                    } else {
+                        // Index beyond elements or hole — fall back to property storage.
+                        coerce::get_property(self, obj_id, pk).is_some()
+                    }
                 } else {
                     coerce::get_property(self, obj_id, pk).is_some()
                 }
