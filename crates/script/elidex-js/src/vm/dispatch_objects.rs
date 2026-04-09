@@ -113,12 +113,12 @@ impl VmInner {
         Ok(())
     }
 
-    /// `ArrayHole` — push `undefined` onto the array at TOS (elision).
+    /// `ArrayHole` — push a sparse hole (`Empty`) onto the array at TOS (elision).
     pub(crate) fn op_array_hole(&mut self) -> Result<(), VmError> {
         let arr_val = self.peek()?;
         if let JsValue::Object(id) = arr_val {
             if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind {
-                elements.push(JsValue::Undefined);
+                elements.push(JsValue::Empty);
             }
         }
         Ok(())
@@ -345,7 +345,7 @@ impl VmInner {
             (ObjectKind::Array { ref elements }, PropertyKey::String(key_id)) => {
                 let key_units = self.strings.get(*key_id);
                 if let Some(idx) = parse_array_index_u16(key_units) {
-                    idx < elements.len()
+                    idx < elements.len() && !elements[idx].is_empty()
                 } else {
                     coerce::get_property(self, obj_id, pk).is_some()
                 }

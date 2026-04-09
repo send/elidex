@@ -11,7 +11,7 @@ use super::value::{
 };
 use super::VmInner;
 
-use super::ops::parse_array_index_u16;
+use super::ops::{parse_array_index_u16, try_as_array_index};
 
 // ---------------------------------------------------------------------------
 // Property access
@@ -398,16 +398,15 @@ impl VmInner {
         if let JsValue::Object(id) = obj {
             // Numeric index for arrays.
             if let JsValue::Number(n) = key {
-                #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                let (idx, is_index) = {
-                    let i = n as usize;
-                    (i, n >= 0.0 && (i as f64) == n)
-                };
-                if is_index {
+                if let Some(idx) = try_as_array_index(n) {
                     let obj_ref = self.get_object(id);
                     match &obj_ref.kind {
                         ObjectKind::Array { ref elements } => {
-                            return Ok(elements.get(idx).copied().unwrap_or(JsValue::Undefined));
+                            return Ok(elements
+                                .get(idx)
+                                .copied()
+                                .unwrap_or(JsValue::Empty)
+                                .or_undefined());
                         }
                         ObjectKind::Arguments { ref values } if idx < values.len() => {
                             return Ok(values[idx]);
@@ -499,17 +498,12 @@ impl VmInner {
     ) -> Result<(), VmError> {
         if let JsValue::Object(id) = obj {
             if let JsValue::Number(n) = key {
-                #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                let (idx, is_index) = {
-                    let i = n as usize;
-                    (i, n >= 0.0 && (i as f64) == n)
-                };
-                if is_index {
+                if let Some(idx) = try_as_array_index(n) {
                     let obj_ref = self.get_object_mut(id);
                     match &mut obj_ref.kind {
                         ObjectKind::Array { ref mut elements } => {
                             if idx >= elements.len() {
-                                elements.resize(idx + 1, JsValue::Undefined);
+                                elements.resize(idx + 1, JsValue::Empty);
                             }
                             elements[idx] = val;
                             return Ok(());

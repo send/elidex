@@ -133,12 +133,12 @@ pub(super) fn native_array_iterator_next(
             return create_iter_result(ctx, JsValue::Undefined, true);
         }
     };
-    // Get value from array.
+    // Get value from array (holes → Undefined; for-of visits every index).
     let (value, done) = {
         let arr_obj = ctx.get_object(array_id);
         if let ObjectKind::Array { elements } = &arr_obj.kind {
             if idx < elements.len() {
-                (elements[idx], false)
+                (elements[idx].or_undefined(), false)
             } else {
                 (JsValue::Undefined, true)
             }
@@ -164,7 +164,7 @@ pub(super) fn native_object_prototype_to_string(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let tag = match this {
-        JsValue::Undefined => "Undefined",
+        JsValue::Empty | JsValue::Undefined => "Undefined",
         JsValue::Null => "Null",
         JsValue::Boolean(_) => "Boolean",
         JsValue::Number(_) => "Number",

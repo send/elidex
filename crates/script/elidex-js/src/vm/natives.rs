@@ -629,7 +629,41 @@ pub(super) fn native_object_define_property(
     Ok(obj_val)
 }
 
-// -- Array static methods ---------------------------------------------------
+// -- Array constructor & static methods --------------------------------------
+
+/// `Array(n)` / `Array(a, b, c)` constructor (ES2020 §22.1.1).
+// 2^28 = 268M entries ≈ 2 GB — practical upper bound to prevent OOM.
+const MAX_ARRAY_LEN: u32 = 1 << 28;
+
+pub(super) fn native_array_constructor(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let elements = if args.len() == 1 {
+        if let JsValue::Number(n) = args[0] {
+            // Single numeric arg → sparse array of that length.
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            let len = n as u32;
+            if n < 0.0 || !n.is_finite() || f64::from(len) != n || len > MAX_ARRAY_LEN {
+                return Err(VmError::range_error("Invalid array length"));
+            }
+            vec![JsValue::Empty; len as usize]
+        } else {
+            // Single non-numeric arg → array with that element.
+            vec![args[0]]
+        }
+    } else {
+        // Zero or 2+ args → array of those elements.
+        args.to_vec()
+    };
+    let arr_id = ctx.alloc_object(super::value::Object {
+        kind: ObjectKind::Array { elements },
+        storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+        prototype: ctx.vm.array_prototype,
+    });
+    Ok(JsValue::Object(arr_id))
+}
 
 pub(super) fn native_array_is_array(
     ctx: &mut NativeContext<'_>,

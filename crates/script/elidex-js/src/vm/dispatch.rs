@@ -7,6 +7,7 @@ use crate::bytecode::opcode::Op;
 
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, to_string, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
+use super::ops::try_as_array_index;
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
@@ -574,17 +575,44 @@ impl VmInner {
                     let key = self.pop()?;
                     let obj_val = self.pop()?;
                     let deleted = if let JsValue::Object(id) = obj_val {
-                        match self.make_property_key(key) {
-                            Ok(pk) => match self.try_delete_property(id, pk) {
-                                Ok(d) => d,
+                        // Fast path: array + numeric index → set element to Empty.
+                        if let Some(idx) = key.as_number().and_then(try_as_array_index) {
+                            if let ObjectKind::Array { ref mut elements } =
+                                self.get_object_mut(id).kind
+                            {
+                                if idx < elements.len() {
+                                    elements[idx] = JsValue::Empty;
+                                }
+                                true
+                            } else {
+                                // Non-array with numeric key → fall through to property delete.
+                                match self.make_property_key(key) {
+                                    Ok(pk) => match self.try_delete_property(id, pk) {
+                                        Ok(d) => d,
+                                        Err(e) => {
+                                            self.throw_error(e, entry_frame_depth)?;
+                                            continue;
+                                        }
+                                    },
+                                    Err(e) => {
+                                        self.throw_error(e, entry_frame_depth)?;
+                                        continue;
+                                    }
+                                }
+                            }
+                        } else {
+                            match self.make_property_key(key) {
+                                Ok(pk) => match self.try_delete_property(id, pk) {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        self.throw_error(e, entry_frame_depth)?;
+                                        continue;
+                                    }
+                                },
                                 Err(e) => {
                                     self.throw_error(e, entry_frame_depth)?;
                                     continue;
                                 }
-                            },
-                            Err(e) => {
-                                self.throw_error(e, entry_frame_depth)?;
-                                continue;
                             }
                         }
                     } else {

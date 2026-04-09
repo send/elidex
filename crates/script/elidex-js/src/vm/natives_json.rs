@@ -112,8 +112,8 @@ impl JsonSerializer {
                     self.serialize_object(ctx, obj_id)
                 }
             }
-            // undefined, Symbol → skip
-            JsValue::Undefined | JsValue::Symbol(_) => Ok(false),
+            // undefined, Symbol, Empty → skip (Empty in array context → "null" via caller)
+            JsValue::Empty | JsValue::Undefined | JsValue::Symbol(_) => Ok(false),
         }
     }
 
@@ -828,13 +828,17 @@ fn internalize(
                             JsValue::Object(obj_id),
                             &[JsValue::String(key_str), new_val],
                         )?;
-                        // Spec says [[Delete]] for undefined, but our dense Vec<JsValue>
-                        // arrays don't support holes. Assign undefined instead.
-                        // This is observable via `in` but matches practical behavior.
+                        // Spec §24.5.1.1: reviver returning undefined → [[Delete]].
+                        // With JsValue::Empty this creates a proper sparse hole.
                         if let ObjectKind::Array { elements } = &mut ctx.get_object_mut(obj_id).kind
                         {
                             if i < elements.len() {
-                                elements[i] = result;
+                                elements[i] =
+                                    if result.is_empty() || matches!(result, JsValue::Undefined) {
+                                        JsValue::Empty
+                                    } else {
+                                        result
+                                    };
                             }
                         }
                     }

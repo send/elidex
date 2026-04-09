@@ -6,6 +6,16 @@ use super::value::{
 };
 use super::VmInner;
 
+/// Format a `usize` into a stack-allocated buffer, returning a `&str`.
+/// Avoids heap allocation from `i.to_string()`.
+fn format_usize(n: usize, buf: &mut [u8; 20]) -> &str {
+    use std::io::Write;
+    let mut cursor = std::io::Cursor::new(&mut buf[..]);
+    write!(cursor, "{n}").unwrap();
+    let len = cursor.position() as usize;
+    std::str::from_utf8(&buf[..len]).unwrap()
+}
+
 impl VmInner {
     /// Resolve the `@@iterator` for a value and call it to get an iterator object.
     ///
@@ -99,6 +109,20 @@ impl VmInner {
             let mut keys = Vec::new();
             let mut seen = std::collections::HashSet::new();
             let mut current = Some(obj_id);
+            // Array: enumerate non-Empty element indices first (numeric order).
+            if let Some(obj_ref) = self.objects[obj_id.0 as usize].as_ref() {
+                if let ObjectKind::Array { ref elements } = obj_ref.kind {
+                    let mut buf = [0u8; 20]; // enough for usize decimal
+                    for (i, elem) in elements.iter().enumerate() {
+                        if !elem.is_empty() {
+                            let s = format_usize(i, &mut buf);
+                            let idx_str = self.strings.intern(s);
+                            seen.insert(idx_str);
+                            keys.push(idx_str);
+                        }
+                    }
+                }
+            }
             while let Some(id) = current {
                 let obj_ref = self.objects[id.0 as usize]
                     .as_ref()

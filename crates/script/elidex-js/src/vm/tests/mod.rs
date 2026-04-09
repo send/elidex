@@ -4,6 +4,7 @@ mod tests_bigint;
 mod tests_json;
 mod tests_m4_10_2;
 mod tests_m4_11;
+mod tests_sparse_array;
 
 use super::value::{JsValue, Object, ObjectKind, VmError};
 use super::Vm;

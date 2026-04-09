@@ -16,6 +16,24 @@ use crate::bytecode::compiled::Constant;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Try to interpret an `f64` as a non-negative integer array index.
+/// Returns `None` for negative, non-integer, or out-of-range values.
+#[inline]
+pub(crate) fn try_as_array_index(n: f64) -> Option<usize> {
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation
+    )]
+    let i = n as usize;
+    #[allow(clippy::cast_precision_loss)]
+    if n >= 0.0 && (i as f64) == n {
+        Some(i)
+    } else {
+        None
+    }
+}
+
 /// Parse a WTF-16 string as a non-negative integer array index (e.g. "0", "42").
 /// Returns `None` for empty strings, leading zeros (except "0"), non-digit chars,
 /// or overflow.
