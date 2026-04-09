@@ -113,19 +113,42 @@ impl VmInner {
             let mut keys = Vec::new();
             let mut seen = std::collections::HashSet::new();
             let mut current = Some(obj_id);
-            // Array: enumerate non-Empty element indices first (numeric order).
+            // ES §13.7.5.15: integer indices in ascending numeric order first,
+            // then string keys in insertion order.
             if let Some(obj_ref) = self.objects[obj_id.0 as usize].as_ref() {
+                // Collect integer indices from elements (non-Empty) + storage.
+                let mut index_keys: Vec<(usize, super::value::StringId)> = Vec::new();
+                let mut non_index_keys: Vec<super::value::StringId> = Vec::new();
                 if let ObjectKind::Array { ref elements } = obj_ref.kind {
-                    let mut buf = [0u8; 20]; // enough for usize decimal
+                    let mut buf = [0u8; 20];
                     for (i, elem) in elements.iter().enumerate() {
                         if !elem.is_empty() {
                             let s = format_usize(i, &mut buf);
                             let idx_str = self.strings.intern(s);
-                            seen.insert(idx_str);
-                            keys.push(idx_str);
+                            if seen.insert(idx_str) {
+                                index_keys.push((i, idx_str));
+                            }
                         }
                     }
                 }
+                // Own storage properties on the first object.
+                for (key, attrs) in obj_ref.storage.iter_keys(&self.shapes) {
+                    if let PropertyKey::String(sid) = key {
+                        if attrs.enumerable && seen.insert(sid) {
+                            let units = self.strings.get(sid);
+                            if let Some(idx) = super::ops::parse_array_index_u16(units) {
+                                index_keys.push((idx, sid));
+                            } else {
+                                non_index_keys.push(sid);
+                            }
+                        }
+                    }
+                }
+                index_keys.sort_unstable_by_key(|(idx, _)| *idx);
+                keys.extend(index_keys.into_iter().map(|(_, sid)| sid));
+                keys.extend(non_index_keys);
+                // Continue with prototype chain (skip obj_id, already processed).
+                current = obj_ref.prototype;
             }
             while let Some(id) = current {
                 let obj_ref = self.objects[id.0 as usize]

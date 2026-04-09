@@ -161,13 +161,11 @@ impl JsonSerializer {
                 self.output.push_str(&self.indent);
             }
 
-            // Read element (must re-borrow each iteration due to ctx mutation).
-            let elem = match &ctx.get_object(obj_id).kind {
-                ObjectKind::Array { elements } => {
-                    elements.get(i).copied().unwrap_or(JsValue::Undefined)
-                }
-                _ => JsValue::Undefined,
-            };
+            // Read element via Get semantics (includes prototype lookup for holes).
+            #[allow(clippy::cast_precision_loss)]
+            let elem = ctx
+                .vm
+                .get_element(JsValue::Object(obj_id), JsValue::Number(i as f64))?;
 
             // Only intern the index string when toJSON or replacer needs it.
             // This avoids permanently growing the StringPool for large arrays.
