@@ -1,7 +1,7 @@
 //! Object and array creation opcode handlers extracted from the main dispatch loop.
 
 use super::coerce;
-use super::ops::parse_array_index_u16;
+use super::ops::{parse_array_index_u16, MAX_DENSE_ARRAY_LEN};
 use super::value::{JsValue, ObjectKind, PropertyKey, PropertyValue, VmError};
 use super::VmInner;
 
@@ -107,6 +107,9 @@ impl VmInner {
         let arr_val = self.peek()?;
         if let JsValue::Object(id) = arr_val {
             if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind {
+                if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                    return Err(VmError::range_error("Array allocation failed"));
+                }
                 elements.push(val);
             }
         }

@@ -548,6 +548,27 @@ impl VmInner {
                 return Ok(());
             }
             let key_id = to_string(self, key)?;
+            // String key that parses as array index → store in elements.
+            if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
+                let key_units = self.strings.get(key_id);
+                if let Some(idx) = parse_array_index_u16(key_units) {
+                    let obj_ref = self.get_object_mut(id);
+                    if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
+                        if idx >= elements.len() {
+                            if idx >= MAX_DENSE_ARRAY_LEN {
+                                return Err(VmError::range_error("Array allocation failed"));
+                            }
+                            let new_len = idx + 1;
+                            elements
+                                .try_reserve(new_len - elements.len())
+                                .map_err(|_| VmError::range_error("Array allocation failed"))?;
+                            elements.resize(new_len, JsValue::Empty);
+                        }
+                        elements[idx] = val;
+                        return Ok(());
+                    }
+                }
+            }
             self.set_property_val(JsValue::Object(id), key_id, val)?;
         }
         Ok(())
