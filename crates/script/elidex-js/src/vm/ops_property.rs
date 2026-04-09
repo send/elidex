@@ -11,7 +11,7 @@ use super::value::{
 };
 use super::VmInner;
 
-use super::ops::{parse_array_index_u16, try_as_array_index, MAX_ES_ARRAY_INDEX};
+use super::ops::{parse_array_index_u16, try_as_array_index, MAX_DENSE_ARRAY_LEN};
 
 // ---------------------------------------------------------------------------
 // Property access
@@ -425,6 +425,24 @@ impl VmInner {
             }
             // Fall back to string key property lookup.
             let key_id = to_string(self, key)?;
+            // String key that parses as array index → check elements first.
+            if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
+                let key_units = self.strings.get(key_id);
+                if let Some(idx) = parse_array_index_u16(key_units) {
+                    let elem = {
+                        let obj_ref = self.get_object(id);
+                        if let ObjectKind::Array { ref elements } = obj_ref.kind {
+                            elements.get(idx).copied().unwrap_or(JsValue::Empty)
+                        } else {
+                            JsValue::Empty
+                        }
+                    };
+                    if !elem.is_empty() {
+                        return Ok(elem);
+                    }
+                    // Hole: fall through to property/prototype lookup.
+                }
+            }
             let pk = PropertyKey::String(key_id);
             match get_property(self, id, pk) {
                 Some(result) => self.resolve_property(result, obj),
@@ -503,8 +521,8 @@ impl VmInner {
                     match &mut obj_ref.kind {
                         ObjectKind::Array { ref mut elements } => {
                             if idx >= elements.len() {
-                                if idx > MAX_ES_ARRAY_INDEX {
-                                    return Err(VmError::range_error("Invalid array length"));
+                                if idx >= MAX_DENSE_ARRAY_LEN {
+                                    return Err(VmError::range_error("Array allocation failed"));
                                 }
                                 let new_len = idx + 1;
                                 elements

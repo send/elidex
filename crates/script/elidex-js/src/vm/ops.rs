@@ -19,6 +19,10 @@ use crate::bytecode::compiled::Constant;
 /// ES array index upper bound: 2^32 − 2 (§6.1.7, max valid array index).
 pub(crate) const MAX_ES_ARRAY_INDEX: usize = (u32::MAX as usize) - 1;
 
+/// Practical dense array length cap: 2^27 = 128M entries ≈ 2 GiB at 16 B/JsValue.
+/// Applied to both `Array(n)` constructor and `set_element` resize to prevent OOM.
+pub(crate) const MAX_DENSE_ARRAY_LEN: usize = 1 << 27;
+
 /// Try to interpret an `f64` as a valid ES array index (0..=2^32−2).
 /// Returns `None` for negative, non-integer, or out-of-range values.
 #[inline]

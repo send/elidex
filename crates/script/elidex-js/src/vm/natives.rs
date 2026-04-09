@@ -632,8 +632,7 @@ pub(super) fn native_object_define_property(
 // -- Array constructor & static methods --------------------------------------
 
 /// `Array(n)` / `Array(a, b, c)` constructor (ES2020 §22.1.1).
-// 2^27 = 128M entries ≈ 2 GiB at 16 B/JsValue — practical upper bound to prevent OOM.
-const MAX_ARRAY_LEN: u32 = 1 << 27;
+use super::ops::MAX_DENSE_ARRAY_LEN;
 
 pub(super) fn native_array_constructor(
     ctx: &mut NativeContext<'_>,
@@ -645,7 +644,12 @@ pub(super) fn native_array_constructor(
             // Single numeric arg → sparse array of that length.
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let len = n as u32;
-            if n < 0.0 || !n.is_finite() || f64::from(len) != n || len >= MAX_ARRAY_LEN {
+            #[allow(clippy::cast_possible_truncation)]
+            if n < 0.0
+                || !n.is_finite()
+                || f64::from(len) != n
+                || (len as usize) >= MAX_DENSE_ARRAY_LEN
+            {
                 return Err(VmError::range_error("Invalid array length"));
             }
             #[allow(clippy::cast_possible_truncation)]
