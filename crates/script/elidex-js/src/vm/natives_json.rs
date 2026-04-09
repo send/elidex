@@ -43,7 +43,8 @@ impl JsonSerializer {
         holder: ObjectId,
         key: JsValue,
     ) -> Result<bool, VmError> {
-        let mut val = value;
+        // Normalize Empty (sparse hole) to Undefined so user code never sees it.
+        let mut val = value.or_undefined();
 
         // Step 2: If value is Object, check for toJSON.
         if let JsValue::Object(obj_id) = val {
@@ -113,7 +114,7 @@ impl JsonSerializer {
                     self.serialize_object(ctx, obj_id)
                 }
             }
-            // undefined, Symbol, Empty → skip (Empty in array context → "null" via caller)
+            // undefined, Symbol → skip (holes normalized to Undefined above)
             JsValue::Empty | JsValue::Undefined | JsValue::Symbol(_) => Ok(false),
         }
     }
@@ -834,15 +835,16 @@ fn internalize(
                         )?;
                         // Spec §24.5.1.1: reviver returning undefined → [[Delete]].
                         // With JsValue::Empty this creates a proper sparse hole.
+                        // JS code cannot produce Empty, so only check Undefined.
+                        debug_assert!(!result.is_empty(), "reviver should never return Empty");
                         if let ObjectKind::Array { elements } = &mut ctx.get_object_mut(obj_id).kind
                         {
                             if i < elements.len() {
-                                elements[i] =
-                                    if result.is_empty() || matches!(result, JsValue::Undefined) {
-                                        JsValue::Empty
-                                    } else {
-                                        result
-                                    };
+                                elements[i] = if matches!(result, JsValue::Undefined) {
+                                    JsValue::Empty
+                                } else {
+                                    result
+                                };
                             }
                         }
                     }

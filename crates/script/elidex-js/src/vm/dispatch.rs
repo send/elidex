@@ -581,14 +581,21 @@ impl VmInner {
                             JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
                             _ => None,
                         };
-                        // Fast path: array + valid array index → set element to Empty.
+                        // Fast path: array element present → set to Empty.
+                        // Only applies when the index has a live element;
+                        // otherwise fall back to property delete for
+                        // configurable/strict-mode semantics.
                         if let Some(idx) = arr_idx {
-                            if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
+                            let can_fast_delete = matches!(
+                                &self.get_object(id).kind,
+                                ObjectKind::Array { elements }
+                                    if idx < elements.len()
+                                        && !elements[idx].is_empty()
+                            );
+                            if can_fast_delete {
                                 let obj_ref = self.get_object_mut(id);
                                 if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
-                                    if idx < elements.len() {
-                                        elements[idx] = JsValue::Empty;
-                                    }
+                                    elements[idx] = JsValue::Empty;
                                 }
                                 true
                             } else {
