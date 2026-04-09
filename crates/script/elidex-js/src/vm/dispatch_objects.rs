@@ -137,14 +137,31 @@ impl VmInner {
         let obj_val = self.peek()?;
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
             let is_global = dst_id == self.global_object;
-            // §12.2.6.8 CopyDataProperties: snapshot keys, then Get per key.
-            let keys: Vec<PropertyKey> = self
-                .get_object(src_id)
-                .storage
-                .iter_keys(&self.shapes)
-                .filter(|(_, attrs)| attrs.enumerable)
-                .map(|(k, _)| k)
-                .collect();
+            // §12.2.6.8 CopyDataProperties: snapshot keys in ES order, then Get per key.
+            // Array element indices (ascending) come before string keys.
+            let keys: Vec<PropertyKey> = {
+                let elem_indices: Vec<usize> = match &self.get_object(src_id).kind {
+                    ObjectKind::Array { ref elements } => elements
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, e)| !e.is_empty())
+                        .map(|(i, _)| i)
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let mut ks = Vec::new();
+                for i in elem_indices {
+                    let sid = self.strings.intern(&i.to_string());
+                    ks.push(PropertyKey::String(sid));
+                }
+                let obj = self.get_object(src_id);
+                for (k, attrs) in obj.storage.iter_keys(&self.shapes) {
+                    if attrs.enumerable {
+                        ks.push(k);
+                    }
+                }
+                ks
+            };
             // GC safety: root resolved values on the stack while getters
             // for subsequent properties may trigger allocations / GC.
             let stack_base = self.stack.len();

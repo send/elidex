@@ -329,14 +329,32 @@ pub(super) fn native_object_assign(
         let JsValue::Object(src_id) = source else {
             continue;
         };
-        // §19.1.2.1 step 5c: snapshot keys, then Get per key.
-        let keys: Vec<PropertyKey> = ctx
-            .get_object(src_id)
-            .storage
-            .iter_keys(&ctx.vm.shapes)
-            .filter(|(_, attrs)| attrs.enumerable)
-            .map(|(k, _)| k)
-            .collect();
+        // §19.1.2.1 step 5c: snapshot keys in ES order, then Get per key.
+        // Array element indices (ascending) come before string keys.
+        let keys: Vec<PropertyKey> = {
+            // Collect element indices first (needs mutable strings access).
+            let elem_indices: Vec<usize> = match &ctx.get_object(src_id).kind {
+                ObjectKind::Array { ref elements } => elements
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| !e.is_empty())
+                    .map(|(i, _)| i)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let mut ks = Vec::new();
+            for i in elem_indices {
+                let sid = ctx.vm.strings.intern(&i.to_string());
+                ks.push(PropertyKey::String(sid));
+            }
+            let obj = ctx.get_object(src_id);
+            for (k, attrs) in obj.storage.iter_keys(&ctx.vm.shapes) {
+                if attrs.enumerable {
+                    ks.push(k);
+                }
+            }
+            ks
+        };
         let mut props = Vec::with_capacity(keys.len());
         for key in keys {
             props.push((key, ctx.get_property_value(src_id, key)?));

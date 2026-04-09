@@ -816,12 +816,10 @@ fn internalize(
                 ObjectKind::Array { elements } => {
                     let len = elements.len();
                     for i in 0..len {
-                        let elem = match &ctx.get_object(obj_id).kind {
-                            ObjectKind::Array { elements } => {
-                                elements.get(i).copied().unwrap_or(JsValue::Undefined)
-                            }
-                            _ => JsValue::Undefined,
-                        };
+                        #[allow(clippy::cast_precision_loss)]
+                        let elem = ctx
+                            .vm
+                            .get_element(JsValue::Object(obj_id), JsValue::Number(i as f64))?;
                         let new_val = internalize(ctx, elem, reviver, index_buf)?;
                         index_buf.clear();
                         let _ = write!(index_buf, "{i}");
