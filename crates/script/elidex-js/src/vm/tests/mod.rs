@@ -1,5 +1,6 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
+mod tests_array_prototype;
 mod tests_bigint;
 mod tests_json;
 mod tests_m4_10_2;

@@ -3,7 +3,8 @@
 use std::fmt::Write;
 
 use super::coerce_format::{collect_own_keys_es_order, write_number_es};
-use super::ops::MAX_DENSE_ARRAY_LEN;
+use super::natives_array::create_array;
+use super::ops::DENSE_ARRAY_LEN_LIMIT;
 use super::shape::{PropertyAttrs, ROOT_SHAPE};
 use super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
@@ -699,16 +700,12 @@ impl<'a> JsonParser<'a> {
         let mut elements = Vec::new();
         if self.peek() == Some(b']') {
             self.pos += 1;
-            return Ok(JsValue::Object(ctx.alloc_object(Object {
-                kind: ObjectKind::Array { elements },
-                storage: PropertyStorage::shaped(ROOT_SHAPE),
-                prototype: ctx.vm.array_prototype,
-            })));
+            return Ok(create_array(ctx, elements));
         }
 
         loop {
             let val = self.parse_value(ctx)?;
-            if elements.len() >= MAX_DENSE_ARRAY_LEN {
+            if elements.len() >= DENSE_ARRAY_LEN_LIMIT {
                 return Err(VmError::range_error("Array allocation failed"));
             }
             elements.push(val);
@@ -726,11 +723,7 @@ impl<'a> JsonParser<'a> {
             }
         }
 
-        Ok(JsValue::Object(ctx.alloc_object(Object {
-            kind: ObjectKind::Array { elements },
-            storage: PropertyStorage::shaped(ROOT_SHAPE),
-            prototype: ctx.vm.array_prototype,
-        })))
+        Ok(create_array(ctx, elements))
     }
 
     fn parse_object(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {

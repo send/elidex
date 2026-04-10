@@ -1,7 +1,7 @@
 //! Iterator-protocol opcode handlers extracted from the main dispatch loop.
 
 use super::coerce::get_property;
-use super::ops::MAX_DENSE_ARRAY_LEN;
+use super::ops::DENSE_ARRAY_LEN_LIMIT;
 use super::value::{
     ForInState, JsValue, Object, ObjectKind, PropertyKey, PropertyStorage, VmError,
 };
@@ -22,7 +22,7 @@ impl VmInner {
     ///
     /// Returns `Ok(Some(iterator))` on success, `Ok(None)` when the value has no
     /// iterator protocol (e.g. numbers, booleans), or propagates call errors.
-    fn resolve_iterator(&mut self, val: JsValue) -> Result<Option<JsValue>, VmError> {
+    pub(crate) fn resolve_iterator(&mut self, val: JsValue) -> Result<Option<JsValue>, VmError> {
         let lookup_id = match val {
             JsValue::Object(id) => Some(id),
             JsValue::String(_) => self.string_prototype,
@@ -75,7 +75,7 @@ impl VmInner {
             if let JsValue::Object(arr_id) = arr_val {
                 let arr = self.get_object_mut(arr_id);
                 if let ObjectKind::Array { ref mut elements } = arr.kind {
-                    if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                    if elements.len() >= DENSE_ARRAY_LEN_LIMIT {
                         return Err(VmError::range_error("Array allocation failed"));
                     }
                     elements.push(value);
@@ -239,7 +239,7 @@ impl VmInner {
         loop {
             match self.iter_next(iter_val) {
                 Ok(Some(value)) => {
-                    if self.stack.len() - stack_root_base >= MAX_DENSE_ARRAY_LEN {
+                    if self.stack.len() - stack_root_base >= DENSE_ARRAY_LEN_LIMIT {
                         self.stack.truncate(stack_root_base);
                         return Err(VmError::range_error("Array allocation failed"));
                     }
@@ -254,13 +254,8 @@ impl VmInner {
         }
         // Copy elements (keeping originals on stack as GC roots during alloc).
         let elements: Vec<JsValue> = self.stack[stack_root_base..].to_vec();
-        let proto = self.array_prototype;
-        // alloc_object may trigger GC — elements are rooted on the stack.
-        let arr = self.alloc_object(Object {
-            kind: ObjectKind::Array { elements },
-            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: proto,
-        });
+        // create_array_object may trigger GC — elements are rooted on the stack.
+        let arr = self.create_array_object(elements);
         // Now safe to remove the temporary roots.
         self.stack.truncate(stack_root_base);
         self.stack.push(JsValue::Object(arr));

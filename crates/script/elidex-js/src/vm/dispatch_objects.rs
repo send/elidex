@@ -1,7 +1,7 @@
 //! Object and array creation opcode handlers extracted from the main dispatch loop.
 
 use super::coerce;
-use super::ops::{parse_array_index_u16, MAX_DENSE_ARRAY_LEN};
+use super::ops::{parse_array_index_u16, DENSE_ARRAY_LEN_LIMIT};
 use super::value::{JsValue, ObjectKind, PropertyKey, PropertyValue, VmError};
 use super::VmInner;
 
@@ -90,14 +90,7 @@ impl VmInner {
 
     /// `CreateArray` — allocate an array with `Array.prototype`.
     pub(crate) fn op_create_array(&mut self) {
-        let proto = self.array_prototype;
-        let id = self.alloc_object(super::value::Object {
-            kind: ObjectKind::Array {
-                elements: Vec::new(),
-            },
-            storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: proto,
-        });
+        let id = self.create_array_object(Vec::new());
         self.stack.push(JsValue::Object(id));
     }
 
@@ -107,7 +100,7 @@ impl VmInner {
         let arr_val = self.peek()?;
         if let JsValue::Object(id) = arr_val {
             if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind {
-                if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                if elements.len() >= DENSE_ARRAY_LEN_LIMIT {
                     return Err(VmError::range_error("Array allocation failed"));
                 }
                 elements.push(val);
@@ -121,7 +114,7 @@ impl VmInner {
         let arr_val = self.peek()?;
         if let JsValue::Object(id) = arr_val {
             if let ObjectKind::Array { ref mut elements } = self.get_object_mut(id).kind {
-                if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                if elements.len() >= DENSE_ARRAY_LEN_LIMIT {
                     return Err(VmError::range_error("Array allocation failed"));
                 }
                 elements.push(JsValue::Empty);

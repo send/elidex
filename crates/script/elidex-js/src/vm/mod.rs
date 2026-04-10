@@ -16,6 +16,8 @@ mod globals;
 pub(crate) mod ic;
 pub mod interpreter;
 mod natives;
+mod natives_array;
+mod natives_array_hof;
 mod natives_bigint;
 mod natives_boolean;
 mod natives_json;
@@ -304,6 +306,15 @@ impl VmInner {
             self.objects.push(Some(obj));
             id
         }
+    }
+
+    /// Allocate an `ObjectKind::Array` with the standard prototype.
+    pub(crate) fn create_array_object(&mut self, elements: Vec<JsValue>) -> ObjectId {
+        self.alloc_object(Object {
+            kind: ObjectKind::Array { elements },
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: self.array_prototype,
+        })
     }
 
     /// Get a reference to an object.
