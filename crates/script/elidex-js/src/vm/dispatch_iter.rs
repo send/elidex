@@ -1,7 +1,7 @@
 //! Iterator-protocol opcode handlers extracted from the main dispatch loop.
 
 use super::coerce::get_property;
-use super::ops::MAX_DENSE_ARRAY_LEN;
+use super::ops::DENSE_ARRAY_LEN_LIMIT;
 use super::value::{
     ForInState, JsValue, Object, ObjectKind, PropertyKey, PropertyStorage, VmError,
 };
@@ -75,7 +75,7 @@ impl VmInner {
             if let JsValue::Object(arr_id) = arr_val {
                 let arr = self.get_object_mut(arr_id);
                 if let ObjectKind::Array { ref mut elements } = arr.kind {
-                    if elements.len() >= MAX_DENSE_ARRAY_LEN {
+                    if elements.len() >= DENSE_ARRAY_LEN_LIMIT {
                         return Err(VmError::range_error("Array allocation failed"));
                     }
                     elements.push(value);
@@ -239,7 +239,7 @@ impl VmInner {
         loop {
             match self.iter_next(iter_val) {
                 Ok(Some(value)) => {
-                    if self.stack.len() - stack_root_base >= MAX_DENSE_ARRAY_LEN {
+                    if self.stack.len() - stack_root_base >= DENSE_ARRAY_LEN_LIMIT {
                         self.stack.truncate(stack_root_base);
                         return Err(VmError::range_error("Array allocation failed"));
                     }

@@ -1,7 +1,7 @@
 //! Native implementations of String.prototype methods.
 
 use super::natives_array::create_array;
-use super::ops::MAX_DENSE_ARRAY_LEN;
+use super::ops::DENSE_ARRAY_LEN_LIMIT;
 use super::value::{
     JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, StringId, VmError,
 };
@@ -361,7 +361,7 @@ pub(super) fn native_string_split(
     if sep.is_empty() {
         // Split into individual code units — no full-string clone needed.
         let len = ctx.get_u16(sid).len();
-        if len >= MAX_DENSE_ARRAY_LEN {
+        if len >= DENSE_ARRAY_LEN_LIMIT {
             return Err(VmError::range_error("Array allocation failed"));
         }
         for i in 0..len {
@@ -384,7 +384,7 @@ pub(super) fn native_string_split(
                 break;
             }
         }
-        if ranges.len() >= MAX_DENSE_ARRAY_LEN {
+        if ranges.len() >= DENSE_ARRAY_LEN_LIMIT {
             return Err(VmError::range_error("Array allocation failed"));
         }
         for (a, b) in ranges {
@@ -584,7 +584,7 @@ pub(super) fn native_string_match(
             set_regexp_last_index(ctx, re_id, 0);
             let mut matches = Vec::new();
             while let Some(m) = super::natives_regexp::run_regexp(ctx, re_id, &subject)? {
-                if matches.len() >= MAX_DENSE_ARRAY_LEN {
+                if matches.len() >= DENSE_ARRAY_LEN_LIMIT {
                     return Err(VmError::range_error("Array allocation failed"));
                 }
                 matches.push(ctx.vm.strings.intern_utf16(&subject[m.start()..m.end()]));

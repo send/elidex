@@ -631,7 +631,7 @@ pub(super) fn native_object_define_property(
 // -- Array constructor & static methods --------------------------------------
 
 /// `Array(n)` / `Array(a, b, c)` constructor (ES2020 §22.1.1).
-use super::ops::MAX_DENSE_ARRAY_LEN;
+use super::ops::DENSE_ARRAY_LEN_LIMIT;
 
 pub(super) fn native_array_constructor(
     ctx: &mut NativeContext<'_>,
@@ -647,7 +647,7 @@ pub(super) fn native_array_constructor(
             if n < 0.0
                 || !n.is_finite()
                 || f64::from(len) != n
-                || (len as usize) >= MAX_DENSE_ARRAY_LEN
+                || (len as usize) >= DENSE_ARRAY_LEN_LIMIT
             {
                 return Err(VmError::range_error("Invalid array length"));
             }

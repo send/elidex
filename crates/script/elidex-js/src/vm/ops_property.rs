@@ -11,7 +11,7 @@ use super::value::{
 };
 use super::VmInner;
 
-use super::ops::{parse_array_index_u16, try_as_array_index, MAX_DENSE_ARRAY_LEN};
+use super::ops::{parse_array_index_u16, try_as_array_index, DENSE_ARRAY_LEN_LIMIT};
 
 // ---------------------------------------------------------------------------
 // Property access
@@ -521,7 +521,7 @@ impl VmInner {
                     match &mut obj_ref.kind {
                         ObjectKind::Array { ref mut elements } => {
                             if idx >= elements.len() {
-                                if idx >= MAX_DENSE_ARRAY_LEN {
+                                if idx >= DENSE_ARRAY_LEN_LIMIT {
                                     return Err(VmError::range_error("Array allocation failed"));
                                 }
                                 let new_len = idx + 1;
@@ -555,7 +555,7 @@ impl VmInner {
                     let obj_ref = self.get_object_mut(id);
                     if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
                         if idx >= elements.len() {
-                            if idx >= MAX_DENSE_ARRAY_LEN {
+                            if idx >= DENSE_ARRAY_LEN_LIMIT {
                                 return Err(VmError::range_error("Array allocation failed"));
                             }
                             let new_len = idx + 1;

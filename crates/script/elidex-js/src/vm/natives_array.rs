@@ -6,7 +6,7 @@
 //! All methods operate on `ObjectKind::Array` only (generic array-like
 //! objects are not supported in P0 — see plan).
 
-use super::ops::MAX_DENSE_ARRAY_LEN;
+use super::ops::DENSE_ARRAY_LEN_LIMIT;
 use super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 
 /// Wrap a `usize` index as `JsValue::Number`, suppressing the precision-loss
@@ -82,7 +82,7 @@ pub(super) fn create_array(ctx: &mut NativeContext<'_>, elements: Vec<JsValue>) 
 
 /// Guard against exceeding the dense array limit.
 pub(super) fn check_len(new_len: usize) -> Result<(), VmError> {
-    if new_len >= MAX_DENSE_ARRAY_LEN {
+    if new_len >= DENSE_ARRAY_LEN_LIMIT {
         return Err(VmError::range_error("Invalid array length"));
     }
     Ok(())
