@@ -275,7 +275,6 @@ pub(super) fn native_array_splice(
         .splice(start..start + delete_count, items.iter().copied())
         .collect();
 
-    let removed: Vec<JsValue> = removed.into_iter().map(JsValue::or_undefined).collect();
     Ok(create_array(ctx, removed))
 }
 
@@ -377,11 +376,8 @@ pub(super) fn native_array_slice(
     let end = resolve_index(raw_end, len);
 
     let elements = clone_elements(ctx, id);
-    let result: Vec<JsValue> = if start < end {
-        elements[start..end]
-            .iter()
-            .map(|v| v.or_undefined())
-            .collect()
+    let result = if start < end {
+        elements[start..end].to_vec()
     } else {
         Vec::new()
     };
@@ -396,10 +392,7 @@ pub(super) fn native_array_concat(
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
     array_len(ctx, id)?;
-    let mut result: Vec<JsValue> = clone_elements(ctx, id)
-        .into_iter()
-        .map(JsValue::or_undefined)
-        .collect();
+    let mut result = clone_elements(ctx, id);
 
     for &arg in args {
         if let JsValue::Object(arg_id) = arg {
@@ -407,7 +400,7 @@ pub(super) fn native_array_concat(
             if is_array {
                 let elems = clone_elements(ctx, arg_id);
                 check_len(result.len() + elems.len())?;
-                result.extend(elems.into_iter().map(JsValue::or_undefined));
+                result.extend_from_slice(&elems);
                 continue;
             }
         }
