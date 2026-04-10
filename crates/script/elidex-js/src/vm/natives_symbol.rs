@@ -104,6 +104,11 @@ pub(super) fn native_array_values(
             "Array.prototype[Symbol.iterator] called on non-object",
         ));
     };
+    if !matches!(ctx.get_object(arr_id).kind, ObjectKind::Array { .. }) {
+        return Err(VmError::type_error(
+            "Array.prototype[Symbol.iterator] called on non-array",
+        ));
+    }
     let iter_obj = ctx.alloc_object(Object {
         kind: ObjectKind::ArrayIterator(ArrayIterState {
             array_id: arr_id,

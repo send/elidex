@@ -170,6 +170,7 @@ pub(super) fn native_array_reverse(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
+    array_len(ctx, id)?;
     let obj = ctx.get_object_mut(id);
     if let ObjectKind::Array { elements } = &mut obj.kind {
         elements.reverse();
@@ -184,6 +185,7 @@ pub(super) fn native_array_sort(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
+    array_len(ctx, id)?;
     let cmp_fn = match args.first().copied() {
         Some(JsValue::Object(fn_id)) => Some(fn_id),
         Some(JsValue::Undefined) | None => None,
@@ -273,6 +275,7 @@ pub(super) fn native_array_splice(
         .splice(start..start + delete_count, items.iter().copied())
         .collect();
 
+    let removed: Vec<JsValue> = removed.into_iter().map(JsValue::or_undefined).collect();
     Ok(create_array(ctx, removed))
 }
 
@@ -374,8 +377,11 @@ pub(super) fn native_array_slice(
     let end = resolve_index(raw_end, len);
 
     let elements = clone_elements(ctx, id);
-    let result = if start < end {
-        elements[start..end].to_vec()
+    let result: Vec<JsValue> = if start < end {
+        elements[start..end]
+            .iter()
+            .map(|v| v.or_undefined())
+            .collect()
     } else {
         Vec::new()
     };
@@ -389,7 +395,10 @@ pub(super) fn native_array_concat(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
-    let mut result = clone_elements(ctx, id);
+    let mut result: Vec<JsValue> = clone_elements(ctx, id)
+        .into_iter()
+        .map(JsValue::or_undefined)
+        .collect();
 
     for &arg in args {
         if let JsValue::Object(arg_id) = arg {
@@ -397,7 +406,7 @@ pub(super) fn native_array_concat(
             if is_array {
                 let elems = clone_elements(ctx, arg_id);
                 check_len(result.len() + elems.len())?;
-                result.extend_from_slice(&elems);
+                result.extend(elems.into_iter().map(JsValue::or_undefined));
                 continue;
             }
         }
