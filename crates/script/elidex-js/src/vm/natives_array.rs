@@ -118,7 +118,7 @@ pub(super) fn native_array_pop(
     let id = this_object_id(this)?;
     let obj = ctx.get_object_mut(id);
     let ObjectKind::Array { elements } = &mut obj.kind else {
-        return Ok(JsValue::Undefined);
+        return Err(VmError::type_error("pop called on non-array"));
     };
     Ok(elements.pop().unwrap_or(JsValue::Undefined).or_undefined())
 }
@@ -132,7 +132,7 @@ pub(super) fn native_array_shift(
     let id = this_object_id(this)?;
     let obj = ctx.get_object_mut(id);
     let ObjectKind::Array { elements } = &mut obj.kind else {
-        return Ok(JsValue::Undefined);
+        return Err(VmError::type_error("shift called on non-array"));
     };
     if elements.is_empty() {
         return Ok(JsValue::Undefined);
@@ -381,13 +381,14 @@ pub(super) fn native_array_concat(
             let is_array = matches!(ctx.get_object(arg_id).kind, ObjectKind::Array { .. });
             if is_array {
                 let elems = clone_elements(ctx, arg_id);
+                check_len(result.len() + elems.len())?;
                 result.extend_from_slice(&elems);
                 continue;
             }
         }
+        check_len(result.len() + 1)?;
         result.push(arg);
     }
-    check_len(result.len())?;
     Ok(create_array(ctx, result))
 }
 

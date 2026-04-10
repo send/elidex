@@ -254,6 +254,9 @@ pub(super) fn native_array_find_index(
     Ok(JsValue::Number(-1.0))
 }
 
+/// Practical recursion depth limit for `flat()` to prevent stack overflow.
+const MAX_FLAT_DEPTH: usize = 100;
+
 /// `Array.prototype.flat(depth?)` — flatten nested arrays.
 pub(super) fn native_array_flat(
     ctx: &mut NativeContext<'_>,
@@ -267,11 +270,11 @@ pub(super) fn native_array_flat(
             let n = ctx.to_number(v)?;
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             if n.is_infinite() && n > 0.0 {
-                usize::MAX
+                MAX_FLAT_DEPTH
             } else if n < 0.0 || n.is_nan() {
                 0
             } else {
-                n as usize
+                (n as usize).min(MAX_FLAT_DEPTH)
             }
         }
     };
