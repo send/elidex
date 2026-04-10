@@ -269,7 +269,7 @@ pub(super) fn native_array_splice(
 
     let obj = ctx.get_object_mut(id);
     let ObjectKind::Array { elements } = &mut obj.kind else {
-        return Ok(create_array(ctx, Vec::new()));
+        unreachable!("array_len already validated ObjectKind::Array");
     };
     let removed: Vec<JsValue> = elements
         .splice(start..start + delete_count, items.iter().copied())
@@ -395,6 +395,7 @@ pub(super) fn native_array_concat(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
+    array_len(ctx, id)?;
     let mut result: Vec<JsValue> = clone_elements(ctx, id)
         .into_iter()
         .map(JsValue::or_undefined)
@@ -423,6 +424,7 @@ pub(super) fn native_array_join(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
+    array_len(ctx, id)?;
     let sep = match args.first().copied() {
         Some(JsValue::Undefined) | None => ",".to_string(),
         Some(v) => {

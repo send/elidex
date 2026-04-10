@@ -219,13 +219,14 @@ pub(super) fn native_array_find(
     let id = this_object_id(this)?;
     let cb = require_callback(args)?;
     let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    // §22.1.3.9: find visits ALL indices, treating holes as undefined.
     let elements = clone_elements(ctx, id);
     for (i, v) in elements.iter().enumerate() {
-        let value = v.or_undefined();
-        let result = ctx.call_function(cb, this_arg, &[value, index_to_number(i), this])?;
+        if v.is_empty() {
+            continue;
+        }
+        let result = ctx.call_function(cb, this_arg, &[*v, index_to_number(i), this])?;
         if ctx.to_boolean(result) {
-            return Ok(value);
+            return Ok(*v);
         }
     }
     Ok(JsValue::Undefined)
@@ -240,11 +241,12 @@ pub(super) fn native_array_find_index(
     let id = this_object_id(this)?;
     let cb = require_callback(args)?;
     let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    // §22.1.3.10: findIndex visits ALL indices, treating holes as undefined.
     let elements = clone_elements(ctx, id);
     for (i, v) in elements.iter().enumerate() {
-        let value = v.or_undefined();
-        let result = ctx.call_function(cb, this_arg, &[value, index_to_number(i), this])?;
+        if v.is_empty() {
+            continue;
+        }
+        let result = ctx.call_function(cb, this_arg, &[*v, index_to_number(i), this])?;
         if ctx.to_boolean(result) {
             return Ok(index_to_number(i));
         }
@@ -304,6 +306,7 @@ fn flat_into(
             }
         }
         result.push(elem);
+        check_len(result.len())?;
     }
     Ok(())
 }
