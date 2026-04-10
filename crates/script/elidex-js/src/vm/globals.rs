@@ -20,6 +20,19 @@ use super::natives::{
     native_string_to_upper_case, native_string_trim, native_symbol_constructor, native_symbol_for,
     native_symbol_key_for, native_symbol_prototype_to_string, native_type_error_constructor,
 };
+use super::natives_array::{
+    native_array_concat, native_array_copy_within, native_array_fill, native_array_includes,
+    native_array_index_of, native_array_join, native_array_last_index_of, native_array_pop,
+    native_array_push, native_array_reverse, native_array_shift, native_array_slice,
+    native_array_sort, native_array_splice, native_array_to_locale_string, native_array_to_string,
+    native_array_unshift,
+};
+use super::natives_array_hof::{
+    native_array_entries, native_array_every, native_array_filter, native_array_find,
+    native_array_find_index, native_array_flat, native_array_flat_map, native_array_for_each,
+    native_array_from, native_array_keys, native_array_map, native_array_of, native_array_reduce,
+    native_array_reduce_right, native_array_some,
+};
 use super::natives_boolean::{native_boolean_to_string, native_boolean_value_of};
 use super::natives_number::{
     native_number_to_fixed, native_number_to_string, native_number_value_of,
@@ -195,6 +208,51 @@ impl VmInner {
             PropertyValue::Data(JsValue::Object(iter_fn_id)),
             PropertyAttrs::METHOD,
         );
+
+        // Array.prototype methods (ES2020 §22.1.3)
+        let methods: &[(&str, NativeFn)] = &[
+            ("push", native_array_push),
+            ("pop", native_array_pop),
+            ("shift", native_array_shift),
+            ("unshift", native_array_unshift),
+            ("reverse", native_array_reverse),
+            ("sort", native_array_sort),
+            ("splice", native_array_splice),
+            ("fill", native_array_fill),
+            ("copyWithin", native_array_copy_within),
+            ("slice", native_array_slice),
+            ("concat", native_array_concat),
+            ("join", native_array_join),
+            ("indexOf", native_array_index_of),
+            ("lastIndexOf", native_array_last_index_of),
+            ("includes", native_array_includes),
+            ("forEach", native_array_for_each),
+            ("map", native_array_map),
+            ("filter", native_array_filter),
+            ("every", native_array_every),
+            ("some", native_array_some),
+            ("reduce", native_array_reduce),
+            ("reduceRight", native_array_reduce_right),
+            ("find", native_array_find),
+            ("findIndex", native_array_find_index),
+            ("flat", native_array_flat),
+            ("flatMap", native_array_flat_map),
+            ("entries", native_array_entries),
+            ("keys", native_array_keys),
+            ("values", native_array_values),
+            ("toString", native_array_to_string),
+            ("toLocaleString", native_array_to_locale_string),
+        ];
+        for &(name, func) in methods {
+            let fn_id = self.create_native_function(name, func);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                arr_proto,
+                key,
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
     }
 
     fn register_iterator_prototypes(&mut self) {
@@ -291,15 +349,31 @@ impl VmInner {
                 PropertyAttrs::BUILTIN,
             );
         }
-        // Attach Array.isArray
-        let is_array_fn = self.create_native_function("isArray", native_array_is_array);
-        let is_array_key = PropertyKey::String(self.strings.intern("isArray"));
-        self.define_shaped_property(
-            ctor_id,
-            is_array_key,
-            PropertyValue::Data(JsValue::Object(is_array_fn)),
-            PropertyAttrs::METHOD,
-        );
+        // Attach static methods: Array.isArray, Array.from, Array.of
+        for (method_name, func) in [
+            ("isArray", native_array_is_array as NativeFn),
+            ("from", native_array_from as NativeFn),
+            ("of", native_array_of as NativeFn),
+        ] {
+            let fn_id = self.create_native_function(method_name, func);
+            let key = PropertyKey::String(self.strings.intern(method_name));
+            self.define_shaped_property(
+                ctor_id,
+                key,
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
+        // Array.prototype.constructor = Array
+        if let Some(arr_proto) = self.array_prototype {
+            let ctor_key = PropertyKey::String(self.well_known.constructor);
+            self.define_shaped_property(
+                arr_proto,
+                ctor_key,
+                PropertyValue::Data(JsValue::Object(ctor_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
         let name = self.strings.intern("Array");
         self.globals.insert(name, JsValue::Object(ctor_id));
     }

@@ -22,7 +22,7 @@ impl VmInner {
     ///
     /// Returns `Ok(Some(iterator))` on success, `Ok(None)` when the value has no
     /// iterator protocol (e.g. numbers, booleans), or propagates call errors.
-    fn resolve_iterator(&mut self, val: JsValue) -> Result<Option<JsValue>, VmError> {
+    pub(crate) fn resolve_iterator(&mut self, val: JsValue) -> Result<Option<JsValue>, VmError> {
         let lookup_id = match val {
             JsValue::Object(id) => Some(id),
             JsValue::String(_) => self.string_prototype,
@@ -254,13 +254,8 @@ impl VmInner {
         }
         // Copy elements (keeping originals on stack as GC roots during alloc).
         let elements: Vec<JsValue> = self.stack[stack_root_base..].to_vec();
-        let proto = self.array_prototype;
-        // alloc_object may trigger GC — elements are rooted on the stack.
-        let arr = self.alloc_object(Object {
-            kind: ObjectKind::Array { elements },
-            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: proto,
-        });
+        // create_array_object may trigger GC — elements are rooted on the stack.
+        let arr = self.create_array_object(elements);
         // Now safe to remove the temporary roots.
         self.stack.truncate(stack_root_base);
         self.stack.push(JsValue::Object(arr));

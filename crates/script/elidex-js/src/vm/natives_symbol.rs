@@ -108,6 +108,7 @@ pub(super) fn native_array_values(
         kind: ObjectKind::ArrayIterator(ArrayIterState {
             array_id: arr_id,
             index: 0,
+            kind: 0, // Values
         }),
         storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_iterator_prototype,
@@ -124,36 +125,38 @@ pub(super) fn native_array_iterator_next(
     let JsValue::Object(iter_id) = this else {
         return create_iter_result(ctx, JsValue::Undefined, true);
     };
-    // Read state.
-    let (array_id, idx) = {
+    let (array_id, idx, kind) = {
         let iter_obj = ctx.get_object(iter_id);
         if let ObjectKind::ArrayIterator(state) = &iter_obj.kind {
-            (state.array_id, state.index)
+            (state.array_id, state.index, state.kind)
         } else {
             return create_iter_result(ctx, JsValue::Undefined, true);
         }
     };
-    // Get array length, then use Get semantics (includes prototype lookup for holes).
-    let (value, done) = {
-        let len = match &ctx.get_object(array_id).kind {
-            ObjectKind::Array { elements } => Some(elements.len()),
-            _ => None,
-        };
-        if let Some(len) = len {
-            if idx < len {
-                #[allow(clippy::cast_precision_loss)]
-                let val = ctx
-                    .vm
-                    .get_element(JsValue::Object(array_id), JsValue::Number(idx as f64))?;
-                (val, false)
-            } else {
-                (JsValue::Undefined, true)
-            }
+    let len = match &ctx.get_object(array_id).kind {
+        ObjectKind::Array { elements } => Some(elements.len()),
+        _ => None,
+    };
+    let (value, done) = if let Some(len) = len {
+        if idx < len {
+            let idx_val = super::natives_array::index_to_number(idx);
+            let val = match kind {
+                1 => idx_val, // Keys
+                2 => {
+                    // Entries: [index, value]
+                    let elem = ctx.vm.get_element(JsValue::Object(array_id), idx_val)?;
+                    let pair = vec![idx_val, elem];
+                    super::natives_array::create_array(ctx, pair)
+                }
+                _ => ctx.vm.get_element(JsValue::Object(array_id), idx_val)?, // Values
+            };
+            (val, false)
         } else {
             (JsValue::Undefined, true)
         }
+    } else {
+        (JsValue::Undefined, true)
     };
-    // Advance index.
     if !done {
         let iter_obj = ctx.get_object_mut(iter_id);
         if let ObjectKind::ArrayIterator(state) = &mut iter_obj.kind {

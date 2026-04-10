@@ -745,12 +745,18 @@ pub struct ForInState {
     pub index: usize,
 }
 
+/// Iterator kind for `ArrayIterState`.
+/// 0 = Values (default), 1 = Keys, 2 = Entries.
+pub type ArrayIterKind = u8;
+
 /// State for an array/iterable iterator.
 pub struct ArrayIterState {
     /// The array being iterated.
     pub array_id: ObjectId,
     /// Current index.
     pub index: usize,
+    /// 0 = Values, 1 = Keys, 2 = Entries.
+    pub kind: ArrayIterKind,
 }
 
 /// State for a string iterator (yields individual code points).

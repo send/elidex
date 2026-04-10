@@ -3,6 +3,7 @@
 //! These are free functions with the `NativeFn` signature, referenced by name
 //! in `globals.rs` when registering built-in objects.
 
+use super::natives_array::create_array;
 use super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, Property, PropertyKey, PropertyStorage,
     VmError,
@@ -268,23 +269,13 @@ pub(super) fn native_object_keys(
 ) -> Result<JsValue, VmError> {
     let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let JsValue::Object(obj_id) = obj_val else {
-        return Ok(JsValue::Object(ctx.alloc_object(Object {
-            kind: ObjectKind::Array {
-                elements: Vec::new(),
-            },
-            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: ctx.vm.array_prototype,
-        })));
+        return Ok(create_array(ctx, Vec::new()));
     };
     let keys: Vec<JsValue> = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)
         .into_iter()
         .map(JsValue::String)
         .collect();
-    Ok(JsValue::Object(ctx.alloc_object(Object {
-        kind: ObjectKind::Array { elements: keys },
-        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-        prototype: ctx.vm.array_prototype,
-    })))
+    Ok(create_array(ctx, keys))
 }
 
 pub(super) fn native_object_values(
@@ -294,13 +285,7 @@ pub(super) fn native_object_values(
 ) -> Result<JsValue, VmError> {
     let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let JsValue::Object(obj_id) = obj_val else {
-        return Ok(JsValue::Object(ctx.alloc_object(Object {
-            kind: ObjectKind::Array {
-                elements: Vec::new(),
-            },
-            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: ctx.vm.array_prototype,
-        })));
+        return Ok(create_array(ctx, Vec::new()));
     };
     // §7.3.21 EnumerableOwnPropertyNames in ES key order, then Get per key.
     let keys = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
@@ -308,11 +293,7 @@ pub(super) fn native_object_values(
     for sid in &keys {
         values.push(ctx.get_property_value(obj_id, PropertyKey::String(*sid))?);
     }
-    Ok(JsValue::Object(ctx.alloc_object(Object {
-        kind: ObjectKind::Array { elements: values },
-        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-        prototype: ctx.vm.array_prototype,
-    })))
+    Ok(create_array(ctx, values))
 }
 
 pub(super) fn native_object_assign(
@@ -686,12 +667,7 @@ pub(super) fn native_array_constructor(
         // Zero or 2+ args → array of those elements.
         args.to_vec()
     };
-    let arr_id = ctx.alloc_object(super::value::Object {
-        kind: ObjectKind::Array { elements },
-        storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-        prototype: ctx.vm.array_prototype,
-    });
-    Ok(JsValue::Object(arr_id))
+    Ok(create_array(ctx, elements))
 }
 
 pub(super) fn native_array_is_array(
@@ -856,15 +832,7 @@ pub(super) fn native_object_get_own_property_symbols(
         ));
     }
     let JsValue::Object(obj_id) = obj_val else {
-        // Primitives (number, string, boolean, symbol): ToObject would wrap,
-        // but primitive wrappers have no own symbol properties.
-        return Ok(JsValue::Object(ctx.alloc_object(Object {
-            kind: ObjectKind::Array {
-                elements: Vec::new(),
-            },
-            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: ctx.vm.array_prototype,
-        })));
+        return Ok(create_array(ctx, Vec::new()));
     };
     let syms: Vec<JsValue> = ctx
         .get_object(obj_id)
@@ -878,11 +846,7 @@ pub(super) fn native_object_get_own_property_symbols(
             }
         })
         .collect();
-    Ok(JsValue::Object(ctx.alloc_object(Object {
-        kind: ObjectKind::Array { elements: syms },
-        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-        prototype: ctx.vm.array_prototype,
-    })))
+    Ok(create_array(ctx, syms))
 }
 
 // -- Console ----------------------------------------------------------------

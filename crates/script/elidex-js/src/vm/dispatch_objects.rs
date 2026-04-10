@@ -90,14 +90,7 @@ impl VmInner {
 
     /// `CreateArray` — allocate an array with `Array.prototype`.
     pub(crate) fn op_create_array(&mut self) {
-        let proto = self.array_prototype;
-        let id = self.alloc_object(super::value::Object {
-            kind: ObjectKind::Array {
-                elements: Vec::new(),
-            },
-            storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: proto,
-        });
+        let id = self.create_array_object(Vec::new());
         self.stack.push(JsValue::Object(id));
     }
 

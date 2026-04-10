@@ -1,5 +1,6 @@
 //! Native implementations of String.prototype methods.
 
+use super::natives_array::create_array;
 use super::ops::MAX_DENSE_ARRAY_LEN;
 use super::value::{
     JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, StringId, VmError,
@@ -350,13 +351,7 @@ pub(super) fn native_string_split(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Object(ctx.alloc_object(Object {
-            kind: ObjectKind::Array {
-                elements: Vec::new(),
-            },
-            storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: ctx.vm.array_prototype,
-        })));
+        return Ok(create_array(ctx, Vec::new()));
     };
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     // sep must be owned: we need it across intern_utf16 calls that borrow ctx mutably.
@@ -398,11 +393,7 @@ pub(super) fn native_string_split(
             parts.push(JsValue::String(id));
         }
     }
-    Ok(JsValue::Object(ctx.alloc_object(Object {
-        kind: ObjectKind::Array { elements: parts },
-        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-        prototype: ctx.vm.array_prototype,
-    })))
+    Ok(create_array(ctx, parts))
 }
 
 pub(super) fn native_string_starts_with(
@@ -623,12 +614,7 @@ pub(super) fn native_string_match(
 
     // Global: array of match strings.
     let elements: Vec<JsValue> = matches.into_iter().map(JsValue::String).collect();
-    let arr_id = ctx.alloc_object(Object {
-        kind: ObjectKind::Array { elements },
-        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-        prototype: ctx.vm.array_prototype,
-    });
-    Ok(JsValue::Object(arr_id))
+    Ok(create_array(ctx, elements))
 }
 
 pub(super) fn native_string_search(

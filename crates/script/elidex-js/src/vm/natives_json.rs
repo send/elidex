@@ -3,6 +3,7 @@
 use std::fmt::Write;
 
 use super::coerce_format::{collect_own_keys_es_order, write_number_es};
+use super::natives_array::create_array;
 use super::ops::MAX_DENSE_ARRAY_LEN;
 use super::shape::{PropertyAttrs, ROOT_SHAPE};
 use super::value::{
@@ -699,11 +700,7 @@ impl<'a> JsonParser<'a> {
         let mut elements = Vec::new();
         if self.peek() == Some(b']') {
             self.pos += 1;
-            return Ok(JsValue::Object(ctx.alloc_object(Object {
-                kind: ObjectKind::Array { elements },
-                storage: PropertyStorage::shaped(ROOT_SHAPE),
-                prototype: ctx.vm.array_prototype,
-            })));
+            return Ok(create_array(ctx, elements));
         }
 
         loop {
@@ -726,11 +723,7 @@ impl<'a> JsonParser<'a> {
             }
         }
 
-        Ok(JsValue::Object(ctx.alloc_object(Object {
-            kind: ObjectKind::Array { elements },
-            storage: PropertyStorage::shaped(ROOT_SHAPE),
-            prototype: ctx.vm.array_prototype,
-        })))
+        Ok(create_array(ctx, elements))
     }
 
     fn parse_object(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
