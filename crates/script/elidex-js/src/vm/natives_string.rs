@@ -180,7 +180,7 @@ pub(super) fn native_string_index_of(
     let s = ctx.get_u16(sid);
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let from = if let Some(a) = args.get(1) {
-        let n = ctx.to_number(*a)?;
+        let n = ctx.to_number(*a)?.trunc();
         if n.is_nan() || n < 0.0 {
             0usize
         } else {
@@ -208,7 +208,7 @@ pub(super) fn native_string_includes(
     // §21.1.3.7 step 4-5: position argument (UTF-16 index, default 0).
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let pos = if let Some(a) = args.get(1) {
-        let n = ctx.to_number(*a)?;
+        let n = ctx.to_number(*a)?.trunc();
         if n.is_nan() || n < 0.0 {
             0usize
         } else {
@@ -238,7 +238,7 @@ pub(super) fn native_string_slice(
     };
     #[allow(clippy::cast_possible_truncation)]
     let resolve_index = |n_raw: f64, total: usize, total_i: isize| -> usize {
-        let n = n_raw as isize;
+        let n = n_raw.trunc() as isize;
         if n < 0 {
             (total_i + n).max(0).cast_unsigned()
         } else {
@@ -275,10 +275,11 @@ pub(super) fn native_string_substring(
     let u16len = ctx.get_u16(sid).len();
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let clamp = |n: f64| -> usize {
-        if n.is_nan() || n < 0.0 {
+        let t = n.trunc();
+        if t.is_nan() || t < 0.0 {
             0
         } else {
-            (n as usize).min(u16len)
+            (t as usize).min(u16len)
         }
     };
     let raw_a = match args.first() {
@@ -410,7 +411,7 @@ pub(super) fn native_string_starts_with(
     // §21.1.3.20 step 5-8: position argument (UTF-16 index, default 0).
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let pos = if let Some(a) = args.get(1) {
-        let n = ctx.to_number(*a)?;
+        let n = ctx.to_number(*a)?.trunc();
         if n.is_nan() || n < 0.0 {
             0usize
         } else {
@@ -437,7 +438,7 @@ pub(super) fn native_string_ends_with(
     let u16len = s.len();
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let end_pos = if let Some(a) = args.get(1) {
-        let n = ctx.to_number(*a)?;
+        let n = ctx.to_number(*a)?.trunc();
         if n.is_nan() || n < 0.0 {
             0usize
         } else {

@@ -219,14 +219,13 @@ pub(super) fn native_array_find(
     let id = this_object_id(this)?;
     let cb = require_callback(args)?;
     let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    // §22.1.3.9: find visits ALL indices, treating holes as undefined.
     let elements = clone_elements(ctx, id);
     for (i, v) in elements.iter().enumerate() {
-        if v.is_empty() {
-            continue;
-        }
-        let result = ctx.call_function(cb, this_arg, &[*v, index_to_number(i), this])?;
+        let value = v.or_undefined();
+        let result = ctx.call_function(cb, this_arg, &[value, index_to_number(i), this])?;
         if ctx.to_boolean(result) {
-            return Ok(*v);
+            return Ok(value);
         }
     }
     Ok(JsValue::Undefined)
@@ -241,12 +240,11 @@ pub(super) fn native_array_find_index(
     let id = this_object_id(this)?;
     let cb = require_callback(args)?;
     let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    // §22.1.3.10: findIndex visits ALL indices, treating holes as undefined.
     let elements = clone_elements(ctx, id);
     for (i, v) in elements.iter().enumerate() {
-        if v.is_empty() {
-            continue;
-        }
-        let result = ctx.call_function(cb, this_arg, &[*v, index_to_number(i), this])?;
+        let value = v.or_undefined();
+        let result = ctx.call_function(cb, this_arg, &[value, index_to_number(i), this])?;
         if ctx.to_boolean(result) {
             return Ok(index_to_number(i));
         }
@@ -464,7 +462,7 @@ pub(super) fn native_array_from(
     if let JsValue::Object(obj_id) = items {
         let len_key = PropertyKey::String(ctx.vm.well_known.length);
         let len_val = ctx.get_property_value(obj_id, len_key)?;
-        let len = ctx.to_number(len_val)?;
+        let len = ctx.to_number(len_val)?.trunc();
         if len.is_nan() || len < 0.0 {
             return Ok(create_array(ctx, Vec::new()));
         }
