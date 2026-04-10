@@ -47,19 +47,24 @@ pub(super) fn array_len(ctx: &NativeContext<'_>, id: ObjectId) -> usize {
     clippy::cast_sign_loss
 )]
 pub(super) fn resolve_index(n: f64, len: usize) -> usize {
-    if n.is_nan() || (n.is_infinite() && n < 0.0) {
+    if n.is_nan() {
+        return 0;
+    }
+    // ES2020 §7.1.22 ToIntegerOrInfinity: truncate toward zero first.
+    let int = n.trunc();
+    if int.is_infinite() && int < 0.0 {
         0
-    } else if n < 0.0 {
-        let adjusted = len as f64 + n;
-        if adjusted < 0.0 {
+    } else if int < 0.0 {
+        let adjusted = len as f64 + int;
+        if adjusted <= 0.0 {
             0
         } else {
             adjusted as usize
         }
-    } else if n.is_infinite() {
+    } else if int.is_infinite() {
         len
     } else {
-        let i = n as usize;
+        let i = int as usize;
         if i > len {
             len
         } else {
@@ -183,24 +188,31 @@ pub(super) fn native_array_sort(
         Some(_) => return Err(VmError::type_error("compareFn is not a function")),
     };
 
+    // §22.1.3.27: partition into (defined, undefined, holes). Sort only defined values.
     let elements = clone_elements(ctx, id);
     let hole_count = elements.iter().filter(|v| v.is_empty()).count();
-    let mut non_holes: Vec<JsValue> = elements.into_iter().filter(|v| !v.is_empty()).collect();
+    let undef_count = elements
+        .iter()
+        .filter(|v| matches!(v, JsValue::Undefined))
+        .count();
+    let mut defined: Vec<JsValue> = elements
+        .into_iter()
+        .filter(|v| !v.is_empty() && !matches!(v, JsValue::Undefined))
+        .collect();
 
     if let Some(fn_id) = cmp_fn {
-        // Sort with compareFn — must call back into VM.
         // Use simple insertion sort to handle errors from compareFn calls.
-        let len = non_holes.len();
+        let len = defined.len();
         for i in 1..len {
             let mut j = i;
             while j > 0 {
-                let a = non_holes[j - 1];
-                let b = non_holes[j];
+                let a = defined[j - 1];
+                let b = defined[j];
                 let result = ctx.call_function(fn_id, JsValue::Undefined, &[a, b])?;
                 let cmp_val = ctx.to_number(result)?;
                 let cmp = if cmp_val.is_nan() { 0.0 } else { cmp_val };
                 if cmp > 0.0 {
-                    non_holes.swap(j - 1, j);
+                    defined.swap(j - 1, j);
                     j -= 1;
                 } else {
                     break;
@@ -208,18 +220,20 @@ pub(super) fn native_array_sort(
             }
         }
     } else {
-        let mut keyed: Vec<(super::value::StringId, JsValue)> = Vec::with_capacity(non_holes.len());
-        for v in &non_holes {
+        let mut keyed: Vec<(super::value::StringId, JsValue)> = Vec::with_capacity(defined.len());
+        for v in &defined {
             keyed.push((ctx.to_string_val(*v)?, *v));
         }
         keyed.sort_by(|a, b| ctx.get_u16(a.0).cmp(ctx.get_u16(b.0)));
-        non_holes = keyed.into_iter().map(|(_, v)| v).collect();
+        defined = keyed.into_iter().map(|(_, v)| v).collect();
     }
 
-    non_holes.resize(non_holes.len() + hole_count, JsValue::Empty);
+    // Append: sorted defined values, then undefineds, then holes.
+    defined.resize(defined.len() + undef_count, JsValue::Undefined);
+    defined.resize(defined.len() + hole_count, JsValue::Empty);
     let obj = ctx.get_object_mut(id);
     if let ObjectKind::Array { elements } = &mut obj.kind {
-        *elements = non_holes;
+        *elements = defined;
     }
     Ok(this)
 }
@@ -257,8 +271,7 @@ pub(super) fn native_array_splice(
         .splice(start..start + delete_count, items.iter().copied())
         .collect();
 
-    let removed_clean: Vec<JsValue> = removed.into_iter().map(JsValue::or_undefined).collect();
-    Ok(create_array(ctx, removed_clean))
+    Ok(create_array(ctx, removed))
 }
 
 /// `Array.prototype.fill(value, start?, end?)` — fill range with value.
@@ -475,7 +488,7 @@ pub(super) fn native_array_last_index_of(
         clippy::cast_possible_truncation
     )]
     let from = if args.len() > 1 {
-        let n = ctx.to_number(args[1])?;
+        let n = ctx.to_number(args[1])?.trunc();
         if n < 0.0 {
             let adjusted = len as f64 + n;
             if adjusted < 0.0 {
@@ -536,12 +549,11 @@ pub(super) fn native_array_includes(
         0
     };
 
+    // includes treats holes as undefined (unlike indexOf which skips them).
     if let ObjectKind::Array { elements } = &ctx.get_object(id).kind {
         for elem in elements.iter().skip(from) {
-            if elem.is_empty() {
-                continue;
-            }
-            if same_value_zero(*elem, search) {
+            let value = elem.or_undefined();
+            if same_value_zero(value, search) {
                 return Ok(JsValue::Boolean(true));
             }
         }

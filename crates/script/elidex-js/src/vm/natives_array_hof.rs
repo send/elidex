@@ -436,10 +436,17 @@ pub(super) fn native_array_from(
     let this_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
 
     if matches!(items, JsValue::Object(_) | JsValue::String(_)) {
+        // ES2020 §7.3.9 GetMethod: treat null/undefined @@iterator as absent.
         let has_iterator = match items {
             JsValue::Object(obj_id) => {
                 let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
-                super::coerce::get_property(ctx.vm, obj_id, iter_key).is_some()
+                match super::coerce::get_property(ctx.vm, obj_id, iter_key) {
+                    Some(prop) => {
+                        let val = ctx.vm.resolve_property(prop, items)?;
+                        !val.is_nullish()
+                    }
+                    None => false,
+                }
             }
             JsValue::String(_) => true,
             _ => false,

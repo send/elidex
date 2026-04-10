@@ -208,6 +208,14 @@ impl VmInner {
             PropertyValue::Data(JsValue::Object(iter_fn_id)),
             PropertyAttrs::METHOD,
         );
+        // Array.prototype.values === Array.prototype[Symbol.iterator] per spec.
+        let values_key = PropertyKey::String(self.strings.intern("values"));
+        self.define_shaped_property(
+            arr_proto,
+            values_key,
+            PropertyValue::Data(JsValue::Object(iter_fn_id)),
+            PropertyAttrs::METHOD,
+        );
 
         // Array.prototype methods (ES2020 §22.1.3)
         let methods: &[(&str, NativeFn)] = &[
@@ -239,7 +247,6 @@ impl VmInner {
             ("flatMap", native_array_flat_map),
             ("entries", native_array_entries),
             ("keys", native_array_keys),
-            ("values", native_array_values),
             ("toString", native_array_to_string),
             ("toLocaleString", native_array_to_locale_string),
         ];
