@@ -279,33 +279,28 @@ pub(super) fn native_array_flat(
 
     let elements = clone_elements(ctx, id);
     let mut result = Vec::new();
-    flat_into(ctx, &elements, depth, &mut result, true)?;
+    flat_into(ctx, &elements, depth, &mut result)?;
     check_len(result.len())?;
     Ok(create_array(ctx, result))
 }
 
-/// Recursive helper for flat. `top_level` distinguishes flat(0) behavior.
+/// Recursive helper for flat. Holes are always skipped (HasProperty semantics).
 fn flat_into(
     ctx: &NativeContext<'_>,
     source: &[JsValue],
     depth: usize,
     result: &mut Vec<JsValue>,
-    top_level: bool,
 ) -> Result<(), VmError> {
     for &elem in source {
-        if depth == 0 {
-            if top_level || !elem.is_empty() {
-                result.push(elem);
-            }
-            continue;
-        }
         if elem.is_empty() {
             continue;
         }
-        if let JsValue::Object(sub_id) = elem {
-            if let ObjectKind::Array { elements } = &ctx.get_object(sub_id).kind {
-                flat_into(ctx, elements, depth - 1, result, false)?;
-                continue;
+        if depth > 0 {
+            if let JsValue::Object(sub_id) = elem {
+                if let ObjectKind::Array { elements } = &ctx.get_object(sub_id).kind {
+                    flat_into(ctx, elements, depth - 1, result)?;
+                    continue;
+                }
             }
         }
         result.push(elem);
@@ -379,6 +374,11 @@ fn create_array_iterator(
             "Array.prototype iterator called on non-object",
         ));
     };
+    if !matches!(ctx.get_object(arr_id).kind, ObjectKind::Array { .. }) {
+        return Err(VmError::type_error(
+            "Array.prototype iterator called on non-array",
+        ));
+    }
     let iter_obj = ctx.alloc_object(Object {
         kind: ObjectKind::ArrayIterator(super::value::ArrayIterState {
             array_id: arr_id,

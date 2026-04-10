@@ -31,11 +31,13 @@ pub(super) fn this_object_id(this: JsValue) -> Result<ObjectId, VmError> {
     }
 }
 
-/// Get array elements length. Returns 0 for non-Array objects.
-pub(super) fn array_len(ctx: &NativeContext<'_>, id: ObjectId) -> usize {
+/// Get array elements length. TypeError for non-Array objects.
+pub(super) fn array_len(ctx: &NativeContext<'_>, id: ObjectId) -> Result<usize, VmError> {
     match &ctx.get_object(id).kind {
-        ObjectKind::Array { elements } => elements.len(),
-        _ => 0,
+        ObjectKind::Array { elements } => Ok(elements.len()),
+        _ => Err(VmError::type_error(
+            "Array.prototype method called on non-array",
+        )),
     }
 }
 
@@ -245,7 +247,7 @@ pub(super) fn native_array_splice(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
-    let len = array_len(ctx, id);
+    let len = array_len(ctx, id)?;
 
     let raw_start = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let start = resolve_index(raw_start, len);
@@ -281,7 +283,7 @@ pub(super) fn native_array_fill(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
-    let len = array_len(ctx, id);
+    let len = array_len(ctx, id)?;
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
 
     let raw_start = ctx.to_number(args.get(1).copied().unwrap_or(JsValue::Number(0.0)))?;
@@ -311,7 +313,7 @@ pub(super) fn native_array_copy_within(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
-    let len = array_len(ctx, id);
+    let len = array_len(ctx, id)?;
 
     let raw_target = ctx.to_number(args.first().copied().unwrap_or(JsValue::Number(0.0)))?;
     let target = resolve_index(raw_target, len);
@@ -358,7 +360,7 @@ pub(super) fn native_array_slice(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
-    let len = array_len(ctx, id);
+    let len = array_len(ctx, id)?;
 
     let raw_start = ctx.to_number(args.first().copied().unwrap_or(JsValue::Number(0.0)))?;
     let start = resolve_index(raw_start, len);
@@ -442,7 +444,7 @@ pub(super) fn native_array_index_of(
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
     let search = args.first().copied().unwrap_or(JsValue::Undefined);
-    let len = array_len(ctx, id);
+    let len = array_len(ctx, id)?;
 
     #[allow(clippy::cast_precision_loss)]
     let from = if args.len() > 1 {
@@ -477,7 +479,7 @@ pub(super) fn native_array_last_index_of(
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
     let search = args.first().copied().unwrap_or(JsValue::Undefined);
-    let len = array_len(ctx, id);
+    let len = array_len(ctx, id)?;
     if len == 0 {
         return Ok(JsValue::Number(-1.0));
     }
@@ -536,7 +538,7 @@ pub(super) fn native_array_includes(
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
     let search = args.first().copied().unwrap_or(JsValue::Undefined);
-    let len = array_len(ctx, id);
+    let len = array_len(ctx, id)?;
 
     #[allow(clippy::cast_precision_loss)]
     let from = if args.len() > 1 {
