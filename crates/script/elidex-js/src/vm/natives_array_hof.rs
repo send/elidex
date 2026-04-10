@@ -335,12 +335,13 @@ pub(super) fn native_array_flat_map(
                         result.push(sub_elem);
                     }
                 }
+                check_len(result.len())?;
                 continue;
             }
         }
         result.push(mapped);
+        check_len(result.len())?;
     }
-    check_len(result.len())?;
     Ok(create_array(ctx, result))
 }
 
