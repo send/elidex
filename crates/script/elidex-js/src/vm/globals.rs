@@ -569,6 +569,8 @@ impl VmInner {
             ("trim", native_string_trim),
             ("trimStart", native_string_trim_start),
             ("trimEnd", native_string_trim_end),
+            ("trimLeft", native_string_trim_start),
+            ("trimRight", native_string_trim_end),
             ("repeat", native_string_repeat),
             ("padStart", native_string_pad_start),
             ("padEnd", native_string_pad_end),

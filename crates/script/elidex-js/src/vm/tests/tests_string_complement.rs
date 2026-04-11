@@ -85,11 +85,21 @@ fn string_trim_start_no_whitespace() {
     assert_eq!(eval_string("'hello'.trimStart();"), "hello");
 }
 
+#[test]
+fn string_trim_left_alias() {
+    assert_eq!(eval_string("'  hello'.trimLeft();"), "hello");
+}
+
 // -- String.prototype.trimEnd -------------------------------------------------
 
 #[test]
 fn string_trim_end_basic() {
     assert_eq!(eval_string("'  hello  '.trimEnd();"), "  hello");
+}
+
+#[test]
+fn string_trim_right_alias() {
+    assert_eq!(eval_string("'hello  '.trimRight();"), "hello");
 }
 
 #[test]
@@ -191,6 +201,15 @@ fn string_from_char_code_basic() {
 #[test]
 fn string_from_char_code_unicode() {
     assert_eq!(eval_string("String.fromCharCode(0x2764);"), "\u{2764}");
+}
+
+#[test]
+fn string_from_char_code_negative() {
+    // ToUint16(-1) = 65535 = 0xFFFF
+    assert_eq!(
+        eval_number("String.fromCharCode(-1).charCodeAt(0);"),
+        65535.0
+    );
 }
 
 // -- String.fromCodePoint -----------------------------------------------------
