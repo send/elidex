@@ -231,9 +231,7 @@ impl VmInner {
             JsValue::Empty | JsValue::Undefined | JsValue::Null => {
                 JsValue::Object(self.global_object)
             }
-            // Symbols pass through (no SymbolWrapper yet)
-            JsValue::Symbol(_) => this,
-            // All other primitives are wrapped via ToObject
+            // All primitives are wrapped via ToObject
             other => JsValue::Object(
                 super::coerce::to_object(self, other).expect("primitive wrapping cannot fail"),
             ),

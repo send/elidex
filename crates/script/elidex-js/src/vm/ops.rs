@@ -151,6 +151,7 @@ impl VmInner {
                     ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
                     ObjectKind::BooleanWrapper(b) => return Ok(JsValue::Boolean(b)),
                     ObjectKind::BigIntWrapper(id) => return Ok(JsValue::BigInt(id)),
+                    ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
                     _ => {}
                 }
                 // §7.1.1 step 2d: Check @@toPrimitive

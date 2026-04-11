@@ -357,10 +357,16 @@ pub(super) fn to_object(vm: &mut VmInner, val: JsValue) -> Result<ObjectId, VmEr
             });
             Ok(wrapper)
         }
-        JsValue::Symbol(_) | JsValue::Empty => {
-            // Symbol wrappers not yet implemented.
-            Err(VmError::type_error("Cannot convert value to object"))
+        JsValue::Symbol(id) => {
+            let wrapper = vm.alloc_object(Object {
+                kind: ObjectKind::SymbolWrapper(id),
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: vm.symbol_prototype,
+                extensible: true,
+            });
+            Ok(wrapper)
         }
+        JsValue::Empty => Err(VmError::type_error("Cannot convert value to object")),
     }
 }
 

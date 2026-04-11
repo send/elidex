@@ -232,7 +232,8 @@ fn trace_work_list(
             | ObjectKind::NumberWrapper(_)
             | ObjectKind::StringWrapper(_)
             | ObjectKind::BooleanWrapper(_)
-            | ObjectKind::BigIntWrapper(_) => {}
+            | ObjectKind::BigIntWrapper(_)
+            | ObjectKind::SymbolWrapper(_) => {}
         }
     }
 }
