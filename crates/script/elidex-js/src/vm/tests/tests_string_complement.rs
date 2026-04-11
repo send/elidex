@@ -217,3 +217,96 @@ fn string_from_code_point_invalid_throws() {
 // NOTE: StringWrapper index/length tests deferred — requires `new String()`
 // constructor (not yet implemented). The property hook is in place in
 // ops_property.rs but cannot be exercised from JS yet.
+
+// -- Global URI encoding/decoding ---------------------------------------------
+
+#[test]
+fn encode_uri_basic() {
+    assert_eq!(
+        eval_string("encodeURI('https://example.com/path?q=hello world');"),
+        "https://example.com/path?q=hello%20world"
+    );
+}
+
+#[test]
+fn encode_uri_preserves_reserved() {
+    // encodeURI does NOT encode reserved characters like : / ? # & = +
+    assert_eq!(eval_string("encodeURI(':/?#&=+');"), ":/?#&=+");
+}
+
+#[test]
+fn encode_uri_component_basic() {
+    assert_eq!(
+        eval_string("encodeURIComponent('hello world');"),
+        "hello%20world"
+    );
+}
+
+#[test]
+fn encode_uri_component_encodes_reserved() {
+    // encodeURIComponent DOES encode reserved characters
+    assert_eq!(
+        eval_string("encodeURIComponent('a=b&c=d');"),
+        "a%3Db%26c%3Dd"
+    );
+}
+
+#[test]
+fn decode_uri_basic() {
+    assert_eq!(eval_string("decodeURI('hello%20world');"), "hello world");
+}
+
+#[test]
+fn decode_uri_preserves_reserved_encoding() {
+    // decodeURI does NOT decode reserved characters
+    assert_eq!(eval_string("decodeURI('%23');"), "%23"); // # is reserved
+}
+
+#[test]
+fn decode_uri_component_basic() {
+    assert_eq!(
+        eval_string("decodeURIComponent('hello%20world');"),
+        "hello world"
+    );
+}
+
+#[test]
+fn decode_uri_component_decodes_reserved() {
+    assert_eq!(eval_string("decodeURIComponent('%23');"), "#");
+}
+
+#[test]
+fn decode_uri_malformed_throws() {
+    eval_throws("decodeURI('%');");
+    eval_throws("decodeURI('%ZZ');");
+}
+
+// -- globalThis ---------------------------------------------------------------
+
+#[test]
+fn global_this_exists() {
+    assert_eq!(eval_string("typeof globalThis;"), "object");
+}
+
+#[test]
+fn global_this_has_math() {
+    assert_eq!(eval_string("typeof globalThis.Math;"), "object");
+}
+
+// -- SyntaxError / URIError constructors --------------------------------------
+
+#[test]
+fn syntax_error_constructor() {
+    assert_eq!(
+        eval_string("var e = new SyntaxError('bad'); e.message;"),
+        "bad"
+    );
+}
+
+#[test]
+fn uri_error_constructor() {
+    assert_eq!(
+        eval_string("var e = new URIError('malformed'); e.message;"),
+        "malformed"
+    );
+}

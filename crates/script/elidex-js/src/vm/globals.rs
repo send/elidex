@@ -6,6 +6,7 @@
 use super::natives::{
     native_array_constructor, native_array_is_array, native_array_iterator_next,
     native_array_values, native_console_error, native_console_log, native_console_warn,
+    native_decode_uri, native_decode_uri_component, native_encode_uri, native_encode_uri_component,
     native_error_constructor, native_is_finite, native_is_nan, native_iterator_self,
     native_object_assign, native_object_create, native_object_define_property,
     native_object_entries, native_object_freeze, native_object_from_entries,
@@ -22,6 +23,7 @@ use super::natives::{
     native_string_match, native_string_replace, native_string_search, native_string_slice,
     native_string_split, native_string_starts_with, native_string_substring,
     native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
+    native_syntax_error_constructor, native_uri_error_constructor,
 };
 use super::natives::{
     native_symbol_constructor, native_symbol_for, native_symbol_key_for,
@@ -101,11 +103,20 @@ impl VmInner {
         // console object
         self.register_console();
 
-        // Global functions: parseInt, parseFloat, isNaN, isFinite
+        // Global functions: parseInt, parseFloat, isNaN, isFinite, URI encoding
         self.register_global_function("parseInt", native_parse_int);
         self.register_global_function("parseFloat", native_parse_float);
         self.register_global_function("isNaN", native_is_nan);
         self.register_global_function("isFinite", native_is_finite);
+        self.register_global_function("encodeURI", native_encode_uri);
+        self.register_global_function("decodeURI", native_decode_uri);
+        self.register_global_function("encodeURIComponent", native_encode_uri_component);
+        self.register_global_function("decodeURIComponent", native_decode_uri_component);
+
+        // globalThis (§18.1) — points to the global object
+        let global_this_name = self.strings.intern("globalThis");
+        self.globals
+            .insert(global_this_name, JsValue::Object(global_obj));
 
         // Object.prototype and Array.prototype
         self.register_prototypes();
@@ -396,6 +407,8 @@ impl VmInner {
             ("TypeError", native_type_error_constructor),
             ("ReferenceError", native_reference_error_constructor),
             ("RangeError", native_range_error_constructor),
+            ("SyntaxError", native_syntax_error_constructor),
+            ("URIError", native_uri_error_constructor),
         ];
         for &(name, func) in ctors {
             let fn_id = self.create_constructable_function(name, func);
