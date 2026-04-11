@@ -150,13 +150,16 @@ fn string_code_point_at_out_of_range() {
 #[test]
 fn string_code_point_at_surrogate_pair() {
     // U+1F600 (😀) is a surrogate pair
-    assert_eq!(eval_number("'\\uD83D\\uDE00'.codePointAt(0);"), 128512.0);
+    assert_eq!(eval_number("'\\uD83D\\uDE00'.codePointAt(0);"), 128_512.0);
 }
 
 #[test]
 fn string_code_point_at_lone_surrogate() {
     // Lone high surrogate returns the surrogate code unit
-    assert_eq!(eval_number("'\\uD83D'.codePointAt(0);"), 0xD83D as f64);
+    assert_eq!(
+        eval_number("'\\uD83D'.codePointAt(0);"),
+        f64::from(0xD83Di32)
+    );
 }
 
 // -- String.prototype.replaceAll ----------------------------------------------
