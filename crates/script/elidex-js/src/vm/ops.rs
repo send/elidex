@@ -104,6 +104,7 @@ impl VmInner {
                     VmErrorKind::ReferenceError => "ReferenceError",
                     VmErrorKind::RangeError => "RangeError",
                     VmErrorKind::SyntaxError => "SyntaxError",
+                    VmErrorKind::UriError => "URIError",
                     _ => "Error",
                 };
                 let name_id = self.strings.intern(error_name);

@@ -60,14 +60,15 @@ fn pad_string(
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
     let max_len_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let max_len = ctx.to_number(max_len_arg)?;
-    let max_len = if max_len.is_nan() {
+    let max_len_f = ctx.to_number(max_len_arg)?;
+    // ToLength: NaN/negative → 0, clamp to STRING_LEN_LIMIT
+    let max_len_f = if max_len_f.is_nan() || max_len_f < 0.0 {
         0.0
     } else {
-        max_len.trunc()
+        max_len_f.trunc()
     };
     #[allow(clippy::cast_sign_loss)]
-    let max_len = max_len as usize;
+    let max_len = (max_len_f as usize).min(STRING_LEN_LIMIT);
     let s_len = ctx.get_u16(sid).len();
     if max_len <= s_len {
         return Ok(JsValue::String(sid));
