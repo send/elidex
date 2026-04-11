@@ -439,16 +439,7 @@ pub(super) fn native_object_get_own_property_symbols(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    // §19.1.2.10.1: ToObject — throw TypeError for null/undefined
-    if matches!(obj_val, JsValue::Null | JsValue::Undefined) {
-        return Err(VmError::type_error(
-            "Cannot convert undefined or null to object",
-        ));
-    }
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
+    let obj_id = to_object_arg(ctx, args)?;
     let syms: Vec<JsValue> = ctx
         .get_object(obj_id)
         .storage
