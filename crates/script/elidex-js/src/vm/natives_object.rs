@@ -4,6 +4,7 @@
 //! defineProperty, freeze, seal, etc.) and Object.prototype methods
 //! (hasOwnProperty, valueOf, isPrototypeOf, propertyIsEnumerable).
 
+use super::coerce_format::parse_array_index_u32;
 use super::natives_array::create_array;
 use super::value::{
     JsValue, NativeContext, Object, ObjectKind, Property, PropertyKey, PropertyStorage, VmError,
@@ -508,14 +509,20 @@ pub(super) fn native_object_set_prototype_of(
     // Cycle check: walk `new_proto` chain to ensure `obj_id` is not in it.
     // Capped at 10,000 iterations to guard against corrupted state.
     if let Some(mut cursor) = new_proto {
+        let mut found_end = false;
         for _ in 0..10_000 {
             if cursor == obj_id {
                 return Err(VmError::type_error("Cyclic __proto__ value"));
             }
-            match ctx.get_object(cursor).prototype {
-                Some(p) => cursor = p,
-                None => break,
+            if let Some(p) = ctx.get_object(cursor).prototype {
+                cursor = p;
+            } else {
+                found_end = true;
+                break;
             }
+        }
+        if !found_end {
+            return Err(VmError::type_error("Cyclic __proto__ value"));
         }
     }
     ctx.get_object_mut(obj_id).prototype = new_proto;
@@ -609,7 +616,9 @@ pub(super) fn native_object_get_own_property_names(
     let JsValue::Object(obj_id) = obj_val else {
         return Ok(create_array(ctx, Vec::new()));
     };
-    // §9.1.11.1 OrdinaryOwnPropertyKeys: array indices first, then named props.
+    // §9.1.11.1 OrdinaryOwnPropertyKeys: array element indices (ascending),
+    // then named property indices (ascending), then other string keys
+    // (insertion order). Non-string keys (symbols) are excluded.
     let elem_indices: Vec<usize> = match &ctx.get_object(obj_id).kind {
         ObjectKind::Array { elements } => elements
             .iter()
@@ -619,16 +628,35 @@ pub(super) fn native_object_get_own_property_names(
             .collect(),
         _ => Vec::new(),
     };
+    // Collect named properties, partitioning numeric-index keys from others.
+    let obj = ctx.get_object(obj_id);
+    let mut index_keys: Vec<(u32, super::value::StringId)> = Vec::new();
+    let mut other_keys: Vec<super::value::StringId> = Vec::new();
+    for (k, _) in obj.storage.iter_keys(&ctx.vm.shapes) {
+        if let PropertyKey::String(sid) = k {
+            let units = ctx.vm.strings.get(sid);
+            if let Some(idx) = parse_array_index_u32(units) {
+                index_keys.push((idx, sid));
+            } else {
+                other_keys.push(sid);
+            }
+        }
+    }
+    index_keys.sort_by_key(|(idx, _)| *idx);
+
     let mut names = Vec::new();
+    // 1. Array element indices (ascending).
     for i in elem_indices {
         let sid = ctx.vm.strings.intern(&i.to_string());
         names.push(JsValue::String(sid));
     }
-    let obj = ctx.get_object(obj_id);
-    for (k, _) in obj.storage.iter_keys(&ctx.vm.shapes) {
-        if let PropertyKey::String(sid) = k {
-            names.push(JsValue::String(sid));
-        }
+    // 2. Named numeric-index keys (ascending).
+    for (_, sid) in index_keys {
+        names.push(JsValue::String(sid));
+    }
+    // 3. Other string keys (insertion order).
+    for sid in other_keys {
+        names.push(JsValue::String(sid));
     }
     Ok(create_array(ctx, names))
 }
@@ -694,8 +722,7 @@ pub(super) fn native_object_from_entries(
                 ))
             }
         };
-        let key_id = ctx.to_string_val(key_val)?;
-        let pk = PropertyKey::String(key_id);
+        let pk = to_property_key(ctx, key_val)?;
         ctx.vm
             .upsert_data_property(obj_id, pk, val_val, super::shape::PropertyAttrs::DATA);
     }
