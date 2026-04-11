@@ -535,11 +535,15 @@ impl VmInner {
             }
             _ => false,
         };
+        // Frozen = non-extensible + all named properties are non-writable+non-configurable.
+        // Requires at least one named property to distinguish from preventExtensions.
+        let mut has_named_props = false;
         let is_frozen = !is_new
-            && obj
-                .storage
-                .iter_keys(&self.shapes)
-                .all(|(_, attrs)| !attrs.configurable && (attrs.is_accessor || !attrs.writable));
+            && obj.storage.iter_keys(&self.shapes).all(|(_, attrs)| {
+                has_named_props = true;
+                !attrs.configurable && (attrs.is_accessor || !attrs.writable)
+            })
+            && has_named_props;
         if is_new || is_frozen {
             if self.is_strict_mode() {
                 return Some(Err(VmError::type_error(

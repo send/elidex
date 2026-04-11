@@ -115,6 +115,7 @@ pub(super) fn native_object_assign(
             ks.extend(sym_keys);
             ks
         };
+        let target_is_array = matches!(ctx.get_object(target_id).kind, ObjectKind::Array { .. });
         for key in keys {
             let value = ctx.get_property_value(src_id, key)?;
             // §19.1.2.1 step 5.c.iii.2: Set(O, nextKey, propValue, true).
@@ -124,6 +125,21 @@ pub(super) fn native_object_assign(
                 return Err(VmError::type_error(
                     "Cannot add property to a non-extensible object",
                 ));
+            }
+            // Route numeric index keys on Array targets through set_element
+            // so elements storage and length stay coherent.
+            if target_is_array {
+                if let PropertyKey::String(sid) = key {
+                    let units = ctx.vm.strings.get(sid);
+                    if let Some(idx) = parse_array_index_u32(units) {
+                        ctx.vm.set_element(
+                            JsValue::Object(target_id),
+                            JsValue::Number(f64::from(idx)),
+                            value,
+                        )?;
+                        continue;
+                    }
+                }
             }
             if is_global {
                 if let PropertyKey::String(sid) = key {
@@ -843,12 +859,8 @@ pub(super) fn native_object_is_frozen(
     if obj.extensible {
         return Ok(JsValue::Boolean(false));
     }
-    // Array elements are considered writable data properties.
-    if let ObjectKind::Array { elements } = &obj.kind {
-        if elements.iter().any(|v| !v.is_empty()) {
-            return Ok(JsValue::Boolean(false));
-        }
-    }
+    // All named properties must be non-writable + non-configurable.
+    // An empty non-extensible object is vacuously frozen per spec.
     let frozen = obj
         .storage
         .iter_keys(&ctx.vm.shapes)
