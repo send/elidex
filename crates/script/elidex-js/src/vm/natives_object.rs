@@ -506,14 +506,14 @@ pub(super) fn native_object_set_prototype_of(
 ) -> Result<JsValue, VmError> {
     let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let proto_val = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    // §19.1.2.19 step 1: RequireObjectCoercible(O)
+    // §19.1.2.21 step 1: RequireObjectCoercible(O)
     if matches!(obj_val, JsValue::Null | JsValue::Undefined) {
         return Err(VmError::type_error(
             "Cannot convert undefined or null to object",
         ));
     }
     let JsValue::Object(obj_id) = obj_val else {
-        // Non-object primitives: return O unchanged (no-op per spec step 4)
+        // §19.1.2.21 step 3: Type(O) is not Object → return O
         return Ok(obj_val);
     };
     let new_proto = match proto_val {
