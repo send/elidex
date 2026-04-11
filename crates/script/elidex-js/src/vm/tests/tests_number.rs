@@ -190,6 +190,23 @@ fn number_to_exponential_negative_exp() {
 }
 
 #[test]
+fn number_to_exponential_omitted_digits_finite() {
+    // ES spec: as many significant digits as needed
+    assert_eq!(eval_string("(123456).toExponential();"), "1.23456e+5");
+}
+
+#[test]
+fn number_to_exponential_nan_digits_coerces_to_zero() {
+    assert_eq!(eval_string("(1.5).toExponential(NaN);"), "2e+0");
+}
+
+#[test]
+fn number_to_exponential_negative_zero() {
+    // -0 should format without minus sign in exponential
+    assert_eq!(eval_string("(-0).toExponential(0);"), "0e+0");
+}
+
+#[test]
 fn number_to_precision_range_error_before_non_finite() {
     // §20.1.3.5: RangeError for invalid precision even when this is Infinity
     use super::eval_throws;

@@ -126,12 +126,15 @@ pub(super) fn native_number_to_exponential(
     if n.is_nan() || n.is_infinite() {
         return native_number_to_string(ctx, this, &[]);
     }
+    // §20.1.3.2 step 5: sign handling. -0 is not < 0, so no sign.
+    // Use abs() to normalize -0 to +0 for formatting.
+    let (sign, x) = if n < 0.0 { ("-", -n) } else { ("", n.abs()) };
     let raw = match fraction_digits {
-        None => format!("{n:e}"),
-        Some(d) => format!("{n:.d$e}"),
+        None => format!("{x:e}"),
+        Some(d) => format!("{x:.d$e}"),
     };
     // Rust uses "e" without "+" for positive exponents; ES2020 requires "e+".
-    let s = fix_exponential_sign(&raw);
+    let s = format!("{sign}{}", fix_exponential_sign(&raw));
     let id = ctx.intern(&s);
     Ok(JsValue::String(id))
 }
