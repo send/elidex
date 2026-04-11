@@ -42,7 +42,7 @@ pub(crate) fn collect_own_keys_es_order(vm: &VmInner, obj_id: ObjectId) -> Vec<S
 
 /// Parse a WTF-16 string as an ES array index (0..2^32-2). Returns `None` for
 /// non-index strings, leading-zero forms like "01", and out-of-range values.
-fn parse_array_index_u32(units: &[u16]) -> Option<u32> {
+pub(crate) fn parse_array_index_u32(units: &[u16]) -> Option<u32> {
     if units.is_empty() || units.len() > 10 {
         return None;
     }

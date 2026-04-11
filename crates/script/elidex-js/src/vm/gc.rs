@@ -110,7 +110,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 9],
+    proto_roots: [Option<ObjectId>; 11],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -350,6 +350,8 @@ impl VmInner {
                 self.array_prototype,
                 self.number_prototype,
                 self.boolean_prototype,
+                self.function_prototype,
+                self.bigint_prototype,
                 self.regexp_prototype,
                 self.array_iterator_prototype,
                 self.string_iterator_prototype,
@@ -421,6 +423,7 @@ mod tests {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: proto,
+            extensible: true,
         }
     }
 
@@ -497,6 +500,7 @@ mod tests {
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
+            extensible: true,
         });
         vm.inner.stack.push(JsValue::Object(arr));
         vm.inner.collect_garbage();
@@ -524,6 +528,7 @@ mod tests {
             }),
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
+            extensible: true,
         });
         vm.inner.stack.push(JsValue::Object(func));
         vm.inner.collect_garbage();
@@ -547,6 +552,7 @@ mod tests {
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
+            extensible: true,
         });
         vm.inner.stack.push(JsValue::Object(bound));
         vm.inner.collect_garbage();
@@ -575,6 +581,7 @@ mod tests {
                 },
             )]),
             prototype: None,
+            extensible: true,
         });
         vm.inner.stack.push(JsValue::Object(obj));
         vm.inner.collect_garbage();

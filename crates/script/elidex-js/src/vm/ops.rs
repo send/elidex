@@ -108,6 +108,7 @@ impl VmInner {
                     kind: ObjectKind::Error { name: name_id },
                     storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                     prototype: self.object_prototype,
+                    extensible: true,
                 });
                 self.define_shaped_property(
                     error_obj,
@@ -462,6 +463,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: proto_id,
+            extensible: true,
         });
         self.gc_enabled = saved_gc;
 
@@ -557,7 +559,8 @@ impl VmInner {
                 captured_this,
             }),
             storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-            prototype: None,
+            prototype: self.function_prototype,
+            extensible: true,
         });
 
         // Non-arrow functions get a `.prototype` property (a plain object with
@@ -571,6 +574,7 @@ impl VmInner {
                 kind: ObjectKind::Ordinary,
                 storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                 prototype: obj_proto,
+                extensible: true,
             });
             // Set constructor back-reference on the prototype.
             let ctor_key = PropertyKey::String(self.well_known.constructor);

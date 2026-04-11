@@ -209,6 +209,9 @@ pub struct Object {
     pub storage: PropertyStorage,
     /// Prototype chain link (`__proto__`).
     pub prototype: Option<ObjectId>,
+    /// Whether new properties can be added (§9.1.1). Starts `true`; set to
+    /// `false` by `Object.preventExtensions`, `Object.seal`, `Object.freeze`.
+    pub extensible: bool,
 }
 
 /// Iterator over property entries that avoids heap allocation.

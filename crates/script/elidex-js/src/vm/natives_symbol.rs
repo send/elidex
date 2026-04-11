@@ -117,6 +117,7 @@ pub(super) fn native_array_values(
         }),
         storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_iterator_prototype,
+        extensible: true,
     });
     Ok(JsValue::Object(iter_obj))
 }
@@ -242,6 +243,7 @@ pub(super) fn native_string_iterator(
         }),
         storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.string_iterator_prototype,
+        extensible: true,
     });
     Ok(JsValue::Object(iter_obj))
 }
@@ -304,6 +306,7 @@ fn create_iter_result(
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: None,
+        extensible: true,
     });
     ctx.vm.define_shaped_property(
         obj,

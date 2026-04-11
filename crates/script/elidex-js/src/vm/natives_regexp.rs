@@ -131,6 +131,7 @@ pub(super) fn native_regexp_exec(
         kind: ObjectKind::Array { elements },
         storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
+        extensible: true,
     });
 
     // .index is already a UTF-16 code unit index (no conversion).

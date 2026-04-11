@@ -815,6 +815,7 @@ impl VmInner {
                         kind: ObjectKind::Arguments { values: args },
                         storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                         prototype: self.object_prototype,
+                        extensible: true,
                     });
                     self.gc_enabled = saved_gc;
                     // Set the `length` property.

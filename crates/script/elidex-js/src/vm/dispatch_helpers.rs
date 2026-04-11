@@ -161,6 +161,7 @@ impl VmInner {
                     },
                     storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                     prototype: proto,
+                    extensible: true,
                 });
                 // source and flags are non-enumerable, non-writable (§21.2.5.10, §21.2.5.3).
                 let source_key = PropertyKey::String(self.strings.intern("source"));

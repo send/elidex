@@ -376,6 +376,7 @@ pub(super) fn native_json_stringify(
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(ROOT_SHAPE),
         prototype: ctx.vm.object_prototype,
+        extensible: true,
     });
     let empty_key = ctx.vm.well_known.empty;
     ctx.vm.define_shaped_property(
@@ -734,6 +735,7 @@ impl<'a> JsonParser<'a> {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(ROOT_SHAPE),
             prototype: ctx.vm.object_prototype,
+            extensible: true,
         });
 
         if self.peek() == Some(b'}') {
@@ -899,6 +901,7 @@ pub(super) fn native_json_parse(
                 kind: ObjectKind::Ordinary,
                 storage: PropertyStorage::shaped(ROOT_SHAPE),
                 prototype: ctx.vm.object_prototype,
+                extensible: true,
             });
             let empty_key = ctx.vm.well_known.empty;
             ctx.vm.define_shaped_property(

@@ -2,12 +2,11 @@
 //!
 //! These are free functions with the `NativeFn` signature, referenced by name
 //! in `globals.rs` when registering built-in objects.
+//!
+//! Object-related built-ins are in `natives_object.rs`.
 
 use super::natives_array::create_array;
-use super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, Property, PropertyKey, PropertyStorage,
-    VmError,
-};
+use super::value::{JsValue, NativeContext, ObjectKind, PropertyKey, VmError};
 use super::VmInner;
 
 // -- Global functions -------------------------------------------------------
@@ -49,39 +48,39 @@ pub(super) fn native_parse_int(
             } else {
                 (10u32, rest)
             }
-        } else if r.is_nan() || !(2..=36).contains(&ri) {
+        } else if !(2..=36).contains(&ri) {
             return Ok(JsValue::Number(f64::NAN));
         } else {
-            let ru = ri.cast_unsigned();
-            let rest = if ru == 16 {
+            #[allow(clippy::cast_sign_loss)]
+            let radix = ri as u32;
+            let rest = if radix == 16 {
                 rest.strip_prefix("0x")
                     .or_else(|| rest.strip_prefix("0X"))
                     .unwrap_or(rest)
             } else {
                 rest
             };
-            (ru, rest)
+            (radix, rest)
         }
     };
 
-    if !(2..=36).contains(&radix) {
-        return Ok(JsValue::Number(f64::NAN));
-    }
-
-    // Parse as many valid digits as possible (prefix parsing).
-    let mut result: f64 = 0.0;
-    let mut found = false;
-    let chars = rest.chars();
-
-    for ch in chars {
-        let Some(digit) = ch.to_digit(radix) else {
-            break;
+    // Parse digits in `radix`, stopping at the first invalid char.
+    let mut result = 0.0f64;
+    let mut any_digit = false;
+    for c in rest.chars() {
+        let digit = match c {
+            '0'..='9' => c as u32 - '0' as u32,
+            'a'..='z' => c as u32 - 'a' as u32 + 10,
+            'A'..='Z' => c as u32 - 'A' as u32 + 10,
+            _ => break,
         };
-        found = true;
+        if digit >= radix {
+            break;
+        }
+        any_digit = true;
         result = result * f64::from(radix) + f64::from(digit);
     }
-
-    if !found {
+    if !any_digit {
         return Ok(JsValue::Number(f64::NAN));
     }
     if negative {
@@ -113,12 +112,10 @@ fn parse_float_prefix(s: &str) -> f64 {
     }
 
     // Check for Infinity literals (the only non-numeric token parseFloat accepts).
-    if let Some(rest) = s.strip_prefix("Infinity") {
-        let _ = rest;
+    if s.strip_prefix("Infinity").is_some() {
         return f64::INFINITY;
     }
-    if let Some(rest) = s.strip_prefix("+Infinity") {
-        let _ = rest;
+    if s.strip_prefix("+Infinity").is_some() {
         return f64::INFINITY;
     }
     if s.starts_with("-Infinity") {
@@ -180,8 +177,7 @@ pub(super) fn native_is_nan(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(val)?;
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Boolean(n.is_nan()))
 }
 
@@ -190,8 +186,7 @@ pub(super) fn native_is_finite(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(val)?;
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Boolean(n.is_finite()))
 }
 
@@ -258,374 +253,6 @@ pub(super) fn native_range_error_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     error_ctor_impl(ctx, this, args, "RangeError")
-}
-
-// -- Object static methods --------------------------------------------------
-
-pub(super) fn native_object_keys(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
-    let keys: Vec<JsValue> = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)
-        .into_iter()
-        .map(JsValue::String)
-        .collect();
-    Ok(create_array(ctx, keys))
-}
-
-pub(super) fn native_object_values(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
-    // §7.3.21 EnumerableOwnPropertyNames in ES key order, then Get per key.
-    let keys = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
-    let mut values = Vec::with_capacity(keys.len());
-    for sid in &keys {
-        values.push(ctx.get_property_value(obj_id, PropertyKey::String(*sid))?);
-    }
-    Ok(create_array(ctx, values))
-}
-
-pub(super) fn native_object_assign(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let target = args.first().copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Object(target_id) = target else {
-        return Ok(target);
-    };
-    let is_global = target_id == ctx.vm.global_object;
-    for &source in args.iter().skip(1) {
-        let JsValue::Object(src_id) = source else {
-            continue;
-        };
-        // §19.1.2.1 step 5c: snapshot keys in ES order, then Get per key.
-        // Array element indices (ascending) come before string keys.
-        let keys: Vec<PropertyKey> = {
-            // Collect element indices first (needs mutable strings access).
-            let elem_indices: Vec<usize> = match &ctx.get_object(src_id).kind {
-                ObjectKind::Array { ref elements } => elements
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, e)| !e.is_empty())
-                    .map(|(i, _)| i)
-                    .collect(),
-                _ => Vec::new(),
-            };
-            let mut ks = Vec::new();
-            for i in elem_indices {
-                let sid = ctx.vm.strings.intern(&i.to_string());
-                ks.push(PropertyKey::String(sid));
-            }
-            let obj = ctx.get_object(src_id);
-            for (k, attrs) in obj.storage.iter_keys(&ctx.vm.shapes) {
-                if attrs.enumerable {
-                    ks.push(k);
-                }
-            }
-            ks
-        };
-        let mut props = Vec::with_capacity(keys.len());
-        for key in keys {
-            props.push((key, ctx.get_property_value(src_id, key)?));
-        }
-        for (key, value) in &props {
-            // Sync global object writes to the globals HashMap.
-            if is_global {
-                if let PropertyKey::String(sid) = key {
-                    ctx.vm.globals.insert(*sid, *value);
-                }
-            }
-            ctx.vm
-                .upsert_data_property(target_id, *key, *value, super::shape::PropertyAttrs::DATA);
-        }
-    }
-    Ok(target)
-}
-
-pub(super) fn native_object_create(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let proto = args.first().copied().unwrap_or(JsValue::Null);
-    let prototype = if let JsValue::Object(id) = proto {
-        Some(id)
-    } else {
-        None
-    };
-    let obj_id = ctx.alloc_object(Object {
-        kind: ObjectKind::Ordinary,
-        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-        prototype,
-    });
-    Ok(JsValue::Object(obj_id))
-}
-
-#[allow(clippy::too_many_lines)]
-pub(super) fn native_object_define_property(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let prop_val = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let desc_val = args.get(2).copied().unwrap_or(JsValue::Undefined);
-
-    let JsValue::Object(obj_id) = obj_val else {
-        return Err(VmError::type_error(
-            "Object.defineProperty called on non-object",
-        ));
-    };
-    let key = match prop_val {
-        JsValue::Symbol(sid) => PropertyKey::Symbol(sid),
-        other => PropertyKey::String(ctx.to_string_val(other)?),
-    };
-
-    // Extract descriptor fields.
-    let new_prop = if let JsValue::Object(desc_id) = desc_val {
-        let get_key = PropertyKey::String(ctx.intern("get"));
-        let set_key = PropertyKey::String(ctx.intern("set"));
-        let value_key = PropertyKey::String(ctx.intern("value"));
-        let enumerable_key = PropertyKey::String(ctx.intern("enumerable"));
-        let configurable_key = PropertyKey::String(ctx.intern("configurable"));
-        let writable_key = PropertyKey::String(ctx.intern("writable"));
-
-        // §6.2.5.5 ToPropertyDescriptor: HasProperty + Get per field in
-        // spec order (enumerable, configurable, value, writable, get, set).
-        // No up-front snapshot — each Get sees the current state, including
-        // mutations from earlier getters and inherited fields.
-        let has_enumerable = ctx.try_get_property_value(desc_id, enumerable_key)?;
-        let has_configurable = ctx.try_get_property_value(desc_id, configurable_key)?;
-        let has_value = ctx.try_get_property_value(desc_id, value_key)?;
-        let has_writable = ctx.try_get_property_value(desc_id, writable_key)?;
-        let has_get = ctx.try_get_property_value(desc_id, get_key)?;
-        let has_set = ctx.try_get_property_value(desc_id, set_key)?;
-        // ToBoolean coercion for boolean descriptor fields (§6.2.5.1).
-        let enumerable = has_enumerable.map(|v| super::coerce::to_boolean(ctx.vm, v));
-        let configurable = has_configurable.map(|v| super::coerce::to_boolean(ctx.vm, v));
-
-        let has_accessor = has_get.is_some() || has_set.is_some();
-        let has_data = has_value.is_some() || has_writable.is_some();
-
-        // §9.1.6.3 step 2: mixing accessor and data fields is a TypeError.
-        if has_accessor && has_data {
-            return Err(VmError::type_error(
-                "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute",
-            ));
-        }
-
-        // §9.1.6.3 step 7-8: get/set must be callable or undefined.
-        let validate_accessor = |v: JsValue, role: &str| -> Result<Option<ObjectId>, VmError> {
-            match v {
-                JsValue::Undefined => Ok(None),
-                JsValue::Object(id) => {
-                    if ctx.get_object(id).kind.is_callable() {
-                        Ok(Some(id))
-                    } else {
-                        Err(VmError::type_error(format!(
-                            "Property descriptor {role} must be a function or undefined"
-                        )))
-                    }
-                }
-                _ => Err(VmError::type_error(format!(
-                    "Property descriptor {role} must be a function or undefined"
-                ))),
-            }
-        };
-
-        // Look up the existing property to merge partial descriptors.
-        let existing = ctx
-            .get_object(obj_id)
-            .storage
-            .get(key, &ctx.vm.shapes)
-            .map(|(pv, attrs)| Property::from_attrs(*pv, attrs));
-
-        if has_accessor {
-            let getter = match has_get {
-                Some(v) => validate_accessor(v, "get")?,
-                None => existing.and_then(|p| match p.slot {
-                    super::value::PropertyValue::Accessor { getter, .. } => getter,
-                    super::value::PropertyValue::Data(_) => None,
-                }),
-            };
-            let setter = match has_set {
-                Some(v) => validate_accessor(v, "set")?,
-                None => existing.and_then(|p| match p.slot {
-                    super::value::PropertyValue::Accessor { setter, .. } => setter,
-                    super::value::PropertyValue::Data(_) => None,
-                }),
-            };
-            Property {
-                slot: super::value::PropertyValue::Accessor { getter, setter },
-                writable: false,
-                enumerable: enumerable.unwrap_or_else(|| existing.is_some_and(|p| p.enumerable)),
-                configurable: configurable
-                    .unwrap_or_else(|| existing.is_some_and(|p| p.configurable)),
-            }
-        } else {
-            let value = has_value
-                .unwrap_or_else(|| existing.map_or(JsValue::Undefined, |p| p.data_value()));
-            let writable = has_writable.map_or_else(
-                || existing.is_some_and(|p| p.writable),
-                |v| super::coerce::to_boolean(ctx.vm, v),
-            );
-            Property {
-                slot: super::value::PropertyValue::Data(value),
-                writable,
-                enumerable: enumerable.unwrap_or_else(|| existing.is_some_and(|p| p.enumerable)),
-                configurable: configurable
-                    .unwrap_or_else(|| existing.is_some_and(|p| p.configurable)),
-            }
-        }
-    } else {
-        return Err(VmError::type_error(
-            "Property description must be an object",
-        ));
-    };
-
-    // §9.1.6.3: Validate attribute changes against existing non-configurable property.
-    if let Some(existing) = ctx
-        .get_object(obj_id)
-        .storage
-        .get(key, &ctx.vm.shapes)
-        .map(|(pv, attrs)| Property::from_attrs(*pv, attrs))
-    {
-        if !existing.configurable {
-            // Cannot change configurable from false to true.
-            if new_prop.configurable {
-                return Err(VmError::type_error(
-                    "Cannot redefine property: configurable is false",
-                ));
-            }
-            // Cannot change enumerable on non-configurable property.
-            if new_prop.enumerable != existing.enumerable {
-                return Err(VmError::type_error(
-                    "Cannot redefine property: cannot change enumerable",
-                ));
-            }
-            // Cannot change from data to accessor or vice versa.
-            let existing_is_accessor =
-                matches!(existing.slot, super::value::PropertyValue::Accessor { .. });
-            let new_is_accessor =
-                matches!(new_prop.slot, super::value::PropertyValue::Accessor { .. });
-            if existing_is_accessor != new_is_accessor {
-                return Err(VmError::type_error(
-                    "Cannot redefine property: cannot convert between data and accessor",
-                ));
-            }
-            match (existing.slot, new_prop.slot) {
-                // Non-configurable data: cannot change writable false→true
-                // or value if non-writable.
-                (
-                    super::value::PropertyValue::Data(existing_val),
-                    super::value::PropertyValue::Data(new_val),
-                ) => {
-                    if !existing.writable {
-                        if new_prop.writable {
-                            return Err(VmError::type_error(
-                                "Cannot redefine property: cannot make non-writable property writable",
-                            ));
-                        }
-                        if !super::value::same_value(existing_val, new_val) {
-                            return Err(VmError::type_error(
-                                "Cannot redefine property: cannot change value of non-writable, non-configurable property",
-                            ));
-                        }
-                    }
-                }
-                // Non-configurable accessor: cannot change getter or setter
-                // unless SameValue (§9.1.6.3 step 11).
-                (
-                    super::value::PropertyValue::Accessor {
-                        getter: eg,
-                        setter: es,
-                    },
-                    super::value::PropertyValue::Accessor {
-                        getter: ng,
-                        setter: ns,
-                    },
-                ) => {
-                    let obj_or_undef =
-                        |o: Option<ObjectId>| o.map_or(JsValue::Undefined, JsValue::Object);
-                    if !super::value::same_value(obj_or_undef(eg), obj_or_undef(ng)) {
-                        return Err(VmError::type_error(
-                            "Cannot redefine property: cannot change getter of non-configurable accessor",
-                        ));
-                    }
-                    if !super::value::same_value(obj_or_undef(es), obj_or_undef(ns)) {
-                        return Err(VmError::type_error(
-                            "Cannot redefine property: cannot change setter of non-configurable accessor",
-                        ));
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // Sync globals HashMap: data properties are cached for GetGlobal fast path;
-    // accessor properties remove any stale data entry so GetGlobal falls back
-    // to the global object.
-    if obj_id == ctx.vm.global_object {
-        if let PropertyKey::String(sid) = key {
-            match new_prop.slot {
-                super::value::PropertyValue::Data(v) => {
-                    ctx.vm.globals.insert(sid, v);
-                }
-                super::value::PropertyValue::Accessor { .. } => {
-                    ctx.vm.globals.remove(&sid);
-                }
-            }
-        }
-    }
-    // Write the property using shape transitions (preserves IC caching).
-    let new_attrs = super::shape::PropertyAttrs {
-        writable: new_prop.writable,
-        enumerable: new_prop.enumerable,
-        configurable: new_prop.configurable,
-        is_accessor: matches!(new_prop.slot, super::value::PropertyValue::Accessor { .. }),
-    };
-    let existing_info = {
-        let obj = ctx.vm.objects[obj_id.0 as usize].as_ref().unwrap();
-        obj.storage.get(key, &ctx.vm.shapes).map(|(_, attrs)| attrs)
-    };
-    if let Some(existing_attrs) = existing_info {
-        if existing_attrs == new_attrs {
-            // Attrs unchanged — just write the slot value.
-            let obj = ctx.vm.objects[obj_id.0 as usize].as_mut().unwrap();
-            if let Some((slot, _)) = obj.storage.get_mut(key, &ctx.vm.shapes) {
-                *slot = new_prop.slot;
-            }
-        } else {
-            // Attrs changed — reconfigure transition + slot write.
-            ctx.vm
-                .reconfigure_property(obj_id, key, new_attrs, Some(new_prop.slot));
-            // Dictionary mode: reconfigure_property is a no-op, update in place.
-            let obj = ctx.vm.objects[obj_id.0 as usize].as_mut().unwrap();
-            if let super::value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
-                if let Some((_, p)) = vec.iter_mut().find(|(k, _)| *k == key) {
-                    *p = new_prop;
-                }
-            }
-        }
-    } else {
-        // New property — use add transition.
-        ctx.vm
-            .define_shaped_property(obj_id, key, new_prop.slot, new_attrs);
-    }
-    Ok(obj_val)
 }
 
 // -- Array constructor & static methods --------------------------------------
@@ -817,38 +444,6 @@ pub(super) fn native_math_log(
     Ok(JsValue::Number(n.ln()))
 }
 
-// -- Object.getOwnPropertySymbols ---------------------------------------------
-
-pub(super) fn native_object_get_own_property_symbols(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    // §19.1.2.10.1: ToObject — throw TypeError for null/undefined
-    if matches!(obj_val, JsValue::Null | JsValue::Undefined) {
-        return Err(VmError::type_error(
-            "Cannot convert undefined or null to object",
-        ));
-    }
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
-    let syms: Vec<JsValue> = ctx
-        .get_object(obj_id)
-        .storage
-        .iter_keys(&ctx.vm.shapes)
-        .filter_map(|(k, _)| {
-            if let PropertyKey::Symbol(sid) = k {
-                Some(JsValue::Symbol(sid))
-            } else {
-                None
-            }
-        })
-        .collect();
-    Ok(create_array(ctx, syms))
-}
-
 // -- Console ----------------------------------------------------------------
 
 fn format_value_for_console(vm: &mut VmInner, val: JsValue) -> String {
@@ -894,6 +489,17 @@ pub(super) fn native_console_warn(
 }
 
 // Re-exports from split modules.
+pub(super) use super::natives_object::{
+    native_object_assign, native_object_create, native_object_define_property,
+    native_object_entries, native_object_freeze, native_object_from_entries,
+    native_object_get_own_property_descriptor, native_object_get_own_property_names,
+    native_object_get_own_property_symbols, native_object_get_prototype_of,
+    native_object_has_own_property, native_object_is, native_object_is_extensible,
+    native_object_is_frozen, native_object_is_prototype_of, native_object_is_sealed,
+    native_object_keys, native_object_prevent_extensions, native_object_property_is_enumerable,
+    native_object_seal, native_object_set_prototype_of, native_object_value_of,
+    native_object_values,
+};
 pub(super) use super::natives_string::{
     native_string_char_at, native_string_char_code_at, native_string_ends_with,
     native_string_includes, native_string_index_of, native_string_match, native_string_replace,

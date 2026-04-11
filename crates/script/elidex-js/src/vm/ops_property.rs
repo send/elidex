@@ -364,6 +364,15 @@ impl VmInner {
             InheritedProperty::None => {}
         }
         // Step 3: create own data property.
+        // §9.1.9 step 5: reject if the receiver is non-extensible.
+        if !self.get_object(id).extensible {
+            if self.is_strict_mode() {
+                return Err(VmError::type_error(
+                    "Cannot add property to a non-extensible object",
+                ));
+            }
+            return Ok(SetOutcome::NoDataWrite);
+        }
         self.define_shaped_property(
             id,
             pk,
@@ -508,6 +517,44 @@ impl VmInner {
         }
     }
 
+    /// Check whether an array element write at `idx` should be rejected
+    /// due to non-extensible / frozen constraints. Returns `Some(result)`
+    /// to early-return from the caller, or `None` to proceed.
+    fn check_array_element_write(
+        &self,
+        obj_id: super::value::ObjectId,
+        idx: usize,
+    ) -> Option<Result<(), VmError>> {
+        let obj = self.get_object(obj_id);
+        if !matches!(obj.kind, ObjectKind::Array { .. }) || obj.extensible {
+            return None;
+        }
+        let is_new = match &obj.kind {
+            ObjectKind::Array { elements } => {
+                idx >= elements.len() || elements.get(idx).is_some_and(|v| v.is_empty())
+            }
+            _ => false,
+        };
+        // Frozen = non-extensible + all named properties are non-writable+non-configurable.
+        // Requires at least one named property to distinguish from preventExtensions.
+        let mut has_named_props = false;
+        let is_frozen = !is_new
+            && obj.storage.iter_keys(&self.shapes).all(|(_, attrs)| {
+                has_named_props = true;
+                !attrs.configurable && (attrs.is_accessor || !attrs.writable)
+            })
+            && has_named_props;
+        if is_new || is_frozen {
+            if self.is_strict_mode() {
+                return Some(Err(VmError::type_error(
+                    "Cannot assign to read only property",
+                )));
+            }
+            return Some(Ok(()));
+        }
+        None
+    }
+
     pub(crate) fn set_element(
         &mut self,
         obj: JsValue,
@@ -517,6 +564,10 @@ impl VmInner {
         if let JsValue::Object(id) = obj {
             if let JsValue::Number(n) = key {
                 if let Some(idx) = try_as_array_index(n) {
+                    // Check extensible/frozen before taking mutable borrow.
+                    if let Some(reject) = self.check_array_element_write(id, idx) {
+                        return reject;
+                    }
                     let obj_ref = self.get_object_mut(id);
                     match &mut obj_ref.kind {
                         ObjectKind::Array { ref mut elements } => {
@@ -552,6 +603,9 @@ impl VmInner {
             if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
                 let key_units = self.strings.get(key_id);
                 if let Some(idx) = parse_array_index_u16(key_units) {
+                    if let Some(reject) = self.check_array_element_write(id, idx) {
+                        return reject;
+                    }
                     let obj_ref = self.get_object_mut(id);
                     if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
                         if idx >= elements.len() {
