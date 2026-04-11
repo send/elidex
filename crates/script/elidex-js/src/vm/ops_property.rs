@@ -442,12 +442,12 @@ impl VmInner {
             let key_id = to_string(self, key)?;
             // StringWrapper: index access and length
             if let ObjectKind::StringWrapper(sid) = self.get_object(id).kind {
-                let key_units = self.strings.get(key_id);
-                if key_units == self.strings.get(self.well_known.length) {
+                if key_id == self.well_known.length {
                     #[allow(clippy::cast_precision_loss)]
                     let len = self.strings.get(sid).len() as f64;
                     return Ok(JsValue::Number(len));
                 }
+                let key_units = self.strings.get(key_id);
                 if let Some(idx) = parse_array_index_u16(key_units) {
                     if let Some(&unit) = self.strings.get(sid).get(idx) {
                         let ch_id = self.strings.intern_utf16(&[unit]);

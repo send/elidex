@@ -1,9 +1,9 @@
 //! String.prototype complement methods (P2 additions).
 
 use super::natives_string::this_string_id;
-use super::ops::DENSE_ARRAY_LEN_LIMIT;
+use super::ops::STRING_LEN_LIMIT;
 use super::value::{JsValue, NativeContext, VmError};
-use crate::wtf16::is_js_whitespace;
+use crate::wtf16::{is_js_whitespace, rfind_u16};
 
 /// §21.1.3.13 String.prototype.repeat(count)
 pub(super) fn native_string_repeat(
@@ -24,7 +24,7 @@ pub(super) fn native_string_repeat(
     let count = n as usize;
     let s = ctx.get_u16(sid);
     let result_len = s.len().saturating_mul(count);
-    if result_len >= DENSE_ARRAY_LEN_LIMIT {
+    if result_len >= STRING_LEN_LIMIT {
         return Err(VmError::range_error("Invalid count value"));
     }
     let repeated: Vec<u16> = s.iter().copied().cycle().take(result_len).collect();
@@ -180,12 +180,9 @@ pub(super) fn native_string_last_index_of(
     if search.len() > s.len() {
         return Ok(JsValue::Number(-1.0));
     }
-    let max_start = pos.min(s.len() - search.len());
+    let end = pos.min(s.len() - search.len()) + search.len();
     #[allow(clippy::cast_precision_loss)]
-    let result = (0..=max_start)
-        .rev()
-        .find(|&i| s[i..].starts_with(search))
-        .map_or(-1.0, |i| i as f64);
+    let result = rfind_u16(&s[..end], search).map_or(-1.0, |i| i as f64);
     Ok(JsValue::Number(result))
 }
 
