@@ -288,3 +288,12 @@ fn math_hypot_nan_and_infinity() {
     assert_eq!(eval_number("Math.hypot(Infinity, NaN);"), f64::INFINITY);
     assert!(eval_bool("isNaN(Math.hypot(NaN, 1));"));
 }
+
+#[test]
+fn math_pow_one_infinity() {
+    // §20.2.2.26: ES2020 diverges from IEEE 754 — pow(1, ±Infinity) = NaN
+    assert!(eval_bool("isNaN(Math.pow(1, Infinity));"));
+    assert!(eval_bool("isNaN(Math.pow(1, -Infinity));"));
+    assert!(eval_bool("isNaN(Math.pow(-1, Infinity));"));
+    assert!(eval_bool("isNaN(Math.pow(-1, -Infinity));"));
+}

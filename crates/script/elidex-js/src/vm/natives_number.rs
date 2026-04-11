@@ -104,13 +104,12 @@ pub(super) fn native_number_to_exponential(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // §20.1.3.2: step 1 — ThisNumberValue
     let n = this_number_value(ctx, this)?;
-    if n.is_nan() || n.is_infinite() {
-        return native_number_to_string(ctx, this, &[]);
-    }
+    // step 2 — ToInteger(fractionDigits) before non-finite check
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let raw = if arg == JsValue::Undefined {
-        format!("{n:e}")
+    let fraction_digits = if arg == JsValue::Undefined {
+        None
     } else {
         let digits = super::coerce::to_number(ctx.vm, arg)?;
         let digits = digits.trunc();
@@ -120,8 +119,15 @@ pub(super) fn native_number_to_exponential(
             ));
         }
         #[allow(clippy::cast_sign_loss)]
-        let d = digits as usize;
-        format!("{n:.d$e}")
+        Some(digits as usize)
+    };
+    // step 3-4 — non-finite
+    if n.is_nan() || n.is_infinite() {
+        return native_number_to_string(ctx, this, &[]);
+    }
+    let raw = match fraction_digits {
+        None => format!("{n:e}"),
+        Some(d) => format!("{n:.d$e}"),
     };
     // Rust uses "e" without "+" for positive exponents; ES2020 requires "e+".
     let s = fix_exponential_sign(&raw);
@@ -136,20 +142,24 @@ pub(super) fn native_number_to_precision(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // §20.1.3.5: step 1 — ThisNumberValue
     let n = this_number_value(ctx, this)?;
+    // step 2 — if undefined, return ToString(x)
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     if arg == JsValue::Undefined {
         return native_number_to_string(ctx, this, &[]);
     }
-    if n.is_nan() || n.is_infinite() {
-        return native_number_to_string(ctx, this, &[]);
-    }
+    // step 3 — ToIntegerOrInfinity(precision) + RangeError
     let precision = super::coerce::to_number(ctx.vm, arg)?;
     let precision = precision.trunc();
     if !(1.0..=100.0).contains(&precision) {
         return Err(VmError::range_error(
             "toPrecision() argument must be between 1 and 100",
         ));
+    }
+    // step 4-5 — non-finite
+    if n.is_nan() || n.is_infinite() {
+        return native_number_to_string(ctx, this, &[]);
     }
     #[allow(clippy::cast_sign_loss)]
     let p = precision as usize;
@@ -219,6 +229,8 @@ fn fix_exponential_sign(s: &str) -> String {
 
 /// Format a number with a given number of significant digits (for toPrecision).
 /// Implements ES2020 §20.1.3.5 steps 7-12.
+/// Uses Rust's {:e} formatter to robustly extract the exponent (avoids log10
+/// floating-point imprecision near powers of 10).
 fn format_significant_digits(n: f64, precision: usize) -> String {
     if n == 0.0 {
         if precision <= 1 {
@@ -233,19 +245,23 @@ fn format_significant_digits(n: f64, precision: usize) -> String {
     let negative = n < 0.0;
     let abs_n = n.abs();
 
-    // Compute exponent: e such that 10^e <= abs_n < 10^(e+1)
-    #[allow(clippy::cast_possible_truncation)]
-    let e = abs_n.log10().floor() as i32;
-    #[allow(clippy::cast_possible_wrap)]
-    let p = precision as i32;
+    // Use Rust's exponential formatter to get correct significant digits.
+    // Format with (precision-1) decimal places in exponential notation, then
+    // decide whether to emit in fixed or exponential form.
+    let p = precision;
+    let exp_str = format!("{abs_n:.prec$e}", prec = p - 1);
+    // Parse exponent from the formatted string (e.g., "1.235e5" or "1.235e-7")
+    let e_pos = exp_str.find('e').unwrap();
+    let e: i32 = exp_str[e_pos + 1..].parse().unwrap();
+    // Extract the significant digits (remove '.') from mantissa
+    let mantissa = &exp_str[..e_pos];
+    let digits: String = mantissa.chars().filter(|&c| c != '.').collect();
 
-    // §20.1.3.5 step 10-12: use exponential notation if e >= p or e < -6
-    let formatted = if e >= p || e < -6 {
-        // Exponential notation: round to p significant digits
-        let factor = 10.0_f64.powi(p - 1 - e);
-        let rounded = (abs_n * factor).round();
-        let digits = format!("{rounded:.0}");
-        let exp_str = if digits.len() == 1 {
+    // §20.1.3.5 step 10-12: exponential notation if e >= p or e < -6
+    #[allow(clippy::cast_possible_wrap)]
+    let p_i32 = p as i32;
+    let formatted = if e >= p_i32 || e < -6 {
+        if digits.len() == 1 {
             format!("{}e{}{}", &digits, if e >= 0 { "+" } else { "" }, e)
         } else {
             format!(
@@ -255,20 +271,31 @@ fn format_significant_digits(n: f64, precision: usize) -> String {
                 if e >= 0 { "+" } else { "" },
                 e
             )
-        };
-        exp_str
-    } else {
-        // Fixed notation
-        #[allow(clippy::cast_sign_loss)]
-        let decimal_places = if p > e + 1 { (p - e - 1) as usize } else { 0 };
-        if decimal_places > 0 {
-            format!("{abs_n:.decimal_places$}")
-        } else {
-            // precision <= digits before decimal: round and pad with zeros
-            let factor = 10.0_f64.powi(p - e - 1);
-            let rounded = (abs_n * factor).round() / factor;
-            format!("{rounded:.0}")
         }
+    } else if e >= 0 {
+        // Fixed notation: e+1 digits before decimal, rest after
+        #[allow(clippy::cast_sign_loss)]
+        let int_digits = (e + 1) as usize;
+        if int_digits >= digits.len() {
+            // All digits are before the decimal; pad with zeros if needed
+            let mut s = digits.clone();
+            for _ in 0..(int_digits - digits.len()) {
+                s.push('0');
+            }
+            s
+        } else {
+            format!("{}.{}", &digits[..int_digits], &digits[int_digits..])
+        }
+    } else {
+        // e < 0: number is 0.000...digits
+        #[allow(clippy::cast_sign_loss)]
+        let leading_zeros = (-e - 1) as usize;
+        let mut s = "0.".to_string();
+        for _ in 0..leading_zeros {
+            s.push('0');
+        }
+        s.push_str(&digits);
+        s
     };
 
     if negative {

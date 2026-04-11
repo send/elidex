@@ -188,3 +188,17 @@ fn number_to_precision_small_exponential() {
 fn number_to_exponential_negative_exp() {
     assert_eq!(eval_string("(0.005).toExponential(1);"), "5.0e-3");
 }
+
+#[test]
+fn number_to_precision_range_error_before_non_finite() {
+    // §20.1.3.5: RangeError for invalid precision even when this is Infinity
+    use super::eval_throws;
+    eval_throws("(Infinity).toPrecision(0);");
+}
+
+#[test]
+fn number_to_exponential_range_error_before_non_finite() {
+    // §20.1.3.2: RangeError for invalid digits even when this is NaN
+    use super::eval_throws;
+    eval_throws("(NaN).toExponential(101);");
+}

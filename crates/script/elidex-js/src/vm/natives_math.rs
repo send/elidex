@@ -124,7 +124,13 @@ pub(super) fn native_math_pow(
 ) -> Result<JsValue, VmError> {
     let base = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let exp = ctx.to_number(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    Ok(JsValue::Number(base.powf(exp)))
+    // §20.2.2.26: ES2020 diverges from IEEE 754 for abs(base)==1 with infinite exp.
+    let result = if base.abs() == 1.0 && exp.is_infinite() {
+        f64::NAN
+    } else {
+        base.powf(exp)
+    };
+    Ok(JsValue::Number(result))
 }
 
 pub(super) fn native_math_log(
@@ -269,17 +275,17 @@ pub(super) fn native_math_hypot(
     if args.is_empty() {
         return Ok(JsValue::Number(0.0));
     }
-    // ES2020 §20.2.2.18: coerce all, infinity takes precedence over NaN.
-    // Use scaled-sum to avoid intermediate overflow for large finite values.
+    // §20.2.2.18: coerce ALL args first (ToNumber may throw), then check
+    // infinity (takes precedence over NaN). Scaled-sum avoids overflow.
+    let mut has_inf = false;
     let mut has_nan = false;
     let mut max_abs = 0.0_f64;
     let mut values = Vec::with_capacity(args.len());
     for &arg in args {
         let n = ctx.to_number(arg)?;
         if n.is_infinite() {
-            return Ok(JsValue::Number(f64::INFINITY));
-        }
-        if n.is_nan() {
+            has_inf = true;
+        } else if n.is_nan() {
             has_nan = true;
         } else {
             let a = n.abs();
@@ -288,6 +294,9 @@ pub(super) fn native_math_hypot(
             }
             values.push(a);
         }
+    }
+    if has_inf {
+        return Ok(JsValue::Number(f64::INFINITY));
     }
     if has_nan {
         return Ok(JsValue::Number(f64::NAN));
