@@ -127,13 +127,13 @@ fn number_nan_constant() {
 #[test]
 fn number_to_exponential_basic() {
     let s = eval_string("(123456).toExponential(2);");
-    assert_eq!(s, "1.23e5");
+    assert_eq!(s, "1.23e+5");
 }
 
 #[test]
 fn number_to_exponential_zero_digits() {
     let s = eval_string("(1.5).toExponential(0);");
-    assert_eq!(s, "2e0");
+    assert_eq!(s, "2e+0");
 }
 
 #[test]
@@ -164,4 +164,27 @@ fn number_to_precision_nan() {
 fn number_to_precision_undefined_arg() {
     // Should behave like toString
     assert_eq!(eval_string("(42).toPrecision();"), "42");
+}
+
+#[test]
+fn number_to_precision_large_magnitude() {
+    // e >= p: uses exponential notation per spec
+    assert_eq!(eval_string("(123456).toPrecision(4);"), "1.235e+5");
+}
+
+#[test]
+fn number_to_precision_exponential() {
+    // e >= p: must use exponential notation
+    assert_eq!(eval_string("(123456789).toPrecision(3);"), "1.23e+8");
+}
+
+#[test]
+fn number_to_precision_small_exponential() {
+    // Very small number: e < -6
+    assert_eq!(eval_string("(0.0000001).toPrecision(2);"), "1.0e-7");
+}
+
+#[test]
+fn number_to_exponential_negative_exp() {
+    assert_eq!(eval_string("(0.005).toExponential(1);"), "5.0e-3");
 }

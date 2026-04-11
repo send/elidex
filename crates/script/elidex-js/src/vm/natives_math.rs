@@ -1,8 +1,7 @@
 //! Math built-in methods and constants (ES2020 §20.2).
 
+use super::coerce::f64_to_uint32;
 use super::value::{JsValue, NativeContext, VmError};
-
-// -- Existing methods (moved from natives.rs) ---------------------------------
 
 pub(super) fn native_math_abs(
     ctx: &mut NativeContext<'_>,
@@ -60,7 +59,8 @@ pub(super) fn native_math_max(
         if n.is_nan() {
             return Ok(JsValue::Number(f64::NAN));
         }
-        if n > result {
+        // §20.2.2.24: +0 is greater than -0
+        if n > result || (n == 0.0 && result == 0.0 && result.is_sign_negative()) {
             result = n;
         }
     }
@@ -81,7 +81,8 @@ pub(super) fn native_math_min(
         if n.is_nan() {
             return Ok(JsValue::Number(f64::NAN));
         }
-        if n < result {
+        // §20.2.2.25: -0 is less than +0
+        if n < result || (n == 0.0 && result == 0.0 && n.is_sign_negative()) {
             result = n;
         }
     }
@@ -134,8 +135,6 @@ pub(super) fn native_math_log(
     let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(n.ln()))
 }
-
-// -- New methods (P2) ---------------------------------------------------------
 
 pub(super) fn native_math_trunc(
     ctx: &mut NativeContext<'_>,
@@ -270,28 +269,38 @@ pub(super) fn native_math_hypot(
     if args.is_empty() {
         return Ok(JsValue::Number(0.0));
     }
-    // ES2020 §20.2.2.18: coerce all arguments first, then check infinity
-    // before NaN (infinity takes precedence).
-    let mut has_inf = false;
+    // ES2020 §20.2.2.18: coerce all, infinity takes precedence over NaN.
+    // Use scaled-sum to avoid intermediate overflow for large finite values.
     let mut has_nan = false;
-    let mut sum = 0.0_f64;
+    let mut max_abs = 0.0_f64;
+    let mut values = Vec::with_capacity(args.len());
     for &arg in args {
         let n = ctx.to_number(arg)?;
         if n.is_infinite() {
-            has_inf = true;
-        } else if n.is_nan() {
+            return Ok(JsValue::Number(f64::INFINITY));
+        }
+        if n.is_nan() {
             has_nan = true;
         } else {
-            sum += n * n;
+            let a = n.abs();
+            if a > max_abs {
+                max_abs = a;
+            }
+            values.push(a);
         }
-    }
-    if has_inf {
-        return Ok(JsValue::Number(f64::INFINITY));
     }
     if has_nan {
         return Ok(JsValue::Number(f64::NAN));
     }
-    Ok(JsValue::Number(sum.sqrt()))
+    if max_abs == 0.0 {
+        return Ok(JsValue::Number(0.0));
+    }
+    let mut sum = 0.0_f64;
+    for &v in &values {
+        let scaled = v / max_abs;
+        sum += scaled * scaled;
+    }
+    Ok(JsValue::Number(max_abs * sum.sqrt()))
 }
 
 /// ES2020 §20.2.2.11 — Math.clz32(x)
@@ -301,7 +310,7 @@ pub(super) fn native_math_clz32(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let i = to_uint32(n);
+    let i = f64_to_uint32(n);
     Ok(JsValue::Number(f64::from(i.leading_zeros())))
 }
 
@@ -314,7 +323,7 @@ pub(super) fn native_math_imul(
     let a = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let b = ctx.to_number(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
     #[allow(clippy::cast_possible_wrap)]
-    let result = (to_uint32(a) as i32).wrapping_mul(to_uint32(b) as i32);
+    let result = (f64_to_uint32(a) as i32).wrapping_mul(f64_to_uint32(b) as i32);
     Ok(JsValue::Number(f64::from(result)))
 }
 
@@ -326,19 +335,4 @@ pub(super) fn native_math_fround(
 ) -> Result<JsValue, VmError> {
     let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     Ok(JsValue::Number(f64::from(n as f32)))
-}
-
-// -- Helpers ------------------------------------------------------------------
-
-/// ToUint32 (ES2020 §7.1.7)
-fn to_uint32(n: f64) -> u32 {
-    if n.is_nan() || n.is_infinite() || n == 0.0 {
-        return 0;
-    }
-    // Truncate toward zero, then modulo 2^32.
-    #[allow(clippy::cast_possible_truncation)]
-    let int = n.trunc() as i64;
-    #[allow(clippy::cast_sign_loss)]
-    let result = int as u32;
-    result
 }

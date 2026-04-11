@@ -251,3 +251,40 @@ fn math_constant_sqrt1_2() {
     let n = eval_number("Math.SQRT1_2;");
     assert!((n - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-15);
 }
+
+// -- Edge cases (spec compliance) ---------------------------------------------
+
+#[test]
+fn math_max_negative_zero() {
+    // §20.2.2.24: Math.max(-0, +0) should be +0
+    assert!(eval_bool("1 / Math.max(-0, 0) === Infinity;"));
+    assert!(eval_bool("1 / Math.max(0, -0) === Infinity;"));
+}
+
+#[test]
+fn math_min_negative_zero() {
+    // §20.2.2.25: Math.min(+0, -0) should be -0
+    assert!(eval_bool("1 / Math.min(0, -0) === -Infinity;"));
+    assert!(eval_bool("1 / Math.min(-0, 0) === -Infinity;"));
+}
+
+#[test]
+fn math_clz32_large_value() {
+    // 1e20 mod 2^32 = 1661992960, leading zeros = 1
+    assert_eq!(eval_number("Math.clz32(1e20);"), 1.0);
+}
+
+#[test]
+fn math_hypot_large_finite() {
+    // Should not overflow to Infinity
+    let n = eval_number("Math.hypot(1e200, 1e200);");
+    assert!(n.is_finite());
+    assert!((n - 1e200 * 2.0_f64.sqrt()).abs() / n < 1e-10);
+}
+
+#[test]
+fn math_hypot_nan_and_infinity() {
+    // Infinity takes precedence over NaN
+    assert_eq!(eval_number("Math.hypot(Infinity, NaN);"), f64::INFINITY);
+    assert!(eval_bool("isNaN(Math.hypot(NaN, 1));"));
+}

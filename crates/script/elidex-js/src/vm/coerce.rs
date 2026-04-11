@@ -294,7 +294,7 @@ fn f64_to_int32(n: f64) -> i32 {
 }
 
 /// The modulo-2^32 conversion from f64 to u32 (ES2020 §7.1.7 step 5-6).
-fn f64_to_uint32(n: f64) -> u32 {
+pub(super) fn f64_to_uint32(n: f64) -> u32 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {
         return 0;
     }

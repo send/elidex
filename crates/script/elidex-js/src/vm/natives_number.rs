@@ -109,7 +109,7 @@ pub(super) fn native_number_to_exponential(
         return native_number_to_string(ctx, this, &[]);
     }
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let s = if arg == JsValue::Undefined {
+    let raw = if arg == JsValue::Undefined {
         format!("{n:e}")
     } else {
         let digits = super::coerce::to_number(ctx.vm, arg)?;
@@ -123,6 +123,8 @@ pub(super) fn native_number_to_exponential(
         let d = digits as usize;
         format!("{n:.d$e}")
     };
+    // Rust uses "e" without "+" for positive exponents; ES2020 requires "e+".
+    let s = fix_exponential_sign(&raw);
     let id = ctx.intern(&s);
     Ok(JsValue::String(id))
 }
@@ -205,7 +207,18 @@ pub(super) fn native_number_is_safe_integer(
 
 // -- Helpers ------------------------------------------------------------------
 
+/// Insert "+" after "e" for positive exponents (Rust omits it, ES2020 requires it).
+fn fix_exponential_sign(s: &str) -> String {
+    if let Some(pos) = s.find('e') {
+        if s.as_bytes().get(pos + 1) != Some(&b'-') {
+            return format!("{}e+{}", &s[..pos], &s[pos + 1..]);
+        }
+    }
+    s.to_string()
+}
+
 /// Format a number with a given number of significant digits (for toPrecision).
+/// Implements ES2020 §20.1.3.5 steps 7-12.
 fn format_significant_digits(n: f64, precision: usize) -> String {
     if n == 0.0 {
         if precision <= 1 {
@@ -219,32 +232,45 @@ fn format_significant_digits(n: f64, precision: usize) -> String {
     }
     let negative = n < 0.0;
     let abs_n = n.abs();
-    // Number of digits before the decimal point
+
+    // Compute exponent: e such that 10^e <= abs_n < 10^(e+1)
     #[allow(clippy::cast_possible_truncation)]
-    let magnitude = abs_n.log10().floor() as i32 + 1;
+    let e = abs_n.log10().floor() as i32;
     #[allow(clippy::cast_possible_wrap)]
-    let p_i32 = precision as i32;
-    #[allow(clippy::cast_sign_loss)]
-    let decimal_places = if p_i32 > magnitude {
-        (p_i32 - magnitude) as usize
-    } else {
-        0
-    };
-    let formatted = if decimal_places > 0 {
-        format!("{abs_n:.decimal_places$}")
-    } else {
-        // Round to significant digits when precision <= magnitude
-        let factor = 10.0_f64.powi(p_i32 - magnitude);
-        let rounded = (abs_n * factor).round() / factor;
-        let s = format!("{rounded}");
-        // Remove trailing ".0" if present and not needed
-        if s.contains('.') && decimal_places == 0 {
-            let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-            trimmed.to_string()
+    let p = precision as i32;
+
+    // §20.1.3.5 step 10-12: use exponential notation if e >= p or e < -6
+    let formatted = if e >= p || e < -6 {
+        // Exponential notation: round to p significant digits
+        let factor = 10.0_f64.powi(p - 1 - e);
+        let rounded = (abs_n * factor).round();
+        let digits = format!("{rounded:.0}");
+        let exp_str = if digits.len() == 1 {
+            format!("{}e{}{}", &digits, if e >= 0 { "+" } else { "" }, e)
         } else {
-            s
+            format!(
+                "{}.{}e{}{}",
+                &digits[..1],
+                &digits[1..],
+                if e >= 0 { "+" } else { "" },
+                e
+            )
+        };
+        exp_str
+    } else {
+        // Fixed notation
+        #[allow(clippy::cast_sign_loss)]
+        let decimal_places = if p > e + 1 { (p - e - 1) as usize } else { 0 };
+        if decimal_places > 0 {
+            format!("{abs_n:.decimal_places$}")
+        } else {
+            // precision <= digits before decimal: round and pad with zeros
+            let factor = 10.0_f64.powi(p - e - 1);
+            let rounded = (abs_n * factor).round() / factor;
+            format!("{rounded:.0}")
         }
     };
+
     if negative {
         format!("-{formatted}")
     } else {
