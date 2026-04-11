@@ -1,4 +1,4 @@
-//! Native Number.prototype methods.
+//! Native Number.prototype and Number static methods.
 
 use super::value::{JsValue, NativeContext, ObjectKind, VmError};
 
@@ -90,9 +90,225 @@ pub(super) fn native_number_to_fixed(
         } else {
             "-Infinity".to_string()
         }
+    } else if n == 0.0 {
+        // §20.1.3.3 step 7: -0 formats as "0.000..."
+        format!("{:.digits$}", 0.0_f64)
     } else {
         format!("{n:.digits$}")
     };
     let id = ctx.intern(&s);
     Ok(JsValue::String(id))
+}
+
+// -- Number.prototype.toExponential -------------------------------------------
+
+pub(super) fn native_number_to_exponential(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // §20.1.3.2: step 1 — ThisNumberValue
+    let n = this_number_value(ctx, this)?;
+    // step 2 — ToInteger(fractionDigits) before non-finite check
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let fraction_digits = if arg == JsValue::Undefined {
+        None
+    } else {
+        let d = super::coerce::to_number(ctx.vm, arg)?;
+        // ToIntegerOrInfinity: NaN → 0
+        let digits = if d.is_nan() { 0.0 } else { d.trunc() };
+        if !(0.0..=100.0).contains(&digits) {
+            return Err(VmError::range_error(
+                "toExponential() argument must be between 0 and 100",
+            ));
+        }
+        #[allow(clippy::cast_sign_loss)]
+        Some(digits as usize)
+    };
+    // step 3-4 — non-finite
+    if n.is_nan() || n.is_infinite() {
+        return native_number_to_string(ctx, this, &[]);
+    }
+    // §20.1.3.2 step 5: sign handling. -0 is not < 0, so no sign.
+    // Use abs() to normalize -0 to +0 for formatting.
+    let (sign, x) = if n < 0.0 { ("-", -n) } else { ("", n.abs()) };
+    let raw = match fraction_digits {
+        None => format!("{x:e}"),
+        Some(d) => format!("{x:.d$e}"),
+    };
+    // Rust uses "e" without "+" for positive exponents; ES2020 requires "e+".
+    let s = format!("{sign}{}", fix_exponential_sign(&raw));
+    let id = ctx.intern(&s);
+    Ok(JsValue::String(id))
+}
+
+// -- Number.prototype.toPrecision ---------------------------------------------
+
+pub(super) fn native_number_to_precision(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // §20.1.3.5: step 1 — ThisNumberValue
+    let n = this_number_value(ctx, this)?;
+    // step 2 — if undefined, return ToString(x)
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    if arg == JsValue::Undefined {
+        return native_number_to_string(ctx, this, &[]);
+    }
+    // step 3 — ToIntegerOrInfinity(precision) + RangeError
+    let p = super::coerce::to_number(ctx.vm, arg)?;
+    // ToIntegerOrInfinity: NaN → 0
+    let precision = if p.is_nan() { 0.0 } else { p.trunc() };
+    if !(1.0..=100.0).contains(&precision) {
+        return Err(VmError::range_error(
+            "toPrecision() argument must be between 1 and 100",
+        ));
+    }
+    // step 4-5 — non-finite
+    if n.is_nan() || n.is_infinite() {
+        return native_number_to_string(ctx, this, &[]);
+    }
+    #[allow(clippy::cast_sign_loss)]
+    let p = precision as usize;
+    let s = format_significant_digits(n, p);
+    let id = ctx.intern(&s);
+    Ok(JsValue::String(id))
+}
+
+// -- Number static methods (ES2015+) ------------------------------------------
+
+/// Number.isFinite(value) — §20.1.2.1
+pub(super) fn native_number_is_finite(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let result = matches!(val, JsValue::Number(n) if n.is_finite());
+    Ok(JsValue::Boolean(result))
+}
+
+/// Number.isInteger(value) — §20.1.2.3
+pub(super) fn native_number_is_integer(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let result = matches!(val, JsValue::Number(n) if n.is_finite() && n.trunc() == n);
+    Ok(JsValue::Boolean(result))
+}
+
+/// Number.isNaN(value) — §20.1.2.4
+pub(super) fn native_number_is_nan(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let result = matches!(val, JsValue::Number(n) if n.is_nan());
+    Ok(JsValue::Boolean(result))
+}
+
+/// Number.isSafeInteger(value) — §20.1.2.5
+pub(super) fn native_number_is_safe_integer(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let result = matches!(val, JsValue::Number(n)
+        if n.is_finite() && n.trunc() == n && n.abs() <= 9_007_199_254_740_991.0);
+    Ok(JsValue::Boolean(result))
+}
+
+// -- Helpers ------------------------------------------------------------------
+
+/// Insert "+" after "e" for positive exponents (Rust omits it, ES2020 requires it).
+fn fix_exponential_sign(s: &str) -> String {
+    if let Some(pos) = s.find('e') {
+        if s.as_bytes().get(pos + 1) != Some(&b'-') {
+            return format!("{}e+{}", &s[..pos], &s[pos + 1..]);
+        }
+    }
+    s.to_string()
+}
+
+/// Format a number with a given number of significant digits (for toPrecision).
+/// Implements ES2020 §20.1.3.5 steps 7-12.
+/// Uses Rust's {:e} formatter to robustly extract the exponent (avoids log10
+/// floating-point imprecision near powers of 10).
+fn format_significant_digits(n: f64, precision: usize) -> String {
+    if n == 0.0 {
+        if precision <= 1 {
+            return "0".to_string();
+        }
+        let mut s = "0.".to_string();
+        for _ in 0..precision - 1 {
+            s.push('0');
+        }
+        return s;
+    }
+    let negative = n < 0.0;
+    let abs_n = n.abs();
+
+    // Use Rust's exponential formatter to get correct significant digits.
+    // Format with (precision-1) decimal places in exponential notation, then
+    // decide whether to emit in fixed or exponential form.
+    let p = precision;
+    let exp_str = format!("{abs_n:.prec$e}", prec = p - 1);
+    // Parse exponent from the formatted string (e.g., "1.235e5" or "1.235e-7")
+    let e_pos = exp_str.find('e').unwrap();
+    let e: i32 = exp_str[e_pos + 1..].parse().unwrap();
+    // Extract the significant digits (remove '.') from mantissa
+    let mantissa = &exp_str[..e_pos];
+    let digits: String = mantissa.chars().filter(|&c| c != '.').collect();
+
+    // §20.1.3.5 step 10-12: exponential notation if e >= p or e < -6
+    #[allow(clippy::cast_possible_wrap)]
+    let p_i32 = p as i32;
+    let formatted = if e >= p_i32 || e < -6 {
+        if digits.len() == 1 {
+            format!("{}e{}{}", &digits, if e >= 0 { "+" } else { "" }, e)
+        } else {
+            format!(
+                "{}.{}e{}{}",
+                &digits[..1],
+                &digits[1..],
+                if e >= 0 { "+" } else { "" },
+                e
+            )
+        }
+    } else if e >= 0 {
+        // Fixed notation: e+1 digits before decimal, rest after
+        #[allow(clippy::cast_sign_loss)]
+        let int_digits = (e + 1) as usize;
+        if int_digits >= digits.len() {
+            // All digits are before the decimal; pad with zeros if needed
+            let mut s = digits.clone();
+            for _ in 0..(int_digits - digits.len()) {
+                s.push('0');
+            }
+            s
+        } else {
+            format!("{}.{}", &digits[..int_digits], &digits[int_digits..])
+        }
+    } else {
+        // e < 0: number is 0.000...digits
+        #[allow(clippy::cast_sign_loss)]
+        let leading_zeros = (-e - 1) as usize;
+        let mut s = "0.".to_string();
+        for _ in 0..leading_zeros {
+            s.push('0');
+        }
+        s.push_str(&digits);
+        s
+    };
+
+    if negative {
+        format!("-{formatted}")
+    } else {
+        formatted
+    }
 }
