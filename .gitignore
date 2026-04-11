@@ -26,3 +26,4 @@ output-*/
 
 # Claude Code
 .claude/
+rust_out
