@@ -231,43 +231,12 @@ impl VmInner {
             JsValue::Empty | JsValue::Undefined | JsValue::Null => {
                 JsValue::Object(self.global_object)
             }
-            JsValue::Number(n) => {
-                let wrapper = self.alloc_object(super::value::Object {
-                    kind: ObjectKind::NumberWrapper(n),
-                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                    prototype: self.number_prototype,
-                    extensible: true,
-                });
-                JsValue::Object(wrapper)
-            }
-            JsValue::String(s) => {
-                let wrapper = self.alloc_object(super::value::Object {
-                    kind: ObjectKind::StringWrapper(s),
-                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                    prototype: self.string_prototype,
-                    extensible: true,
-                });
-                JsValue::Object(wrapper)
-            }
-            JsValue::Boolean(b) => {
-                let wrapper = self.alloc_object(super::value::Object {
-                    kind: ObjectKind::BooleanWrapper(b),
-                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                    prototype: self.boolean_prototype,
-                    extensible: true,
-                });
-                JsValue::Object(wrapper)
-            }
-            JsValue::BigInt(id) => {
-                let wrapper = self.alloc_object(super::value::Object {
-                    kind: ObjectKind::BigIntWrapper(id),
-                    storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                    prototype: self.bigint_prototype,
-                    extensible: true,
-                });
-                JsValue::Object(wrapper)
-            }
-            _ => this,
+            // Symbols pass through (no SymbolWrapper yet)
+            JsValue::Symbol(_) => this,
+            // All other primitives are wrapped via ToObject
+            other => JsValue::Object(
+                super::coerce::to_object(self, other).expect("primitive wrapping cannot fail"),
+            ),
         }
     }
 

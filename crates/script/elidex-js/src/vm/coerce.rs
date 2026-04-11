@@ -348,8 +348,17 @@ pub(super) fn to_object(vm: &mut VmInner, val: JsValue) -> Result<ObjectId, VmEr
             });
             Ok(wrapper)
         }
-        JsValue::BigInt(_) | JsValue::Symbol(_) | JsValue::Empty => {
-            // BigInt/Symbol wrappers not yet implemented — treat as object-like for now.
+        JsValue::BigInt(id) => {
+            let wrapper = vm.alloc_object(Object {
+                kind: ObjectKind::BigIntWrapper(id),
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: vm.bigint_prototype,
+                extensible: true,
+            });
+            Ok(wrapper)
+        }
+        JsValue::Symbol(_) | JsValue::Empty => {
+            // Symbol wrappers not yet implemented.
             Err(VmError::type_error("Cannot convert value to object"))
         }
     }

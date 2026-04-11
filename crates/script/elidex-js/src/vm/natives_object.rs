@@ -14,10 +14,12 @@ use super::value::{
 
 /// §7.1.13 ToObject on first argument — throw TypeError for null/undefined,
 /// wrap primitives into wrapper objects, pass through objects.
-fn to_object_arg(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<JsValue, VmError> {
+fn to_object_arg(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+) -> Result<super::value::ObjectId, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let obj_id = super::coerce::to_object(ctx.vm, val)?;
-    Ok(JsValue::Object(obj_id))
+    super::coerce::to_object(ctx.vm, val)
 }
 
 pub(super) fn native_object_keys(
@@ -25,10 +27,7 @@ pub(super) fn native_object_keys(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = to_object_arg(ctx, args)?;
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
+    let obj_id = to_object_arg(ctx, args)?;
     let keys: Vec<JsValue> = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)
         .into_iter()
         .map(JsValue::String)
@@ -41,10 +40,7 @@ pub(super) fn native_object_values(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = to_object_arg(ctx, args)?;
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
+    let obj_id = to_object_arg(ctx, args)?;
     // §7.3.21 EnumerableOwnPropertyNames in ES key order, then Get per key.
     let keys = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
     let mut values = Vec::with_capacity(keys.len());
@@ -476,10 +472,7 @@ pub(super) fn native_object_entries(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = to_object_arg(ctx, args)?;
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
+    let obj_id = to_object_arg(ctx, args)?;
     let keys = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
     let mut entries = Vec::with_capacity(keys.len());
     for sid in &keys {
@@ -581,10 +574,7 @@ pub(super) fn native_object_get_own_property_descriptor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = to_object_arg(ctx, args)?;
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(JsValue::Undefined);
-    };
+    let obj_id = to_object_arg(ctx, args)?;
     let prop = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let key = to_property_key(ctx, prop)?;
     let result = ctx.get_object(obj_id).storage.get(key, &ctx.vm.shapes);
@@ -658,10 +648,7 @@ pub(super) fn native_object_get_own_property_names(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = to_object_arg(ctx, args)?;
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
+    let obj_id = to_object_arg(ctx, args)?;
     // §9.1.11.1 OrdinaryOwnPropertyKeys: array element indices (ascending),
     // then named property indices (ascending), then other string keys
     // (insertion order). Non-string keys (symbols) are excluded.
