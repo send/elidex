@@ -12,15 +12,12 @@ use super::value::{
 
 // -- Object static methods --------------------------------------------------
 
-/// §7.1.13 ToObject — throw TypeError for null/undefined, pass through objects.
-fn require_object_arg(args: &[JsValue]) -> Result<JsValue, VmError> {
+/// §7.1.13 ToObject on first argument — throw TypeError for null/undefined,
+/// wrap primitives into wrapper objects, pass through objects.
+fn to_object_arg(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    if matches!(val, JsValue::Null | JsValue::Undefined) {
-        return Err(VmError::type_error(
-            "Cannot convert undefined or null to object",
-        ));
-    }
-    Ok(val)
+    let obj_id = super::coerce::to_object(ctx.vm, val)?;
+    Ok(JsValue::Object(obj_id))
 }
 
 pub(super) fn native_object_keys(
@@ -28,7 +25,7 @@ pub(super) fn native_object_keys(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = require_object_arg(args)?;
+    let obj_val = to_object_arg(ctx, args)?;
     let JsValue::Object(obj_id) = obj_val else {
         return Ok(create_array(ctx, Vec::new()));
     };
@@ -44,7 +41,7 @@ pub(super) fn native_object_values(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = require_object_arg(args)?;
+    let obj_val = to_object_arg(ctx, args)?;
     let JsValue::Object(obj_id) = obj_val else {
         return Ok(create_array(ctx, Vec::new()));
     };
@@ -479,7 +476,7 @@ pub(super) fn native_object_entries(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = require_object_arg(args)?;
+    let obj_val = to_object_arg(ctx, args)?;
     let JsValue::Object(obj_id) = obj_val else {
         return Ok(create_array(ctx, Vec::new()));
     };
@@ -528,7 +525,14 @@ pub(super) fn native_object_set_prototype_of(
 ) -> Result<JsValue, VmError> {
     let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let proto_val = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    // §19.1.2.19 step 1: RequireObjectCoercible(O)
+    if matches!(obj_val, JsValue::Null | JsValue::Undefined) {
+        return Err(VmError::type_error(
+            "Cannot convert undefined or null to object",
+        ));
+    }
     let JsValue::Object(obj_id) = obj_val else {
+        // Non-object primitives: return O unchanged (no-op per spec step 4)
         return Ok(obj_val);
     };
     let new_proto = match proto_val {
@@ -577,7 +581,7 @@ pub(super) fn native_object_get_own_property_descriptor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = require_object_arg(args)?;
+    let obj_val = to_object_arg(ctx, args)?;
     let JsValue::Object(obj_id) = obj_val else {
         return Ok(JsValue::Undefined);
     };
@@ -654,7 +658,7 @@ pub(super) fn native_object_get_own_property_names(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = require_object_arg(args)?;
+    let obj_val = to_object_arg(ctx, args)?;
     let JsValue::Object(obj_id) = obj_val else {
         return Ok(create_array(ctx, Vec::new()));
     };
@@ -919,22 +923,21 @@ pub(super) fn native_object_has_own_property(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let JsValue::Object(obj_id) = this else {
-        return Ok(JsValue::Boolean(false));
-    };
+    let obj_id = super::coerce::to_object(ctx.vm, this)?;
     let prop = args.first().copied().unwrap_or(JsValue::Undefined);
     let key = to_property_key(ctx, prop)?;
     let has = ctx.get_object(obj_id).storage.has(key, &ctx.vm.shapes);
     Ok(JsValue::Boolean(has))
 }
 
-/// `Object.prototype.valueOf()` — ES2020 §19.1.3.7
+/// `Object.prototype.valueOf()` — ES2020 §19.1.3.7: return ToObject(this).
 pub(super) fn native_object_value_of(
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Ok(this)
+    let obj_id = super::coerce::to_object(ctx.vm, this)?;
+    Ok(JsValue::Object(obj_id))
 }
 
 /// `Object.prototype.isPrototypeOf(obj)` — ES2020 §19.1.3.4

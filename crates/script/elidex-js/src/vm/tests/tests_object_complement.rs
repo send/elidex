@@ -732,3 +732,60 @@ fn to_locale_string_exists() {
 fn to_locale_string_returns_string() {
     assert_eq!(eval_string("({}).toLocaleString();"), "[object Object]");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P2 Tier 6: P1 deferred fixes
+// ═══════════════════════════════════════════════════════════════════════════
+
+// -- ToObject coercion in Object static methods -------------------------------
+
+#[test]
+fn object_keys_null_throws() {
+    eval_throws("Object.keys(null);");
+}
+
+#[test]
+fn object_keys_undefined_throws() {
+    eval_throws("Object.keys(undefined);");
+}
+
+#[test]
+fn object_keys_number_returns_empty() {
+    // ToObject(42) → NumberWrapper with no own enumerable properties
+    assert_eq!(eval_number("Object.keys(42).length;"), 0.0);
+}
+
+// -- setPrototypeOf RequireObjectCoercible ------------------------------------
+
+#[test]
+fn set_prototype_of_null_throws() {
+    eval_throws("Object.setPrototypeOf(null, {});");
+}
+
+#[test]
+fn set_prototype_of_undefined_throws() {
+    eval_throws("Object.setPrototypeOf(undefined, {});");
+}
+
+#[test]
+fn set_prototype_of_primitive_noop() {
+    // Non-null/undefined primitives are returned unchanged
+    assert_eq!(eval_number("Object.setPrototypeOf(42, {});"), 42.0);
+}
+
+// -- Function.prototype is callable -------------------------------------------
+
+#[test]
+fn function_prototype_callable() {
+    // Function.prototype should be callable — access via a function's __proto__
+    assert!(eval_bool(
+        "var f = function(){}; Object.getPrototypeOf(f)() === undefined;"
+    ));
+}
+
+#[test]
+fn function_prototype_typeof() {
+    assert!(eval_bool(
+        "var f = function(){}; typeof Object.getPrototypeOf(f) === 'function';"
+    ));
+}

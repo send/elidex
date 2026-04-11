@@ -307,6 +307,55 @@ pub(super) fn f64_to_uint32(n: f64) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
+// ToObject (ES2020 §7.1.13)
+// ---------------------------------------------------------------------------
+
+/// Convert a value to an Object. Throws TypeError for null/undefined.
+/// Primitives are wrapped in their corresponding wrapper objects.
+pub(super) fn to_object(vm: &mut VmInner, val: JsValue) -> Result<ObjectId, VmError> {
+    use super::shape;
+    use super::value::{Object, PropertyStorage};
+
+    match val {
+        JsValue::Object(id) => Ok(id),
+        JsValue::Null | JsValue::Undefined => Err(VmError::type_error(
+            "Cannot convert undefined or null to object",
+        )),
+        JsValue::Number(n) => {
+            let wrapper = vm.alloc_object(Object {
+                kind: ObjectKind::NumberWrapper(n),
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: vm.number_prototype,
+                extensible: true,
+            });
+            Ok(wrapper)
+        }
+        JsValue::String(s) => {
+            let wrapper = vm.alloc_object(Object {
+                kind: ObjectKind::StringWrapper(s),
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: vm.string_prototype,
+                extensible: true,
+            });
+            Ok(wrapper)
+        }
+        JsValue::Boolean(b) => {
+            let wrapper = vm.alloc_object(Object {
+                kind: ObjectKind::BooleanWrapper(b),
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: vm.boolean_prototype,
+                extensible: true,
+            });
+            Ok(wrapper)
+        }
+        JsValue::BigInt(_) | JsValue::Symbol(_) | JsValue::Empty => {
+            // BigInt/Symbol wrappers not yet implemented — treat as object-like for now.
+            Err(VmError::type_error("Cannot convert value to object"))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Strict Equality (ES2020 §7.2.16)
 // ---------------------------------------------------------------------------
 
