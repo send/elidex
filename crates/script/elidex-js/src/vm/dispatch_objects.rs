@@ -299,7 +299,12 @@ impl VmInner {
                     }
                 }
                 AccessorAction::New => {
-                    // New accessor property.
+                    // New accessor property — reject if non-extensible.
+                    if !self.get_object(obj_id).extensible {
+                        return Err(VmError::type_error(
+                            "Cannot define property on a non-extensible object",
+                        ));
+                    }
                     self.define_shaped_property(
                         obj_id,
                         pk,
@@ -339,7 +344,8 @@ impl VmInner {
         let ctor_proto = coerce::get_property(self, rhs_id, proto_key);
         if let Some(coerce::PropertyResult::Data(JsValue::Object(target_proto))) = ctor_proto {
             let mut current = self.get_object(obj_id).prototype;
-            while let Some(proto_id) = current {
+            for _ in 0..10_000 {
+                let Some(proto_id) = current else { break };
                 if proto_id == target_proto {
                     return Ok(true);
                 }

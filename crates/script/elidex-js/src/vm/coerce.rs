@@ -463,13 +463,17 @@ pub(crate) enum PropertyResult {
 }
 
 /// Look up a property on an object, following the prototype chain.
+/// Maximum prototype chain depth for property lookups.
+const PROTO_CHAIN_LIMIT: usize = 10_000;
+
 pub(crate) fn get_property(
     vm: &VmInner,
     obj_id: ObjectId,
     key: PropertyKey,
 ) -> Option<PropertyResult> {
     let mut current = Some(obj_id);
-    while let Some(id) = current {
+    for _ in 0..PROTO_CHAIN_LIMIT {
+        let Some(id) = current else { break };
         if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
             // Check own properties.
             if let Some((val, _attrs)) = obj.storage.get(key, &vm.shapes) {
@@ -525,7 +529,8 @@ pub(crate) fn find_inherited_property(
         .as_ref()
         .and_then(|o| o.prototype);
     let mut current = start;
-    while let Some(id) = current {
+    for _ in 0..PROTO_CHAIN_LIMIT {
+        let Some(id) = current else { break };
         if let Some(obj) = vm.objects[id.0 as usize].as_ref() {
             if let Some((val, attrs)) = obj.storage.get(key, &vm.shapes) {
                 return match val {

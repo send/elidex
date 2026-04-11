@@ -528,7 +528,7 @@ pub(super) fn native_object_get_own_property_descriptor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let obj_val = require_object_arg(args)?;
     let JsValue::Object(obj_id) = obj_val else {
         return Ok(JsValue::Undefined);
     };
@@ -605,7 +605,7 @@ pub(super) fn native_object_get_own_property_names(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let obj_val = require_object_arg(args)?;
     let JsValue::Object(obj_id) = obj_val else {
         return Ok(create_array(ctx, Vec::new()));
     };

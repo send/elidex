@@ -614,6 +614,10 @@ impl VmInner {
                 }
             }
             None => {
+                // Non-extensible objects cannot gain new properties.
+                if !self.get_object(obj_id).extensible {
+                    return;
+                }
                 self.define_shaped_property(obj_id, key, value::PropertyValue::Data(val), attrs);
             }
         }
