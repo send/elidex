@@ -71,10 +71,9 @@ pub(super) fn native_object_assign(
         let JsValue::Object(src_id) = source else {
             continue;
         };
-        // §19.1.2.1 step 5c: snapshot keys in ES order, then Get per key.
-        // Array element indices (ascending) come before string keys.
+        // §19.1.2.1: OwnPropertyKeys in ES order, then Get per key.
+        // Array element indices (ascending) come before named properties.
         let keys: Vec<PropertyKey> = {
-            // Collect element indices first (needs mutable strings access).
             let elem_indices: Vec<usize> = match &ctx.get_object(src_id).kind {
                 ObjectKind::Array { ref elements } => elements
                     .iter()
@@ -89,12 +88,31 @@ pub(super) fn native_object_assign(
                 let sid = ctx.vm.strings.intern(&i.to_string());
                 ks.push(PropertyKey::String(sid));
             }
+            // Named properties: partition numeric-index vs other, sort indices.
             let obj = ctx.get_object(src_id);
+            let mut idx_keys: Vec<(u32, PropertyKey)> = Vec::new();
+            let mut other_keys: Vec<PropertyKey> = Vec::new();
+            let mut sym_keys: Vec<PropertyKey> = Vec::new();
             for (k, attrs) in obj.storage.iter_keys(&ctx.vm.shapes) {
-                if attrs.enumerable {
-                    ks.push(k);
+                if !attrs.enumerable {
+                    continue;
+                }
+                match k {
+                    PropertyKey::Symbol(_) => sym_keys.push(k),
+                    PropertyKey::String(sid) => {
+                        let units = ctx.vm.strings.get(sid);
+                        if let Some(idx) = parse_array_index_u32(units) {
+                            idx_keys.push((idx, k));
+                        } else {
+                            other_keys.push(k);
+                        }
+                    }
                 }
             }
+            idx_keys.sort_by_key(|(idx, _)| *idx);
+            ks.extend(idx_keys.into_iter().map(|(_, k)| k));
+            ks.extend(other_keys);
+            ks.extend(sym_keys);
             ks
         };
         for key in keys {
