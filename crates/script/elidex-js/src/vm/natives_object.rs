@@ -117,6 +117,14 @@ pub(super) fn native_object_assign(
         };
         for key in keys {
             let value = ctx.get_property_value(src_id, key)?;
+            // §19.1.2.1 step 5.c.iii.2: Set(O, nextKey, propValue, true).
+            // Throw TypeError if target is non-extensible and key is new.
+            let target_obj = ctx.get_object(target_id);
+            if !target_obj.extensible && !target_obj.storage.has(key, &ctx.vm.shapes) {
+                return Err(VmError::type_error(
+                    "Cannot add property to a non-extensible object",
+                ));
+            }
             if is_global {
                 if let PropertyKey::String(sid) = key {
                     ctx.vm.globals.insert(sid, value);
@@ -834,6 +842,12 @@ pub(super) fn native_object_is_frozen(
     let obj = ctx.get_object(obj_id);
     if obj.extensible {
         return Ok(JsValue::Boolean(false));
+    }
+    // Array elements are considered writable data properties.
+    if let ObjectKind::Array { elements } = &obj.kind {
+        if elements.iter().any(|v| !v.is_empty()) {
+            return Ok(JsValue::Boolean(false));
+        }
     }
     let frozen = obj
         .storage
