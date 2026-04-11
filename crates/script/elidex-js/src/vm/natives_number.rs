@@ -111,8 +111,9 @@ pub(super) fn native_number_to_exponential(
     let fraction_digits = if arg == JsValue::Undefined {
         None
     } else {
-        let digits = super::coerce::to_number(ctx.vm, arg)?;
-        let digits = digits.trunc();
+        let d = super::coerce::to_number(ctx.vm, arg)?;
+        // ToIntegerOrInfinity: NaN → 0
+        let digits = if d.is_nan() { 0.0 } else { d.trunc() };
         if !(0.0..=100.0).contains(&digits) {
             return Err(VmError::range_error(
                 "toExponential() argument must be between 0 and 100",
@@ -150,8 +151,9 @@ pub(super) fn native_number_to_precision(
         return native_number_to_string(ctx, this, &[]);
     }
     // step 3 — ToIntegerOrInfinity(precision) + RangeError
-    let precision = super::coerce::to_number(ctx.vm, arg)?;
-    let precision = precision.trunc();
+    let p = super::coerce::to_number(ctx.vm, arg)?;
+    // ToIntegerOrInfinity: NaN → 0
+    let precision = if p.is_nan() { 0.0 } else { p.trunc() };
     if !(1.0..=100.0).contains(&precision) {
         return Err(VmError::range_error(
             "toPrecision() argument must be between 1 and 100",
