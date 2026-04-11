@@ -23,7 +23,7 @@ pub(crate) const MAX_ES_ARRAY_INDEX: usize = (u32::MAX as usize) - 1;
 /// fewer than this many elements. 2^27 ≈ 2 GiB at 16 B/JsValue.
 pub(crate) const DENSE_ARRAY_LEN_LIMIT: usize = 1 << 27;
 
-/// Maximum string length in UTF-16 code units. 2^24 = 16M code units ≈ 32 MB.
+/// Maximum string length in UTF-16 code units (inclusive). 2^24 = 16M code units ≈ 32 MB.
 /// Separate from array limit since strings are denser (2 bytes/unit vs 16 bytes/JsValue).
 pub(crate) const STRING_LEN_LIMIT: usize = 1 << 24;
 

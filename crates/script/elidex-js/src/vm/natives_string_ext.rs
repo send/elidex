@@ -24,7 +24,7 @@ pub(super) fn native_string_repeat(
     let count = n as usize;
     let s = ctx.get_u16(sid);
     let result_len = s.len().saturating_mul(count);
-    if result_len >= STRING_LEN_LIMIT {
+    if result_len > STRING_LEN_LIMIT {
         return Err(VmError::range_error("Invalid count value"));
     }
     let repeated: Vec<u16> = s.iter().copied().cycle().take(result_len).collect();
