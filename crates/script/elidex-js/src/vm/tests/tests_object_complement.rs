@@ -556,11 +556,13 @@ fn get_own_property_names_empty() {
 }
 
 #[test]
-fn get_prototype_of_non_object() {
-    // P1 known limitation (deferred to P2): getPrototypeOf on a non-object
-    // returns null instead of boxing via ToObject. ES2020 §19.1.2.9 requires
-    // ToObject, so getPrototypeOf(42) should return Number.prototype.
-    assert!(eval_bool("Object.getPrototypeOf(42) === null;"));
+fn get_prototype_of_primitive() {
+    // §19.1.2.9: getPrototypeOf on a primitive wraps via ToObject.
+    // getPrototypeOf(42) should return Number.prototype (not null).
+    assert!(eval_bool("Object.getPrototypeOf(42) !== null;"));
+    assert!(eval_bool(
+        "Object.getPrototypeOf(42) === Object.getPrototypeOf(1);"
+    ));
 }
 
 #[test]

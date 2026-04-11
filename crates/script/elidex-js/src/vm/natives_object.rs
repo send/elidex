@@ -500,10 +500,7 @@ pub(super) fn native_object_get_prototype_of(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Object(obj_id) = obj_val else {
-        return Ok(JsValue::Null);
-    };
+    let obj_id = to_object_arg(ctx, args)?;
     match ctx.get_object(obj_id).prototype {
         Some(pid) => Ok(JsValue::Object(pid)),
         None => Ok(JsValue::Null),
