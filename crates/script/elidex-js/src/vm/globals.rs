@@ -577,8 +577,7 @@ impl VmInner {
 
         // Add static methods and constants to the Number constructor object.
         let ctor_name = self.strings.intern("Number");
-        let ctor_val = self.globals[&ctor_name];
-        let JsValue::Object(ctor_id) = ctor_val else {
+        let Some(&JsValue::Object(ctor_id)) = self.globals.get(&ctor_name) else {
             return;
         };
 
