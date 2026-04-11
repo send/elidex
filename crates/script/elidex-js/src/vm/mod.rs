@@ -27,6 +27,7 @@ mod natives_number;
 mod natives_object;
 mod natives_regexp;
 mod natives_string;
+mod natives_string_ext;
 mod natives_symbol;
 mod ops;
 mod ops_property;

@@ -58,7 +58,7 @@ use super::natives_number::{
     native_number_to_precision, native_number_to_string, native_number_value_of,
 };
 use super::natives_regexp::{native_regexp_exec, native_regexp_test, native_regexp_to_string};
-use super::natives_string::{
+use super::natives_string_ext::{
     native_string_code_point_at, native_string_concat, native_string_from_char_code,
     native_string_from_code_point, native_string_last_index_of, native_string_pad_end,
     native_string_pad_start, native_string_repeat, native_string_replace_all,
