@@ -206,7 +206,7 @@ fn math_fround_basic() {
 fn math_fround_precision_loss() {
     // 1.337 as f32 is not exactly 1.337
     let n = eval_number("Math.fround(1.337);");
-    assert!((n - 1.337_f32 as f64).abs() < 1e-15);
+    assert!((n - f64::from(1.337_f32)).abs() < 1e-15);
 }
 
 #[test]
