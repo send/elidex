@@ -457,6 +457,8 @@ pub enum ObjectKind {
     BooleanWrapper(bool),
     /// Wrapper object for BigInt primitives.
     BigIntWrapper(BigIntId),
+    /// Wrapper object for Symbol primitives.
+    SymbolWrapper(SymbolId),
 }
 
 impl ObjectKind {

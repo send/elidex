@@ -192,10 +192,20 @@ pub(super) fn native_is_finite(
 
 // -- URI encoding/decoding (§18.2.6) ----------------------------------------
 
-/// Characters that encodeURI does NOT encode (unreserved + reserved per spec).
-const URI_UNESCAPED: &[u8] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()";
-const URI_RESERVED: &[u8] = b";/?:@&=+$,#";
+/// Characters that encodeURI does NOT encode (by code point value).
+fn is_uri_unescaped(cp: u32) -> bool {
+    matches!(cp,
+        0x41..=0x5A | 0x61..=0x7A | 0x30..=0x39 // A-Z a-z 0-9
+        | 0x2D | 0x5F | 0x2E | 0x21 | 0x7E | 0x2A | 0x27 | 0x28 | 0x29) // -_.!~*'()
+}
+
+fn is_uri_reserved(cp: u32) -> bool {
+    matches!(
+        cp,
+        0x3B | 0x2F | 0x3F | 0x3A | 0x40 | 0x26 | 0x3D | 0x2B | 0x24 | 0x2C | 0x23
+    )
+    // ; / ? : @ & = + $ , #
+}
 
 pub(super) fn native_encode_uri(
     ctx: &mut NativeContext<'_>,
@@ -204,10 +214,8 @@ pub(super) fn native_encode_uri(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = ctx.to_string_val(val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    let encoded = percent_encode(&s, |b| {
-        URI_UNESCAPED.contains(&b) || URI_RESERVED.contains(&b)
-    })?;
+    let units = ctx.vm.strings.get(sid).to_vec();
+    let encoded = encode_uri_wtf16(&units, |cp| is_uri_unescaped(cp) || is_uri_reserved(cp))?;
     let id = ctx.intern(&encoded);
     Ok(JsValue::String(id))
 }
@@ -219,9 +227,9 @@ pub(super) fn native_decode_uri(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = ctx.to_string_val(val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    let decoded = percent_decode(&s, |b| URI_RESERVED.contains(&b))?;
-    let id = ctx.intern(&decoded);
+    let units = ctx.vm.strings.get(sid).to_vec();
+    let decoded = decode_uri_wtf16(&units, is_uri_reserved)?;
+    let id = ctx.vm.strings.intern_utf16(&decoded);
     Ok(JsValue::String(id))
 }
 
@@ -232,8 +240,8 @@ pub(super) fn native_encode_uri_component(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = ctx.to_string_val(val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    let encoded = percent_encode(&s, |b| URI_UNESCAPED.contains(&b))?;
+    let units = ctx.vm.strings.get(sid).to_vec();
+    let encoded = encode_uri_wtf16(&units, is_uri_unescaped)?;
     let id = ctx.intern(&encoded);
     Ok(JsValue::String(id))
 }
@@ -245,58 +253,125 @@ pub(super) fn native_decode_uri_component(
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = ctx.to_string_val(val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    // decodeURIComponent decodes everything (no reserved exclusion)
-    let decoded = percent_decode(&s, |_| false)?;
-    let id = ctx.intern(&decoded);
+    let units = ctx.vm.strings.get(sid).to_vec();
+    let decoded = decode_uri_wtf16(&units, |_| false)?;
+    let id = ctx.vm.strings.intern_utf16(&decoded);
     Ok(JsValue::String(id))
 }
 
-/// Percent-encode a UTF-8 string. `is_unescaped` returns true for bytes that
-/// should NOT be encoded.
-fn percent_encode(s: &str, is_unescaped: impl Fn(u8) -> bool) -> Result<String, VmError> {
-    let mut out = String::with_capacity(s.len());
-    for &b in s.as_bytes() {
-        if is_unescaped(b) {
-            out.push(b as char);
+/// Encode a WTF-16 string per ES2020 §18.2.6.1. Lone surrogates throw URIError.
+fn encode_uri_wtf16(units: &[u16], is_unescaped: impl Fn(u32) -> bool) -> Result<String, VmError> {
+    let mut out = String::with_capacity(units.len());
+    let mut i = 0;
+    while i < units.len() {
+        let cu = units[i];
+        let cp = if (0xD800..=0xDBFF).contains(&cu) {
+            // High surrogate — must be followed by low surrogate
+            if i + 1 < units.len() && (0xDC00..=0xDFFF).contains(&units[i + 1]) {
+                let hi = u32::from(cu);
+                let lo = u32::from(units[i + 1]);
+                i += 1;
+                0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00)
+            } else {
+                return Err(VmError::uri_error("URI malformed"));
+            }
+        } else if (0xDC00..=0xDFFF).contains(&cu) {
+            // Lone low surrogate
+            return Err(VmError::uri_error("URI malformed"));
         } else {
-            out.push('%');
-            out.push(hex_digit(b >> 4));
-            out.push(hex_digit(b & 0xF));
+            u32::from(cu)
+        };
+        i += 1;
+
+        if is_unescaped(cp) {
+            // Safe: cp is ASCII when is_unescaped returns true
+            out.push(char::from(cp as u8));
+        } else {
+            // Encode as UTF-8 bytes, each percent-encoded
+            let mut buf = [0u8; 4];
+            let ch = char::from_u32(cp).unwrap_or('\u{FFFD}');
+            let utf8 = ch.encode_utf8(&mut buf);
+            for &b in utf8.as_bytes() {
+                out.push('%');
+                out.push(hex_digit(b >> 4));
+                out.push(hex_digit(b & 0xF));
+            }
         }
     }
     Ok(out)
 }
 
-/// Percent-decode a string. `keep_encoded` returns true for bytes that should
-/// remain percent-encoded in the output (used by decodeURI for reserved chars).
-fn percent_decode(s: &str, keep_encoded: impl Fn(u8) -> bool) -> Result<String, VmError> {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
+/// Decode a percent-encoded WTF-16 string per ES2020 §18.2.6.2.
+fn decode_uri_wtf16(
+    units: &[u16],
+    keep_encoded: impl Fn(u32) -> bool,
+) -> Result<Vec<u16>, VmError> {
+    let mut out = Vec::with_capacity(units.len());
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            if i + 2 >= bytes.len() {
+    while i < units.len() {
+        if units[i] == u16::from(b'%') {
+            // Decode %XX sequence(s) → UTF-8 bytes → code point → UTF-16
+            if i + 2 >= units.len() {
                 return Err(VmError::uri_error("URI malformed"));
             }
-            let hi = decode_hex(bytes[i + 1]).ok_or_else(|| VmError::uri_error("URI malformed"))?;
-            let lo = decode_hex(bytes[i + 2]).ok_or_else(|| VmError::uri_error("URI malformed"))?;
-            let decoded_byte = (hi << 4) | lo;
-            if keep_encoded(decoded_byte) {
-                // Keep the %XX in the output
-                out.push(b'%');
-                out.push(bytes[i + 1]);
-                out.push(bytes[i + 2]);
-            } else {
-                out.push(decoded_byte);
-            }
+            let hi =
+                decode_hex_u16(units[i + 1]).ok_or_else(|| VmError::uri_error("URI malformed"))?;
+            let lo =
+                decode_hex_u16(units[i + 2]).ok_or_else(|| VmError::uri_error("URI malformed"))?;
+            let mut utf8_bytes = vec![(hi << 4) | lo];
             i += 3;
+            // Multi-byte UTF-8: collect continuation bytes
+            if utf8_bytes[0] >= 0x80 {
+                let expected_len = match utf8_bytes[0] {
+                    0xC0..=0xDF => 2,
+                    0xE0..=0xEF => 3,
+                    0xF0..=0xF7 => 4,
+                    _ => 1,
+                };
+                while utf8_bytes.len() < expected_len
+                    && i < units.len()
+                    && units[i] == u16::from(b'%')
+                {
+                    if i + 2 >= units.len() {
+                        return Err(VmError::uri_error("URI malformed"));
+                    }
+                    let h = decode_hex_u16(units[i + 1])
+                        .ok_or_else(|| VmError::uri_error("URI malformed"))?;
+                    let l = decode_hex_u16(units[i + 2])
+                        .ok_or_else(|| VmError::uri_error("URI malformed"))?;
+                    utf8_bytes.push((h << 4) | l);
+                    i += 3;
+                }
+            }
+            // Decode UTF-8 bytes to a code point
+            let s = std::str::from_utf8(&utf8_bytes)
+                .map_err(|_| VmError::uri_error("URI malformed"))?;
+            for ch in s.chars() {
+                let cp = ch as u32;
+                if keep_encoded(cp) {
+                    // Re-encode: emit %XX for each UTF-8 byte
+                    let mut buf = [0u8; 4];
+                    let encoded = ch.encode_utf8(&mut buf);
+                    for &b in encoded.as_bytes() {
+                        out.push(u16::from(b'%'));
+                        out.push(u16::from(hex_digit(b >> 4) as u8));
+                        out.push(u16::from(hex_digit(b & 0xF) as u8));
+                    }
+                } else if cp <= 0xFFFF {
+                    out.push(cp as u16);
+                } else {
+                    // Supplementary: encode as surrogate pair
+                    let adjusted = cp - 0x10000;
+                    out.push((0xD800 + (adjusted >> 10)) as u16);
+                    out.push((0xDC00 + (adjusted & 0x3FF)) as u16);
+                }
+            }
         } else {
-            out.push(bytes[i]);
+            out.push(units[i]);
             i += 1;
         }
     }
-    String::from_utf8(out).map_err(|_| VmError::uri_error("URI malformed"))
+    Ok(out)
 }
 
 fn hex_digit(n: u8) -> char {
@@ -306,7 +381,8 @@ fn hex_digit(n: u8) -> char {
     }
 }
 
-fn decode_hex(b: u8) -> Option<u8> {
+fn decode_hex_u16(unit: u16) -> Option<u8> {
+    let b = u8::try_from(unit).ok()?;
     match b {
         b'0'..=b'9' => Some(b - b'0'),
         b'A'..=b'F' => Some(b - b'A' + 10),

@@ -556,11 +556,13 @@ fn get_own_property_names_empty() {
 }
 
 #[test]
-fn get_prototype_of_non_object() {
-    // P1 known limitation (deferred to P2): getPrototypeOf on a non-object
-    // returns null instead of boxing via ToObject. ES2020 §19.1.2.9 requires
-    // ToObject, so getPrototypeOf(42) should return Number.prototype.
-    assert!(eval_bool("Object.getPrototypeOf(42) === null;"));
+fn get_prototype_of_primitive() {
+    // §19.1.2.9: getPrototypeOf on a primitive wraps via ToObject.
+    // getPrototypeOf(42) should return Number.prototype (not null).
+    assert!(eval_bool("Object.getPrototypeOf(42) !== null;"));
+    assert!(eval_bool(
+        "Object.getPrototypeOf(42) === Object.getPrototypeOf(1);"
+    ));
 }
 
 #[test]
@@ -731,4 +733,93 @@ fn to_locale_string_exists() {
 #[test]
 fn to_locale_string_returns_string() {
     assert_eq!(eval_string("({}).toLocaleString();"), "[object Object]");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P2 Tier 6: P1 deferred fixes
+// ═══════════════════════════════════════════════════════════════════════════
+
+// -- ToObject coercion in Object static methods -------------------------------
+
+#[test]
+fn object_keys_null_throws() {
+    eval_throws("Object.keys(null);");
+}
+
+#[test]
+fn object_keys_undefined_throws() {
+    eval_throws("Object.keys(undefined);");
+}
+
+#[test]
+fn object_keys_number_returns_empty() {
+    // ToObject(42) → NumberWrapper with no own enumerable properties
+    assert_eq!(eval_number("Object.keys(42).length;"), 0.0);
+}
+
+// -- setPrototypeOf RequireObjectCoercible ------------------------------------
+
+#[test]
+fn set_prototype_of_null_throws() {
+    eval_throws("Object.setPrototypeOf(null, {});");
+}
+
+#[test]
+fn set_prototype_of_undefined_throws() {
+    eval_throws("Object.setPrototypeOf(undefined, {});");
+}
+
+#[test]
+fn set_prototype_of_primitive_noop() {
+    // Non-null/undefined primitives are returned unchanged
+    assert_eq!(eval_number("Object.setPrototypeOf(42, {});"), 42.0);
+}
+
+// -- StringWrapper virtual properties -----------------------------------------
+
+#[test]
+fn object_keys_string_wrapper() {
+    // Object.keys on a string wraps it and returns index keys
+    assert_eq!(eval_number("Object.keys('ab').length;"), 2.0);
+    assert_eq!(eval_string("Object.keys('ab')[0];"), "0");
+    assert_eq!(eval_string("Object.keys('ab')[1];"), "1");
+}
+
+#[test]
+fn has_own_property_string_wrapper_index() {
+    // Non-strict function this = string → wrapped as StringWrapper
+    assert!(eval_bool(
+        "var f = function() { return this.hasOwnProperty('0'); }; f.call('abc');"
+    ));
+}
+
+#[test]
+fn has_own_property_string_wrapper_length() {
+    assert!(eval_bool(
+        "var f = function() { return this.hasOwnProperty('length'); }; f.call('abc');"
+    ));
+}
+
+#[test]
+fn has_own_property_string_wrapper_nonexistent() {
+    assert!(!eval_bool(
+        "var f = function() { return this.hasOwnProperty('foo'); }; f.call('abc');"
+    ));
+}
+
+// -- Function.prototype is callable -------------------------------------------
+
+#[test]
+fn function_prototype_callable() {
+    // Function.prototype should be callable — access via a function's __proto__
+    assert!(eval_bool(
+        "var f = function(){}; Object.getPrototypeOf(f)() === undefined;"
+    ));
+}
+
+#[test]
+fn function_prototype_typeof() {
+    assert!(eval_bool(
+        "var f = function(){}; typeof Object.getPrototypeOf(f) === 'function';"
+    ));
 }

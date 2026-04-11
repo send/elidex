@@ -73,6 +73,15 @@ use super::value::{
 };
 use super::{NativeFn, VmInner};
 
+/// §19.2.3 Function.prototype — accepts any arguments, returns undefined.
+fn native_function_prototype_noop(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Undefined)
+}
+
 impl VmInner {
     // -- Global registration -------------------------------------------------
 
@@ -223,12 +232,15 @@ impl VmInner {
         // Function.prototype — prototype for all function objects.
         // Must be registered before any native function is created so that
         // `create_native_function` can set the prototype automatically.
-        // Function.prototype is itself an ordinary object (not callable) per
-        // ES2020 §19.2.3 (the spec says it's a function that accepts any
-        // arguments and returns undefined, but an ordinary object suffices
-        // for prototype chain purposes).
+        // §19.2.3: Function.prototype is a callable function that accepts
+        // any arguments and returns undefined.
+        let fp_name = self.strings.intern("");
         let func_proto = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
+            kind: ObjectKind::NativeFunction(super::NativeFunction {
+                name: fp_name,
+                func: native_function_prototype_noop,
+                constructable: false,
+            }),
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: Some(obj_proto),
             extensible: true,

@@ -303,6 +303,26 @@ fn decode_uri_malformed_throws() {
     eval_throws("decodeURI('%ZZ');");
 }
 
+#[test]
+fn encode_uri_lone_surrogate_throws() {
+    // Lone high surrogate must throw URIError
+    eval_throws("encodeURI('\\uD800');");
+    // Lone low surrogate must throw URIError
+    eval_throws("encodeURIComponent('\\uDC00');");
+}
+
+#[test]
+fn encode_uri_surrogate_pair_ok() {
+    // Valid surrogate pair (U+1F600) should encode as UTF-8 bytes
+    assert_eq!(eval_string("encodeURI('\\uD83D\\uDE00');"), "%F0%9F%98%80");
+}
+
+#[test]
+fn decode_uri_multibyte() {
+    // %C3%A9 = UTF-8 for "é" (U+00E9)
+    assert_eq!(eval_string("decodeURIComponent('%C3%A9');"), "\u{00E9}");
+}
+
 // -- globalThis ---------------------------------------------------------------
 
 #[test]
