@@ -775,6 +775,38 @@ fn set_prototype_of_primitive_noop() {
     assert_eq!(eval_number("Object.setPrototypeOf(42, {});"), 42.0);
 }
 
+// -- StringWrapper virtual properties -----------------------------------------
+
+#[test]
+fn object_keys_string_wrapper() {
+    // Object.keys on a string wraps it and returns index keys
+    assert_eq!(eval_number("Object.keys('ab').length;"), 2.0);
+    assert_eq!(eval_string("Object.keys('ab')[0];"), "0");
+    assert_eq!(eval_string("Object.keys('ab')[1];"), "1");
+}
+
+#[test]
+fn has_own_property_string_wrapper_index() {
+    // Non-strict function this = string → wrapped as StringWrapper
+    assert!(eval_bool(
+        "var f = function() { return this.hasOwnProperty('0'); }; f.call('abc');"
+    ));
+}
+
+#[test]
+fn has_own_property_string_wrapper_length() {
+    assert!(eval_bool(
+        "var f = function() { return this.hasOwnProperty('length'); }; f.call('abc');"
+    ));
+}
+
+#[test]
+fn has_own_property_string_wrapper_nonexistent() {
+    assert!(!eval_bool(
+        "var f = function() { return this.hasOwnProperty('foo'); }; f.call('abc');"
+    ));
+}
+
 // -- Function.prototype is callable -------------------------------------------
 
 #[test]

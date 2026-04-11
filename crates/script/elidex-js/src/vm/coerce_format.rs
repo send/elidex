@@ -13,11 +13,30 @@ use super::VmInner;
 /// Collect own enumerable string keys in ES spec order (§9.1.11.1):
 /// array-index keys in ascending numeric order, then other string keys
 /// in insertion order.
-pub(crate) fn collect_own_keys_es_order(vm: &VmInner, obj_id: ObjectId) -> Vec<StringId> {
+pub(crate) fn collect_own_keys_es_order(vm: &mut VmInner, obj_id: ObjectId) -> Vec<StringId> {
+    use super::value::ObjectKind;
+
     let obj = vm.get_object(obj_id);
+
+    // StringWrapper: index properties "0".."n-1" are own enumerable properties
+    let string_len = if let ObjectKind::StringWrapper(sid) = obj.kind {
+        vm.strings.get(sid).len()
+    } else {
+        0
+    };
+
     let mut index_keys: Vec<(u32, StringId)> = Vec::new();
     let mut other_keys: Vec<StringId> = Vec::new();
 
+    // Add StringWrapper index keys
+    #[allow(clippy::cast_possible_truncation)]
+    for idx in 0..string_len {
+        let key_str = idx.to_string();
+        let sid = vm.strings.intern(&key_str);
+        index_keys.push((idx as u32, sid));
+    }
+
+    let obj = vm.get_object(obj_id);
     for (k, attrs) in obj.storage.iter_keys(&vm.shapes) {
         if !attrs.enumerable {
             continue;
@@ -33,6 +52,7 @@ pub(crate) fn collect_own_keys_es_order(vm: &VmInner, obj_id: ObjectId) -> Vec<S
     }
 
     index_keys.sort_by_key(|(idx, _)| *idx);
+    index_keys.dedup_by_key(|(idx, _)| *idx);
 
     let mut keys = Vec::with_capacity(index_keys.len() + other_keys.len());
     keys.extend(index_keys.into_iter().map(|(_, sid)| sid));

@@ -901,8 +901,26 @@ pub(super) fn native_object_has_own_property(
     let obj_id = super::coerce::to_object(ctx.vm, this)?;
     let prop = args.first().copied().unwrap_or(JsValue::Undefined);
     let key = to_property_key(ctx, prop)?;
-    let has = ctx.get_object(obj_id).storage.has(key, &ctx.vm.shapes);
-    Ok(JsValue::Boolean(has))
+    // Check storage first
+    if ctx.get_object(obj_id).storage.has(key, &ctx.vm.shapes) {
+        return Ok(JsValue::Boolean(true));
+    }
+    // StringWrapper: virtual index properties + "length"
+    if let ObjectKind::StringWrapper(sid) = ctx.get_object(obj_id).kind {
+        if let PropertyKey::String(key_sid) = key {
+            if key_sid == ctx.vm.well_known.length {
+                return Ok(JsValue::Boolean(true));
+            }
+            let key_units = ctx.vm.strings.get(key_sid);
+            if let Some(idx) = super::coerce_format::parse_array_index_u32(key_units) {
+                let str_len = ctx.vm.strings.get(sid).len();
+                if (idx as usize) < str_len {
+                    return Ok(JsValue::Boolean(true));
+                }
+            }
+        }
+    }
+    Ok(JsValue::Boolean(false))
 }
 
 /// `Object.prototype.valueOf()` — ES2020 §19.1.3.7: return ToObject(this).
