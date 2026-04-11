@@ -171,6 +171,7 @@ impl VmInner {
             kind: ObjectKind::ForInIterator(ForInState { keys, index: 0 }),
             storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: None,
+            extensible: true,
         });
         self.stack.push(JsValue::Object(iter_obj));
         Ok(())

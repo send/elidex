@@ -10,15 +10,22 @@ use super::natives::{
     native_math_abs, native_math_ceil, native_math_floor, native_math_log, native_math_max,
     native_math_min, native_math_pow, native_math_random, native_math_round, native_math_sqrt,
     native_object_assign, native_object_create, native_object_define_property,
-    native_object_get_own_property_symbols, native_object_keys, native_object_prototype_to_string,
-    native_object_values, native_parse_float, native_parse_int, native_range_error_constructor,
-    native_reference_error_constructor, native_string_char_at, native_string_char_code_at,
-    native_string_ends_with, native_string_includes, native_string_index_of,
-    native_string_iterator, native_string_iterator_next, native_string_match,
-    native_string_replace, native_string_search, native_string_slice, native_string_split,
-    native_string_starts_with, native_string_substring, native_string_to_lower_case,
-    native_string_to_upper_case, native_string_trim, native_symbol_constructor, native_symbol_for,
-    native_symbol_key_for, native_symbol_prototype_to_string, native_type_error_constructor,
+    native_object_entries, native_object_freeze, native_object_from_entries,
+    native_object_get_own_property_descriptor, native_object_get_own_property_names,
+    native_object_get_own_property_symbols, native_object_get_prototype_of,
+    native_object_has_own_property, native_object_is, native_object_is_extensible,
+    native_object_is_frozen, native_object_is_prototype_of, native_object_is_sealed,
+    native_object_keys, native_object_prevent_extensions, native_object_property_is_enumerable,
+    native_object_prototype_to_string, native_object_seal, native_object_set_prototype_of,
+    native_object_value_of, native_object_values, native_parse_float, native_parse_int,
+    native_range_error_constructor, native_reference_error_constructor, native_string_char_at,
+    native_string_char_code_at, native_string_ends_with, native_string_includes,
+    native_string_index_of, native_string_iterator, native_string_iterator_next,
+    native_string_match, native_string_replace, native_string_search, native_string_slice,
+    native_string_split, native_string_starts_with, native_string_substring,
+    native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
+    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
+    native_symbol_prototype_to_string, native_type_error_constructor,
 };
 use super::natives_array::{
     native_array_concat, native_array_copy_within, native_array_fill, native_array_includes,
@@ -34,6 +41,9 @@ use super::natives_array_hof::{
     native_array_reduce_right, native_array_some,
 };
 use super::natives_boolean::{native_boolean_to_string, native_boolean_value_of};
+use super::natives_function::{
+    native_function_apply, native_function_bind, native_function_call, native_function_to_string,
+};
 use super::natives_number::{
     native_number_to_fixed, native_number_to_string, native_number_value_of,
 };
@@ -57,6 +67,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None, // will be set after Object.prototype exists
+            extensible: true,
         });
         self.global_object = global_obj;
 
@@ -134,6 +145,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.object_prototype,
+            extensible: true,
         });
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
@@ -155,6 +167,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.object_prototype,
+            extensible: true,
         });
         for &(name, func) in methods {
             let fn_id = self.create_native_function(name, func);
@@ -169,24 +182,69 @@ impl VmInner {
         obj_id
     }
 
+    #[allow(clippy::too_many_lines)]
     fn register_prototypes(&mut self) {
         // Object.prototype — root of the prototype chain.
         let obj_proto = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
+            extensible: true,
         });
         self.object_prototype = Some(obj_proto);
 
-        // Object.prototype.toString (ES2020 §19.1.3.6)
-        let to_str_fn = self.create_native_function("toString", native_object_prototype_to_string);
-        let to_str_key = PropertyKey::String(self.strings.intern("toString"));
-        self.define_shaped_property(
-            obj_proto,
-            to_str_key,
-            PropertyValue::Data(JsValue::Object(to_str_fn)),
-            PropertyAttrs::METHOD,
-        );
+        // Function.prototype — prototype for all function objects.
+        // Must be registered before any native function is created so that
+        // `create_native_function` can set the prototype automatically.
+        // Function.prototype is itself an ordinary object (not callable) per
+        // ES2020 §19.2.3 (the spec says it's a function that accepts any
+        // arguments and returns undefined, but an ordinary object suffices
+        // for prototype chain purposes).
+        let func_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(obj_proto),
+            extensible: true,
+        });
+        self.function_prototype = Some(func_proto);
+
+        // Function.prototype methods (ES2020 §19.2.3)
+        let fp_methods: &[(&str, NativeFn)] = &[
+            ("call", native_function_call),
+            ("apply", native_function_apply),
+            ("bind", native_function_bind),
+            ("toString", native_function_to_string),
+        ];
+        for &(name, func) in fp_methods {
+            let fn_id = self.create_native_function(name, func);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                func_proto,
+                key,
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
+
+        // Object.prototype methods (ES2020 §19.1.3)
+        let op_methods: &[(&str, NativeFn)] = &[
+            ("toString", native_object_prototype_to_string),
+            ("toLocaleString", native_object_prototype_to_string),
+            ("hasOwnProperty", native_object_has_own_property),
+            ("valueOf", native_object_value_of),
+            ("isPrototypeOf", native_object_is_prototype_of),
+            ("propertyIsEnumerable", native_object_property_is_enumerable),
+        ];
+        for &(name, func) in op_methods {
+            let fn_id = self.create_native_function(name, func);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                obj_proto,
+                key,
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
 
         // Set the global object's prototype now that Object.prototype exists.
         self.get_object_mut(self.global_object).prototype = Some(obj_proto);
@@ -196,6 +254,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: Some(obj_proto),
+            extensible: true,
         });
         self.array_prototype = Some(arr_proto);
 
@@ -274,6 +333,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.object_prototype,
+            extensible: true,
         });
         self.define_shaped_property(
             arr_iter_proto,
@@ -297,6 +357,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.object_prototype,
+            extensible: true,
         });
         self.define_shaped_property(
             str_iter_proto,
@@ -331,13 +392,29 @@ impl VmInner {
         let obj_id = self.create_object_with_methods(&[
             ("keys", native_object_keys),
             ("values", native_object_values),
+            ("entries", native_object_entries),
             ("assign", native_object_assign),
             ("create", native_object_create),
             ("defineProperty", native_object_define_property),
+            ("is", native_object_is),
+            ("getPrototypeOf", native_object_get_prototype_of),
+            ("setPrototypeOf", native_object_set_prototype_of),
+            (
+                "getOwnPropertyDescriptor",
+                native_object_get_own_property_descriptor,
+            ),
+            ("getOwnPropertyNames", native_object_get_own_property_names),
             (
                 "getOwnPropertySymbols",
                 native_object_get_own_property_symbols,
             ),
+            ("freeze", native_object_freeze),
+            ("seal", native_object_seal),
+            ("isFrozen", native_object_is_frozen),
+            ("isSealed", native_object_is_sealed),
+            ("preventExtensions", native_object_prevent_extensions),
+            ("isExtensible", native_object_is_extensible),
+            ("fromEntries", native_object_from_entries),
         ]);
         let name = self.strings.intern("Object");
         self.globals.insert(name, JsValue::Object(obj_id));
@@ -618,6 +695,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
+            extensible: true,
         });
 
         // console.log

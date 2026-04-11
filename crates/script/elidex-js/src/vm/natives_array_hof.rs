@@ -391,6 +391,7 @@ fn create_array_iterator(
         }),
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
         prototype: ctx.vm.array_iterator_prototype,
+        extensible: true,
     });
     Ok(JsValue::Object(iter_obj))
 }

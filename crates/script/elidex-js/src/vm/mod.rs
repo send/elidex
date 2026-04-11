@@ -20,8 +20,10 @@ mod natives_array;
 mod natives_array_hof;
 mod natives_bigint;
 mod natives_boolean;
+mod natives_function;
 mod natives_json;
 mod natives_number;
+mod natives_object;
 mod natives_regexp;
 mod natives_string;
 mod natives_symbol;
@@ -183,6 +185,8 @@ pub(crate) struct VmInner {
     pub(crate) boolean_prototype: Option<ObjectId>,
     /// BigInt.prototype (prototype for BigInt primitive access).
     pub(crate) bigint_prototype: Option<ObjectId>,
+    /// Function.prototype (prototype for all function objects).
+    pub(crate) function_prototype: Option<ObjectId>,
     /// RegExp.prototype (prototype for RegExp instances).
     pub(crate) regexp_prototype: Option<ObjectId>,
     /// Shared prototype for array iterator objects (next + @@iterator).
@@ -314,6 +318,7 @@ impl VmInner {
             kind: ObjectKind::Array { elements },
             storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.array_prototype,
+            extensible: true,
         })
     }
 
@@ -535,7 +540,8 @@ impl VmInner {
                 constructable: false,
             }),
             storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: None,
+            prototype: self.function_prototype,
+            extensible: true,
         })
     }
 
@@ -553,7 +559,8 @@ impl VmInner {
                 constructable: true,
             }),
             storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: None,
+            prototype: self.function_prototype,
+            extensible: true,
         })
     }
 
@@ -732,6 +739,7 @@ impl Vm {
                 number_prototype: None,
                 boolean_prototype: None,
                 bigint_prototype: None,
+                function_prototype: None,
                 regexp_prototype: None,
                 array_iterator_prototype: None,
                 string_iterator_prototype: None,

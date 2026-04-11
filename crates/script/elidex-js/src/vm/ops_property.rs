@@ -364,6 +364,15 @@ impl VmInner {
             InheritedProperty::None => {}
         }
         // Step 3: create own data property.
+        // §9.1.9 step 5: reject if the receiver is non-extensible.
+        if !self.get_object(id).extensible {
+            if self.is_strict_mode() {
+                return Err(VmError::type_error(
+                    "Cannot add property to a non-extensible object",
+                ));
+            }
+            return Ok(SetOutcome::NoDataWrite);
+        }
         self.define_shaped_property(
             id,
             pk,

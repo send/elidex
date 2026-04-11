@@ -35,6 +35,7 @@ fn build_match_result(
         kind: ObjectKind::Array { elements },
         storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: ctx.vm.array_prototype,
+        extensible: true,
     });
     let index_key = PropertyKey::String(ctx.intern("index"));
     #[allow(clippy::cast_precision_loss)]

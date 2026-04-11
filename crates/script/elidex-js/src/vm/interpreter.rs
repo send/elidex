@@ -40,32 +40,56 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        let obj = self.get_object(func_obj_id);
-        match &obj.kind {
-            ObjectKind::Function(fo) => {
-                let func_id = fo.func_id;
-                let upvalue_ids = fo.upvalue_ids.clone();
-                let effective_this = match fo.this_mode {
-                    super::value::ThisMode::Lexical => {
-                        fo.captured_this.unwrap_or(JsValue::Undefined)
+        // Unwrap BoundFunction chain iteratively to avoid stack overflow
+        // on deeply nested .bind() chains.
+        let mut current_id = func_obj_id;
+        let mut effective_this = this;
+        let mut owned_args: Option<Vec<JsValue>> = None;
+
+        loop {
+            let obj = self.get_object(current_id);
+            match &obj.kind {
+                ObjectKind::Function(fo) => {
+                    let func_id = fo.func_id;
+                    let upvalue_ids = fo.upvalue_ids.clone();
+                    let resolved_this = match fo.this_mode {
+                        super::value::ThisMode::Lexical => {
+                            fo.captured_this.unwrap_or(JsValue::Undefined)
+                        }
+                        super::value::ThisMode::Global => self.bind_this_global(effective_this),
+                        super::value::ThisMode::Strict => effective_this,
+                    };
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    return self.call_internal(func_id, resolved_this, call_args, upvalue_ids);
+                }
+                ObjectKind::NativeFunction(nf) => {
+                    let func = nf.func;
+                    let saved_gc = self.gc_enabled;
+                    self.gc_enabled = false;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let mut ctx = NativeContext { vm: self };
+                    let result = func(&mut ctx, effective_this, call_args);
+                    ctx.vm.gc_enabled = saved_gc;
+                    return result;
+                }
+                ObjectKind::BoundFunction {
+                    target,
+                    bound_this,
+                    bound_args,
+                } => {
+                    let next_id = *target;
+                    effective_this = *bound_this;
+                    if !bound_args.is_empty() {
+                        let prev = owned_args.take();
+                        let extra = prev.as_deref().unwrap_or(args);
+                        let mut combined = bound_args.clone();
+                        combined.extend_from_slice(extra);
+                        owned_args = Some(combined);
                     }
-                    super::value::ThisMode::Global => self.bind_this_global(this),
-                    super::value::ThisMode::Strict => this,
-                };
-                self.call_internal(func_id, effective_this, args, upvalue_ids)
+                    current_id = next_id;
+                }
+                _ => return Err(VmError::type_error("not a function")),
             }
-            ObjectKind::NativeFunction(nf) => {
-                let func = nf.func;
-                // Disable GC during native calls: Rust stack locals holding
-                // ObjectId are invisible to the GC root scanner.
-                let saved_gc = self.gc_enabled;
-                self.gc_enabled = false;
-                let mut ctx = NativeContext { vm: self };
-                let result = func(&mut ctx, this, args);
-                ctx.vm.gc_enabled = saved_gc;
-                result
-            }
-            _ => Err(VmError::type_error("not a function")),
         }
     }
 
@@ -212,6 +236,7 @@ impl VmInner {
                     kind: ObjectKind::NumberWrapper(n),
                     storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                     prototype: self.number_prototype,
+                    extensible: true,
                 });
                 JsValue::Object(wrapper)
             }
@@ -220,6 +245,7 @@ impl VmInner {
                     kind: ObjectKind::StringWrapper(s),
                     storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                     prototype: self.string_prototype,
+                    extensible: true,
                 });
                 JsValue::Object(wrapper)
             }
@@ -228,6 +254,7 @@ impl VmInner {
                     kind: ObjectKind::BooleanWrapper(b),
                     storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                     prototype: self.boolean_prototype,
+                    extensible: true,
                 });
                 JsValue::Object(wrapper)
             }
@@ -236,6 +263,7 @@ impl VmInner {
                     kind: ObjectKind::BigIntWrapper(id),
                     storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                     prototype: self.bigint_prototype,
+                    extensible: true,
                 });
                 JsValue::Object(wrapper)
             }

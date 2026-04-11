@@ -13,6 +13,7 @@ impl VmInner {
             kind: ObjectKind::Ordinary,
             storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
             prototype: proto,
+            extensible: true,
         });
         self.stack.push(JsValue::Object(id));
     }

@@ -1,10 +1,13 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
 mod tests_array_prototype;
+mod tests_array_prototype_ext;
 mod tests_bigint;
+mod tests_function_prototype;
 mod tests_json;
 mod tests_m4_10_2;
 mod tests_m4_11;
+mod tests_object_complement;
 mod tests_sparse_array;
 
 use super::value::{JsValue, Object, ObjectKind, VmError};
@@ -641,6 +644,7 @@ fn object_alloc_and_access() {
         kind: ObjectKind::Ordinary,
         storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: None,
+        extensible: true,
     });
     assert!(matches!(vm.get_object(id).kind, ObjectKind::Ordinary));
 }
@@ -652,6 +656,7 @@ fn object_free_list_reuse() {
         kind: ObjectKind::Ordinary,
         storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: None,
+        extensible: true,
     });
     // Simulate free
     vm.inner.objects[id1.0 as usize] = None;
@@ -661,6 +666,7 @@ fn object_free_list_reuse() {
         kind: ObjectKind::Ordinary,
         storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
         prototype: None,
+        extensible: true,
     });
     assert_eq!(id1, id2); // Reused slot
 }
