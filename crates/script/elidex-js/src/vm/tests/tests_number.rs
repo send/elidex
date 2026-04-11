@@ -122,6 +122,14 @@ fn number_nan_constant() {
     assert!(eval_bool("Number.isNaN(Number.NaN);"));
 }
 
+// -- Number.prototype.toFixed -------------------------------------------------
+
+#[test]
+fn number_to_fixed_negative_zero() {
+    // §20.1.3.3 step 7: -0 formats without minus sign
+    assert_eq!(eval_string("(-0).toFixed(2);"), "0.00");
+}
+
 // -- Number.prototype.toExponential -------------------------------------------
 
 #[test]

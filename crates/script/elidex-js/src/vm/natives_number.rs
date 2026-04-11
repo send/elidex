@@ -90,6 +90,9 @@ pub(super) fn native_number_to_fixed(
         } else {
             "-Infinity".to_string()
         }
+    } else if n == 0.0 {
+        // §20.1.3.3 step 7: -0 formats as "0.000..."
+        format!("{:.digits$}", 0.0_f64)
     } else {
         format!("{n:.digits$}")
     };
