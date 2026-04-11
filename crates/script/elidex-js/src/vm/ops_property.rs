@@ -420,6 +420,12 @@ impl VmInner {
                         ObjectKind::Arguments { ref values } if idx < values.len() => {
                             return Ok(values[idx]);
                         }
+                        ObjectKind::StringWrapper(sid) => {
+                            if let Some(&unit) = self.strings.get(*sid).get(idx) {
+                                let ch_id = self.strings.intern_utf16(&[unit]);
+                                return Ok(JsValue::String(ch_id));
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -434,6 +440,21 @@ impl VmInner {
             }
             // Fall back to string key property lookup.
             let key_id = to_string(self, key)?;
+            // StringWrapper: index access and length
+            if let ObjectKind::StringWrapper(sid) = self.get_object(id).kind {
+                let key_units = self.strings.get(key_id);
+                if key_units == self.strings.get(self.well_known.length) {
+                    #[allow(clippy::cast_precision_loss)]
+                    let len = self.strings.get(sid).len() as f64;
+                    return Ok(JsValue::Number(len));
+                }
+                if let Some(idx) = parse_array_index_u16(key_units) {
+                    if let Some(&unit) = self.strings.get(sid).get(idx) {
+                        let ch_id = self.strings.intern_utf16(&[unit]);
+                        return Ok(JsValue::String(ch_id));
+                    }
+                }
+            }
             // String key that parses as array index → check elements first.
             if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
                 let key_units = self.strings.get(key_id);

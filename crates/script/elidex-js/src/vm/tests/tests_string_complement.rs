@@ -212,3 +212,8 @@ fn string_from_code_point_invalid_throws() {
     eval_throws("String.fromCodePoint(0x110000);");
     eval_throws("String.fromCodePoint(3.14);");
 }
+
+// -- StringWrapper own property -----------------------------------------------
+// NOTE: StringWrapper index/length tests deferred — requires `new String()`
+// constructor (not yet implemented). The property hook is in place in
+// ops_property.rs but cannot be exercised from JS yet.
