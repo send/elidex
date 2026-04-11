@@ -1,6 +1,6 @@
 //! String.prototype complement methods (P2 additions).
 
-use super::natives_string::this_string_id;
+use super::natives_string::coerce_this_string;
 use super::ops::STRING_LEN_LIMIT;
 use super::value::{JsValue, NativeContext, VmError};
 use crate::wtf16::{is_js_whitespace, rfind_u16};
@@ -11,9 +11,7 @@ pub(super) fn native_string_repeat(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let count_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(count_arg)?;
     let n = if n.is_nan() { 0.0 } else { n.trunc() };
@@ -56,9 +54,7 @@ fn pad_string(
     args: &[JsValue],
     at_start: bool,
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let max_len_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let max_len_f = ctx.to_number(max_len_arg)?;
     // ToLength: NaN/negative → 0, clamp to STRING_LEN_LIMIT
@@ -109,9 +105,7 @@ pub(super) fn native_string_trim_start(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let trimmed = {
         let s = ctx.get_u16(sid);
         let start = s
@@ -130,9 +124,7 @@ pub(super) fn native_string_trim_end(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let trimmed = {
         let s = ctx.get_u16(sid);
         let end = s
@@ -151,9 +143,7 @@ pub(super) fn native_string_last_index_of(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Number(-1.0));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
@@ -193,9 +183,7 @@ pub(super) fn native_string_code_point_at(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Undefined);
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let s = ctx.get_u16(sid);
     let pos_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let pos = ctx.to_number(pos_arg)?;
@@ -223,9 +211,7 @@ pub(super) fn native_string_replace_all(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let search_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let replace_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let search_id = ctx.to_string_val(search_arg)?;
@@ -274,9 +260,7 @@ pub(super) fn native_string_concat(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let s = ctx.get_u16(sid);
     let mut result = s.to_vec();
     for &arg in args {

@@ -96,12 +96,26 @@ pub(super) fn set_regexp_last_index(
 
 // -- String.prototype methods -----------------------------------------------
 
-/// Helper: extract the `StringId` from `this` for String.prototype methods.
-pub(super) fn this_string_id(this: JsValue) -> Option<StringId> {
-    if let JsValue::String(id) = this {
-        Some(id)
-    } else {
-        None
+/// §21.1.3 String.prototype method this coercion:
+/// RequireObjectCoercible(this) then ToString(this).
+/// Handles String primitive, StringWrapper, and other values via ToString.
+pub(super) fn coerce_this_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+) -> Result<StringId, VmError> {
+    match this {
+        JsValue::Null | JsValue::Undefined => Err(VmError::type_error(
+            "String.prototype method called on null or undefined",
+        )),
+        JsValue::String(id) => Ok(id),
+        JsValue::Object(obj_id) => {
+            if let ObjectKind::StringWrapper(sid) = ctx.get_object(obj_id).kind {
+                Ok(sid)
+            } else {
+                ctx.to_string_val(this)
+            }
+        }
+        other => ctx.to_string_val(other),
     }
 }
 
@@ -130,10 +144,7 @@ pub(super) fn native_string_char_at(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let raw = match args.first() {
         Some(a) => ctx.to_number(*a)?,
         None => 0.0,
@@ -153,9 +164,7 @@ pub(super) fn native_string_char_code_at(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Number(f64::NAN));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let raw = match args.first() {
         Some(a) => ctx.to_number(*a)?,
         None => 0.0,
@@ -173,9 +182,7 @@ pub(super) fn native_string_index_of(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Number(-1.0));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
@@ -200,9 +207,7 @@ pub(super) fn native_string_includes(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Boolean(false));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
@@ -226,10 +231,7 @@ pub(super) fn native_string_slice(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let u16_len = ctx.get_u16(sid).len();
     #[allow(clippy::cast_possible_wrap)]
     let len_i = u16_len as isize;
@@ -269,10 +271,7 @@ pub(super) fn native_string_substring(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let u16len = ctx.get_u16(sid).len();
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let clamp = |n: f64| -> usize {
@@ -307,10 +306,7 @@ pub(super) fn native_string_to_lower_case(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let s = ctx.get_u16(sid);
     let lower = to_lower_u16(s);
     let id = ctx.intern_utf16(&lower);
@@ -322,10 +318,7 @@ pub(super) fn native_string_to_upper_case(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let s = ctx.get_u16(sid);
     let upper = to_upper_u16(s);
     let id = ctx.intern_utf16(&upper);
@@ -337,10 +330,7 @@ pub(super) fn native_string_trim(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     // Copy only the trimmed portion to release the immutable borrow before intern.
     let trimmed = trim_u16(ctx.get_u16(sid)).to_vec();
     let id = ctx.intern_utf16(&trimmed);
@@ -352,9 +342,7 @@ pub(super) fn native_string_split(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(create_array(ctx, Vec::new()));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     // sep must be owned: we need it across intern_utf16 calls that borrow ctx mutably.
     let sep = ctx.get_u16(sep_id).to_vec();
@@ -403,9 +391,7 @@ pub(super) fn native_string_starts_with(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Boolean(false));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
@@ -429,9 +415,7 @@ pub(super) fn native_string_ends_with(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Boolean(false));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
@@ -456,10 +440,7 @@ pub(super) fn native_string_replace(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        let id = ctx.intern("");
-        return Ok(JsValue::String(id));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let search_val = args.first().copied().unwrap_or(JsValue::Undefined);
 
     // RegExp first argument: operate on WTF-16 via find_from_utf16.
@@ -538,9 +519,7 @@ pub(super) fn native_string_match(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Null);
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
 
     // Resolve the compiled regex + subject as WTF-16.
@@ -624,9 +603,7 @@ pub(super) fn native_string_search(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(sid) = this_string_id(this) else {
-        return Ok(JsValue::Number(-1.0));
-    };
+    let sid = coerce_this_string(ctx, this)?;
     let re_val = args.first().copied().unwrap_or(JsValue::Undefined);
 
     let subject = ctx.vm.strings.get(sid).to_vec();
