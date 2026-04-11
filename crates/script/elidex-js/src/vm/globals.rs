@@ -6,6 +6,7 @@
 use super::natives::{
     native_array_constructor, native_array_is_array, native_array_iterator_next,
     native_array_values, native_console_error, native_console_log, native_console_warn,
+    native_decode_uri, native_decode_uri_component, native_encode_uri, native_encode_uri_component,
     native_error_constructor, native_is_finite, native_is_nan, native_iterator_self,
     native_object_assign, native_object_create, native_object_define_property,
     native_object_entries, native_object_freeze, native_object_from_entries,
@@ -22,6 +23,9 @@ use super::natives::{
     native_string_match, native_string_replace, native_string_search, native_string_slice,
     native_string_split, native_string_starts_with, native_string_substring,
     native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
+    native_syntax_error_constructor, native_uri_error_constructor,
+};
+use super::natives::{
     native_symbol_constructor, native_symbol_for, native_symbol_key_for,
     native_symbol_prototype_to_string, native_type_error_constructor,
 };
@@ -56,6 +60,12 @@ use super::natives_number::{
     native_number_to_precision, native_number_to_string, native_number_value_of,
 };
 use super::natives_regexp::{native_regexp_exec, native_regexp_test, native_regexp_to_string};
+use super::natives_string_ext::{
+    native_string_code_point_at, native_string_concat, native_string_from_char_code,
+    native_string_from_code_point, native_string_last_index_of, native_string_pad_end,
+    native_string_pad_start, native_string_repeat, native_string_replace_all,
+    native_string_trim_end, native_string_trim_start,
+};
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
@@ -93,11 +103,20 @@ impl VmInner {
         // console object
         self.register_console();
 
-        // Global functions: parseInt, parseFloat, isNaN, isFinite
+        // Global functions: parseInt, parseFloat, isNaN, isFinite, URI encoding
         self.register_global_function("parseInt", native_parse_int);
         self.register_global_function("parseFloat", native_parse_float);
         self.register_global_function("isNaN", native_is_nan);
         self.register_global_function("isFinite", native_is_finite);
+        self.register_global_function("encodeURI", native_encode_uri);
+        self.register_global_function("decodeURI", native_decode_uri);
+        self.register_global_function("encodeURIComponent", native_encode_uri_component);
+        self.register_global_function("decodeURIComponent", native_decode_uri_component);
+
+        // globalThis (§18.1) — points to the global object
+        let global_this_name = self.strings.intern("globalThis");
+        self.globals
+            .insert(global_this_name, JsValue::Object(global_obj));
 
         // Object.prototype and Array.prototype
         self.register_prototypes();
@@ -388,6 +407,8 @@ impl VmInner {
             ("TypeError", native_type_error_constructor),
             ("ReferenceError", native_reference_error_constructor),
             ("RangeError", native_range_error_constructor),
+            ("SyntaxError", native_syntax_error_constructor),
+            ("URIError", native_uri_error_constructor),
         ];
         for &(name, func) in ctors {
             let fn_id = self.create_constructable_function(name, func);
@@ -537,13 +558,24 @@ impl VmInner {
         let proto_id = self.create_object_with_methods(&[
             ("charAt", native_string_char_at),
             ("charCodeAt", native_string_char_code_at),
+            ("codePointAt", native_string_code_point_at),
             ("indexOf", native_string_index_of),
+            ("lastIndexOf", native_string_last_index_of),
             ("includes", native_string_includes),
             ("slice", native_string_slice),
             ("substring", native_string_substring),
             ("toLowerCase", native_string_to_lower_case),
             ("toUpperCase", native_string_to_upper_case),
             ("trim", native_string_trim),
+            ("trimStart", native_string_trim_start),
+            ("trimEnd", native_string_trim_end),
+            ("trimLeft", native_string_trim_start),
+            ("trimRight", native_string_trim_end),
+            ("repeat", native_string_repeat),
+            ("padStart", native_string_pad_start),
+            ("padEnd", native_string_pad_end),
+            ("concat", native_string_concat),
+            ("replaceAll", native_string_replace_all),
             ("split", native_string_split),
             ("startsWith", native_string_starts_with),
             ("endsWith", native_string_ends_with),
@@ -562,6 +594,30 @@ impl VmInner {
         );
         self.string_prototype = Some(proto_id);
         self.register_constructor_global("String", proto_id);
+
+        // String.fromCharCode / String.fromCodePoint — static methods on constructor
+        let ctor_name = self.strings.intern("String");
+        let Some(&JsValue::Object(ctor_id)) = self.globals.get(&ctor_name) else {
+            return;
+        };
+        let from_char_code_fn =
+            self.create_native_function("fromCharCode", native_string_from_char_code);
+        let key = PropertyKey::String(self.strings.intern("fromCharCode"));
+        self.define_shaped_property(
+            ctor_id,
+            key,
+            PropertyValue::Data(JsValue::Object(from_char_code_fn)),
+            PropertyAttrs::METHOD,
+        );
+        let from_code_point_fn =
+            self.create_native_function("fromCodePoint", native_string_from_code_point);
+        let key = PropertyKey::String(self.strings.intern("fromCodePoint"));
+        self.define_shaped_property(
+            ctor_id,
+            key,
+            PropertyValue::Data(JsValue::Object(from_code_point_fn)),
+            PropertyAttrs::METHOD,
+        );
     }
 
     fn register_number_prototype(&mut self) {

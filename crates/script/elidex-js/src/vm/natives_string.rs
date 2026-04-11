@@ -97,7 +97,7 @@ pub(super) fn set_regexp_last_index(
 // -- String.prototype methods -----------------------------------------------
 
 /// Helper: extract the `StringId` from `this` for String.prototype methods.
-fn this_string_id(this: JsValue) -> Option<StringId> {
+pub(super) fn this_string_id(this: JsValue) -> Option<StringId> {
     if let JsValue::String(id) = this {
         Some(id)
     } else {

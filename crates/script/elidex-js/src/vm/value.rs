@@ -788,6 +788,8 @@ pub enum VmErrorKind {
     ReferenceError,
     RangeError,
     SyntaxError,
+    /// A URI encoding/decoding error.
+    UriError,
     /// A user `throw` value — the thrown JS value is preserved.
     ThrowValue(JsValue),
     /// Internal VM error (should not occur in correct programs).
@@ -803,6 +805,7 @@ impl fmt::Display for VmError {
             VmErrorKind::ReferenceError => "ReferenceError",
             VmErrorKind::RangeError => "RangeError",
             VmErrorKind::SyntaxError => "SyntaxError",
+            VmErrorKind::UriError => "URIError",
             VmErrorKind::ThrowValue(_) => "Uncaught",
             VmErrorKind::InternalError => "InternalError",
             VmErrorKind::CompileError => "CompileError",
@@ -838,6 +841,13 @@ impl VmError {
     pub fn range_error(message: impl Into<String>) -> Self {
         Self {
             kind: VmErrorKind::RangeError,
+            message: message.into(),
+        }
+    }
+
+    pub fn uri_error(message: impl Into<String>) -> Self {
+        Self {
+            kind: VmErrorKind::UriError,
             message: message.into(),
         }
     }

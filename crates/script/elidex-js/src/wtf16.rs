@@ -167,6 +167,17 @@ pub fn find_u16(haystack: &[u16], needle: &[u16]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
+/// Reverse substring search on WTF-16 slices (last occurrence).
+pub fn rfind_u16(haystack: &[u16], needle: &[u16]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(haystack.len());
+    }
+    if needle.len() > haystack.len() {
+        return None;
+    }
+    haystack.windows(needle.len()).rposition(|w| w == needle)
+}
+
 /// Check if haystack starts with needle at the given UTF-16 offset.
 pub fn starts_with_u16(haystack: &[u16], needle: &[u16], offset: usize) -> bool {
     haystack

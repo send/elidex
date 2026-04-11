@@ -190,6 +190,131 @@ pub(super) fn native_is_finite(
     Ok(JsValue::Boolean(n.is_finite()))
 }
 
+// -- URI encoding/decoding (§18.2.6) ----------------------------------------
+
+/// Characters that encodeURI does NOT encode (unreserved + reserved per spec).
+const URI_UNESCAPED: &[u8] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()";
+const URI_RESERVED: &[u8] = b";/?:@&=+$,#";
+
+pub(super) fn native_encode_uri(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = ctx.to_string_val(val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    let encoded = percent_encode(&s, |b| {
+        URI_UNESCAPED.contains(&b) || URI_RESERVED.contains(&b)
+    })?;
+    let id = ctx.intern(&encoded);
+    Ok(JsValue::String(id))
+}
+
+pub(super) fn native_decode_uri(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = ctx.to_string_val(val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    let decoded = percent_decode(&s, |b| URI_RESERVED.contains(&b))?;
+    let id = ctx.intern(&decoded);
+    Ok(JsValue::String(id))
+}
+
+pub(super) fn native_encode_uri_component(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = ctx.to_string_val(val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    let encoded = percent_encode(&s, |b| URI_UNESCAPED.contains(&b))?;
+    let id = ctx.intern(&encoded);
+    Ok(JsValue::String(id))
+}
+
+pub(super) fn native_decode_uri_component(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = ctx.to_string_val(val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    // decodeURIComponent decodes everything (no reserved exclusion)
+    let decoded = percent_decode(&s, |_| false)?;
+    let id = ctx.intern(&decoded);
+    Ok(JsValue::String(id))
+}
+
+/// Percent-encode a UTF-8 string. `is_unescaped` returns true for bytes that
+/// should NOT be encoded.
+fn percent_encode(s: &str, is_unescaped: impl Fn(u8) -> bool) -> Result<String, VmError> {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if is_unescaped(b) {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push(hex_digit(b >> 4));
+            out.push(hex_digit(b & 0xF));
+        }
+    }
+    Ok(out)
+}
+
+/// Percent-decode a string. `keep_encoded` returns true for bytes that should
+/// remain percent-encoded in the output (used by decodeURI for reserved chars).
+fn percent_decode(s: &str, keep_encoded: impl Fn(u8) -> bool) -> Result<String, VmError> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return Err(VmError::uri_error("URI malformed"));
+            }
+            let hi = decode_hex(bytes[i + 1]).ok_or_else(|| VmError::uri_error("URI malformed"))?;
+            let lo = decode_hex(bytes[i + 2]).ok_or_else(|| VmError::uri_error("URI malformed"))?;
+            let decoded_byte = (hi << 4) | lo;
+            if keep_encoded(decoded_byte) {
+                // Keep the %XX in the output
+                out.push(b'%');
+                out.push(bytes[i + 1]);
+                out.push(bytes[i + 2]);
+            } else {
+                out.push(decoded_byte);
+            }
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| VmError::uri_error("URI malformed"))
+}
+
+fn hex_digit(n: u8) -> char {
+    match n {
+        0..=9 => (b'0' + n) as char,
+        _ => (b'A' + n - 10) as char,
+    }
+}
+
+fn decode_hex(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        _ => None,
+    }
+}
+
 // -- Error constructors -----------------------------------------------------
 
 fn error_ctor_impl(
@@ -253,6 +378,22 @@ pub(super) fn native_range_error_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     error_ctor_impl(ctx, this, args, "RangeError")
+}
+
+pub(super) fn native_syntax_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    error_ctor_impl(ctx, this, args, "SyntaxError")
+}
+
+pub(super) fn native_uri_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    error_ctor_impl(ctx, this, args, "URIError")
 }
 
 // -- Array constructor & static methods --------------------------------------

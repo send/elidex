@@ -11,6 +11,7 @@ mod tests_math;
 mod tests_number;
 mod tests_object_complement;
 mod tests_sparse_array;
+mod tests_string_complement;
 
 use super::value::{JsValue, Object, ObjectKind, VmError};
 use super::Vm;
