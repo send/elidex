@@ -2,6 +2,33 @@
 
 use super::{eval_bool, eval_number, eval_string, eval_throws};
 
+// -- Generic this coercion (P2.5) ---------------------------------------------
+
+#[test]
+fn string_method_on_number_this() {
+    // String.prototype.indexOf.call(42, '2') → ToString(42)="42", indexOf('2')=1
+    assert_eq!(eval_number("String.prototype.indexOf.call(42, '2');"), 1.0);
+}
+
+#[test]
+fn string_method_on_null_this_throws() {
+    eval_throws("String.prototype.indexOf.call(null, 'x');");
+}
+
+#[test]
+fn string_method_on_undefined_this_throws() {
+    eval_throws("String.prototype.trim.call(undefined);");
+}
+
+#[test]
+fn string_method_on_boolean_this() {
+    // String.prototype.slice.call(true, 0, 2) → ToString(true)="true", slice(0,2)="tr"
+    assert_eq!(
+        eval_string("String.prototype.slice.call(true, 0, 2);"),
+        "tr"
+    );
+}
+
 // -- String.prototype.repeat --------------------------------------------------
 
 #[test]
