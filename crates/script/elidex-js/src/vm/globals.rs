@@ -7,8 +7,6 @@ use super::natives::{
     native_array_constructor, native_array_is_array, native_array_iterator_next,
     native_array_values, native_console_error, native_console_log, native_console_warn,
     native_error_constructor, native_is_finite, native_is_nan, native_iterator_self,
-    native_math_abs, native_math_ceil, native_math_floor, native_math_log, native_math_max,
-    native_math_min, native_math_pow, native_math_random, native_math_round, native_math_sqrt,
     native_object_assign, native_object_create, native_object_define_property,
     native_object_entries, native_object_freeze, native_object_from_entries,
     native_object_get_own_property_descriptor, native_object_get_own_property_names,
@@ -44,8 +42,18 @@ use super::natives_boolean::{native_boolean_to_string, native_boolean_value_of};
 use super::natives_function::{
     native_function_apply, native_function_bind, native_function_call, native_function_to_string,
 };
+use super::natives_math::{
+    native_math_abs, native_math_acos, native_math_asin, native_math_atan, native_math_atan2,
+    native_math_cbrt, native_math_ceil, native_math_clz32, native_math_cos, native_math_exp,
+    native_math_floor, native_math_fround, native_math_hypot, native_math_imul, native_math_log,
+    native_math_log10, native_math_log2, native_math_max, native_math_min, native_math_pow,
+    native_math_random, native_math_round, native_math_sign, native_math_sin, native_math_sqrt,
+    native_math_tan, native_math_trunc,
+};
 use super::natives_number::{
-    native_number_to_fixed, native_number_to_string, native_number_value_of,
+    native_number_is_finite, native_number_is_integer, native_number_is_nan,
+    native_number_is_safe_integer, native_number_to_exponential, native_number_to_fixed,
+    native_number_to_precision, native_number_to_string, native_number_value_of,
 };
 use super::natives_regexp::{native_regexp_exec, native_regexp_test, native_regexp_to_string};
 use super::shape::{self, PropertyAttrs};
@@ -474,22 +482,44 @@ impl VmInner {
             ("sqrt", native_math_sqrt),
             ("pow", native_math_pow),
             ("log", native_math_log),
+            ("trunc", native_math_trunc),
+            ("sign", native_math_sign),
+            ("sin", native_math_sin),
+            ("cos", native_math_cos),
+            ("tan", native_math_tan),
+            ("asin", native_math_asin),
+            ("acos", native_math_acos),
+            ("atan", native_math_atan),
+            ("atan2", native_math_atan2),
+            ("log2", native_math_log2),
+            ("log10", native_math_log10),
+            ("exp", native_math_exp),
+            ("cbrt", native_math_cbrt),
+            ("hypot", native_math_hypot),
+            ("clz32", native_math_clz32),
+            ("imul", native_math_imul),
+            ("fround", native_math_fround),
         ]);
-        // Math.PI, Math.E
-        let pi_key = PropertyKey::String(self.strings.intern("PI"));
-        self.define_shaped_property(
-            obj_id,
-            pi_key,
-            PropertyValue::Data(JsValue::Number(std::f64::consts::PI)),
-            PropertyAttrs::BUILTIN,
-        );
-        let e_key = PropertyKey::String(self.strings.intern("E"));
-        self.define_shaped_property(
-            obj_id,
-            e_key,
-            PropertyValue::Data(JsValue::Number(std::f64::consts::E)),
-            PropertyAttrs::BUILTIN,
-        );
+        // Math constants
+        let consts: &[(&str, f64)] = &[
+            ("PI", std::f64::consts::PI),
+            ("E", std::f64::consts::E),
+            ("LN2", std::f64::consts::LN_2),
+            ("LN10", std::f64::consts::LN_10),
+            ("LOG2E", std::f64::consts::LOG2_E),
+            ("LOG10E", std::f64::consts::LOG10_E),
+            ("SQRT2", std::f64::consts::SQRT_2),
+            ("SQRT1_2", std::f64::consts::FRAC_1_SQRT_2),
+        ];
+        for &(name, value) in consts {
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                obj_id,
+                key,
+                PropertyValue::Data(JsValue::Number(value)),
+                PropertyAttrs::BUILTIN,
+            );
+        }
         let name = self.strings.intern("Math");
         self.globals.insert(name, JsValue::Object(obj_id));
     }
@@ -539,9 +569,65 @@ impl VmInner {
             ("toString", native_number_to_string),
             ("valueOf", native_number_value_of),
             ("toFixed", native_number_to_fixed),
+            ("toExponential", native_number_to_exponential),
+            ("toPrecision", native_number_to_precision),
         ]);
         self.number_prototype = Some(proto_id);
         self.register_constructor_global("Number", proto_id);
+
+        // Add static methods and constants to the Number constructor object.
+        let ctor_name = self.strings.intern("Number");
+        let ctor_val = self.globals[&ctor_name];
+        let JsValue::Object(ctor_id) = ctor_val else {
+            return;
+        };
+
+        // Static methods
+        let statics: &[(&str, super::NativeFn)] = &[
+            ("isFinite", native_number_is_finite),
+            ("isInteger", native_number_is_integer),
+            ("isNaN", native_number_is_nan),
+            ("isSafeInteger", native_number_is_safe_integer),
+        ];
+        for &(name, func) in statics {
+            let fn_id = self.create_native_function(name, func);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                ctor_id,
+                key,
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
+
+        // Constants
+        let consts: &[(&str, f64)] = &[
+            ("POSITIVE_INFINITY", f64::INFINITY),
+            ("NEGATIVE_INFINITY", f64::NEG_INFINITY),
+            ("MAX_SAFE_INTEGER", 9_007_199_254_740_991.0),
+            ("MIN_SAFE_INTEGER", -9_007_199_254_740_991.0),
+            ("MAX_VALUE", f64::MAX),
+            ("MIN_VALUE", f64::MIN_POSITIVE),
+            ("EPSILON", f64::EPSILON),
+        ];
+        for &(name, value) in consts {
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                ctor_id,
+                key,
+                PropertyValue::Data(JsValue::Number(value)),
+                PropertyAttrs::BUILTIN,
+            );
+        }
+
+        // Number.NaN
+        let nan_key = PropertyKey::String(self.strings.intern("NaN"));
+        self.define_shaped_property(
+            ctor_id,
+            nan_key,
+            PropertyValue::Data(JsValue::Number(f64::NAN)),
+            PropertyAttrs::BUILTIN,
+        );
     }
 
     fn register_boolean_prototype(&mut self) {

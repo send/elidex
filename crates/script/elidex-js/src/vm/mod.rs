@@ -22,6 +22,7 @@ mod natives_bigint;
 mod natives_boolean;
 mod natives_function;
 mod natives_json;
+mod natives_math;
 mod natives_number;
 mod natives_object;
 mod natives_regexp;
