@@ -32,11 +32,9 @@ fn require_callable_this(ctx: &NativeContext<'_>, this: JsValue) -> Result<Objec
 /// Extract the display name from a function object kind.
 fn function_display_name(ctx: &NativeContext<'_>, kind: &ObjectKind) -> String {
     match kind {
-        ObjectKind::Function(fo) => fo
-            .name
-            .map_or_else(|| "anonymous".to_string(), |n| ctx.get_utf8(n)),
+        ObjectKind::Function(fo) => fo.name.map_or_else(String::new, |n| ctx.get_utf8(n)),
         ObjectKind::NativeFunction(nf) => ctx.get_utf8(nf.name),
-        _ => "anonymous".to_string(),
+        _ => String::new(),
     }
 }
 
@@ -150,7 +148,7 @@ fn target_function_length_name(ctx: &NativeContext<'_>, target_id: ObjectId) -> 
                 format!("bound {inner_name}"),
             )
         }
-        _ => (0, "anonymous".to_string()),
+        _ => (0, String::new()),
     }
 }
 

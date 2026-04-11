@@ -530,6 +530,15 @@ impl VmInner {
                     match &mut obj_ref.kind {
                         ObjectKind::Array { ref mut elements } => {
                             if idx >= elements.len() {
+                                // New element on a non-extensible array is rejected.
+                                if !obj_ref.extensible {
+                                    if self.is_strict_mode() {
+                                        return Err(VmError::type_error(
+                                            "Cannot add property to a non-extensible object",
+                                        ));
+                                    }
+                                    return Ok(());
+                                }
                                 if idx >= DENSE_ARRAY_LEN_LIMIT {
                                     return Err(VmError::range_error("Array allocation failed"));
                                 }
@@ -564,6 +573,14 @@ impl VmInner {
                     let obj_ref = self.get_object_mut(id);
                     if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
                         if idx >= elements.len() {
+                            if !obj_ref.extensible {
+                                if self.is_strict_mode() {
+                                    return Err(VmError::type_error(
+                                        "Cannot add property to a non-extensible object",
+                                    ));
+                                }
+                                return Ok(());
+                            }
                             if idx >= DENSE_ARRAY_LEN_LIMIT {
                                 return Err(VmError::range_error("Array allocation failed"));
                             }

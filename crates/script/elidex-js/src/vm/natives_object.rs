@@ -116,10 +116,14 @@ pub(super) fn native_object_create(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let proto = args.first().copied().unwrap_or(JsValue::Null);
-    let prototype = if let JsValue::Object(id) = proto {
-        Some(id)
-    } else {
-        None
+    let prototype = match proto {
+        JsValue::Object(id) => Some(id),
+        JsValue::Null => None,
+        _ => {
+            return Err(VmError::type_error(
+                "Object prototype may only be an Object or null",
+            ))
+        }
     };
     let obj_id = ctx.alloc_object(Object {
         kind: ObjectKind::Ordinary,
@@ -380,7 +384,12 @@ pub(super) fn native_object_define_property(
             }
         }
     } else {
-        // New property — use add transition.
+        // New property — reject if non-extensible (§9.1.6.3 step 2.a).
+        if !ctx.get_object(obj_id).extensible {
+            return Err(VmError::type_error(
+                "Cannot define property on a non-extensible object",
+            ));
+        }
         ctx.vm
             .define_shaped_property(obj_id, key, new_prop.slot, new_attrs);
     }
@@ -497,8 +506,9 @@ pub(super) fn native_object_set_prototype_of(
         ));
     }
     // Cycle check: walk `new_proto` chain to ensure `obj_id` is not in it.
+    // Capped at 10,000 iterations to guard against corrupted state.
     if let Some(mut cursor) = new_proto {
-        loop {
+        for _ in 0..10_000 {
             if cursor == obj_id {
                 return Err(VmError::type_error("Cyclic __proto__ value"));
             }

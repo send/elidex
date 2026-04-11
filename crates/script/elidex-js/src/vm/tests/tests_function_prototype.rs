@@ -356,9 +356,9 @@ fn set_prototype_of_frozen_throws() {
 #[test]
 fn set_prototype_of_frozen_same_proto_ok() {
     // Setting the same prototype on a non-extensible object is allowed.
-    super::eval_bool(
+    assert!(super::eval_bool(
         "var p = {}; var o = Object.create(p); Object.preventExtensions(o); Object.setPrototypeOf(o, p); true;"
-    );
+    ));
 }
 
 // ── keys/values/entries null TypeError ──────────────────────────────
