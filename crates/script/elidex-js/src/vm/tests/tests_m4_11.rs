@@ -567,3 +567,57 @@ fn delete_prop_string_length_throws() {
     // §12.5.3.2 strict throw.
     eval_throws("delete (new String('abc')).length;");
 }
+
+// ─── §9.1.9.2 step 2.b: primitive Receiver rejects data writes ───────────
+
+#[test]
+fn set_prop_primitive_number_throws() {
+    eval_throws("(5).foo = 1;");
+}
+
+#[test]
+fn set_prop_primitive_string_throws() {
+    eval_throws("'abc'.foo = 1;");
+}
+
+#[test]
+fn set_prop_primitive_boolean_throws() {
+    eval_throws("true.foo = 1;");
+}
+
+#[test]
+fn set_prop_primitive_bigint_throws() {
+    eval_throws("(5n).foo = 1;");
+}
+
+#[test]
+fn set_elem_primitive_number_throws() {
+    eval_throws("(5)[0] = 1;");
+}
+
+#[test]
+fn set_elem_primitive_string_throws() {
+    // ToObject('a') → StringWrapper.  "0" has no own slot (exotic indexed
+    // props not yet implemented), so the write falls through to create-own
+    // on a primitive receiver → TypeError per §9.1.9.2 step 2.e/2.b.
+    eval_throws("'abc'[0] = 'X';");
+}
+
+#[test]
+fn set_prop_primitive_through_prototype_setter() {
+    // When a setter exists on the prototype, the setter IS invoked with the
+    // primitive as `this` — spec §9.1.9.2 step 3.b allows this even for
+    // primitive Receiver, unlike the data-write path.
+    assert_eq!(
+        eval_number(
+            "var captured;
+             Object.defineProperty(Number.prototype, 'tap', {
+                 set: function(v) { captured = typeof this; },
+                 configurable: true
+             });
+             (5).tap = 99;
+             captured === 'number' ? 1 : 0;"
+        ),
+        1.0
+    );
+}

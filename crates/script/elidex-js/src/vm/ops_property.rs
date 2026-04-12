@@ -282,9 +282,15 @@ impl VmInner {
         Ok(true)
     }
 
-    /// §9.1.9 OrdinarySet: set a property on an object, checking own/inherited
-    /// descriptors.  Shared by `set_property_val` (string keys) and
-    /// `set_element` (symbol keys).
+    /// §9.1.9.2 OrdinarySetWithOwnDescriptor: dispatch a set based on the own
+    /// descriptor on the target, falling back to the prototype chain.  Writes
+    /// funnel through `write_data_to_receiver`, which enforces §9.1.9.2
+    /// step 2.b / 2.e (Receiver must be an Object).
+    ///
+    /// `id` is the target `O` (the lookup object, possibly a primitive
+    /// wrapper from `ToObject`); `receiver` is the original base value flowing
+    /// through PutValue.  For primitive receivers the two differ — data
+    /// writes fail with TypeError in that case.
     fn ordinary_set(
         &mut self,
         id: ObjectId,
@@ -292,73 +298,99 @@ impl VmInner {
         val: JsValue,
         receiver: JsValue,
     ) -> Result<SetOutcome, VmError> {
-        /// Action determined from own property in a single `get_mut` lookup.
-        enum OwnAction {
-            Written,
-            NonWritable,
-            CallSetter(ObjectId),
+        enum OwnDesc {
+            DataWritable,
+            DataReadOnly,
+            Setter(ObjectId),
             NoSetter,
-            NotFound,
         }
 
-        // Step 1: check own property (single mutable lookup).
-        let own_action = {
-            let shapes = &self.shapes;
-            let obj_ref = self.objects[id.0 as usize].as_mut().unwrap();
-            match obj_ref.storage.get_mut(pk, shapes) {
-                Some((slot, attrs)) => match slot {
-                    PropertyValue::Data(_) if attrs.writable => {
-                        *slot = PropertyValue::Data(val);
-                        OwnAction::Written
-                    }
-                    PropertyValue::Data(_) => OwnAction::NonWritable,
+        // Step 1: read own descriptor on target (no mutation yet).
+        let own = {
+            let obj_ref = self.objects[id.0 as usize].as_ref().unwrap();
+            obj_ref
+                .storage
+                .get(pk, &self.shapes)
+                .map(|(slot, attrs)| match slot {
+                    PropertyValue::Data(_) if attrs.writable => OwnDesc::DataWritable,
+                    PropertyValue::Data(_) => OwnDesc::DataReadOnly,
                     PropertyValue::Accessor {
                         setter: Some(s), ..
-                    } => OwnAction::CallSetter(*s),
-                    PropertyValue::Accessor { setter: None, .. } => OwnAction::NoSetter,
-                },
-                None => OwnAction::NotFound,
-            }
+                    } => OwnDesc::Setter(*s),
+                    PropertyValue::Accessor { setter: None, .. } => OwnDesc::NoSetter,
+                })
         };
 
-        match own_action {
-            OwnAction::Written => return Ok(SetOutcome::DataWritten),
-            OwnAction::NonWritable => {
-                return Err(VmError::type_error("Cannot assign to read only property"));
-            }
-            OwnAction::CallSetter(s) => {
-                self.call(s, receiver, &[val])?;
-                return Ok(SetOutcome::NoDataWrite);
-            }
-            OwnAction::NoSetter => {
-                return Err(VmError::type_error(
+        if let Some(desc) = own {
+            return match desc {
+                OwnDesc::DataWritable => self.write_data_to_receiver(pk, val, receiver),
+                OwnDesc::DataReadOnly => {
+                    Err(VmError::type_error("Cannot assign to read only property"))
+                }
+                OwnDesc::Setter(s) => {
+                    self.call(s, receiver, &[val])?;
+                    Ok(SetOutcome::NoDataWrite)
+                }
+                OwnDesc::NoSetter => Err(VmError::type_error(
                     "Cannot set property which has only a getter",
-                ));
-            }
-            OwnAction::NotFound => {} // fall through to prototype chain
+                )),
+            };
         }
-        // Step 2: no own property -- check prototype chain.
+
+        // Step 2: walk prototype chain.
         match find_inherited_property(self, id, pk) {
             InheritedProperty::Setter(setter_id) => {
                 self.call(setter_id, receiver, &[val])?;
-                return Ok(SetOutcome::NoDataWrite);
+                Ok(SetOutcome::NoDataWrite)
             }
-            InheritedProperty::WritableFalse | InheritedProperty::AccessorNoSetter => {
-                return Err(VmError::type_error(
-                    "Cannot set property: inherited descriptor prevents it",
-                ));
+            InheritedProperty::WritableFalse | InheritedProperty::AccessorNoSetter => Err(
+                VmError::type_error("Cannot set property: inherited descriptor prevents it"),
+            ),
+            InheritedProperty::None => {
+                // Step 3: nothing blocks — create an own data property on
+                // Receiver (§9.1.9.2 step 2.e CreateDataProperty).
+                self.write_data_to_receiver(pk, val, receiver)
             }
-            InheritedProperty::None => {}
         }
-        // Step 3: create own data property.
-        // §9.1.9 step 5: reject if the receiver is non-extensible.
-        if !self.get_object(id).extensible {
+    }
+
+    /// Write `val` onto `receiver` as a data property (§9.1.9.2 step 2.b-e).
+    /// Rejects non-Object receivers (covers the primitive-base case where
+    /// PutValue routed `O := ToObject(primitive)` into `ordinary_set` while
+    /// keeping `receiver` as the primitive).
+    ///
+    /// Updates an existing own data slot in place; otherwise creates a new
+    /// own data property after checking the extensibility invariant.
+    fn write_data_to_receiver(
+        &mut self,
+        pk: PropertyKey,
+        val: JsValue,
+        receiver: JsValue,
+    ) -> Result<SetOutcome, VmError> {
+        let JsValue::Object(recv_id) = receiver else {
+            return Err(VmError::type_error(
+                "Cannot set property on non-object receiver",
+            ));
+        };
+        // Fast path: existing own data slot → write in place.  (An accessor
+        // slot on the receiver diverging from the target's data descriptor
+        // is a Proxy/recursive-[[Set]] scenario not yet wired up; falling
+        // through to create-own keeps behavior well-defined.)
+        {
+            let shapes = &self.shapes;
+            let obj_ref = self.objects[recv_id.0 as usize].as_mut().unwrap();
+            if let Some((PropertyValue::Data(v), _)) = obj_ref.storage.get_mut(pk, shapes) {
+                *v = val;
+                return Ok(SetOutcome::DataWritten);
+            }
+        }
+        if !self.get_object(recv_id).extensible {
             return Err(VmError::type_error(
                 "Cannot add property to a non-extensible object",
             ));
         }
         self.define_shaped_property(
-            id,
+            recv_id,
             pk,
             PropertyValue::Data(val),
             super::shape::PropertyAttrs::DATA,
@@ -375,15 +407,20 @@ impl VmInner {
         // §6.2.4.5 RequireObjectCoercible: writes on null/undefined throw.
         super::coerce::require_object_coercible(obj)?;
         let pk = PropertyKey::String(key);
-        if let JsValue::Object(id) = obj {
-            let is_global = id == self.global_object;
-            let outcome = self.ordinary_set(id, pk, val, obj)?;
-            // Sync the global variable table only when a data property was
-            // actually written or created.  Accessor calls (setter / no-setter)
-            // and non-writable rejections must NOT desynchronize the table.
-            if is_global && matches!(outcome, SetOutcome::DataWritten) {
-                self.globals.insert(key, val);
-            }
+        // §6.2.4.8 PutValue step 5.a: `? ToObject(base)` for the lookup
+        // target; the original base flows through as Receiver so
+        // `ordinary_set` rejects data writes when Receiver is primitive.
+        let target_id = match obj {
+            JsValue::Object(id) => id,
+            _ => super::coerce::to_object(self, obj)?,
+        };
+        let is_global = target_id == self.global_object;
+        let outcome = self.ordinary_set(target_id, pk, val, obj)?;
+        // Sync the global variable table only when a data property was
+        // actually written or created.  Accessor calls (setter / no-setter)
+        // and non-writable rejections must NOT desynchronize the table.
+        if is_global && matches!(outcome, SetOutcome::DataWritten) {
+            self.globals.insert(key, val);
         }
         Ok(())
     }
@@ -570,6 +607,7 @@ impl VmInner {
         // §6.2.4.5 RequireObjectCoercible: `null[k] = v` / `undefined[k] = v` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
+            // Numeric key → Array/Arguments dense-storage fast path.
             if let JsValue::Number(n) = key {
                 if let Some(idx) = try_as_array_index(n) {
                     // Check extensible/frozen before taking mutable borrow.
@@ -600,14 +638,14 @@ impl VmInner {
                     }
                 }
             }
-            // Symbol key -> §9.1.9 OrdinarySet via shared helper.
+            // Symbol key → §9.1.9 OrdinarySet directly (no string conversion).
             if let JsValue::Symbol(sid) = key {
                 let pk = PropertyKey::Symbol(sid);
                 self.ordinary_set(id, pk, val, obj)?;
                 return Ok(());
             }
             let key_id = to_string(self, key)?;
-            // String key that parses as array index → store in elements.
+            // Numeric-string key on Array → dense-storage fast path.
             if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
                 let key_units = self.strings.get(key_id);
                 if let Some(idx) = parse_array_index_u16(key_units) {
@@ -631,8 +669,20 @@ impl VmInner {
                     }
                 }
             }
-            self.set_property_val(JsValue::Object(id), key_id, val)?;
+            return self.set_property_val(obj, key_id, val);
         }
-        Ok(())
+
+        // Primitive base (after RequireObjectCoercible): box for descriptor
+        // lookup per §6.2.4.8 PutValue step 5.a, keeping the original base
+        // as Receiver so `ordinary_set` rejects data writes via §9.1.9.2
+        // step 2.b.  (Array-style fast paths don't apply: primitive
+        // wrappers are never `ObjectKind::Array`.)
+        if let JsValue::Symbol(sid) = key {
+            let target = super::coerce::to_object(self, obj)?;
+            self.ordinary_set(target, PropertyKey::Symbol(sid), val, obj)?;
+            return Ok(());
+        }
+        let key_id = to_string(self, key)?;
+        self.set_property_val(obj, key_id, val)
     }
 }
