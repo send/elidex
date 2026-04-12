@@ -678,12 +678,22 @@ pub(super) fn native_string_search(
             ));
         }
     }
-    // §21.1.3.15: save lastIndex, set to 0, run, restore.
-    let saved = get_regexp_last_index(ctx, re_id)?;
+    // §21.1.3.15 steps 4-8: save the raw `lastIndex` property value, set
+    // to 0, run, restore the EXACT same value.  Using `get_regexp_last_index`
+    // would ToNumber/ToLength-coerce the saved value (e.g. string "2" →
+    // number 2) and lose any side effects the user's getter/setter may
+    // depend on.  Use property-level Get/Set to preserve semantics.
+    let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
+    let saved_value = ctx
+        .try_get_property_value(re_id, last_index_key)?
+        .unwrap_or(JsValue::Undefined);
     set_regexp_last_index(ctx, re_id, 0);
     let result = super::natives_regexp::run_regexp(ctx, re_id, &subject)?.map(|m| m.start());
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    set_regexp_last_index(ctx, re_id, saved as usize);
+    ctx.vm.set_property_val(
+        JsValue::Object(re_id),
+        ctx.vm.well_known.last_index,
+        saved_value,
+    )?;
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
 }

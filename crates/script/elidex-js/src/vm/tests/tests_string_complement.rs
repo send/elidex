@@ -670,6 +670,18 @@ fn new_array_reuses_preallocated_instance() {
 }
 
 #[test]
+fn function_tostring_chain_depth_cap() {
+    // §19.2.3.5: Function.prototype.toString on a deeply-bound chain
+    // must enforce the same depth cap as call/construct to prevent
+    // unbounded "bound " string growth.
+    eval_throws(
+        "var f = function(){};
+         for (var i = 0; i < 10001; i++) { f = f.bind(null); }
+         f.toString();",
+    );
+}
+
+#[test]
 fn bind_chain_depth_cap() {
     // Attacker-built chain beyond MAX_BIND_CHAIN_DEPTH should throw RangeError
     // on call.  Building the chain itself must also be stack-safe

@@ -220,21 +220,35 @@ pub(super) fn native_function_to_string(
         ));
     }
     // Unwrap BoundFunction chain iteratively, counting "bound " prefixes.
+    // Attacker-controlled bind depth would otherwise drive O(N²) name
+    // string construction; cap via MAX_BIND_CHAIN_DEPTH (same policy as
+    // call / construct paths).
     let mut current = obj_id;
-    let mut bound_depth = 0u32;
+    let mut bound_depth = 0usize;
     while let ObjectKind::BoundFunction { target, .. } = &ctx.get_object(current).kind {
         bound_depth += 1;
+        if bound_depth > crate::vm::MAX_BIND_CHAIN_DEPTH {
+            return Err(VmError::range_error("Maximum bind chain depth exceeded"));
+        }
         current = *target;
     }
     let base_name = function_display_name_u16(ctx, &ctx.get_object(current).kind);
     // Assemble in WTF-16 so user-defined names with lone surrogates
-    // round-trip losslessly.
-    let mut units: Vec<u16> = "function ".encode_utf16().collect();
+    // round-trip losslessly.  Pre-compute "bound " once instead of
+    // re-encoding per iteration.
+    let bound_prefix: Vec<u16> = "bound ".encode_utf16().collect();
+    let suffix: Vec<u16> = "() { [native code] }".encode_utf16().collect();
+    let total = "function ".encode_utf16().count()
+        + bound_prefix.len() * bound_depth
+        + base_name.len()
+        + suffix.len();
+    let mut units: Vec<u16> = Vec::with_capacity(total);
+    units.extend("function ".encode_utf16());
     for _ in 0..bound_depth {
-        units.extend_from_slice(&"bound ".encode_utf16().collect::<Vec<u16>>());
+        units.extend_from_slice(&bound_prefix);
     }
     units.extend_from_slice(&base_name);
-    units.extend_from_slice(&"() { [native code] }".encode_utf16().collect::<Vec<u16>>());
+    units.extend_from_slice(&suffix);
     let sid = ctx.vm.strings.intern_utf16(&units);
     Ok(JsValue::String(sid))
 }
