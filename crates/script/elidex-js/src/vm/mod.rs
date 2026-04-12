@@ -1,7 +1,10 @@
 //! Stack-based bytecode VM for elidex-js (Stage 2).
 //!
 //! All JS values are handle-based: strings and objects are indices into
-//! VM-owned tables. `JsValue` is `Copy`, and the `Vm` is naturally `Send`.
+//! VM-owned tables. `JsValue` is `Copy`.  Without the `engine` feature the
+//! VM is `Send` (pure interpreter); with `engine` enabled, `VmInner`
+//! carries `Option<Box<HostData>>` whose raw pointers render `Vm` `!Send`
+//! by default — see [`host_data`].
 
 pub mod coerce;
 pub(crate) mod coerce_format;

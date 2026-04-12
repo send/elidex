@@ -409,18 +409,21 @@ fn error_ctor_impl(
             super::value::PropertyValue::Data(name_val),
             super::shape::PropertyAttrs::DATA,
         );
-        let msg = args
-            .first()
-            .copied()
-            .unwrap_or(JsValue::String(ctx.vm.well_known.empty));
-        let msg_id = ctx.to_string_val(msg)?;
-        let msg_key = PropertyKey::String(ctx.vm.well_known.message);
-        ctx.vm.define_shaped_property(
-            id,
-            msg_key,
-            super::value::PropertyValue::Data(JsValue::String(msg_id)),
-            super::shape::PropertyAttrs::DATA,
-        );
+        // §19.5.1.1 step 4: only set `message` when the argument is not
+        // undefined.  Otherwise, `.message` falls through to
+        // Error.prototype.message (which is the empty string).
+        if let Some(&msg) = args.first() {
+            if !matches!(msg, JsValue::Undefined) {
+                let msg_id = ctx.to_string_val(msg)?;
+                let msg_key = PropertyKey::String(ctx.vm.well_known.message);
+                ctx.vm.define_shaped_property(
+                    id,
+                    msg_key,
+                    super::value::PropertyValue::Data(JsValue::String(msg_id)),
+                    super::shape::PropertyAttrs::DATA,
+                );
+            }
+        }
     }
     Ok(this)
 }

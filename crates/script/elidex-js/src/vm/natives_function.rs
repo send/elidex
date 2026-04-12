@@ -145,10 +145,14 @@ fn target_function_length_name(
     let length_key = super::value::PropertyKey::String(ctx.vm.well_known.length);
     let name_key = super::value::PropertyKey::String(ctx.vm.well_known.name);
 
+    // §19.2.3.2 step 4-5: if Get(target, "length") yields a Number, use
+    // ToInteger(max(0, n)); if any other type, yield 0; if absent, fall
+    // back to the internal param_count (authoritative for user functions).
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let length = match ctx.try_get_property_value(target_id, length_key)? {
         Some(JsValue::Number(n)) if n.is_finite() && n >= 0.0 => n as usize,
-        Some(_) | None => internal_function_length(ctx, target_id),
+        Some(_) => 0,
+        None => internal_function_length(ctx, target_id),
     };
     // §19.2.3.2 step 11-13: `targetName` is `? Get(target, "name")`.
     // Non-String results get `ToString`-coerced (e.g. `{value: 42}` → "42");

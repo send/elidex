@@ -567,13 +567,27 @@ pub(super) fn native_array_includes(
     Ok(JsValue::Boolean(false))
 }
 
-/// `Array.prototype.toString()` — equivalent to `join()`.
+/// `Array.prototype.toString()` — §22.1.3.30: `Get(O, "join")`, call it
+/// if callable, otherwise fall back to `Object.prototype.toString`.
+/// Honors user-installed `.join` override (`arr.join = () => 'x'; '' + arr`
+/// yields `'x'`).
 pub(super) fn native_array_to_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    native_array_join(ctx, this, &[])
+    let JsValue::Object(obj_id) = this else {
+        return native_array_join(ctx, this, &[]);
+    };
+    let join_key = super::value::PropertyKey::String(ctx.intern("join"));
+    let join_fn = ctx.try_get_property_value(obj_id, join_key)?;
+    if let Some(JsValue::Object(fn_id)) = join_fn {
+        if ctx.get_object(fn_id).kind.is_callable() {
+            return ctx.call_function(fn_id, this, &[]);
+        }
+    }
+    // Non-callable join → "[object Object]" per Object.prototype.toString.
+    Ok(JsValue::String(ctx.vm.well_known.object_to_string))
 }
 
 /// `Array.prototype.toLocaleString()` — same as toString (locale not supported).

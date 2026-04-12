@@ -56,19 +56,32 @@ fn build_match_result(
 }
 
 /// Read the current `lastIndex` from a RegExp object (as raw f64).
-/// §21.2.5.2.1 step 4: `? Get(R, "lastIndex")` — walks the prototype
-/// chain and invokes accessors.  Abrupt completions (accessor throw)
-/// propagate per the spec `?` mark.  Missing / non-number results fall
-/// back to 0 to preserve existing behavior.
+/// §21.2.5.2.1 step 4-5: `ToLength(? Get(R, "lastIndex"))` — walks the
+/// prototype chain, invokes accessors, then applies ToLength:
+/// NaN / negative → 0, +Infinity clamped to 2^53 - 1.  Non-Number results
+/// fall back to 0 (spec coerces via ToNumber, but ToNumber of non-wrapper
+/// Object is tracked as a follow-up refactor).
 pub(super) fn get_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
 ) -> Result<f64, VmError> {
     let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
-    Ok(match ctx.try_get_property_value(obj_id, last_index_key)? {
-        Some(JsValue::Number(n)) if n.is_finite() => n,
+    let raw = match ctx.try_get_property_value(obj_id, last_index_key)? {
+        Some(JsValue::Number(n)) => n,
         _ => 0.0,
-    })
+    };
+    Ok(to_length(raw))
+}
+
+/// §7.1.20 ToLength: NaN → 0, clamp to `[0, 2^53 - 1]`.
+/// 2^53 - 1 = 9007199254740991; Infinity clamps.
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
+fn to_length(n: f64) -> f64 {
+    if n.is_nan() || n <= 0.0 {
+        return 0.0;
+    }
+    n.trunc().min(MAX_SAFE_INTEGER)
 }
 
 /// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
