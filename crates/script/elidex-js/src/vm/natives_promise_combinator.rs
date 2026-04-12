@@ -19,12 +19,28 @@ use super::VmInner;
 /// Allocate a fresh `PromiseCombinatorState` object.  Pre-fills `values`
 /// with `Undefined` placeholders so each step can write its own slot
 /// without further resizing.
+///
+/// # Safety invariant
+///
+/// Must be called from a native-dispatch context with `vm.gc_enabled ==
+/// false`.  The returned `ObjectId` is held only in a Rust local until the
+/// caller threads it into a step object that itself lives on the heap; if
+/// the GC were to run before the step is wired up, the state object would
+/// be collected while still logically in use, leading to use-after-free
+/// when a later step dereferences its `state` field.  The
+/// `interpreter.rs::call` paths that drive combinator execution already
+/// save/restore `gc_enabled`; the `debug_assert` below catches any future
+/// caller that skips that dance.
 fn alloc_combinator_state(
     vm: &mut VmInner,
     kind: CombinatorKind,
     result: ObjectId,
     total: u32,
 ) -> ObjectId {
+    debug_assert!(
+        !vm.gc_enabled,
+        "alloc_combinator_state must run with GC disabled (native dispatch only)"
+    );
     let placeholder = vec![JsValue::Undefined; total as usize];
     vm.alloc_object(Object {
         kind: ObjectKind::PromiseCombinatorState(PromiseCombinatorState {
@@ -42,7 +58,20 @@ fn alloc_combinator_state(
 }
 
 /// Allocate a step object as a standalone callable.
+///
+/// # Safety invariant
+///
+/// Same as [`alloc_combinator_state`]: must be called with
+/// `vm.gc_enabled == false`.  The step carries its `state` ObjectId as an
+/// inline field, so the state is kept alive once the step is reachable —
+/// but between allocations inside `run_combinator`'s loop, neither the
+/// freshly-allocated step nor the state is rooted through the object
+/// graph.  Running GC in that window would collect them.
 fn alloc_step(vm: &mut VmInner, step: PromiseCombinatorStep) -> ObjectId {
+    debug_assert!(
+        !vm.gc_enabled,
+        "alloc_step must run with GC disabled (native dispatch only)"
+    );
     let proto = vm.function_prototype;
     vm.alloc_object(Object {
         kind: ObjectKind::PromiseCombinatorStep(step),
