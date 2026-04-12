@@ -889,10 +889,16 @@ impl VmError {
     /// Build a VmError carrying a user-thrown JS value.  Used to propagate
     /// `throw expr` and reject-forwarded reasons through the call stack
     /// without coercing them back to strings.
+    ///
+    /// A generic `message` is attached for diagnostic paths that log via
+    /// the `Display` impl (timer / microtask callback swallow paths) —
+    /// otherwise `"Uncaught: "` with an empty tail would hit stderr.
+    /// Callers that want a richer message (e.g. the value's display form)
+    /// can build a `VmError` directly.
     pub fn throw(value: JsValue) -> Self {
         Self {
             kind: VmErrorKind::ThrowValue(value),
-            message: String::new(),
+            message: "JavaScript value thrown".to_string(),
         }
     }
 

@@ -165,10 +165,18 @@ pub(super) fn native_set_interval(
 }
 
 fn cancel_timer(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<JsValue, VmError> {
-    let Some(JsValue::Number(n)) = args.first().copied() else {
-        // Non-number ids are silently ignored (WHATWG §8.7 step 1 Note).
+    // WHATWG `clearTimeout(handle)` declares `handle` as WebIDL `long`, so
+    // the ECMAScript → IDL conversion runs `ToNumber` on the argument
+    // before mapping to the u32 id.  That preserves browser behaviour
+    // such as `clearTimeout('1')` cancelling timer 1, while still
+    // propagating the TypeError from `clearTimeout(Symbol())`.  NaN /
+    // non-finite / out-of-range values end up as ids we don't own and
+    // fall through the `active_timer_ids` check below — no-op.
+    let raw = args.first().copied().unwrap_or(JsValue::Undefined);
+    let n = ctx.to_number(raw)?;
+    if !n.is_finite() {
         return Ok(JsValue::Undefined);
-    };
+    }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let id = n as u32;
     // Only record cancellations for ids we actually own.  Without this

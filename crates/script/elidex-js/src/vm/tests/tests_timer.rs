@@ -127,6 +127,31 @@ fn clear_timeout_unknown_id_is_noop() {
 }
 
 #[test]
+fn clear_timeout_string_handle_is_coerced_via_to_number() {
+    // WHATWG handle is WebIDL `long`, so `clearTimeout('1')` must ToNumber
+    // the string and cancel the matching numeric id (Copilot PR #71 #13).
+    let mut vm = installed_vm();
+    vm.eval(
+        "globalThis.fired = 0; \
+         var id = setTimeout(() => { globalThis.fired = 1; }, 10); \
+         clearTimeout(String(id));",
+    )
+    .unwrap();
+    vm.inner
+        .drain_timers(Instant::now() + Duration::from_millis(100));
+    assert_eq!(vm.get_global("fired"), Some(JsValue::Number(0.0)));
+}
+
+#[test]
+fn clear_timeout_symbol_handle_throws_type_error() {
+    // ToNumber(Symbol) throws TypeError per ES2020 §7.1.3; the WebIDL
+    // long coercion surfaces that same exception to the caller.
+    let mut vm = installed_vm();
+    let result = vm.eval("clearTimeout(Symbol());");
+    assert!(result.is_err(), "clearTimeout(Symbol()) should throw");
+}
+
+#[test]
 fn clear_timeout_unknown_id_does_not_accumulate_in_cancelled_set() {
     // Regression guard for Copilot PR #71 #6: `clearTimeout(<bogus>)`
     // used to insert every id into `cancelled_timers` unconditionally,
