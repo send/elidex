@@ -576,15 +576,16 @@ fn array_to_string_honors_join_override() {
 
 #[test]
 fn array_to_string_non_callable_join_falls_back() {
-    // §22.1.3.30: If Get(O, "join") is not callable, fall back to
-    // Object.prototype.toString → "[object Object]".
+    // §22.1.3.30: If Get(O, "join") is not callable, delegate to
+    // Object.prototype.toString which yields kind-specific tags
+    // (Array → "[object Array]").
     assert_eq!(
         eval_string(
             "var arr = [1, 2, 3];
              arr.join = 'not a function';
              arr.toString();"
         ),
-        "[object Object]"
+        "[object Array]"
     );
 }
 

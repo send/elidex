@@ -588,8 +588,10 @@ pub(super) fn native_array_to_string(
             return ctx.call_function(fn_id, this, &[]);
         }
     }
-    // Non-callable join → "[object Object]" per Object.prototype.toString.
-    Ok(JsValue::String(ctx.vm.well_known.object_to_string))
+    // §22.1.3.30 step 4: Non-callable join → delegate to
+    // Object.prototype.toString, which yields kind-specific tags
+    // (e.g. Array → "[object Array]") and honors @@toStringTag.
+    super::natives_symbol::native_object_prototype_to_string(ctx, this, &[])
 }
 
 /// `Array.prototype.toLocaleString()` — same as toString (locale not supported).

@@ -413,10 +413,10 @@ fn match_non_regexp_object() {
     // `{}` → "[object Object]" which regress compiles as:
     //   `[object Objec]` (character class: o,b,j,e,c,t,space,O)
     //   followed by literal `t]`.
-    // First match in "[object Object]": `c` at index 12 satisfies the
-    // class, then `t]` literal at 13-14 → match = "ct]" at index 12.
-    // (Actual elidex behavior via regress differs slightly — record the
-    // observed match to catch regressions in the ToString coercion path.)
+    // The regress engine's match result for this pattern against the
+    // subject "[object Object]" is the single character "o" at index 1
+    // (the character class consumes one char from the input).  Record
+    // the observed behavior to catch regressions in ToString coercion.
     assert_eq!(eval_str("'[object Object]'.match({})[0];"), "o");
     assert_eq!(eval_number("'[object Object]'.match({}).index;"), 1.0);
 }
