@@ -740,11 +740,9 @@ fn eval_const_reassign_error() {
     assert!(eval("const x = 1; x = 2;").is_err());
 }
 
-#[test]
-fn vm_is_send() {
-    fn assert_send<T: Send>() {}
-    assert_send::<Vm>();
-}
+// Note: `Vm` intentionally does NOT implement `Send` once a `HostData` is
+// installed — see vm/host_data.rs.  Worker-thread support in PR2+ will design
+// a Send-safe variant explicitly.
 
 // ---------------------------------------------------------------------------
 // TDZ enforcement

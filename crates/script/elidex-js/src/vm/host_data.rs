@@ -123,18 +123,15 @@ mod engine_feature {
         }
     }
 
-    // SAFETY: `HostData` contains raw pointers which are !Send by default.
-    // We opt in because:
-    // - Between bind/unbind the pointers reference caller-owned state that
-    //   the caller has exclusively borrowed for the duration of a JS call.
-    // - When unbound, both pointers are null and carry no data.
-    // - `Vm` must not cross thread boundaries while bound (not enforced by
-    //   the type system; the caller's bind/unbind discipline is responsible).
-    // - `HostData` itself is intentionally !Sync — no shared references may
-    //   span threads even when unbound, because `session()`/`dom()` take
-    //   `&mut self`.
-    #[allow(unsafe_code)]
-    unsafe impl Send for HostData {}
+    // Intentionally no `Send`/`Sync` impl:
+    // `HostData` holds raw pointers to caller-owned host state while bound.
+    // Moving a bound VM across threads (or sharing `&HostData` across them)
+    // would race with the caller's owned `&mut SessionCore` / `&mut EcsDom`.
+    // The invariant is not expressible in Rust's type system, so we keep
+    // `HostData` `!Send`/`!Sync` to prevent accidental cross-thread transfer.
+    // When Worker threads are introduced (PR2+), each worker owns its own VM;
+    // the Send invariant will be designed explicitly (e.g., split unbound
+    // cache + bound non-Send guard).
 }
 
 #[cfg(not(feature = "engine"))]

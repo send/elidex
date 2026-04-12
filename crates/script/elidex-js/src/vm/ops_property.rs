@@ -88,9 +88,10 @@ impl VmInner {
                     self.lookup_on_proto(self.string_prototype, pk, obj)
                 }
             }
-            // Strict mode: getters receive the raw primitive as `this` per
-            // §9.1.8.1 step 3 ("the this value is the receiver").
-            // elidex is strict-mode only — no ToObject boxing needed.
+            // Primitive property access: look up on the prototype with the
+            // raw primitive as the receiver.  Getters receive the original
+            // primitive as `this` (§9.1.8.1 step 3); any required ToObject
+            // boxing is the getter's responsibility.
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),

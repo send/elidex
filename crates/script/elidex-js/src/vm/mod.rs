@@ -825,7 +825,16 @@ impl Vm {
 
     /// Install a `HostData` instance for browser shell integration.
     /// Call once, typically at `ElidexJsEngine` construction.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a `HostData` is already installed, to prevent accidentally
+    /// dropping caches (listener_store, wrapper_cache) from a prior bind.
     pub fn install_host_data(&mut self, hd: host_data::HostData) {
+        assert!(
+            self.inner.host_data.is_none(),
+            "HostData already installed; use host_data() to access or a fresh Vm to reinstall"
+        );
         self.inner.host_data = Some(Box::new(hd));
     }
 
