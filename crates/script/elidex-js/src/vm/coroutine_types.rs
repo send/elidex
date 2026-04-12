@@ -71,7 +71,7 @@ pub struct PromiseCombinatorState {
 }
 
 /// Which combinator this state serves.  `Race` is absent because
-/// `Promise.race` reuses the existing [`ObjectKind::PromiseResolver`]
+/// `Promise.race` reuses the existing `ObjectKind::PromiseResolver`
 /// machinery directly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CombinatorKind {
