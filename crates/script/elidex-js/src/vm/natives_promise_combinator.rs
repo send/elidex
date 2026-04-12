@@ -1,16 +1,14 @@
-//! Promise combinators (ES2020 §25.6.4.1-3) + `prototype.finally`.
+//! Promise combinators (ES2020 §25.6.4.1-3) + `Promise.prototype.finally`.
 //!
-//! Split out of `natives_promise` to keep each file under the 1000-line
-//! project convention.  The core state machine (Promise / settle / then /
-//! drain / queueMicrotask) stays in `natives_promise`; this file owns
-//! the aggregator-style combinators plus `finally`, which share the
-//! ObjectKind-variant-based closure pattern documented in the plan.
+//! Core state machine (settle / then / drain / queueMicrotask) lives in
+//! `natives_promise`; this file owns the aggregator-style combinators
+//! which share an ObjectKind-variant-based closure pattern.
 
 use super::natives_promise::{create_promise, create_resolver_pair, settle_promise, then_impl};
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     CombinatorKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PromiseCombinatorState,
-    PromiseCombinatorStep, PropertyKey, PropertyStorage, PropertyValue, VmError, VmErrorKind,
+    PromiseCombinatorStep, PropertyKey, PropertyStorage, PropertyValue, VmError,
 };
 use super::VmInner;
 
@@ -164,8 +162,7 @@ pub(super) fn step_combinator(
 }
 
 /// Build a `{status: ..., value|reason: ...}` result object used by
-/// `Promise.allSettled`.  Uses an Ordinary object with Dictionary storage
-/// to avoid allocating a dedicated shape for every entry.
+/// `Promise.allSettled`.
 fn make_settled_entry(vm: &mut VmInner, fulfilled: bool, value: JsValue) -> JsValue {
     let obj = vm.alloc_object(Object {
         kind: ObjectKind::Ordinary,
@@ -173,20 +170,20 @@ fn make_settled_entry(vm: &mut VmInner, fulfilled: bool, value: JsValue) -> JsVa
         prototype: vm.object_prototype,
         extensible: true,
     });
-    let status_key = PropertyKey::String(vm.strings.intern("status"));
-    let status_str = if fulfilled { "fulfilled" } else { "rejected" };
-    let status_val = JsValue::String(vm.strings.intern(status_str));
+    let (status_sid, payload_sid) = if fulfilled {
+        (vm.well_known.fulfilled, vm.well_known.value)
+    } else {
+        (vm.well_known.rejected, vm.well_known.reason)
+    };
     vm.define_shaped_property(
         obj,
-        status_key,
-        PropertyValue::Data(status_val),
+        PropertyKey::String(vm.well_known.status),
+        PropertyValue::Data(JsValue::String(status_sid)),
         PropertyAttrs::DATA,
     );
-    let payload_name = if fulfilled { "value" } else { "reason" };
-    let payload_key = PropertyKey::String(vm.strings.intern(payload_name));
     vm.define_shaped_property(
         obj,
-        payload_key,
+        PropertyKey::String(payload_sid),
         PropertyValue::Data(value),
         PropertyAttrs::DATA,
     );
@@ -221,9 +218,9 @@ fn settle_all_settled_slot(vm: &mut VmInner, state_id: ObjectId, index: u32, ent
 }
 
 /// Build an `AggregateError` for `Promise.any` when every input rejects.
-/// The shape here is a minimal `Error` object carrying `.errors` and a
-/// fixed message — full AggregateError wiring (inheritance chain, proper
-/// `[[Prototype]]`) comes with the rest of the Error cleanup in PR4.
+/// Minimal `Error` shape carrying `.errors` and a fixed message — full
+/// AggregateError wiring (spec-correct prototype chain) lands with the
+/// Error cleanup in PR2.5.
 fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
     let name_id = vm.strings.intern("AggregateError");
     let obj = vm.alloc_object(Object {
@@ -232,26 +229,23 @@ fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
         prototype: vm.object_prototype,
         extensible: true,
     });
-    let name_key = PropertyKey::String(vm.well_known.name);
     vm.define_shaped_property(
         obj,
-        name_key,
+        PropertyKey::String(vm.well_known.name),
         PropertyValue::Data(JsValue::String(name_id)),
         PropertyAttrs::DATA,
     );
-    let message_key = PropertyKey::String(vm.well_known.message);
     let message_val = JsValue::String(vm.strings.intern("All promises were rejected"));
     vm.define_shaped_property(
         obj,
-        message_key,
+        PropertyKey::String(vm.well_known.message),
         PropertyValue::Data(message_val),
         PropertyAttrs::DATA,
     );
     let errors_arr = vm.create_array_object(errors);
-    let errors_key = PropertyKey::String(vm.strings.intern("errors"));
     vm.define_shaped_property(
         obj,
-        errors_key,
+        PropertyKey::String(vm.well_known.errors),
         PropertyValue::Data(JsValue::Object(errors_arr)),
         PropertyAttrs::DATA,
     );
@@ -374,14 +368,19 @@ fn run_combinator(
     Ok(JsValue::Object(result))
 }
 
-/// Collect every value produced by `iterator` into a `Vec`.  Honours
-/// IteratorClose on error: if iteration panics (JS throw), the error
-/// propagates — `resolve_iterator` / `iter_next` already close via their
-/// own error paths when the next step throws, so we don't need a manual
-/// IteratorClose here.
+/// Collect every value produced by `iterator` into a `Vec`.  Caps at
+/// `DENSE_ARRAY_LEN_LIMIT` to prevent a hostile user iterator from forcing
+/// unbounded allocation before the caller's `u32::try_from(len)` check.
+/// IteratorClose on error is handled by `iter_next` itself — we just
+/// propagate.
 fn collect_items(vm: &mut VmInner, iterator: JsValue) -> Result<Vec<JsValue>, VmError> {
     let mut out = Vec::new();
     while let Some(v) = vm.iter_next(iterator)? {
+        if out.len() >= super::ops::DENSE_ARRAY_LEN_LIMIT {
+            return Err(VmError::range_error(
+                "Promise combinator iterable exceeds implementation limit",
+            ));
+        }
         out.push(v);
     }
     Ok(out)
@@ -434,10 +433,7 @@ pub(super) fn run_finally_step(
     if is_reject {
         // Re-throw so the promise reaction rejects the derived capability
         // with the original reason.
-        Err(VmError {
-            kind: VmErrorKind::ThrowValue(value),
-            message: String::new(),
-        })
+        Err(VmError::throw(value))
     } else {
         Ok(value)
     }

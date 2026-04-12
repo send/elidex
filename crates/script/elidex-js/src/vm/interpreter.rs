@@ -216,7 +216,6 @@ impl VmInner {
                 stack_slice,
                 upvalue_slots: Vec::new(),
             };
-            let _ = entry_frames;
             return super::natives_generator::make_async_coroutine_and_drive(self, suspended);
         }
 
@@ -268,7 +267,6 @@ impl VmInner {
                     susp.frame.generator = Some(gen_id);
                 }
             }
-            let _ = entry_frames; // unused on this early-return path
             return Ok(JsValue::Object(gen_id));
         }
 

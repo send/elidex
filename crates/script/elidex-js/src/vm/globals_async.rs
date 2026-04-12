@@ -1,9 +1,7 @@
 //! Registration of coroutine-family globals (Promise, Generator).
 //!
-//! Extracted from `globals.rs` to keep that file under the 1000-line
-//! project convention.  These share the common pattern of introducing a
-//! prototype object populated with native methods and (for Promise) a
-//! constructable entry point.
+//! Each registers a prototype populated with native methods and (for
+//! Promise) a constructable entry point.
 
 use super::shape::PropertyAttrs;
 use super::value::{JsValue, PropertyKey, PropertyValue};

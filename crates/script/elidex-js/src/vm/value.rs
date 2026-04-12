@@ -886,6 +886,16 @@ impl fmt::Display for VmError {
 impl std::error::Error for VmError {}
 
 impl VmError {
+    /// Build a VmError carrying a user-thrown JS value.  Used to propagate
+    /// `throw expr` and reject-forwarded reasons through the call stack
+    /// without coercing them back to strings.
+    pub fn throw(value: JsValue) -> Self {
+        Self {
+            kind: VmErrorKind::ThrowValue(value),
+            message: String::new(),
+        }
+    }
+
     pub fn type_error(message: impl Into<String>) -> Self {
         Self {
             kind: VmErrorKind::TypeError,

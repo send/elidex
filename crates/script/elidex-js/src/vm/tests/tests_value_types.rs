@@ -1,9 +1,7 @@
 //! Unit tests for `value.rs` types (JsValue properties, Property
-//! constructors, StringId equality).  Extracted from the bottom of
-//! `value.rs` so that file stays under the 1000-line project convention.
+//! constructors, StringId equality).
 
-use super::super::shape;
-use super::super::value::{JsValue, Property, PropertyStorage, StringId};
+use super::super::value::{JsValue, Property, StringId};
 
 #[test]
 fn js_value_is_copy() {
@@ -52,7 +50,6 @@ fn js_value_primitive_falsy() {
     assert!(!JsValue::String(StringId(0)).is_primitive_falsy());
     // Arbitrary ObjectId is OK for the falsiness check (no deref needed).
     assert!(!JsValue::Object(super::super::value::ObjectId(0)).is_primitive_falsy());
-    let _ = PropertyStorage::shaped(shape::ROOT_SHAPE); // silence unused
 }
 
 #[test]

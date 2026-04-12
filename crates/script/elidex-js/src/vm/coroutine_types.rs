@@ -1,13 +1,10 @@
 //! Runtime state types for Promise / Generator / async-function coroutines.
 //!
-//! Extracted from `value.rs` to keep that file under the 1000-line
-//! project convention.  These types are referenced by `ObjectKind`
-//! variants in `value.rs`, by the coroutine dispatch paths in
-//! `dispatch.rs` / `interpreter.rs`, and by the implementation modules
-//! (`natives_promise`, `natives_promise_combinator`, `natives_generator`).
-//!
-//! The split is purely structural — nothing here depends on anything
-//! outside `value`, and nothing semantic changed.
+//! Referenced by `ObjectKind` variants in `value.rs`, by the coroutine
+//! dispatch paths (`dispatch.rs` / `interpreter.rs`), and by the
+//! implementation modules (`natives_promise`, `natives_promise_combinator`,
+//! `natives_generator`).  `value.rs` re-exports everything here so
+//! external `vm::value::X` paths continue to work.
 
 use super::value::{CallFrame, JsValue, ObjectId, UpvalueId};
 

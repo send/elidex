@@ -1,10 +1,8 @@
 //! `try` / `catch` / `finally` + `throw` tests (ES2020 §13.15).
 //!
-//! Extracted from `tests/mod.rs` to keep that file under the 1000-line
-//! project convention.  Includes the ordering regression tests added
-//! alongside the PR2 bytecode-compile fix (previously the compiler
-//! pre-emitted the finally body inline before `Op::Throw`, causing
-//! double-execution masked by value-overwriting tests).
+//! Includes ordering regression tests that catch the "finally runs
+//! before catch and then again after" bug that value-overwriting tests
+//! could miss.
 
 use super::{eval, eval_global_string, eval_number};
 
@@ -88,14 +86,14 @@ fn eval_finally_runs_on_catch_throw() {
     );
 }
 
-// ── try/catch/finally ordering (regression tests for PR2 bug fix) ──
+// ── Ordering: throw → catch → finally ──
 //
-// The previous compile path pre-emitted the finally body inline before
-// `Op::Throw`, causing it to run once before the catch handler AND again
-// after (via the handler fall-through), a double execution hidden in
-// value-overwriting tests like `eval_try_catch_finally` above.  These
-// tests observe execution ORDER via string concatenation to catch
-// regressions should that path ever be reintroduced.
+// If the compiler ever pre-emits the finally body inline before
+// `Op::Throw`, these tests fail: the handler mechanism already runs
+// finally on catch fall-through, so an inline copy would run finally
+// twice.  String concatenation makes the ordering observable (the older
+// `eval_try_catch_finally` above used `+=` with numbers, which masked
+// the bug because the final sum was the same regardless of order).
 
 #[test]
 fn eval_tcf_order_throw_with_catch_and_finally() {

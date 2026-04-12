@@ -11,9 +11,8 @@
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     GeneratorStatus, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
-    PropertyStorage, PropertyValue, SuspendedFrame, UpvalueState, VmError, VmErrorKind,
+    PropertyStorage, PropertyValue, SuspendedFrame, UpvalueState, VmError,
 };
-#[allow(unused_imports)] // VmErrorKind is used by resume_generator_throw
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -47,7 +46,7 @@ pub(crate) fn op_yield_suspend(
     vm.completion_value = frame.saved_completion;
 
     // Close open upvalues; remember their slots for the later reopen.
-    let mut upvalue_slots = Vec::new();
+    let mut upvalue_slots = Vec::with_capacity(frame.local_upvalue_ids.len());
     for &uv_id in &frame.local_upvalue_ids {
         let uv = &mut vm.upvalues[uv_id.0 as usize];
         if let UpvalueState::Open { slot, .. } = uv.state {
@@ -222,7 +221,6 @@ impl VmInner {
                 // explicit `return expr` — either way `run()` returns the
                 // value to use for the last iterator result.
                 mark_completed(self);
-                let _ = entry_frames;
                 Ok((return_value, true))
             }
             Err(e) => {
@@ -256,10 +254,7 @@ impl VmInner {
                 GeneratorStatus::Completed => {
                     // Spec §25.4.1.4: throw on a completed iterator propagates
                     // the reason as the thrown completion.
-                    return Err(VmError {
-                        kind: VmErrorKind::ThrowValue(reason),
-                        message: String::new(),
-                    });
+                    return Err(VmError::throw(reason));
                 }
                 GeneratorStatus::Running => {
                     return Err(VmError::type_error(
@@ -319,10 +314,7 @@ impl VmInner {
             self.frames.pop();
             self.completion_value = saved_completion;
             mark_completed(self);
-            return Err(VmError {
-                kind: VmErrorKind::ThrowValue(reason),
-                message: String::new(),
-            });
+            return Err(VmError::throw(reason));
         }
 
         // Handler active — proceed with normal run() resumption.
@@ -458,10 +450,7 @@ pub(super) fn native_generator_throw(
         state.suspended = None;
     }
     let reason = args.first().copied().unwrap_or(JsValue::Undefined);
-    Err(VmError {
-        kind: super::value::VmErrorKind::ThrowValue(reason),
-        message: String::new(),
-    })
+    Err(VmError::throw(reason))
 }
 
 /// `Generator.prototype[Symbol.iterator]` returns `this`.
@@ -534,12 +523,7 @@ pub(crate) fn drive_async_coroutine(
             let _ = super::natives_promise::settle_promise(vm, wrapper, false, return_value);
         }
         Err(e) => {
-            let reason = if let VmErrorKind::ThrowValue(v) = e.kind {
-                v
-            } else {
-                let msg = vm.strings.intern(&e.to_string());
-                JsValue::String(msg)
-            };
+            let reason = vm.vm_error_to_thrown(&e);
             let _ = super::natives_promise::settle_promise(vm, wrapper, true, reason);
         }
     }

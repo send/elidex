@@ -1,9 +1,8 @@
 //! Re-entrant native-function helper methods hanging off `NativeContext`.
 //!
-//! Extracted from `mod.rs` to keep that file under the 1000-line project
-//! convention.  `NativeContext<'a>` itself is defined in `value.rs`; this
-//! file hosts the convenience API it exposes to native builtins
-//! (intern, alloc_object, call_function, host access, etc.).
+//! `NativeContext<'a>` itself is defined in `value.rs`; this file hosts
+//! the convenience API it exposes to native builtins (intern, alloc_object,
+//! call_function, host access, etc.).
 
 use super::coerce;
 use super::host_data;

@@ -182,8 +182,9 @@ impl VmInner {
     pub(crate) fn drain_timers(&mut self, now: Instant) -> usize {
         let mut fired = 0usize;
         loop {
-            // Peek, not pop, so cancelled entries in the future don't
-            // disappear — we only evict the head when it's ready to fire.
+            // Peek before popping so that a future-dated head stays
+            // scheduled; only entries whose deadline is `<= now` are
+            // consumed this drain.
             let head_ready = self
                 .timer_queue
                 .peek()
@@ -237,7 +238,7 @@ impl VmInner {
             return Ok(());
         }
         let this = JsValue::Object(self.global_object);
-        let _ = self.call(entry.callback, this, &entry.args)?;
+        self.call(entry.callback, this, &entry.args)?;
         Ok(())
     }
 }

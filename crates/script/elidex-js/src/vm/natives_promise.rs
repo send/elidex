@@ -13,10 +13,10 @@
 //! - [`create_promise`] — public helper used by the constructor.
 //! - Registration lives in [`globals::register_promise_global`].
 
-use super::shape::{self, PropertyAttrs};
+use super::shape;
 use super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PromiseState, PromiseStatus, PropertyKey,
-    PropertyStorage, PropertyValue, Reaction, ReactionKind, VmError, VmErrorKind,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PromiseState, PromiseStatus,
+    PropertyStorage, Reaction, ReactionKind, VmError,
 };
 use super::VmInner;
 
@@ -121,8 +121,9 @@ pub(super) fn settle_promise(
     if !is_reject {
         if let JsValue::Object(resolution_id) = value {
             if resolution_id == promise {
-                let err = build_type_error(vm, "Chaining cycle detected for promise");
-                reject_promise(vm, promise, err);
+                let err = VmError::type_error("Chaining cycle detected for promise");
+                let reason = vm.vm_error_to_thrown(&err);
+                reject_promise(vm, promise, reason);
                 return Ok(JsValue::Undefined);
             }
             // If resolution is a Promise, wait for it to settle and then
@@ -197,35 +198,6 @@ fn reject_promise(vm: &mut VmInner, promise: ObjectId, reason: JsValue) {
     }
 }
 
-/// Build a TypeError instance matching the shape used elsewhere in the VM
-/// (`ObjectKind::Error { name }` + `.name` / `.message` data properties).
-/// Returned as a `JsValue::Object` ready to use as a rejection reason.
-pub(super) fn build_type_error(vm: &mut VmInner, message: &str) -> JsValue {
-    let name_id = vm.strings.intern("TypeError");
-    let msg_id = vm.strings.intern(message);
-    let obj = vm.alloc_object(Object {
-        kind: ObjectKind::Error { name: name_id },
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: vm.object_prototype,
-        extensible: true,
-    });
-    let name_key = PropertyKey::String(vm.well_known.name);
-    vm.define_shaped_property(
-        obj,
-        name_key,
-        PropertyValue::Data(JsValue::String(name_id)),
-        PropertyAttrs::DATA,
-    );
-    let message_key = PropertyKey::String(vm.well_known.message);
-    vm.define_shaped_property(
-        obj,
-        message_key,
-        PropertyValue::Data(JsValue::String(msg_id)),
-        PropertyAttrs::DATA,
-    );
-    JsValue::Object(obj)
-}
-
 /// Subscribe `dst` to `src`'s settlement: when `src` settles (or
 /// immediately, if already settled), propagate the result to `dst`.  Used
 /// when the executor (or `Promise.resolve`) is passed a real Promise value.
@@ -239,37 +211,18 @@ fn forward_promise(vm: &mut VmInner, src: ObjectId, dst: ObjectId) {
         };
         (state.status, state.result)
     };
+    let relay = |kind| Reaction {
+        kind,
+        handler: None,
+        capability: dst,
+    };
     match status {
-        PromiseStatus::Fulfilled => {
-            vm.microtask_queue.push_back(Microtask::PromiseReaction {
-                kind: ReactionKind::Fulfill,
-                handler: None,
-                capability: dst,
-                resolution: result,
-            });
-        }
-        PromiseStatus::Rejected => {
-            vm.microtask_queue.push_back(Microtask::PromiseReaction {
-                kind: ReactionKind::Reject,
-                handler: None,
-                capability: dst,
-                resolution: result,
-            });
-        }
+        PromiseStatus::Fulfilled => enqueue_reaction(vm, relay(ReactionKind::Fulfill), result),
+        PromiseStatus::Rejected => enqueue_reaction(vm, relay(ReactionKind::Reject), result),
         PromiseStatus::Pending => {
-            let fulfill_r = Reaction {
-                kind: ReactionKind::Fulfill,
-                handler: None,
-                capability: dst,
-            };
-            let reject_r = Reaction {
-                kind: ReactionKind::Reject,
-                handler: None,
-                capability: dst,
-            };
             if let ObjectKind::Promise(state) = &mut vm.get_object_mut(src).kind {
-                state.fulfill_reactions.push(fulfill_r);
-                state.reject_reactions.push(reject_r);
+                state.fulfill_reactions.push(relay(ReactionKind::Fulfill));
+                state.reject_reactions.push(relay(ReactionKind::Reject));
             }
         }
     }
@@ -397,22 +350,9 @@ fn run_reaction(
             let _ = settle_promise(vm, capability, false, value);
         }
         Err(e) => {
-            let thrown = thrown_value(vm, &e);
+            let thrown = vm.vm_error_to_thrown(&e);
             let _ = settle_promise(vm, capability, true, thrown);
         }
-    }
-}
-
-/// Extract the JS-visible reason from a [`VmError`].  Non-`ThrowValue`
-/// errors (e.g. internal TypeErrors raised by native builtins) are surfaced
-/// as interned strings — the same bridge used elsewhere when a Rust-side
-/// error has to become a JS reason.
-fn thrown_value(vm: &mut VmInner, e: &VmError) -> JsValue {
-    if let VmErrorKind::ThrowValue(v) = &e.kind {
-        *v
-    } else {
-        let msg = vm.strings.intern(&e.to_string());
-        JsValue::String(msg)
     }
 }
 
@@ -465,7 +405,7 @@ pub(super) fn native_promise_constructor(
         // If the executor throws, reject the promise with the thrown value
         // (spec step 10).  If the promise was already settled (executor
         // resolved before throwing), this is a no-op.
-        let thrown = thrown_value(ctx.vm, &e);
+        let thrown = ctx.vm.vm_error_to_thrown(&e);
         let _ = settle_promise(ctx.vm, promise_id, true, thrown);
     }
     Ok(JsValue::Object(promise_id))

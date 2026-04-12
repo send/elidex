@@ -149,36 +149,26 @@ pub(crate) struct VmInner {
     /// Promise.prototype object (§25.6.5).
     pub(crate) promise_prototype: Option<ObjectId>,
     /// Microtask queue (HTML §8.1.4.3).  Drained at HTML microtask
-    /// checkpoints — currently just at the end of `eval()` and the end of
-    /// event-listener invocations.  `queueMicrotask` / additional drain
-    /// points are wired up in PR2 commit 2.
+    /// checkpoints (end of `eval`, end of each event listener).
     pub(crate) microtask_queue: VecDeque<natives_promise::Microtask>,
-    /// Reentrancy guard: nonzero while a microtask drain is in progress.
-    /// Prevents reentrancy from accidentally reordering the queue if a
-    /// microtask triggers a nested eval or listener invocation.
+    /// Reentrancy guard — nonzero while a drain is in progress, so nested
+    /// eval/listener calls don't reorder the rest of the queue.
     pub(crate) microtask_drain_depth: u32,
-    /// Rejected promises that had no reject handler attached at the
-    /// moment they settled.  Checked at the end of every microtask drain:
-    /// any entry whose target is still `Rejected && !handled` emits a
-    /// warning (HTML "unhandled promise rejection").  The hookup to a
-    /// proper `PromiseRejectionEvent` dispatch is deferred to PR3.
+    /// Rejected promises with no reject handler attached at settle time.
+    /// End-of-drain scan warns on entries still `Rejected && !handled`.
+    /// PromiseRejectionEvent dispatch ships with PR3.
     pub(crate) pending_rejections: Vec<ObjectId>,
-    /// Generator.prototype — shared prototype for generator iterator
-    /// objects.  Holds `next` / `return` / `throw` and `[Symbol.iterator]`.
+    /// Generator.prototype — shared prototype for generator iterators.
     pub(crate) generator_prototype: Option<ObjectId>,
-    /// Set by `Op::Yield` to signal the enclosing `resume_generator` that
-    /// the generator paused with this value.  Taken (cleared) by the
-    /// generator driver.  `None` outside of a yield dispatch.
+    /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
+    /// the yielded value.  `None` outside a yield dispatch.
     pub(crate) generator_yielded: Option<JsValue>,
-    /// Pending timer entries ordered by nearest deadline.  Driven by
-    /// `drain_timers(now)` — the shell (PR6) calls this on each event-loop
-    /// tick.  `next_timer_id` provides monotonically-increasing IDs for
-    /// `setTimeout` / `setInterval` returns.
+    /// Pending timers ordered by nearest deadline; fired by
+    /// `drain_timers(now)` (driven by the shell on each event-loop tick).
     pub(crate) timer_queue: BinaryHeap<natives_timer::TimerEntry>,
+    /// Monotonically-increasing IDs returned by `setTimeout` / `setInterval`.
     pub(crate) next_timer_id: u32,
-    /// IDs cleared via `clearTimeout` / `clearInterval` before firing.
-    /// Checked at drain time so cancelled entries are skipped.  Entries
-    /// age out of this set once they're popped from `timer_queue`.
+    /// IDs cleared before firing — skipped at drain time.
     pub(crate) cancelled_timers: HashSet<u32>,
 }
 
@@ -226,6 +216,11 @@ pub(crate) struct WellKnownStrings {
     pub(crate) writable: StringId,
     pub(crate) source: StringId,
     pub(crate) flags: StringId,
+    pub(crate) status: StringId,
+    pub(crate) fulfilled: StringId,
+    pub(crate) rejected: StringId,
+    pub(crate) reason: StringId,
+    pub(crate) errors: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -749,6 +744,11 @@ impl Vm {
             writable: strings.intern("writable"),
             source: strings.intern("source"),
             flags: strings.intern("flags"),
+            status: strings.intern("status"),
+            fulfilled: strings.intern("fulfilled"),
+            rejected: strings.intern("rejected"),
+            reason: strings.intern("reason"),
+            errors: strings.intern("errors"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).
