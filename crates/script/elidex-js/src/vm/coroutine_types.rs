@@ -111,12 +111,17 @@ pub enum PromiseCombinatorStep {
 /// - `handled` tracks whether a reject reaction has been attached — the
 ///   end-of-microtask-drain scan in `natives_promise` uses it to decide
 ///   whether to emit an unhandled-rejection warning.
+/// - `already_resolved` models the spec's `[[AlreadyResolved]]` record
+///   (§25.6.1.3 step 2) shared by the resolve/reject pair: once the first
+///   resolver call fires, all later calls become no-ops — even if the
+///   status is still `Pending` because we adopted a pending thenable.
 pub struct PromiseState {
     pub status: PromiseStatus,
     pub result: JsValue,
     pub fulfill_reactions: Vec<Reaction>,
     pub reject_reactions: Vec<Reaction>,
     pub handled: bool,
+    pub already_resolved: bool,
 }
 
 /// `[[PromiseState]]` (ES2020 §25.6.6): Pending until the first resolve/reject,

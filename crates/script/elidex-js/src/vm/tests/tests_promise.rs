@@ -637,3 +637,45 @@ fn promise_chain_dispatched_in_separate_microtasks() {
         "ABC"
     );
 }
+
+// ─── [[AlreadyResolved]] semantics (§25.6.1.3 step 2) ────────────────────
+
+#[test]
+fn resolver_reject_after_resolve_of_pending_thenable_is_noop() {
+    // `resolve(p)` where p is a pending Promise adopts p: the outer stays
+    // Pending until p settles.  Any *subsequent* call to either resolver
+    // must be a no-op, even though `status` is still Pending.  Without the
+    // AlreadyResolved flag, the late `reject('late')` would incorrectly
+    // reject the outer promise (spec §25.6.1.3 step 2).
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = 'pending'; \
+             var resolveInner; \
+             var inner = new Promise(r => { resolveInner = r; }); \
+             var outer = new Promise((res, rej) => { \
+                 res(inner);   /* adopts pending thenable */ \
+                 rej('late');  /* must be a no-op */ \
+             }); \
+             outer.then(v => { globalThis.log = 'fulfilled:' + v; }, \
+                        e => { globalThis.log = 'rejected:' + e; }); \
+             resolveInner(42);",
+            "log"
+        ),
+        "fulfilled:42"
+    );
+}
+
+#[test]
+fn resolver_second_resolve_is_noop() {
+    // Classic AlreadyResolved case: two synchronous resolve calls — the
+    // second must not overwrite the first.
+    assert_eq!(
+        eval_global_number(
+            "globalThis.x = 0; \
+             new Promise((res, _rej) => { res(1); res(2); }) \
+                 .then(v => { globalThis.x = v; });",
+            "x"
+        ),
+        1.0
+    );
+}

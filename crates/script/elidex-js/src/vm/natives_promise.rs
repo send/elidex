@@ -60,6 +60,7 @@ pub(super) fn create_promise(vm: &mut VmInner) -> ObjectId {
             fulfill_reactions: Vec::new(),
             reject_reactions: Vec::new(),
             handled: false,
+            already_resolved: false,
         }),
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
         prototype: proto,
@@ -92,8 +93,12 @@ pub(super) fn create_resolver_pair(vm: &mut VmInner, promise: ObjectId) -> (Obje
 
 /// Settle `promise` from an external `PromiseResolver` invocation.
 ///
-/// Idempotent via the promise's own status field: if `status != Pending`
-/// the call is a no-op (spec `[[AlreadyResolved]]` check in §25.6.1.3.1/3.2).
+/// Idempotent via the promise's `already_resolved` flag — the spec models
+/// this as an `[[AlreadyResolved]]` record shared between the resolve /
+/// reject pair (§25.6.1.3 step 2).  Checking `status == Pending` alone is
+/// not sufficient: when `resolve(p2)` adopts a pending thenable, the
+/// outer promise stays `Pending` until `p2` settles, but any subsequent
+/// resolver call must still be a no-op.
 ///
 /// Promise-value pass-through (`resolve(p2)` where `p2` is a Promise):
 /// the spec (§25.6.1.3.2 PromiseResolveThenableJob) would schedule a
@@ -108,12 +113,17 @@ pub(super) fn settle_promise(
     is_reject: bool,
     value: JsValue,
 ) -> Result<JsValue, VmError> {
-    // AlreadyResolved check: once the promise has settled (or is being
-    // resolved through a nested thenable), further resolve/reject calls
-    // become no-ops.
-    match &vm.get_object(promise).kind {
-        ObjectKind::Promise(state) if state.status == PromiseStatus::Pending => {}
-        _ => return Ok(JsValue::Undefined),
+    // AlreadyResolved check: once any resolver call has fired (either
+    // settling directly or adopting a pending thenable), subsequent calls
+    // become no-ops even while `status` is still `Pending`.
+    {
+        let ObjectKind::Promise(state) = &mut vm.get_object_mut(promise).kind else {
+            return Ok(JsValue::Undefined);
+        };
+        if state.already_resolved {
+            return Ok(JsValue::Undefined);
+        }
+        state.already_resolved = true;
     }
 
     // resolve(thisPromise) — §25.6.1.3.2 step 7: reject with a
@@ -341,8 +351,17 @@ fn run_reaction(
 ) {
     let Some(handler) = handler else {
         // Default passthrough — Fulfill propagates the resolution, Reject
-        // propagates as a rejection reason.
-        let _ = settle_promise(vm, capability, kind == ReactionKind::Reject, resolution);
+        // propagates as a rejection reason.  This path is how
+        // `forward_promise` relays a settled source to an outer promise
+        // whose resolver has already fired (so `already_resolved` is set);
+        // the gate in `settle_promise` would reject the relay.  Go
+        // through the internal helper instead, which just transitions the
+        // promise state and schedules its reactions.
+        if kind == ReactionKind::Reject {
+            reject_promise(vm, capability, resolution);
+        } else {
+            fulfill_promise(vm, capability, resolution);
+        }
         return;
     };
     match vm.call(handler, JsValue::Undefined, &[resolution]) {
@@ -391,6 +410,7 @@ pub(super) fn native_promise_constructor(
                 fulfill_reactions: Vec::new(),
                 reject_reactions: Vec::new(),
                 handled: false,
+                already_resolved: false,
             });
             id
         }
