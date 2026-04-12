@@ -262,8 +262,6 @@ pub enum Op {
     // ── Generator / Async ───────────────────────────────────────────
     /// `[value -- resumed_value]`
     Yield,
-    /// `[iterator -- result]`
-    YieldDelegate,
     /// `[promise -- resolved_value]`
     Await,
 
@@ -376,7 +374,6 @@ impl Op {
             | Self::PushException
             | Self::EndFinally
             | Self::Yield
-            | Self::YieldDelegate
             | Self::Await
             | Self::NewTarget
             | Self::ImportMeta

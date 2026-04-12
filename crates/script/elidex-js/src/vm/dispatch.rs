@@ -979,16 +979,6 @@ impl VmInner {
                     // frame — control resumes in the caller's frame on
                     // the next loop iteration.
                 }
-                Op::YieldDelegate => {
-                    // Full `yield*` spec (arg / return value / throw forward)
-                    // lands in PR2.5 (generator spec completion).  Unlike
-                    // `Op::Yield`, we cannot produce a correct single-step
-                    // answer, so we throw.
-                    return Err(VmError::internal(
-                        "yield* (YieldDelegate) not supported in PR2 commit 4 — see PR2.5",
-                    ));
-                }
-
                 // ── Misc stubs ──────────────────────────────────────
                 Op::NewTarget | Op::ImportMeta => {
                     self.stack.push(JsValue::Undefined);

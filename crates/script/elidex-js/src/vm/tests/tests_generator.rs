@@ -482,6 +482,132 @@ fn for_of_break_runs_inner_generator_finally() {
     );
 }
 
+// ─── yield* (delegate) ────────────────────────────────────────────────────
+
+#[test]
+fn yield_star_iterates_array() {
+    // `yield* [1,2,3]` yields 1, 2, 3 in sequence then completes.
+    assert_eq!(
+        eval_number(
+            "function* g() { yield* [1, 2, 3]; } \
+             var it = g(); it.next().value + it.next().value + it.next().value;"
+        ),
+        6.0
+    );
+    assert!(eval_bool(
+        "function* g() { yield* [1, 2, 3]; } \
+         var it = g(); it.next(); it.next(); it.next(); it.next().done;"
+    ));
+}
+
+#[test]
+fn yield_star_empty_iterable_completes_immediately() {
+    // `yield* []` done=true on the first .next().
+    assert!(eval_bool("function* g() { yield* []; } g().next().done;"));
+}
+
+#[test]
+fn yield_star_delegates_to_inner_generator() {
+    // Outer drives inner through yield*.  Each outer.next() advances
+    // inner.next() exactly once while inner has more values.
+    assert_eq!(
+        eval_number(
+            "function* inner() { yield 10; yield 20; } \
+             function* outer() { yield 1; yield* inner(); yield 2; } \
+             var it = outer(); \
+             it.next().value + it.next().value + it.next().value + it.next().value;"
+        ),
+        33.0 // 1 + 10 + 20 + 2
+    );
+}
+
+#[test]
+fn yield_star_expression_value_is_inner_return_value() {
+    // Per §14.4.14, the value of a `yield* iter` expression is the inner
+    // iterator's return value (from `{done:true, value}`).  Here outer
+    // yields the captured value afterwards so we can observe it.
+    //
+    // Call trace:
+    //   it.next() #1  → inner.next() yields 1, outer re-yields 1.
+    //   it.next() #2  → inner.next() returns 42 (done=true), yield*
+    //                   expression value = 42, outer binds r=42 and
+    //                   then runs `yield r`, yielding 42.
+    assert_eq!(
+        eval_number(
+            "function* inner() { yield 1; return 42; } \
+             function* outer() { var r = yield* inner(); yield r; } \
+             var it = outer(); it.next(); it.next().value;"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn yield_star_forwards_next_arg_to_inner() {
+    // `.next(x)` while suspended inside yield* passes `x` to the inner
+    // iterator's `.next(x)` — inner observes it as the value of its own
+    // `yield` expression.
+    assert_eq!(
+        eval_number(
+            "function* inner() { var a = yield 1; var b = yield a + 10; return b + 100; } \
+             function* outer() { return yield* inner(); } \
+             var it = outer(); \
+             it.next();       /* inner yields 1 */ \
+             it.next(5);       /* a = 5, inner yields 15 */ \
+             it.next(7).value; /* b = 7, inner returns 107 */"
+        ),
+        107.0
+    );
+}
+
+#[test]
+fn yield_star_forwards_return_via_iterator_close() {
+    // `.return(v)` on outer while suspended inside yield* runs the
+    // inner iterator's `.return()` (via IteratorClose), then completes
+    // with `v`.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = []; \
+             var inner = { \
+               next() { return { value: 1, done: false }; }, \
+               return(v) { globalThis.log.push('inner.return'); return { value: v, done: true }; }, \
+               [Symbol.iterator]() { return this; }, \
+             }; \
+             function* outer() { yield* inner; } \
+             var it = outer(); \
+             it.next(); \
+             globalThis.log.push(it.return(99).value); \
+             globalThis.out = globalThis.log.join(',');",
+            "out"
+        ),
+        "inner.return,99"
+    );
+}
+
+#[test]
+fn yield_star_forwards_throw_closes_inner() {
+    // `.throw(e)` on outer while inside yield*: close inner then rethrow.
+    // (Proper `iter.throw` method forwarding is a future spec-alignment
+    // task — this verifies the close-and-rethrow fallback path.)
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = []; \
+             var inner = { \
+               next() { return { value: 1, done: false }; }, \
+               return(v) { globalThis.log.push('inner.return'); return { value: v, done: true }; }, \
+               [Symbol.iterator]() { return this; }, \
+             }; \
+             function* outer() { try { yield* inner; } catch(e) { globalThis.log.push('caught:' + e); } } \
+             var it = outer(); \
+             it.next(); \
+             it.throw('boom'); \
+             globalThis.out = globalThis.log.join(',');",
+            "out"
+        ),
+        "inner.return,caught:boom"
+    );
+}
+
 // ─── Sanity: yield outside a generator is a syntax error (compiler) ───────
 
 #[test]
