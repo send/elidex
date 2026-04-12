@@ -358,12 +358,30 @@ pub(super) fn native_string_split(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    // §21.1.3.19 step 6: limit defaults to 2^32 - 1; `ToUint32(limit)` when
+    // provided.  limit = 0 yields empty array (spec step 10).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let limit: usize = match args.get(1).copied() {
+        None | Some(JsValue::Undefined) => u32::MAX as usize,
+        Some(val) => {
+            let n = ctx.to_number(val)?;
+            if !n.is_finite() {
+                return Err(VmError::range_error("split() limit must be finite"));
+            }
+            // ToUint32: modulo 2^32 truncation.
+            let modded = n.rem_euclid(4_294_967_296.0);
+            modded.trunc() as usize
+        }
+    };
     // sep must be owned: we need it across intern_utf16 calls that borrow ctx mutably.
     let sep = ctx.get_u16(sep_id).to_vec();
     let mut parts: Vec<JsValue> = Vec::new();
+    if limit == 0 {
+        return Ok(create_array(ctx, parts));
+    }
     if sep.is_empty() {
         // Split into individual code units — no full-string clone needed.
-        let len = ctx.get_u16(sid).len();
+        let len = ctx.get_u16(sid).len().min(limit);
         if len >= DENSE_ARRAY_LEN_LIMIT {
             return Err(VmError::range_error("Array allocation failed"));
         }
@@ -378,7 +396,7 @@ pub(super) fn native_string_split(
         let sep_len = sep.len();
         let mut ranges: Vec<(usize, usize)> = Vec::new();
         let mut start = 0;
-        while start <= s_len {
+        while start <= s_len && ranges.len() < limit {
             if let Some(pos) = find_u16(&ctx.get_u16(sid)[start..], &sep) {
                 ranges.push((start, start + pos));
                 start += pos + sep_len;

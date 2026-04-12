@@ -164,14 +164,14 @@ impl VmInner {
                     extensible: true,
                 });
                 // source and flags are non-enumerable, non-writable (§21.2.5.10, §21.2.5.3).
-                let source_key = PropertyKey::String(self.strings.intern("source"));
+                let source_key = PropertyKey::String(self.well_known.source);
                 self.define_shaped_property(
                     obj_id,
                     source_key,
                     PropertyValue::Data(JsValue::String(pat_id)),
                     super::shape::PropertyAttrs::BUILTIN,
                 );
-                let flags_key = PropertyKey::String(self.strings.intern("flags"));
+                let flags_key = PropertyKey::String(self.well_known.flags);
                 self.define_shaped_property(
                     obj_id,
                     flags_key,

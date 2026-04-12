@@ -495,6 +495,40 @@ fn bind_length_zero_for_non_number_property() {
 }
 
 #[test]
+fn number_to_string_radix_hex() {
+    // §20.1.3.6: `(255).toString(16)` → "ff".  Regression: previously
+    // radix was ignored entirely.
+    assert_eq!(eval_string("(255).toString(16);"), "ff");
+    assert_eq!(eval_string("(10).toString(2);"), "1010");
+    assert_eq!(eval_string("(35).toString(36);"), "z");
+}
+
+#[test]
+fn number_to_string_radix_out_of_range() {
+    eval_throws("(10).toString(1);");
+    eval_throws("(10).toString(37);");
+}
+
+#[test]
+fn number_to_string_radix_default_is_decimal() {
+    assert_eq!(eval_string("(255).toString();"), "255");
+    assert_eq!(eval_string("(255).toString(10);"), "255");
+}
+
+#[test]
+fn string_split_honors_limit() {
+    // §21.1.3.19 step 6: limit truncates the result.
+    assert_eq!(eval_string("'a,b,c,d'.split(',', 2).join('|');"), "a|b");
+    assert_eq!(eval_string("'a,b,c'.split(',', 0).join('|');"), "");
+}
+
+#[test]
+fn string_split_limit_coerces_via_to_number() {
+    // Numeric string limit: ToNumber → ToUint32.
+    assert_eq!(eval_string("'a,b,c'.split(',', '2').join('|');"), "a|b");
+}
+
+#[test]
 fn array_to_string_honors_join_override() {
     // §22.1.3.30: Array.prototype.toString calls Get(O, "join"); if
     // callable, invokes it.  User-installed .join override must be honored.

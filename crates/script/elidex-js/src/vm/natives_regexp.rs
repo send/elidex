@@ -36,24 +36,14 @@ pub(super) fn run_regexp(
     };
     let uses_last_index = is_global || is_sticky;
 
-    // Read lastIndex (already a UTF-16 code unit index).
+    // §21.2.5.2.1 step 4: `ToLength(? ToNumber(? Get(R, "lastIndex")))`.
+    // Delegate to `get_regexp_last_index` so that accessor getters,
+    // prototype-chain lookups, and non-Number coercion are honored
+    // consistently with other call sites.
     let start = if uses_last_index {
-        let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
-        let obj = ctx.get_object(obj_id);
-        let mut idx = 0usize;
-        if let Some((super::value::PropertyValue::Data(JsValue::Number(n)), _)) =
-            obj.storage.get(last_index_key, &ctx.vm.shapes)
-        {
-            // ToLength: NaN/negative → 0, Infinity → subject.len().
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            if *n > 0.0 {
-                if n.is_finite() {
-                    idx = (n.trunc() as usize).min(subject.len());
-                } else {
-                    idx = subject.len();
-                }
-            }
-        }
+        let raw = super::natives_string::get_regexp_last_index(ctx, obj_id)?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let idx = (raw as usize).min(subject.len());
         idx
     } else {
         0

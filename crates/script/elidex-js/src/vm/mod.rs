@@ -183,6 +183,8 @@ pub(crate) struct WellKnownStrings {
     pub(crate) enumerable: StringId,
     pub(crate) configurable: StringId,
     pub(crate) writable: StringId,
+    pub(crate) source: StringId,
+    pub(crate) flags: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -704,6 +706,8 @@ impl Vm {
             enumerable: strings.intern("enumerable"),
             configurable: strings.intern("configurable"),
             writable: strings.intern("writable"),
+            source: strings.intern("source"),
+            flags: strings.intern("flags"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).

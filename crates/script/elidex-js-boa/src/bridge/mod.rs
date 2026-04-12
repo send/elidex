@@ -475,7 +475,11 @@ impl HostBridge {
     #[allow(unsafe_code)]
     pub fn bind(&self, session: &mut SessionCore, dom: &mut EcsDom, document_entity: Entity) {
         let mut inner = self.inner.borrow_mut();
-        debug_assert!(
+        // Release-build enforcement: a silent double-bind would overwrite
+        // a live pointer that downstream `with()` dereferences via
+        // `unsafe { &mut *session_ptr }`, which is UB if the second caller
+        // had already consumed the first session/dom.
+        assert!(
             inner.session_ptr.is_null(),
             "HostBridge::bind() called while already bound — missing unbind()?"
         );
