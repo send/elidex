@@ -144,6 +144,12 @@ impl VmInner {
         // Reopen closed upvalues pointing to this frame's locals — before
         // reopening, write the *current* closed value back into the stack
         // slot so writes done while the generator was suspended aren't lost.
+        //
+        // We do NOT re-push `uv_id` into `frame.local_upvalue_ids`: the list
+        // was preserved verbatim in the suspended frame (`op_yield_suspend`
+        // iterates it without mutating), so pushing here would accumulate
+        // duplicates across every yield/resume cycle — each subsequent
+        // suspend would then close the same upvalue multiple times.
         for (uv_id, slot) in &upvalue_slots {
             if let UpvalueState::Closed(val) = self.upvalues[uv_id.0 as usize].state {
                 let idx = new_base + *slot as usize;
@@ -155,7 +161,6 @@ impl VmInner {
                 frame_base: new_base,
                 slot: *slot,
             };
-            frame.local_upvalue_ids.push(*uv_id);
         }
 
         // Rebase frame + handler absolute depths.
@@ -275,6 +280,10 @@ impl VmInner {
 
         let new_base = self.stack.len();
         self.stack.extend(stack_slice);
+        // See `resume_generator` for the rationale: `local_upvalue_ids`
+        // is preserved on the suspended frame, so re-pushing `uv_id` here
+        // would cause each upvalue to accumulate in the list across every
+        // resume cycle.
         for (uv_id, slot) in &upvalue_slots {
             if let UpvalueState::Closed(val) = self.upvalues[uv_id.0 as usize].state {
                 let idx = new_base + *slot as usize;
@@ -286,7 +295,6 @@ impl VmInner {
                 frame_base: new_base,
                 slot: *slot,
             };
-            frame.local_upvalue_ids.push(*uv_id);
         }
         frame.base = new_base;
         frame.cleanup_base = new_base;

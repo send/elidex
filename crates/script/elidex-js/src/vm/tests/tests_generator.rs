@@ -281,6 +281,35 @@ fn generator_closure_reads_updated_local() {
 }
 
 #[test]
+fn generator_closure_survives_many_yield_resume_cycles() {
+    // Regression guard for the resume-side upvalue bookkeeping fix
+    // (Copilot PR #71 #2/#3): `resume_generator` previously re-pushed
+    // upvalue ids into `frame.local_upvalue_ids` on every resume, so the
+    // list grew unboundedly and each subsequent suspend closed the same
+    // upvalue multiple times.  A tight yield loop with a closure reading
+    // the captured local keeps the state machine exercised; if
+    // accumulation re-appears, each close-reopen round would compound
+    // the work and (in pathological cases) corrupt the value written
+    // back at resume.
+    assert_eq!(
+        eval_number(
+            "function* g() { \
+                 var x = 0; \
+                 var read = () => x; \
+                 for (var i = 0; i < 50; i++) { \
+                     x = i; \
+                     yield read(); \
+                 } \
+             } \
+             var s = 0; \
+             for (var v of g()) { s += v; } \
+             s;"
+        ),
+        1225.0 // 0 + 1 + ... + 49
+    );
+}
+
+#[test]
 fn generator_closure_write_between_yields_is_preserved() {
     // A closure created before yield writes to the captured local while
     // the generator is suspended.  After resume the generator sees the
