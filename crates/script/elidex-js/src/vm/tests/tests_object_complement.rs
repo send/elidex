@@ -357,16 +357,23 @@ fn get_own_property_names_basic() {
 
 #[test]
 fn freeze_cannot_add_props() {
-    // In sloppy mode, adding to frozen object silently fails.
+    // Strict-by-default (PR1.5): adding to a frozen object throws TypeError.
+    // Catch the throw and verify the property was not added.
     assert!(eval_bool(
-        "var o = {a: 1}; Object.freeze(o); o.b = 2; o.b === undefined;"
+        "var o = {a: 1}; Object.freeze(o);
+         try { o.b = 2; } catch(_) {}
+         o.b === undefined;"
     ));
 }
 
 #[test]
 fn freeze_cannot_write_existing() {
     assert_eq!(
-        eval_number("var o = {a: 1}; Object.freeze(o); o.a = 99; o.a;"),
+        eval_number(
+            "var o = {a: 1}; Object.freeze(o);
+             try { o.a = 99; } catch(_) {}
+             o.a;"
+        ),
         1.0
     );
 }
@@ -419,8 +426,11 @@ fn seal_can_write_existing() {
 
 #[test]
 fn seal_cannot_add_new() {
+    // Strict-by-default: adding throws; catch and verify property absent.
     assert!(eval_bool(
-        "var o = {a: 1}; Object.seal(o); o.b = 2; o.b === undefined;"
+        "var o = {a: 1}; Object.seal(o);
+         try { o.b = 2; } catch(_) {}
+         o.b === undefined;"
     ));
 }
 
@@ -443,8 +453,12 @@ fn seal_returns_same_object() {
 
 #[test]
 fn sealed_cannot_delete() {
+    // Strict-by-default: deleting a non-configurable property throws; catch
+    // and verify the key is still present.
     assert!(eval_bool(
-        "var o = {a: 1}; Object.seal(o); delete o.a; 'a' in o;"
+        "var o = {a: 1}; Object.seal(o);
+         try { delete o.a; } catch(_) {}
+         'a' in o;"
     ));
 }
 
@@ -461,8 +475,11 @@ fn prevent_extensions_makes_not_extensible() {
 
 #[test]
 fn cannot_add_after_prevent_extensions() {
+    // Strict-by-default: add throws on non-extensible object; catch + verify.
     assert!(eval_bool(
-        "var o = {}; Object.preventExtensions(o); o.x = 1; o.x === undefined;"
+        "var o = {}; Object.preventExtensions(o);
+         try { o.x = 1; } catch(_) {}
+         o.x === undefined;"
     ));
 }
 

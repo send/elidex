@@ -109,12 +109,14 @@ pub(crate) fn analyze(program: &Program) -> ScopeAnalysis {
         ProgramKind::Module => ScopeKind::Module,
         ProgramKind::Script => ScopeKind::Global,
     };
-    let is_module = program.kind == ProgramKind::Module;
-
-    // Detect "use strict" directive in script mode
-    let is_strict = is_module || has_use_strict(program, &program.body);
-
-    state.push_scope(root_kind, is_strict, Span::new(0, u32::MAX));
+    // All top-level code is strict by default (M4-12 PR1.5).  Nested functions
+    // inherit strictness from their enclosing scope per §10.2.1, so the VM no
+    // longer needs sloppy-mode code paths (`ThisMode::Global`,
+    // `bind_this_global`, silent property-write failures, silent global
+    // creation).  The `has_use_strict` helper remains in use for nested
+    // function bodies — function-level "use strict" is now always a no-op but
+    // must still parse cleanly per §14.1.2.
+    state.push_scope(root_kind, true, Span::new(0, u32::MAX));
 
     for &stmt_id in &program.body {
         visitor::visit_stmt(program, &mut state, stmt_id);

@@ -384,17 +384,9 @@ fn strict_duplicate_params_module() {
     );
 }
 
-#[test]
-fn sloppy_duplicate_params_ok() {
-    // Non-strict mode allows duplicate params
-    let out = parse_script("function f(a, a) {}");
-    let sa = analyze_scopes(&out.program);
-    assert!(
-        sa.errors.is_empty(),
-        "Sloppy mode should allow duplicate params: {:?}",
-        sa.errors
-    );
-}
+// Removed `sloppy_duplicate_params_ok` and `eval_param_ok_sloppy`: top-level
+// scripts are strict by default since M4-12 PR1.5, so duplicate param names
+// and `eval`/`arguments` as parameter names are always errors.
 
 // ── B26: class expression name inner scope ──
 
@@ -423,17 +415,6 @@ fn arguments_param_error_module() {
             .iter()
             .any(|e| e.message.contains("arguments") && e.message.contains("strict")),
         "Expected arguments param error in module: {:?}",
-        sa.errors
-    );
-}
-
-#[test]
-fn eval_param_ok_sloppy() {
-    let out = parse_script("function f(eval) {}");
-    let sa = analyze_scopes(&out.program);
-    assert!(
-        sa.errors.is_empty(),
-        "Sloppy mode should allow eval as param: {:?}",
         sa.errors
     );
 }

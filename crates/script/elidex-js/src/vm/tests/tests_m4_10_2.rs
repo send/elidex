@@ -177,29 +177,29 @@ fn boolean_prototype_value_of() {
 // ── Primitive this boxing ────────────────────────────────────────────────
 
 #[test]
-fn primitive_this_boxing_number() {
-    // §9.2.1.2 step 6.b.ii: sloppy-mode method invoked on primitive
-    // receiver must ToObject-box `this`.  Observe via `typeof` rather
-    // than arithmetic (which would coerce whether boxed or not).
+fn primitive_this_stays_primitive_number() {
+    // §9.2.1.2 step 3: in strict mode the primitive receiver passes through
+    // unboxed.  All code is strict post-PR1.5, so `this` inside a prototype
+    // method invoked on a primitive stays primitive.
     assert_eq!(
         eval_str("Number.prototype.peek = function() { return typeof this; }; (5).peek();"),
-        "object",
+        "number",
     );
 }
 
 #[test]
-fn primitive_this_boxing_string() {
+fn primitive_this_stays_primitive_string() {
     assert_eq!(
         eval_str("String.prototype.peek = function() { return typeof this; }; 'World'.peek();"),
-        "object",
+        "string",
     );
 }
 
 #[test]
-fn primitive_this_boxing_boolean() {
+fn primitive_this_stays_primitive_boolean() {
     assert_eq!(
         eval_str("Boolean.prototype.peek = function() { return typeof this; }; true.peek();"),
-        "object",
+        "boolean",
     );
 }
 
@@ -387,8 +387,9 @@ fn regexp_sticky_exec_index() {
 fn accessor_on_global_this() {
     // Test via Vm::eval which persists globals across calls.
     let mut vm = Vm::new();
-    // Define an accessor on the global object via a function (this = globalThis in sloppy mode).
-    vm.eval("function defineGlobalAccessor() { Object.defineProperty(this, '__test_acc', { get: function() { return 42; }, configurable: true }); } defineGlobalAccessor();").unwrap();
+    // Define an accessor on the global object via `globalThis` (strict-mode
+    // plain-call `this` is `undefined`, so reach the global object explicitly).
+    vm.eval("Object.defineProperty(globalThis, '__test_acc', { get: function() { return 42; }, configurable: true });").unwrap();
     let result = vm.eval("__test_acc;").unwrap();
     assert_eq!(result, JsValue::Number(42.0));
 }
@@ -436,9 +437,14 @@ fn to_fixed_non_finite() {
 
 #[test]
 fn writable_false_enforcement() {
+    // All code is strict post-PR1.5 — writing to a non-writable property
+    // throws TypeError rather than silently failing.  Catch the throw and
+    // then verify the value is unchanged.
     assert_eq!(
         eval_number(
-            "var o = {}; Object.defineProperty(o, 'x', { value: 1, writable: false }); o.x = 2; o.x;"
+            "var o = {}; Object.defineProperty(o, 'x', { value: 1, writable: false });
+             try { o.x = 2; } catch(_) {}
+             o.x;"
         ),
         1.0,
     );

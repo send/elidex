@@ -194,15 +194,9 @@ fn writable_false_strict_throws() {
     );
 }
 
-#[test]
-fn writable_false_sloppy_silent() {
-    assert_eq!(
-        eval_number(
-            "var o = {}; Object.defineProperty(o, 'x', { value: 1, writable: false }); o.x = 2; o.x;"
-        ),
-        1.0
-    );
-}
+// Removed `writable_false_sloppy_silent`: all code is strict post-PR1.5, so
+// writing to a non-writable property always throws (covered by
+// `writable_false_strict_throws`).
 
 // ─── D2: configurable:false delete enforcement ──────────────────────────
 
@@ -213,12 +207,9 @@ fn non_configurable_delete_strict_throws() {
     );
 }
 
-#[test]
-fn non_configurable_delete_sloppy_returns_false() {
-    assert!(!eval_bool(
-        "var o = {}; Object.defineProperty(o, 'x', { value: 1, configurable: false }); delete o.x;"
-    ));
-}
+// Removed `non_configurable_delete_sloppy_returns_false`: all code is strict
+// post-PR1.5, so deleting a non-configurable property always throws (covered
+// by `non_configurable_delete_strict_throws`).
 
 #[test]
 fn configurable_delete_succeeds() {
@@ -237,16 +228,8 @@ fn prototype_writable_false_blocks_own_strict() {
     );
 }
 
-#[test]
-fn prototype_writable_false_blocks_own_sloppy() {
-    assert_eq!(
-        eval_number(
-            "var proto = {}; Object.defineProperty(proto, 'x', { value: 1, writable: false }); \
-             var o = Object.create(proto); o.x = 2; o.x;"
-        ),
-        1.0 // Inherited value, own assignment silently failed
-    );
-}
+// Removed `prototype_writable_false_blocks_own_sloppy`: strict-by-default
+// means inherited writable:false always throws (covered by the strict variant).
 
 #[test]
 fn prototype_accessor_no_setter_blocks_strict() {
@@ -257,17 +240,9 @@ fn prototype_accessor_no_setter_blocks_strict() {
     );
 }
 
-#[test]
-fn prototype_accessor_no_setter_blocks_sloppy() {
-    assert_eq!(
-        eval_number(
-            "var proto = {}; \
-             Object.defineProperty(proto, 'x', { get: function() { return 1; } }); \
-             var o = Object.create(proto); o.x = 2; o.x;"
-        ),
-        1.0 // Getter returns 1, assignment silently failed
-    );
-}
+// Removed `prototype_accessor_no_setter_blocks_sloppy`: strict-by-default
+// means assignment via a getter-only inherited accessor always throws
+// (covered by the strict variant).
 
 #[test]
 fn prototype_setter_invoked() {

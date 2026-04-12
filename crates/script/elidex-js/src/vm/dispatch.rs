@@ -151,19 +151,16 @@ impl VmInner {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let val = self.peek()?;
-                    // §8.1.1.2.5: In strict mode, assigning to an undeclared
-                    // variable is a ReferenceError.
+                    // §8.1.1.2.5: All code is strict since M4-12 PR1.5, so
+                    // assigning to an undeclared binding always throws
+                    // ReferenceError.  (The sloppy silent-creation branch
+                    // has been removed.)
                     let exists_on_global = {
                         let pk = PropertyKey::String(name_id);
                         self.globals.contains_key(&name_id)
                             || super::coerce::get_property(self, self.global_object, pk).is_some()
                     };
-                    if self.compiled_functions[func_id.0 as usize].is_strict && !exists_on_global {
-                        let name_str = self.strings.get_utf8(name_id);
-                        let msg = format!("{name_str} is not defined");
-                        let err = VmError::reference_error(&msg);
-                        self.throw_error(err, entry_frame_depth)?;
-                    } else {
+                    if exists_on_global {
                         // Delegate to set_property_val, which invokes any
                         // accessor setter on globalThis and syncs the
                         // globals HashMap only on a DataWritten outcome.
@@ -173,6 +170,11 @@ impl VmInner {
                         {
                             self.throw_error(e, entry_frame_depth)?;
                         }
+                    } else {
+                        let name_str = self.strings.get_utf8(name_id);
+                        let msg = format!("{name_str} is not defined");
+                        let err = VmError::reference_error(&msg);
+                        self.throw_error(err, entry_frame_depth)?;
                     }
                 }
 

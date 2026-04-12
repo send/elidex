@@ -195,34 +195,18 @@ fn eval_get_global_reference_error() {
 
 #[test]
 fn eval_set_global_strict_mode_reference_error() {
-    // §8.1.1.2.5: In strict mode, assigning to an undeclared variable
-    // should throw ReferenceError.
+    // §8.1.1.2.5: Assigning to an undeclared binding always throws
+    // ReferenceError since M4-12 PR1.5 (all code is strict).
     assert_eq!(
-        eval_string(
-            "var r = 'ok'; try { (function() { 'use strict'; undeclared = 1; })(); } catch(e) { r = e.message; } r;"
-        ),
+        eval_string("var r = 'ok'; try { undeclared = 1; } catch(e) { r = e.message; } r;"),
         "undeclared is not defined",
     );
 }
 
-#[test]
-fn eval_set_global_sloppy_creates_global() {
-    // Sloppy mode: assigning to undeclared variable creates a global.
-    assert_eq!(
-        eval_number("(function() { sloppyGlobal = 42; })(); sloppyGlobal;"),
-        42.0
-    );
-}
-
-#[test]
-fn eval_this_coercion_global_object() {
-    // Non-strict function: `this` should be coerced to the global object
-    // when called without a receiver (§9.2.1.2).
-    assert_eq!(
-        eval_string("function f() { return typeof this; } f();"),
-        "object"
-    );
-}
+// Removed `eval_set_global_sloppy_creates_global` and
+// `eval_this_coercion_global_object`: top-level strictness means undeclared
+// assignment throws ReferenceError and `this` in a plain function call is
+// `undefined` rather than being coerced to the global object.
 
 #[test]
 fn eval_this_coercion_method_receiver() {
@@ -935,21 +919,19 @@ fn eval_function_hoisting() {
 
 #[test]
 fn eval_global_object_property_lookup_falls_back_to_globals() {
-    // Non-strict `this` is coerced to globalThis; `this.Math` should resolve.
-    assert_eq!(
-        eval_string("function f() { return typeof this.Math; } f();"),
-        "object",
-    );
+    // `globalThis.Math` must resolve via explicit receiver.  (Previously this
+    // used bare `this` in a plain-call function to exercise sloppy-mode
+    // coercion; since all code is strict post-PR1.5, use `globalThis`
+    // directly to test the globals HashMap → global object fallback.)
+    assert_eq!(eval_string("typeof globalThis.Math;"), "object",);
 }
 
 #[test]
 fn eval_global_object_set_property_syncs_to_globals() {
-    // Writing to `this.<prop>` in a non-strict function (which resolves to
-    // globalThis) must be visible via bare identifier lookup (GetGlobal).
-    assert_eq!(
-        eval_number("function f() { this.testGlobal = 42; } f(); testGlobal;"),
-        42.0,
-    );
+    // Writing to `globalThis.<prop>` must be visible via bare identifier
+    // lookup (GetGlobal).  Uses `globalThis` explicitly because strict-mode
+    // plain-call `this` is `undefined`.
+    assert_eq!(eval_number("globalThis.testGlobal = 42; testGlobal;"), 42.0,);
 }
 
 mod tests_string;

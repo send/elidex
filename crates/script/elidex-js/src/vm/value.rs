@@ -491,9 +491,9 @@ pub struct FunctionObject {
 pub enum ThisMode {
     /// Arrow function: inherits `this` from enclosing scope.
     Lexical,
-    /// Non-strict function: `this` defaults to global object.
-    Global,
     /// Strict function: `this` is exactly what was passed.
+    /// (Top-level scripts are strict by default since M4-12 PR1.5, so the
+    /// former `Global`/non-strict branch has been removed.)
     Strict,
 }
 

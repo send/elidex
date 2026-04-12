@@ -92,11 +92,9 @@ impl VmInner {
             // original primitive as the receiver (§6.2.4.1 step 4.b passes
             // `GetThisValue(V)` — the original primitive — as Receiver,
             // independent of the boxing that happens for own-property
-            // lookup).  If an accessor getter is invoked, the callee's
-            // this-mode decides boxing per §9.4.3 step 5: non-strict
-            // functions ToObject-box via `bind_this_global` (§9.2.1.2),
-            // strict-mode functions observe the raw primitive as `this`.
-            // This matches V8/SpiderMonkey observable behavior for strict
+            // lookup).  Since all functions are strict since PR1.5, an
+            // invoked accessor observes the raw primitive as `this` (per
+            // §9.4.3 step 5) — matches V8/SpiderMonkey behavior for strict
             // methods like `'x'.trim.call.call.call(...)`.
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
@@ -247,16 +245,9 @@ impl VmInner {
         }
     }
 
-    /// Check if the current call frame is in strict mode.
-    pub(crate) fn is_strict_mode(&self) -> bool {
-        self.frames
-            .last()
-            .is_some_and(|f| self.compiled_functions[f.func_id.0 as usize].is_strict)
-    }
-
     /// Delete a named property from an object (single-pass).
-    /// Returns `Ok(true)` if deleted, `Ok(false)` if non-configurable in
-    /// sloppy mode, or `Err(TypeError)` if non-configurable in strict mode.
+    /// Returns `Ok(true)` if deleted, or `Err(TypeError)` if non-configurable
+    /// (all code is strict since M4-12 PR1.5).
     pub(crate) fn try_delete_property(
         &mut self,
         id: ObjectId,
@@ -269,12 +260,9 @@ impl VmInner {
             match obj.storage.get(pk, &self.shapes) {
                 None => return Ok(true), // Property doesn't exist — delete succeeds.
                 Some((_, attrs)) if !attrs.configurable => {
-                    if self.is_strict_mode() {
-                        return Err(VmError::type_error(
-                            "Cannot delete property: property is not configurable",
-                        ));
-                    }
-                    return Ok(false);
+                    return Err(VmError::type_error(
+                        "Cannot delete property: property is not configurable",
+                    ));
                 }
                 Some(_) => {} // configurable — proceed with delete
             }
@@ -312,7 +300,9 @@ impl VmInner {
             NotFound,
         }
 
-        let is_strict = self.is_strict_mode();
+        // All code is strict since M4-12 PR1.5, so OwnAction::NonWritable /
+        // NoSetter / inherited WritableFalse|AccessorNoSetter always throw
+        // TypeError rather than silently failing.
 
         // Step 1: check own property (single mutable lookup).
         let own_action = {
@@ -337,22 +327,16 @@ impl VmInner {
         match own_action {
             OwnAction::Written => return Ok(SetOutcome::DataWritten),
             OwnAction::NonWritable => {
-                if is_strict {
-                    return Err(VmError::type_error("Cannot assign to read only property"));
-                }
-                return Ok(SetOutcome::NoDataWrite);
+                return Err(VmError::type_error("Cannot assign to read only property"));
             }
             OwnAction::CallSetter(s) => {
                 self.call(s, receiver, &[val])?;
                 return Ok(SetOutcome::NoDataWrite);
             }
             OwnAction::NoSetter => {
-                if is_strict {
-                    return Err(VmError::type_error(
-                        "Cannot set property which has only a getter",
-                    ));
-                }
-                return Ok(SetOutcome::NoDataWrite);
+                return Err(VmError::type_error(
+                    "Cannot set property which has only a getter",
+                ));
             }
             OwnAction::NotFound => {} // fall through to prototype chain
         }
@@ -363,24 +347,18 @@ impl VmInner {
                 return Ok(SetOutcome::NoDataWrite);
             }
             InheritedProperty::WritableFalse | InheritedProperty::AccessorNoSetter => {
-                if is_strict {
-                    return Err(VmError::type_error(
-                        "Cannot set property: inherited descriptor prevents it",
-                    ));
-                }
-                return Ok(SetOutcome::NoDataWrite);
+                return Err(VmError::type_error(
+                    "Cannot set property: inherited descriptor prevents it",
+                ));
             }
             InheritedProperty::None => {}
         }
         // Step 3: create own data property.
         // §9.1.9 step 5: reject if the receiver is non-extensible.
         if !self.get_object(id).extensible {
-            if self.is_strict_mode() {
-                return Err(VmError::type_error(
-                    "Cannot add property to a non-extensible object",
-                ));
-            }
-            return Ok(SetOutcome::NoDataWrite);
+            return Err(VmError::type_error(
+                "Cannot add property to a non-extensible object",
+            ));
         }
         self.define_shaped_property(
             id,
@@ -575,12 +553,9 @@ impl VmInner {
             })
             && has_named_props;
         if is_new || is_frozen {
-            if self.is_strict_mode() {
-                return Some(Err(VmError::type_error(
-                    "Cannot assign to read only property",
-                )));
-            }
-            return Some(Ok(()));
+            return Some(Err(VmError::type_error(
+                "Cannot assign to read only property",
+            )));
         }
         None
     }
