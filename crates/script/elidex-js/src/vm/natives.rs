@@ -138,7 +138,8 @@ fn parse_float_prefix(s: &str) -> f64 {
         i += 1;
     }
 
-    // Decimal point + fraction (`.5` is valid — digits may appear only after the dot)
+    // Decimal point + fraction.  Digits on either side of the dot are
+    // sufficient — `.5`, `5.`, and `5.5` are all valid.
     if i < bytes.len() && bytes[i] == b'.' {
         i += 1;
         while i < bytes.len() && bytes[i].is_ascii_digit() {
@@ -479,7 +480,7 @@ use super::ops::DENSE_ARRAY_LEN_LIMIT;
 
 pub(super) fn native_array_constructor(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let elements = if args.len() == 1 {
@@ -511,6 +512,15 @@ pub(super) fn native_array_constructor(
         // Zero or 2+ args → array of those elements.
         args.to_vec()
     };
+    // `new Array(...)`: reuse the Ordinary instance pre-allocated by do_new
+    // (avoids a second allocation).  Plain `Array(...)` call mode allocates
+    // fresh via create_array.
+    if ctx.is_construct() {
+        if let JsValue::Object(instance_id) = this {
+            ctx.vm.promote_to_array(instance_id, elements);
+            return Ok(JsValue::Object(instance_id));
+        }
+    }
     Ok(create_array(ctx, elements))
 }
 

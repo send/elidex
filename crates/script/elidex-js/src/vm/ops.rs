@@ -145,7 +145,12 @@ impl VmInner {
     pub(crate) fn to_primitive(&mut self, val: JsValue, hint: &str) -> Result<JsValue, VmError> {
         match val {
             JsValue::Object(obj_id) => {
-                // Unwrap primitive wrapper objects first.
+                // Fast-path: unwrap primitive wrappers directly.  This
+                // deviates from §7.1.1 step 2.a (which would still consult
+                // @@toPrimitive) but matches observable behavior when a
+                // wrapper has no custom @@toPrimitive, avoiding an extra
+                // property lookup on every arithmetic operation.  A
+                // wrapper with a defined @@toPrimitive will bypass this.
                 match self.get_object(obj_id).kind {
                     ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
                     ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
@@ -154,7 +159,7 @@ impl VmInner {
                     ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
                     _ => {}
                 }
-                // §7.1.1 step 2d: Check @@toPrimitive
+                // §7.1.1 step 2.a: Check @@toPrimitive.
                 let to_prim_key = PropertyKey::Symbol(self.well_known_symbols.to_primitive);
                 let exotic_to_prim = match get_property(self, obj_id, to_prim_key) {
                     Some(PropertyResult::Data(v)) => Some(v),

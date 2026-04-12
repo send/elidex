@@ -466,6 +466,16 @@ fn bind_honors_defineproperty_length() {
 }
 
 #[test]
+fn new_array_reuses_preallocated_instance() {
+    // §22.1.1: `new Array(...)` should return an Array-kind object with the
+    // given elements. Regression guard: constructor must reuse do_new's
+    // pre-allocated instance rather than leak it.
+    assert_eq!(eval_number("new Array(1, 2, 3).length;"), 3.0);
+    assert_eq!(eval_string("new Array(1, 2, 3).join(',');"), "1,2,3");
+    assert_eq!(eval_number("new Array(5).length;"), 5.0);
+}
+
+#[test]
 fn bind_chain_depth_cap() {
     // Attacker-built chain beyond MAX_BIND_CHAIN_DEPTH should throw RangeError
     // on call.  Building the chain itself must also be stack-safe

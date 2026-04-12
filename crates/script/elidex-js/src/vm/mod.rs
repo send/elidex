@@ -271,6 +271,14 @@ impl VmInner {
         self.install_string_wrapper_length(obj_id, len);
     }
 
+    /// Promote an existing Ordinary instance into an Array in place.  Same
+    /// motivation as `promote_to_string_wrapper`: reuse the object slot
+    /// pre-allocated by `do_new` instead of allocating a fresh array.
+    pub(crate) fn promote_to_array(&mut self, obj_id: ObjectId, elements: Vec<JsValue>) {
+        let obj = self.get_object_mut(obj_id);
+        obj.kind = ObjectKind::Array { elements };
+    }
+
     fn install_string_wrapper_length(&mut self, obj_id: ObjectId, len: f64) {
         let length_key = value::PropertyKey::String(self.well_known.length);
         self.define_shaped_property(

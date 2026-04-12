@@ -195,8 +195,10 @@ impl VmInner {
             None
         };
 
-        // Clear extra arg slots beyond param_count (they should be
-        // non-param locals, initialized to Undefined).
+        // Overwrite slots at positions `param_count..argc` with Undefined:
+        // these positions are non-param locals in this function, so the
+        // excess argument values captured above (in `actual_args`) get
+        // discarded from the stack frame itself.
         let clear_end = argc.min(local_count);
         for i in param_count..clear_end {
             self.stack[base + i] = JsValue::Undefined;

@@ -164,8 +164,9 @@ impl VmInner {
                         let err = VmError::reference_error(&msg);
                         self.throw_error(err, entry_frame_depth)?;
                     } else {
-                        // Check for accessor setter on globalThis before
-                        // writing to the globals HashMap.
+                        // Delegate to set_property_val, which invokes any
+                        // accessor setter on globalThis and syncs the
+                        // globals HashMap only on a DataWritten outcome.
                         let global_obj = self.global_object;
                         if let Err(e) =
                             self.set_property_val(JsValue::Object(global_obj), name_id, val)
