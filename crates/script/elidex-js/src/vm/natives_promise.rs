@@ -244,9 +244,23 @@ impl VmInner {
                 } => {
                     run_reaction(self, kind, handler, capability, resolution);
                 }
+                Microtask::Callback { func } => {
+                    run_callback(self, func);
+                }
             }
         }
         self.microtask_drain_depth -= 1;
+    }
+}
+
+/// Execute a bare `queueMicrotask` callback (HTML §8.1.4.3).  Exceptions are
+/// swallowed with a best-effort `eprintln!` report so that a misbehaving
+/// callback cannot abort the drain loop and strand the rest of the queue.
+/// Once a proper host error-reporting channel exists (PR6), the eprintln
+/// should be swapped for `host.session().report_error(...)`.
+fn run_callback(vm: &mut VmInner, func: ObjectId) {
+    if let Err(e) = vm.call(func, JsValue::Undefined, &[]) {
+        eprintln!("queueMicrotask callback threw: {e}");
     }
 }
 
@@ -439,6 +453,33 @@ fn coerce_then_handler(
     } else {
         Ok(None)
     }
+}
+
+/// `queueMicrotask(callback)` — HTML §8.1.4.3.
+///
+/// Validates the callback is callable and appends a `Microtask::Callback`
+/// to the VM queue.  Drain happens at the next microtask checkpoint (end
+/// of `eval`, end of event listener invocation, etc.).
+pub(super) fn native_queue_microtask(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let callback = args.first().copied().unwrap_or(JsValue::Undefined);
+    let JsValue::Object(func) = callback else {
+        return Err(VmError::type_error(
+            "queueMicrotask argument is not a function",
+        ));
+    };
+    if !ctx.get_object(func).kind.is_callable() {
+        return Err(VmError::type_error(
+            "queueMicrotask argument is not a function",
+        ));
+    }
+    ctx.vm
+        .microtask_queue
+        .push_back(Microtask::Callback { func });
+    Ok(JsValue::Undefined)
 }
 
 fn then_impl(

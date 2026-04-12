@@ -191,6 +191,9 @@ fn mark_roots(
                 mark_object(*capability, obj_marks, work);
                 mark_value(*resolution, obj_marks, work);
             }
+            Microtask::Callback { func } => {
+                mark_object(*func, obj_marks, work);
+            }
         }
     }
 }

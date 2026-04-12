@@ -153,8 +153,7 @@ pub(crate) struct VmInner {
     pub(crate) microtask_drain_depth: u32,
 }
 
-/// A queued microtask.  Currently only covers Promise reaction dispatch;
-/// PR2 commit 2 will add `QueueMicrotaskCallback` and `HostEnqueued`.
+/// A queued microtask.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Microtask {
     /// A pending Promise reaction: run `handler(resolution)` (or propagate
@@ -166,6 +165,12 @@ pub(crate) enum Microtask {
         capability: ObjectId,
         resolution: JsValue,
     },
+    /// A bare callback enqueued via `globalThis.queueMicrotask(fn)`
+    /// (HTML §8.1.4.3).  Invoked with `this = undefined` and no arguments;
+    /// exceptions are reported to the host and do not propagate out of the
+    /// drain loop (spec: "If the callback throws an exception, report the
+    /// exception.").
+    Callback { func: ObjectId },
 }
 
 /// Frequently used interned string IDs, cached at VM creation.

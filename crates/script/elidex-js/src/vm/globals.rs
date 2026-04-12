@@ -123,6 +123,12 @@ impl VmInner {
         self.register_global_function("decodeURI", native_decode_uri);
         self.register_global_function("encodeURIComponent", native_encode_uri_component);
         self.register_global_function("decodeURIComponent", native_decode_uri_component);
+        // queueMicrotask (HTML §8.1.4.3).  Registered early so later built-in
+        // setup that wants to defer work can rely on it if needed.
+        self.register_global_function(
+            "queueMicrotask",
+            super::natives_promise::native_queue_microtask,
+        );
 
         // globalThis (§18.1) — points to the global object
         let global_this_name = self.strings.intern("globalThis");

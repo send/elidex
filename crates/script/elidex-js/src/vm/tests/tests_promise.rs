@@ -261,3 +261,118 @@ fn promise_resolve_with_pending_promise_forwards() {
         5.0
     );
 }
+
+// ─── queueMicrotask + drain ordering ─────────────────────────────────────
+
+#[test]
+fn queue_microtask_runs_after_script() {
+    // Bare callback: synchronous statements finish first, then microtasks drain.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             queueMicrotask(() => { globalThis.log = globalThis.log + 'B'; }); \
+             globalThis.log = globalThis.log + 'A';",
+            "log"
+        ),
+        "AB"
+    );
+}
+
+#[test]
+fn queue_microtask_fifo_order() {
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             queueMicrotask(() => { globalThis.log = globalThis.log + '1'; }); \
+             queueMicrotask(() => { globalThis.log = globalThis.log + '2'; }); \
+             queueMicrotask(() => { globalThis.log = globalThis.log + '3'; });",
+            "log"
+        ),
+        "123"
+    );
+}
+
+#[test]
+fn queue_microtask_nested_enqueues_run_in_same_drain() {
+    // A microtask that enqueues another microtask — both must fire within
+    // the same drain (HTML §8.1.4.2 step 7: drain continues until empty).
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             queueMicrotask(() => { \
+                 globalThis.log = globalThis.log + 'A'; \
+                 queueMicrotask(() => { globalThis.log = globalThis.log + 'B'; }); \
+             });",
+            "log"
+        ),
+        "AB"
+    );
+}
+
+#[test]
+fn queue_microtask_non_callable_throws() {
+    // TypeError when the argument isn't a function.  The throw is
+    // synchronous (from the native call), not async.
+    let result = super::eval("queueMicrotask(42);");
+    assert!(result.is_err());
+}
+
+#[test]
+fn queue_microtask_callback_error_is_swallowed() {
+    // A throwing callback must not abort the rest of the drain.
+    // The later callback should still run.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             queueMicrotask(() => { throw 'boom'; }); \
+             queueMicrotask(() => { globalThis.log = globalThis.log + 'survived'; });",
+            "log"
+        ),
+        "survived"
+    );
+}
+
+#[test]
+fn queue_microtask_interleaves_with_promise_reactions_fifo() {
+    // Microtasks are one global FIFO queue — queueMicrotask callbacks and
+    // Promise reactions are dispatched in the order they were enqueued.
+    //
+    // Script order: enqueue 'A', then Promise.resolve(…).then enqueues 'B',
+    // then enqueue 'C'.  Expected drain order: A, B, C.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             queueMicrotask(() => { globalThis.log = globalThis.log + 'A'; }); \
+             Promise.resolve(0).then(() => { globalThis.log = globalThis.log + 'B'; }); \
+             queueMicrotask(() => { globalThis.log = globalThis.log + 'C'; });",
+            "log"
+        ),
+        "ABC"
+    );
+}
+
+#[test]
+fn promise_chain_dispatched_in_separate_microtasks() {
+    // Each link in a promise chain settles in its own microtask.  A chain
+    // of three .then()s interleaved with two queueMicrotask()s demonstrates
+    // the FIFO flow: microtasks enqueued before a chained .then() run
+    // before the derived promise's reaction fires.
+    //
+    //   p = Promise.resolve()
+    //   p.then(A) — enqueues reaction for A immediately
+    //   queueMicrotask(B) — enqueues B
+    //   p.then(C) — enqueues reaction for C (p is already fulfilled)
+    //
+    // Queue order: [A, B, C]
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             var p = Promise.resolve(); \
+             p.then(() => { globalThis.log = globalThis.log + 'A'; }); \
+             queueMicrotask(() => { globalThis.log = globalThis.log + 'B'; }); \
+             p.then(() => { globalThis.log = globalThis.log + 'C'; });",
+            "log"
+        ),
+        "ABC"
+    );
+}
