@@ -627,6 +627,36 @@ pub(super) fn native_console_warn(
     console_output(ctx, args, "[warn] ")
 }
 
+/// `console.info(...)` — WHATWG Console §2.  Printed like `log` but with
+/// an `[info]` prefix so DevTools (and future host adapters) can filter.
+pub(super) fn native_console_info(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    console_output(ctx, args, "[info] ")
+}
+
+/// `console.debug(...)` — WHATWG Console §2.
+pub(super) fn native_console_debug(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    console_output(ctx, args, "[debug] ")
+}
+
+/// `console.trace(...)` — WHATWG Console §2.  Simplified: we just prefix
+/// with `[trace]`; full stack-trace capture is deferred to PR6 when the
+/// host provides frame metadata access.
+pub(super) fn native_console_trace(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    console_output(ctx, args, "[trace] ")
+}
+
 // Re-exports from split modules.
 pub(super) use super::natives_object::{
     native_object_assign, native_object_create, native_object_define_property,

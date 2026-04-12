@@ -4,6 +4,7 @@ mod tests_array_prototype;
 mod tests_array_prototype_ext;
 mod tests_async;
 mod tests_bigint;
+mod tests_console;
 mod tests_function_prototype;
 mod tests_generator;
 mod tests_json;
