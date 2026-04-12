@@ -42,7 +42,10 @@ fn call_no_args_this_undefined() {
 
 #[test]
 fn call_on_non_function_throws() {
-    super::eval_throws("var x = 42; x.call();");
+    // §19.2.3.1 step 1: IsCallable(this) must be true, else TypeError.
+    // Use `Function.prototype.call.call(42)` to bypass property lookup
+    // on the primitive and exercise the IsCallable branch directly.
+    super::eval_throws("Function.prototype.call.call(42);");
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +97,8 @@ fn apply_empty_array() {
 
 #[test]
 fn apply_on_non_function_throws() {
-    super::eval_throws("var x = {}; x.apply(null, []);");
+    // §19.2.3.3 step 1: IsCallable(this) must be true.
+    super::eval_throws("Function.prototype.apply.call({}, null, []);");
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +145,8 @@ fn bind_nested() {
 
 #[test]
 fn bind_on_non_function_throws() {
-    super::eval_throws("var x = 42; x.bind(null);");
+    // §19.2.3.2 step 2: IsCallable(Target) must be true.
+    super::eval_throws("Function.prototype.bind.call(42, null);");
 }
 
 #[test]
