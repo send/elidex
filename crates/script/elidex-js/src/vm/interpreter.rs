@@ -41,10 +41,12 @@ impl VmInner {
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
         // Unwrap BoundFunction chain iteratively to avoid stack overflow
-        // on deeply nested .bind() chains.
+        // on deeply nested .bind() chains.  MAX_BIND_CHAIN_DEPTH caps O(N²)
+        // copy cost for attacker-controlled chain depth.
         let mut current_id = func_obj_id;
         let mut effective_this = this;
         let mut owned_args: Option<Vec<JsValue>> = None;
+        let mut depth = 0usize;
 
         loop {
             let obj = self.get_object(current_id);
@@ -77,6 +79,10 @@ impl VmInner {
                     bound_this,
                     bound_args,
                 } => {
+                    depth += 1;
+                    if depth > crate::vm::MAX_BIND_CHAIN_DEPTH {
+                        return Err(VmError::range_error("Maximum bind chain depth exceeded"));
+                    }
                     let next_id = *target;
                     effective_this = *bound_this;
                     if !bound_args.is_empty() {

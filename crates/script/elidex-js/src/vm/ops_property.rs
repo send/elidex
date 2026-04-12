@@ -88,9 +88,9 @@ impl VmInner {
                     self.lookup_on_proto(self.string_prototype, pk, obj)
                 }
             }
-            // TODO(M4-11): strict-mode getters on primitive prototypes should
-            // receive a ToObject wrapper as `this`, not the raw primitive.
-            // Requires VM single dispatcher for correct receiver boxing.
+            // Strict mode: getters receive the raw primitive as `this` per
+            // §9.1.8.1 step 3 ("the this value is the receiver").
+            // elidex is strict-mode only — no ToObject boxing needed.
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),

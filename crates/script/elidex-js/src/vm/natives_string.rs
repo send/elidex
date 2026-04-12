@@ -37,7 +37,7 @@ fn build_match_result(
         prototype: ctx.vm.array_prototype,
         extensible: true,
     });
-    let index_key = PropertyKey::String(ctx.intern("index"));
+    let index_key = PropertyKey::String(ctx.vm.well_known.index);
     #[allow(clippy::cast_precision_loss)]
     ctx.vm.define_shaped_property(
         arr_id,
@@ -45,7 +45,7 @@ fn build_match_result(
         super::value::PropertyValue::Data(JsValue::Number(m.start() as f64)),
         super::shape::PropertyAttrs::DATA,
     );
-    let input_key = PropertyKey::String(ctx.intern("input"));
+    let input_key = PropertyKey::String(ctx.vm.well_known.input);
     ctx.vm.define_shaped_property(
         arr_id,
         input_key,
@@ -60,7 +60,7 @@ pub(super) fn get_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
 ) -> f64 {
-    let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
+    let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
     let obj = ctx.get_object(obj_id);
     if let Some((super::value::PropertyValue::Data(JsValue::Number(n)), _)) =
         obj.storage.get(last_index_key, &ctx.vm.shapes)
@@ -76,7 +76,7 @@ pub(super) fn set_regexp_last_index(
     obj_id: super::value::ObjectId,
     idx: usize,
 ) {
-    let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
+    let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
     #[allow(clippy::cast_precision_loss)]
     let val = JsValue::Number(idx as f64);
     // Split borrow: access object storage + shapes simultaneously.
@@ -652,4 +652,76 @@ pub(super) fn native_string_search(
     set_regexp_last_index(ctx, re_id, saved as usize);
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
+}
+
+// -- String.prototype.valueOf / toString (§21.1.3.32 / §21.1.3.25) ----------
+
+/// `String.prototype.valueOf()` — return the primitive string value.
+/// Works on both string primitives and StringWrapper objects.
+pub(crate) fn native_string_value_of(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    match this {
+        JsValue::String(sid) => Ok(JsValue::String(sid)),
+        JsValue::Object(obj_id) => {
+            if let ObjectKind::StringWrapper(sid) = ctx.get_object(obj_id).kind {
+                Ok(JsValue::String(sid))
+            } else {
+                Err(VmError::type_error(
+                    "String.prototype.valueOf requires a String",
+                ))
+            }
+        }
+        _ => Err(VmError::type_error(
+            "String.prototype.valueOf requires a String",
+        )),
+    }
+}
+
+// §21.1.3.25 String.prototype.toString shares the valueOf implementation —
+// registered twice in globals.rs with different `name` attributes.
+
+// -- String constructor (§21.1.1) -------------------------------------------
+
+/// `String(value)` as a function call returns a primitive string (§21.1.1.1
+/// step 1 when NewTarget is undefined).  `new String(value)` returns a fresh
+/// StringWrapper object.  For symbol input on the call path, `SymbolDescriptiveString`
+/// semantics apply (handled by `to_string_val` delegating to symbol wrapping).
+pub(crate) fn native_string_constructor(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let str_val = if args.is_empty() {
+        ctx.vm.well_known.empty
+    } else if ctx.is_construct() {
+        ctx.to_string_val(args[0])?
+    } else {
+        // §21.1.1.1 step 2: `String(Symbol(...))` returns descriptive string,
+        // not a TypeError.  Handle specially; all other values via ToString.
+        if let JsValue::Symbol(sid) = args[0] {
+            return Ok(JsValue::String(symbol_to_descriptive_string(ctx, sid)));
+        }
+        ctx.to_string_val(args[0])?
+    };
+
+    if ctx.is_construct() {
+        let wrapper = ctx.vm.create_string_wrapper(str_val);
+        Ok(JsValue::Object(wrapper))
+    } else {
+        Ok(JsValue::String(str_val))
+    }
+}
+
+/// Format a symbol as `"Symbol(<description>)"` per §19.4.3.2.1.
+fn symbol_to_descriptive_string(
+    ctx: &mut NativeContext<'_>,
+    sid: super::value::SymbolId,
+) -> StringId {
+    let desc = ctx.vm.symbols[sid.0 as usize]
+        .description
+        .map_or_else(String::new, |d| ctx.vm.strings.get_utf8(d));
+    ctx.vm.strings.intern(&format!("Symbol({desc})"))
 }

@@ -330,15 +330,7 @@ pub(super) fn to_object(vm: &mut VmInner, val: JsValue) -> Result<ObjectId, VmEr
             });
             Ok(wrapper)
         }
-        JsValue::String(s) => {
-            let wrapper = vm.alloc_object(Object {
-                kind: ObjectKind::StringWrapper(s),
-                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-                prototype: vm.string_prototype,
-                extensible: true,
-            });
-            Ok(wrapper)
-        }
+        JsValue::String(s) => Ok(vm.create_string_wrapper(s)),
         JsValue::Boolean(b) => {
             let wrapper = vm.alloc_object(Object {
                 kind: ObjectKind::BooleanWrapper(b),

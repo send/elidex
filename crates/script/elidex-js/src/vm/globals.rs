@@ -60,6 +60,7 @@ use super::natives_number::{
     native_number_to_precision, native_number_to_string, native_number_value_of,
 };
 use super::natives_regexp::{native_regexp_exec, native_regexp_test, native_regexp_to_string};
+use super::natives_string::native_string_value_of;
 use super::natives_string_ext::{
     native_string_code_point_at, native_string_concat, native_string_from_char_code,
     native_string_from_code_point, native_string_last_index_of, native_string_pad_end,
@@ -594,6 +595,9 @@ impl VmInner {
             ("replace", native_string_replace),
             ("match", native_string_match),
             ("search", native_string_search),
+            ("valueOf", native_string_value_of),
+            // §21.1.3.25: String.prototype.toString is identical to valueOf.
+            ("toString", native_string_value_of),
         ]);
         // String.prototype[Symbol.iterator] = native_string_iterator
         let iter_fn_id = self.create_native_function("[Symbol.iterator]", native_string_iterator);
@@ -605,13 +609,31 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
         self.string_prototype = Some(proto_id);
-        self.register_constructor_global("String", proto_id);
+
+        // String constructor — constructable NativeFunction so `new String()` works.
+        let ctor_id = self.create_constructable_function(
+            "String",
+            super::natives_string::native_string_constructor,
+        );
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor_id,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        // String.prototype.constructor = String
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor_id)),
+            PropertyAttrs::METHOD,
+        );
+        let ctor_name = self.strings.intern("String");
+        self.globals.insert(ctor_name, JsValue::Object(ctor_id));
 
         // String.fromCharCode / String.fromCodePoint — static methods on constructor
-        let ctor_name = self.strings.intern("String");
-        let Some(&JsValue::Object(ctor_id)) = self.globals.get(&ctor_name) else {
-            return;
-        };
         let from_char_code_fn =
             self.create_native_function("fromCharCode", native_string_from_char_code);
         let key = PropertyKey::String(self.strings.intern("fromCharCode"));

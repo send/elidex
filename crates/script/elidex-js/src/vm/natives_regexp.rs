@@ -38,7 +38,7 @@ pub(super) fn run_regexp(
 
     // Read lastIndex (already a UTF-16 code unit index).
     let start = if uses_last_index {
-        let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
+        let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
         let obj = ctx.get_object(obj_id);
         let mut idx = 0usize;
         if let Some((super::value::PropertyValue::Data(JsValue::Number(n)), _)) =
@@ -135,7 +135,7 @@ pub(super) fn native_regexp_exec(
     });
 
     // .index is already a UTF-16 code unit index (no conversion).
-    let index_key = PropertyKey::String(ctx.intern("index"));
+    let index_key = PropertyKey::String(ctx.vm.well_known.index);
     #[allow(clippy::cast_precision_loss)]
     ctx.vm.define_shaped_property(
         arr_id,
@@ -143,7 +143,7 @@ pub(super) fn native_regexp_exec(
         super::value::PropertyValue::Data(JsValue::Number(m.start() as f64)),
         super::shape::PropertyAttrs::DATA,
     );
-    let input_key = PropertyKey::String(ctx.intern("input"));
+    let input_key = PropertyKey::String(ctx.vm.well_known.input);
     ctx.vm.define_shaped_property(
         arr_id,
         input_key,

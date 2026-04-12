@@ -621,7 +621,7 @@ fn eval_json_basic() {
 
 #[test]
 fn string_pool_intern_dedup() {
-    let mut pool = super::StringPool::new();
+    let mut pool = super::pools::StringPool::new();
     let a = pool.intern("hello");
     let b = pool.intern("hello");
     let c = pool.intern("world");
@@ -635,7 +635,7 @@ fn string_pool_intern_dedup() {
 
 #[test]
 fn string_pool_empty_string() {
-    let mut pool = super::StringPool::new();
+    let mut pool = super::pools::StringPool::new();
     let id = pool.intern("");
     assert_eq!(pool.get_utf8(id), "");
 }

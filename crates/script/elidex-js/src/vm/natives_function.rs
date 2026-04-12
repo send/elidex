@@ -126,30 +126,55 @@ pub(super) fn native_function_bind(
     Ok(JsValue::Object(bound_id))
 }
 
-/// Extract the effective `length` (param count) and `name` from a function target.
+/// Extract the effective `length` (param count) and `name` from a function
+/// target.  Iterative over BoundFunction chains to avoid stack overflow on
+/// deep `.bind()` chains; capped at `MAX_BIND_CHAIN_DEPTH` to prevent O(N²)
+/// name string growth from attacker-controlled input.
 fn target_function_length_name(ctx: &NativeContext<'_>, target_id: ObjectId) -> (usize, String) {
-    let obj = ctx.get_object(target_id);
-    match &obj.kind {
-        ObjectKind::Function(fo) => {
-            let len = ctx.vm.get_compiled(fo.func_id).param_count as usize;
-            let name = function_display_name(ctx, &obj.kind);
-            (len, name)
+    let mut current = target_id;
+    let mut bound_arg_total = 0usize;
+    let mut bound_depth = 0usize;
+    loop {
+        let obj = ctx.get_object(current);
+        match &obj.kind {
+            ObjectKind::Function(fo) => {
+                let len = ctx.vm.get_compiled(fo.func_id).param_count as usize;
+                let base_name = function_display_name(ctx, &obj.kind);
+                let len = len.saturating_sub(bound_arg_total);
+                let name = prepend_bound(bound_depth, &base_name);
+                return (len, name);
+            }
+            ObjectKind::NativeFunction(nf) => {
+                let base_name = ctx.get_utf8(nf.name);
+                let name = prepend_bound(bound_depth, &base_name);
+                return (0, name);
+            }
+            ObjectKind::BoundFunction {
+                target, bound_args, ..
+            } => {
+                bound_arg_total = bound_arg_total.saturating_add(bound_args.len());
+                bound_depth += 1;
+                if bound_depth > crate::vm::MAX_BIND_CHAIN_DEPTH {
+                    return (0, String::from("bound"));
+                }
+                current = *target;
+            }
+            _ => return (0, String::new()),
         }
-        ObjectKind::NativeFunction(nf) => {
-            // Native functions don't carry a param_count; default to 0.
-            (0, ctx.get_utf8(nf.name))
-        }
-        ObjectKind::BoundFunction {
-            target, bound_args, ..
-        } => {
-            let (inner_len, inner_name) = target_function_length_name(ctx, *target);
-            (
-                inner_len.saturating_sub(bound_args.len()),
-                format!("bound {inner_name}"),
-            )
-        }
-        _ => (0, String::new()),
     }
+}
+
+/// Prepend `"bound "` `n` times to a name (for BoundFunction.name derivation).
+fn prepend_bound(n: usize, base: &str) -> String {
+    if n == 0 {
+        return base.to_string();
+    }
+    let mut s = String::with_capacity(n * 6 + base.len());
+    for _ in 0..n {
+        s.push_str("bound ");
+    }
+    s.push_str(base);
+    s
 }
 
 /// `Function.prototype.toString()` — ES2020 §19.2.3.5

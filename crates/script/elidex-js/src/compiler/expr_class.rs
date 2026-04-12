@@ -308,21 +308,17 @@ fn emit_class_method_define(
     closure_const_idx: u16,
 ) -> Result<(), CompileError> {
     if computed {
-        if !matches!(kind, MethodKind::Method) {
-            return Err(CompileError {
-                message: "computed getter/setter keys not yet supported (deferred to M4-10.2)"
-                    .into(),
-            });
-        }
-        // Stack: [target]
-        // → compile key → [target key]
         if let PropertyKey::Computed(expr) = key {
             compile_expr(fc, prog, analysis, func_scopes, *expr)?;
         }
-        // → closure → [target key closure]
         fc.emit_u16(Op::Closure, closure_const_idx);
-        // → DefineComputedMethod → [target] (non-enumerable per §14.3.8)
-        fc.emit(Op::DefineComputedMethod);
+        let op = match kind {
+            MethodKind::Get => Op::DefineComputedGetter,
+            MethodKind::Set => Op::DefineComputedSetter,
+            // Constructor is never emitted here (parser places it on the class itself).
+            MethodKind::Method | MethodKind::Constructor => Op::DefineComputedMethod,
+        };
+        fc.emit(op);
         return Ok(());
     }
     // Non-computed: push closure then emit named define.

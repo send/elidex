@@ -800,6 +800,12 @@ impl VmInner {
                     let enumerable = flags & 1 != 0;
                     self.op_define_accessor(name_id, false, enumerable)?;
                 }
+                Op::DefineComputedGetter => {
+                    self.op_define_computed_accessor(true)?;
+                }
+                Op::DefineComputedSetter => {
+                    self.op_define_computed_accessor(false)?;
+                }
 
                 // ── Arguments object ────────────────────────────────
                 Op::CreateArguments => {

@@ -262,10 +262,236 @@ fn string_from_code_point_invalid_throws() {
     eval_throws("String.fromCodePoint(3.14);");
 }
 
-// -- StringWrapper own property -----------------------------------------------
-// NOTE: StringWrapper index/length tests deferred — requires `new String()`
-// constructor (not yet implemented). The property hook is in place in
-// ops_property.rs but cannot be exercised from JS yet.
+// -- StringWrapper (new String()) -----------------------------------------------
+
+#[test]
+fn new_string_typeof() {
+    assert_eq!(eval_string("typeof new String('hello');"), "object");
+}
+
+#[test]
+fn new_string_valueof() {
+    assert_eq!(eval_string("new String('hello').valueOf();"), "hello");
+}
+
+#[test]
+fn new_string_tostring() {
+    assert_eq!(eval_string("new String('abc').toString();"), "abc");
+}
+
+#[test]
+fn new_string_length() {
+    assert_eq!(eval_number("new String('hello').length;"), 5.0);
+}
+
+#[test]
+fn new_string_index_access() {
+    assert_eq!(eval_string("new String('abc')[1];"), "b");
+}
+
+#[test]
+fn new_string_method() {
+    assert_eq!(eval_string("new String('Hello').toUpperCase();"), "HELLO");
+}
+
+#[test]
+fn string_call_returns_primitive() {
+    assert_eq!(eval_string("typeof String(42);"), "string");
+    assert_eq!(eval_string("String(42);"), "42");
+}
+
+#[test]
+fn string_call_no_args() {
+    assert_eq!(eval_string("String();"), "");
+}
+
+#[test]
+fn new_string_constructor_property() {
+    assert_eq!(
+        eval_string("typeof new String('x').constructor;"),
+        "function"
+    );
+}
+
+#[test]
+fn string_proto_to_string_and_value_of_have_distinct_names() {
+    // §21.1.3.25: toString and valueOf share implementation, but `.name`
+    // must reflect the registered method name (§19.2.4.2).
+    assert_eq!(eval_string("String.prototype.toString.name;"), "toString");
+    assert_eq!(eval_string("String.prototype.valueOf.name;"), "valueOf");
+}
+
+#[test]
+fn native_function_name_property() {
+    // §19.2.4.2: built-in functions have a `.name` data property.
+    assert_eq!(eval_string("Object.keys.name;"), "keys");
+    assert_eq!(eval_string("Array.isArray.name;"), "isArray");
+    assert_eq!(eval_string("String.fromCharCode.name;"), "fromCharCode");
+}
+
+#[test]
+fn native_function_name_descriptor() {
+    // §19.2.4.2: {writable: false, enumerable: false, configurable: true}.
+    assert_eq!(
+        eval_string(
+            "var d = Object.getOwnPropertyDescriptor(Object.keys, 'name');
+             d.writable + ',' + d.enumerable + ',' + d.configurable"
+        ),
+        "false,false,true"
+    );
+}
+
+// -- String constructor NewTarget detection ---------------------------------
+
+#[test]
+fn string_call_with_object_this_returns_primitive() {
+    // §21.1.1.1: `String.call(obj, "x")` → `this = obj`, but NewTarget is
+    // undefined, so return primitive "x".  Previously regressed: was returning
+    // a wrapper.
+    assert_eq!(eval_string("typeof String.call({}, 'x');"), "string");
+    assert_eq!(eval_string("String.call({}, 'x');"), "x");
+}
+
+#[test]
+fn string_call_with_symbol_returns_descriptive_string() {
+    // §21.1.1.1 step 2: `String(Symbol("foo"))` → "Symbol(foo)" (no throw).
+    assert_eq!(eval_string("String(Symbol('foo'));"), "Symbol(foo)");
+    assert_eq!(eval_string("String(Symbol());"), "Symbol()");
+}
+
+#[test]
+fn new_string_with_symbol_throws() {
+    // `new String(Symbol())` → ToString throws on Symbol.
+    eval_throws("new String(Symbol('foo'));");
+}
+
+#[test]
+fn new_string_coerces_non_string_inputs() {
+    assert_eq!(eval_string("new String(42).valueOf();"), "42");
+    assert_eq!(eval_string("new String(undefined).valueOf();"), "undefined");
+    assert_eq!(eval_string("new String(null).valueOf();"), "null");
+    assert_eq!(eval_string("new String(true).valueOf();"), "true");
+}
+
+#[test]
+fn new_string_no_args_is_empty() {
+    assert_eq!(eval_string("new String().valueOf();"), "");
+    assert_eq!(eval_number("new String().length;"), 0.0);
+}
+
+#[test]
+fn new_string_length_is_non_writable() {
+    // §21.1.5.1: `length` is non-writable.  Strict mode throws on assignment.
+    eval_throws(
+        "(function() {
+           'use strict';
+           var w = new String('abc');
+           w.length = 10;
+         })();",
+    );
+    // Sloppy mode silently ignores (pre-existing top-level behavior):
+    // value is unchanged.
+    assert_eq!(
+        eval_number("var w = new String('abc'); w.length = 10; w.length;"),
+        3.0
+    );
+}
+
+#[test]
+fn new_string_length_descriptor() {
+    // §21.1.5.1: {writable: false, enumerable: false, configurable: false}.
+    assert_eq!(
+        eval_string(
+            "var d = Object.getOwnPropertyDescriptor(new String('ab'), 'length');
+             d.writable + ',' + d.enumerable + ',' + d.configurable"
+        ),
+        "false,false,false"
+    );
+}
+
+// -- BoundFunction [[Construct]] --------------------------------------------
+
+#[test]
+fn new_on_bound_function_returns_instance() {
+    // §9.4.1.2: `new boundFn()` constructs via target, prepends bound_args.
+    assert_eq!(
+        eval_string(
+            "function F(a, b) { this.sum = a + b; }
+             var bf = F.bind(null, 10);
+             var r = new bf(5);
+             String(r.sum);"
+        ),
+        "15"
+    );
+}
+
+#[test]
+fn new_on_nested_bound_chain() {
+    // Bound chain: all bound_args prepended in outer-to-inner order.
+    assert_eq!(
+        eval_string(
+            "function F(a, b, c) { this.vals = [a,b,c].join(','); }
+             var bf = F.bind(null, 1).bind(null, 2);
+             new bf(3).vals;"
+        ),
+        "1,2,3"
+    );
+}
+
+#[test]
+fn bind_chain_depth_cap() {
+    // Attacker-built chain beyond MAX_BIND_CHAIN_DEPTH should throw RangeError
+    // on call.  Building the chain itself must also be stack-safe
+    // (target_function_length_name was previously recursive over the chain).
+    eval_throws(
+        "var f = function(){};
+         for (var i = 0; i < 10001; i++) { f = f.bind(null); }
+         f();",
+    );
+}
+
+// -- Computed getter/setter keys --------------------------------------------
+
+#[test]
+fn class_computed_getter() {
+    assert_eq!(
+        eval_string(
+            "const k = 'x';
+             class C { get [k]() { return 42; } }
+             String(new C().x);"
+        ),
+        "42"
+    );
+}
+
+#[test]
+fn class_computed_setter() {
+    assert_eq!(
+        eval_string(
+            "const k = 'x';
+             class C {
+               constructor() { this._x = 0; }
+               get [k]() { return this._x; }
+               set [k](v) { this._x = v * 2; }
+             }
+             var c = new C();
+             c.x = 5;
+             String(c.x);"
+        ),
+        "10"
+    );
+}
+
+#[test]
+fn class_computed_getter_symbol_key() {
+    assert_eq!(
+        eval_string(
+            "class C { get [Symbol.iterator]() { return 1; } }
+             String(new C()[Symbol.iterator]);"
+        ),
+        "1"
+    );
+}
 
 // -- Global URI encoding/decoding ---------------------------------------------
 

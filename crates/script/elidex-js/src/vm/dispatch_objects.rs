@@ -194,11 +194,48 @@ impl VmInner {
         Ok(())
     }
 
-    /// Define a getter or setter accessor on the object at TOS.
-    #[allow(clippy::too_many_lines)]
+    /// Define a getter or setter accessor on the object at TOS (named key, `DefineGetter`/`DefineSetter`).
     pub(crate) fn op_define_accessor(
         &mut self,
         name_id: super::value::StringId,
+        is_getter: bool,
+        enumerable: bool,
+    ) -> Result<(), VmError> {
+        let closure = self.pop()?;
+        let obj_val = self.peek()?;
+        if let (JsValue::Object(obj_id), JsValue::Object(fn_id)) = (obj_val, closure) {
+            self.define_accessor_impl(
+                obj_id,
+                PropertyKey::String(name_id),
+                fn_id,
+                is_getter,
+                enumerable,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Define a computed-key getter or setter accessor (class accessor §14.3.8).
+    /// Stack: `[object key closure]` → `[object]`.
+    pub(crate) fn op_define_computed_accessor(&mut self, is_getter: bool) -> Result<(), VmError> {
+        let closure = self.pop()?;
+        let key_val = self.pop()?;
+        let obj_val = self.peek()?;
+        if let (JsValue::Object(obj_id), JsValue::Object(fn_id)) = (obj_val, closure) {
+            let pk = self.make_property_key(key_val)?;
+            // Class accessors are non-enumerable (§14.3.8).
+            self.define_accessor_impl(obj_id, pk, fn_id, is_getter, false)?;
+        }
+        Ok(())
+    }
+
+    /// Shared implementation for `DefineGetter`/`DefineSetter`/`DefineComputedGetter`/`DefineComputedSetter`.
+    #[allow(clippy::too_many_lines)]
+    fn define_accessor_impl(
+        &mut self,
+        obj_id: super::value::ObjectId,
+        pk: PropertyKey,
+        fn_id: super::value::ObjectId,
         is_getter: bool,
         enumerable: bool,
     ) -> Result<(), VmError> {
@@ -207,114 +244,96 @@ impl VmInner {
             ReconfigureData,
             New,
         }
-        let closure = self.pop()?;
-        let obj_val = self.peek()?;
-        if let (JsValue::Object(obj_id), JsValue::Object(fn_id)) = (obj_val, closure) {
-            let pk = PropertyKey::String(name_id);
-            let (init_get, init_set) = if is_getter {
-                (Some(fn_id), None)
-            } else {
-                (None, Some(fn_id))
-            };
-            let accessor_attrs = super::shape::PropertyAttrs {
-                writable: false,
-                enumerable,
-                configurable: true,
-                is_accessor: true,
-            };
-            // Determine existing property state using split borrow.
-            let action = {
-                let shapes = &self.shapes;
-                let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
-                if let Some((slot, attrs)) = obj.storage.get_mut(pk, shapes) {
-                    if attrs.is_accessor {
-                        // Existing accessor — update getter or setter in place.
-                        if let PropertyValue::Accessor { getter, setter } = slot {
-                            if is_getter {
-                                *getter = Some(fn_id);
-                            } else {
-                                *setter = Some(fn_id);
-                            }
+        let (init_get, init_set) = if is_getter {
+            (Some(fn_id), None)
+        } else {
+            (None, Some(fn_id))
+        };
+        let accessor_attrs = super::shape::PropertyAttrs {
+            writable: false,
+            enumerable,
+            configurable: true,
+            is_accessor: true,
+        };
+        let action = {
+            let shapes = &self.shapes;
+            let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+            if let Some((slot, attrs)) = obj.storage.get_mut(pk, shapes) {
+                if attrs.is_accessor {
+                    if let PropertyValue::Accessor { getter, setter } = slot {
+                        if is_getter {
+                            *getter = Some(fn_id);
+                        } else {
+                            *setter = Some(fn_id);
                         }
-                        AccessorAction::Updated
+                    }
+                    AccessorAction::Updated
+                } else {
+                    AccessorAction::ReconfigureData
+                }
+            } else {
+                AccessorAction::New
+            }
+        };
+        match action {
+            AccessorAction::Updated => {
+                let needs_reconfigure = {
+                    let shapes = &self.shapes;
+                    let obj = self.objects[obj_id.0 as usize].as_ref().unwrap();
+                    if let Some((_, attrs)) = obj.storage.get(pk, shapes) {
+                        attrs.enumerable != enumerable
                     } else {
-                        // Existing data property — need reconfigure transition.
-                        AccessorAction::ReconfigureData
+                        false
+                    }
+                };
+                if needs_reconfigure {
+                    let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                    if let super::value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
+                        if let Some((_, prop)) = vec.iter_mut().find(|(k, _)| *k == pk) {
+                            prop.enumerable = accessor_attrs.enumerable;
+                            prop.configurable = accessor_attrs.configurable;
+                        }
+                    } else {
+                        self.reconfigure_property(obj_id, pk, accessor_attrs, None);
+                    }
+                }
+            }
+            AccessorAction::ReconfigureData => {
+                let accessor_slot = PropertyValue::Accessor {
+                    getter: init_get,
+                    setter: init_set,
+                };
+                let obj = self.objects[obj_id.0 as usize].as_ref().unwrap();
+                let is_dict = matches!(&obj.storage, super::value::PropertyStorage::Dictionary(_));
+                if is_dict {
+                    let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+                    if let super::value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
+                        if let Some((_, prop)) = vec.iter_mut().find(|(k, _)| *k == pk) {
+                            prop.slot = accessor_slot;
+                            prop.writable = accessor_attrs.writable;
+                            prop.enumerable = accessor_attrs.enumerable;
+                            prop.configurable = accessor_attrs.configurable;
+                        }
                     }
                 } else {
-                    AccessorAction::New
+                    self.reconfigure_property(obj_id, pk, accessor_attrs, Some(accessor_slot));
                 }
-            };
-            match action {
-                AccessorAction::Updated => {
-                    // Slot was updated in place.  If enumerability changed, reconfigure.
-                    let needs_reconfigure = {
-                        let shapes = &self.shapes;
-                        let obj = self.objects[obj_id.0 as usize].as_ref().unwrap();
-                        if let Some((_, attrs)) = obj.storage.get(pk, shapes) {
-                            attrs.enumerable != enumerable
-                        } else {
-                            false
-                        }
-                    };
-                    if needs_reconfigure {
-                        // reconfigure_property handles Shaped mode; for Dictionary
-                        // we must update the Property flags directly.
-                        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
-                        if let super::value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
-                            if let Some((_, prop)) = vec.iter_mut().find(|(k, _)| *k == pk) {
-                                prop.enumerable = accessor_attrs.enumerable;
-                                prop.configurable = accessor_attrs.configurable;
-                            }
-                        } else {
-                            self.reconfigure_property(obj_id, pk, accessor_attrs, None);
-                        }
-                    }
+            }
+            AccessorAction::New => {
+                if !self.get_object(obj_id).extensible {
+                    return Err(VmError::type_error(
+                        "Cannot define property on a non-extensible object",
+                    ));
                 }
-                AccessorAction::ReconfigureData => {
-                    // Data → accessor: reconfigure transition + replace slot value.
-                    let accessor_slot = PropertyValue::Accessor {
+                self.define_shaped_property(
+                    obj_id,
+                    pk,
+                    PropertyValue::Accessor {
                         getter: init_get,
                         setter: init_set,
-                    };
-                    let obj = self.objects[obj_id.0 as usize].as_ref().unwrap();
-                    let is_dict =
-                        matches!(&obj.storage, super::value::PropertyStorage::Dictionary(_));
-                    if is_dict {
-                        // Dictionary mode: replace the full Property entry
-                        // (slot + flags) directly since reconfigure_property is
-                        // a no-op for Dictionary.
-                        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
-                        if let super::value::PropertyStorage::Dictionary(vec) = &mut obj.storage {
-                            if let Some((_, prop)) = vec.iter_mut().find(|(k, _)| *k == pk) {
-                                prop.slot = accessor_slot;
-                                prop.writable = accessor_attrs.writable;
-                                prop.enumerable = accessor_attrs.enumerable;
-                                prop.configurable = accessor_attrs.configurable;
-                            }
-                        }
-                    } else {
-                        // Shaped mode: reconfigure_property handles transition.
-                        self.reconfigure_property(obj_id, pk, accessor_attrs, Some(accessor_slot));
-                    }
-                }
-                AccessorAction::New => {
-                    // New accessor property — reject if non-extensible.
-                    if !self.get_object(obj_id).extensible {
-                        return Err(VmError::type_error(
-                            "Cannot define property on a non-extensible object",
-                        ));
-                    }
-                    self.define_shaped_property(
-                        obj_id,
-                        pk,
-                        PropertyValue::Accessor {
-                            getter: init_get,
-                            setter: init_set,
-                        },
-                        accessor_attrs,
-                    );
-                }
+                    },
+                    accessor_attrs,
+                );
             }
         }
         Ok(())

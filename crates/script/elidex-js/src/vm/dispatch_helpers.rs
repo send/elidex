@@ -179,7 +179,7 @@ impl VmInner {
                     super::shape::PropertyAttrs::BUILTIN,
                 );
                 // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
-                let last_index_key = PropertyKey::String(self.strings.intern("lastIndex"));
+                let last_index_key = PropertyKey::String(self.well_known.last_index);
                 self.define_shaped_property(
                     obj_id,
                     last_index_key,
