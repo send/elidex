@@ -490,3 +490,80 @@ fn native_reentrant_during_inline_call() {
 fn new_arrow_function_throws() {
     eval_throws("var f = () => {}; new f();");
 }
+
+// ─── §6.2.4.5 RequireObjectCoercible for null/undefined base ─────────────
+
+#[test]
+fn get_prop_null_throws() {
+    eval_throws("var v = null; v.x;");
+}
+
+#[test]
+fn get_prop_undefined_throws() {
+    eval_throws("var v = undefined; v.x;");
+}
+
+#[test]
+fn set_prop_null_throws() {
+    eval_throws("var v = null; v.x = 1;");
+}
+
+#[test]
+fn set_prop_undefined_throws() {
+    eval_throws("var v; v.x = 1;");
+}
+
+#[test]
+fn get_elem_null_throws() {
+    eval_throws("var v = null; v[0];");
+}
+
+#[test]
+fn get_elem_undefined_throws() {
+    eval_throws("var v; v[0];");
+}
+
+#[test]
+fn set_elem_null_throws() {
+    eval_throws("var v = null; v[0] = 1;");
+}
+
+#[test]
+fn set_elem_undefined_throws() {
+    eval_throws("var v; v[0] = 1;");
+}
+
+#[test]
+fn delete_prop_null_throws() {
+    // §12.5.3.2 step 6: ToObject(null) throws.
+    eval_throws("var v = null; delete v.x;");
+}
+
+#[test]
+fn delete_prop_undefined_throws() {
+    eval_throws("var v; delete v.x;");
+}
+
+#[test]
+fn delete_elem_null_throws() {
+    eval_throws("var v = null; delete v[0];");
+}
+
+#[test]
+fn delete_elem_undefined_throws() {
+    eval_throws("var v; delete v[0];");
+}
+
+#[test]
+fn delete_prop_primitive_boxes() {
+    // ToObject(5) → NumberWrapper; deleting an absent property succeeds
+    // (wrapper has no own `foo`).
+    assert!(eval_bool("delete (5).foo;"));
+}
+
+#[test]
+fn delete_prop_string_length_throws() {
+    // StringWrapper.length is non-configurable → [[Delete]] returns false →
+    // §12.5.3.2 strict throw.
+    eval_throws("delete (new String('abc')).length;");
+}

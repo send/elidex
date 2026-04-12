@@ -62,6 +62,9 @@ impl VmInner {
         obj: JsValue,
         key: StringId,
     ) -> Result<JsValue, VmError> {
+        // §6.2.4.5 RequireObjectCoercible: property reads on null/undefined
+        // must throw TypeError before any prototype-chain walk.
+        super::coerce::require_object_coercible(obj)?;
         let pk = PropertyKey::String(key);
         match obj {
             JsValue::Object(id) => {
@@ -369,6 +372,8 @@ impl VmInner {
         key: StringId,
         val: JsValue,
     ) -> Result<(), VmError> {
+        // §6.2.4.5 RequireObjectCoercible: writes on null/undefined throw.
+        super::coerce::require_object_coercible(obj)?;
         let pk = PropertyKey::String(key);
         if let JsValue::Object(id) = obj {
             let is_global = id == self.global_object;
@@ -385,6 +390,8 @@ impl VmInner {
 
     #[allow(clippy::too_many_lines)]
     pub(crate) fn get_element(&mut self, obj: JsValue, key: JsValue) -> Result<JsValue, VmError> {
+        // §6.2.4.5 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
+        super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
             // Numeric index for arrays.
             if let JsValue::Number(n) = key {
@@ -560,6 +567,8 @@ impl VmInner {
         key: JsValue,
         val: JsValue,
     ) -> Result<(), VmError> {
+        // §6.2.4.5 RequireObjectCoercible: `null[k] = v` / `undefined[k] = v` throw.
+        super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
             if let JsValue::Number(n) = key {
                 if let Some(idx) = try_as_array_index(n) {

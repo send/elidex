@@ -320,6 +320,19 @@ pub(super) fn f64_to_uint32(n: f64) -> u32 {
 // ToObject (ES2020 §7.1.13)
 // ---------------------------------------------------------------------------
 
+/// §6.2.4.5 RequireObjectCoercible: throws TypeError for null/undefined
+/// (including the internal `Empty` sentinel), otherwise returns `Ok(())`.
+/// Used by property access/assignment/delete paths that must reject
+/// nullish bases before any prototype-chain walk or ToObject boxing.
+pub(super) fn require_object_coercible(val: JsValue) -> Result<(), VmError> {
+    match val {
+        JsValue::Null | JsValue::Undefined | JsValue::Empty => Err(VmError::type_error(
+            "Cannot access property of null or undefined",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Convert a value to an Object. Throws TypeError for null/undefined.
 /// Primitives are wrapped in their corresponding wrapper objects.
 pub(super) fn to_object(vm: &mut VmInner, val: JsValue) -> Result<ObjectId, VmError> {

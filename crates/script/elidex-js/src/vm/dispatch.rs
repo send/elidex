@@ -15,6 +15,16 @@ use super::VmInner;
 /// `[[Delete]]` returns `false`.
 const NON_CONFIGURABLE_DELETE_MSG: &str = "Cannot delete property: property is not configurable";
 
+/// §12.5.3.2 DeleteExpression step 6 `? ToObject(ref.[[Base]])`.  Null/undefined
+/// throw TypeError (via ToObject); other primitives are boxed to their
+/// wrapper so their [[Delete]] applies to the (temporary) wrapper.
+fn resolve_delete_base(vm: &mut VmInner, obj: JsValue) -> Result<super::value::ObjectId, VmError> {
+    match obj {
+        JsValue::Object(id) => Ok(id),
+        _ => super::coerce::to_object(vm, obj),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Main dispatch loop
 // ---------------------------------------------------------------------------
@@ -579,65 +589,69 @@ impl VmInner {
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let pk = PropertyKey::String(name_id);
                     let obj_val = self.pop()?;
-                    if let JsValue::Object(id) = obj_val {
-                        match self.try_delete_property(id, pk) {
+                    let id = match resolve_delete_base(self, obj_val) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
+                        }
+                    };
+                    match self.try_delete_property(id, pk) {
+                        Ok(true) => self.stack.push(JsValue::Boolean(true)),
+                        // §12.5.3.2: `delete` operator throws TypeError in
+                        // strict mode when [[Delete]] returns false.  All
+                        // code is strict, so we always throw.
+                        Ok(false) => self.throw_error(
+                            VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
+                            entry_frame_depth,
+                        )?,
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    }
+                }
+                Op::DeleteElem => {
+                    let key = self.pop()?;
+                    let obj_val = self.pop()?;
+                    let id = match resolve_delete_base(self, obj_val) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
+                        }
+                    };
+                    // Resolve array index from Number or String key.
+                    let arr_idx = match key {
+                        JsValue::Number(n) => try_as_array_index(n),
+                        JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
+                        _ => None,
+                    };
+                    // Fast path: array element present → set to Empty.
+                    let fast = arr_idx.and_then(|idx| match &self.get_object(id).kind {
+                        ObjectKind::Array { elements }
+                            if idx < elements.len() && !elements[idx].is_empty() =>
+                        {
+                            Some(idx)
+                        }
+                        _ => None,
+                    });
+                    if let Some(idx) = fast {
+                        if let ObjectKind::Array { elements } = &mut self.get_object_mut(id).kind {
+                            elements[idx] = JsValue::Empty;
+                        }
+                        self.stack.push(JsValue::Boolean(true));
+                    } else {
+                        match self
+                            .make_property_key(key)
+                            .and_then(|pk| self.try_delete_property(id, pk))
+                        {
                             Ok(true) => self.stack.push(JsValue::Boolean(true)),
-                            // §12.5.3.2: `delete` operator throws TypeError in
-                            // strict mode when [[Delete]] returns false.  All
-                            // code is strict, so we always throw.
+                            // §12.5.3.2: strict-mode throw when [[Delete]]
+                            // returns false.
                             Ok(false) => self.throw_error(
                                 VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
                                 entry_frame_depth,
                             )?,
                             Err(e) => self.throw_error(e, entry_frame_depth)?,
                         }
-                    } else {
-                        self.stack.push(JsValue::Boolean(true));
-                    }
-                }
-                Op::DeleteElem => {
-                    let key = self.pop()?;
-                    let obj_val = self.pop()?;
-                    if let JsValue::Object(id) = obj_val {
-                        // Resolve array index from Number or String key.
-                        let arr_idx = match key {
-                            JsValue::Number(n) => try_as_array_index(n),
-                            JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
-                            _ => None,
-                        };
-                        // Fast path: array element present → set to Empty.
-                        let fast = arr_idx.and_then(|idx| match &self.get_object(id).kind {
-                            ObjectKind::Array { elements }
-                                if idx < elements.len() && !elements[idx].is_empty() =>
-                            {
-                                Some(idx)
-                            }
-                            _ => None,
-                        });
-                        if let Some(idx) = fast {
-                            if let ObjectKind::Array { elements } =
-                                &mut self.get_object_mut(id).kind
-                            {
-                                elements[idx] = JsValue::Empty;
-                            }
-                            self.stack.push(JsValue::Boolean(true));
-                        } else {
-                            match self
-                                .make_property_key(key)
-                                .and_then(|pk| self.try_delete_property(id, pk))
-                            {
-                                Ok(true) => self.stack.push(JsValue::Boolean(true)),
-                                // §12.5.3.2: strict-mode throw when [[Delete]]
-                                // returns false.
-                                Ok(false) => self.throw_error(
-                                    VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
-                                    entry_frame_depth,
-                                )?,
-                                Err(e) => self.throw_error(e, entry_frame_depth)?,
-                            }
-                        }
-                    } else {
-                        self.stack.push(JsValue::Boolean(true));
                     }
                 }
 
