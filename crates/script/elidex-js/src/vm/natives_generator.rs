@@ -306,9 +306,15 @@ impl VmInner {
         }
     }
 
-    /// Build a `{value, done}` iterator-result object, used by
-    /// `Generator.prototype.next` and similar iterator steps.
-    pub(super) fn iter_result_object(&mut self, value: JsValue, done: bool) -> ObjectId {
+    /// Build a `{ value, done }` iterator-result object (§7.4.8
+    /// CreateIterResultObject).  Shared between generator `.next` /
+    /// `.return` / `.throw`, array iterator next, string iterator next,
+    /// and any other `IteratorResult`-shaped allocation.
+    ///
+    /// Prototype is `%Object.prototype%` per spec (CreateIterResultObject
+    /// step 1: OrdinaryObjectCreate(%Object.prototype%)), making
+    /// `gen.next().toString === Object.prototype.toString`.
+    pub(crate) fn create_iter_result(&mut self, value: JsValue, done: bool) -> ObjectId {
         let obj = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
@@ -357,7 +363,7 @@ pub(super) fn native_generator_next(
     let (value, done) = ctx
         .vm
         .resume_generator(gen_id, FrameCompletion::Normal(arg))?;
-    let obj = ctx.vm.iter_result_object(value, done);
+    let obj = ctx.vm.create_iter_result(value, done);
     Ok(JsValue::Object(obj))
 }
 
@@ -387,7 +393,7 @@ pub(super) fn native_generator_return(
     let (v, done) = ctx
         .vm
         .resume_generator(gen_id, FrameCompletion::Return(value))?;
-    let obj = ctx.vm.iter_result_object(v, done);
+    let obj = ctx.vm.create_iter_result(v, done);
     Ok(JsValue::Object(obj))
 }
 
@@ -415,7 +421,7 @@ pub(super) fn native_generator_throw(
     let (v, done) = ctx
         .vm
         .resume_generator(gen_id, FrameCompletion::Throw(reason))?;
-    let obj = ctx.vm.iter_result_object(v, done);
+    let obj = ctx.vm.create_iter_result(v, done);
     Ok(JsValue::Object(obj))
 }
 

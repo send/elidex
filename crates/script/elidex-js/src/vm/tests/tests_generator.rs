@@ -608,6 +608,35 @@ fn yield_star_forwards_throw_closes_inner() {
     );
 }
 
+// ─── Iterator result object prototype chain (§7.4.8) ─────────────────────
+
+#[test]
+fn generator_next_result_inherits_object_prototype() {
+    // §7.4.8 CreateIterResultObject: the result object is built via
+    // OrdinaryObjectCreate(%Object.prototype%), so `.toString` is
+    // reachable via the prototype chain.  A previous implementation
+    // set `prototype: None` on some IteratorResult flavours, breaking
+    // this.
+    assert!(eval_bool(
+        "function* g() { yield 1; } \
+         var r = g().next(); \
+         typeof r.toString === 'function';"
+    ));
+}
+
+#[test]
+fn array_iterator_result_inherits_object_prototype() {
+    // Same §7.4.8 invariant for array iterators (they now share the
+    // consolidated VmInner::create_iter_result helper).  The previous
+    // array-iterator helper set `prototype: None`, so inherited
+    // methods weren't reachable.
+    assert!(eval_bool(
+        "var it = [1][Symbol.iterator](); \
+         var r = it.next(); \
+         typeof r.toString === 'function';"
+    ));
+}
+
 // ─── Sanity: yield outside a generator is a syntax error (compiler) ───────
 
 #[test]
