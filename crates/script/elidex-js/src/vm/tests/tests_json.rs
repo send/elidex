@@ -539,6 +539,29 @@ fn parse_reviver_delete() {
 }
 
 #[test]
+fn parse_reviver_delete_non_configurable_silent() {
+    // §24.5.1.3 step 7.c.i: reviver's `[[Delete]]` must return `false`
+    // silently on non-configurable properties, not throw.  The DeleteOperator
+    // (§12.5.3.2) is what throws in strict mode — not the abstract op.
+    // Regression guard: if `try_delete_property` were to throw on
+    // non-configurable, `JSON.parse` would erroneously abort.
+    assert_eq!(
+        eval_string(
+            r#"JSON.parse('{"a": 1, "b": 2}', function(key, value) {
+                if (key === "a") {
+                    Object.defineProperty(this, "b", { configurable: false });
+                    return value;
+                }
+                if (key === "b") return undefined; // silent delete failure
+                return value;
+            });
+            "ok""#
+        ),
+        "ok"
+    );
+}
+
+#[test]
 fn parse_reviver_array() {
     assert_eq!(
         eval_number(

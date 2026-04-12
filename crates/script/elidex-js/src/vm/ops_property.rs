@@ -242,9 +242,14 @@ impl VmInner {
         }
     }
 
-    /// Delete a named property from an object (single-pass).
-    /// Returns `Ok(true)` if deleted, or `Err(TypeError)` if the property is
-    /// non-configurable.
+    /// §9.1.10 [[Delete]] — delete a named property from an object.
+    /// Returns `Ok(true)` if deleted or absent, `Ok(false)` if the property
+    /// exists but is non-configurable.  Spec `[[Delete]]` never throws
+    /// TypeError on non-configurable; the strict-mode throw is the `delete`
+    /// operator's responsibility (§12.5.3.2), applied by the DeleteProp /
+    /// DeleteElem opcodes.  Callers that implement spec abstract ops
+    /// (e.g. `JSON.parse` reviver §24.5.1.3 step 7.c.i) must honor the
+    /// `false` return rather than treating it as an error.
     pub(crate) fn try_delete_property(
         &mut self,
         id: ObjectId,
@@ -256,11 +261,7 @@ impl VmInner {
             let obj = self.objects[id.0 as usize].as_ref().unwrap();
             match obj.storage.get(pk, &self.shapes) {
                 None => return Ok(true), // Property doesn't exist — delete succeeds.
-                Some((_, attrs)) if !attrs.configurable => {
-                    return Err(VmError::type_error(
-                        "Cannot delete property: property is not configurable",
-                    ));
-                }
+                Some((_, attrs)) if !attrs.configurable => return Ok(false),
                 Some(_) => {} // configurable — proceed with delete
             }
         }

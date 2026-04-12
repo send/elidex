@@ -11,6 +11,10 @@ use super::ops::{parse_array_index_u16, try_as_array_index};
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
+/// §12.5.3.2 DeleteExpression: strict-mode TypeError message when
+/// `[[Delete]]` returns `false`.
+const NON_CONFIGURABLE_DELETE_MSG: &str = "Cannot delete property: property is not configurable";
+
 // ---------------------------------------------------------------------------
 // Main dispatch loop
 // ---------------------------------------------------------------------------
@@ -575,23 +579,26 @@ impl VmInner {
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let pk = PropertyKey::String(name_id);
                     let obj_val = self.pop()?;
-                    let deleted = if let JsValue::Object(id) = obj_val {
+                    if let JsValue::Object(id) = obj_val {
                         match self.try_delete_property(id, pk) {
-                            Ok(d) => d,
-                            Err(e) => {
-                                self.throw_error(e, entry_frame_depth)?;
-                                continue;
-                            }
+                            Ok(true) => self.stack.push(JsValue::Boolean(true)),
+                            // §12.5.3.2: `delete` operator throws TypeError in
+                            // strict mode when [[Delete]] returns false.  All
+                            // code is strict, so we always throw.
+                            Ok(false) => self.throw_error(
+                                VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
+                                entry_frame_depth,
+                            )?,
+                            Err(e) => self.throw_error(e, entry_frame_depth)?,
                         }
                     } else {
-                        true
-                    };
-                    self.stack.push(JsValue::Boolean(deleted));
+                        self.stack.push(JsValue::Boolean(true));
+                    }
                 }
                 Op::DeleteElem => {
                     let key = self.pop()?;
                     let obj_val = self.pop()?;
-                    let deleted = if let JsValue::Object(id) = obj_val {
+                    if let JsValue::Object(id) = obj_val {
                         // Resolve array index from Number or String key.
                         let arr_idx = match key {
                             JsValue::Number(n) => try_as_array_index(n),
@@ -599,56 +606,39 @@ impl VmInner {
                             _ => None,
                         };
                         // Fast path: array element present → set to Empty.
-                        // Only applies when the index has a live element;
-                        // otherwise fall back to property delete for
-                        // configurable/strict-mode semantics.
-                        if let Some(idx) = arr_idx {
-                            let can_fast_delete = matches!(
-                                &self.get_object(id).kind,
-                                ObjectKind::Array { elements }
-                                    if idx < elements.len()
-                                        && !elements[idx].is_empty()
-                            );
-                            if can_fast_delete {
-                                let obj_ref = self.get_object_mut(id);
-                                if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
-                                    elements[idx] = JsValue::Empty;
-                                }
-                                true
-                            } else {
-                                match self.make_property_key(key) {
-                                    Ok(pk) => match self.try_delete_property(id, pk) {
-                                        Ok(d) => d,
-                                        Err(e) => {
-                                            self.throw_error(e, entry_frame_depth)?;
-                                            continue;
-                                        }
-                                    },
-                                    Err(e) => {
-                                        self.throw_error(e, entry_frame_depth)?;
-                                        continue;
-                                    }
-                                }
+                        let fast = arr_idx.and_then(|idx| match &self.get_object(id).kind {
+                            ObjectKind::Array { elements }
+                                if idx < elements.len() && !elements[idx].is_empty() =>
+                            {
+                                Some(idx)
                             }
+                            _ => None,
+                        });
+                        if let Some(idx) = fast {
+                            if let ObjectKind::Array { elements } =
+                                &mut self.get_object_mut(id).kind
+                            {
+                                elements[idx] = JsValue::Empty;
+                            }
+                            self.stack.push(JsValue::Boolean(true));
                         } else {
-                            match self.make_property_key(key) {
-                                Ok(pk) => match self.try_delete_property(id, pk) {
-                                    Ok(d) => d,
-                                    Err(e) => {
-                                        self.throw_error(e, entry_frame_depth)?;
-                                        continue;
-                                    }
-                                },
-                                Err(e) => {
-                                    self.throw_error(e, entry_frame_depth)?;
-                                    continue;
-                                }
+                            match self
+                                .make_property_key(key)
+                                .and_then(|pk| self.try_delete_property(id, pk))
+                            {
+                                Ok(true) => self.stack.push(JsValue::Boolean(true)),
+                                // §12.5.3.2: strict-mode throw when [[Delete]]
+                                // returns false.
+                                Ok(false) => self.throw_error(
+                                    VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
+                                    entry_frame_depth,
+                                )?,
+                                Err(e) => self.throw_error(e, entry_frame_depth)?,
                             }
                         }
                     } else {
-                        true
-                    };
-                    self.stack.push(JsValue::Boolean(deleted));
+                        self.stack.push(JsValue::Boolean(true));
+                    }
                 }
 
                 // ── Object/Array creation ───────────────────────────
