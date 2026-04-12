@@ -254,9 +254,27 @@ impl VmInner {
             prototype: self.string_prototype,
             extensible: true,
         });
+        self.install_string_wrapper_length(obj, len);
+        obj
+    }
+
+    /// Promote an existing Ordinary instance (typically pre-allocated by
+    /// `do_new` for a native constructor) into a StringWrapper in place,
+    /// reusing the object slot to avoid a second allocation.
+    pub(crate) fn promote_to_string_wrapper(&mut self, obj_id: ObjectId, sid: StringId) {
+        #[allow(clippy::cast_precision_loss)]
+        let len = self.strings.get(sid).len() as f64;
+        {
+            let obj = self.get_object_mut(obj_id);
+            obj.kind = ObjectKind::StringWrapper(sid);
+        }
+        self.install_string_wrapper_length(obj_id, len);
+    }
+
+    fn install_string_wrapper_length(&mut self, obj_id: ObjectId, len: f64) {
         let length_key = value::PropertyKey::String(self.well_known.length);
         self.define_shaped_property(
-            obj,
+            obj_id,
             length_key,
             value::PropertyValue::Data(JsValue::Number(len)),
             shape::PropertyAttrs {
@@ -266,7 +284,6 @@ impl VmInner {
                 is_accessor: false,
             },
         );
-        obj
     }
 
     /// Get a reference to an object.

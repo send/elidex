@@ -439,6 +439,33 @@ fn new_on_nested_bound_chain() {
 }
 
 #[test]
+fn bind_honors_defineproperty_name() {
+    // §19.2.3.2 step 11: bind reads target's current `.name` property via Get,
+    // not the internal slot, so defineProperty overrides propagate.
+    assert_eq!(
+        eval_string(
+            "function foo() {}
+             Object.defineProperty(foo, 'name', { value: 'bar', configurable: true });
+             foo.bind(null).name;"
+        ),
+        "bound bar"
+    );
+}
+
+#[test]
+fn bind_honors_defineproperty_length() {
+    // §19.2.3.2 steps 4-5: bind reads target's current `.length` property.
+    assert_eq!(
+        eval_number(
+            "function f(a, b, c) {}
+             Object.defineProperty(f, 'length', { value: 5, configurable: true });
+             f.bind(null, 1).length;"
+        ),
+        4.0 // 5 - 1 bound arg = 4
+    );
+}
+
+#[test]
 fn bind_chain_depth_cap() {
     // Attacker-built chain beyond MAX_BIND_CHAIN_DEPTH should throw RangeError
     // on call.  Building the chain itself must also be stack-safe

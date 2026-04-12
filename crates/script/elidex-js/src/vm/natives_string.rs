@@ -686,12 +686,13 @@ pub(crate) fn native_string_value_of(
 // -- String constructor (§21.1.1) -------------------------------------------
 
 /// `String(value)` as a function call returns a primitive string (§21.1.1.1
-/// step 1 when NewTarget is undefined).  `new String(value)` returns a fresh
-/// StringWrapper object.  For symbol input on the call path, `SymbolDescriptiveString`
-/// semantics apply (handled by `to_string_val` delegating to symbol wrapping).
+/// step 1 when NewTarget is undefined).  `new String(value)` promotes the
+/// pre-allocated Ordinary instance (passed as `this` by `do_new`) to a
+/// StringWrapper in-place, avoiding a second allocation.  For symbol input
+/// on the call path, `SymbolDescriptiveString` semantics apply.
 pub(crate) fn native_string_constructor(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let str_val = if args.is_empty() {
@@ -708,8 +709,13 @@ pub(crate) fn native_string_constructor(
     };
 
     if ctx.is_construct() {
-        let wrapper = ctx.vm.create_string_wrapper(str_val);
-        Ok(JsValue::Object(wrapper))
+        let JsValue::Object(instance_id) = this else {
+            // Defensive: do_new always passes an Object receiver.
+            let wrapper = ctx.vm.create_string_wrapper(str_val);
+            return Ok(JsValue::Object(wrapper));
+        };
+        ctx.vm.promote_to_string_wrapper(instance_id, str_val);
+        Ok(JsValue::Object(instance_id))
     } else {
         Ok(JsValue::String(str_val))
     }

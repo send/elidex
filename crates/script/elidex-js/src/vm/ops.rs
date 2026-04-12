@@ -455,7 +455,12 @@ impl VmInner {
             return Err(VmError::range_error("Maximum bind chain depth exceeded"));
         }
         if !chain_segments.is_empty() {
-            // Build prepended args in order (outermost bind first).
+            // The unwrap loop pushes segments outer-to-inner (the user-visible
+            // wrapper first, then each nested target).  Spec-correct call
+            // order is `[first-bind-args, ..., last-bind-args, call-args]`,
+            // i.e. the innermost (earliest) bind's args come first.  Reverse
+            // the segment iteration so `extend_from_slice` appends in
+            // innermost→outermost order.
             let total: usize = chain_segments.iter().map(Vec::len).sum();
             let mut prepended: Vec<JsValue> = Vec::with_capacity(total);
             for seg in chain_segments.iter().rev() {

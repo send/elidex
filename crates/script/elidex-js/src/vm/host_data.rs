@@ -130,8 +130,7 @@ mod engine_feature {
             let prev = self.wrapper_cache.insert(entity.to_bits().get(), obj);
             debug_assert!(
                 prev.is_none(),
-                "wrapper already cached for Entity {:?}",
-                entity
+                "wrapper already cached for Entity {entity:?}"
             );
         }
 

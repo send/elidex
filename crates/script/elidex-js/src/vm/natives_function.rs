@@ -87,7 +87,10 @@ pub(super) fn native_function_bind(
         Vec::new()
     };
 
-    // §19.2.3.2 steps 4-5: compute length and name for the bound function.
+    // §19.2.3.2 steps 4-11: read target's `length` and `name` via property
+    // Get so that `defineProperty(fn, 'name', {value: ...})` is honored.  A
+    // BoundFunction's own `.name` is already "bound foo" from the prior bind,
+    // so this naturally yields "bound bound foo" without walking the chain.
     let (target_length, target_name) = target_function_length_name(ctx, target_id);
     let bound_length = target_length.saturating_sub(bound_args.len());
     let name_str = format!("bound {target_name}");
@@ -126,55 +129,44 @@ pub(super) fn native_function_bind(
     Ok(JsValue::Object(bound_id))
 }
 
-/// Extract the effective `length` (param count) and `name` from a function
-/// target.  Iterative over BoundFunction chains to avoid stack overflow on
-/// deep `.bind()` chains; capped at `MAX_BIND_CHAIN_DEPTH` to prevent O(N²)
-/// name string growth from attacker-controlled input.
-fn target_function_length_name(ctx: &NativeContext<'_>, target_id: ObjectId) -> (usize, String) {
-    let mut current = target_id;
-    let mut bound_arg_total = 0usize;
-    let mut bound_depth = 0usize;
-    loop {
-        let obj = ctx.get_object(current);
-        match &obj.kind {
-            ObjectKind::Function(fo) => {
-                let len = ctx.vm.get_compiled(fo.func_id).param_count as usize;
-                let base_name = function_display_name(ctx, &obj.kind);
-                let len = len.saturating_sub(bound_arg_total);
-                let name = prepend_bound(bound_depth, &base_name);
-                return (len, name);
-            }
-            ObjectKind::NativeFunction(nf) => {
-                let base_name = ctx.get_utf8(nf.name);
-                let name = prepend_bound(bound_depth, &base_name);
-                return (0, name);
-            }
-            ObjectKind::BoundFunction {
-                target, bound_args, ..
-            } => {
-                bound_arg_total = bound_arg_total.saturating_add(bound_args.len());
-                bound_depth += 1;
-                if bound_depth > crate::vm::MAX_BIND_CHAIN_DEPTH {
-                    return (0, String::from("bound"));
-                }
-                current = *target;
-            }
-            _ => return (0, String::new()),
-        }
+/// Read the target's effective `length` and `name` per §19.2.3.2 steps 4-11.
+/// Uses property `Get` so that `defineProperty(fn, 'length'|'name', ...)`
+/// overrides are honored.  Falls back to the function's internal slots
+/// (`FunctionObject.name`, `NativeFunction.name`, `CompiledFunction.param_count`)
+/// when the property is absent — these are authoritative for user-defined
+/// functions whose `.name`/`.length` is not yet exposed as a data property.
+fn target_function_length_name(
+    ctx: &mut NativeContext<'_>,
+    target_id: ObjectId,
+) -> (usize, String) {
+    let length_key = super::value::PropertyKey::String(ctx.vm.well_known.length);
+    let name_key = super::value::PropertyKey::String(ctx.vm.well_known.name);
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let length = match ctx.try_get_property_value(target_id, length_key) {
+        Ok(Some(JsValue::Number(n))) if n.is_finite() && n >= 0.0 => n as usize,
+        _ => internal_function_length(ctx, target_id),
+    };
+    let name = match ctx.try_get_property_value(target_id, name_key) {
+        Ok(Some(JsValue::String(sid))) => ctx.get_utf8(sid),
+        _ => internal_function_name(ctx, target_id),
+    };
+    (length, name)
+}
+
+fn internal_function_length(ctx: &NativeContext<'_>, target_id: ObjectId) -> usize {
+    match &ctx.get_object(target_id).kind {
+        ObjectKind::Function(fo) => ctx.vm.get_compiled(fo.func_id).param_count as usize,
+        _ => 0,
     }
 }
 
-/// Prepend `"bound "` `n` times to a name (for BoundFunction.name derivation).
-fn prepend_bound(n: usize, base: &str) -> String {
-    if n == 0 {
-        return base.to_string();
+fn internal_function_name(ctx: &NativeContext<'_>, target_id: ObjectId) -> String {
+    match &ctx.get_object(target_id).kind {
+        ObjectKind::Function(fo) => fo.name.map_or_else(String::new, |n| ctx.get_utf8(n)),
+        ObjectKind::NativeFunction(nf) => ctx.get_utf8(nf.name),
+        _ => String::new(),
     }
-    let mut s = String::with_capacity(n * 6 + base.len());
-    for _ in 0..n {
-        s.push_str("bound ");
-    }
-    s.push_str(base);
-    s
 }
 
 /// `Function.prototype.toString()` — ES2020 §19.2.3.5

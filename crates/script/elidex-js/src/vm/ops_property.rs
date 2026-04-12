@@ -89,9 +89,10 @@ impl VmInner {
                 }
             }
             // Primitive property access: look up on the prototype with the
-            // raw primitive as the receiver.  Getters receive the original
-            // primitive as `this` (§9.1.8.1 step 3); any required ToObject
-            // boxing is the getter's responsibility.
+            // original primitive as the receiver.  If an accessor getter is
+            // invoked, the callee's this-mode decides boxing:
+            // non-strict functions ToObject-box via `bind_this_global`
+            // (§9.2.1.2), strict-mode functions keep the primitive as-is.
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),
