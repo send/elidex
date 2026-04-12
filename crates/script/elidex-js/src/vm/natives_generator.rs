@@ -512,6 +512,16 @@ pub(crate) fn drive_async_coroutine(
     match result {
         Ok((yielded_value, false)) => {
             // Await: treat the yielded value as a Promise (auto-wrap).
+            // `AsyncDriverStep` dispatch in `interpreter.rs` does not
+            // save/restore `gc_enabled` (user JS inside the resumed body
+            // needs GC to keep running), so the intervening allocations
+            // below could observe a collection cycle between the first
+            // `alloc_async_step` and the call to `subscribe_then`.  The
+            // first step would then exist only as an `ObjectId` in a Rust
+            // local — not a GC root — and be reclaimed.  Disable GC for
+            // the allocation + linkage window and restore on exit; once
+            // `subscribe_then` has attached the step to the awaited
+            // promise's reaction list, normal reachability takes over.
             let awaited = match yielded_value {
                 JsValue::Object(id) if matches!(vm.get_object(id).kind, ObjectKind::Promise(_)) => {
                     id
@@ -523,9 +533,12 @@ pub(crate) fn drive_async_coroutine(
                 }
             };
             // Attach fulfil + reject continuation steps.
+            let saved_gc_enabled = vm.gc_enabled;
+            vm.gc_enabled = false;
             let fulfill_step = alloc_async_step(vm, gen_id, false);
             let reject_step = alloc_async_step(vm, gen_id, true);
             super::natives_promise::subscribe_then(vm, awaited, fulfill_step, reject_step);
+            vm.gc_enabled = saved_gc_enabled;
         }
         Ok((return_value, true)) => {
             let _ = super::natives_promise::settle_promise(vm, wrapper, false, return_value);
