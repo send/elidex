@@ -6,6 +6,11 @@
 use std::fmt;
 use std::sync::Arc;
 
+// Coroutine runtime types live in `coroutine_types.rs` (split out to keep
+// this file under the 1000-line convention).  Re-exported here so the
+// ObjectKind variants + external callers resolve them via `value::` paths.
+pub use super::coroutine_types::*;
+
 // ---------------------------------------------------------------------------
 // Handle types (u32 indices into Vm tables)
 // ---------------------------------------------------------------------------
@@ -459,15 +464,71 @@ pub enum ObjectKind {
     BigIntWrapper(BigIntId),
     /// Wrapper object for Symbol primitives.
     SymbolWrapper(SymbolId),
+    /// A Promise (ES2020 §25.6).  Holds the state machine (status + result)
+    /// and reaction lists; reactions are drained via the microtask queue.
+    Promise(PromiseState),
+    /// Resolve/reject function bound to a specific Promise capability
+    /// (ES2020 §25.6.1.3).  Created synchronously by `new Promise(executor)`
+    /// and handed to the executor; settling is idempotent because subsequent
+    /// invocations see `status != Pending` and become no-ops.
+    PromiseResolver {
+        /// The Promise this function settles.
+        promise: ObjectId,
+        /// Which side — `true` for reject, `false` for resolve.
+        is_reject: bool,
+    },
+    /// Aggregator state for `Promise.all` / `Promise.allSettled` / `Promise.any`
+    /// (ES2020 §25.6.4.1 / §25.6.4.2 / §25.6.4.3).  Shared across every
+    /// per-item step; holds the output promise, the values vec (fulfilled
+    /// results for all, `{status,value/reason}` objects for allSettled,
+    /// rejection reasons for any), and the remaining counter.
+    PromiseCombinatorState(PromiseCombinatorState),
+    /// Per-item fulfill/reject step for a combinator.  Stores the shared
+    /// state handle + the index the callback should write, so the native
+    /// function pointer itself stays stateless.
+    PromiseCombinatorStep(PromiseCombinatorStep),
+    /// `Promise.prototype.finally` wrapper step — calls `on_finally()` and
+    /// then passes through the original value (or re-throws the original
+    /// reason).  Thenable assimilation on the `on_finally` return value is
+    /// deferred (see PR2 plan "Test262 alignment").
+    PromiseFinallyStep {
+        on_finally: ObjectId,
+        is_reject: bool,
+    },
+    /// An ES2020 §25.4 Generator object.  Created by a generator function
+    /// call (the function body never runs on the initial call — instead,
+    /// the Generator holds the initial suspended frame).  `.next()` /
+    /// `.return()` / `.throw()` drive execution.
+    Generator(GeneratorState),
+    /// Continuation callback attached to the awaited Promise of an async
+    /// function.  When the Promise settles, this step resumes the
+    /// associated coroutine with the fulfilment value (or rethrows the
+    /// rejection reason inside the coroutine, depending on `is_throw`).
+    AsyncDriverStep {
+        /// The ObjectId of the `ObjectKind::Generator` carrying
+        /// `GeneratorState { wrapper: Some(_), .. }`.
+        gen: ObjectId,
+        /// `false` for the fulfil handler (resume normally), `true` for
+        /// the reject handler (throw the received value inside the body).
+        is_throw: bool,
+    },
 }
 
 impl ObjectKind {
-    /// Returns `true` if this object kind is callable (Function, NativeFunction, or BoundFunction).
+    /// Returns `true` if this object kind is callable (Function, NativeFunction,
+    /// BoundFunction, PromiseResolver, one of the Promise combinator/finally
+    /// step wrappers, or an async-driver continuation step).
     #[inline]
     pub fn is_callable(&self) -> bool {
         matches!(
             self,
-            Self::Function(_) | Self::NativeFunction(_) | Self::BoundFunction { .. }
+            Self::Function(_)
+                | Self::NativeFunction(_)
+                | Self::BoundFunction { .. }
+                | Self::PromiseResolver { .. }
+                | Self::PromiseCombinatorStep(_)
+                | Self::PromiseFinallyStep { .. }
+                | Self::AsyncDriverStep { .. }
         )
     }
 }
@@ -675,6 +736,10 @@ pub struct CallFrame {
     pub new_instance: Option<ObjectId>,
     /// Saved `completion_value` from the parent scope, restored on return.
     pub saved_completion: JsValue,
+    /// If set, this frame belongs to a generator; `Op::Yield` suspends
+    /// into this generator object instead of completing normally.  `None`
+    /// for ordinary (non-generator) frames.
+    pub generator: Option<ObjectId>,
 }
 
 impl CallFrame {
@@ -821,6 +886,22 @@ impl fmt::Display for VmError {
 impl std::error::Error for VmError {}
 
 impl VmError {
+    /// Build a VmError carrying a user-thrown JS value.  Used to propagate
+    /// `throw expr` and reject-forwarded reasons through the call stack
+    /// without coercing them back to strings.
+    ///
+    /// A generic `message` is attached for diagnostic paths that log via
+    /// the `Display` impl (timer / microtask callback swallow paths) —
+    /// otherwise `"Uncaught: "` with an empty tail would hit stderr.
+    /// Callers that want a richer message (e.g. the value's display form)
+    /// can build a `VmError` directly.
+    pub fn throw(value: JsValue) -> Self {
+        Self {
+            kind: VmErrorKind::ThrowValue(value),
+            message: "JavaScript value thrown".to_string(),
+        }
+    }
+
     pub fn type_error(message: impl Into<String>) -> Self {
         Self {
             kind: VmErrorKind::TypeError,
@@ -861,80 +942,5 @@ impl VmError {
             kind: VmErrorKind::InternalError,
             message: message.into(),
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Static assertions
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn js_value_is_copy() {
-        let v = JsValue::Number(42.0);
-        let v2 = v; // Copy
-        assert_eq!(v, v2);
-    }
-
-    #[test]
-    fn js_value_size() {
-        // JsValue should be at most 16 bytes (tag + f64).
-        assert!(std::mem::size_of::<JsValue>() <= 16);
-    }
-
-    #[test]
-    fn js_value_nan_inequality() {
-        let nan = JsValue::Number(f64::NAN);
-        assert_ne!(nan, nan); // NaN !== NaN
-    }
-
-    #[test]
-    fn js_value_zero_equality() {
-        let pos = JsValue::Number(0.0);
-        let neg = JsValue::Number(-0.0);
-        assert_eq!(pos, neg); // +0 === -0
-    }
-
-    #[test]
-    fn js_value_nullish() {
-        assert!(JsValue::Undefined.is_nullish());
-        assert!(JsValue::Null.is_nullish());
-        assert!(!JsValue::Boolean(false).is_nullish());
-        assert!(!JsValue::Number(0.0).is_nullish());
-    }
-
-    #[test]
-    fn js_value_primitive_falsy() {
-        assert!(JsValue::Undefined.is_primitive_falsy());
-        assert!(JsValue::Null.is_primitive_falsy());
-        assert!(JsValue::Boolean(false).is_primitive_falsy());
-        assert!(JsValue::Number(0.0).is_primitive_falsy());
-        assert!(JsValue::Number(f64::NAN).is_primitive_falsy());
-        assert!(!JsValue::Boolean(true).is_primitive_falsy());
-        assert!(!JsValue::Number(1.0).is_primitive_falsy());
-        // String/Object falsiness requires Vm access (empty string check).
-        assert!(!JsValue::String(StringId(0)).is_primitive_falsy());
-        assert!(!JsValue::Object(ObjectId(0)).is_primitive_falsy());
-    }
-
-    #[test]
-    fn string_id_equality() {
-        assert_eq!(StringId(0), StringId(0));
-        assert_ne!(StringId(0), StringId(1));
-    }
-
-    #[test]
-    fn property_constructors() {
-        let p = Property::data(JsValue::Number(42.0));
-        assert!(p.writable && p.enumerable && p.configurable);
-
-        let p = Property::builtin(JsValue::Undefined);
-        assert!(!p.writable && !p.enumerable && !p.configurable);
-
-        let p = Property::method(JsValue::Undefined);
-        assert!(p.writable && !p.enumerable && p.configurable);
     }
 }

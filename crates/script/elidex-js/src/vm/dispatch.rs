@@ -5,7 +5,7 @@
 
 use crate::bytecode::opcode::Op;
 
-use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, to_string, typeof_str};
+use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
 use super::ops::{parse_array_index_u16, try_as_array_index};
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
@@ -201,60 +201,35 @@ impl VmInner {
                         }
                     }
                 }
-                Op::Sub => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Sub) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Mul => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Mul) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Div => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Div) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Mod => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Rem) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Exp => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Exp) {
+                // Numeric binary ops share a common shape: pick the enum
+                // variant, run the coerced binary op, propagate via throw
+                // path on error.
+                Op::Sub | Op::Mul | Op::Div | Op::Mod | Op::Exp => {
+                    let numop = match op {
+                        Op::Sub => NumericBinaryOp::Sub,
+                        Op::Mul => NumericBinaryOp::Mul,
+                        Op::Div => NumericBinaryOp::Div,
+                        Op::Mod => NumericBinaryOp::Rem,
+                        _ => NumericBinaryOp::Exp,
+                    };
+                    if let Err(e) = self.binary_numeric(numop) {
                         self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
                 // ── Bitwise ─────────────────────────────────────────
-                Op::BitAnd => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::And) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::BitOr => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::Or) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::BitXor => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::Xor) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Shl => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::Shl) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Shr => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::Shr) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::UShr => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::UShr) {
+                // Same shape as the numeric group — pick the enum variant,
+                // run the coerced bitwise op, rethrow via the handler path.
+                Op::BitAnd | Op::BitOr | Op::BitXor | Op::Shl | Op::Shr | Op::UShr => {
+                    let bitop = match op {
+                        Op::BitAnd => BitwiseOp::And,
+                        Op::BitOr => BitwiseOp::Or,
+                        Op::BitXor => BitwiseOp::Xor,
+                        Op::Shl => BitwiseOp::Shl,
+                        Op::Shr => BitwiseOp::Shr,
+                        _ => BitwiseOp::UShr,
+                    };
+                    if let Err(e) = self.binary_bitwise(bitop) {
                         self.throw_error(e, entry_frame_depth)?;
                     }
                 }
@@ -685,26 +660,9 @@ impl VmInner {
                 // ── Template ────────────────────────────────────────
                 Op::TemplateConcat => {
                     let count = self.read_u16_op() as usize;
-                    let start = self.stack.len() - count;
-                    let parts: Vec<JsValue> = self.stack[start..].to_vec();
-                    self.stack.truncate(start);
-                    let mut result: Vec<u16> = Vec::new();
-                    let mut err: Option<VmError> = None;
-                    for val in parts {
-                        match to_string(self, val) {
-                            Ok(s_id) => result.extend_from_slice(self.strings.get(s_id)),
-                            Err(e) => {
-                                err = Some(e);
-                                break;
-                            }
-                        }
-                    }
-                    if let Some(e) = err {
+                    if let Err(e) = self.op_template_concat(count) {
                         self.throw_error(e, entry_frame_depth)?;
-                        continue;
                     }
-                    let id = self.strings.intern_utf16(&result);
-                    self.stack.push(JsValue::String(id));
                 }
 
                 // ── Function call ───────────────────────────────────
@@ -954,13 +912,34 @@ impl VmInner {
                     }
                 }
 
-                // ── Generator/Async (not in M4-10) ──────────────────
-                Op::Yield
-                | Op::YieldDelegate
-                | Op::Await
-                | Op::CreateGenerator
-                | Op::CreateAsyncGenerator => {
-                    return Err(VmError::internal("generator/async not supported in M4-10"));
+                // ── Generator/Async ─────────────────────────────────
+                Op::Yield | Op::Await => {
+                    // Both Yield and Await suspend the current frame
+                    // identically — the driver (Generator.prototype.next
+                    // or the async coroutine driver) interprets the
+                    // yielded value.  The suspend mechanics live in
+                    // `natives_generator::op_yield_suspend` so the
+                    // dispatcher stays compact.
+                    let value = self.pop()?;
+                    super::natives_generator::op_yield_suspend(self, frame_idx, value)?;
+                    if self.frames.len() <= entry_frame_depth {
+                        // resume_generator takes `generator_yielded` out
+                        // of the VM to decide yield vs return; the raw
+                        // return value here is ignored by that path.
+                        return Ok(JsValue::Undefined);
+                    }
+                    // Generator frame popped but we're below the entry
+                    // frame — control resumes in the caller's frame on
+                    // the next loop iteration.
+                }
+                Op::YieldDelegate => {
+                    // Full `yield*` spec (arg / return value / throw forward)
+                    // lands in PR2.5 (generator spec completion).  Unlike
+                    // `Op::Yield`, we cannot produce a correct single-step
+                    // answer, so we throw.
+                    return Err(VmError::internal(
+                        "yield* (YieldDelegate) not supported in PR2 commit 4 — see PR2.5",
+                    ));
                 }
 
                 // ── Misc stubs ──────────────────────────────────────

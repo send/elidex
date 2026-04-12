@@ -23,6 +23,7 @@
 use std::collections::HashMap;
 
 use super::ic;
+use super::natives_promise::Microtask;
 use super::value::{
     CallFrame, JsValue, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, Upvalue,
     UpvalueId, UpvalueState,
@@ -110,12 +111,28 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 11],
+    proto_roots: [Option<ObjectId>; 13],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
     /// Host-data (listeners, wrappers) if installed.
     host_data: Option<&'a super::host_data::HostData>,
+    /// Pending microtasks — hold references to handler functions, capability
+    /// promises, and resolution values that would otherwise be unreachable.
+    microtask_queue: &'a std::collections::VecDeque<Microtask>,
+    /// Currently-executing microtask (popped out of `microtask_queue`).
+    /// Rooted here so the task's referenced objects survive a GC triggered
+    /// by the user callback that we're running.
+    current_microtask: Option<&'a Microtask>,
+    /// Rejected promises awaiting end-of-drain unhandled-rejection reporting.
+    pending_rejections: &'a [ObjectId],
+    /// Pending timers — pin callbacks + args so they aren't collected
+    /// between scheduling and firing.
+    timer_queue: &'a std::collections::BinaryHeap<super::natives_timer::TimerEntry>,
+    /// Currently-firing timer entry (popped out of `timer_queue`).  Same
+    /// invariant as `current_microtask`: the callback/args must survive
+    /// any GC triggered by the running callback.
+    current_timer: Option<&'a super::natives_timer::TimerEntry>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -148,6 +165,9 @@ fn mark_roots(
             mark_object(id, obj_marks, work);
         }
         mark_value(frame.saved_completion, obj_marks, work);
+        if let Some(gen_id) = frame.generator {
+            mark_object(gen_id, obj_marks, work);
+        }
     }
 
     // (c) Global variables
@@ -170,12 +190,63 @@ fn mark_roots(
             mark_object(id, obj_marks, work);
         }
     }
+
+    // (f) Pending microtasks.  Reactions reference their handler function
+    // object, the derived (capability) promise to settle, and the resolution
+    // value — all of which may be otherwise unreachable while the task waits.
+    let mark_microtask = |task: &Microtask, obj_marks: &mut [u64], work: &mut Vec<u32>| match task {
+        Microtask::PromiseReaction {
+            handler,
+            capability,
+            resolution,
+            ..
+        } => {
+            if let Some(h) = handler {
+                mark_object(*h, obj_marks, work);
+            }
+            mark_object(*capability, obj_marks, work);
+            mark_value(*resolution, obj_marks, work);
+        }
+        Microtask::Callback { func } => {
+            mark_object(*func, obj_marks, work);
+        }
+    };
+    for task in roots.microtask_queue {
+        mark_microtask(task, obj_marks, work);
+    }
+    if let Some(task) = roots.current_microtask {
+        mark_microtask(task, obj_marks, work);
+    }
+
+    // (g) Unhandled-rejection watchlist.  These promises must survive until
+    // the end-of-drain scan so their status/reason can be inspected for
+    // diagnostic output.
+    for &id in roots.pending_rejections {
+        mark_object(id, obj_marks, work);
+    }
+
+    // (h) Pending timers.  Each entry pins its callback function and the
+    // positional args captured at scheduling time.
+    let mark_timer_entry =
+        |entry: &super::natives_timer::TimerEntry, obj_marks: &mut [u64], work: &mut Vec<u32>| {
+            mark_object(entry.callback, obj_marks, work);
+            for &v in &entry.args {
+                mark_value(v, obj_marks, work);
+            }
+        };
+    for entry in roots.timer_queue {
+        mark_timer_entry(entry, obj_marks, work);
+    }
+    if let Some(entry) = roots.current_timer {
+        mark_timer_entry(entry, obj_marks, work);
+    }
 }
 
 /// Trace the work list: pop enqueued ObjectIds, mark their transitive references.
 ///
 /// Uses exhaustive matching on `ObjectKind` — adding a new variant without
 /// updating this function will produce a compile error (no wildcard fallback).
+#[allow(clippy::too_many_lines)]
 fn trace_work_list(
     objects: &[Option<Object>],
     upvalues: &[Upvalue],
@@ -228,6 +299,78 @@ fn trace_work_list(
             ObjectKind::Arguments { values } => {
                 for &v in values {
                     mark_value(v, obj_marks, work);
+                }
+            }
+            ObjectKind::Promise(state) => {
+                mark_value(state.result, obj_marks, work);
+                for reaction in &state.fulfill_reactions {
+                    if let Some(h) = reaction.handler {
+                        mark_object(h, obj_marks, work);
+                    }
+                    mark_object(reaction.capability, obj_marks, work);
+                }
+                for reaction in &state.reject_reactions {
+                    if let Some(h) = reaction.handler {
+                        mark_object(h, obj_marks, work);
+                    }
+                    mark_object(reaction.capability, obj_marks, work);
+                }
+            }
+            ObjectKind::PromiseResolver { promise, .. } => {
+                mark_object(*promise, obj_marks, work);
+            }
+            ObjectKind::PromiseCombinatorState(state) => {
+                mark_object(state.result, obj_marks, work);
+                for &v in &state.values {
+                    mark_value(v, obj_marks, work);
+                }
+            }
+            ObjectKind::PromiseCombinatorStep(step) => {
+                use super::value::PromiseCombinatorStep as Step;
+                let state_id = match step {
+                    Step::AllFulfill { state, .. }
+                    | Step::AllReject { state }
+                    | Step::AllSettledFulfill { state, .. }
+                    | Step::AllSettledReject { state, .. }
+                    | Step::AnyFulfill { state }
+                    | Step::AnyReject { state, .. } => *state,
+                };
+                mark_object(state_id, obj_marks, work);
+            }
+            ObjectKind::PromiseFinallyStep { on_finally, .. } => {
+                mark_object(*on_finally, obj_marks, work);
+            }
+            ObjectKind::AsyncDriverStep { gen, .. } => {
+                mark_object(*gen, obj_marks, work);
+            }
+            ObjectKind::Generator(state) => {
+                if let Some(wrapper) = state.wrapper {
+                    mark_object(wrapper, obj_marks, work);
+                }
+                if let Some(susp) = &state.suspended {
+                    // The suspended frame carries its own set of roots —
+                    // this_value, upvalue_ids, actual_args, saved_completion,
+                    // new_instance, and the stack slice that was taken off
+                    // the VM stack at yield time.
+                    mark_value(susp.frame.this_value, obj_marks, work);
+                    for &uv_id in susp.frame.upvalue_ids.iter() {
+                        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
+                    }
+                    for &uv_id in &susp.frame.local_upvalue_ids {
+                        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
+                    }
+                    if let Some(ref args) = susp.frame.actual_args {
+                        for &v in args {
+                            mark_value(v, obj_marks, work);
+                        }
+                    }
+                    if let Some(id) = susp.frame.new_instance {
+                        mark_object(id, obj_marks, work);
+                    }
+                    mark_value(susp.frame.saved_completion, obj_marks, work);
+                    for &v in &susp.stack_slice {
+                        mark_value(v, obj_marks, work);
+                    }
                 }
             }
             // No ObjectId references — only StringId / scalar fields.
@@ -364,11 +507,18 @@ impl VmInner {
                 self.regexp_prototype,
                 self.array_iterator_prototype,
                 self.string_iterator_prototype,
+                self.promise_prototype,
+                self.generator_prototype,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
             objects: &self.objects,
             host_data: self.host_data.as_deref(),
+            microtask_queue: &self.microtask_queue,
+            current_microtask: self.current_microtask.as_ref(),
+            pending_rejections: &self.pending_rejections,
+            timer_queue: &self.timer_queue,
+            current_timer: self.current_timer.as_ref(),
         };
 
         self.gc_work_list.clear();

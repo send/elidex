@@ -383,7 +383,13 @@ pub fn compile_stmt(
 
         StmtKind::Throw(expr_id) => {
             compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
-            emit_pending_finally_bodies(fc, prog, analysis, func_scopes)?;
+            // NOTE: DO NOT pre-emit pending finally bodies here.  Unlike
+            // `return`/`break`/`continue`, a `throw` routes through the
+            // runtime's exception-handler mechanism, which naturally
+            // transfers control to the nearest catch (which falls through
+            // to finally) or to the rethrow-stub (which runs finally +
+            // re-throws).  Pre-emitting inline would cause finally to run
+            // twice when caught locally.
             emit_iter_close_range(fc, 0, fc.loop_stack.len());
             fc.emit(Op::Throw);
         }

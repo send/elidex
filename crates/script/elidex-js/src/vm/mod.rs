@@ -9,6 +9,7 @@
 pub mod coerce;
 pub(crate) mod coerce_format;
 pub(crate) mod coerce_ops;
+mod coroutine_types;
 mod dispatch;
 mod dispatch_helpers;
 mod dispatch_ic;
@@ -16,23 +17,29 @@ mod dispatch_iter;
 mod dispatch_objects;
 pub(crate) mod gc;
 mod globals;
+mod globals_async;
 pub mod host_data;
 pub(crate) mod ic;
 pub mod interpreter;
+mod native_context;
 mod natives;
 mod natives_array;
 mod natives_array_hof;
 mod natives_bigint;
 mod natives_boolean;
 mod natives_function;
+mod natives_generator;
 mod natives_json;
 mod natives_math;
 mod natives_number;
 mod natives_object;
+mod natives_promise;
+mod natives_promise_combinator;
 mod natives_regexp;
 mod natives_string;
 mod natives_string_ext;
 mod natives_symbol;
+mod natives_timer;
 mod ops;
 mod ops_property;
 pub mod pools;
@@ -42,7 +49,7 @@ pub mod value;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use pools::{BigIntPool, StringPool};
 use value::{
@@ -139,6 +146,54 @@ pub(crate) struct VmInner {
     /// DOM wrappers, timers, etc.).  `None` when the VM runs standalone
     /// (e.g., in unit tests without the `engine` feature).
     pub(crate) host_data: Option<Box<host_data::HostData>>,
+    /// Promise.prototype object (§25.6.5).
+    pub(crate) promise_prototype: Option<ObjectId>,
+    /// Microtask queue (HTML §8.1.4.3).  Drained at HTML microtask
+    /// checkpoints (end of `eval`, end of each event listener).
+    pub(crate) microtask_queue: VecDeque<natives_promise::Microtask>,
+    /// Reentrancy guard — nonzero while a drain is in progress, so nested
+    /// eval/listener calls don't reorder the rest of the queue.
+    pub(crate) microtask_drain_depth: u32,
+    /// Rejected promises with no reject handler attached at settle time.
+    /// End-of-drain scan warns on entries still `Rejected && !handled`.
+    /// PromiseRejectionEvent dispatch ships with PR3.
+    pub(crate) pending_rejections: Vec<ObjectId>,
+    /// Generator.prototype — shared prototype for generator iterators.
+    pub(crate) generator_prototype: Option<ObjectId>,
+    /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
+    /// the yielded value.  `None` outside a yield dispatch.
+    pub(crate) generator_yielded: Option<JsValue>,
+    /// Currently-executing microtask, held between `pop_front` and the end
+    /// of its callback so the task's `handler` / `capability` / `resolution`
+    /// (or bare `Callback { func }`) stay GC-rooted while the user JS
+    /// attached to them runs.  Without this, a Promise handler that
+    /// triggers a GC could see its own capability Promise / callback
+    /// collected (they are no longer in the queue, and only a Rust local
+    /// held them otherwise).
+    pub(crate) current_microtask: Option<natives_promise::Microtask>,
+    /// Pending timers ordered by nearest deadline; fired by
+    /// `drain_timers(now)` (driven by the shell on each event-loop tick).
+    pub(crate) timer_queue: BinaryHeap<natives_timer::TimerEntry>,
+    /// Currently-firing timer entry, owned by the VM during callback
+    /// execution so `entry.callback` and `entry.args` survive any GC
+    /// triggered by the callback.  The entry is popped out of
+    /// `timer_queue` before running and moved into this slot; on return
+    /// the drain loop takes it back for interval re-arm / active-set
+    /// cleanup.
+    pub(crate) current_timer: Option<natives_timer::TimerEntry>,
+    /// Monotonically-increasing IDs returned by `setTimeout` / `setInterval`.
+    pub(crate) next_timer_id: u32,
+    /// IDs of currently-live timers: inserted on schedule, removed on
+    /// fire (for one-shot) or cancel.  Intervals stay in the set across
+    /// re-arm because their id is reused.  This lets `clearTimeout` /
+    /// `clearInterval` reject ids that aren't ours in O(1) — the naive
+    /// "iterate the heap" alternative misses intervals whose callback
+    /// cancels itself (the heap entry is popped before the callback
+    /// runs, so an any-in-queue test would return `false` and the
+    /// subsequent re-arm would evade cancellation).
+    pub(crate) active_timer_ids: HashSet<u32>,
+    /// IDs cleared before firing — skipped at drain time.
+    pub(crate) cancelled_timers: HashSet<u32>,
 }
 
 /// Frequently used interned string IDs, cached at VM creation.
@@ -185,6 +240,11 @@ pub(crate) struct WellKnownStrings {
     pub(crate) writable: StringId,
     pub(crate) source: StringId,
     pub(crate) flags: StringId,
+    pub(crate) status: StringId,
+    pub(crate) fulfilled: StringId,
+    pub(crate) rejected: StringId,
+    pub(crate) reason: StringId,
+    pub(crate) errors: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -708,6 +768,11 @@ impl Vm {
             writable: strings.intern("writable"),
             source: strings.intern("source"),
             flags: strings.intern("flags"),
+            status: strings.intern("status"),
+            fulfilled: strings.intern("fulfilled"),
+            rejected: strings.intern("rejected"),
+            reason: strings.intern("reason"),
+            errors: strings.intern("errors"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).
@@ -785,6 +850,18 @@ impl Vm {
                 gc_enabled: false,
                 in_construct: false,
                 host_data: None,
+                promise_prototype: None,
+                microtask_queue: VecDeque::new(),
+                microtask_drain_depth: 0,
+                pending_rejections: Vec::new(),
+                generator_prototype: None,
+                generator_yielded: None,
+                current_microtask: None,
+                timer_queue: BinaryHeap::new(),
+                current_timer: None,
+                next_timer_id: 1,
+                active_timer_ids: HashSet::new(),
+                cancelled_timers: HashSet::new(),
             },
         };
 
@@ -941,155 +1018,5 @@ impl Vm {
 impl Default for Vm {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Native function helpers
-// ---------------------------------------------------------------------------
-
-impl NativeContext<'_> {
-    /// Intern a string from UTF-8.
-    #[inline]
-    pub fn intern(&mut self, s: &str) -> StringId {
-        self.vm.strings.intern(s)
-    }
-
-    /// Intern a string from raw WTF-16 code units.
-    #[inline]
-    pub fn intern_utf16(&mut self, units: &[u16]) -> StringId {
-        self.vm.strings.intern_utf16(units)
-    }
-
-    /// Look up an interned string as WTF-16.
-    #[inline]
-    pub fn get_u16(&self, id: StringId) -> &[u16] {
-        self.vm.strings.get(id)
-    }
-
-    /// Look up an interned string as UTF-8 (lossy for lone surrogates).
-    #[inline]
-    pub fn get_utf8(&self, id: StringId) -> String {
-        self.vm.strings.get_utf8(id)
-    }
-
-    /// Allocate an object.
-    pub fn alloc_object(&mut self, obj: Object) -> ObjectId {
-        self.vm.alloc_object(obj)
-    }
-
-    /// Get a reference to an object.
-    #[inline]
-    pub fn get_object(&self, id: ObjectId) -> &Object {
-        self.vm.get_object(id)
-    }
-
-    /// Get a mutable reference to an object.
-    #[inline]
-    pub fn get_object_mut(&mut self, id: ObjectId) -> &mut Object {
-        self.vm.get_object_mut(id)
-    }
-
-    /// Convert a value to f64 using ES2020 ToNumber.
-    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.4).
-    #[inline]
-    pub fn to_number(&self, val: JsValue) -> Result<f64, VmError> {
-        coerce::to_number(self.vm, val)
-    }
-
-    /// Convert a value to an interned string using ES2020 ToString.
-    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.12).
-    #[inline]
-    pub fn to_string_val(&mut self, val: JsValue) -> Result<StringId, VmError> {
-        coerce::to_string(self.vm, val)
-    }
-
-    /// Convert a value to bool using ES2020 ToBoolean.
-    #[inline]
-    pub fn to_boolean(&self, val: JsValue) -> bool {
-        coerce::to_boolean(self.vm, val)
-    }
-
-    /// Call a JS function object by `ObjectId` (e.g. getter/setter invoke).
-    ///
-    /// Enables native functions to call back into the VM for re-entrant
-    /// execution (e.g. invoking accessor getters from `Object.values`).
-    pub fn call_function(
-        &mut self,
-        callee: ObjectId,
-        this: JsValue,
-        args: &[JsValue],
-    ) -> Result<JsValue, VmError> {
-        self.vm.call(callee, this, args)
-    }
-
-    /// Call a value as a function (type-checked: must be an object).
-    pub fn call_value(
-        &mut self,
-        callee: JsValue,
-        this: JsValue,
-        args: &[JsValue],
-    ) -> Result<JsValue, VmError> {
-        self.vm.call_value(callee, this, args)
-    }
-
-    /// Resolve a `PropertyValue` slot to a `JsValue`, invoking the getter
-    /// if the slot is an accessor.
-    pub fn resolve_slot(
-        &mut self,
-        slot: value::PropertyValue,
-        this: JsValue,
-    ) -> Result<JsValue, VmError> {
-        self.vm.resolve_slot(slot, this)
-    }
-
-    /// Perform a fresh `Get` (§7.3.1) on an object by `PropertyKey`.
-    /// Looks up the property (own + prototype chain), resolves accessors.
-    /// Returns `JsValue::Undefined` when the property does not exist.
-    pub fn get_property_value(
-        &mut self,
-        obj_id: value::ObjectId,
-        key: value::PropertyKey,
-    ) -> Result<JsValue, VmError> {
-        self.vm.get_property_value(obj_id, key)
-    }
-
-    /// Returns `true` if the current native function is being invoked via
-    /// `[[Construct]]` (i.e. `new F(...)`).  Used by constructors to choose
-    /// between wrapper-object and primitive return paths.
-    #[inline]
-    pub fn is_construct(&self) -> bool {
-        self.vm.in_construct
-    }
-
-    /// Access the host data.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no `HostData` has been installed on the VM.
-    pub fn host(&mut self) -> &mut host_data::HostData {
-        self.vm
-            .host_data
-            .as_deref_mut()
-            .expect("NativeContext::host() called without HostData installed")
-    }
-
-    /// Access the host data, returning `None` if not installed.
-    pub fn host_opt(&mut self) -> Option<&mut host_data::HostData> {
-        self.vm.host_data.as_deref_mut()
-    }
-
-    /// `HasProperty` + `Get` (§7.3.1): returns `None` if the property does
-    /// not exist anywhere on the prototype chain, `Some(value)` otherwise.
-    pub fn try_get_property_value(
-        &mut self,
-        obj_id: value::ObjectId,
-        key: value::PropertyKey,
-    ) -> Result<Option<JsValue>, VmError> {
-        let exists = coerce::get_property(self.vm, obj_id, key).is_some();
-        if !exists {
-            return Ok(None);
-        }
-        Ok(Some(self.vm.get_property_value(obj_id, key)?))
     }
 }

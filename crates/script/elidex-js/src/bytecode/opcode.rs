@@ -258,10 +258,6 @@ pub enum Op {
     YieldDelegate,
     /// `[promise -- resolved_value]`
     Await,
-    /// `[ -- generator]`
-    CreateGenerator,
-    /// `[ -- async_generator]`
-    CreateAsyncGenerator,
 
     // ── Misc ────────────────────────────────────────────────────────
     /// `[ -- new.target_or_undefined]`
@@ -373,8 +369,6 @@ impl Op {
             | Self::Yield
             | Self::YieldDelegate
             | Self::Await
-            | Self::CreateGenerator
-            | Self::CreateAsyncGenerator
             | Self::NewTarget
             | Self::ImportMeta
             | Self::DynamicImport

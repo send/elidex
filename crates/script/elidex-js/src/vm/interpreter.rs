@@ -19,12 +19,19 @@ use super::VmInner;
 
 impl VmInner {
     /// Parse, compile, and execute JavaScript source code.
+    ///
+    /// HTML §8.1.4.2 step 7: after the classic script finishes, drain the
+    /// microtask queue.  Drain runs regardless of whether the script
+    /// succeeded or threw, so that reactions attached inside a thrown-from
+    /// try/catch still fire (spec parity with browser microtask semantics).
     pub fn eval(&mut self, source: &str) -> Result<JsValue, VmError> {
         let script = crate::compiler::compile_script(source).map_err(|e| VmError {
             kind: VmErrorKind::CompileError,
             message: e.message,
         })?;
-        self.run_script(script)
+        let result = self.run_script(script);
+        self.drain_microtasks();
+        result
     }
 
     /// Load and execute a compiled script.
@@ -89,6 +96,55 @@ impl VmInner {
                     }
                     current_id = next_id;
                 }
+                ObjectKind::PromiseResolver { promise, is_reject } => {
+                    // ES2020 §25.6.1.3.1 / §25.6.1.3.2: invoking a Promise
+                    // resolve/reject function drops its capability slot.  GC
+                    // must not run inside the native body since we're about
+                    // to mutate the target promise and enqueue reactions.
+                    let promise = *promise;
+                    let is_reject = *is_reject;
+                    let saved_gc = self.gc_enabled;
+                    self.gc_enabled = false;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    let result =
+                        super::natives_promise::settle_promise(self, promise, is_reject, value);
+                    self.gc_enabled = saved_gc;
+                    return result;
+                }
+                ObjectKind::PromiseCombinatorStep(step) => {
+                    let step = *step;
+                    let saved_gc = self.gc_enabled;
+                    self.gc_enabled = false;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    let result =
+                        super::natives_promise_combinator::step_combinator(self, step, value);
+                    self.gc_enabled = saved_gc;
+                    return result;
+                }
+                ObjectKind::PromiseFinallyStep {
+                    on_finally,
+                    is_reject,
+                } => {
+                    // `on_finally` itself runs user JS, so leave GC alone —
+                    // the callee paths already save/restore `gc_enabled`.
+                    let on_finally = *on_finally;
+                    let is_reject = *is_reject;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    return super::natives_promise_combinator::run_finally_step(
+                        self, on_finally, is_reject, value,
+                    );
+                }
+                ObjectKind::AsyncDriverStep { gen, is_throw } => {
+                    let gen = *gen;
+                    let is_throw = *is_throw;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    super::natives_generator::drive_async_coroutine(self, gen, value, is_throw)?;
+                    return Ok(JsValue::Undefined);
+                }
                 _ => return Err(VmError::type_error("not a function")),
             }
         }
@@ -98,6 +154,7 @@ impl VmInner {
     ///
     /// Used by the public `call()` API and `NativeContext` re-entrant calls.
     /// The inline dispatch path uses `push_js_call_frame` instead.
+    #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn call_internal(
         &mut self,
         func_id: FuncId,
@@ -109,6 +166,8 @@ impl VmInner {
         let local_count = compiled.local_count as usize;
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
+        let is_generator = compiled.is_generator;
+        let is_async = compiled.is_async;
 
         let entry_frames = self.frames.len();
         let base = self.stack.len();
@@ -125,6 +184,91 @@ impl VmInner {
         let saved_completion = self.completion_value;
         self.completion_value = JsValue::Undefined;
         let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
+
+        // Async function re-entry via `call()`: same treatment as the
+        // inline dispatch path — build an initial SuspendedFrame and
+        // drive one step, returning the wrapper Promise.
+        if is_async {
+            let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
+            self.completion_value = saved_completion;
+            let initial_frame = CallFrame {
+                func_id,
+                ip: 0,
+                base,
+                cleanup_base: base,
+                upvalue_ids: upvalue_ids.clone(),
+                local_upvalue_ids: Vec::new(),
+                this_value: this,
+                exception_handlers: Vec::new(),
+                tdz_bits,
+                tdz_overflow: tdz_overflow.clone(),
+                actual_args: if needs_arguments {
+                    Some(args.to_vec())
+                } else {
+                    None
+                },
+                new_instance: None,
+                saved_completion: JsValue::Undefined,
+                generator: None,
+            };
+            let suspended = super::value::SuspendedFrame {
+                frame: initial_frame,
+                stack_slice,
+                upvalue_slots: Vec::new(),
+            };
+            return super::natives_generator::make_async_coroutine_and_drive(self, suspended);
+        }
+
+        // Generator: build initial suspended frame and return Generator
+        // object directly — body runs only when `.next()` resumes.
+        if is_generator {
+            let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
+            self.completion_value = saved_completion;
+            let initial_frame = CallFrame {
+                func_id,
+                ip: 0,
+                base,
+                cleanup_base: base,
+                upvalue_ids,
+                local_upvalue_ids: Vec::new(),
+                this_value: this,
+                exception_handlers: Vec::new(),
+                tdz_bits,
+                tdz_overflow,
+                actual_args: if needs_arguments {
+                    Some(args.to_vec())
+                } else {
+                    None
+                },
+                new_instance: None,
+                saved_completion: JsValue::Undefined,
+                generator: None,
+            };
+            let suspended = super::value::SuspendedFrame {
+                frame: initial_frame,
+                stack_slice,
+                upvalue_slots: Vec::new(),
+            };
+            let proto = self.generator_prototype;
+            let gen_id = self.alloc_object(super::value::Object {
+                kind: super::value::ObjectKind::Generator(super::value::GeneratorState {
+                    status: super::value::GeneratorStatus::SuspendedStart,
+                    suspended: Some(suspended),
+                    wrapper: None,
+                }),
+                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                prototype: proto,
+                extensible: true,
+            });
+            if let super::value::ObjectKind::Generator(state) =
+                &mut self.get_object_mut(gen_id).kind
+            {
+                if let Some(susp) = &mut state.suspended {
+                    susp.frame.generator = Some(gen_id);
+                }
+            }
+            return Ok(JsValue::Object(gen_id));
+        }
 
         self.frames.push(CallFrame {
             func_id,
@@ -144,6 +288,7 @@ impl VmInner {
             cleanup_base: base,
             new_instance: None,
             saved_completion,
+            generator: None,
         });
 
         let result = self.run();
@@ -168,6 +313,7 @@ impl VmInner {
     /// Args are already on the stack. `cleanup_offset` is the number of
     /// extra slots below the args (1 for callee, 2 for receiver + callee).
     /// Does **not** call `run()` — the caller must `continue` the dispatch loop.
+    #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn push_js_call_frame(
         &mut self,
         callee: JsCalleeInfo,
@@ -176,12 +322,15 @@ impl VmInner {
         cleanup_offset: usize,
         new_instance: Option<ObjectId>,
     ) {
-        let base = self.stack.len() - argc;
-        let cleanup_base = base - cleanup_offset;
         let compiled = self.get_compiled(callee.func_id);
         let local_count = compiled.local_count as usize;
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
+        let is_generator = compiled.is_generator;
+        let is_async = compiled.is_async;
+
+        let base = self.stack.len() - argc;
+        let cleanup_base = base - cleanup_offset;
 
         // Capture actual args before mutating the stack (only when needed).
         let actual_args = if needs_arguments {
@@ -207,9 +356,112 @@ impl VmInner {
         }
 
         let saved_completion = self.completion_value;
-        self.completion_value = JsValue::Undefined;
         let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
 
+        // Async function short-circuit: treated as a Promise-wrapping
+        // generator.  Build the initial SuspendedFrame, then let the
+        // generator-based async driver settle a wrapper Promise as the
+        // body yields / returns / throws.
+        if is_async {
+            let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
+            self.completion_value = saved_completion;
+            self.stack.truncate(cleanup_base);
+            let initial_frame = CallFrame {
+                func_id: callee.func_id,
+                ip: 0,
+                base,
+                cleanup_base: base,
+                upvalue_ids: callee.upvalue_ids,
+                local_upvalue_ids: Vec::new(),
+                this_value: this,
+                exception_handlers: Vec::new(),
+                tdz_bits,
+                tdz_overflow,
+                actual_args,
+                new_instance,
+                saved_completion: JsValue::Undefined,
+                generator: None,
+            };
+            let suspended = super::value::SuspendedFrame {
+                frame: initial_frame,
+                stack_slice,
+                upvalue_slots: Vec::new(),
+            };
+            match super::natives_generator::make_async_coroutine_and_drive(self, suspended) {
+                Ok(promise) => {
+                    self.stack.push(promise);
+                }
+                Err(_e) => {
+                    // make_async_coroutine_and_drive settles the wrapper
+                    // Promise on throw and returns Ok; any Err here is an
+                    // internal bug.  Fall back to pushing undefined so
+                    // the caller's stack shape stays valid.
+                    self.stack.push(JsValue::Undefined);
+                }
+            }
+            return;
+        }
+
+        // Generator short-circuit: the call returns a Generator object
+        // *without* executing the body.  Build an initial SuspendedFrame
+        // that `.next()` will later resume, drop the call args from the
+        // stack, and push the Generator in place of the call result.
+        if is_generator {
+            // Take the just-prepared locals as the initial stack slice.
+            let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
+            // Restore caller's completion_value — we never started the body.
+            self.completion_value = saved_completion;
+            // Drop the callee (+ receiver for method calls) that are
+            // still sitting below `base` on the stack.
+            self.stack.truncate(cleanup_base);
+
+            let initial_frame = CallFrame {
+                func_id: callee.func_id,
+                ip: 0,
+                // These two will be rebased on resume — store the original
+                // base here for clarity; resume_generator rewrites them.
+                base,
+                cleanup_base: base,
+                upvalue_ids: callee.upvalue_ids,
+                local_upvalue_ids: Vec::new(),
+                this_value: this,
+                exception_handlers: Vec::new(),
+                tdz_bits,
+                tdz_overflow,
+                actual_args,
+                new_instance,
+                saved_completion: JsValue::Undefined,
+                generator: None, // filled in after Generator alloc below
+            };
+            let suspended = super::value::SuspendedFrame {
+                frame: initial_frame,
+                stack_slice,
+                upvalue_slots: Vec::new(),
+            };
+            let proto = self.generator_prototype;
+            let gen_id = self.alloc_object(super::value::Object {
+                kind: super::value::ObjectKind::Generator(super::value::GeneratorState {
+                    status: super::value::GeneratorStatus::SuspendedStart,
+                    suspended: Some(suspended),
+                    wrapper: None,
+                }),
+                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                prototype: proto,
+                extensible: true,
+            });
+            // Back-link the saved frame to the generator it belongs to.
+            if let super::value::ObjectKind::Generator(state) =
+                &mut self.get_object_mut(gen_id).kind
+            {
+                if let Some(susp) = &mut state.suspended {
+                    susp.frame.generator = Some(gen_id);
+                }
+            }
+            self.stack.push(JsValue::Object(gen_id));
+            return;
+        }
+
+        self.completion_value = JsValue::Undefined;
         self.frames.push(CallFrame {
             func_id: callee.func_id,
             ip: 0,
@@ -224,6 +476,7 @@ impl VmInner {
             cleanup_base,
             new_instance,
             saved_completion,
+            generator: None,
         });
     }
 

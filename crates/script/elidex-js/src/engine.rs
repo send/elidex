@@ -3,6 +3,8 @@
 //! Enabled by the `engine` feature flag. Provides a thin delegation layer
 //! from the ScriptEngine trait to the VM's native API.
 
+use std::time::Instant;
+
 use elidex_ecs::Entity;
 use elidex_script_session::{DispatchEvent, EvalResult, ListenerId, ScriptContext, ScriptEngine};
 
@@ -53,23 +55,33 @@ impl ScriptEngine for ElidexJsEngine {
         _passive: bool,
         _ctx: &mut ScriptContext<'_>,
     ) {
-        // Stub — event listener invocation requires full DOM integration.
+        // Stub — event listener invocation requires full DOM integration
+        // (lands with PR3 when Event/DOM wrappers become available).
     }
 
     fn remove_listener(&mut self, _listener_id: ListenerId) {
-        // Stub — no listener store in the VM yet.
+        // Stub — listener store lands with PR3.
     }
 
     fn run_microtasks(&mut self, _ctx: &mut ScriptContext<'_>) {
-        // Stub — no microtask queue in the VM yet.
+        // HTML §8.1.4.3 microtask checkpoint — drain Promise reactions
+        // and queueMicrotask callbacks (PR2 commits 1-5 supply the queue).
+        self.vm.inner.drain_microtasks();
     }
 
     fn drain_reactions(&mut self, _ctx: &mut ScriptContext<'_>) {
-        // Stub — no custom element support in the VM yet.
+        // Stub — custom element lifecycle reactions land with PR5b.
     }
 
     fn drain_timers(&mut self, _ctx: &mut ScriptContext<'_>) -> Vec<EvalResult> {
-        // Stub — timer management is not yet implemented.
+        // WHATWG §8.7 timer firing.  PR2 commit 6's drain_timers fires
+        // every expired entry and drains microtasks afterwards; failures
+        // are reported via eprintln at the moment and do not surface
+        // through the EvalResult vector.  Return an empty vec for the
+        // current caller shape — the per-callback EvalResult split is
+        // tracked as a PR6 follow-up once host.session().log() is
+        // wired up.
+        let _fired = self.vm.inner.drain_timers(Instant::now());
         Vec::new()
     }
 }

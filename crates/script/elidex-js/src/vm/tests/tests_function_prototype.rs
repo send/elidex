@@ -283,6 +283,55 @@ fn bind_length_reflects_remaining_params() {
 }
 
 #[test]
+fn bind_length_coerces_string_length_via_to_number() {
+    // §19.2.3.2 step 4: `? ToIntegerOrInfinity(? Get(target, "length"))`.
+    // The spec runs ToNumber on the raw `.length` value, so a
+    // `String`-typed length (`{value: '5'}`) must coerce via `ToNumber`
+    // rather than silently falling back to 0.
+    assert_eq!(
+        super::eval_number(
+            "function f() {} \
+             Object.defineProperty(f, 'length', \
+                 {value: '5', configurable: true}); \
+             f.bind(null).length;"
+        ),
+        5.0
+    );
+    // Boolean → ToNumber → 1.
+    assert_eq!(
+        super::eval_number(
+            "function f() {} \
+             Object.defineProperty(f, 'length', \
+                 {value: true, configurable: true}); \
+             f.bind(null).length;"
+        ),
+        1.0
+    );
+    // Non-parseable string → NaN → 0 per ToIntegerOrInfinity.
+    assert_eq!(
+        super::eval_number(
+            "function f() {} \
+             Object.defineProperty(f, 'length', \
+                 {value: 'nope', configurable: true}); \
+             f.bind(null).length;"
+        ),
+        0.0
+    );
+}
+
+#[test]
+fn bind_length_symbol_propagates_type_error() {
+    // ToNumber on a Symbol throws TypeError; the `?` in the spec means
+    // the bind call aborts with the same exception.
+    super::eval_throws(
+        "function f() {} \
+         Object.defineProperty(f, 'length', \
+             {value: Symbol(), configurable: true}); \
+         f.bind(null);",
+    );
+}
+
+#[test]
 fn bind_name_has_bound_prefix() {
     assert_eq!(
         super::eval_string("function foo() {} foo.bind(null).name;"),

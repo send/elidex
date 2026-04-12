@@ -123,6 +123,19 @@ impl VmInner {
         self.register_global_function("decodeURI", native_decode_uri);
         self.register_global_function("encodeURIComponent", native_encode_uri_component);
         self.register_global_function("decodeURIComponent", native_decode_uri_component);
+        // queueMicrotask (HTML §8.1.4.3).  Registered early so later built-in
+        // setup that wants to defer work can rely on it if needed.
+        self.register_global_function(
+            "queueMicrotask",
+            super::natives_promise::native_queue_microtask,
+        );
+        // Timers (WHATWG §8.7): setTimeout/setInterval schedule a callback
+        // on the VM's timer heap; clearTimeout/clearInterval cancel by id.
+        // Drain is driven by the shell via VmInner::drain_timers (PR6).
+        self.register_global_function("setTimeout", super::natives_timer::native_set_timeout);
+        self.register_global_function("setInterval", super::natives_timer::native_set_interval);
+        self.register_global_function("clearTimeout", super::natives_timer::native_clear_timeout);
+        self.register_global_function("clearInterval", super::natives_timer::native_clear_interval);
 
         // globalThis (§18.1) — points to the global object
         let global_this_name = self.strings.intern("globalThis");
@@ -164,6 +177,14 @@ impl VmInner {
 
         // BigInt global (not a constructor)
         self.register_bigint_global();
+
+        // Promise global (constructable) + prototype
+        self.register_promise_global();
+
+        // Generator.prototype — shared prototype for generator iterator
+        // objects. No constructable `Generator` global is exposed (spec);
+        // users obtain generators by calling `function* g() { ... }` forms.
+        self.register_generator_prototype();
     }
 
     /// Helper: register a native function as a global.
@@ -197,7 +218,7 @@ impl VmInner {
     }
 
     /// Helper: create a global object with named native methods.
-    fn create_object_with_methods(
+    pub(super) fn create_object_with_methods(
         &mut self,
         methods: &[(&str, NativeFn)],
     ) -> super::value::ObjectId {
@@ -912,42 +933,37 @@ impl VmInner {
     }
 
     fn register_console(&mut self) {
+        use super::natives::{native_console_debug, native_console_info, native_console_trace};
+        // Namespace object; omit Object.prototype so console behaves like a
+        // direct-property host object with only its own methods, matching
+        // most engines' layout more closely.
         let console_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: None,
             extensible: true,
         });
-
-        // console.log
-        let log_fn = self.create_native_function("log", native_console_log);
-        let log_key = PropertyKey::String(self.well_known.log);
-        self.define_shaped_property(
-            console_id,
-            log_key,
-            PropertyValue::Data(JsValue::Object(log_fn)),
-            PropertyAttrs::METHOD,
-        );
-
-        // console.error
-        let error_fn = self.create_native_function("error", native_console_error);
-        let error_key = PropertyKey::String(self.well_known.error);
-        self.define_shaped_property(
-            console_id,
-            error_key,
-            PropertyValue::Data(JsValue::Object(error_fn)),
-            PropertyAttrs::METHOD,
-        );
-
-        // console.warn
-        let warn_fn = self.create_native_function("warn", native_console_warn);
-        let warn_key = PropertyKey::String(self.well_known.warn);
-        self.define_shaped_property(
-            console_id,
-            warn_key,
-            PropertyValue::Data(JsValue::Object(warn_fn)),
-            PropertyAttrs::METHOD,
-        );
+        // WHATWG Console §2.  Signature parity with `log` — variadic,
+        // returns undefined.  Output routes through `eprintln!` for now;
+        // PR6 will swap in host.session().log(level, ...).
+        let methods: &[(&str, NativeFn)] = &[
+            ("log", native_console_log),
+            ("error", native_console_error),
+            ("warn", native_console_warn),
+            ("info", native_console_info),
+            ("debug", native_console_debug),
+            ("trace", native_console_trace),
+        ];
+        for &(name, func) in methods {
+            let fn_id = self.create_native_function(name, func);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                console_id,
+                key,
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
 
         let console_name = self.strings.intern("console");
         self.globals
