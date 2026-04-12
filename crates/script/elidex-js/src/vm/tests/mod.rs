@@ -53,11 +53,15 @@ fn eval_bool(source: &str) -> bool {
 /// `expected`.  Used when a now-strict operation used to fail silently —
 /// verifies both the throw and that state is unchanged.  `setup` runs before
 /// both the throwing check and the observation.
+///
+/// Segments are joined with `;\n` so callers need not worry about trailing
+/// semicolons or ASI: a redundant `;` between two well-formed statements is
+/// a valid empty statement.
 fn assert_throws_preserves_number(setup: &str, throwing: &str, observation: &str, expected: f64) {
-    eval_throws(&format!("{setup} {throwing}"));
+    eval_throws(&format!("{setup};\n{throwing}"));
     assert_eq!(
         eval_number(&format!(
-            "{setup} try {{ {throwing} }} catch(_) {{}} {observation}"
+            "{setup};\ntry {{ {throwing} }} catch(_) {{}}\n{observation}"
         )),
         expected,
     );
@@ -65,10 +69,10 @@ fn assert_throws_preserves_number(setup: &str, throwing: &str, observation: &str
 
 /// Boolean-returning variant of [`assert_throws_preserves_number`].
 fn assert_throws_preserves_bool(setup: &str, throwing: &str, observation: &str, expected: bool) {
-    eval_throws(&format!("{setup} {throwing}"));
+    eval_throws(&format!("{setup};\n{throwing}"));
     assert_eq!(
         eval_bool(&format!(
-            "{setup} try {{ {throwing} }} catch(_) {{}} {observation}"
+            "{setup};\ntry {{ {throwing} }} catch(_) {{}}\n{observation}"
         )),
         expected,
     );
