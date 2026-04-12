@@ -2,6 +2,12 @@
 
 use super::coerce::get_property;
 use super::ops::DENSE_ARRAY_LEN_LIMIT;
+
+/// Prototype-chain depth cap for `for-in` key collection.  Matches the
+/// cap used by `coerce::find_inherited_property` and bind-chain traversal
+/// (10_000); prevents attacker-built deep chains from driving unbounded
+/// iteration.
+const PROTO_CHAIN_LIMIT: usize = 10_000;
 use super::value::{
     ForInState, JsValue, Object, ObjectKind, PropertyKey, PropertyStorage, VmError,
 };
@@ -150,7 +156,17 @@ impl VmInner {
                 // Continue with prototype chain (skip obj_id, already processed).
                 current = obj_ref.prototype;
             }
+            // Prototype-chain cap matches `find_inherited_property` /
+            // bind depth: prevents attacker-built deep chains from causing
+            // unbounded iteration in `for (k in obj)`.
+            let mut hops = 0usize;
             while let Some(id) = current {
+                if hops >= PROTO_CHAIN_LIMIT {
+                    return Err(VmError::range_error(
+                        "Prototype chain depth exceeded in for-in iteration",
+                    ));
+                }
+                hops += 1;
                 let obj_ref = self.objects[id.0 as usize]
                     .as_ref()
                     .ok_or_else(|| VmError::type_error("cannot iterate freed object"))?;

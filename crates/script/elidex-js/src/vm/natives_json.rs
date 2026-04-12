@@ -15,10 +15,16 @@ use super::value::{
 // JSON.stringify (§24.5.2)
 // ============================================================================
 
+/// Maximum nesting depth for `JSON.stringify` / `JSON.parse` recursion.
+/// Prevents Rust-stack exhaustion from attacker-crafted deep nesting
+/// (`"[[[[[...]]]]]"` etc.) — matches V8's 1000-ish limit.
+const MAX_JSON_DEPTH: usize = 1000;
+
 /// Serialization state for `JSON.stringify`.
 struct JsonSerializer {
     output: String,
-    /// Object stack for circular reference detection.
+    /// Object stack for circular reference detection.  Also serves as the
+    /// depth counter for recursion-limit enforcement.
     stack: Vec<ObjectId>,
     /// Current indentation prefix.
     indent: String,
@@ -126,6 +132,9 @@ impl JsonSerializer {
         ctx: &mut NativeContext<'_>,
         obj_id: ObjectId,
     ) -> Result<bool, VmError> {
+        if self.stack.len() >= MAX_JSON_DEPTH {
+            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+        }
         // Circular reference check.
         if self.stack.contains(&obj_id) {
             return Err(VmError::type_error("Converting circular structure to JSON"));
@@ -202,6 +211,9 @@ impl JsonSerializer {
         ctx: &mut NativeContext<'_>,
         obj_id: ObjectId,
     ) -> Result<bool, VmError> {
+        if self.stack.len() >= MAX_JSON_DEPTH {
+            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+        }
         // Circular reference check.
         if self.stack.contains(&obj_id) {
             return Err(VmError::type_error("Converting circular structure to JSON"));
@@ -449,11 +461,19 @@ fn compute_gap(ctx: &mut NativeContext<'_>, space: JsValue) -> String {
 struct JsonParser<'a> {
     input: &'a [u16],
     pos: usize,
+    /// Current nesting depth during parse; capped at MAX_JSON_DEPTH to
+    /// prevent Rust-stack exhaustion from deeply nested input like
+    /// `"[[[[[...]]]]]"`.
+    depth: usize,
 }
 
 impl<'a> JsonParser<'a> {
     fn new(input: &'a [u16]) -> Self {
-        Self { input, pos: 0 }
+        Self {
+            input,
+            pos: 0,
+            depth: 0,
+        }
     }
 
     fn err(&self, msg: &str) -> VmError {
@@ -695,6 +715,16 @@ impl<'a> JsonParser<'a> {
     }
 
     fn parse_array(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
+        self.depth += 1;
+        if self.depth > MAX_JSON_DEPTH {
+            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+        }
+        let result = self.parse_array_inner(ctx);
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_array_inner(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
         self.expect(b'[')?;
         self.skip_ws();
 
@@ -728,6 +758,16 @@ impl<'a> JsonParser<'a> {
     }
 
     fn parse_object(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
+        self.depth += 1;
+        if self.depth > MAX_JSON_DEPTH {
+            return Err(VmError::range_error("Maximum JSON nesting depth exceeded"));
+        }
+        let result = self.parse_object_inner(ctx);
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_object_inner(&mut self, ctx: &mut NativeContext<'_>) -> Result<JsValue, VmError> {
         self.expect(b'{')?;
         self.skip_ws();
 

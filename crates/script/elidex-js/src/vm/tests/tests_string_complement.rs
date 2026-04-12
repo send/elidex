@@ -670,6 +670,38 @@ fn new_array_reuses_preallocated_instance() {
 }
 
 #[test]
+fn json_parse_depth_cap() {
+    // Deeply-nested JSON array must throw RangeError instead of causing
+    // a Rust-stack overflow (process abort).
+    let deep = "[".repeat(2000) + &"]".repeat(2000);
+    let script = format!("JSON.parse('{deep}');");
+    eval_throws(&script);
+}
+
+#[test]
+fn json_stringify_depth_cap() {
+    // Deeply-nested object passed to stringify must throw RangeError,
+    // not abort the process via Rust-stack overflow.
+    eval_throws(
+        "var a = {};
+         var top = a;
+         for (var i = 0; i < 2000; i++) { top.x = {}; top = top.x; }
+         JSON.stringify(a);",
+    );
+}
+
+#[test]
+fn for_in_prototype_chain_cap() {
+    // Attacker-built deep prototype chain must not cause unbounded
+    // iteration in `for (k in obj)`.
+    eval_throws(
+        "var p = {};
+         for (var i = 0; i < 10_001; i++) { p = Object.create(p); }
+         for (var k in p) {}",
+    );
+}
+
+#[test]
 fn function_tostring_chain_depth_cap() {
     // §19.2.3.5: Function.prototype.toString on a deeply-bound chain
     // must enforce the same depth cap as call/construct to prevent

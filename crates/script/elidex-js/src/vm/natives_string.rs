@@ -85,27 +85,24 @@ fn to_length(n: f64) -> f64 {
 }
 
 /// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
+/// §21.2.5.2.1 step 12: `Set(R, "lastIndex", e, true)` — walks the
+/// prototype chain and invokes the user's setter when installed.  The
+/// previous direct-slot fast path silently clobbered an Accessor slot
+/// with a Data value, deleting any user-installed getter/setter.
+/// Setter errors are swallowed here because internal regex dispatch
+/// paths (exec/match/replace internal resets) aren't structured to
+/// propagate yet; `search`'s save/restore uses `set_property_val`
+/// directly to surface errors.
 pub(super) fn set_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
     idx: usize,
 ) {
-    let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
     #[allow(clippy::cast_precision_loss)]
     let val = JsValue::Number(idx as f64);
-    // Split borrow: access object storage + shapes simultaneously.
-    let obj = ctx.vm.objects[obj_id.0 as usize].as_mut().unwrap();
-    if let Some((slot, _)) = obj.storage.get_mut(last_index_key, &ctx.vm.shapes) {
-        *slot = super::value::PropertyValue::Data(val);
-        return;
-    }
-    // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
-    ctx.vm.define_shaped_property(
-        obj_id,
-        last_index_key,
-        super::value::PropertyValue::Data(val),
-        super::shape::PropertyAttrs::WRITABLE_HIDDEN,
-    );
+    let _ = ctx
+        .vm
+        .set_property_val(JsValue::Object(obj_id), ctx.vm.well_known.last_index, val);
 }
 
 // -- String.prototype methods -----------------------------------------------
@@ -523,7 +520,9 @@ pub(super) fn native_string_replace(
                     subject
                 }
             };
-            set_regexp_last_index(ctx, re_id, 0);
+            // §21.2.5.10 does not require resetting lastIndex after the
+            // global-replace loop.  (The pre-loop reset at entry is the
+            // spec-mandated `Set(rx, "lastIndex", 0, true)` for step 8.)
             let id = ctx.vm.strings.intern_utf16(&result);
             return Ok(JsValue::String(id));
         }
