@@ -25,25 +25,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - language: actions
-            build-mode: none
-          - language: rust
-            build-mode: autobuild
+        language: [actions, rust]
     steps:
       - uses: actions/checkout@v6
 
-      - if: matrix.language == 'rust'
-        uses: dtolnay/rust-toolchain@stable
-
-      - if: matrix.language == 'rust'
-        uses: Swatinem/rust-cache@v2
-
+      # Rust CodeQL uses the source-only analyzer (build-mode: none) — it
+      # does not support `autobuild`, and `none` avoids the ~10 min tracer
+      # build that Default setup used to run.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+          build-mode: none
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
