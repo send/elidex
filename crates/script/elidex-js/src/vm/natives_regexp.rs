@@ -154,13 +154,20 @@ pub(super) fn native_regexp_to_string(
             "RegExp.prototype.toString called on non-object",
         ));
     };
-    let obj = ctx.get_object(obj_id);
-    let ObjectKind::RegExp { pattern, flags, .. } = &obj.kind else {
-        return Err(VmError::type_error("not a RegExp"));
+    let (pattern_sid, flags_sid) = {
+        let obj = ctx.get_object(obj_id);
+        let ObjectKind::RegExp { pattern, flags, .. } = &obj.kind else {
+            return Err(VmError::type_error("not a RegExp"));
+        };
+        (*pattern, *flags)
     };
-    let pat_str = ctx.vm.strings.get_utf8(*pattern);
-    let flags_str = ctx.vm.strings.get_utf8(*flags);
-    let result = format!("/{pat_str}/{flags_str}");
-    let id = ctx.intern(&result);
+    // Build `/<pattern>/<flags>` in WTF-16 so the pattern source's lone
+    // surrogates are preserved.
+    let mut units: Vec<u16> = Vec::new();
+    units.push(u16::from(b'/'));
+    units.extend_from_slice(ctx.vm.strings.get(pattern_sid));
+    units.push(u16::from(b'/'));
+    units.extend_from_slice(ctx.vm.strings.get(flags_sid));
+    let id = ctx.vm.strings.intern_utf16(&units);
     Ok(JsValue::String(id))
 }

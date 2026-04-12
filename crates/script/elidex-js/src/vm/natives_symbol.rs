@@ -62,14 +62,15 @@ pub(super) fn native_symbol_prototype_to_string(
             "Symbol.prototype.toString requires a symbol value",
         ));
     };
-    let desc = ctx.vm.symbols[sid.0 as usize]
-        .description
-        .map(|d| ctx.vm.strings.get_utf8(d));
-    let result = match desc {
-        Some(d) => format!("Symbol({d})"),
-        None => "Symbol()".to_string(),
-    };
-    let id = ctx.intern(&result);
+    // Build the output in WTF-16 so descriptions with unpaired surrogates
+    // are preserved losslessly (UTF-8 round-trip via get_utf8 would
+    // replace them with U+FFFD).
+    let mut units: Vec<u16> = "Symbol(".encode_utf16().collect();
+    if let Some(desc) = ctx.vm.symbols[sid.0 as usize].description {
+        units.extend_from_slice(ctx.vm.strings.get(desc));
+    }
+    units.push(u16::from(b')'));
+    let id = ctx.vm.strings.intern_utf16(&units);
     Ok(JsValue::String(id))
 }
 
@@ -196,9 +197,11 @@ pub(super) fn native_object_prototype_to_string(
                     super::coerce::PropertyResult::Getter(g) => ctx.call_function(g, this, &[])?,
                 };
                 if let JsValue::String(tag_id) = tag_val {
-                    let tag_str = ctx.get_utf8(tag_id);
-                    let s = format!("[object {tag_str}]");
-                    let id = ctx.intern(&s);
+                    // WTF-16 concat preserves lone surrogates in the tag.
+                    let mut units: Vec<u16> = "[object ".encode_utf16().collect();
+                    units.extend_from_slice(ctx.vm.strings.get(tag_id));
+                    units.push(u16::from(b']'));
+                    let id = ctx.vm.strings.intern_utf16(&units);
                     return Ok(JsValue::String(id));
                 }
             }

@@ -30,11 +30,15 @@ fn require_callable_this(ctx: &NativeContext<'_>, this: JsValue) -> Result<Objec
 }
 
 /// Extract the display name from a function object kind.
-fn function_display_name(ctx: &NativeContext<'_>, kind: &ObjectKind) -> String {
+/// Return the function's display name as WTF-16 code units, preserving lone
+/// surrogates that may appear in user-defined function names.
+fn function_display_name_u16(ctx: &NativeContext<'_>, kind: &ObjectKind) -> Vec<u16> {
     match kind {
-        ObjectKind::Function(fo) => fo.name.map_or_else(String::new, |n| ctx.get_utf8(n)),
-        ObjectKind::NativeFunction(nf) => ctx.get_utf8(nf.name),
-        _ => String::new(),
+        ObjectKind::Function(fo) => fo
+            .name
+            .map_or_else(Vec::new, |n| ctx.vm.strings.get(n).to_vec()),
+        ObjectKind::NativeFunction(nf) => ctx.vm.strings.get(nf.name).to_vec(),
+        _ => Vec::new(),
     }
 }
 
@@ -92,13 +96,17 @@ pub(super) fn native_function_bind(
     // BoundFunction's own `.name` is already "bound foo" from the prior bind,
     // so this naturally yields "bound bound foo" without walking the chain.
     // Abrupt completions from user-defined getters propagate (spec `?`).
-    let (target_length, target_name): (f64, String) = target_function_length_name(ctx, target_id)?;
+    let (target_length, target_name): (f64, Vec<u16>) =
+        target_function_length_name(ctx, target_id)?;
     // §19.2.3.2 step 8: L = max(0, targetLen - argCount).  Keep as f64
     // so that `+Infinity - argCount` stays `+Infinity` per spec.
     #[allow(clippy::cast_precision_loss)]
     let bound_length = (target_length - bound_args.len() as f64).max(0.0);
-    let name_str = format!("bound {target_name}");
-    let name_id = ctx.intern(&name_str);
+    // Prefix "bound " in WTF-16 so names with lone surrogates round-trip
+    // losslessly.
+    let mut name_units: Vec<u16> = "bound ".encode_utf16().collect();
+    name_units.extend_from_slice(&target_name);
+    let name_id = ctx.vm.strings.intern_utf16(&name_units);
 
     let func_proto = ctx.vm.function_prototype;
     let bound_id = ctx.alloc_object(Object {
@@ -143,7 +151,7 @@ pub(super) fn native_function_bind(
 fn target_function_length_name(
     ctx: &mut NativeContext<'_>,
     target_id: ObjectId,
-) -> Result<(f64, String), VmError> {
+) -> Result<(f64, Vec<u16>), VmError> {
     let length_key = super::value::PropertyKey::String(ctx.vm.well_known.length);
     let name_key = super::value::PropertyKey::String(ctx.vm.well_known.name);
 
@@ -165,14 +173,15 @@ fn target_function_length_name(
     // Non-String results get `ToString`-coerced (e.g. `{value: 42}` → "42");
     // Symbols fall back to empty string per §19.2.3.2 step 13 ("If Type is
     // not String, let targetName be the empty String").
-    let name = match ctx.try_get_property_value(target_id, name_key)? {
-        Some(JsValue::String(sid)) => ctx.get_utf8(sid),
-        Some(JsValue::Symbol(_)) => String::new(),
+    // Return WTF-16 units so lone surrogates in the name round-trip losslessly.
+    let name: Vec<u16> = match ctx.try_get_property_value(target_id, name_key)? {
+        Some(JsValue::String(sid)) => ctx.vm.strings.get(sid).to_vec(),
+        Some(JsValue::Symbol(_)) => Vec::new(),
         Some(other) => {
             let sid = ctx.to_string_val(other)?;
-            ctx.get_utf8(sid)
+            ctx.vm.strings.get(sid).to_vec()
         }
-        None => internal_function_name(ctx, target_id),
+        None => internal_function_name_u16(ctx, target_id),
     };
     Ok((length, name))
 }
@@ -184,11 +193,13 @@ fn internal_function_length(ctx: &NativeContext<'_>, target_id: ObjectId) -> usi
     }
 }
 
-fn internal_function_name(ctx: &NativeContext<'_>, target_id: ObjectId) -> String {
+fn internal_function_name_u16(ctx: &NativeContext<'_>, target_id: ObjectId) -> Vec<u16> {
     match &ctx.get_object(target_id).kind {
-        ObjectKind::Function(fo) => fo.name.map_or_else(String::new, |n| ctx.get_utf8(n)),
-        ObjectKind::NativeFunction(nf) => ctx.get_utf8(nf.name),
-        _ => String::new(),
+        ObjectKind::Function(fo) => fo
+            .name
+            .map_or_else(Vec::new, |n| ctx.vm.strings.get(n).to_vec()),
+        ObjectKind::NativeFunction(nf) => ctx.vm.strings.get(nf.name).to_vec(),
+        _ => Vec::new(),
     }
 }
 
@@ -215,15 +226,16 @@ pub(super) fn native_function_to_string(
         bound_depth += 1;
         current = *target;
     }
-    let base_name = function_display_name(ctx, &ctx.get_object(current).kind);
-    let name_str = if bound_depth == 0 {
-        base_name
-    } else {
-        let prefix = "bound ".repeat(bound_depth as usize);
-        format!("{prefix}{base_name}")
-    };
-    let result = format!("function {name_str}() {{ [native code] }}");
-    let sid = ctx.intern(&result);
+    let base_name = function_display_name_u16(ctx, &ctx.get_object(current).kind);
+    // Assemble in WTF-16 so user-defined names with lone surrogates
+    // round-trip losslessly.
+    let mut units: Vec<u16> = "function ".encode_utf16().collect();
+    for _ in 0..bound_depth {
+        units.extend_from_slice(&"bound ".encode_utf16().collect::<Vec<u16>>());
+    }
+    units.extend_from_slice(&base_name);
+    units.extend_from_slice(&"() { [native code] }".encode_utf16().collect::<Vec<u16>>());
+    let sid = ctx.vm.strings.intern_utf16(&units);
     Ok(JsValue::String(sid))
 }
 

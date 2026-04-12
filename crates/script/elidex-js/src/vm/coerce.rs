@@ -429,16 +429,18 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             }
             // Integer Number → compare with BigInt value.
             #[allow(clippy::cast_possible_truncation)]
-            let n_big = if n.abs() < 2.0f64.powi(53) {
-                BigIntValue::from(n as i64)
+            if n.abs() < 2.0f64.powi(53) {
+                // Fast path: compare via primitive integer conversion, avoiding
+                // the temporary BigInt allocation that `from(n as i64)` costs.
+                use num_traits::ToPrimitive;
+                vm.bigints.get(bi).to_i64() == Some(n as i64)
             } else {
                 // Large integer — use string round-trip.
-                match format!("{n:.0}").parse::<BigIntValue>() {
-                    Ok(v) => v,
-                    Err(_) => return Ok(false),
-                }
-            };
-            vm.bigints.get(bi) == &n_big
+                let Ok(n_big) = format!("{n:.0}").parse::<BigIntValue>() else {
+                    return Ok(false);
+                };
+                vm.bigints.get(bi) == &n_big
+            }
         }
 
         // BigInt == String → parse string as BigInt
@@ -450,11 +452,17 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             }
         }
 
-        // BigInt == Boolean → convert boolean to BigInt
+        // BigInt == Boolean: compare against canonical 0n / 1n without
+        // constructing a temporary BigInt.
         (JsValue::BigInt(bi), JsValue::Boolean(bl))
         | (JsValue::Boolean(bl), JsValue::BigInt(bi)) => {
-            let bool_big = BigIntValue::from(i32::from(bl));
-            vm.bigints.get(bi) == &bool_big
+            use num_traits::{One, Zero};
+            let v = vm.bigints.get(bi);
+            if bl {
+                v.is_one()
+            } else {
+                v.is_zero()
+            }
         }
 
         // Symbol == non-Symbol → false (symbols are unique; same-type

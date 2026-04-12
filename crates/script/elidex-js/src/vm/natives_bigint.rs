@@ -141,8 +141,8 @@ pub(super) fn native_bigint_as_int_n(
     };
     let bi = ctx.vm.bigints.get(bi_id);
     if bits == 0 {
-        let id = ctx.vm.bigints.alloc(BigIntValue::from(0));
-        return Ok(JsValue::BigInt(id));
+        // Reuse the pool's canonical 0n — no alloc, no dedup check.
+        return Ok(JsValue::BigInt(ctx.vm.bigints.zero));
     }
     let modulus = BigIntValue::from(1) << bits;
     let result = bi % &modulus;

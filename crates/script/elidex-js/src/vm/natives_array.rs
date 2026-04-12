@@ -411,6 +411,8 @@ pub(super) fn native_array_concat(
 }
 
 /// `Array.prototype.join(separator?)` — join elements as string. Holes → empty string.
+/// Build the output in WTF-16 so element / separator strings containing
+/// lone surrogates are preserved losslessly.
 pub(super) fn native_array_join(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -418,25 +420,25 @@ pub(super) fn native_array_join(
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
     array_len(ctx, id)?;
-    let sep = match args.first().copied() {
-        Some(JsValue::Undefined) | None => ",".to_string(),
+    let sep: Vec<u16> = match args.first().copied() {
+        Some(JsValue::Undefined) | None => vec![u16::from(b',')],
         Some(v) => {
-            let s = ctx.to_string_val(v)?;
-            ctx.get_utf8(s)
+            let sid = ctx.to_string_val(v)?;
+            ctx.vm.strings.get(sid).to_vec()
         }
     };
     let elements = clone_elements(ctx, id);
-    let mut result = String::new();
+    let mut result: Vec<u16> = Vec::new();
     for (i, v) in elements.iter().enumerate() {
         if i > 0 {
-            result.push_str(&sep);
+            result.extend_from_slice(&sep);
         }
         if !v.is_empty() && !v.is_nullish() {
-            let s = ctx.to_string_val(*v)?;
-            result.push_str(&ctx.get_utf8(s));
+            let sid = ctx.to_string_val(*v)?;
+            result.extend_from_slice(ctx.vm.strings.get(sid));
         }
     }
-    let sid = ctx.intern(&result);
+    let sid = ctx.vm.strings.intern_utf16(&result);
     Ok(JsValue::String(sid))
 }
 
