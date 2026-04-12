@@ -540,9 +540,12 @@ pub enum PropertyValue {
 #[derive(Clone, Copy, Debug)]
 pub struct Property {
     pub slot: PropertyValue,
-    /// Only meaningful for `PropertyValue::Data`.
+    /// Only meaningful for `PropertyValue::Data`; ignored for `Accessor`
+    /// (§6.2.5.1: accessor descriptors have no `[[Writable]]`).
     pub writable: bool,
+    /// Meaningful for both Data and Accessor descriptors (§6.2.5).
     pub enumerable: bool,
+    /// Meaningful for both Data and Accessor descriptors (§6.2.5).
     pub configurable: bool,
 }
 
@@ -659,7 +662,8 @@ pub struct CallFrame {
     /// Bit-packed TDZ tracking. Bit N set = slot N is uninitialized (in TDZ).
     /// Inline word covers slots 0–63 with no heap allocation.
     pub tdz_bits: u64,
-    /// Extended TDZ bits for functions with > 64 locals (rare).
+    /// Extended TDZ bits for functions with > 64 locals.  An empty
+    /// `Box<[u64]>` (no backing allocation) when local_count ≤ 64.
     pub tdz_overflow: Box<[u64]>,
     /// Actual arguments passed to this call (for `arguments` object creation).
     /// Only populated when the compiled function has a `CreateArguments` opcode.

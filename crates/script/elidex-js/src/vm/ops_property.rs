@@ -204,7 +204,9 @@ impl VmInner {
     }
 
     /// Collect IC info for a SetProp operation.
-    /// Only caches own writable data properties (no prototype IC for writes).
+    /// Only caches own writable data properties — SetProp never uses the
+    /// `Proto` IC holder (writes don't walk the prototype chain for
+    /// caching purposes).  GetProp does use `Proto` for inherited reads.
     fn collect_set_prop_ic(
         &self,
         obj_id: ObjectId,
