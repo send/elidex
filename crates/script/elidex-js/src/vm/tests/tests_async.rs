@@ -182,9 +182,7 @@ fn await_inside_for_loop() {
 #[test]
 fn await_inside_try_catch_catches_rejection() {
     // await + try/catch: a rejected awaited Promise should land in the
-    // surrounding catch block. We avoid combining with `finally` in the
-    // same test because the VM's current try/catch/finally ordering is
-    // tracked as a pre-existing issue unrelated to async.
+    // surrounding catch block.
     assert_eq!(
         eval_global_string(
             "globalThis.log = ''; \
@@ -203,8 +201,7 @@ fn await_inside_try_catch_catches_rejection() {
 
 #[test]
 fn await_inside_try_finally_runs_finally_on_normal_completion() {
-    // Normal completion path: await → finally → return.  Doesn't trigger
-    // the pre-existing try/catch/finally ordering bug.
+    // Normal completion path: await → finally → return.
     assert_eq!(
         eval_global_string(
             "globalThis.log = ''; \
@@ -216,6 +213,30 @@ fn await_inside_try_finally_runs_finally_on_normal_completion() {
             "log"
         ),
         "TF"
+    );
+}
+
+#[test]
+fn await_inside_try_catch_finally_runs_all_branches_in_order() {
+    // Throw after await lands in catch, then finally runs.  Sequence
+    // "TCboomF" matches spec §13.15.  This test depends on the compile-
+    // side fix that removed the inline finally emission before Op::Throw.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             async function f() { \
+                 try { \
+                     await 1; \
+                     globalThis.log += 'T'; \
+                     throw 'boom'; \
+                 } \
+                 catch (e) { globalThis.log += 'C' + e; } \
+                 finally { globalThis.log += 'F'; } \
+             } \
+             f();",
+            "log"
+        ),
+        "TCboomF"
     );
 }
 

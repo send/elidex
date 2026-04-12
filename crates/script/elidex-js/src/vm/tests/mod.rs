@@ -438,6 +438,59 @@ fn eval_finally_runs_on_catch_throw() {
     );
 }
 
+// ── try/catch/finally ordering (regression tests for PR2 bug fix) ──
+//
+// The previous compile path pre-emitted the finally body inline before
+// `Op::Throw`, causing it to run once before the catch handler AND again
+// after (via the handler fall-through), a double execution hidden in
+// value-overwriting tests like `eval_try_catch_finally` above.  These
+// tests observe execution ORDER via string concatenation to catch
+// regressions should that path ever be reintroduced.
+
+#[test]
+fn eval_tcf_order_throw_with_catch_and_finally() {
+    // Spec §13.15: try throws → catch runs → finally runs.  Sequence "TCF".
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             try { globalThis.log += 'T'; throw 'boom'; } \
+             catch (e) { globalThis.log += 'C' + e; } \
+             finally { globalThis.log += 'F'; }",
+            "log"
+        ),
+        "TCboomF"
+    );
+}
+
+#[test]
+fn eval_tcf_order_empty_catch_runs_finally_once() {
+    // Even with no catch body code, finally should run exactly once.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             try { globalThis.log += 'T'; throw 1; } \
+             catch(e) {} \
+             finally { globalThis.log += 'F'; }",
+            "log"
+        ),
+        "TF"
+    );
+}
+
+#[test]
+fn eval_tcf_order_no_throw_still_runs_finally() {
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             try { globalThis.log += 'T'; } \
+             catch (e) { globalThis.log += 'C'; } \
+             finally { globalThis.log += 'F'; }",
+            "log"
+        ),
+        "TF"
+    );
+}
+
 #[test]
 fn eval_switch() {
     assert_eq!(

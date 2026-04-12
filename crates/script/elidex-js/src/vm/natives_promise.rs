@@ -604,7 +604,7 @@ fn then_impl(
             unreachable!("then_impl caller verified Promise kind");
         };
         // Mark as handled once any reject reaction is attached so the
-        // unhandled-rejection tracker (future work) doesn't warn.
+        // end-of-drain unhandled-rejection scan doesn't warn.
         if on_rejected.is_some() {
             state.handled = true;
         }

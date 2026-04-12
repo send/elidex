@@ -609,8 +609,9 @@ pub enum PromiseCombinatorStep {
 ///   the promise is Pending, and drained (queued as microtasks) on settle.
 ///   The lists are emptied on settle so they cannot hold GC roots beyond
 ///   that point.
-/// - `handled` tracks whether a reject reaction has been attached — used for
-///   unhandled-rejection reporting (future work).
+/// - `handled` tracks whether a reject reaction has been attached — the
+///   end-of-microtask-drain scan in `natives_promise` uses it to decide
+///   whether to emit an unhandled-rejection warning.
 pub struct PromiseState {
     pub status: PromiseStatus,
     pub result: JsValue,
