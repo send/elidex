@@ -4,7 +4,9 @@
 //! `natives_promise`; this file owns the aggregator-style combinators
 //! which share an ObjectKind-variant-based closure pattern.
 
-use super::natives_promise::{create_promise, create_resolver_pair, settle_promise, then_impl};
+use super::natives_promise::{
+    create_promise, create_resolver_pair, settle_promise, then_impl, then_impl_internal,
+};
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     CombinatorKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PromiseCombinatorState,
@@ -445,7 +447,16 @@ fn subscribe(
         let _ = settle_promise(ctx.vm, p, false, item);
         p
     };
-    then_impl(ctx.vm, promise_id, Some(on_fulfilled), Some(on_rejected))?;
+    // Combinator per-item subscribers never observe the derived promise
+    // (settlement flows through the combinator state, not through a
+    // `.then` chain), so we skip the capability allocation.
+    then_impl_internal(
+        ctx.vm,
+        promise_id,
+        Some(on_fulfilled),
+        Some(on_rejected),
+        None,
+    )?;
     Ok(())
 }
 

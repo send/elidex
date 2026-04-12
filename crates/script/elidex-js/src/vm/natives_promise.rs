@@ -31,11 +31,15 @@ use super::VmInner;
 pub(crate) enum Microtask {
     /// A pending Promise reaction: run `handler(resolution)` (or propagate
     /// the resolution directly if `handler` is `None`) and settle `capability`
-    /// accordingly.  Mirrors ES2020 §25.6.1.3 `NewPromiseReactionJob`.
+    /// accordingly.  `capability` is `None` for reactions whose derived
+    /// promise is never observed (the async-function driver and Promise
+    /// combinator per-item subscribers), which skips allocation of that
+    /// otherwise-wasted Promise.  Mirrors ES2020 §25.6.1.3
+    /// `NewPromiseReactionJob`.
     PromiseReaction {
         kind: ReactionKind,
         handler: Option<ObjectId>,
-        capability: ObjectId,
+        capability: Option<ObjectId>,
         resolution: JsValue,
     },
     /// A bare callback enqueued via `globalThis.queueMicrotask(fn)`
@@ -224,7 +228,7 @@ fn forward_promise(vm: &mut VmInner, src: ObjectId, dst: ObjectId) {
     let relay = |kind| Reaction {
         kind,
         handler: None,
-        capability: dst,
+        capability: Some(dst),
     };
     match status {
         PromiseStatus::Fulfilled => enqueue_reaction(vm, relay(ReactionKind::Fulfill), result),
@@ -351,11 +355,15 @@ fn run_callback(vm: &mut VmInner, func: ObjectId) {
 /// - No handler ⇒ propagate the resolution directly: Fulfill-kind
 ///   resolves the capability; Reject-kind rejects it (spec default
 ///   passthrough behaviour).
+/// - `capability` is `None` for internal subscribers (async-function
+///   driver / combinator per-item reactions) that never observe the
+///   derived promise — the handler runs for its side effect and the
+///   result is discarded.
 fn run_reaction(
     vm: &mut VmInner,
     kind: ReactionKind,
     handler: Option<ObjectId>,
-    capability: ObjectId,
+    capability: Option<ObjectId>,
     resolution: JsValue,
 ) {
     let Some(handler) = handler else {
@@ -363,23 +371,32 @@ fn run_reaction(
         // propagates as a rejection reason.  This path is how
         // `forward_promise` relays a settled source to an outer promise
         // whose resolver has already fired (so `already_resolved` is set);
-        // the gate in `settle_promise` would reject the relay.  Go
-        // through the internal helper instead, which just transitions the
-        // promise state and schedules its reactions.
-        if kind == ReactionKind::Reject {
-            reject_promise(vm, capability, resolution);
-        } else {
-            fulfill_promise(vm, capability, resolution);
+        // the gate in `settle_promise` would reject the relay.
+        // `forward_promise` always supplies a capability; the `None`
+        // branch here is defensive.
+        if let Some(cap) = capability {
+            if kind == ReactionKind::Reject {
+                reject_promise(vm, cap, resolution);
+            } else {
+                fulfill_promise(vm, cap, resolution);
+            }
         }
         return;
     };
     match vm.call(handler, JsValue::Undefined, &[resolution]) {
         Ok(value) => {
-            let _ = settle_promise(vm, capability, false, value);
+            if let Some(cap) = capability {
+                let _ = settle_promise(vm, cap, false, value);
+            }
         }
         Err(e) => {
-            let thrown = vm.vm_error_to_thrown(&e);
-            let _ = settle_promise(vm, capability, true, thrown);
+            if let Some(cap) = capability {
+                let thrown = vm.vm_error_to_thrown(&e);
+                let _ = settle_promise(vm, cap, true, thrown);
+            }
+            // No capability → internal caller (async driver, combinator
+            // subscribe) owns any error semantics; handlers for those
+            // paths are fn-pointer natives that drive their own state.
         }
     }
 }
@@ -561,18 +578,23 @@ pub(super) fn native_queue_microtask(
 }
 
 /// Thin wrapper around [`then_impl`] for callers that already hold the
-/// fulfil/reject handler ObjectIds (e.g. async driver continuations).
+/// fulfil/reject handler ObjectIds (e.g. async-function driver
+/// continuations).  Skips the derived-promise allocation — the internal
+/// handlers settle the wrapper Promise directly, so the capability
+/// would be immediately unreachable anyway.
 pub(super) fn subscribe_then(
     vm: &mut VmInner,
     src: ObjectId,
     on_fulfilled: ObjectId,
     on_rejected: ObjectId,
 ) {
-    // `then_impl` only errors if the src isn't a Promise; callers here
-    // are expected to have verified that already.
-    let _ = then_impl(vm, src, Some(on_fulfilled), Some(on_rejected));
+    // `then_impl_internal` only errors if the src isn't a Promise;
+    // callers here are expected to have verified that already.
+    let _ = then_impl_internal(vm, src, Some(on_fulfilled), Some(on_rejected), None);
 }
 
+/// User-visible `.then` entry: always allocates a derived Promise and
+/// returns it as the result of the call.
 pub(super) fn then_impl(
     vm: &mut VmInner,
     src: ObjectId,
@@ -580,7 +602,26 @@ pub(super) fn then_impl(
     on_rejected: Option<ObjectId>,
 ) -> Result<JsValue, VmError> {
     let capability = create_promise(vm);
+    then_impl_internal(vm, src, on_fulfilled, on_rejected, Some(capability))?;
+    Ok(JsValue::Object(capability))
+}
 
+/// Internal entry: registers reactions against `src`, optionally with a
+/// derived Promise `capability` that settles on each reaction's result.
+/// `capability = None` elides the wasted Promise allocation for internal
+/// subscribers (async driver continuations, Promise combinator per-item
+/// reactions) that don't observe the derived promise.
+///
+/// The capability-bearing path is the user-visible `.then` / `.catch` /
+/// `.finally`; those go through [`then_impl`] which always supplies
+/// `Some`.
+pub(super) fn then_impl_internal(
+    vm: &mut VmInner,
+    src: ObjectId,
+    on_fulfilled: Option<ObjectId>,
+    on_rejected: Option<ObjectId>,
+    capability: Option<ObjectId>,
+) -> Result<(), VmError> {
     let fulfill_r = Reaction {
         kind: ReactionKind::Fulfill,
         handler: on_fulfilled,
@@ -597,7 +638,7 @@ pub(super) fn then_impl(
     // `.then` on an already-settled promise still fires asynchronously.
     let (status, resolution) = {
         let ObjectKind::Promise(state) = &mut vm.get_object_mut(src).kind else {
-            unreachable!("then_impl caller verified Promise kind");
+            unreachable!("then_impl_internal caller verified Promise kind");
         };
         // Mark as handled once any reject reaction is attached so the
         // end-of-drain unhandled-rejection scan doesn't warn.
@@ -618,5 +659,5 @@ pub(super) fn then_impl(
         PromiseStatus::Rejected => enqueue_reaction(vm, reject_r, resolution),
         PromiseStatus::Pending => {}
     }
-    Ok(JsValue::Object(capability))
+    Ok(())
 }

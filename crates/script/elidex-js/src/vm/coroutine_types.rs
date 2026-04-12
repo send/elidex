@@ -176,9 +176,12 @@ pub enum ReactionKind {
 ///   (identity for Fulfill, rethrow for Reject) used when `.then()` omits an
 ///   argument.
 /// - `capability` is the derived promise that the reaction resolves/rejects.
+///   `None` when the caller doesn't observe the derived promise (internal
+///   subscribers like the async-function driver and combinator per-item
+///   reactions): allocation of the wasted capability is elided.
 #[derive(Clone, Copy, Debug)]
 pub struct Reaction {
     pub kind: ReactionKind,
     pub handler: Option<ObjectId>,
-    pub capability: ObjectId,
+    pub capability: Option<ObjectId>,
 }

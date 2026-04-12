@@ -215,7 +215,9 @@ fn mark_roots(
             if let Some(h) = handler {
                 mark_object(*h, obj_marks, work);
             }
-            mark_object(*capability, obj_marks, work);
+            if let Some(cap) = capability {
+                mark_object(*cap, obj_marks, work);
+            }
             mark_value(*resolution, obj_marks, work);
         }
         Microtask::Callback { func } => {
@@ -318,13 +320,17 @@ fn trace_work_list(
                     if let Some(h) = reaction.handler {
                         mark_object(h, obj_marks, work);
                     }
-                    mark_object(reaction.capability, obj_marks, work);
+                    if let Some(cap) = reaction.capability {
+                        mark_object(cap, obj_marks, work);
+                    }
                 }
                 for reaction in &state.reject_reactions {
                     if let Some(h) = reaction.handler {
                         mark_object(h, obj_marks, work);
                     }
-                    mark_object(reaction.capability, obj_marks, work);
+                    if let Some(cap) = reaction.capability {
+                        mark_object(cap, obj_marks, work);
+                    }
                 }
             }
             ObjectKind::PromiseResolver { promise, .. } => {
