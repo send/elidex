@@ -163,9 +163,24 @@ pub(crate) struct VmInner {
     /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
     /// the yielded value.  `None` outside a yield dispatch.
     pub(crate) generator_yielded: Option<JsValue>,
+    /// Currently-executing microtask, held between `pop_front` and the end
+    /// of its callback so the task's `handler` / `capability` / `resolution`
+    /// (or bare `Callback { func }`) stay GC-rooted while the user JS
+    /// attached to them runs.  Without this, a Promise handler that
+    /// triggers a GC could see its own capability Promise / callback
+    /// collected (they are no longer in the queue, and only a Rust local
+    /// held them otherwise).
+    pub(crate) current_microtask: Option<natives_promise::Microtask>,
     /// Pending timers ordered by nearest deadline; fired by
     /// `drain_timers(now)` (driven by the shell on each event-loop tick).
     pub(crate) timer_queue: BinaryHeap<natives_timer::TimerEntry>,
+    /// Currently-firing timer entry, owned by the VM during callback
+    /// execution so `entry.callback` and `entry.args` survive any GC
+    /// triggered by the callback.  The entry is popped out of
+    /// `timer_queue` before running and moved into this slot; on return
+    /// the drain loop takes it back for interval re-arm / active-set
+    /// cleanup.
+    pub(crate) current_timer: Option<natives_timer::TimerEntry>,
     /// Monotonically-increasing IDs returned by `setTimeout` / `setInterval`.
     pub(crate) next_timer_id: u32,
     /// IDs of currently-live timers: inserted on schedule, removed on
@@ -841,7 +856,9 @@ impl Vm {
                 pending_rejections: Vec::new(),
                 generator_prototype: None,
                 generator_yielded: None,
+                current_microtask: None,
                 timer_queue: BinaryHeap::new(),
+                current_timer: None,
                 next_timer_id: 1,
                 active_timer_ids: HashSet::new(),
                 cancelled_timers: HashSet::new(),

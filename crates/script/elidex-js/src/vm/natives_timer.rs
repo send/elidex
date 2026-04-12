@@ -221,7 +221,16 @@ impl VmInner {
                 self.active_timer_ids.remove(&entry.id);
                 continue;
             }
-            if let Err(e) = self.fire_timer(&entry) {
+            // Install the popped entry as a GC root before invoking user
+            // code — the callback can allocate arbitrarily and trigger a
+            // collection, and without this slot `entry.callback` +
+            // `entry.args` would only be held in a Rust local (the heap
+            // copy was removed by `pop`).  We take the entry back out
+            // after firing to make re-arm / active-set decisions.
+            self.current_timer = Some(entry);
+            let fire_result = self.fire_current_timer();
+            let entry = self.current_timer.take().expect("current_timer set above");
+            if let Err(e) = fire_result {
                 eprintln!("timer callback {} threw: {e}", entry.id);
             }
             fired += 1;
@@ -256,16 +265,24 @@ impl VmInner {
         fired
     }
 
-    /// Invoke a single timer's callback.  Bridges the stored
-    /// `ObjectId` + args into `vm.call()`; the callee's `this` is
-    /// `globalThis` per WHATWG §8.7 step 13.1.
-    fn fire_timer(&mut self, entry: &TimerEntry) -> Result<(), VmError> {
+    /// Invoke the callback of `self.current_timer` with the caller-stored
+    /// args, bridging into `vm.call()`; the callee's `this` is `globalThis`
+    /// per WHATWG §8.7 step 13.1.  Reads the callback/args out of the
+    /// GC-rooted `current_timer` slot; the `Vec<JsValue>` is cloned because
+    /// `vm.call` borrows `self` mutably and the slot must remain populated
+    /// so a GC triggered by the user callback still sees the args as live.
+    fn fire_current_timer(&mut self) -> Result<(), VmError> {
+        let Some(entry) = self.current_timer.as_ref() else {
+            return Ok(());
+        };
+        let callback = entry.callback;
+        let args = entry.args.clone();
         // Sanity: if the callback object was GC'd (shouldn't happen —
-        // the timer_queue marks it live), bail quietly.
+        // `current_timer` keeps it marked), bail quietly.
         let still_callable = {
             let slot = self
                 .objects
-                .get(entry.callback.0 as usize)
+                .get(callback.0 as usize)
                 .and_then(Option::as_ref);
             slot.is_some_and(|o| o.kind.is_callable())
         };
@@ -273,7 +290,7 @@ impl VmInner {
             return Ok(());
         }
         let this = JsValue::Object(self.global_object);
-        self.call(entry.callback, this, &entry.args)?;
+        self.call(callback, this, &args)?;
         Ok(())
     }
 }

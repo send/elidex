@@ -264,6 +264,14 @@ impl VmInner {
         }
         self.microtask_drain_depth += 1;
         while let Some(task) = self.microtask_queue.pop_front() {
+            // Install the popped task as a GC root before invoking user
+            // code — the callback we're about to run can trigger GC, and
+            // without this slot the reaction's handler/capability/resolution
+            // (or bare callback func) are only held in Rust locals and
+            // would be collected.  `Microtask` is `Copy`, so we hold a
+            // snapshot locally for dispatch while `current_microtask`
+            // keeps the originals rooted.
+            self.current_microtask = Some(task);
             match task {
                 Microtask::PromiseReaction {
                     kind,
@@ -277,6 +285,7 @@ impl VmInner {
                     run_callback(self, func);
                 }
             }
+            self.current_microtask = None;
         }
         // End-of-drain: emit unhandled-rejection warnings.  The spec hook
         // (HostPromiseRejectionTracker → PromiseRejectionEvent) is deferred

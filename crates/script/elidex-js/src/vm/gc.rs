@@ -120,11 +120,19 @@ struct GcRoots<'a> {
     /// Pending microtasks — hold references to handler functions, capability
     /// promises, and resolution values that would otherwise be unreachable.
     microtask_queue: &'a std::collections::VecDeque<Microtask>,
+    /// Currently-executing microtask (popped out of `microtask_queue`).
+    /// Rooted here so the task's referenced objects survive a GC triggered
+    /// by the user callback that we're running.
+    current_microtask: Option<&'a Microtask>,
     /// Rejected promises awaiting end-of-drain unhandled-rejection reporting.
     pending_rejections: &'a [ObjectId],
     /// Pending timers — pin callbacks + args so they aren't collected
     /// between scheduling and firing.
     timer_queue: &'a std::collections::BinaryHeap<super::natives_timer::TimerEntry>,
+    /// Currently-firing timer entry (popped out of `timer_queue`).  Same
+    /// invariant as `current_microtask`: the callback/args must survive
+    /// any GC triggered by the running callback.
+    current_timer: Option<&'a super::natives_timer::TimerEntry>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -186,24 +194,28 @@ fn mark_roots(
     // (f) Pending microtasks.  Reactions reference their handler function
     // object, the derived (capability) promise to settle, and the resolution
     // value — all of which may be otherwise unreachable while the task waits.
-    for task in roots.microtask_queue {
-        match task {
-            Microtask::PromiseReaction {
-                handler,
-                capability,
-                resolution,
-                ..
-            } => {
-                if let Some(h) = handler {
-                    mark_object(*h, obj_marks, work);
-                }
-                mark_object(*capability, obj_marks, work);
-                mark_value(*resolution, obj_marks, work);
+    let mark_microtask = |task: &Microtask, obj_marks: &mut [u64], work: &mut Vec<u32>| match task {
+        Microtask::PromiseReaction {
+            handler,
+            capability,
+            resolution,
+            ..
+        } => {
+            if let Some(h) = handler {
+                mark_object(*h, obj_marks, work);
             }
-            Microtask::Callback { func } => {
-                mark_object(*func, obj_marks, work);
-            }
+            mark_object(*capability, obj_marks, work);
+            mark_value(*resolution, obj_marks, work);
         }
+        Microtask::Callback { func } => {
+            mark_object(*func, obj_marks, work);
+        }
+    };
+    for task in roots.microtask_queue {
+        mark_microtask(task, obj_marks, work);
+    }
+    if let Some(task) = roots.current_microtask {
+        mark_microtask(task, obj_marks, work);
     }
 
     // (g) Unhandled-rejection watchlist.  These promises must survive until
@@ -215,11 +227,18 @@ fn mark_roots(
 
     // (h) Pending timers.  Each entry pins its callback function and the
     // positional args captured at scheduling time.
+    let mark_timer_entry =
+        |entry: &super::natives_timer::TimerEntry, obj_marks: &mut [u64], work: &mut Vec<u32>| {
+            mark_object(entry.callback, obj_marks, work);
+            for &v in &entry.args {
+                mark_value(v, obj_marks, work);
+            }
+        };
     for entry in roots.timer_queue {
-        mark_object(entry.callback, obj_marks, work);
-        for &v in &entry.args {
-            mark_value(v, obj_marks, work);
-        }
+        mark_timer_entry(entry, obj_marks, work);
+    }
+    if let Some(entry) = roots.current_timer {
+        mark_timer_entry(entry, obj_marks, work);
     }
 }
 
@@ -496,8 +515,10 @@ impl VmInner {
             objects: &self.objects,
             host_data: self.host_data.as_deref(),
             microtask_queue: &self.microtask_queue,
+            current_microtask: self.current_microtask.as_ref(),
             pending_rejections: &self.pending_rejections,
             timer_queue: &self.timer_queue,
+            current_timer: self.current_timer.as_ref(),
         };
 
         self.gc_work_list.clear();
