@@ -19,12 +19,19 @@ use super::VmInner;
 
 impl VmInner {
     /// Parse, compile, and execute JavaScript source code.
+    ///
+    /// HTML §8.1.4.2 step 7: after the classic script finishes, drain the
+    /// microtask queue.  Drain runs regardless of whether the script
+    /// succeeded or threw, so that reactions attached inside a thrown-from
+    /// try/catch still fire (spec parity with browser microtask semantics).
     pub fn eval(&mut self, source: &str) -> Result<JsValue, VmError> {
         let script = crate::compiler::compile_script(source).map_err(|e| VmError {
             kind: VmErrorKind::CompileError,
             message: e.message,
         })?;
-        self.run_script(script)
+        let result = self.run_script(script);
+        self.drain_microtasks();
+        result
     }
 
     /// Load and execute a compiled script.
@@ -88,6 +95,22 @@ impl VmInner {
                         owned_args = Some(combined);
                     }
                     current_id = next_id;
+                }
+                ObjectKind::PromiseResolver { promise, is_reject } => {
+                    // ES2020 §25.6.1.3.1 / §25.6.1.3.2: invoking a Promise
+                    // resolve/reject function drops its capability slot.  GC
+                    // must not run inside the native body since we're about
+                    // to mutate the target promise and enqueue reactions.
+                    let promise = *promise;
+                    let is_reject = *is_reject;
+                    let saved_gc = self.gc_enabled;
+                    self.gc_enabled = false;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    let result =
+                        super::natives_promise::settle_promise(self, promise, is_reject, value);
+                    self.gc_enabled = saved_gc;
+                    return result;
                 }
                 _ => return Err(VmError::type_error("not a function")),
             }

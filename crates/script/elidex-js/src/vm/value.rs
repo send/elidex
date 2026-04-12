@@ -459,15 +459,79 @@ pub enum ObjectKind {
     BigIntWrapper(BigIntId),
     /// Wrapper object for Symbol primitives.
     SymbolWrapper(SymbolId),
+    /// A Promise (ES2020 §25.6).  Holds the state machine (status + result)
+    /// and reaction lists; reactions are drained via the microtask queue.
+    Promise(PromiseState),
+    /// Resolve/reject function bound to a specific Promise capability
+    /// (ES2020 §25.6.1.3).  Created synchronously by `new Promise(executor)`
+    /// and handed to the executor; settling is idempotent because subsequent
+    /// invocations see `status != Pending` and become no-ops.
+    PromiseResolver {
+        /// The Promise this function settles.
+        promise: ObjectId,
+        /// Which side — `true` for reject, `false` for resolve.
+        is_reject: bool,
+    },
+}
+
+/// State of a Promise (ES2020 §25.6.6).
+///
+/// - `status` is the `[[PromiseState]]` internal slot.
+/// - `result` is the `[[PromiseResult]]` (fulfilment value or rejection reason).
+/// - `fulfill_reactions` / `reject_reactions` are appended by `.then()` while
+///   the promise is Pending, and drained (queued as microtasks) on settle.
+///   The lists are emptied on settle so they cannot hold GC roots beyond
+///   that point.
+/// - `handled` tracks whether a reject reaction has been attached — used for
+///   unhandled-rejection reporting (future work).
+pub struct PromiseState {
+    pub status: PromiseStatus,
+    pub result: JsValue,
+    pub fulfill_reactions: Vec<Reaction>,
+    pub reject_reactions: Vec<Reaction>,
+    pub handled: bool,
+}
+
+/// `[[PromiseState]]` (ES2020 §25.6.6): Pending until the first resolve/reject,
+/// then latched to Fulfilled or Rejected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PromiseStatus {
+    Pending,
+    Fulfilled,
+    Rejected,
+}
+
+/// Which side of a reaction this is: the fulfill handler or the reject handler.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReactionKind {
+    Fulfill,
+    Reject,
+}
+
+/// A PromiseReaction Record (ES2020 §25.6.1.2).
+///
+/// - `handler` is the user callback; `None` indicates the default passthrough
+///   (identity for Fulfill, rethrow for Reject) used when `.then()` omits an
+///   argument.
+/// - `capability` is the derived promise that the reaction resolves/rejects.
+#[derive(Clone, Copy, Debug)]
+pub struct Reaction {
+    pub kind: ReactionKind,
+    pub handler: Option<ObjectId>,
+    pub capability: ObjectId,
 }
 
 impl ObjectKind {
-    /// Returns `true` if this object kind is callable (Function, NativeFunction, or BoundFunction).
+    /// Returns `true` if this object kind is callable (Function, NativeFunction,
+    /// BoundFunction, or PromiseResolver).
     #[inline]
     pub fn is_callable(&self) -> bool {
         matches!(
             self,
-            Self::Function(_) | Self::NativeFunction(_) | Self::BoundFunction { .. }
+            Self::Function(_)
+                | Self::NativeFunction(_)
+                | Self::BoundFunction { .. }
+                | Self::PromiseResolver { .. }
         )
     }
 }

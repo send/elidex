@@ -164,6 +164,9 @@ impl VmInner {
 
         // BigInt global (not a constructor)
         self.register_bigint_global();
+
+        // Promise global (constructable) + prototype
+        self.register_promise_global();
     }
 
     /// Helper: register a native function as a global.
@@ -909,6 +912,64 @@ impl VmInner {
 
         let bigint_name = self.strings.intern("BigInt");
         self.globals.insert(bigint_name, JsValue::Object(bigint_fn));
+    }
+
+    /// Promise constructor + prototype (ES2020 §25.6).
+    ///
+    /// Registers `Promise` as a constructable native function with static
+    /// methods (`resolve`, `reject`) and wires up `Promise.prototype.{then,
+    /// catch}`.  Promise instances are allocated with their prototype set
+    /// by `do_new` via the `Promise.prototype` property lookup; the native
+    /// constructor repurposes that pre-allocated Ordinary instance into
+    /// `ObjectKind::Promise` in place.
+    fn register_promise_global(&mut self) {
+        use super::natives_promise::{
+            native_promise_constructor, native_promise_prototype_catch,
+            native_promise_prototype_then, native_promise_reject, native_promise_resolve,
+        };
+
+        // Promise.prototype with `.then` / `.catch`.
+        let proto_id = self.create_object_with_methods(&[
+            ("then", native_promise_prototype_then),
+            ("catch", native_promise_prototype_catch),
+        ]);
+        self.promise_prototype = Some(proto_id);
+
+        // Promise constructor (constructable via `new`).
+        let ctor_id = self.create_constructable_function("Promise", native_promise_constructor);
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor_id,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        // Promise.prototype.constructor = Promise
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor_id)),
+            PropertyAttrs::METHOD,
+        );
+
+        // Static methods: Promise.resolve / Promise.reject.
+        for (name, func) in [
+            ("resolve", native_promise_resolve as NativeFn),
+            ("reject", native_promise_reject as NativeFn),
+        ] {
+            let fn_id = self.create_native_function(name, func);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                ctor_id,
+                key,
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
+
+        let name = self.strings.intern("Promise");
+        self.globals.insert(name, JsValue::Object(ctor_id));
     }
 
     fn register_console(&mut self) {

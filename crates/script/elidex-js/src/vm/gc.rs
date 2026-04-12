@@ -27,7 +27,7 @@ use super::value::{
     CallFrame, JsValue, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, Upvalue,
     UpvalueId, UpvalueState,
 };
-use super::VmInner;
+use super::{Microtask, VmInner};
 use crate::bytecode::compiled::CompiledFunction;
 use crate::vm::value::StringId;
 
@@ -110,12 +110,15 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 11],
+    proto_roots: [Option<ObjectId>; 12],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
     /// Host-data (listeners, wrappers) if installed.
     host_data: Option<&'a super::host_data::HostData>,
+    /// Pending microtasks — hold references to handler functions, capability
+    /// promises, and resolution values that would otherwise be unreachable.
+    microtask_queue: &'a std::collections::VecDeque<Microtask>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -168,6 +171,26 @@ fn mark_roots(
     if let Some(hd) = roots.host_data {
         for id in hd.gc_root_object_ids() {
             mark_object(id, obj_marks, work);
+        }
+    }
+
+    // (f) Pending microtasks.  Reactions reference their handler function
+    // object, the derived (capability) promise to settle, and the resolution
+    // value — all of which may be otherwise unreachable while the task waits.
+    for task in roots.microtask_queue {
+        match task {
+            Microtask::PromiseReaction {
+                handler,
+                capability,
+                resolution,
+                ..
+            } => {
+                if let Some(h) = handler {
+                    mark_object(*h, obj_marks, work);
+                }
+                mark_object(*capability, obj_marks, work);
+                mark_value(*resolution, obj_marks, work);
+            }
         }
     }
 }
@@ -229,6 +252,24 @@ fn trace_work_list(
                 for &v in values {
                     mark_value(v, obj_marks, work);
                 }
+            }
+            ObjectKind::Promise(state) => {
+                mark_value(state.result, obj_marks, work);
+                for reaction in &state.fulfill_reactions {
+                    if let Some(h) = reaction.handler {
+                        mark_object(h, obj_marks, work);
+                    }
+                    mark_object(reaction.capability, obj_marks, work);
+                }
+                for reaction in &state.reject_reactions {
+                    if let Some(h) = reaction.handler {
+                        mark_object(h, obj_marks, work);
+                    }
+                    mark_object(reaction.capability, obj_marks, work);
+                }
+            }
+            ObjectKind::PromiseResolver { promise, .. } => {
+                mark_object(*promise, obj_marks, work);
             }
             // No ObjectId references — only StringId / scalar fields.
             ObjectKind::Ordinary
@@ -364,11 +405,13 @@ impl VmInner {
                 self.regexp_prototype,
                 self.array_iterator_prototype,
                 self.string_iterator_prototype,
+                self.promise_prototype,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
             objects: &self.objects,
             host_data: self.host_data.as_deref(),
+            microtask_queue: &self.microtask_queue,
         };
 
         self.gc_work_list.clear();

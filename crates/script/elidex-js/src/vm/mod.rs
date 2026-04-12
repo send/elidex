@@ -29,6 +29,7 @@ mod natives_json;
 mod natives_math;
 mod natives_number;
 mod natives_object;
+mod natives_promise;
 mod natives_regexp;
 mod natives_string;
 mod natives_string_ext;
@@ -42,12 +43,12 @@ pub mod value;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use pools::{BigIntPool, StringPool};
 use value::{
     CallFrame, FuncId, JsValue, NativeContext, NativeFunction, Object, ObjectId, ObjectKind,
-    StringId, SymbolId, SymbolRecord, UpvalueId, VmError,
+    ReactionKind, StringId, SymbolId, SymbolRecord, UpvalueId, VmError,
 };
 
 use crate::bytecode::compiled::CompiledFunction;
@@ -139,6 +140,32 @@ pub(crate) struct VmInner {
     /// DOM wrappers, timers, etc.).  `None` when the VM runs standalone
     /// (e.g., in unit tests without the `engine` feature).
     pub(crate) host_data: Option<Box<host_data::HostData>>,
+    /// Promise.prototype object (§25.6.5).
+    pub(crate) promise_prototype: Option<ObjectId>,
+    /// Microtask queue (HTML §8.1.4.3).  Drained at HTML microtask
+    /// checkpoints — currently just at the end of `eval()` and the end of
+    /// event-listener invocations.  `queueMicrotask` / additional drain
+    /// points are wired up in PR2 commit 2.
+    pub(crate) microtask_queue: VecDeque<Microtask>,
+    /// Reentrancy guard: nonzero while a microtask drain is in progress.
+    /// Prevents reentrancy from accidentally reordering the queue if a
+    /// microtask triggers a nested eval or listener invocation.
+    pub(crate) microtask_drain_depth: u32,
+}
+
+/// A queued microtask.  Currently only covers Promise reaction dispatch;
+/// PR2 commit 2 will add `QueueMicrotaskCallback` and `HostEnqueued`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Microtask {
+    /// A pending Promise reaction: run `handler(resolution)` (or propagate
+    /// the resolution directly if `handler` is `None`) and settle `capability`
+    /// accordingly.  Mirrors ES2020 §25.6.1.3 `NewPromiseReactionJob`.
+    PromiseReaction {
+        kind: ReactionKind,
+        handler: Option<ObjectId>,
+        capability: ObjectId,
+        resolution: JsValue,
+    },
 }
 
 /// Frequently used interned string IDs, cached at VM creation.
@@ -785,6 +812,9 @@ impl Vm {
                 gc_enabled: false,
                 in_construct: false,
                 host_data: None,
+                promise_prototype: None,
+                microtask_queue: VecDeque::new(),
+                microtask_drain_depth: 0,
             },
         };
 

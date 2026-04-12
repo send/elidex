@@ -10,6 +10,7 @@ mod tests_m4_11;
 mod tests_math;
 mod tests_number;
 mod tests_object_complement;
+mod tests_promise;
 mod tests_sparse_array;
 mod tests_string_complement;
 
@@ -46,6 +47,29 @@ fn eval_bool(source: &str) -> bool {
     match eval(source).unwrap() {
         JsValue::Boolean(b) => b,
         other => panic!("expected bool, got {other:?}"),
+    }
+}
+
+/// Evaluate `source`, drain microtasks (via the post-script drain inside
+/// `eval`), then read the global `var` named `name` and expect a number.
+/// Used to observe state set asynchronously from Promise reactions.
+fn eval_global_number(source: &str, name: &str) -> f64 {
+    let mut vm = Vm::new();
+    vm.eval(source).unwrap();
+    match vm.get_global(name) {
+        Some(JsValue::Number(n)) => n,
+        other => panic!("expected global {name} to be a number, got {other:?}"),
+    }
+}
+
+/// Evaluate `source`, drain microtasks, then read the global `var` named
+/// `name` and expect a string.
+fn eval_global_string(source: &str, name: &str) -> String {
+    let mut vm = Vm::new();
+    vm.eval(source).unwrap();
+    match vm.get_global(name) {
+        Some(JsValue::String(id)) => vm.get_string(id),
+        other => panic!("expected global {name} to be a string, got {other:?}"),
     }
 }
 

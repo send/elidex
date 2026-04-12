@@ -228,6 +228,7 @@ pub(super) fn native_object_prototype_to_string(
                 | ObjectKind::BoundFunction { .. } => "Function",
                 ObjectKind::Error { .. } => "Error",
                 ObjectKind::RegExp { .. } => "RegExp",
+                ObjectKind::Promise(_) => "Promise",
                 _ => "Object",
             }
         }
