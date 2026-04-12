@@ -89,10 +89,15 @@ impl VmInner {
                 }
             }
             // Primitive property access: look up on the prototype with the
-            // original primitive as the receiver.  If an accessor getter is
-            // invoked, the callee's this-mode decides boxing:
-            // non-strict functions ToObject-box via `bind_this_global`
-            // (§9.2.1.2), strict-mode functions keep the primitive as-is.
+            // original primitive as the receiver (§6.2.4.1 step 4.b passes
+            // `GetThisValue(V)` — the original primitive — as Receiver,
+            // independent of the boxing that happens for own-property
+            // lookup).  If an accessor getter is invoked, the callee's
+            // this-mode decides boxing per §9.4.3 step 5: non-strict
+            // functions ToObject-box via `bind_this_global` (§9.2.1.2),
+            // strict-mode functions observe the raw primitive as `this`.
+            // This matches V8/SpiderMonkey observable behavior for strict
+            // methods like `'x'.trim.call.call.call(...)`.
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),

@@ -91,7 +91,8 @@ pub(super) fn native_function_bind(
     // Get so that `defineProperty(fn, 'name', {value: ...})` is honored.  A
     // BoundFunction's own `.name` is already "bound foo" from the prior bind,
     // so this naturally yields "bound bound foo" without walking the chain.
-    let (target_length, target_name) = target_function_length_name(ctx, target_id);
+    // Abrupt completions from user-defined getters propagate (spec `?`).
+    let (target_length, target_name) = target_function_length_name(ctx, target_id)?;
     let bound_length = target_length.saturating_sub(bound_args.len());
     let name_str = format!("bound {target_name}");
     let name_id = ctx.intern(&name_str);
@@ -133,25 +134,27 @@ pub(super) fn native_function_bind(
 /// Uses property `Get` so that `defineProperty(fn, 'length'|'name', ...)`
 /// overrides are honored.  Falls back to the function's internal slots
 /// (`FunctionObject.name`, `NativeFunction.name`, `CompiledFunction.param_count`)
-/// when the property is absent — these are authoritative for user-defined
-/// functions whose `.name`/`.length` is not yet exposed as a data property.
+/// when the property is absent or not of the expected type — these are
+/// authoritative for user-defined functions whose `.name`/`.length` is not
+/// yet exposed as a data property.  Abrupt completions (e.g. accessor
+/// getter throws) are propagated to the caller.
 fn target_function_length_name(
     ctx: &mut NativeContext<'_>,
     target_id: ObjectId,
-) -> (usize, String) {
+) -> Result<(usize, String), VmError> {
     let length_key = super::value::PropertyKey::String(ctx.vm.well_known.length);
     let name_key = super::value::PropertyKey::String(ctx.vm.well_known.name);
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let length = match ctx.try_get_property_value(target_id, length_key) {
-        Ok(Some(JsValue::Number(n))) if n.is_finite() && n >= 0.0 => n as usize,
+    let length = match ctx.try_get_property_value(target_id, length_key)? {
+        Some(JsValue::Number(n)) if n.is_finite() && n >= 0.0 => n as usize,
         _ => internal_function_length(ctx, target_id),
     };
-    let name = match ctx.try_get_property_value(target_id, name_key) {
-        Ok(Some(JsValue::String(sid))) => ctx.get_utf8(sid),
+    let name = match ctx.try_get_property_value(target_id, name_key)? {
+        Some(JsValue::String(sid)) => ctx.get_utf8(sid),
         _ => internal_function_name(ctx, target_id),
     };
-    (length, name)
+    Ok((length, name))
 }
 
 fn internal_function_length(ctx: &NativeContext<'_>, target_id: ObjectId) -> usize {

@@ -466,6 +466,21 @@ fn bind_honors_defineproperty_length() {
 }
 
 #[test]
+fn bind_propagates_name_getter_throw() {
+    // §19.2.3.2 step 11: `Get(target, "name")` is an abrupt completion
+    // point.  If the getter throws, bind must propagate the exception
+    // rather than silently falling back to the internal name.
+    eval_throws(
+        "function foo() {}
+         Object.defineProperty(foo, 'name', {
+             get() { throw new Error('name-getter-throws'); },
+             configurable: true
+         });
+         foo.bind(null);",
+    );
+}
+
+#[test]
 fn new_array_reuses_preallocated_instance() {
     // §22.1.1: `new Array(...)` should return an Array-kind object with the
     // given elements. Regression guard: constructor must reuse do_new's

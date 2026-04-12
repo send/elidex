@@ -148,15 +148,19 @@ mod engine_feature {
         }
     }
 
-    // Intentionally no `Send`/`Sync` impl:
-    // `HostData` holds raw pointers to caller-owned host state while bound.
-    // Moving a bound VM across threads (or sharing `&HostData` across them)
-    // would race with the caller's owned `&mut SessionCore` / `&mut EcsDom`.
-    // The invariant is not expressible in Rust's type system, so we keep
-    // `HostData` `!Send`/`!Sync` to prevent accidental cross-thread transfer.
-    // When Worker threads are introduced (PR2+), each worker owns its own VM;
-    // the Send invariant will be designed explicitly (e.g., split unbound
-    // cache + bound non-Send guard).
+    // Raw pointers (`*mut T`) are `!Send` and `!Sync` in Rust by default
+    // (<https://doc.rust-lang.org/nomicon/send-and-sync.html>), so the
+    // compiler automatically infers `HostData: !Send + !Sync` from the
+    // `session_ptr` / `dom_ptr` fields.  We deliberately do NOT add an
+    // `unsafe impl Send`; moving a bound VM across threads would race with
+    // the caller's `&mut SessionCore` / `&mut EcsDom`.  When Worker threads
+    // are introduced (PR2+), each worker will own its own VM and the Send
+    // invariant will be designed explicitly (e.g., split unbound cache +
+    // bound non-Send guard).
+    //
+    // REGRESSION GUARD: if the raw pointer fields are ever replaced with
+    // `Send` types (e.g. `NonNull<T>` wrapped in `Arc`), add an explicit
+    // `PhantomData<*const ()>` marker field to preserve `!Send + !Sync`.
 }
 
 #[cfg(not(feature = "engine"))]
