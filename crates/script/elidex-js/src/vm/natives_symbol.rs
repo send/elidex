@@ -57,19 +57,34 @@ pub(super) fn native_symbol_prototype_to_string(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let JsValue::Symbol(sid) = this else {
-        return Err(VmError::type_error(
-            "Symbol.prototype.toString requires a symbol value",
-        ));
+    // §19.4.3.3 thisSymbolValue: accept both Symbol primitive and a
+    // Symbol wrapper object (unwrap `[[SymbolData]]`).
+    let sid = match this {
+        JsValue::Symbol(sid) => sid,
+        JsValue::Object(obj_id) => {
+            if let ObjectKind::SymbolWrapper(sid) = ctx.get_object(obj_id).kind {
+                sid
+            } else {
+                return Err(VmError::type_error(
+                    "Symbol.prototype.toString requires a symbol value",
+                ));
+            }
+        }
+        _ => {
+            return Err(VmError::type_error(
+                "Symbol.prototype.toString requires a symbol value",
+            ));
+        }
     };
-    let desc = ctx.vm.symbols[sid.0 as usize]
-        .description
-        .map(|d| ctx.vm.strings.get_utf8(d));
-    let result = match desc {
-        Some(d) => format!("Symbol({d})"),
-        None => "Symbol()".to_string(),
-    };
-    let id = ctx.intern(&result);
+    // Build the output in WTF-16 so descriptions with unpaired surrogates
+    // are preserved losslessly (UTF-8 round-trip via get_utf8 would
+    // replace them with U+FFFD).
+    let mut units: Vec<u16> = "Symbol(".encode_utf16().collect();
+    if let Some(desc) = ctx.vm.symbols[sid.0 as usize].description {
+        units.extend_from_slice(ctx.vm.strings.get(desc));
+    }
+    units.push(u16::from(b')'));
+    let id = ctx.vm.strings.intern_utf16(&units);
     Ok(JsValue::String(id))
 }
 
@@ -196,9 +211,11 @@ pub(super) fn native_object_prototype_to_string(
                     super::coerce::PropertyResult::Getter(g) => ctx.call_function(g, this, &[])?,
                 };
                 if let JsValue::String(tag_id) = tag_val {
-                    let tag_str = ctx.get_utf8(tag_id);
-                    let s = format!("[object {tag_str}]");
-                    let id = ctx.intern(&s);
+                    // WTF-16 concat preserves lone surrogates in the tag.
+                    let mut units: Vec<u16> = "[object ".encode_utf16().collect();
+                    units.extend_from_slice(ctx.vm.strings.get(tag_id));
+                    units.push(u16::from(b']'));
+                    let id = ctx.vm.strings.intern_utf16(&units);
                     return Ok(JsValue::String(id));
                 }
             }
@@ -218,6 +235,41 @@ pub(super) fn native_object_prototype_to_string(
     let result = format!("[object {tag}]");
     let id = ctx.intern(&result);
     Ok(JsValue::String(id))
+}
+
+// -- Object.prototype.toLocaleString (ES2020 §19.1.3.5) -------------------
+//
+// Spec: `Return ? Invoke(O, "toString")`.  Previously wired as an alias of
+// Object.prototype.toString, which bypassed per-type overrides and made
+// `(5).toLocaleString()` yield "[object Number]" instead of "5".
+pub(super) fn native_object_prototype_to_locale_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Invoke(V, "toString") = ? Call(? GetV(V, "toString"), V).  GetV boxes
+    // primitives via ToObject for property lookup but passes the original V
+    // as the receiver, so Number.prototype.toString etc. apply correctly.
+    let (obj_id, receiver) = match this {
+        JsValue::Object(obj_id) => (obj_id, this),
+        JsValue::Null | JsValue::Undefined | JsValue::Empty => {
+            return Err(VmError::type_error(
+                "Object.prototype.toLocaleString called on null or undefined",
+            ));
+        }
+        primitive => (super::coerce::to_object(ctx.vm, primitive)?, primitive),
+    };
+    let to_string_key = PropertyKey::String(ctx.intern("toString"));
+    let method = ctx
+        .try_get_property_value(obj_id, to_string_key)?
+        .unwrap_or(JsValue::Undefined);
+    let JsValue::Object(fn_id) = method else {
+        return Err(VmError::type_error("toString is not callable"));
+    };
+    if !ctx.get_object(fn_id).kind.is_callable() {
+        return Err(VmError::type_error("toString is not callable"));
+    }
+    ctx.call_function(fn_id, receiver, &[])
 }
 
 // -- String iterator (Symbol.iterator protocol) ------------------------------

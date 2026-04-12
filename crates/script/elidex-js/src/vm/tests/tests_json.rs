@@ -357,9 +357,35 @@ fn stringify_circular_throws() {
     eval_throws("var a = []; a.push(a); JSON.stringify(a)");
 }
 
-// Wrapper object tests (new Number/String/Boolean) omitted:
-// Number/String/Boolean constructors are not yet constructable in elidex-js VM.
-// The wrapper unwrap logic in stringify is tested implicitly via toJSON + replacer.
+// ============================================================================
+// Wrapper objects (new Number / new String / new Boolean)
+// ============================================================================
+// §24.5.2.1 step 4: wrapper objects unwrap to their primitive value.
+// `new String(...)` landed in r2; these tests exercise the wrapper-unwrap
+// path in stringify (the full `? ToNumber`/`? ToString` via valueOf
+// override is tracked as a dedicated follow-up PR).
+
+#[test]
+fn stringify_new_string_wrapper() {
+    assert_eq!(eval_string("JSON.stringify(new String('x'))"), "\"x\"");
+    assert_eq!(eval_string("JSON.stringify(new String(''))"), "\"\"");
+}
+
+#[test]
+fn stringify_new_string_wrapper_in_array() {
+    assert_eq!(
+        eval_string("JSON.stringify([new String('a'), new String('b')])"),
+        "[\"a\",\"b\"]"
+    );
+}
+
+#[test]
+fn stringify_new_string_wrapper_in_object() {
+    assert_eq!(
+        eval_string("JSON.stringify({k: new String('v')})"),
+        "{\"k\":\"v\"}"
+    );
+}
 
 // ============================================================================
 // JSON.parse — primitives

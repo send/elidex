@@ -37,7 +37,7 @@ fn build_match_result(
         prototype: ctx.vm.array_prototype,
         extensible: true,
     });
-    let index_key = PropertyKey::String(ctx.intern("index"));
+    let index_key = PropertyKey::String(ctx.vm.well_known.index);
     #[allow(clippy::cast_precision_loss)]
     ctx.vm.define_shaped_property(
         arr_id,
@@ -45,7 +45,7 @@ fn build_match_result(
         super::value::PropertyValue::Data(JsValue::Number(m.start() as f64)),
         super::shape::PropertyAttrs::DATA,
     );
-    let input_key = PropertyKey::String(ctx.intern("input"));
+    let input_key = PropertyKey::String(ctx.vm.well_known.input);
     ctx.vm.define_shaped_property(
         arr_id,
         input_key,
@@ -56,42 +56,53 @@ fn build_match_result(
 }
 
 /// Read the current `lastIndex` from a RegExp object (as raw f64).
+/// §21.2.5.2.1 step 4-5: `ToLength(? ToNumber(? Get(R, "lastIndex")))`.
+/// Walks the prototype chain, invokes accessors, coerces via ToNumber
+/// (strings like "5", booleans, null, undefined), then applies ToLength:
+/// NaN / negative → 0, +Infinity clamped to 2^53 - 1.  Symbols propagate
+/// as TypeError from ToNumber.  Missing property → 0.
 pub(super) fn get_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
-) -> f64 {
-    let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
-    let obj = ctx.get_object(obj_id);
-    if let Some((super::value::PropertyValue::Data(JsValue::Number(n)), _)) =
-        obj.storage.get(last_index_key, &ctx.vm.shapes)
-    {
-        return *n;
+) -> Result<f64, VmError> {
+    let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
+    let raw = match ctx.try_get_property_value(obj_id, last_index_key)? {
+        Some(val) => ctx.to_number(val)?,
+        None => 0.0,
+    };
+    Ok(to_length(raw))
+}
+
+/// §7.1.20 ToLength: NaN → 0, clamp to `[0, 2^53 - 1]`.
+/// 2^53 - 1 = 9007199254740991; Infinity clamps.
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
+fn to_length(n: f64) -> f64 {
+    if n.is_nan() || n <= 0.0 {
+        return 0.0;
     }
-    0.0
+    n.trunc().min(MAX_SAFE_INTEGER)
 }
 
 /// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
+/// §21.2.5.2.1 step 12: `Set(R, "lastIndex", e, true)` — walks the
+/// prototype chain and invokes the user's setter when installed.  The
+/// previous direct-slot fast path silently clobbered an Accessor slot
+/// with a Data value, deleting any user-installed getter/setter.
+/// Setter errors are swallowed here because internal regex dispatch
+/// paths (exec/match/replace internal resets) aren't structured to
+/// propagate yet; `search`'s save/restore uses `set_property_val`
+/// directly to surface errors.
 pub(super) fn set_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
     idx: usize,
 ) {
-    let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
     #[allow(clippy::cast_precision_loss)]
     let val = JsValue::Number(idx as f64);
-    // Split borrow: access object storage + shapes simultaneously.
-    let obj = ctx.vm.objects[obj_id.0 as usize].as_mut().unwrap();
-    if let Some((slot, _)) = obj.storage.get_mut(last_index_key, &ctx.vm.shapes) {
-        *slot = super::value::PropertyValue::Data(val);
-        return;
-    }
-    // lastIndex: writable, non-enumerable, non-configurable (§21.2.5.3).
-    ctx.vm.define_shaped_property(
-        obj_id,
-        last_index_key,
-        super::value::PropertyValue::Data(val),
-        super::shape::PropertyAttrs::WRITABLE_HIDDEN,
-    );
+    let _ = ctx
+        .vm
+        .set_property_val(JsValue::Object(obj_id), ctx.vm.well_known.last_index, val);
 }
 
 // -- String.prototype methods -----------------------------------------------
@@ -344,12 +355,32 @@ pub(super) fn native_string_split(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    // §21.1.3.19 step 6: limit defaults to 2^32 - 1; `ToUint32(limit)` when
+    // provided.  §7.1.7 ToUint32 maps NaN/±Infinity to 0.  limit = 0 yields
+    // empty array (spec step 10).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let limit: usize = match args.get(1).copied() {
+        None | Some(JsValue::Undefined) => u32::MAX as usize,
+        Some(val) => {
+            let n = ctx.to_number(val)?;
+            if n.is_finite() {
+                // ToUint32: modulo 2^32 truncation.
+                let modded = n.rem_euclid(4_294_967_296.0);
+                modded.trunc() as usize
+            } else {
+                0
+            }
+        }
+    };
     // sep must be owned: we need it across intern_utf16 calls that borrow ctx mutably.
     let sep = ctx.get_u16(sep_id).to_vec();
     let mut parts: Vec<JsValue> = Vec::new();
+    if limit == 0 {
+        return Ok(create_array(ctx, parts));
+    }
     if sep.is_empty() {
         // Split into individual code units — no full-string clone needed.
-        let len = ctx.get_u16(sid).len();
+        let len = ctx.get_u16(sid).len().min(limit);
         if len >= DENSE_ARRAY_LEN_LIMIT {
             return Err(VmError::range_error("Array allocation failed"));
         }
@@ -364,7 +395,7 @@ pub(super) fn native_string_split(
         let sep_len = sep.len();
         let mut ranges: Vec<(usize, usize)> = Vec::new();
         let mut start = 0;
-        while start <= s_len {
+        while start <= s_len && ranges.len() < limit {
             if let Some(pos) = find_u16(&ctx.get_u16(sid)[start..], &sep) {
                 ranges.push((start, start + pos));
                 start += pos + sep_len;
@@ -460,8 +491,8 @@ pub(super) fn native_string_replace(
             let replacement = ctx.vm.strings.get(replacement_id).to_vec();
             let subject = ctx.vm.strings.get(sid).to_vec();
 
-            // Use run_regexp loop for both global and non-global.
-            // This correctly handles sticky (gy) semantics.
+            // Reset lastIndex before dispatching; loop only when global.
+            // Sticky (y) is enforced internally by run_regexp via lastIndex.
             set_regexp_last_index(ctx, re_id, 0);
             let result: Vec<u16> = if is_global {
                 let mut out = Vec::new();
@@ -489,7 +520,9 @@ pub(super) fn native_string_replace(
                     subject
                 }
             };
-            set_regexp_last_index(ctx, re_id, 0);
+            // §21.2.5.10 does not require resetting lastIndex after the
+            // global-replace loop.  (The pre-loop reset at entry is the
+            // spec-mandated `Set(rx, "lastIndex", 0, true)` for step 8.)
             let id = ctx.vm.strings.intern_utf16(&result);
             return Ok(JsValue::String(id));
         }
@@ -644,12 +677,104 @@ pub(super) fn native_string_search(
             ));
         }
     }
-    // §21.1.3.15: save lastIndex, set to 0, run, restore.
-    let saved = get_regexp_last_index(ctx, re_id);
+    // §21.1.3.15 steps 4-8: save the raw `lastIndex` property value, set
+    // to 0, run, restore the EXACT same value.  Using `get_regexp_last_index`
+    // would ToNumber/ToLength-coerce the saved value (e.g. string "2" →
+    // number 2) and lose any side effects the user's getter/setter may
+    // depend on.  Use property-level Get/Set to preserve semantics.
+    let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
+    let saved_value = ctx
+        .try_get_property_value(re_id, last_index_key)?
+        .unwrap_or(JsValue::Undefined);
     set_regexp_last_index(ctx, re_id, 0);
     let result = super::natives_regexp::run_regexp(ctx, re_id, &subject)?.map(|m| m.start());
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    set_regexp_last_index(ctx, re_id, saved as usize);
+    ctx.vm.set_property_val(
+        JsValue::Object(re_id),
+        ctx.vm.well_known.last_index,
+        saved_value,
+    )?;
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
+}
+
+// -- String.prototype.valueOf / toString (§21.1.3.32 / §21.1.3.25) ----------
+
+/// `String.prototype.valueOf()` — return the primitive string value.
+/// Works on both string primitives and StringWrapper objects.
+pub(crate) fn native_string_value_of(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    match this {
+        JsValue::String(sid) => Ok(JsValue::String(sid)),
+        JsValue::Object(obj_id) => {
+            if let ObjectKind::StringWrapper(sid) = ctx.get_object(obj_id).kind {
+                Ok(JsValue::String(sid))
+            } else {
+                Err(VmError::type_error(
+                    "String.prototype.valueOf requires a String",
+                ))
+            }
+        }
+        _ => Err(VmError::type_error(
+            "String.prototype.valueOf requires a String",
+        )),
+    }
+}
+
+// §21.1.3.25 String.prototype.toString shares the valueOf implementation —
+// registered twice in globals.rs with different `name` attributes.
+
+// -- String constructor (§21.1.1) -------------------------------------------
+
+/// `String(value)` as a function call returns a primitive string (§21.1.1.1
+/// step 1 when NewTarget is undefined).  `new String(value)` promotes the
+/// pre-allocated Ordinary instance (passed as `this` by `do_new`) to a
+/// StringWrapper in-place, avoiding a second allocation.  For symbol input
+/// on the call path, `SymbolDescriptiveString` semantics apply.
+pub(crate) fn native_string_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let str_val = if args.is_empty() {
+        ctx.vm.well_known.empty
+    } else if ctx.is_construct() {
+        ctx.to_string_val(args[0])?
+    } else {
+        // §21.1.1.1 step 2: `String(Symbol(...))` returns descriptive string,
+        // not a TypeError.  Handle specially; all other values via ToString.
+        if let JsValue::Symbol(sid) = args[0] {
+            return Ok(JsValue::String(symbol_to_descriptive_string(ctx, sid)));
+        }
+        ctx.to_string_val(args[0])?
+    };
+
+    if ctx.is_construct() {
+        let JsValue::Object(instance_id) = this else {
+            // Defensive: do_new always passes an Object receiver.
+            let wrapper = ctx.vm.create_string_wrapper(str_val);
+            return Ok(JsValue::Object(wrapper));
+        };
+        ctx.vm.promote_to_string_wrapper(instance_id, str_val);
+        Ok(JsValue::Object(instance_id))
+    } else {
+        Ok(JsValue::String(str_val))
+    }
+}
+
+/// Format a symbol as `"Symbol(<description>)"` per §19.4.3.2.1.
+/// Builds the output in WTF-16 so that descriptions containing unpaired
+/// surrogates round-trip losslessly (UTF-8 round-trip would corrupt them).
+fn symbol_to_descriptive_string(
+    ctx: &mut NativeContext<'_>,
+    sid: super::value::SymbolId,
+) -> StringId {
+    let mut units: Vec<u16> = "Symbol(".encode_utf16().collect();
+    if let Some(desc) = ctx.vm.symbols[sid.0 as usize].description {
+        units.extend_from_slice(ctx.vm.strings.get(desc));
+    }
+    units.push(u16::from(b')'));
+    ctx.vm.strings.intern_utf16(&units)
 }

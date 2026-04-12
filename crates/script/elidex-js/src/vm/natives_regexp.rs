@@ -36,24 +36,14 @@ pub(super) fn run_regexp(
     };
     let uses_last_index = is_global || is_sticky;
 
-    // Read lastIndex (already a UTF-16 code unit index).
+    // §21.2.5.2.1 step 4: `ToLength(? ToNumber(? Get(R, "lastIndex")))`.
+    // Delegate to `get_regexp_last_index` so that accessor getters,
+    // prototype-chain lookups, and non-Number coercion are honored
+    // consistently with other call sites.
     let start = if uses_last_index {
-        let last_index_key = PropertyKey::String(ctx.vm.strings.intern("lastIndex"));
-        let obj = ctx.get_object(obj_id);
-        let mut idx = 0usize;
-        if let Some((super::value::PropertyValue::Data(JsValue::Number(n)), _)) =
-            obj.storage.get(last_index_key, &ctx.vm.shapes)
-        {
-            // ToLength: NaN/negative → 0, Infinity → subject.len().
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            if *n > 0.0 {
-                if n.is_finite() {
-                    idx = (n.trunc() as usize).min(subject.len());
-                } else {
-                    idx = subject.len();
-                }
-            }
-        }
+        let raw = super::natives_string::get_regexp_last_index(ctx, obj_id)?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let idx = (raw as usize).min(subject.len());
         idx
     } else {
         0
@@ -135,7 +125,7 @@ pub(super) fn native_regexp_exec(
     });
 
     // .index is already a UTF-16 code unit index (no conversion).
-    let index_key = PropertyKey::String(ctx.intern("index"));
+    let index_key = PropertyKey::String(ctx.vm.well_known.index);
     #[allow(clippy::cast_precision_loss)]
     ctx.vm.define_shaped_property(
         arr_id,
@@ -143,7 +133,7 @@ pub(super) fn native_regexp_exec(
         super::value::PropertyValue::Data(JsValue::Number(m.start() as f64)),
         super::shape::PropertyAttrs::DATA,
     );
-    let input_key = PropertyKey::String(ctx.intern("input"));
+    let input_key = PropertyKey::String(ctx.vm.well_known.input);
     ctx.vm.define_shaped_property(
         arr_id,
         input_key,
@@ -164,13 +154,20 @@ pub(super) fn native_regexp_to_string(
             "RegExp.prototype.toString called on non-object",
         ));
     };
-    let obj = ctx.get_object(obj_id);
-    let ObjectKind::RegExp { pattern, flags, .. } = &obj.kind else {
-        return Err(VmError::type_error("not a RegExp"));
+    let (pattern_sid, flags_sid) = {
+        let obj = ctx.get_object(obj_id);
+        let ObjectKind::RegExp { pattern, flags, .. } = &obj.kind else {
+            return Err(VmError::type_error("not a RegExp"));
+        };
+        (*pattern, *flags)
     };
-    let pat_str = ctx.vm.strings.get_utf8(*pattern);
-    let flags_str = ctx.vm.strings.get_utf8(*flags);
-    let result = format!("/{pat_str}/{flags_str}");
-    let id = ctx.intern(&result);
+    // Build `/<pattern>/<flags>` in WTF-16 so the pattern source's lone
+    // surrogates are preserved.
+    let mut units: Vec<u16> = Vec::new();
+    units.push(u16::from(b'/'));
+    units.extend_from_slice(ctx.vm.strings.get(pattern_sid));
+    units.push(u16::from(b'/'));
+    units.extend_from_slice(ctx.vm.strings.get(flags_sid));
+    let id = ctx.vm.strings.intern_utf16(&units);
     Ok(JsValue::String(id))
 }

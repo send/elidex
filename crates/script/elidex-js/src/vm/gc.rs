@@ -114,6 +114,8 @@ struct GcRoots<'a> {
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
+    /// Host-data (listeners, wrappers) if installed.
+    host_data: Option<&'a super::host_data::HostData>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -162,6 +164,12 @@ fn mark_roots(
         mark_object(id, obj_marks, work);
     }
     mark_object(roots.global_object, obj_marks, work);
+
+    if let Some(hd) = roots.host_data {
+        for id in hd.gc_root_object_ids() {
+            mark_object(id, obj_marks, work);
+        }
+    }
 }
 
 /// Trace the work list: pop enqueued ObjectIds, mark their transitive references.
@@ -360,6 +368,7 @@ impl VmInner {
             global_object: self.global_object,
             upvalues: &self.upvalues,
             objects: &self.objects,
+            host_data: self.host_data.as_deref(),
         };
 
         self.gc_work_list.clear();

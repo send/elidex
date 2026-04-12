@@ -411,6 +411,8 @@ pub(super) fn native_array_concat(
 }
 
 /// `Array.prototype.join(separator?)` — join elements as string. Holes → empty string.
+/// Build the output in WTF-16 so element / separator strings containing
+/// lone surrogates are preserved losslessly.
 pub(super) fn native_array_join(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -418,25 +420,25 @@ pub(super) fn native_array_join(
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
     array_len(ctx, id)?;
-    let sep = match args.first().copied() {
-        Some(JsValue::Undefined) | None => ",".to_string(),
+    let sep: Vec<u16> = match args.first().copied() {
+        Some(JsValue::Undefined) | None => vec![u16::from(b',')],
         Some(v) => {
-            let s = ctx.to_string_val(v)?;
-            ctx.get_utf8(s)
+            let sid = ctx.to_string_val(v)?;
+            ctx.vm.strings.get(sid).to_vec()
         }
     };
     let elements = clone_elements(ctx, id);
-    let mut result = String::new();
+    let mut result: Vec<u16> = Vec::new();
     for (i, v) in elements.iter().enumerate() {
         if i > 0 {
-            result.push_str(&sep);
+            result.extend_from_slice(&sep);
         }
         if !v.is_empty() && !v.is_nullish() {
-            let s = ctx.to_string_val(*v)?;
-            result.push_str(&ctx.get_utf8(s));
+            let sid = ctx.to_string_val(*v)?;
+            result.extend_from_slice(ctx.vm.strings.get(sid));
         }
     }
-    let sid = ctx.intern(&result);
+    let sid = ctx.vm.strings.intern_utf16(&result);
     Ok(JsValue::String(sid))
 }
 
@@ -567,20 +569,74 @@ pub(super) fn native_array_includes(
     Ok(JsValue::Boolean(false))
 }
 
-/// `Array.prototype.toString()` — equivalent to `join()`.
+/// `Array.prototype.toString()` — §22.1.3.30: `Get(O, "join")`, call it
+/// if callable, otherwise fall back to `Object.prototype.toString`.
+/// Honors user-installed `.join` override (`arr.join = () => 'x'; '' + arr`
+/// yields `'x'`).
 pub(super) fn native_array_to_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    native_array_join(ctx, this, &[])
+    let JsValue::Object(obj_id) = this else {
+        return native_array_join(ctx, this, &[]);
+    };
+    let join_key = super::value::PropertyKey::String(ctx.vm.well_known.join);
+    let join_fn = ctx.try_get_property_value(obj_id, join_key)?;
+    if let Some(JsValue::Object(fn_id)) = join_fn {
+        if ctx.get_object(fn_id).kind.is_callable() {
+            return ctx.call_function(fn_id, this, &[]);
+        }
+    }
+    // §22.1.3.30 step 4: Non-callable join → delegate to
+    // Object.prototype.toString, which yields kind-specific tags
+    // (e.g. Array → "[object Array]") and honors @@toStringTag.
+    super::natives_symbol::native_object_prototype_to_string(ctx, this, &[])
 }
 
 /// `Array.prototype.toLocaleString()` — same as toString (locale not supported).
+/// §22.1.3.28 Array.prototype.toLocaleString: invoke `.toLocaleString()`
+/// on each element (honoring user overrides), then join with `","`.
+/// Locale-aware separator is not implemented (elidex has no Intl yet).
+/// Holes / undefined / null elements produce empty string (spec step 7.a).
 pub(super) fn native_array_to_locale_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    native_array_join(ctx, this, &[])
+    let id = this_object_id(this)?;
+    array_len(ctx, id)?;
+    let elements = clone_elements(ctx, id);
+    let to_locale_key = super::value::PropertyKey::String(ctx.intern("toLocaleString"));
+    let mut result: Vec<u16> = Vec::new();
+    for (i, v) in elements.iter().enumerate() {
+        if i > 0 {
+            result.push(u16::from(b','));
+        }
+        if v.is_empty() || v.is_nullish() {
+            continue;
+        }
+        // §22.1.3.28 step 7.c: `? ToString(? Invoke(nextElement, "toLocaleString"))`.
+        // Invoke(V, P) = ? Call(? GetV(V, P), V); GetV boxes primitives via
+        // ToObject for the property lookup but passes the original V as the
+        // receiver/this.  So we box primitives only to reach the prototype
+        // chain (Number.prototype.toLocaleString / etc.) while the call
+        // receiver stays the primitive — enabling `Number.prototype.toLocaleString`
+        // overrides to be observed for `[1].toLocaleString()`.
+        let (obj_id, receiver) = match *v {
+            JsValue::Object(obj_id) => (obj_id, *v),
+            primitive => (super::coerce::to_object(ctx.vm, primitive)?, primitive),
+        };
+        let method = ctx.try_get_property_value(obj_id, to_locale_key)?;
+        let str_sid = match method {
+            Some(JsValue::Object(fn_id)) if ctx.get_object(fn_id).kind.is_callable() => {
+                let ret = ctx.call_function(fn_id, receiver, &[])?;
+                ctx.to_string_val(ret)?
+            }
+            _ => ctx.to_string_val(receiver)?,
+        };
+        result.extend_from_slice(ctx.vm.strings.get(str_sid));
+    }
+    let sid = ctx.vm.strings.intern_utf16(&result);
+    Ok(JsValue::String(sid))
 }

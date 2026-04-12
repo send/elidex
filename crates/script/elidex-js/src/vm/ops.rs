@@ -145,16 +145,9 @@ impl VmInner {
     pub(crate) fn to_primitive(&mut self, val: JsValue, hint: &str) -> Result<JsValue, VmError> {
         match val {
             JsValue::Object(obj_id) => {
-                // Unwrap primitive wrapper objects first.
-                match self.get_object(obj_id).kind {
-                    ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
-                    ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
-                    ObjectKind::BooleanWrapper(b) => return Ok(JsValue::Boolean(b)),
-                    ObjectKind::BigIntWrapper(id) => return Ok(JsValue::BigInt(id)),
-                    ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
-                    _ => {}
-                }
-                // §7.1.1 step 2d: Check @@toPrimitive
+                // §7.1.1 step 2.a: @@toPrimitive takes precedence for ANY
+                // Object, including primitive wrappers — a user-defined
+                // Symbol.toPrimitive on a wrapper must be honored.
                 let to_prim_key = PropertyKey::Symbol(self.well_known_symbols.to_primitive);
                 let exotic_to_prim = match get_property(self, obj_id, to_prim_key) {
                     Some(PropertyResult::Data(v)) => Some(v),
@@ -171,6 +164,20 @@ impl VmInner {
                         ));
                     }
                     return Ok(result);
+                }
+                // No @@toPrimitive: unwrap primitive wrappers directly.
+                // This is a simplification of §7.1.1.1 OrdinaryToPrimitive
+                // that happens to produce spec-equivalent results for
+                // wrappers (since valueOf/toString defer to the inner
+                // primitive anyway); a fully spec-compliant fallback is
+                // tracked as dedicated PR (see phase4-plan.md).
+                match self.get_object(obj_id).kind {
+                    ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
+                    ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
+                    ObjectKind::BooleanWrapper(b) => return Ok(JsValue::Boolean(b)),
+                    ObjectKind::BigIntWrapper(id) => return Ok(JsValue::BigInt(id)),
+                    ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
+                    _ => {}
                 }
                 // OrdinaryToPrimitive: simplified — return "[object Object]"
                 Ok(JsValue::String(self.well_known.object_to_string))
@@ -425,9 +432,54 @@ impl VmInner {
         let args_start = self.stack.len() - argc;
         let constructor = self.stack[args_start - 1];
 
-        let JsValue::Object(ctor_id) = constructor else {
+        let JsValue::Object(mut ctor_id) = constructor else {
             return Err(VmError::type_error("not a constructor"));
         };
+
+        // §9.4.1.2 BoundFunction [[Construct]]: unwrap chain and prepend
+        // bound_args.  bound_this is ignored (step 2) — the instance's
+        // receiver comes from new_target.  Chains are acyclic by construction
+        // (target is captured at bind time), but an attacker can build
+        // chains of arbitrary length; cap via MAX_BIND_CHAIN_DEPTH.
+        let mut chain_segments: Vec<Vec<JsValue>> = Vec::new();
+        for _ in 0..crate::vm::MAX_BIND_CHAIN_DEPTH {
+            let ObjectKind::BoundFunction {
+                target, bound_args, ..
+            } = &self.get_object(ctor_id).kind
+            else {
+                break;
+            };
+            let next = *target;
+            if !bound_args.is_empty() {
+                chain_segments.push(bound_args.clone());
+            }
+            ctor_id = next;
+        }
+        if matches!(
+            self.get_object(ctor_id).kind,
+            ObjectKind::BoundFunction { .. }
+        ) {
+            return Err(VmError::range_error("Maximum bind chain depth exceeded"));
+        }
+        if !chain_segments.is_empty() {
+            // The unwrap loop pushes segments outer-to-inner (the user-visible
+            // wrapper first, then each nested target).  Spec-correct call
+            // order is `[first-bind-args, ..., last-bind-args, call-args]`,
+            // i.e. the innermost (earliest) bind's args come first.  Reverse
+            // the segment iteration so `extend_from_slice` appends in
+            // innermost→outermost order.
+            let total: usize = chain_segments.iter().map(Vec::len).sum();
+            let mut prepended: Vec<JsValue> = Vec::with_capacity(total);
+            for seg in chain_segments.iter().rev() {
+                prepended.extend_from_slice(seg);
+            }
+            // Replace the constructor slot with the unwrapped target and
+            // splice prepended args in front of the call args in one memmove.
+            self.stack[args_start - 1] = JsValue::Object(ctor_id);
+            self.stack.splice(args_start..args_start, prepended);
+        }
+        let argc = argc + chain_segments.iter().map(Vec::len).sum::<usize>();
+        let args_start = self.stack.len() - argc;
 
         let js_callee = self.extract_js_callee(ctor_id);
 
@@ -477,10 +529,16 @@ impl VmInner {
             self.push_js_call_frame(callee, JsValue::Object(instance), argc, 1, Some(instance));
             Ok(())
         } else {
-            // Native constructor: call synchronously.
+            // Native constructor: call synchronously.  Set `in_construct`
+            // so the native implementation can distinguish `new F(...)`
+            // from `F(...)`; the flag is restored after the call.
             let ctor_args: Vec<JsValue> = self.stack[args_start..].to_vec();
             self.stack.truncate(args_start - 1);
-            let result = self.call(ctor_id, JsValue::Object(instance), &ctor_args)?;
+            let saved_construct = self.in_construct;
+            self.in_construct = true;
+            let result = self.call(ctor_id, JsValue::Object(instance), &ctor_args);
+            self.in_construct = saved_construct;
+            let result = result?;
             let final_val = if matches!(result, JsValue::Object(_)) {
                 result
             } else {

@@ -937,7 +937,7 @@ fn emit_update_sequence(
     emit_store(fc);
 }
 
-/// Map UnaryOp to opcode.
+/// Map UnaryOp to opcode.  `Delete` is intercepted upstream in `compile_expr`.
 fn unary_op_to_opcode(op: UnaryOp) -> Op {
     match op {
         UnaryOp::Minus => Op::Neg,
@@ -945,7 +945,8 @@ fn unary_op_to_opcode(op: UnaryOp) -> Op {
         UnaryOp::Not => Op::Not,
         UnaryOp::BitwiseNot => Op::BitNot,
         UnaryOp::Typeof => Op::TypeOf,
-        UnaryOp::Void | UnaryOp::Delete => Op::Void, // TODO: proper delete
+        UnaryOp::Void => Op::Void,
+        UnaryOp::Delete => unreachable!("Delete handled by compile_expr early-return"),
     }
 }
 

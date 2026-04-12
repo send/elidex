@@ -164,8 +164,9 @@ impl VmInner {
                         let err = VmError::reference_error(&msg);
                         self.throw_error(err, entry_frame_depth)?;
                     } else {
-                        // Check for accessor setter on globalThis before
-                        // writing to the globals HashMap.
+                        // Delegate to set_property_val, which invokes any
+                        // accessor setter on globalThis and syncs the
+                        // globals HashMap only on a DataWritten outcome.
                         let global_obj = self.global_object;
                         if let Err(e) =
                             self.set_property_val(JsValue::Object(global_obj), name_id, val)
@@ -248,14 +249,30 @@ impl VmInner {
                 Op::Eq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let r = abstract_eq(self, a, b);
-                    self.stack.push(JsValue::Boolean(r));
+                    match abstract_eq(self, a, b) {
+                        Ok(r) => self.stack.push(JsValue::Boolean(r)),
+                        Err(e) => {
+                            let thrown = self.vm_error_to_thrown(&e);
+                            if self.handle_exception(thrown, entry_frame_depth) {
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
                 Op::NotEq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let r = !abstract_eq(self, a, b);
-                    self.stack.push(JsValue::Boolean(r));
+                    match abstract_eq(self, a, b) {
+                        Ok(r) => self.stack.push(JsValue::Boolean(!r)),
+                        Err(e) => {
+                            let thrown = self.vm_error_to_thrown(&e);
+                            if self.handle_exception(thrown, entry_frame_depth) {
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
                 Op::StrictEq => {
                     let b = self.pop()?;
@@ -799,6 +816,12 @@ impl VmInner {
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let enumerable = flags & 1 != 0;
                     self.op_define_accessor(name_id, false, enumerable)?;
+                }
+                Op::DefineComputedGetter => {
+                    self.op_define_computed_accessor(true)?;
+                }
+                Op::DefineComputedSetter => {
+                    self.op_define_computed_accessor(false)?;
                 }
 
                 // ── Arguments object ────────────────────────────────

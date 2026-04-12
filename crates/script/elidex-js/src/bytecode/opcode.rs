@@ -187,6 +187,10 @@ pub enum Op {
     DefineGetter,
     /// Operand: u16 (constant index for name), u8 (flags: bit 0 = enumerable). `[object closure -- object]`
     DefineSetter,
+    /// Computed-key getter: `[object key closure -- object]`. Non-enumerable (class accessor).
+    DefineComputedGetter,
+    /// Computed-key setter: `[object key closure -- object]`. Non-enumerable (class accessor).
+    DefineComputedSetter,
     /// `[object source -- object]`
     SpreadObject,
     /// `[ -- array]`
@@ -351,6 +355,8 @@ impl Op {
             | Self::CreateObject
             | Self::DefineComputedProperty
             | Self::DefineComputedMethod
+            | Self::DefineComputedGetter
+            | Self::DefineComputedSetter
             | Self::SpreadObject
             | Self::CreateArray
             | Self::ArrayPush

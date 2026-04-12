@@ -15,15 +15,16 @@ use super::natives::{
     native_object_has_own_property, native_object_is, native_object_is_extensible,
     native_object_is_frozen, native_object_is_prototype_of, native_object_is_sealed,
     native_object_keys, native_object_prevent_extensions, native_object_property_is_enumerable,
-    native_object_prototype_to_string, native_object_seal, native_object_set_prototype_of,
-    native_object_value_of, native_object_values, native_parse_float, native_parse_int,
-    native_range_error_constructor, native_reference_error_constructor, native_string_char_at,
-    native_string_char_code_at, native_string_ends_with, native_string_includes,
-    native_string_index_of, native_string_iterator, native_string_iterator_next,
-    native_string_match, native_string_replace, native_string_search, native_string_slice,
-    native_string_split, native_string_starts_with, native_string_substring,
-    native_string_to_lower_case, native_string_to_upper_case, native_string_trim,
-    native_syntax_error_constructor, native_uri_error_constructor,
+    native_object_prototype_to_locale_string, native_object_prototype_to_string,
+    native_object_seal, native_object_set_prototype_of, native_object_value_of,
+    native_object_values, native_parse_float, native_parse_int, native_range_error_constructor,
+    native_reference_error_constructor, native_string_char_at, native_string_char_code_at,
+    native_string_ends_with, native_string_includes, native_string_index_of,
+    native_string_iterator, native_string_iterator_next, native_string_match,
+    native_string_replace, native_string_search, native_string_slice, native_string_split,
+    native_string_starts_with, native_string_substring, native_string_to_lower_case,
+    native_string_to_upper_case, native_string_trim, native_syntax_error_constructor,
+    native_uri_error_constructor,
 };
 use super::natives::{
     native_symbol_constructor, native_symbol_for, native_symbol_key_for,
@@ -60,6 +61,7 @@ use super::natives_number::{
     native_number_to_precision, native_number_to_string, native_number_value_of,
 };
 use super::natives_regexp::{native_regexp_exec, native_regexp_test, native_regexp_to_string};
+use super::natives_string::native_string_value_of;
 use super::natives_string_ext::{
     native_string_code_point_at, native_string_concat, native_string_from_char_code,
     native_string_from_code_point, native_string_last_index_of, native_string_pad_end,
@@ -268,7 +270,7 @@ impl VmInner {
         // Object.prototype methods (ES2020 §19.1.3)
         let op_methods: &[(&str, NativeFn)] = &[
             ("toString", native_object_prototype_to_string),
-            ("toLocaleString", native_object_prototype_to_string),
+            ("toLocaleString", native_object_prototype_to_locale_string),
             ("hasOwnProperty", native_object_has_own_property),
             ("valueOf", native_object_value_of),
             ("isPrototypeOf", native_object_is_prototype_of),
@@ -414,6 +416,42 @@ impl VmInner {
     }
 
     fn register_error_constructors(&mut self) {
+        // §19.5.3 Error.prototype — shared by Error and all native error
+        // subclasses (TypeError, RangeError, etc.) in elidex; not fully
+        // spec-compliant (each should have its own prototype chained to
+        // Error.prototype), but sufficient for String(new TypeError(...))
+        // to produce "TypeError: msg" via inherited .toString.
+        let error_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: self.object_prototype,
+            extensible: true,
+        });
+        let to_string_fn =
+            self.create_native_function("toString", super::natives::native_error_to_string);
+        let to_string_key = PropertyKey::String(self.strings.intern("toString"));
+        self.define_shaped_property(
+            error_proto,
+            to_string_key,
+            PropertyValue::Data(JsValue::Object(to_string_fn)),
+            PropertyAttrs::METHOD,
+        );
+        let default_name_key = PropertyKey::String(self.well_known.name);
+        let default_name_val = JsValue::String(self.strings.intern("Error"));
+        self.define_shaped_property(
+            error_proto,
+            default_name_key,
+            PropertyValue::Data(default_name_val),
+            PropertyAttrs::METHOD,
+        );
+        let default_msg_key = PropertyKey::String(self.well_known.message);
+        self.define_shaped_property(
+            error_proto,
+            default_msg_key,
+            PropertyValue::Data(JsValue::String(self.well_known.empty)),
+            PropertyAttrs::METHOD,
+        );
+
         let ctors: &[(&str, NativeFn)] = &[
             ("Error", native_error_constructor),
             ("TypeError", native_type_error_constructor),
@@ -422,8 +460,17 @@ impl VmInner {
             ("SyntaxError", native_syntax_error_constructor),
             ("URIError", native_uri_error_constructor),
         ];
+        let proto_key = PropertyKey::String(self.well_known.prototype);
         for &(name, func) in ctors {
             let fn_id = self.create_constructable_function(name, func);
+            // Set ctor.prototype = error_proto so `new Error(...)` instances
+            // inherit from Error.prototype (via do_new's lookup chain).
+            self.define_shaped_property(
+                fn_id,
+                proto_key,
+                PropertyValue::Data(JsValue::Object(error_proto)),
+                PropertyAttrs::BUILTIN,
+            );
             let name_id = self.strings.intern(name);
             self.globals.insert(name_id, JsValue::Object(fn_id));
         }
@@ -594,6 +641,9 @@ impl VmInner {
             ("replace", native_string_replace),
             ("match", native_string_match),
             ("search", native_string_search),
+            ("valueOf", native_string_value_of),
+            // §21.1.3.25: String.prototype.toString is identical to valueOf.
+            ("toString", native_string_value_of),
         ]);
         // String.prototype[Symbol.iterator] = native_string_iterator
         let iter_fn_id = self.create_native_function("[Symbol.iterator]", native_string_iterator);
@@ -605,13 +655,31 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
         self.string_prototype = Some(proto_id);
-        self.register_constructor_global("String", proto_id);
+
+        // String constructor — constructable NativeFunction so `new String()` works.
+        let ctor_id = self.create_constructable_function(
+            "String",
+            super::natives_string::native_string_constructor,
+        );
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor_id,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        // String.prototype.constructor = String
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor_id)),
+            PropertyAttrs::METHOD,
+        );
+        let ctor_name = self.strings.intern("String");
+        self.globals.insert(ctor_name, JsValue::Object(ctor_id));
 
         // String.fromCharCode / String.fromCodePoint — static methods on constructor
-        let ctor_name = self.strings.intern("String");
-        let Some(&JsValue::Object(ctor_id)) = self.globals.get(&ctor_name) else {
-            return;
-        };
         let from_char_code_fn =
             self.create_native_function("fromCharCode", native_string_from_char_code);
         let key = PropertyKey::String(self.strings.intern("fromCharCode"));

@@ -1,7 +1,10 @@
 //! Stack-based bytecode VM for elidex-js (Stage 2).
 //!
 //! All JS values are handle-based: strings and objects are indices into
-//! VM-owned tables. `JsValue` is `Copy`, and the `Vm` is naturally `Send`.
+//! VM-owned tables. `JsValue` is `Copy`.  Without the `engine` feature the
+//! VM is `Send` (pure interpreter); with `engine` enabled, `VmInner`
+//! carries `Option<Box<HostData>>` whose raw pointers render `Vm` `!Send`
+//! by default — see [`host_data`].
 
 pub mod coerce;
 pub(crate) mod coerce_format;
@@ -13,6 +16,7 @@ mod dispatch_iter;
 mod dispatch_objects;
 pub(crate) mod gc;
 mod globals;
+pub mod host_data;
 pub(crate) mod ic;
 pub mod interpreter;
 mod natives;
@@ -31,6 +35,7 @@ mod natives_string_ext;
 mod natives_symbol;
 mod ops;
 mod ops_property;
+pub mod pools;
 pub(crate) mod shape;
 pub mod value;
 
@@ -39,113 +44,20 @@ mod tests;
 
 use std::collections::HashMap;
 
+use pools::{BigIntPool, StringPool};
 use value::{
     CallFrame, FuncId, JsValue, NativeContext, NativeFunction, Object, ObjectId, ObjectKind,
     StringId, SymbolId, SymbolRecord, UpvalueId, VmError,
 };
-
-use crate::wtf16::Wtf16Interner;
 
 use crate::bytecode::compiled::CompiledFunction;
 
 /// Function pointer type for native (Rust-implemented) JS functions.
 type NativeFn = fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>;
 
-// ---------------------------------------------------------------------------
-// StringPool
-// ---------------------------------------------------------------------------
-
-/// Interned string pool backed by a WTF-16 contiguous buffer. All runtime
-/// strings are stored here and referenced by `StringId`. Deduplication
-/// ensures that property-name comparisons are O(1) integer equality.
-pub struct StringPool(Wtf16Interner);
-
-impl StringPool {
-    fn new() -> Self {
-        Self(Wtf16Interner::new())
-    }
-
-    /// Intern a string from UTF-8, returning its `StringId`.
-    pub fn intern(&mut self, s: &str) -> StringId {
-        StringId(self.0.intern(s))
-    }
-
-    /// Intern a string from raw WTF-16 code units.
-    pub fn intern_utf16(&mut self, units: &[u16]) -> StringId {
-        StringId(self.0.intern_wtf16(units))
-    }
-
-    /// Look up a string by its ID, returning WTF-16 code units.
-    #[inline]
-    pub fn get(&self, id: StringId) -> &[u16] {
-        self.0.get(id.0)
-    }
-
-    /// Check if a string is already interned (without inserting), returning
-    /// its `StringId` if found. O(1) hash lookup.
-    pub fn lookup(&self, s: &str) -> Option<StringId> {
-        let units: Vec<u16> = s.encode_utf16().collect();
-        self.0.lookup_wtf16(&units).map(StringId)
-    }
-
-    /// Look up a string by its ID, returning a UTF-8 `String` (lossy for
-    /// lone surrogates).
-    pub fn get_utf8(&self, id: StringId) -> String {
-        self.0.get_utf8(id.0)
-    }
-
-    /// Returns the number of interned strings.
-    #[allow(dead_code, clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-// ---------------------------------------------------------------------------
-// BigIntPool
-// ---------------------------------------------------------------------------
-
-/// Pool of arbitrary-precision BigInt values. Allocated BigInts are permanent
-/// (not garbage-collected), following the same strategy as `StringPool`.
-/// Canonical 0n and 1n are pre-allocated to avoid repeated allocation in
-/// common patterns like `i + 1n`.
-pub(crate) struct BigIntPool {
-    values: Vec<num_bigint::BigInt>,
-    /// Pre-allocated ID for `0n`.
-    pub(crate) zero: value::BigIntId,
-    /// Pre-allocated ID for `1n`.
-    pub(crate) one: value::BigIntId,
-}
-
-impl BigIntPool {
-    fn new() -> Self {
-        Self {
-            values: vec![num_bigint::BigInt::from(0), num_bigint::BigInt::from(1)],
-            zero: value::BigIntId(0),
-            one: value::BigIntId(1),
-        }
-    }
-
-    /// Allocate a new BigInt, returning its `BigIntId`.
-    /// Returns cached IDs for 0 and 1.
-    pub(crate) fn alloc(&mut self, val: num_bigint::BigInt) -> value::BigIntId {
-        use num_bigint::Sign;
-        match val.sign() {
-            Sign::NoSign => return self.zero,
-            Sign::Plus if val == num_bigint::BigInt::from(1) => return self.one,
-            _ => {}
-        }
-        let id = value::BigIntId(self.values.len() as u32);
-        self.values.push(val);
-        id
-    }
-
-    /// Get a reference to a BigInt by its ID.
-    #[inline]
-    pub(crate) fn get(&self, id: value::BigIntId) -> &num_bigint::BigInt {
-        &self.values[id.0 as usize]
-    }
-}
+/// Maximum `bind()` chain depth before a `RangeError` is thrown.  Prevents
+/// O(N²) copy costs and unbounded heap allocation from user-constructed chains.
+pub(crate) const MAX_BIND_CHAIN_DEPTH: usize = 10_000;
 
 // ---------------------------------------------------------------------------
 // Vm (public wrapper) + VmInner (internal state)
@@ -220,6 +132,13 @@ pub(crate) struct VmInner {
     pub(crate) gc_threshold: usize,
     /// GC enabled flag.  `false` during init and native function calls.
     pub(crate) gc_enabled: bool,
+    /// Set while a native function is invoked via `[[Construct]]` (i.e. `new`).
+    /// Read by constructors to distinguish `new F(...)` from `F(...)`.
+    pub(crate) in_construct: bool,
+    /// Host-provided data for browser shell integration (event listeners,
+    /// DOM wrappers, timers, etc.).  `None` when the VM runs standalone
+    /// (e.g., in unit tests without the `engine` feature).
+    pub(crate) host_data: Option<Box<host_data::HostData>>,
 }
 
 /// Frequently used interned string IDs, cached at VM creation.
@@ -254,6 +173,18 @@ pub(crate) struct WellKnownStrings {
     pub(crate) value: StringId,
     pub(crate) done: StringId,
     pub(crate) return_str: StringId,
+    pub(crate) last_index: StringId,
+    pub(crate) index: StringId,
+    pub(crate) input: StringId,
+    pub(crate) join: StringId,
+    pub(crate) to_json: StringId,
+    pub(crate) get: StringId,
+    pub(crate) set: StringId,
+    pub(crate) enumerable: StringId,
+    pub(crate) configurable: StringId,
+    pub(crate) writable: StringId,
+    pub(crate) source: StringId,
+    pub(crate) flags: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -322,6 +253,57 @@ impl VmInner {
             prototype: self.array_prototype,
             extensible: true,
         })
+    }
+
+    /// Allocate a `StringWrapper` with `length` stored as a non-writable data
+    /// property (immutable inner string → no accessor needed).
+    pub(crate) fn create_string_wrapper(&mut self, sid: StringId) -> ObjectId {
+        #[allow(clippy::cast_precision_loss)]
+        let len = self.strings.get(sid).len() as f64;
+        let obj = self.alloc_object(Object {
+            kind: ObjectKind::StringWrapper(sid),
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: self.string_prototype,
+            extensible: true,
+        });
+        self.install_string_wrapper_length(obj, len);
+        obj
+    }
+
+    /// Promote an existing Ordinary instance (typically pre-allocated by
+    /// `do_new` for a native constructor) into a StringWrapper in place,
+    /// reusing the object slot to avoid a second allocation.
+    pub(crate) fn promote_to_string_wrapper(&mut self, obj_id: ObjectId, sid: StringId) {
+        #[allow(clippy::cast_precision_loss)]
+        let len = self.strings.get(sid).len() as f64;
+        {
+            let obj = self.get_object_mut(obj_id);
+            obj.kind = ObjectKind::StringWrapper(sid);
+        }
+        self.install_string_wrapper_length(obj_id, len);
+    }
+
+    /// Promote an existing Ordinary instance into an Array in place.  Same
+    /// motivation as `promote_to_string_wrapper`: reuse the object slot
+    /// pre-allocated by `do_new` instead of allocating a fresh array.
+    pub(crate) fn promote_to_array(&mut self, obj_id: ObjectId, elements: Vec<JsValue>) {
+        let obj = self.get_object_mut(obj_id);
+        obj.kind = ObjectKind::Array { elements };
+    }
+
+    fn install_string_wrapper_length(&mut self, obj_id: ObjectId, len: f64) {
+        let length_key = value::PropertyKey::String(self.well_known.length);
+        self.define_shaped_property(
+            obj_id,
+            length_key,
+            value::PropertyValue::Data(JsValue::Number(len)),
+            shape::PropertyAttrs {
+                writable: false,
+                enumerable: false,
+                configurable: false,
+                is_accessor: false,
+            },
+        );
     }
 
     /// Get a reference to an object.
@@ -534,17 +516,7 @@ impl VmInner {
         name: &str,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     ) -> ObjectId {
-        let name_id = self.strings.intern(name);
-        self.alloc_object(Object {
-            kind: ObjectKind::NativeFunction(NativeFunction {
-                name: name_id,
-                func,
-                constructable: false,
-            }),
-            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: self.function_prototype,
-            extensible: true,
-        })
+        self.create_native_function_impl(name, func, false)
     }
 
     /// Helper: create a constructable native function object (for Error, etc.).
@@ -553,17 +525,41 @@ impl VmInner {
         name: &str,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     ) -> ObjectId {
+        self.create_native_function_impl(name, func, true)
+    }
+
+    fn create_native_function_impl(
+        &mut self,
+        name: &str,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+        constructable: bool,
+    ) -> ObjectId {
         let name_id = self.strings.intern(name);
-        self.alloc_object(Object {
+        let obj = self.alloc_object(Object {
             kind: ObjectKind::NativeFunction(NativeFunction {
                 name: name_id,
                 func,
-                constructable: true,
+                constructable,
             }),
             storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.function_prototype,
             extensible: true,
-        })
+        });
+        // §19.2.4.2: `name` is a non-enumerable, non-writable, configurable
+        // data property on every built-in function.
+        let name_key = value::PropertyKey::String(self.well_known.name);
+        self.define_shaped_property(
+            obj,
+            name_key,
+            value::PropertyValue::Data(JsValue::String(name_id)),
+            shape::PropertyAttrs {
+                writable: false,
+                enumerable: false,
+                configurable: true,
+                is_accessor: false,
+            },
+        );
+        obj
     }
 
     /// Update an existing data property or define a new one.
@@ -700,6 +696,18 @@ impl Vm {
             value: strings.intern("value"),
             done: strings.intern("done"),
             return_str: strings.intern("return"),
+            last_index: strings.intern("lastIndex"),
+            index: strings.intern("index"),
+            input: strings.intern("input"),
+            join: strings.intern("join"),
+            to_json: strings.intern("toJSON"),
+            get: strings.intern("get"),
+            set: strings.intern("set"),
+            enumerable: strings.intern("enumerable"),
+            configurable: strings.intern("configurable"),
+            writable: strings.intern("writable"),
+            source: strings.intern("source"),
+            flags: strings.intern("flags"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).
@@ -775,6 +783,8 @@ impl Vm {
                 gc_bytes_since_last: 0,
                 gc_threshold: 65536,
                 gc_enabled: false,
+                in_construct: false,
+                host_data: None,
             },
         };
 
@@ -859,10 +869,66 @@ impl Vm {
         self.inner.alloc_upvalue(uv)
     }
 
-    /// Set a global variable.
+    /// Install a `HostData` instance for browser shell integration.
+    /// Call once, typically at `ElidexJsEngine` construction.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a `HostData` is already installed, to prevent accidentally
+    /// dropping caches (listener_store, wrapper_cache) from a prior bind.
+    pub fn install_host_data(&mut self, hd: host_data::HostData) {
+        assert!(
+            self.inner.host_data.is_none(),
+            "HostData already installed; use host_data() to access or a fresh Vm to reinstall"
+        );
+        self.inner.host_data = Some(Box::new(hd));
+    }
+
+    /// Access the host data (if installed).
+    pub fn host_data(&mut self) -> Option<&mut host_data::HostData> {
+        self.inner.host_data.as_deref_mut()
+    }
+
+    /// Bind host pointers for a JS execution call.  No-op if `HostData` is absent.
+    ///
+    /// # Safety
+    ///
+    /// See [`host_data::HostData::bind`]: pointers must remain valid (and not
+    /// be aliased via any Rust reference) until `unbind()` is called.
+    #[cfg(feature = "engine")]
+    #[allow(unsafe_code)]
+    pub unsafe fn bind(
+        &mut self,
+        session: *mut elidex_script_session::SessionCore,
+        dom: *mut elidex_ecs::EcsDom,
+        document: elidex_ecs::Entity,
+    ) {
+        if let Some(hd) = self.inner.host_data.as_deref_mut() {
+            unsafe { hd.bind(session, dom, document) };
+        }
+    }
+
+    /// Clear host pointers after JS execution.  No-op if unbound.
+    pub fn unbind(&mut self) {
+        if let Some(hd) = self.inner.host_data.as_deref_mut() {
+            hd.unbind();
+        }
+    }
+
+    /// Install a new global variable.
+    ///
+    /// Reusing a name is normally a bug — shell host globals and JS-visible
+    /// built-ins must not collide — so this convenience method ignores any
+    /// previous value.  Use [`Vm::set_global_checked`] if the caller needs
+    /// to detect replacement explicitly.
     pub fn set_global(&mut self, name: &str, value: JsValue) {
+        let _ = self.set_global_checked(name, value);
+    }
+
+    /// Install a new global variable and return the previous value, if any.
+    pub fn set_global_checked(&mut self, name: &str, value: JsValue) -> Option<JsValue> {
         let id = self.inner.strings.intern(name);
-        self.inner.globals.insert(id, value);
+        self.inner.globals.insert(id, value)
     }
 
     /// Get a global variable.
@@ -986,6 +1052,31 @@ impl NativeContext<'_> {
         key: value::PropertyKey,
     ) -> Result<JsValue, VmError> {
         self.vm.get_property_value(obj_id, key)
+    }
+
+    /// Returns `true` if the current native function is being invoked via
+    /// `[[Construct]]` (i.e. `new F(...)`).  Used by constructors to choose
+    /// between wrapper-object and primitive return paths.
+    #[inline]
+    pub fn is_construct(&self) -> bool {
+        self.vm.in_construct
+    }
+
+    /// Access the host data.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no `HostData` has been installed on the VM.
+    pub fn host(&mut self) -> &mut host_data::HostData {
+        self.vm
+            .host_data
+            .as_deref_mut()
+            .expect("NativeContext::host() called without HostData installed")
+    }
+
+    /// Access the host data, returning `None` if not installed.
+    pub fn host_opt(&mut self) -> Option<&mut host_data::HostData> {
+        self.vm.host_data.as_deref_mut()
     }
 
     /// `HasProperty` + `Get` (§7.3.1): returns `None` if the property does

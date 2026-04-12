@@ -22,11 +22,12 @@ pub struct HostState {
     pub(crate) cssom_registry: Arc<CssomHandlerRegistry>,
 }
 
-// HostState is !Send due to raw pointers, but wasmtime Store is used
-// on a single thread. We explicitly opt in to Send so wasmtime can hold it.
-// Safety: all access is single-threaded (bind/unbind bracket eval).
-#[allow(unsafe_code)]
-unsafe impl Send for HostState {}
+// Raw pointers (`*mut T`) are `!Send` and `!Sync` in Rust by default, so
+// `HostState` inherits `!Send + !Sync` from its `session_ptr` / `dom_ptr`
+// fields — no `unsafe impl` needed.  wasmtime::Store does not require
+// `T: Send` for sync-API usage.
+// REGRESSION GUARD: if the raw pointer fields are ever replaced with `Send`
+// types, add an explicit `PhantomData<*const ()>` to preserve the invariant.
 
 impl HostState {
     /// Create a new unbound host state.

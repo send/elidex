@@ -88,9 +88,16 @@ impl VmInner {
                     self.lookup_on_proto(self.string_prototype, pk, obj)
                 }
             }
-            // TODO(M4-11): strict-mode getters on primitive prototypes should
-            // receive a ToObject wrapper as `this`, not the raw primitive.
-            // Requires VM single dispatcher for correct receiver boxing.
+            // Primitive property access: look up on the prototype with the
+            // original primitive as the receiver (§6.2.4.1 step 4.b passes
+            // `GetThisValue(V)` — the original primitive — as Receiver,
+            // independent of the boxing that happens for own-property
+            // lookup).  If an accessor getter is invoked, the callee's
+            // this-mode decides boxing per §9.4.3 step 5: non-strict
+            // functions ToObject-box via `bind_this_global` (§9.2.1.2),
+            // strict-mode functions observe the raw primitive as `this`.
+            // This matches V8/SpiderMonkey observable behavior for strict
+            // methods like `'x'.trim.call.call.call(...)`.
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),
@@ -197,7 +204,9 @@ impl VmInner {
     }
 
     /// Collect IC info for a SetProp operation.
-    /// Only caches own writable data properties (no prototype IC for writes).
+    /// Only caches own writable data properties — SetProp never uses the
+    /// `Proto` IC holder (writes don't walk the prototype chain for
+    /// caching purposes).  GetProp does use `Proto` for inherited reads.
     fn collect_set_prop_ic(
         &self,
         obj_id: ObjectId,

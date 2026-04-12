@@ -22,9 +22,40 @@ fn this_number_value(ctx: &NativeContext<'_>, this: JsValue) -> Result<f64, VmEr
 pub(super) fn native_number_to_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
+    // §20.1.3.6 step 5-8: radix defaults to 10; if specified, apply
+    // ToIntegerOrInfinity FIRST, then range-check the integer value in
+    // [2, 36].  `36.1` must truncate to 36 and be accepted; `36.5` likewise;
+    // +Infinity and values outside the range throw RangeError.
+    let radix = match args.first().copied() {
+        None | Some(JsValue::Undefined) => 10u32,
+        Some(val) => {
+            let r = ctx.to_number(val)?;
+            let r_int = if r.is_nan() {
+                0.0 // ToIntegerOrInfinity(NaN) = 0
+            } else if r.is_infinite() {
+                return Err(VmError::range_error(
+                    "toString() radix must be between 2 and 36",
+                ));
+            } else {
+                r.trunc()
+            };
+            // §20.1.3.6 step 8: radix of 0 (i.e. absent) would have hit the
+            // default branch above; here 0 comes from ToIntegerOrInfinity(NaN)
+            // which spec does not special-case — we follow V8 and treat it
+            // as an out-of-range error rather than silently defaulting.
+            if !(2.0..=36.0).contains(&r_int) {
+                return Err(VmError::range_error(
+                    "toString() radix must be between 2 and 36",
+                ));
+            }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let r_u32 = r_int as u32;
+            r_u32
+        }
+    };
     let s = if n.is_nan() {
         "NaN".to_string()
     } else if n.is_infinite() {
@@ -35,14 +66,66 @@ pub(super) fn native_number_to_string(
         }
     } else if n == 0.0 {
         "0".to_string()
-    } else if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {
-        // 2^53: maximum safe integer representable in f64
-        format!("{}", n as i64)
+    } else if radix == 10 {
+        // §6.1.6.1.13 default Number::toString: decimal.
+        if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {
+            // 2^53: maximum safe integer representable in f64
+            format!("{}", n as i64)
+        } else {
+            format!("{n}")
+        }
     } else {
-        format!("{n}")
+        // Non-decimal radix: integer part in the given base, plus fractional.
+        // Spec §6.1.6.1.13 leaves formatting implementation-defined; follow
+        // V8's "integer → radix-N" + optional fraction ".xxxx" approximation.
+        format_number_radix(n, radix)
     };
     let id = ctx.intern(&s);
     Ok(JsValue::String(id))
+}
+
+/// Format a finite number in `radix` (2..=36).  Mirrors V8's behavior:
+/// integer part via standard digit conversion; fractional part via iterated
+/// multiplication until precision runs out (capped at ~52 digits).
+fn format_number_radix(n: f64, radix: u32) -> String {
+    const DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let negative = n.is_sign_negative();
+    let n = n.abs();
+    let int_part = n.trunc();
+    let mut frac = n - int_part;
+    let mut int_str = if int_part == 0.0 {
+        "0".to_string()
+    } else {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut i = int_part;
+        while i >= 1.0 {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let digit = (i % f64::from(radix)).trunc() as usize;
+            buf.push(DIGITS[digit]);
+            i = (i / f64::from(radix)).trunc();
+        }
+        buf.reverse();
+        String::from_utf8(buf).unwrap()
+    };
+    if frac > 0.0 {
+        int_str.push('.');
+        let mut digits = 0;
+        while frac > 0.0 && digits < 52 {
+            frac *= f64::from(radix);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let digit = frac.trunc() as usize;
+            int_str.push(DIGITS[digit] as char);
+            #[allow(clippy::cast_precision_loss)] // digit < radix <= 36, fits in f64
+            let digit_f = digit as f64;
+            frac -= digit_f;
+            digits += 1;
+        }
+    }
+    if negative {
+        format!("-{int_str}")
+    } else {
+        int_str
+    }
 }
 
 pub(super) fn native_number_value_of(

@@ -138,7 +138,8 @@ fn parse_float_prefix(s: &str) -> f64 {
         i += 1;
     }
 
-    // Decimal point + fraction (`.5` is valid — digits may appear only after the dot)
+    // Decimal point + fraction.  Digits on either side of the dot are
+    // sufficient — `.5`, `5.`, and `5.5` are all valid.
     if i < bytes.len() && bytes[i] == b'.' {
         i += 1;
         while i < bytes.len() && bytes[i].is_ascii_digit() {
@@ -393,6 +394,48 @@ fn decode_hex_u16(unit: u16) -> Option<u8> {
 
 // -- Error constructors -----------------------------------------------------
 
+/// §19.5.3.4 Error.prototype.toString.
+/// Build `"<name>: <message>"` from the instance's own `.name` / `.message`
+/// properties (falling back to "Error" / "").  Each field goes through
+/// `ToString` so that non-String values (e.g. `name = 42`) coerce per spec.
+pub(super) fn native_error_to_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::Object(obj_id) = this else {
+        return Err(VmError::type_error(
+            "Error.prototype.toString requires an Object",
+        ));
+    };
+    let name_key = PropertyKey::String(ctx.vm.well_known.name);
+    let msg_key = PropertyKey::String(ctx.vm.well_known.message);
+    let name_sid = match ctx.try_get_property_value(obj_id, name_key)? {
+        None | Some(JsValue::Undefined) => ctx.intern("Error"),
+        Some(v) => ctx.to_string_val(v)?,
+    };
+    let msg_sid = match ctx.try_get_property_value(obj_id, msg_key)? {
+        None | Some(JsValue::Undefined) => ctx.vm.well_known.empty,
+        Some(v) => ctx.to_string_val(v)?,
+    };
+    let name_units = ctx.vm.strings.get(name_sid).to_vec();
+    let msg_units = ctx.vm.strings.get(msg_sid).to_vec();
+    // §19.5.3.4 steps 7-9: empty name → msg; empty msg → name; else name + ": " + msg.
+    let result_id = if name_units.is_empty() {
+        msg_sid
+    } else if msg_units.is_empty() {
+        name_sid
+    } else {
+        let mut units = Vec::with_capacity(name_units.len() + 2 + msg_units.len());
+        units.extend_from_slice(&name_units);
+        units.push(u16::from(b':'));
+        units.push(u16::from(b' '));
+        units.extend_from_slice(&msg_units);
+        ctx.vm.strings.intern_utf16(&units)
+    };
+    Ok(JsValue::String(result_id))
+}
+
 fn error_ctor_impl(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -408,18 +451,21 @@ fn error_ctor_impl(
             super::value::PropertyValue::Data(name_val),
             super::shape::PropertyAttrs::DATA,
         );
-        let msg = args
-            .first()
-            .copied()
-            .unwrap_or(JsValue::String(ctx.vm.well_known.empty));
-        let msg_id = ctx.to_string_val(msg)?;
-        let msg_key = PropertyKey::String(ctx.vm.well_known.message);
-        ctx.vm.define_shaped_property(
-            id,
-            msg_key,
-            super::value::PropertyValue::Data(JsValue::String(msg_id)),
-            super::shape::PropertyAttrs::DATA,
-        );
+        // §19.5.1.1 step 4: only set `message` when the argument is not
+        // undefined.  Otherwise, `.message` falls through to
+        // Error.prototype.message (which is the empty string).
+        if let Some(&msg) = args.first() {
+            if !matches!(msg, JsValue::Undefined) {
+                let msg_id = ctx.to_string_val(msg)?;
+                let msg_key = PropertyKey::String(ctx.vm.well_known.message);
+                ctx.vm.define_shaped_property(
+                    id,
+                    msg_key,
+                    super::value::PropertyValue::Data(JsValue::String(msg_id)),
+                    super::shape::PropertyAttrs::DATA,
+                );
+            }
+        }
     }
     Ok(this)
 }
@@ -479,7 +525,7 @@ use super::ops::DENSE_ARRAY_LEN_LIMIT;
 
 pub(super) fn native_array_constructor(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let elements = if args.len() == 1 {
@@ -511,6 +557,15 @@ pub(super) fn native_array_constructor(
         // Zero or 2+ args → array of those elements.
         args.to_vec()
     };
+    // `new Array(...)`: reuse the Ordinary instance pre-allocated by do_new
+    // (avoids a second allocation).  Plain `Array(...)` call mode allocates
+    // fresh via create_array.
+    if ctx.is_construct() {
+        if let JsValue::Object(instance_id) = this {
+            ctx.vm.promote_to_array(instance_id, elements);
+            return Ok(JsValue::Object(instance_id));
+        }
+    }
     Ok(create_array(ctx, elements))
 }
 
@@ -593,7 +648,7 @@ pub(super) use super::natives_string::{
 };
 pub(super) use super::natives_symbol::{
     native_array_iterator_next, native_array_values, native_iterator_self,
-    native_object_prototype_to_string, native_string_iterator, native_string_iterator_next,
-    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
-    native_symbol_prototype_to_string,
+    native_object_prototype_to_locale_string, native_object_prototype_to_string,
+    native_string_iterator, native_string_iterator_next, native_symbol_constructor,
+    native_symbol_for, native_symbol_key_for, native_symbol_prototype_to_string,
 };
