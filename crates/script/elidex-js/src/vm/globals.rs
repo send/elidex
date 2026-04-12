@@ -129,6 +129,13 @@ impl VmInner {
             "queueMicrotask",
             super::natives_promise::native_queue_microtask,
         );
+        // Timers (WHATWG §8.7): setTimeout/setInterval schedule a callback
+        // on the VM's timer heap; clearTimeout/clearInterval cancel by id.
+        // Drain is driven by the shell via VmInner::drain_timers (PR6).
+        self.register_global_function("setTimeout", super::natives_timer::native_set_timeout);
+        self.register_global_function("setInterval", super::natives_timer::native_set_interval);
+        self.register_global_function("clearTimeout", super::natives_timer::native_clear_timeout);
+        self.register_global_function("clearInterval", super::natives_timer::native_clear_interval);
 
         // globalThis (§18.1) — points to the global object
         let global_this_name = self.strings.intern("globalThis");

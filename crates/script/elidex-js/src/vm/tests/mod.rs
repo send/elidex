@@ -15,6 +15,7 @@ mod tests_object_complement;
 mod tests_promise;
 mod tests_sparse_array;
 mod tests_string_complement;
+mod tests_timer;
 
 use super::value::{JsValue, Object, ObjectKind, VmError};
 use super::Vm;

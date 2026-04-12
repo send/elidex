@@ -35,6 +35,7 @@ mod natives_regexp;
 mod natives_string;
 mod natives_string_ext;
 mod natives_symbol;
+mod natives_timer;
 mod ops;
 mod ops_property;
 pub mod pools;
@@ -44,7 +45,8 @@ pub mod value;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::time::{Duration, Instant};
 
 use pools::{BigIntPool, StringPool};
 use value::{
@@ -165,7 +167,54 @@ pub(crate) struct VmInner {
     /// the generator paused with this value.  Taken (cleared) by the
     /// generator driver.  `None` outside of a yield dispatch.
     pub(crate) generator_yielded: Option<JsValue>,
+    /// Pending timer entries ordered by nearest deadline.  Driven by
+    /// `drain_timers(now)` — the shell (PR6) calls this on each event-loop
+    /// tick.  `next_timer_id` provides monotonically-increasing IDs for
+    /// `setTimeout` / `setInterval` returns.
+    pub(crate) timer_queue: BinaryHeap<TimerEntry>,
+    pub(crate) next_timer_id: u32,
+    /// IDs cleared via `clearTimeout` / `clearInterval` before firing.
+    /// Checked at drain time so cancelled entries are skipped.  Entries
+    /// age out of this set once they're popped from `timer_queue`.
+    pub(crate) cancelled_timers: HashSet<u32>,
 }
+
+/// A pending timer entry.  Stored in `VmInner::timer_queue` as a min-heap
+/// keyed by deadline — the earliest fires first.
+pub(crate) struct TimerEntry {
+    pub id: u32,
+    pub deadline: Instant,
+    pub callback: ObjectId,
+    /// `Some(d)` for `setInterval` — on fire, re-queued with
+    /// `deadline + d`.  `None` for `setTimeout` (one-shot).
+    pub repeat: Option<Duration>,
+    /// Positional args passed to the callback (WHATWG §8.7 step 13.2).
+    pub args: Vec<JsValue>,
+}
+
+// BinaryHeap is a max-heap; we want earliest deadline first, so flip the
+// ordering of `deadline` when comparing.  `id` is the tiebreaker for FIFO
+// behaviour on identical deadlines.
+impl Ord for TimerEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Reverse the deadline comparison so smaller deadline = "greater" heap.
+        other
+            .deadline
+            .cmp(&self.deadline)
+            .then_with(|| other.id.cmp(&self.id))
+    }
+}
+impl PartialOrd for TimerEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialEq for TimerEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.deadline == other.deadline && self.id == other.id
+    }
+}
+impl Eq for TimerEntry {}
 
 /// A queued microtask.
 #[derive(Clone, Copy, Debug)]
@@ -837,6 +886,9 @@ impl Vm {
                 pending_rejections: Vec::new(),
                 generator_prototype: None,
                 generator_yielded: None,
+                timer_queue: BinaryHeap::new(),
+                next_timer_id: 1,
+                cancelled_timers: HashSet::new(),
             },
         };
 

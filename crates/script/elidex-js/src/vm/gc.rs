@@ -121,6 +121,9 @@ struct GcRoots<'a> {
     microtask_queue: &'a std::collections::VecDeque<Microtask>,
     /// Rejected promises awaiting end-of-drain unhandled-rejection reporting.
     pending_rejections: &'a [ObjectId],
+    /// Pending timers — pin callbacks + args so they aren't collected
+    /// between scheduling and firing.
+    timer_queue: &'a std::collections::BinaryHeap<super::TimerEntry>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -207,6 +210,15 @@ fn mark_roots(
     // diagnostic output.
     for &id in roots.pending_rejections {
         mark_object(id, obj_marks, work);
+    }
+
+    // (h) Pending timers.  Each entry pins its callback function and the
+    // positional args captured at scheduling time.
+    for entry in roots.timer_queue {
+        mark_object(entry.callback, obj_marks, work);
+        for &v in &entry.args {
+            mark_value(v, obj_marks, work);
+        }
     }
 }
 
@@ -484,6 +496,7 @@ impl VmInner {
             host_data: self.host_data.as_deref(),
             microtask_queue: &self.microtask_queue,
             pending_rejections: &self.pending_rejections,
+            timer_queue: &self.timer_queue,
         };
 
         self.gc_work_list.clear();
