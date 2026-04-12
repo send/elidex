@@ -114,8 +114,9 @@ impl<T> Arena<T> {
             id.index,
             self.nodes.len()
         );
-        // SAFETY-NOTE: bounds guaranteed by alloc(); use get_unchecked in hot path
-        // with debug_assert guard above.
+        // Safe indexing — bounds re-checked at runtime.  A future optimization
+        // could switch to `get_unchecked` (bounds are guaranteed by `alloc()`
+        // returning only valid `NodeId`s), but profiling has not justified it.
         &self.nodes[id.index as usize]
     }
 

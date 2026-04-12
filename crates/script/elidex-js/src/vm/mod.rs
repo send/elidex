@@ -869,10 +869,13 @@ impl Vm {
         }
     }
 
-    /// Set a global variable.
-    pub fn set_global(&mut self, name: &str, value: JsValue) {
+    /// Install a new global variable.  Returns the previous value if one
+    /// was already registered under `name` (callers should normally ignore
+    /// this and treat reuse of a name as a bug — shell host globals and
+    /// JS-visible built-ins must not collide).
+    pub fn set_global(&mut self, name: &str, value: JsValue) -> Option<JsValue> {
         let id = self.inner.strings.intern(name);
-        self.inner.globals.insert(id, value);
+        self.inner.globals.insert(id, value)
     }
 
     /// Get a global variable.

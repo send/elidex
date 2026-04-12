@@ -39,6 +39,12 @@ mod engine_feature {
             }
         }
 
+        /// # Panics
+        ///
+        /// Panics if `HostData` is already bound.  Double-bind indicates a
+        /// missing `unbind()` call (e.g. exception recovery bug); silently
+        /// overwriting would abandon the caller's prior borrow.
+        ///
         /// # Safety
         ///
         /// - `session` and `dom` must point to valid, uniquely-owned
@@ -55,6 +61,10 @@ mod engine_feature {
             dom: *mut elidex_ecs::EcsDom,
             document: Entity,
         ) {
+            assert!(
+                !self.is_bound(),
+                "HostData::bind called while already bound; missing unbind()?"
+            );
             debug_assert!(!session.is_null() && !dom.is_null());
             self.session_ptr = session;
             self.dom_ptr = dom;
@@ -89,8 +99,14 @@ mod engine_feature {
             self.document_entity.unwrap()
         }
 
+        /// # Panics (debug builds)
+        ///
+        /// Panics if the `ListenerId` is already registered.  `ListenerId`
+        /// values are expected to be unique per `addEventListener` call;
+        /// a duplicate indicates a bug in listener-id allocation.
         pub fn store_listener(&mut self, id: ListenerId, func: ObjectId) {
-            self.listener_store.insert(id, func);
+            let prev = self.listener_store.insert(id, func);
+            debug_assert!(prev.is_none(), "duplicate ListenerId {id:?}");
         }
 
         pub fn get_listener(&self, id: ListenerId) -> Option<ObjectId> {
@@ -105,8 +121,18 @@ mod engine_feature {
             self.wrapper_cache.get(&entity.to_bits().get()).copied()
         }
 
+        /// # Panics (debug builds)
+        ///
+        /// Panics if the Entity already has a cached wrapper.  Wrapper cache
+        /// identity (`el === el`) requires the caller to check
+        /// `get_cached_wrapper()` first.
         pub fn cache_wrapper(&mut self, entity: Entity, obj: ObjectId) {
-            self.wrapper_cache.insert(entity.to_bits().get(), obj);
+            let prev = self.wrapper_cache.insert(entity.to_bits().get(), obj);
+            debug_assert!(
+                prev.is_none(),
+                "wrapper already cached for Entity {:?}",
+                entity
+            );
         }
 
         pub fn gc_root_object_ids(&self) -> impl Iterator<Item = ObjectId> + '_ {

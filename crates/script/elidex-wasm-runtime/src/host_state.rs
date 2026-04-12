@@ -22,11 +22,11 @@ pub struct HostState {
     pub(crate) cssom_registry: Arc<CssomHandlerRegistry>,
 }
 
-// HostState is !Send due to raw pointers, but wasmtime Store is used
-// on a single thread. We explicitly opt in to Send so wasmtime can hold it.
-// Safety: all access is single-threaded (bind/unbind bracket eval).
-#[allow(unsafe_code)]
-unsafe impl Send for HostState {}
+// Intentionally no `Send` impl:
+// `HostState` holds raw pointers to caller-owned host state while bound.
+// The "single-threaded" invariant cannot be expressed in the type system,
+// so the default `!Send` prevents accidental cross-thread transfer.
+// wasmtime::Store does not require `T: Send` for sync-API usage.
 
 impl HostState {
     /// Create a new unbound host state.
