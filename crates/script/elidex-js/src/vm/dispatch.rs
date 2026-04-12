@@ -955,14 +955,17 @@ impl VmInner {
                 }
 
                 // ── Generator/Async ─────────────────────────────────
-                Op::Yield => {
-                    // [yielded_value -- ]: snapshot frame into its Generator
-                    // object, close local upvalues, and unwind back to
-                    // resume_generator via the entry-frame check.
+                Op::Yield | Op::Await => {
+                    // [yielded_value -- ] (Op::Yield) or [awaited -- ] (Op::Await)
+                    // Both opcodes suspend the current frame identically;
+                    // the difference is interpreted at the driver level —
+                    // generators produce `{value, done}`, async coroutines
+                    // wrap the value as a Promise and subscribe
+                    // continuation steps.
                     let value = self.pop()?;
-                    let gen_id = self.frames[frame_idx]
-                        .generator
-                        .ok_or_else(|| VmError::internal("Yield outside a generator frame"))?;
+                    let gen_id = self.frames[frame_idx].generator.ok_or_else(|| {
+                        VmError::internal("Yield/Await outside a coroutine frame")
+                    })?;
 
                     // Move the frame out of the stack + drain its stack
                     // slice; close any open upvalues pointing to this frame.
@@ -1022,10 +1025,6 @@ impl VmInner {
                     return Err(VmError::internal(
                         "yield* (YieldDelegate) not supported in PR2 commit 4 — see PR2.5",
                     ));
-                }
-                Op::Await => {
-                    // Async function handling lands in PR2 commit 5.
-                    return Err(VmError::internal("await not supported until PR2 commit 5"));
                 }
 
                 // ── Misc stubs ──────────────────────────────────────

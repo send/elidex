@@ -11,8 +11,9 @@
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     GeneratorStatus, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
-    PropertyStorage, PropertyValue, UpvalueState, VmError,
+    PropertyStorage, PropertyValue, UpvalueState, VmError, VmErrorKind,
 };
+#[allow(unused_imports)] // VmErrorKind is used by resume_generator_throw
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,18 @@ impl VmInner {
         // ── Run until Yield / Return / Throw ───────────────────────────
         let run_result = self.run();
 
+        // An uncaught throw inside the body leaves the frame in place —
+        // the dispatcher's Throw handler only unwinds above
+        // `entry_frame_depth + 1`.  Pop the dangling entry frame so
+        // subsequent opcodes in the outer script run in the correct
+        // frame (same cleanup pattern as `call_internal`).
+        if run_result.is_err()
+            && self.frames.len() > entry_frames
+            && self.frames.last().map(|f| f.base) == Some(new_base)
+        {
+            self.pop_frame();
+        }
+
         // ── Branch on how the body exited ───────────────────────────────
         // Taking the yield marker tells us whether to treat run_result as
         // a yield value (discard) or a return value (propagate).
@@ -147,6 +160,124 @@ impl VmInner {
                 // value to use for the last iterator result.
                 mark_completed(self);
                 let _ = entry_frames;
+                Ok((return_value, true))
+            }
+            Err(e) => {
+                mark_completed(self);
+                Err(e)
+            }
+        }
+    }
+
+    /// Resume `gen_id` by throwing `reason` at the point where it last
+    /// yielded.  Used by async-function reject continuations: if the
+    /// awaited Promise rejects, the awaiting body should observe a throw
+    /// rather than a value.
+    ///
+    /// The mechanics mirror [`resume_generator`] but instead of pushing the
+    /// resume arg, we restore the frame and invoke `handle_exception` with
+    /// the generator frame as the entry point.  If the body has a handler
+    /// in scope, execution continues at catch/finally; otherwise the error
+    /// propagates out of the coroutine.
+    pub(crate) fn resume_generator_throw(
+        &mut self,
+        gen_id: ObjectId,
+        reason: JsValue,
+    ) -> Result<(JsValue, bool), VmError> {
+        // ── Lift the suspended frame out (same gate as resume_generator) ─
+        let suspended = {
+            let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
+                return Err(VmError::type_error("throw on non-Generator"));
+            };
+            match state.status {
+                GeneratorStatus::Completed => {
+                    // Spec §25.4.1.4: throw on a completed iterator propagates
+                    // the reason as the thrown completion.
+                    return Err(VmError {
+                        kind: VmErrorKind::ThrowValue(reason),
+                        message: String::new(),
+                    });
+                }
+                GeneratorStatus::Running => {
+                    return Err(VmError::type_error(
+                        "Cannot resume a generator that is already running",
+                    ));
+                }
+                GeneratorStatus::SuspendedStart | GeneratorStatus::SuspendedYield => {
+                    state.status = GeneratorStatus::Running;
+                    state.suspended.take().expect("suspended state must exist")
+                }
+            }
+        };
+        let super::value::SuspendedFrame {
+            mut frame,
+            stack_slice,
+            upvalue_slots,
+        } = suspended;
+
+        let new_base = self.stack.len();
+        self.stack.extend(stack_slice);
+        for (uv_id, slot) in &upvalue_slots {
+            if let UpvalueState::Closed(val) = self.upvalues[uv_id.0 as usize].state {
+                let idx = new_base + *slot as usize;
+                if idx < self.stack.len() {
+                    self.stack[idx] = val;
+                }
+            }
+            self.upvalues[uv_id.0 as usize].state = UpvalueState::Open {
+                frame_base: new_base,
+                slot: *slot,
+            };
+            frame.local_upvalue_ids.push(*uv_id);
+        }
+        frame.base = new_base;
+        frame.cleanup_base = new_base;
+        for h in &mut frame.exception_handlers {
+            h.stack_depth += new_base;
+        }
+        let saved_completion = self.completion_value;
+        self.completion_value = JsValue::Undefined;
+        frame.saved_completion = saved_completion;
+        self.frames.push(frame);
+
+        // ── Inject a throw at the suspension point ──────────────────────
+        let entry_frames = self.frames.len() - 1;
+        let mark_completed = |vm: &mut Self| {
+            if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
+                state.status = GeneratorStatus::Completed;
+                state.suspended = None;
+            }
+        };
+
+        if !self.handle_exception(reason, entry_frames) {
+            // No handler — frame was left in place (handle_exception stops
+            // at `frame_idx <= entry_frame_depth`).  Pop it and surface
+            // the throw as a VmError to our caller.
+            self.frames.pop();
+            self.completion_value = saved_completion;
+            mark_completed(self);
+            return Err(VmError {
+                kind: VmErrorKind::ThrowValue(reason),
+                message: String::new(),
+            });
+        }
+
+        // Handler active — proceed with normal run() resumption.
+        let entry_frames_post_inject = self.frames.len() - 1;
+        let run_result = self.run();
+        if run_result.is_err()
+            && self.frames.len() > entry_frames_post_inject
+            && self.frames.last().map(|f| f.base) == Some(new_base)
+        {
+            self.pop_frame();
+        }
+        let yielded = self.generator_yielded.take();
+        self.completion_value = saved_completion;
+
+        match run_result {
+            Ok(_) if yielded.is_some() => Ok((yielded.expect("just checked"), false)),
+            Ok(return_value) => {
+                mark_completed(self);
                 Ok((return_value, true))
             }
             Err(e) => {
@@ -277,4 +408,122 @@ pub(super) fn native_generator_iterator_self(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     Ok(this)
+}
+
+// ---------------------------------------------------------------------------
+// Async coroutine — Promise-wrapped generator
+// ---------------------------------------------------------------------------
+
+/// Drive one step of an async coroutine — invoked initially by the async
+/// function call site, and subsequently by Promise `.then` continuations
+/// attached to each awaited Promise.
+///
+/// On yield: treat the yielded value as a Promise, subscribe continuation
+/// steps (`AsyncDriverStep { is_throw: false/true }`) for fulfil/reject.
+///
+/// On return: resolve the wrapper Promise with the final return value.
+///
+/// On throw: reject the wrapper Promise with the thrown reason.
+pub(crate) fn drive_async_coroutine(
+    vm: &mut VmInner,
+    gen_id: ObjectId,
+    value: JsValue,
+    is_throw: bool,
+) -> Result<(), VmError> {
+    // Resume: either with a value (from fulfill) or a throw (from reject).
+    let result = if is_throw {
+        vm.resume_generator_throw(gen_id, value)
+    } else {
+        vm.resume_generator(gen_id, value)
+    };
+
+    // Look up the wrapper promise (pre-established at async function call).
+    let wrapper = match &vm.get_object(gen_id).kind {
+        ObjectKind::Generator(state) => state.wrapper,
+        _ => None,
+    };
+    let Some(wrapper) = wrapper else {
+        // Someone drove a user-visible generator via this path — shouldn't
+        // happen; the Generator.prototype.next native uses a different
+        // entry point.  Just forward the error upward.
+        return result.map(|_| ());
+    };
+
+    match result {
+        Ok((yielded_value, false)) => {
+            // Await: treat the yielded value as a Promise (auto-wrap).
+            let awaited = match yielded_value {
+                JsValue::Object(id) if matches!(vm.get_object(id).kind, ObjectKind::Promise(_)) => {
+                    id
+                }
+                other => {
+                    let p = super::natives_promise::create_promise(vm);
+                    let _ = super::natives_promise::settle_promise(vm, p, false, other);
+                    p
+                }
+            };
+            // Attach fulfil + reject continuation steps.
+            let fulfill_step = alloc_async_step(vm, gen_id, false);
+            let reject_step = alloc_async_step(vm, gen_id, true);
+            super::natives_promise::subscribe_then(vm, awaited, fulfill_step, reject_step);
+        }
+        Ok((return_value, true)) => {
+            let _ = super::natives_promise::settle_promise(vm, wrapper, false, return_value);
+        }
+        Err(e) => {
+            let reason = if let VmErrorKind::ThrowValue(v) = e.kind {
+                v
+            } else {
+                let msg = vm.strings.intern(&e.to_string());
+                JsValue::String(msg)
+            };
+            let _ = super::natives_promise::settle_promise(vm, wrapper, true, reason);
+        }
+    }
+    Ok(())
+}
+
+/// Allocate an `AsyncDriverStep` callable for a continuation.
+fn alloc_async_step(vm: &mut VmInner, gen: ObjectId, is_throw: bool) -> ObjectId {
+    let proto = vm.function_prototype;
+    vm.alloc_object(Object {
+        kind: ObjectKind::AsyncDriverStep { gen, is_throw },
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: proto,
+        extensible: true,
+    })
+}
+
+/// Create an async coroutine wrapping `suspended` and drive its first
+/// step.  Returns the wrapper Promise (the async function's return value).
+///
+/// The initial frame is prepared by the call-site (same shape as a
+/// generator initial frame); `drive_async_coroutine` runs the body until
+/// the first await, return, or throw.
+pub(crate) fn make_async_coroutine_and_drive(
+    vm: &mut VmInner,
+    suspended: super::value::SuspendedFrame,
+) -> Result<JsValue, VmError> {
+    let wrapper = super::natives_promise::create_promise(vm);
+    let proto = vm.generator_prototype;
+    let gen_id = vm.alloc_object(Object {
+        kind: ObjectKind::Generator(super::value::GeneratorState {
+            status: GeneratorStatus::SuspendedStart,
+            suspended: Some(suspended),
+            wrapper: Some(wrapper),
+        }),
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: proto,
+        extensible: true,
+    });
+    // Back-link the saved frame to the coroutine it belongs to.
+    if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
+        if let Some(susp) = &mut state.suspended {
+            susp.frame.generator = Some(gen_id);
+        }
+    }
+    // Initial drive: arg value is ignored for SuspendedStart (it's never
+    // pushed onto the body's stack), so we pass Undefined.
+    drive_async_coroutine(vm, gen_id, JsValue::Undefined, false)?;
+    Ok(JsValue::Object(wrapper))
 }

@@ -308,7 +308,13 @@ fn trace_work_list(
             ObjectKind::PromiseFinallyStep { on_finally, .. } => {
                 mark_object(*on_finally, obj_marks, work);
             }
+            ObjectKind::AsyncDriverStep { gen, .. } => {
+                mark_object(*gen, obj_marks, work);
+            }
             ObjectKind::Generator(state) => {
+                if let Some(wrapper) = state.wrapper {
+                    mark_object(wrapper, obj_marks, work);
+                }
                 if let Some(susp) = &state.suspended {
                     // The suspended frame carries its own set of roots —
                     // this_value, upvalue_ids, actual_args, saved_completion,

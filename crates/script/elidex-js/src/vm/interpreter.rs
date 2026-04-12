@@ -136,6 +136,14 @@ impl VmInner {
                         self, on_finally, is_reject, value,
                     );
                 }
+                ObjectKind::AsyncDriverStep { gen, is_throw } => {
+                    let gen = *gen;
+                    let is_throw = *is_throw;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    super::natives_generator::drive_async_coroutine(self, gen, value, is_throw)?;
+                    return Ok(JsValue::Undefined);
+                }
                 _ => return Err(VmError::type_error("not a function")),
             }
         }
@@ -145,6 +153,7 @@ impl VmInner {
     ///
     /// Used by the public `call()` API and `NativeContext` re-entrant calls.
     /// The inline dispatch path uses `push_js_call_frame` instead.
+    #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn call_internal(
         &mut self,
         func_id: FuncId,
@@ -157,6 +166,7 @@ impl VmInner {
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
         let is_generator = compiled.is_generator;
+        let is_async = compiled.is_async;
 
         let entry_frames = self.frames.len();
         let base = self.stack.len();
@@ -173,6 +183,41 @@ impl VmInner {
         let saved_completion = self.completion_value;
         self.completion_value = JsValue::Undefined;
         let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
+
+        // Async function re-entry via `call()`: same treatment as the
+        // inline dispatch path — build an initial SuspendedFrame and
+        // drive one step, returning the wrapper Promise.
+        if is_async {
+            let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
+            self.completion_value = saved_completion;
+            let initial_frame = CallFrame {
+                func_id,
+                ip: 0,
+                base,
+                cleanup_base: base,
+                upvalue_ids: upvalue_ids.clone(),
+                local_upvalue_ids: Vec::new(),
+                this_value: this,
+                exception_handlers: Vec::new(),
+                tdz_bits,
+                tdz_overflow: tdz_overflow.clone(),
+                actual_args: if needs_arguments {
+                    Some(args.to_vec())
+                } else {
+                    None
+                },
+                new_instance: None,
+                saved_completion: JsValue::Undefined,
+                generator: None,
+            };
+            let suspended = super::value::SuspendedFrame {
+                frame: initial_frame,
+                stack_slice,
+                upvalue_slots: Vec::new(),
+            };
+            let _ = entry_frames;
+            return super::natives_generator::make_async_coroutine_and_drive(self, suspended);
+        }
 
         // Generator: build initial suspended frame and return Generator
         // object directly — body runs only when `.next()` resumes.
@@ -209,6 +254,7 @@ impl VmInner {
                 kind: super::value::ObjectKind::Generator(super::value::GeneratorState {
                     status: super::value::GeneratorStatus::SuspendedStart,
                     suspended: Some(suspended),
+                    wrapper: None,
                 }),
                 storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                 prototype: proto,
@@ -268,6 +314,7 @@ impl VmInner {
     /// Args are already on the stack. `cleanup_offset` is the number of
     /// extra slots below the args (1 for callee, 2 for receiver + callee).
     /// Does **not** call `run()` — the caller must `continue` the dispatch loop.
+    #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn push_js_call_frame(
         &mut self,
         callee: JsCalleeInfo,
@@ -281,6 +328,7 @@ impl VmInner {
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
         let is_generator = compiled.is_generator;
+        let is_async = compiled.is_async;
 
         let base = self.stack.len() - argc;
         let cleanup_base = base - cleanup_offset;
@@ -310,6 +358,50 @@ impl VmInner {
 
         let saved_completion = self.completion_value;
         let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
+
+        // Async function short-circuit: treated as a Promise-wrapping
+        // generator.  Build the initial SuspendedFrame, then let the
+        // generator-based async driver settle a wrapper Promise as the
+        // body yields / returns / throws.
+        if is_async {
+            let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
+            self.completion_value = saved_completion;
+            self.stack.truncate(cleanup_base);
+            let initial_frame = CallFrame {
+                func_id: callee.func_id,
+                ip: 0,
+                base,
+                cleanup_base: base,
+                upvalue_ids: callee.upvalue_ids,
+                local_upvalue_ids: Vec::new(),
+                this_value: this,
+                exception_handlers: Vec::new(),
+                tdz_bits,
+                tdz_overflow,
+                actual_args,
+                new_instance,
+                saved_completion: JsValue::Undefined,
+                generator: None,
+            };
+            let suspended = super::value::SuspendedFrame {
+                frame: initial_frame,
+                stack_slice,
+                upvalue_slots: Vec::new(),
+            };
+            match super::natives_generator::make_async_coroutine_and_drive(self, suspended) {
+                Ok(promise) => {
+                    self.stack.push(promise);
+                }
+                Err(_e) => {
+                    // make_async_coroutine_and_drive settles the wrapper
+                    // Promise on throw and returns Ok; any Err here is an
+                    // internal bug.  Fall back to pushing undefined so
+                    // the caller's stack shape stays valid.
+                    self.stack.push(JsValue::Undefined);
+                }
+            }
+            return;
+        }
 
         // Generator short-circuit: the call returns a Generator object
         // *without* executing the body.  Build an initial SuspendedFrame
@@ -352,6 +444,7 @@ impl VmInner {
                 kind: super::value::ObjectKind::Generator(super::value::GeneratorState {
                     status: super::value::GeneratorStatus::SuspendedStart,
                     suspended: Some(suspended),
+                    wrapper: None,
                 }),
                 storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                 prototype: proto,

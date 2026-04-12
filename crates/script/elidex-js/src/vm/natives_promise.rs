@@ -564,6 +564,19 @@ pub(super) fn native_queue_microtask(
     Ok(JsValue::Undefined)
 }
 
+/// Thin wrapper around [`then_impl`] for callers that already hold the
+/// fulfil/reject handler ObjectIds (e.g. async driver continuations).
+pub(super) fn subscribe_then(
+    vm: &mut VmInner,
+    src: ObjectId,
+    on_fulfilled: ObjectId,
+    on_rejected: ObjectId,
+) {
+    // `then_impl` only errors if the src isn't a Promise; callers here
+    // are expected to have verified that already.
+    let _ = then_impl(vm, src, Some(on_fulfilled), Some(on_rejected));
+}
+
 fn then_impl(
     vm: &mut VmInner,
     src: ObjectId,

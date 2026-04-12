@@ -495,6 +495,18 @@ pub enum ObjectKind {
     /// the Generator holds the initial suspended frame).  `.next()` /
     /// `.return()` / `.throw()` drive execution.
     Generator(GeneratorState),
+    /// Continuation callback attached to the awaited Promise of an async
+    /// function.  When the Promise settles, this step resumes the
+    /// associated coroutine with the fulfilment value (or rethrows the
+    /// rejection reason inside the coroutine, depending on `is_throw`).
+    AsyncDriverStep {
+        /// The ObjectId of the `ObjectKind::Generator` carrying
+        /// `GeneratorState { wrapper: Some(_), .. }`.
+        gen: ObjectId,
+        /// `false` for the fulfil handler (resume normally), `true` for
+        /// the reject handler (throw the received value inside the body).
+        is_throw: bool,
+    },
 }
 
 /// `[[GeneratorState]]` internal slot.  Tracks where in its lifecycle the
@@ -516,9 +528,15 @@ pub enum GeneratorStatus {
 
 /// Runtime state of a Generator object.  The inactive-phase frame state
 /// (when `status != Running`) lives in `suspended`.
+///
+/// Async functions share this type: they're generators whose yielded
+/// values are awaited Promises and whose completion settles an outer
+/// wrapper Promise.  `wrapper` is `Some(promise_id)` for async
+/// coroutines and `None` for user-visible generators.
 pub struct GeneratorState {
     pub status: GeneratorStatus,
     pub suspended: Option<SuspendedFrame>,
+    pub wrapper: Option<ObjectId>,
 }
 
 /// Saved state of a generator's call frame while the generator is paused.
@@ -632,8 +650,8 @@ pub struct Reaction {
 
 impl ObjectKind {
     /// Returns `true` if this object kind is callable (Function, NativeFunction,
-    /// BoundFunction, PromiseResolver, or one of the Promise combinator/finally
-    /// step wrappers).
+    /// BoundFunction, PromiseResolver, one of the Promise combinator/finally
+    /// step wrappers, or an async-driver continuation step).
     #[inline]
     pub fn is_callable(&self) -> bool {
         matches!(
@@ -644,6 +662,7 @@ impl ObjectKind {
                 | Self::PromiseResolver { .. }
                 | Self::PromiseCombinatorStep(_)
                 | Self::PromiseFinallyStep { .. }
+                | Self::AsyncDriverStep { .. }
         )
     }
 }
