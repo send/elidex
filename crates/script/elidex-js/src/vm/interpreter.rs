@@ -54,12 +54,8 @@ impl VmInner {
                 ObjectKind::Function(fo) => {
                     let func_id = fo.func_id;
                     let upvalue_ids = fo.upvalue_ids.clone();
-                    let resolved_this = match fo.this_mode {
-                        super::value::ThisMode::Lexical => {
-                            fo.captured_this.unwrap_or(JsValue::Undefined)
-                        }
-                        super::value::ThisMode::Strict => effective_this,
-                    };
+                    let resolved_this =
+                        Self::compute_this_for_call(fo.this_mode, effective_this, fo.captured_this);
                     let call_args = owned_args.as_deref().unwrap_or(args);
                     return self.call_internal(func_id, resolved_this, call_args, upvalue_ids);
                 }

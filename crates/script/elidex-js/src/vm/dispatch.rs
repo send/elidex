@@ -151,10 +151,8 @@ impl VmInner {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let val = self.peek()?;
-                    // §8.1.1.2.5: All code is strict since M4-12 PR1.5, so
-                    // assigning to an undeclared binding always throws
-                    // ReferenceError.  (The sloppy silent-creation branch
-                    // has been removed.)
+                    // §8.1.1.2.5: assigning to an undeclared binding throws
+                    // ReferenceError.
                     let exists_on_global = {
                         let pk = PropertyKey::String(name_id);
                         self.globals.contains_key(&name_id)

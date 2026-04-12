@@ -109,13 +109,9 @@ pub(crate) fn analyze(program: &Program) -> ScopeAnalysis {
         ProgramKind::Module => ScopeKind::Module,
         ProgramKind::Script => ScopeKind::Global,
     };
-    // All top-level code is strict by default (M4-12 PR1.5).  Nested functions
-    // inherit strictness from their enclosing scope per §10.2.1, so the VM no
-    // longer needs sloppy-mode code paths (`ThisMode::Global`,
-    // `bind_this_global`, silent property-write failures, silent global
-    // creation).  The `has_use_strict` helper remains in use for nested
-    // function bodies — function-level "use strict" is now always a no-op but
-    // must still parse cleanly per §14.1.2.
+    // §10.2.1: all code is strict.  `has_use_strict` is still invoked on
+    // nested function bodies so `"use strict"` parses and triggers
+    // §14.1.2 non-simple-parameter validation.
     state.push_scope(root_kind, true, Span::new(0, u32::MAX));
 
     for &stmt_id in &program.body {

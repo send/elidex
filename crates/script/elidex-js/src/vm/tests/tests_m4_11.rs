@@ -194,10 +194,6 @@ fn writable_false_strict_throws() {
     );
 }
 
-// Removed `writable_false_sloppy_silent`: all code is strict post-PR1.5, so
-// writing to a non-writable property always throws (covered by
-// `writable_false_strict_throws`).
-
 // ─── D2: configurable:false delete enforcement ──────────────────────────
 
 #[test]
@@ -206,10 +202,6 @@ fn non_configurable_delete_strict_throws() {
         "'use strict'; var o = {}; Object.defineProperty(o, 'x', { value: 1, configurable: false }); delete o.x;",
     );
 }
-
-// Removed `non_configurable_delete_sloppy_returns_false`: all code is strict
-// post-PR1.5, so deleting a non-configurable property always throws (covered
-// by `non_configurable_delete_strict_throws`).
 
 #[test]
 fn configurable_delete_succeeds() {
@@ -228,9 +220,6 @@ fn prototype_writable_false_blocks_own_strict() {
     );
 }
 
-// Removed `prototype_writable_false_blocks_own_sloppy`: strict-by-default
-// means inherited writable:false always throws (covered by the strict variant).
-
 #[test]
 fn prototype_accessor_no_setter_blocks_strict() {
     eval_throws(
@@ -239,10 +228,6 @@ fn prototype_accessor_no_setter_blocks_strict() {
          var o = Object.create(proto); o.x = 2;",
     );
 }
-
-// Removed `prototype_accessor_no_setter_blocks_sloppy`: strict-by-default
-// means assignment via a getter-only inherited accessor always throws
-// (covered by the strict variant).
 
 #[test]
 fn prototype_setter_invoked() {

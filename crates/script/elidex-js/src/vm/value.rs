@@ -492,8 +492,6 @@ pub enum ThisMode {
     /// Arrow function: inherits `this` from enclosing scope.
     Lexical,
     /// Strict function: `this` is exactly what was passed.
-    /// (Top-level scripts are strict by default since M4-12 PR1.5, so the
-    /// former `Global`/non-strict branch has been removed.)
     Strict,
 }
 

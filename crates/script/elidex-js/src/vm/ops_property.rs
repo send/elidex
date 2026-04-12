@@ -88,14 +88,11 @@ impl VmInner {
                     self.lookup_on_proto(self.string_prototype, pk, obj)
                 }
             }
-            // Primitive property access: look up on the prototype with the
-            // original primitive as the receiver (§6.2.4.1 step 4.b passes
-            // `GetThisValue(V)` — the original primitive — as Receiver,
-            // independent of the boxing that happens for own-property
-            // lookup).  Since all functions are strict since PR1.5, an
-            // invoked accessor observes the raw primitive as `this` (per
-            // §9.4.3 step 5) — matches V8/SpiderMonkey behavior for strict
-            // methods like `'x'.trim.call.call.call(...)`.
+            // §6.2.4.1 step 4.b: prototype lookup for primitive base values
+            // uses `GetThisValue(V)` (the original primitive) as Receiver,
+            // independent of any boxing for own-property lookup.  An invoked
+            // accessor observes the raw primitive as `this` per §9.4.3
+            // step 5 — matches V8/SpiderMonkey.
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),
@@ -246,8 +243,8 @@ impl VmInner {
     }
 
     /// Delete a named property from an object (single-pass).
-    /// Returns `Ok(true)` if deleted, or `Err(TypeError)` if non-configurable
-    /// (all code is strict since M4-12 PR1.5).
+    /// Returns `Ok(true)` if deleted, or `Err(TypeError)` if the property is
+    /// non-configurable.
     pub(crate) fn try_delete_property(
         &mut self,
         id: ObjectId,
@@ -299,10 +296,6 @@ impl VmInner {
             NoSetter,
             NotFound,
         }
-
-        // All code is strict since M4-12 PR1.5, so OwnAction::NonWritable /
-        // NoSetter / inherited WritableFalse|AccessorNoSetter always throw
-        // TypeError rather than silently failing.
 
         // Step 1: check own property (single mutable lookup).
         let own_action = {

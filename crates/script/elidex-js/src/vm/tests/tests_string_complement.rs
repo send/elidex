@@ -381,17 +381,13 @@ fn new_string_no_args_is_empty() {
 
 #[test]
 fn new_string_length_is_non_writable() {
-    // §21.1.5.1: `length` is non-writable → assignment throws TypeError
-    // (all code is strict post-PR1.5).
-    eval_throws("var w = new String('abc'); w.length = 10;");
-    // Catch the throw and verify `length` was not modified.
-    assert_eq!(
-        eval_number(
-            "var w = new String('abc');
-             try { w.length = 10; } catch(_) {}
-             w.length;"
-        ),
-        3.0
+    // §21.1.5.1: `length` is non-writable — assignment throws and the
+    // stored length is unchanged.
+    super::assert_throws_preserves_number(
+        "var w = new String('abc');",
+        "w.length = 10;",
+        "w.length;",
+        3.0,
     );
 }
 

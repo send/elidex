@@ -49,6 +49,31 @@ fn eval_bool(source: &str) -> bool {
     }
 }
 
+/// Assert `throwing` throws, AND that after recovery `observation` yields
+/// `expected`.  Used when a now-strict operation used to fail silently —
+/// verifies both the throw and that state is unchanged.  `setup` runs before
+/// both the throwing check and the observation.
+fn assert_throws_preserves_number(setup: &str, throwing: &str, observation: &str, expected: f64) {
+    eval_throws(&format!("{setup} {throwing}"));
+    assert_eq!(
+        eval_number(&format!(
+            "{setup} try {{ {throwing} }} catch(_) {{}} {observation}"
+        )),
+        expected,
+    );
+}
+
+/// Boolean-returning variant of [`assert_throws_preserves_number`].
+fn assert_throws_preserves_bool(setup: &str, throwing: &str, observation: &str, expected: bool) {
+    eval_throws(&format!("{setup} {throwing}"));
+    assert_eq!(
+        eval_bool(&format!(
+            "{setup} try {{ {throwing} }} catch(_) {{}} {observation}"
+        )),
+        expected,
+    );
+}
+
 #[test]
 fn eval_number_literal() {
     assert_eq!(eval_number("42;"), 42.0);
@@ -195,18 +220,12 @@ fn eval_get_global_reference_error() {
 
 #[test]
 fn eval_set_global_strict_mode_reference_error() {
-    // §8.1.1.2.5: Assigning to an undeclared binding always throws
-    // ReferenceError since M4-12 PR1.5 (all code is strict).
+    // §8.1.1.2.5: assigning to an undeclared binding throws ReferenceError.
     assert_eq!(
         eval_string("var r = 'ok'; try { undeclared = 1; } catch(e) { r = e.message; } r;"),
         "undeclared is not defined",
     );
 }
-
-// Removed `eval_set_global_sloppy_creates_global` and
-// `eval_this_coercion_global_object`: top-level strictness means undeclared
-// assignment throws ReferenceError and `this` in a plain function call is
-// `undefined` rather than being coerced to the global object.
 
 #[test]
 fn eval_this_coercion_method_receiver() {
@@ -919,18 +938,15 @@ fn eval_function_hoisting() {
 
 #[test]
 fn eval_global_object_property_lookup_falls_back_to_globals() {
-    // `globalThis.Math` must resolve via explicit receiver.  (Previously this
-    // used bare `this` in a plain-call function to exercise sloppy-mode
-    // coercion; since all code is strict post-PR1.5, use `globalThis`
-    // directly to test the globals HashMap → global object fallback.)
+    // Explicit `globalThis` receiver exercises the globals HashMap → global
+    // object property-lookup fallback.
     assert_eq!(eval_string("typeof globalThis.Math;"), "object",);
 }
 
 #[test]
 fn eval_global_object_set_property_syncs_to_globals() {
     // Writing to `globalThis.<prop>` must be visible via bare identifier
-    // lookup (GetGlobal).  Uses `globalThis` explicitly because strict-mode
-    // plain-call `this` is `undefined`.
+    // lookup (GetGlobal).
     assert_eq!(eval_number("globalThis.testGlobal = 42; testGlobal;"), 42.0,);
 }
 

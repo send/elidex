@@ -384,10 +384,6 @@ fn strict_duplicate_params_module() {
     );
 }
 
-// Removed `sloppy_duplicate_params_ok` and `eval_param_ok_sloppy`: top-level
-// scripts are strict by default since M4-12 PR1.5, so duplicate param names
-// and `eval`/`arguments` as parameter names are always errors.
-
 // ── B26: class expression name inner scope ──
 
 // ── B2: eval/arguments as parameter names ──

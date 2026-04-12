@@ -596,10 +596,6 @@ impl VmInner {
             upvalue_ids.push(uv_id);
         }
 
-        // Since M4-12 PR1.5 all non-arrow functions are strict; the former
-        // `ThisMode::Global` sloppy path is gone.  `CompiledFunction.is_strict`
-        // remains on the struct for future sloppy-mode reintroduction (e.g.
-        // classic `<script>` support) but is always `true` for emitted code.
         let this_mode = if is_arrow {
             super::value::ThisMode::Lexical
         } else {

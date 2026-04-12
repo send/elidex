@@ -182,12 +182,11 @@ impl VmInner {
 
     /// Compute the effective `this` for a call, applying §9.2.1.2
     /// OrdinaryCallBindThis: Global mode coerces null/undefined to globalThis
-    /// Resolve `this` for a call given the callee's `ThisMode`.
-    ///
-    /// Arrow functions return their captured `this`; all other functions are
-    /// strict since M4-12 PR1.5, so the receiver passes through unchanged
-    /// (no primitive boxing or `undefined` → global coercion).
-    fn compute_this_for_call(
+    /// Resolve `this` for a call given the callee's `ThisMode`.  Arrow
+    /// functions use their captured `this`; strict functions receive the
+    /// caller-provided receiver verbatim.
+    #[inline]
+    pub(super) fn compute_this_for_call(
         this_mode: super::value::ThisMode,
         receiver: JsValue,
         captured_this: Option<JsValue>,
