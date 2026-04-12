@@ -756,6 +756,53 @@ impl VmInner {
                     let exc = self.current_exception;
                     self.stack.push(exc);
                 }
+                Op::EndFinally => {
+                    // End of a finally body.  If the finally was entered
+                    // because of an externally injected abrupt completion
+                    // (e.g. `Generator.prototype.return`), resume that
+                    // completion now — walking further outer finally
+                    // blocks if any remain.  A finally that performed its
+                    // own abrupt completion never reaches here (the inline
+                    // return / break / continue / throw machinery replaced
+                    // the pending completion with its own flow).
+                    let frame = self.frames.last_mut().unwrap();
+                    let pending = frame.pending_completion.take();
+                    match pending {
+                        None | Some(super::value::FrameCompletion::Normal(_)) => {
+                            // Normal fall-through; continue the dispatch loop.
+                        }
+                        Some(super::value::FrameCompletion::Return(v)) => {
+                            // Walk outer handlers for another finally.
+                            if let Some(target_ip) =
+                                self.route_to_next_finally(super::value::FrameCompletion::Return(v))
+                            {
+                                self.frames.last_mut().unwrap().ip = target_ip;
+                                continue;
+                            }
+                            // No more finallies; perform the return.
+                            if frame_idx == entry_frame_depth {
+                                self.pop_frame();
+                                return Ok(v);
+                            }
+                            self.complete_inline_frame(v);
+                        }
+                        Some(super::value::FrameCompletion::Throw(e)) => {
+                            // Re-raise.  handle_exception handles cross-frame
+                            // routing (intermediate finallies + entry frame
+                            // boundary).  If no handler, propagate as VmError.
+                            if self.handle_exception(e, entry_frame_depth) {
+                                continue;
+                            }
+                            while self.frames.len() > entry_frame_depth + 1 {
+                                let frame = self.frames.pop().unwrap();
+                                self.close_upvalues(&frame.local_upvalue_ids);
+                                self.completion_value = frame.saved_completion;
+                                self.stack.truncate(frame.cleanup_base);
+                            }
+                            return Err(VmError::throw(e));
+                        }
+                    }
+                }
 
                 // ── Switch ──────────────────────────────────────────
                 Op::SwitchJump => {

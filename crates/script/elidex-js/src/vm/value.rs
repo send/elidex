@@ -740,6 +740,12 @@ pub struct CallFrame {
     /// into this generator object instead of completing normally.  `None`
     /// for ordinary (non-generator) frames.
     pub generator: Option<ObjectId>,
+    /// Pending abrupt completion for `Op::EndFinally` at the tail of a
+    /// finally body.  Set when jumping into finally via an externally
+    /// injected abrupt completion (e.g. `Generator.prototype.return`);
+    /// consulted by `Op::EndFinally` to resume that completion once the
+    /// finally body finishes.  `None` for normal control flow.
+    pub pending_completion: Option<FrameCompletion>,
 }
 
 impl CallFrame {

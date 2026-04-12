@@ -168,6 +168,17 @@ fn mark_roots(
         if let Some(gen_id) = frame.generator {
             mark_object(gen_id, obj_marks, work);
         }
+        // Pending abrupt completion value (Return/Throw) — held across a
+        // finally body execution, only alive for that window but an
+        // independent root during it.
+        match frame.pending_completion {
+            Some(
+                super::value::FrameCompletion::Return(v) | super::value::FrameCompletion::Throw(v),
+            ) => {
+                mark_value(v, obj_marks, work);
+            }
+            Some(super::value::FrameCompletion::Normal(_)) | None => {}
+        }
     }
 
     // (c) Global variables
@@ -368,6 +379,15 @@ fn trace_work_list(
                         mark_object(id, obj_marks, work);
                     }
                     mark_value(susp.frame.saved_completion, obj_marks, work);
+                    match susp.frame.pending_completion {
+                        Some(
+                            super::value::FrameCompletion::Return(v)
+                            | super::value::FrameCompletion::Throw(v),
+                        ) => {
+                            mark_value(v, obj_marks, work);
+                        }
+                        Some(super::value::FrameCompletion::Normal(_)) | None => {}
+                    }
                     for &v in &susp.stack_slice {
                         mark_value(v, obj_marks, work);
                     }

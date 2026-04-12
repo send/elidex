@@ -38,6 +38,36 @@ pub struct GeneratorState {
     pub wrapper: Option<ObjectId>,
 }
 
+/// An abrupt completion flowing through a call frame (ES2020 §6.2.3).
+///
+/// Used in two roles:
+///
+/// 1. **Generator resumption kind** (argument to
+///    [`VmInner::resume_generator`]): distinguishes `.next(v)` (`Normal`)
+///    from `.return(v)` (`Return`) and `.throw(e)` (`Throw`).
+///
+/// 2. **Pending abrupt completion on a call frame**
+///    ([`CallFrame::pending_completion`]): set when control transfers
+///    into a `finally` block because a higher-level abrupt completion
+///    (return / throw) needs to propagate past it.  The enclosing
+///    `Op::EndFinally` consults this at the end of the finally body to
+///    resume the abrupt completion — or observes that the finally
+///    itself performed an abrupt completion and was implicitly cleared
+///    (§13.15 override semantics).
+///
+/// - `Normal(v)`: the normal-completion value.  As a resumption kind
+///   this is the `.next(v)` argument; as a pending completion it is
+///   unused (a normal completion is represented by `None`).
+/// - `Return(v)`: `return v` from outside the frame (or a pending return
+///   flowing through finally).
+/// - `Throw(e)`: pending throw; when finally ends, re-raise `e`.
+#[derive(Clone, Copy, Debug)]
+pub enum FrameCompletion {
+    Normal(JsValue),
+    Return(JsValue),
+    Throw(JsValue),
+}
+
 /// Saved state of a generator's call frame while the generator is paused.
 ///
 /// `frame` is the original [`CallFrame`] moved out of `VmInner::frames`;

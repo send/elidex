@@ -1,12 +1,11 @@
 //! Generator tests (ES2020 §25.4).
 //!
-//! Scope for PR2 commit 4: `Op::Yield`-based generators (value yielding,
-//! received-value forwarding via `.next(arg)`, return, iterator protocol).
+//! - `Op::Yield`-based generators (value yielding, received-value
+//!   forwarding via `.next(arg)`, return, iterator protocol).
+//! - `.return(v)` / `.throw(e)` with `finally` forwarding (PR2.5).
 //!
-//! Out of scope (lands in PR2.5 — Generator spec completion):
-//! - `Op::YieldDelegate` (`yield*`)
-//! - `.return(v)` / `.throw(e)` abrupt-completion forwarding with finally
-//! - Await / async function integration (PR2 commit 5)
+//! Out of scope (future milestones):
+//! - `Op::YieldDelegate` (`yield*` via bytecode expansion — PR2.5 1.2)
 
 use super::{eval_bool, eval_global_number, eval_global_string, eval_number, eval_string};
 
@@ -333,11 +332,12 @@ fn generator_closure_write_between_yields_is_preserved() {
     );
 }
 
-// ─── Generator return / throw (simplified semantics) ──────────────────────
+// ─── Generator return / throw ────────────────────────────────────────────
 
 #[test]
-fn generator_return_completes_iterator() {
-    // Simplified `.return(v)` (PR2.5 will add finally-block forwarding).
+fn generator_return_completes_iterator_no_finally() {
+    // No try/finally in scope → `.return(v)` marks the generator Completed
+    // with `{value: v, done: true}` without running any user code.
     assert!(eval_bool(
         "function* g() { yield 1; yield 2; } \
          var it = g(); it.next(); \
@@ -354,15 +354,132 @@ fn generator_return_completes_iterator() {
 }
 
 #[test]
-fn generator_throw_propagates_as_error() {
-    // Simplified `.throw(e)` — native propagates the reason; PR2.5 adds
-    // catch-block forwarding inside the generator.
+fn generator_throw_uncaught_propagates_as_error() {
+    // No catch in scope → `.throw(e)` propagates the reason as a VmError.
     let mut vm = crate::vm::Vm::new();
     let err = vm.eval(
         "function* g() { yield 1; } \
          var it = g(); it.next(); it.throw('boom');",
     );
     assert!(err.is_err());
+}
+
+#[test]
+fn generator_throw_caught_by_in_scope_catch() {
+    // `.throw(e)` inside an active try routes through `catch(e)` which
+    // yields the replacement value; the generator then completes normally.
+    //
+    // Sequence: .next() enters try, yields 1 → user calls .throw('boom'),
+    // catch binds 'boom' and yields 'caught:boom' → .next() drains to
+    // the function end → {undefined, done:true}.
+    assert_eq!(
+        eval_string(
+            "function* g() { \
+               try { yield 1; } catch(e) { yield 'caught:' + e; } \
+             } \
+             var it = g(); it.next(); it.throw('boom').value;"
+        ),
+        "caught:boom"
+    );
+}
+
+#[test]
+fn generator_throw_on_completed_throws_reason() {
+    // §25.4.1.4: throw on a completed iterator surfaces the reason
+    // synchronously (the body is already gone — no handler can see it).
+    let mut vm = crate::vm::Vm::new();
+    let err = vm.eval(
+        "function* g() {} \
+         var it = g(); it.next(); it.throw('boom');",
+    );
+    assert!(err.is_err());
+}
+
+// ─── Finally forwarding for `.return` / `.throw` ─────────────────────────
+
+#[test]
+fn generator_return_runs_in_scope_finally_then_completes() {
+    // `try { yield 1 } finally { yield 2 }` + `.return(99)`:
+    // - .next() → yield 1
+    // - .return(99) enters finally, yields 2 (pending=Return(99))
+    // - .next() reaches EndFinally → completes with 99.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = []; \
+             function* g() { try { yield 1; } finally { globalThis.log.push('f'); yield 2; } } \
+             var it = g(); \
+             globalThis.log.push(it.next().value); \
+             globalThis.log.push(it.return(99).value); \
+             var r = it.next(); \
+             globalThis.log.push(r.value + '/' + r.done); \
+             globalThis.out = globalThis.log.join(',');",
+            "out"
+        ),
+        // log: [1, 'f', 2, '99/true']
+        "1,f,2,99/true"
+    );
+}
+
+#[test]
+fn generator_throw_caught_and_finally_also_runs() {
+    // `try { yield } catch(e) { yield } finally { yield }` + `.throw`
+    // routes to catch first (via handle_exception), then finally runs.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = []; \
+             function* g() { \
+               try { yield 'T'; } \
+               catch(e) { globalThis.log.push('C:'+e); yield 'Cy'; } \
+               finally { globalThis.log.push('F'); yield 'Fy'; } \
+             } \
+             var it = g(); \
+             globalThis.log.push(it.next().value); \
+             globalThis.log.push(it.throw('boom').value); \
+             globalThis.log.push(it.next().value); \
+             globalThis.out = globalThis.log.join(',');",
+            "out"
+        ),
+        "T,C:boom,Cy,F,Fy"
+    );
+}
+
+#[test]
+fn return_inside_finally_overrides_pending_return() {
+    // `try { return 1 } finally { return 2 }` — finally's own return
+    // overrides the try's pending return per §13.15.
+    assert_eq!(
+        eval_number("function f() { try { return 1; } finally { return 2; } } f();"),
+        2.0
+    );
+}
+
+#[test]
+fn throw_inside_finally_overrides_try_throw() {
+    // `try { throw 'x' } finally { throw 'y' }` — finally's throw
+    // overrides the try's throw.  The outer try/catch sees 'y'.
+    assert_eq!(
+        eval_string(
+            "var r; try { try { throw 'x'; } finally { throw 'y'; } } catch(e) { r = e; } r;"
+        ),
+        "y"
+    );
+}
+
+#[test]
+fn for_of_break_runs_inner_generator_finally() {
+    // `for (const v of g()) { break }` — for-of abrupt completion
+    // calls inner.return(undefined), which must run the generator's
+    // finally block.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = []; \
+             function* g() { try { yield 1; yield 2; } finally { globalThis.log.push('cleanup'); } } \
+             for (var v of g()) { globalThis.log.push(v); break; } \
+             globalThis.out = globalThis.log.join(',');",
+            "out"
+        ),
+        "1,cleanup"
+    );
 }
 
 // ─── Sanity: yield outside a generator is a syntax error (compiler) ───────

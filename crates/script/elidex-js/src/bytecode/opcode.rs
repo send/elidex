@@ -235,6 +235,14 @@ pub enum Op {
     Throw,
     /// `[ -- exception]`
     PushException,
+    /// End-of-finally-body marker.  Consults `frame.pending_completion`
+    /// (set when the finally was entered via an externally injected abrupt
+    /// completion — e.g. `Generator.prototype.return`) and resumes that
+    /// completion if present.  `None`/`Normal` → no-op, fall through to
+    /// normal code after the try statement.  `Return(v)` → perform return
+    /// (walking further outer finallies).  `Throw(e)` → re-raise.
+    /// `[ -- ]`
+    EndFinally,
 
     // ── Class operations ────────────────────────────────────────────
     /// Operand: u16 (constant index → class descriptor). `[super_or_undefined -- class]`
@@ -366,6 +374,7 @@ impl Op {
             | Self::PopExceptionHandler
             | Self::Throw
             | Self::PushException
+            | Self::EndFinally
             | Self::Yield
             | Self::YieldDelegate
             | Self::Await

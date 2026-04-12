@@ -474,7 +474,10 @@ pub fn compile_stmt(
             let handler_patch_pos = catch_placeholder + 1; // offset of catch u16
 
             // Push finally body onto the stack so that return/break/continue
-            // inside the try block will emit it before jumping.
+            // inside the try block will emit it before jumping.  The stack
+            // entry is popped before compiling the finally body itself: from
+            // the finally body's own perspective there is no pending finally
+            // to inline (that would recurse on `return` inside finally).
             if let Some(fin_block) = finalizer {
                 fc.finally_stack.push(fin_block.clone());
             }
@@ -492,31 +495,52 @@ pub fn compile_stmt(
             fc.current_scope_idx = saved_try_scope;
             fc.emit(Op::PopExceptionHandler);
 
+            // Finally body is compiled outside its own `finally_stack`
+            // entry — pop now, we re-push nothing (caller cares only about
+            // entries that correspond to *enclosing* try statements).
+            if finalizer.is_some() {
+                fc.finally_stack.pop();
+            }
+
             // ── try/finally without catch: two-copy layout ──────────
             //
-            //   PushExceptionHandler(catch=rethrow_entry, finally=0xFFFF)
+            //   PushExceptionHandler(catch=rethrow_entry,
+            //                        finally=normal_finally_pc)
             //   <try body>
             //   PopExceptionHandler
-            //   <finally body>          ← normal path
-            //   Jump(end)
-            //   rethrow_entry:          ← exception path
+            //   <finally body>          ← normal path (also the finally_ip
+            //   Op::EndFinally           target for `Generator.prototype
+            //   Jump(end)                .return` injection when we need to
+            //   rethrow_entry:           run finally before returning)
             //   PushException
-            //   <finally body>          (duplicate)
+            //   <finally body>          (duplicate for exception path)
             //   Throw                   ← re-throw the saved exception
             //   end:
             //
+            // The `finally_ip` in the exception handler points at the
+            // *normal-path* finally body — `handle_exception` still routes
+            // throws through `catch_ip` (rethrow_entry) because `catch_ip`
+            // takes precedence, but `Op::EndFinally` / `.return` routing
+            // use `finally_ip` to reach the finally body without the
+            // PushException-then-Throw wrapper.
+            //
             // When a catch block is present the original layout is kept:
-            // exception → catch → finally (shared).
+            // exception → catch → finally (shared), with finally_ip
+            // pointing at the shared finally body.
 
             if handler.is_none() && finalizer.is_some() {
-                // Normal path: run finally body, then jump over rethrow.
                 let fin_block = finalizer.as_ref().unwrap();
+                // Normal path: run finally body, then jump over rethrow.
+                let normal_finally_pc = fc.pc();
                 for &s in fin_block {
                     compile_stmt(fc, prog, analysis, func_scopes, s)?;
                 }
+                fc.emit(Op::EndFinally);
                 let end_jump = fc.emit_jump(Op::Jump);
 
                 // Exception path: PushException → finally body → Throw.
+                // No EndFinally here: the trailing Throw handles abrupt
+                // completion propagation (re-raising the saved exception).
                 let rethrow_entry = fc.pc();
                 fc.emit(Op::PushException);
                 for &s in fin_block {
@@ -526,7 +550,8 @@ pub fn compile_stmt(
 
                 fc.patch_jump(end_jump);
 
-                // Patch handler: catch_ip = rethrow_entry, finally_ip = 0xFFFF.
+                // Patch handler: catch_ip = rethrow_entry,
+                //                finally_ip = normal_finally_pc.
                 assert!(
                     u16::try_from(rethrow_entry).is_ok(),
                     "rethrow entry {rethrow_entry} exceeds u16 range"
@@ -534,7 +559,11 @@ pub fn compile_stmt(
                 let catch_bytes = (rethrow_entry as u16).to_le_bytes();
                 fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
                 fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-                let finally_bytes = 0xFFFFu16.to_le_bytes();
+                assert!(
+                    u16::try_from(normal_finally_pc).is_ok(),
+                    "normal finally pc {normal_finally_pc} exceeds u16 range"
+                );
+                let finally_bytes = (normal_finally_pc as u16).to_le_bytes();
                 fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
                 fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
             } else {
@@ -597,7 +626,12 @@ pub fn compile_stmt(
 
                 fc.patch_jump(finally_jump);
 
-                // Finally block (if present).
+                // Finally block (if present).  Emit `Op::EndFinally` after
+                // the body so externally injected abrupt completions that
+                // routed here (via `handle_exception` falling through to
+                // `finally_ip`, or `Generator.prototype.return`) can resume
+                // propagation.  For normal fall-through pending_completion
+                // is `None` and EndFinally is a no-op.
                 let finally_pc = if finalizer.is_some() {
                     Some(fc.pc())
                 } else {
@@ -607,6 +641,7 @@ pub fn compile_stmt(
                     for &s in fin_block {
                         compile_stmt(fc, prog, analysis, func_scopes, s)?;
                     }
+                    fc.emit(Op::EndFinally);
                 }
 
                 // Patch the exception handler offsets.
@@ -638,6 +673,7 @@ pub fn compile_stmt(
                 // Patch the catch-body exception handler (if present).
                 // This handler routes exceptions thrown inside `catch` to a
                 // rethrow stub that runs `finally` body then re-throws.
+                // No EndFinally here: the trailing Throw handles propagation.
                 if let Some(patch_pos) = catch_rethrow_patch {
                     let end_jump = fc.emit_jump(Op::Jump); // skip rethrow stub on normal path
 
@@ -664,11 +700,6 @@ pub fn compile_stmt(
                     fc.bytecode[(patch_pos + 2) as usize] = no_finally[0];
                     fc.bytecode[(patch_pos + 3) as usize] = no_finally[1];
                 }
-            }
-
-            // Pop the finally stack entry (if we pushed one).
-            if finalizer.is_some() {
-                fc.finally_stack.pop();
             }
         }
 
@@ -885,21 +916,31 @@ fn emit_iter_close_range(fc: &mut FunctionCompiler, from: usize, to: usize) {
 ///
 /// This ensures `try { return x; } finally { cleanup(); }` runs the cleanup
 /// before the return takes effect.
+///
+/// Each finally body is compiled with *itself* temporarily removed from
+/// `fc.finally_stack` (outer finallies remain).  Without this, a
+/// `return` *inside* the finally body would trigger another
+/// `emit_pending_finally_bodies` that sees the same finally on the stack
+/// and recurses infinitely.  The outer finallies must stay visible, so a
+/// nested `return` inside one finally still forwards through its enclosing
+/// finallies correctly.
 fn emit_pending_finally_bodies(
     fc: &mut FunctionCompiler,
     prog: &Program,
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
 ) -> Result<(), CompileError> {
-    // Clone the stack to avoid borrow conflict (finally_stack is on fc).
-    let stacks: Vec<Vec<NodeId<Stmt>>> = fc.finally_stack.clone();
-    // Emit innermost (last pushed) first — but for return semantics,
-    // we need innermost-to-outermost order, which is reverse iteration.
-    for fin_stmts in stacks.iter().rev() {
-        for &s in fin_stmts {
+    let saved = std::mem::take(&mut fc.finally_stack);
+    // Iterate innermost-to-outermost: indices (n-1)..=0 in reverse.
+    for i in (0..saved.len()).rev() {
+        // Outer finallies remain on the stack; this finally is excluded
+        // from its own compile (prevents self-recursion on `return`).
+        fc.finally_stack = saved[..i].to_vec();
+        for &s in &saved[i] {
             compile_stmt(fc, prog, analysis, func_scopes, s)?;
         }
     }
+    fc.finally_stack = saved;
     Ok(())
 }
 

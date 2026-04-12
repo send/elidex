@@ -322,6 +322,40 @@ impl VmInner {
         }
     }
 
+    /// Route a pending abrupt completion (from [`super::value::FrameCompletion`])
+    /// to the next outer finally block on the current frame, if any.
+    ///
+    /// Pops handlers that cannot host the completion (catch-only handlers,
+    /// skipped for Return completions per §13.15 since `.return(v)` must
+    /// bypass `catch`), truncates the stack, and writes `pending_completion`
+    /// on the frame so the reached finally's trailing `Op::EndFinally` will
+    /// resume propagation.  Returns the bytecode offset to jump to, or
+    /// `None` if no outer finally exists in the current frame.
+    ///
+    /// Invariant: `finally_ip != u32::MAX` in a handler whose try statement
+    /// has a finally clause — the compiler emits a valid `finally_ip` for
+    /// every such handler (including the try/finally-without-catch layout).
+    pub(crate) fn route_to_next_finally(
+        &mut self,
+        completion: super::value::FrameCompletion,
+    ) -> Option<usize> {
+        let frame = self.frames.last_mut().unwrap();
+        while let Some(handler) = frame.exception_handlers.pop() {
+            if handler.finally_ip != u32::MAX {
+                let target_ip = handler.finally_ip as usize;
+                let stack_depth = handler.stack_depth;
+                frame.pending_completion = Some(completion);
+                self.stack.truncate(stack_depth);
+                return Some(target_ip);
+            }
+            // Catch-only handler: skip for abrupt completions that bypass
+            // catch (Return).  Throw is routed by `handle_exception`, not
+            // this function, so we'd only get here with Return in practice
+            // — still skip uniformly for clarity.
+        }
+        None
+    }
+
     pub(crate) fn pop_frame(&mut self) {
         if let Some(frame) = self.frames.pop() {
             self.close_upvalues(&frame.local_upvalue_ids);
