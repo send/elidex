@@ -68,12 +68,12 @@ anyhow = "1"
 base64 = "0.22"
 bitflags = "2"
 arboard = "3"
-cssparser = "0.36"
+cssparser = "0.37"
 encoding_rs = "0.8"
 clap = { version = "4", features = ["derive"] }
 csv = "1"
 hecs = "0.11"
-html5ever = "0.38"
+html5ever = "0.39"
 markup5ever_rcdom = "0.38"
 reqwest = { version = "0.13", default-features = false, features = ["gzip", "brotli", "rustls-no-provider", "http2", "charset"] }
 serde = { version = "1", features = ["derive"] }
@@ -150,26 +150,26 @@ elidex-api-ws = { path = "crates/api/elidex-api-ws" }
 elidex-api-canvas = { path = "crates/api/elidex-api-canvas" }
 elidex-custom-elements = { path = "crates/dom/elidex-custom-elements" }
 elidex-indexeddb = { path = "crates/dom/elidex-indexeddb" }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 boa_engine = { version = "0.21", features = ["annex-b"] }
 boa_gc = "0.21"
-egui = "0.33"
-egui-wgpu = "0.33"
-egui-winit = "0.33"
-vello = "0.7"
-wgpu = "27"
+egui = "0.34"
+egui-wgpu = "0.34"
+egui-winit = "0.34"
+vello = "0.8"
+wgpu = "29"
 winit = "0.30"
 pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.32"
-wasmtime = "42"
+wasmtime = "43"
 wat = "1"
 rayon = "1"
 unicode-segmentation = "1"
 unicode-linebreak = "0.1"
 regex = "1"
-regress = { version = "0.10", features = ["utf16"] }
+regress = { version = "0.11", features = ["utf16"] }
 criterion = { version = "0.8", default-features = false }
 elidex-wpt = { path = "crates/tools/elidex-wpt" }
 
