@@ -740,9 +740,10 @@ fn eval_const_reassign_error() {
     assert!(eval("const x = 1; x = 2;").is_err());
 }
 
-// Note: `Vm` intentionally does NOT implement `Send` once a `HostData` is
-// installed — see vm/host_data.rs.  Worker-thread support in PR2+ will design
-// a Send-safe variant explicitly.
+// Note: under the `engine` feature, `Vm` is always `!Send` because
+// `VmInner` carries `Option<Box<HostData>>` regardless of whether a
+// `HostData` is currently installed/bound (see vm/host_data.rs).
+// Worker-thread support in PR2+ will design a Send-safe variant explicitly.
 
 // ---------------------------------------------------------------------------
 // TDZ enforcement

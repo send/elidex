@@ -466,6 +466,50 @@ fn bind_honors_defineproperty_length() {
 }
 
 #[test]
+fn to_primitive_honors_at_to_primitive_on_wrapper() {
+    // §7.1.1 step 2.a: @@toPrimitive takes precedence even for primitive
+    // wrapper objects.  Regression guard: the fast-path that unwraps
+    // NumberWrapper/StringWrapper/BooleanWrapper must not shadow a
+    // user-defined Symbol.toPrimitive.
+    assert_eq!(
+        eval_string(
+            "var s = new String('wrapped');
+             s[Symbol.toPrimitive] = function() { return 'custom'; };
+             String(s + '');"
+        ),
+        "custom"
+    );
+}
+
+#[test]
+fn bind_name_coerces_non_string_via_to_string() {
+    // §19.2.3.2 step 11-13: Get(target, "name") returns arbitrary JsValue;
+    // non-Symbol values must be ToString-coerced before the "bound " prefix.
+    assert_eq!(
+        eval_string(
+            "function foo() {}
+             Object.defineProperty(foo, 'name', { value: 42, configurable: true });
+             foo.bind(null).name;"
+        ),
+        "bound 42"
+    );
+}
+
+#[test]
+fn bind_name_symbol_falls_back_to_empty() {
+    // §19.2.3.2 step 13: non-String `name` → targetName = "".
+    // (Symbol would otherwise throw in ToString; spec says treat as empty.)
+    assert_eq!(
+        eval_string(
+            "function foo() {}
+             Object.defineProperty(foo, 'name', { value: Symbol('bar'), configurable: true });
+             foo.bind(null).name;"
+        ),
+        "bound "
+    );
+}
+
+#[test]
 fn abstract_eq_propagates_to_primitive_throw() {
     // §7.2.15 steps 10/12: Object == primitive calls ? ToPrimitive; an
     // abrupt completion from @@toPrimitive must propagate, not silently

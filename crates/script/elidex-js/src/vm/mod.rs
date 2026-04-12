@@ -894,11 +894,18 @@ impl Vm {
         }
     }
 
-    /// Install a new global variable.  Returns the previous value if one
-    /// was already registered under `name` (callers should normally ignore
-    /// this and treat reuse of a name as a bug — shell host globals and
-    /// JS-visible built-ins must not collide).
-    pub fn set_global(&mut self, name: &str, value: JsValue) -> Option<JsValue> {
+    /// Install a new global variable.
+    ///
+    /// Reusing a name is normally a bug — shell host globals and JS-visible
+    /// built-ins must not collide — so this convenience method ignores any
+    /// previous value.  Use [`Vm::set_global_checked`] if the caller needs
+    /// to detect replacement explicitly.
+    pub fn set_global(&mut self, name: &str, value: JsValue) {
+        let _ = self.set_global_checked(name, value);
+    }
+
+    /// Install a new global variable and return the previous value, if any.
+    pub fn set_global_checked(&mut self, name: &str, value: JsValue) -> Option<JsValue> {
         let id = self.inner.strings.intern(name);
         self.inner.globals.insert(id, value)
     }

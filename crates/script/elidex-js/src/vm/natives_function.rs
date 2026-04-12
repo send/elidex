@@ -148,11 +148,20 @@ fn target_function_length_name(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let length = match ctx.try_get_property_value(target_id, length_key)? {
         Some(JsValue::Number(n)) if n.is_finite() && n >= 0.0 => n as usize,
-        _ => internal_function_length(ctx, target_id),
+        Some(_) | None => internal_function_length(ctx, target_id),
     };
+    // §19.2.3.2 step 11-13: `targetName` is `? Get(target, "name")`.
+    // Non-String results get `ToString`-coerced (e.g. `{value: 42}` → "42");
+    // Symbols fall back to empty string per §19.2.3.2 step 13 ("If Type is
+    // not String, let targetName be the empty String").
     let name = match ctx.try_get_property_value(target_id, name_key)? {
         Some(JsValue::String(sid)) => ctx.get_utf8(sid),
-        _ => internal_function_name(ctx, target_id),
+        Some(JsValue::Symbol(_)) => String::new(),
+        Some(other) => {
+            let sid = ctx.to_string_val(other)?;
+            ctx.get_utf8(sid)
+        }
+        None => internal_function_name(ctx, target_id),
     };
     Ok((length, name))
 }

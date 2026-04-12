@@ -145,21 +145,9 @@ impl VmInner {
     pub(crate) fn to_primitive(&mut self, val: JsValue, hint: &str) -> Result<JsValue, VmError> {
         match val {
             JsValue::Object(obj_id) => {
-                // Fast-path: unwrap primitive wrappers directly.  This
-                // deviates from §7.1.1 step 2.a (which would still consult
-                // @@toPrimitive) but matches observable behavior when a
-                // wrapper has no custom @@toPrimitive, avoiding an extra
-                // property lookup on every arithmetic operation.  A
-                // wrapper with a defined @@toPrimitive will bypass this.
-                match self.get_object(obj_id).kind {
-                    ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
-                    ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
-                    ObjectKind::BooleanWrapper(b) => return Ok(JsValue::Boolean(b)),
-                    ObjectKind::BigIntWrapper(id) => return Ok(JsValue::BigInt(id)),
-                    ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
-                    _ => {}
-                }
-                // §7.1.1 step 2.a: Check @@toPrimitive.
+                // §7.1.1 step 2.a: @@toPrimitive takes precedence for ANY
+                // Object, including primitive wrappers — a user-defined
+                // Symbol.toPrimitive on a wrapper must be honored.
                 let to_prim_key = PropertyKey::Symbol(self.well_known_symbols.to_primitive);
                 let exotic_to_prim = match get_property(self, obj_id, to_prim_key) {
                     Some(PropertyResult::Data(v)) => Some(v),
@@ -176,6 +164,20 @@ impl VmInner {
                         ));
                     }
                     return Ok(result);
+                }
+                // No @@toPrimitive: unwrap primitive wrappers directly.
+                // This is a simplification of §7.1.1.1 OrdinaryToPrimitive
+                // that happens to produce spec-equivalent results for
+                // wrappers (since valueOf/toString defer to the inner
+                // primitive anyway); a fully spec-compliant fallback is
+                // tracked as dedicated PR (see phase4-plan.md).
+                match self.get_object(obj_id).kind {
+                    ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
+                    ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
+                    ObjectKind::BooleanWrapper(b) => return Ok(JsValue::Boolean(b)),
+                    ObjectKind::BigIntWrapper(id) => return Ok(JsValue::BigInt(id)),
+                    ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
+                    _ => {}
                 }
                 // OrdinaryToPrimitive: simplified — return "[object Object]"
                 Ok(JsValue::String(self.well_known.object_to_string))
