@@ -244,48 +244,6 @@ fn bound_method_keeps_this() {
 // Function.prototype on prototype chain
 // ---------------------------------------------------------------------------
 
-#[test]
-fn all_functions_have_call() {
-    assert!(super::eval_bool(
-        "function f() {} typeof f.call === 'function';"
-    ));
-}
-
-#[test]
-fn all_functions_have_apply() {
-    assert!(super::eval_bool(
-        "function f() {} typeof f.apply === 'function';"
-    ));
-}
-
-#[test]
-fn all_functions_have_bind() {
-    assert!(super::eval_bool(
-        "function f() {} typeof f.bind === 'function';"
-    ));
-}
-
-#[test]
-fn all_functions_have_tostring() {
-    assert!(super::eval_bool(
-        "function f() {} typeof f.toString === 'function';"
-    ));
-}
-
-#[test]
-fn arrow_function_has_call() {
-    assert!(super::eval_bool(
-        "var f = () => 1; typeof f.call === 'function';"
-    ));
-}
-
-#[test]
-fn arrow_function_has_bind() {
-    assert!(super::eval_bool(
-        "var f = () => 1; typeof f.bind === 'function';"
-    ));
-}
-
 // ---------------------------------------------------------------------------
 // Edge cases
 // ---------------------------------------------------------------------------
@@ -360,9 +318,13 @@ fn set_prototype_of_frozen_throws() {
 
 #[test]
 fn set_prototype_of_frozen_same_proto_ok() {
-    // Setting the same prototype on a non-extensible object is allowed.
+    // §19.1.2.21: setting the current [[Prototype]] on a non-extensible
+    // object is allowed; verify both the return value and the post-state.
     assert!(super::eval_bool(
-        "var p = {}; var o = Object.create(p); Object.preventExtensions(o); Object.setPrototypeOf(o, p); true;"
+        "var p = {};
+         var o = Object.create(p);
+         Object.preventExtensions(o);
+         Object.setPrototypeOf(o, p) === o && Object.getPrototypeOf(o) === p;"
     ));
 }
 

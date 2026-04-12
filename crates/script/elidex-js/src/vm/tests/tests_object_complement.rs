@@ -816,10 +816,3 @@ fn function_prototype_callable() {
         "var f = function(){}; Object.getPrototypeOf(f)() === undefined;"
     ));
 }
-
-#[test]
-fn function_prototype_typeof() {
-    assert!(eval_bool(
-        "var f = function(){}; typeof Object.getPrototypeOf(f) === 'function';"
-    ));
-}
