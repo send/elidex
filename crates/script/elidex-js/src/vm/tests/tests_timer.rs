@@ -64,6 +64,35 @@ fn drain_passes_extra_args_to_callback() {
 }
 
 #[test]
+fn set_timeout_string_delay_is_coerced_via_to_number() {
+    // WHATWG §8.7 step 2: `timeout` is converted via ToNumber.  Browsers
+    // accept `setTimeout(fn, '10')` as 10 ms — the delay argument takes
+    // the same coercion path as any other numeric-typed API.
+    let mut vm = installed_vm();
+    vm.eval("globalThis.fired = 0; setTimeout(() => { globalThis.fired = 1; }, '10');")
+        .unwrap();
+    // Just before the deadline: nothing fires.
+    vm.inner
+        .drain_timers(Instant::now() + Duration::from_millis(5));
+    assert_eq!(vm.get_global("fired"), Some(JsValue::Number(0.0)));
+    // After the 10 ms deadline: coercion succeeded.
+    vm.inner
+        .drain_timers(Instant::now() + Duration::from_millis(50));
+    assert_eq!(vm.get_global("fired"), Some(JsValue::Number(1.0)));
+}
+
+#[test]
+fn set_timeout_non_finite_delay_clamps_to_zero() {
+    // `undefined` → NaN under ToNumber → clamp to 0; equivalent to
+    // `setTimeout(fn, 0)` in browsers.
+    let mut vm = installed_vm();
+    vm.eval("globalThis.fired = 0; setTimeout(() => { globalThis.fired = 1; });")
+        .unwrap();
+    vm.inner.drain_timers(Instant::now());
+    assert_eq!(vm.get_global("fired"), Some(JsValue::Number(1.0)));
+}
+
+#[test]
 fn drain_skips_non_expired() {
     let mut vm = installed_vm();
     vm.eval("globalThis.fired = 0; setTimeout(() => { globalThis.fired = 1; }, 1000);")
@@ -95,6 +124,28 @@ fn clear_timeout_unknown_id_is_noop() {
     let mut vm = installed_vm();
     // Should not throw; silently ignores unknown ids (spec).
     vm.eval("clearTimeout(99999);").unwrap();
+}
+
+#[test]
+fn clear_timeout_unknown_id_does_not_accumulate_in_cancelled_set() {
+    // Regression guard for Copilot PR #71 #6: `clearTimeout(<bogus>)`
+    // used to insert every id into `cancelled_timers` unconditionally,
+    // which a malicious script could exploit as a memory-DoS vector
+    // (insert 2^32 distinct ids for ~16 GiB of HashSet).  We now only
+    // record cancellations for ids that are currently pending, so a
+    // burst of clearTimeout calls against unknown ids must leave the
+    // set untouched.
+    let mut vm = installed_vm();
+    vm.eval(
+        "for (var i = 1000; i < 1050; i++) { clearTimeout(i); } \
+         for (var j = 2000; j < 2050; j++) { clearInterval(j); }",
+    )
+    .unwrap();
+    assert!(
+        vm.inner.cancelled_timers.is_empty(),
+        "cancelled_timers must not grow for unknown ids (got {} entries)",
+        vm.inner.cancelled_timers.len()
+    );
 }
 
 // ─── setInterval ─────────────────────────────────────────────────────────

@@ -168,6 +168,15 @@ pub(crate) struct VmInner {
     pub(crate) timer_queue: BinaryHeap<natives_timer::TimerEntry>,
     /// Monotonically-increasing IDs returned by `setTimeout` / `setInterval`.
     pub(crate) next_timer_id: u32,
+    /// IDs of currently-live timers: inserted on schedule, removed on
+    /// fire (for one-shot) or cancel.  Intervals stay in the set across
+    /// re-arm because their id is reused.  This lets `clearTimeout` /
+    /// `clearInterval` reject ids that aren't ours in O(1) — the naive
+    /// "iterate the heap" alternative misses intervals whose callback
+    /// cancels itself (the heap entry is popped before the callback
+    /// runs, so an any-in-queue test would return `false` and the
+    /// subsequent re-arm would evade cancellation).
+    pub(crate) active_timer_ids: HashSet<u32>,
     /// IDs cleared before firing — skipped at drain time.
     pub(crate) cancelled_timers: HashSet<u32>,
 }
@@ -834,6 +843,7 @@ impl Vm {
                 generator_yielded: None,
                 timer_queue: BinaryHeap::new(),
                 next_timer_id: 1,
+                active_timer_ids: HashSet::new(),
                 cancelled_timers: HashSet::new(),
             },
         };

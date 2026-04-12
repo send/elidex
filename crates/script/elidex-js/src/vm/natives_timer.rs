@@ -79,10 +79,20 @@ fn schedule_timer(
         ));
     }
 
-    // Delay: arg[1] clamped to >= 0 ms.  Non-finite / negative → 0.
-    let delay_ms = match args.get(1).copied() {
-        Some(JsValue::Number(n)) if n.is_finite() && n > 0.0 => n,
-        _ => 0.0,
+    // Delay: WHATWG §8.7 step 2 converts `timeout` via ToNumber before
+    // clamping to >= 0 ms.  Browsers route `setTimeout(fn, '10')` through
+    // the string→number coercion, so matching spec means running the
+    // non-primitive argument through `ToNumber` (which also produces NaN
+    // for symbols / rejects with a TypeError the same way every other
+    // coercion does).  Non-finite / non-positive outputs clamp to 0.
+    let delay_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let delay_ms = {
+        let n = ctx.to_number(delay_arg)?;
+        if n.is_finite() && n > 0.0 {
+            n
+        } else {
+            0.0
+        }
     };
     // Clamp to a safe f64→u64 range.  2^53 microseconds is ~285 years,
     // well beyond any realistic timer horizon; anything larger is not
@@ -105,6 +115,7 @@ fn schedule_timer(
 
     let id = ctx.vm.next_timer_id;
     ctx.vm.next_timer_id = ctx.vm.next_timer_id.wrapping_add(1);
+    ctx.vm.active_timer_ids.insert(id);
     ctx.vm.timer_queue.push(TimerEntry {
         id,
         deadline: Instant::now() + delay,
@@ -140,7 +151,17 @@ fn cancel_timer(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<JsValue
     };
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let id = n as u32;
-    ctx.vm.cancelled_timers.insert(id);
+    // Only record cancellations for ids we actually own.  Without this
+    // guard, `clearTimeout(<bogus>)` (a spec no-op) would insert into
+    // `cancelled_timers` unboundedly — a memory-DoS vector where an
+    // attacker calls `clearTimeout(i)` for a huge range of unknown ids.
+    // `active_timer_ids` is authoritative for both pending entries in the
+    // heap and intervals that are currently firing (their id is preserved
+    // on re-arm), which catches the self-cancelling interval case the
+    // naive heap scan misses.
+    if ctx.vm.active_timer_ids.remove(&id) {
+        ctx.vm.cancelled_timers.insert(id);
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -197,24 +218,38 @@ impl VmInner {
                 .pop()
                 .expect("head_ready implies non-empty");
             if self.cancelled_timers.remove(&entry.id) {
+                self.active_timer_ids.remove(&entry.id);
                 continue;
             }
             if let Err(e) = self.fire_timer(&entry) {
                 eprintln!("timer callback {} threw: {e}", entry.id);
             }
             fired += 1;
-            // Interval: re-arm.  Even if this firing ran long, we keep the
-            // "scheduled" deadline monotonic rather than drifting with
-            // callback duration — matches browser scheduler semantics
-            // closely enough for now.
+            // Interval re-arm.  Re-check cancellation here so that a
+            // callback that cancels its own interval (the classic
+            // `setInterval(() => { if (...) clearInterval(id); })`
+            // pattern) does not get re-scheduled: `cancel_timer` may
+            // have inserted the id into `cancelled_timers` while the
+            // callback was running, and we must honour that before
+            // pushing the next tick back onto the heap.  We keep the
+            // monotonic `deadline + repeat` cadence so callbacks don't
+            // drift with their own duration.
             if let Some(repeat) = entry.repeat {
-                self.timer_queue.push(TimerEntry {
-                    id: entry.id,
-                    deadline: entry.deadline + repeat,
-                    callback: entry.callback,
-                    repeat: Some(repeat),
-                    args: entry.args,
-                });
+                if self.cancelled_timers.remove(&entry.id) {
+                    self.active_timer_ids.remove(&entry.id);
+                } else {
+                    self.timer_queue.push(TimerEntry {
+                        id: entry.id,
+                        deadline: entry.deadline + repeat,
+                        callback: entry.callback,
+                        repeat: Some(repeat),
+                        args: entry.args,
+                    });
+                }
+            } else {
+                // One-shot timer: no further firings, so drop the id
+                // from the active set.
+                self.active_timer_ids.remove(&entry.id);
             }
         }
         self.drain_microtasks();
