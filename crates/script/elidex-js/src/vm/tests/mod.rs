@@ -49,6 +49,35 @@ fn eval_bool(source: &str) -> bool {
     }
 }
 
+/// Assert `throwing` throws, AND that after recovery `observation` yields
+/// `expected`.  Used when a now-strict operation used to fail silently —
+/// verifies both the throw and that state is unchanged.  `setup` runs before
+/// both the throwing check and the observation.
+///
+/// Segments are joined with `;\n` so callers need not worry about trailing
+/// semicolons or ASI: a redundant `;` between two well-formed statements is
+/// a valid empty statement.
+fn assert_throws_preserves_number(setup: &str, throwing: &str, observation: &str, expected: f64) {
+    eval_throws(&format!("{setup};\n{throwing}"));
+    assert_eq!(
+        eval_number(&format!(
+            "{setup};\ntry {{ {throwing} }} catch(_) {{}}\n{observation}"
+        )),
+        expected,
+    );
+}
+
+/// Boolean-returning variant of [`assert_throws_preserves_number`].
+fn assert_throws_preserves_bool(setup: &str, throwing: &str, observation: &str, expected: bool) {
+    eval_throws(&format!("{setup};\n{throwing}"));
+    assert_eq!(
+        eval_bool(&format!(
+            "{setup};\ntry {{ {throwing} }} catch(_) {{}}\n{observation}"
+        )),
+        expected,
+    );
+}
+
 #[test]
 fn eval_number_literal() {
     assert_eq!(eval_number("42;"), 42.0);
@@ -195,32 +224,10 @@ fn eval_get_global_reference_error() {
 
 #[test]
 fn eval_set_global_strict_mode_reference_error() {
-    // §8.1.1.2.5: In strict mode, assigning to an undeclared variable
-    // should throw ReferenceError.
+    // §8.1.1.2.5: assigning to an undeclared binding throws ReferenceError.
     assert_eq!(
-        eval_string(
-            "var r = 'ok'; try { (function() { 'use strict'; undeclared = 1; })(); } catch(e) { r = e.message; } r;"
-        ),
+        eval_string("var r = 'ok'; try { undeclared = 1; } catch(e) { r = e.message; } r;"),
         "undeclared is not defined",
-    );
-}
-
-#[test]
-fn eval_set_global_sloppy_creates_global() {
-    // Sloppy mode: assigning to undeclared variable creates a global.
-    assert_eq!(
-        eval_number("(function() { sloppyGlobal = 42; })(); sloppyGlobal;"),
-        42.0
-    );
-}
-
-#[test]
-fn eval_this_coercion_global_object() {
-    // Non-strict function: `this` should be coerced to the global object
-    // when called without a receiver (§9.2.1.2).
-    assert_eq!(
-        eval_string("function f() { return typeof this; } f();"),
-        "object"
     );
 }
 
@@ -935,21 +942,16 @@ fn eval_function_hoisting() {
 
 #[test]
 fn eval_global_object_property_lookup_falls_back_to_globals() {
-    // Non-strict `this` is coerced to globalThis; `this.Math` should resolve.
-    assert_eq!(
-        eval_string("function f() { return typeof this.Math; } f();"),
-        "object",
-    );
+    // Explicit `globalThis` receiver exercises the globals HashMap → global
+    // object property-lookup fallback.
+    assert_eq!(eval_string("typeof globalThis.Math;"), "object",);
 }
 
 #[test]
 fn eval_global_object_set_property_syncs_to_globals() {
-    // Writing to `this.<prop>` in a non-strict function (which resolves to
-    // globalThis) must be visible via bare identifier lookup (GetGlobal).
-    assert_eq!(
-        eval_number("function f() { this.testGlobal = 42; } f(); testGlobal;"),
-        42.0,
-    );
+    // Writing to `globalThis.<prop>` must be visible via bare identifier
+    // lookup (GetGlobal).
+    assert_eq!(eval_number("globalThis.testGlobal = 42; testGlobal;"), 42.0,);
 }
 
 mod tests_string;

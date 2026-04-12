@@ -32,11 +32,10 @@ fn call_this_arg_with_args() {
 
 #[test]
 fn call_no_args_this_undefined() {
-    // When called without arguments, thisArg is undefined.
-    // In sloppy mode, `this` is coerced to the global object.
+    // §19.2.3.3 step 3: thisArg defaults to undefined.
     assert_eq!(
         super::eval_string("function f() { return typeof this; } f.call();"),
-        "object"
+        "undefined"
     );
 }
 
@@ -249,19 +248,19 @@ fn bound_method_keeps_this() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn call_with_primitive_this_boxing() {
-    // In sloppy mode, primitive thisArg should be boxed to object.
+fn call_with_primitive_this_stays_primitive() {
+    // §9.2.1.2 step 3: strict mode does not box primitive thisArg.
     assert_eq!(
         super::eval_string("function f() { return typeof this; } f.call(42);"),
-        "object"
+        "number"
     );
 }
 
 #[test]
-fn apply_with_primitive_this_boxing() {
+fn apply_with_primitive_this_stays_primitive() {
     assert_eq!(
         super::eval_string("function f() { return typeof this; } f.apply('hello', []);"),
-        "object"
+        "string"
     );
 }
 

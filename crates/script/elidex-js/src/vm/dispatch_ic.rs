@@ -180,18 +180,17 @@ impl VmInner {
         }
     }
 
-    /// Compute the effective `this` for a call, applying §9.2.1.2
-    /// OrdinaryCallBindThis: Global mode coerces null/undefined to globalThis
-    /// and boxes primitives via ToObject.
-    fn compute_this_for_call(
-        &mut self,
+    /// §9.2.1.2 OrdinaryCallBindThis: resolve `this` for a call given the
+    /// callee's `ThisMode`.  Arrow functions use their captured `this`;
+    /// strict functions receive the caller-provided receiver verbatim.
+    #[inline]
+    pub(super) fn compute_this_for_call(
         this_mode: super::value::ThisMode,
         receiver: JsValue,
         captured_this: Option<JsValue>,
     ) -> JsValue {
         match this_mode {
             super::value::ThisMode::Lexical => captured_this.unwrap_or(JsValue::Undefined),
-            super::value::ThisMode::Global => self.bind_this_global(receiver),
             super::value::ThisMode::Strict => receiver,
         }
     }
@@ -233,7 +232,7 @@ impl VmInner {
 
         // IC hit: skip object-table lookup entirely.
         if let Some(callee) = self.try_call_ic(caller_func_id, call_ic_idx, callee_id) {
-            let this = self.compute_this_for_call(
+            let this = Self::compute_this_for_call(
                 callee.this_mode,
                 JsValue::Undefined,
                 callee.captured_this,
@@ -244,7 +243,7 @@ impl VmInner {
 
         // IC miss: extract callee info from object.
         if let Some(callee) = self.extract_js_callee(callee_id) {
-            let this = self.compute_this_for_call(
+            let this = Self::compute_this_for_call(
                 callee.this_mode,
                 JsValue::Undefined,
                 callee.captured_this,
@@ -281,7 +280,7 @@ impl VmInner {
 
         // IC hit: skip object-table lookup entirely.
         if let Some(callee_info) = self.try_call_ic(caller_func_id, call_ic_idx, callee_id) {
-            let this = self.compute_this_for_call(
+            let this = Self::compute_this_for_call(
                 callee_info.this_mode,
                 receiver,
                 callee_info.captured_this,
@@ -292,7 +291,7 @@ impl VmInner {
 
         // IC miss: extract callee info from object.
         if let Some(callee_info) = self.extract_js_callee(callee_id) {
-            let this = self.compute_this_for_call(
+            let this = Self::compute_this_for_call(
                 callee_info.this_mode,
                 receiver,
                 callee_info.captured_this,

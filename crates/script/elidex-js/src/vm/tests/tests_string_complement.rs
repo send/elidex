@@ -381,19 +381,13 @@ fn new_string_no_args_is_empty() {
 
 #[test]
 fn new_string_length_is_non_writable() {
-    // §21.1.5.1: `length` is non-writable.  Strict mode throws on assignment.
-    eval_throws(
-        "(function() {
-           'use strict';
-           var w = new String('abc');
-           w.length = 10;
-         })();",
-    );
-    // Sloppy mode silently ignores (pre-existing top-level behavior):
-    // value is unchanged.
-    assert_eq!(
-        eval_number("var w = new String('abc'); w.length = 10; w.length;"),
-        3.0
+    // §21.1.5.1: `length` is non-writable — assignment throws and the
+    // stored length is unchanged.
+    super::assert_throws_preserves_number(
+        "var w = new String('abc');",
+        "w.length = 10;",
+        "w.length;",
+        3.0,
     );
 }
 

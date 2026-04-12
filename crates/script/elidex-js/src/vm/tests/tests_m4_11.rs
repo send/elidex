@@ -194,16 +194,6 @@ fn writable_false_strict_throws() {
     );
 }
 
-#[test]
-fn writable_false_sloppy_silent() {
-    assert_eq!(
-        eval_number(
-            "var o = {}; Object.defineProperty(o, 'x', { value: 1, writable: false }); o.x = 2; o.x;"
-        ),
-        1.0
-    );
-}
-
 // ─── D2: configurable:false delete enforcement ──────────────────────────
 
 #[test]
@@ -211,13 +201,6 @@ fn non_configurable_delete_strict_throws() {
     eval_throws(
         "'use strict'; var o = {}; Object.defineProperty(o, 'x', { value: 1, configurable: false }); delete o.x;",
     );
-}
-
-#[test]
-fn non_configurable_delete_sloppy_returns_false() {
-    assert!(!eval_bool(
-        "var o = {}; Object.defineProperty(o, 'x', { value: 1, configurable: false }); delete o.x;"
-    ));
 }
 
 #[test]
@@ -238,34 +221,11 @@ fn prototype_writable_false_blocks_own_strict() {
 }
 
 #[test]
-fn prototype_writable_false_blocks_own_sloppy() {
-    assert_eq!(
-        eval_number(
-            "var proto = {}; Object.defineProperty(proto, 'x', { value: 1, writable: false }); \
-             var o = Object.create(proto); o.x = 2; o.x;"
-        ),
-        1.0 // Inherited value, own assignment silently failed
-    );
-}
-
-#[test]
 fn prototype_accessor_no_setter_blocks_strict() {
     eval_throws(
         "'use strict'; var proto = {}; \
          Object.defineProperty(proto, 'x', { get: function() { return 1; } }); \
          var o = Object.create(proto); o.x = 2;",
-    );
-}
-
-#[test]
-fn prototype_accessor_no_setter_blocks_sloppy() {
-    assert_eq!(
-        eval_number(
-            "var proto = {}; \
-             Object.defineProperty(proto, 'x', { get: function() { return 1; } }); \
-             var o = Object.create(proto); o.x = 2; o.x;"
-        ),
-        1.0 // Getter returns 1, assignment silently failed
     );
 }
 
@@ -529,4 +489,135 @@ fn native_reentrant_during_inline_call() {
 #[test]
 fn new_arrow_function_throws() {
     eval_throws("var f = () => {}; new f();");
+}
+
+// ─── §6.2.4.5 RequireObjectCoercible for null/undefined base ─────────────
+
+#[test]
+fn get_prop_null_throws() {
+    eval_throws("var v = null; v.x;");
+}
+
+#[test]
+fn get_prop_undefined_throws() {
+    eval_throws("var v = undefined; v.x;");
+}
+
+#[test]
+fn set_prop_null_throws() {
+    eval_throws("var v = null; v.x = 1;");
+}
+
+#[test]
+fn set_prop_undefined_throws() {
+    eval_throws("var v; v.x = 1;");
+}
+
+#[test]
+fn get_elem_null_throws() {
+    eval_throws("var v = null; v[0];");
+}
+
+#[test]
+fn get_elem_undefined_throws() {
+    eval_throws("var v; v[0];");
+}
+
+#[test]
+fn set_elem_null_throws() {
+    eval_throws("var v = null; v[0] = 1;");
+}
+
+#[test]
+fn set_elem_undefined_throws() {
+    eval_throws("var v; v[0] = 1;");
+}
+
+#[test]
+fn delete_prop_null_throws() {
+    // §12.5.3.2 step 6: ToObject(null) throws.
+    eval_throws("var v = null; delete v.x;");
+}
+
+#[test]
+fn delete_prop_undefined_throws() {
+    eval_throws("var v; delete v.x;");
+}
+
+#[test]
+fn delete_elem_null_throws() {
+    eval_throws("var v = null; delete v[0];");
+}
+
+#[test]
+fn delete_elem_undefined_throws() {
+    eval_throws("var v; delete v[0];");
+}
+
+#[test]
+fn delete_prop_primitive_boxes() {
+    // ToObject(5) → NumberWrapper; deleting an absent property succeeds
+    // (wrapper has no own `foo`).
+    assert!(eval_bool("delete (5).foo;"));
+}
+
+#[test]
+fn delete_prop_string_length_throws() {
+    // StringWrapper.length is non-configurable → [[Delete]] returns false →
+    // §12.5.3.2 strict throw.
+    eval_throws("delete (new String('abc')).length;");
+}
+
+// ─── §9.1.9.2 step 2.b: primitive Receiver rejects data writes ───────────
+
+#[test]
+fn set_prop_primitive_number_throws() {
+    eval_throws("(5).foo = 1;");
+}
+
+#[test]
+fn set_prop_primitive_string_throws() {
+    eval_throws("'abc'.foo = 1;");
+}
+
+#[test]
+fn set_prop_primitive_boolean_throws() {
+    eval_throws("true.foo = 1;");
+}
+
+#[test]
+fn set_prop_primitive_bigint_throws() {
+    eval_throws("(5n).foo = 1;");
+}
+
+#[test]
+fn set_elem_primitive_number_throws() {
+    eval_throws("(5)[0] = 1;");
+}
+
+#[test]
+fn set_elem_primitive_string_throws() {
+    // ToObject('a') → StringWrapper.  "0" has no own slot (exotic indexed
+    // props not yet implemented), so the write falls through to create-own
+    // on a primitive receiver → TypeError per §9.1.9.2 step 2.e/2.b.
+    eval_throws("'abc'[0] = 'X';");
+}
+
+#[test]
+fn set_prop_primitive_through_prototype_setter() {
+    // When a setter exists on the prototype, the setter IS invoked with the
+    // primitive as `this` — spec §9.1.9.2 step 3.b allows this even for
+    // primitive Receiver, unlike the data-write path.
+    assert_eq!(
+        eval_number(
+            "var captured;
+             Object.defineProperty(Number.prototype, 'tap', {
+                 set: function(v) { captured = typeof this; },
+                 configurable: true
+             });
+             (5).tap = 99;
+             captured === 'number' ? 1 : 0;"
+        ),
+        1.0
+    );
 }

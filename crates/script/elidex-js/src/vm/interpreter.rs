@@ -54,13 +54,8 @@ impl VmInner {
                 ObjectKind::Function(fo) => {
                     let func_id = fo.func_id;
                     let upvalue_ids = fo.upvalue_ids.clone();
-                    let resolved_this = match fo.this_mode {
-                        super::value::ThisMode::Lexical => {
-                            fo.captured_this.unwrap_or(JsValue::Undefined)
-                        }
-                        super::value::ThisMode::Global => self.bind_this_global(effective_this),
-                        super::value::ThisMode::Strict => effective_this,
-                    };
+                    let resolved_this =
+                        Self::compute_this_for_call(fo.this_mode, effective_this, fo.captured_this);
                     let call_args = owned_args.as_deref().unwrap_or(args);
                     return self.call_internal(func_id, resolved_this, call_args, upvalue_ids);
                 }
@@ -230,20 +225,6 @@ impl VmInner {
             new_instance,
             saved_completion,
         });
-    }
-
-    /// §9.2.1.2 OrdinaryCallBindThis for Global (non-strict) this mode:
-    /// undefined/null → globalThis, primitives → ToObject wrapper.
-    pub(crate) fn bind_this_global(&mut self, this: JsValue) -> JsValue {
-        match this {
-            JsValue::Empty | JsValue::Undefined | JsValue::Null => {
-                JsValue::Object(self.global_object)
-            }
-            // All primitives are wrapped via ToObject
-            other => JsValue::Object(
-                super::coerce::to_object(self, other).expect("primitive wrapping cannot fail"),
-            ),
-        }
     }
 
     /// Run a function as the initial (or only) frame.

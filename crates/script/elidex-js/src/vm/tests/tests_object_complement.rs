@@ -357,17 +357,21 @@ fn get_own_property_names_basic() {
 
 #[test]
 fn freeze_cannot_add_props() {
-    // In sloppy mode, adding to frozen object silently fails.
-    assert!(eval_bool(
-        "var o = {a: 1}; Object.freeze(o); o.b = 2; o.b === undefined;"
-    ));
+    super::assert_throws_preserves_bool(
+        "var o = {a: 1}; Object.freeze(o);",
+        "o.b = 2;",
+        "o.b === undefined;",
+        true,
+    );
 }
 
 #[test]
 fn freeze_cannot_write_existing() {
-    assert_eq!(
-        eval_number("var o = {a: 1}; Object.freeze(o); o.a = 99; o.a;"),
-        1.0
+    super::assert_throws_preserves_number(
+        "var o = {a: 1}; Object.freeze(o);",
+        "o.a = 99;",
+        "o.a;",
+        1.0,
     );
 }
 
@@ -419,9 +423,12 @@ fn seal_can_write_existing() {
 
 #[test]
 fn seal_cannot_add_new() {
-    assert!(eval_bool(
-        "var o = {a: 1}; Object.seal(o); o.b = 2; o.b === undefined;"
-    ));
+    super::assert_throws_preserves_bool(
+        "var o = {a: 1}; Object.seal(o);",
+        "o.b = 2;",
+        "o.b === undefined;",
+        true,
+    );
 }
 
 #[test]
@@ -443,9 +450,12 @@ fn seal_returns_same_object() {
 
 #[test]
 fn sealed_cannot_delete() {
-    assert!(eval_bool(
-        "var o = {a: 1}; Object.seal(o); delete o.a; 'a' in o;"
-    ));
+    super::assert_throws_preserves_bool(
+        "var o = {a: 1}; Object.seal(o);",
+        "delete o.a;",
+        "'a' in o;",
+        true,
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -461,9 +471,12 @@ fn prevent_extensions_makes_not_extensible() {
 
 #[test]
 fn cannot_add_after_prevent_extensions() {
-    assert!(eval_bool(
-        "var o = {}; Object.preventExtensions(o); o.x = 1; o.x === undefined;"
-    ));
+    super::assert_throws_preserves_bool(
+        "var o = {}; Object.preventExtensions(o);",
+        "o.x = 1;",
+        "o.x === undefined;",
+        true,
+    );
 }
 
 #[test]

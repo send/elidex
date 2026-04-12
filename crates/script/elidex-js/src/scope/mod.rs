@@ -109,12 +109,10 @@ pub(crate) fn analyze(program: &Program) -> ScopeAnalysis {
         ProgramKind::Module => ScopeKind::Module,
         ProgramKind::Script => ScopeKind::Global,
     };
-    let is_module = program.kind == ProgramKind::Module;
-
-    // Detect "use strict" directive in script mode
-    let is_strict = is_module || has_use_strict(program, &program.body);
-
-    state.push_scope(root_kind, is_strict, Span::new(0, u32::MAX));
+    // §10.2.1: all code is strict.  `has_use_strict` is still invoked on
+    // nested function bodies so `"use strict"` parses and triggers
+    // §14.1.2 non-simple-parameter validation.
+    state.push_scope(root_kind, true, Span::new(0, u32::MAX));
 
     for &stmt_id in &program.body {
         visitor::visit_stmt(program, &mut state, stmt_id);

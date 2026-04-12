@@ -567,7 +567,6 @@ impl VmInner {
 
         let upvalue_descs = compiled.upvalues.clone();
         let is_arrow = compiled.is_arrow;
-        let is_strict = compiled.is_strict;
         let name = compiled.name.clone();
 
         let func_id = self.register_function(compiled);
@@ -599,10 +598,8 @@ impl VmInner {
 
         let this_mode = if is_arrow {
             super::value::ThisMode::Lexical
-        } else if is_strict {
-            super::value::ThisMode::Strict
         } else {
-            super::value::ThisMode::Global
+            super::value::ThisMode::Strict
         };
 
         // Arrow functions capture the enclosing `this` at closure-creation time.

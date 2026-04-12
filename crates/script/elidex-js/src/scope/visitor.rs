@@ -448,12 +448,9 @@ fn visit_function(prog: &Program, state: &mut ScopeState, func: &Function, is_ex
     let has_strict = has_use_strict(prog, &func.body);
     let is_strict = state.is_strict() || has_strict;
 
-    // S4: "use strict" directive is illegal with non-simple parameters
-    if has_strict
-        && !state.is_strict()
-        && has_non_simple_params(prog, func)
-        && !state.at_error_limit()
-    {
+    // §14.1.2 Static Semantics: Early Errors — `"use strict"` directive is
+    // illegal with non-simple parameters regardless of surrounding strictness.
+    if has_strict && has_non_simple_params(prog, func) && !state.at_error_limit() {
         state.errors.push(crate::error::JsParseError {
             kind: crate::error::JsParseErrorKind::StrictModeViolation,
             span: func.span,

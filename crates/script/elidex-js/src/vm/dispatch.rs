@@ -11,6 +11,20 @@ use super::ops::{parse_array_index_u16, try_as_array_index};
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
+/// §12.5.3.2 DeleteExpression: strict-mode TypeError message when
+/// `[[Delete]]` returns `false`.
+const NON_CONFIGURABLE_DELETE_MSG: &str = "Cannot delete property: property is not configurable";
+
+/// §12.5.3.2 DeleteExpression step 6 `? ToObject(ref.[[Base]])`.  Null/undefined
+/// throw TypeError (via ToObject); other primitives are boxed to their
+/// wrapper so their [[Delete]] applies to the (temporary) wrapper.
+fn resolve_delete_base(vm: &mut VmInner, obj: JsValue) -> Result<super::value::ObjectId, VmError> {
+    match obj {
+        JsValue::Object(id) => Ok(id),
+        _ => super::coerce::to_object(vm, obj),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Main dispatch loop
 // ---------------------------------------------------------------------------
@@ -151,19 +165,14 @@ impl VmInner {
                     let name_idx = self.read_u16_op();
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let val = self.peek()?;
-                    // §8.1.1.2.5: In strict mode, assigning to an undeclared
-                    // variable is a ReferenceError.
+                    // §8.1.1.2.5: assigning to an undeclared binding throws
+                    // ReferenceError.
                     let exists_on_global = {
                         let pk = PropertyKey::String(name_id);
                         self.globals.contains_key(&name_id)
                             || super::coerce::get_property(self, self.global_object, pk).is_some()
                     };
-                    if self.compiled_functions[func_id.0 as usize].is_strict && !exists_on_global {
-                        let name_str = self.strings.get_utf8(name_id);
-                        let msg = format!("{name_str} is not defined");
-                        let err = VmError::reference_error(&msg);
-                        self.throw_error(err, entry_frame_depth)?;
-                    } else {
+                    if exists_on_global {
                         // Delegate to set_property_val, which invokes any
                         // accessor setter on globalThis and syncs the
                         // globals HashMap only on a DataWritten outcome.
@@ -173,6 +182,11 @@ impl VmInner {
                         {
                             self.throw_error(e, entry_frame_depth)?;
                         }
+                    } else {
+                        let name_str = self.strings.get_utf8(name_id);
+                        let msg = format!("{name_str} is not defined");
+                        let err = VmError::reference_error(&msg);
+                        self.throw_error(err, entry_frame_depth)?;
                     }
                 }
 
@@ -575,80 +589,70 @@ impl VmInner {
                     let name_id = self.constant_to_string_id(func_id, name_idx)?;
                     let pk = PropertyKey::String(name_id);
                     let obj_val = self.pop()?;
-                    let deleted = if let JsValue::Object(id) = obj_val {
-                        match self.try_delete_property(id, pk) {
-                            Ok(d) => d,
-                            Err(e) => {
-                                self.throw_error(e, entry_frame_depth)?;
-                                continue;
-                            }
+                    let id = match resolve_delete_base(self, obj_val) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
                         }
-                    } else {
-                        true
                     };
-                    self.stack.push(JsValue::Boolean(deleted));
+                    match self.try_delete_property(id, pk) {
+                        Ok(true) => self.stack.push(JsValue::Boolean(true)),
+                        // §12.5.3.2: `delete` operator throws TypeError in
+                        // strict mode when [[Delete]] returns false.  All
+                        // code is strict, so we always throw.
+                        Ok(false) => self.throw_error(
+                            VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
+                            entry_frame_depth,
+                        )?,
+                        Err(e) => self.throw_error(e, entry_frame_depth)?,
+                    }
                 }
                 Op::DeleteElem => {
                     let key = self.pop()?;
                     let obj_val = self.pop()?;
-                    let deleted = if let JsValue::Object(id) = obj_val {
-                        // Resolve array index from Number or String key.
-                        let arr_idx = match key {
-                            JsValue::Number(n) => try_as_array_index(n),
-                            JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
-                            _ => None,
-                        };
-                        // Fast path: array element present → set to Empty.
-                        // Only applies when the index has a live element;
-                        // otherwise fall back to property delete for
-                        // configurable/strict-mode semantics.
-                        if let Some(idx) = arr_idx {
-                            let can_fast_delete = matches!(
-                                &self.get_object(id).kind,
-                                ObjectKind::Array { elements }
-                                    if idx < elements.len()
-                                        && !elements[idx].is_empty()
-                            );
-                            if can_fast_delete {
-                                let obj_ref = self.get_object_mut(id);
-                                if let ObjectKind::Array { ref mut elements } = obj_ref.kind {
-                                    elements[idx] = JsValue::Empty;
-                                }
-                                true
-                            } else {
-                                match self.make_property_key(key) {
-                                    Ok(pk) => match self.try_delete_property(id, pk) {
-                                        Ok(d) => d,
-                                        Err(e) => {
-                                            self.throw_error(e, entry_frame_depth)?;
-                                            continue;
-                                        }
-                                    },
-                                    Err(e) => {
-                                        self.throw_error(e, entry_frame_depth)?;
-                                        continue;
-                                    }
-                                }
-                            }
-                        } else {
-                            match self.make_property_key(key) {
-                                Ok(pk) => match self.try_delete_property(id, pk) {
-                                    Ok(d) => d,
-                                    Err(e) => {
-                                        self.throw_error(e, entry_frame_depth)?;
-                                        continue;
-                                    }
-                                },
-                                Err(e) => {
-                                    self.throw_error(e, entry_frame_depth)?;
-                                    continue;
-                                }
-                            }
+                    let id = match resolve_delete_base(self, obj_val) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
                         }
-                    } else {
-                        true
                     };
-                    self.stack.push(JsValue::Boolean(deleted));
+                    // Resolve array index from Number or String key.
+                    let arr_idx = match key {
+                        JsValue::Number(n) => try_as_array_index(n),
+                        JsValue::String(sid) => parse_array_index_u16(self.strings.get(sid)),
+                        _ => None,
+                    };
+                    // Fast path: array element present → set to Empty.
+                    let fast = arr_idx.and_then(|idx| match &self.get_object(id).kind {
+                        ObjectKind::Array { elements }
+                            if idx < elements.len() && !elements[idx].is_empty() =>
+                        {
+                            Some(idx)
+                        }
+                        _ => None,
+                    });
+                    if let Some(idx) = fast {
+                        if let ObjectKind::Array { elements } = &mut self.get_object_mut(id).kind {
+                            elements[idx] = JsValue::Empty;
+                        }
+                        self.stack.push(JsValue::Boolean(true));
+                    } else {
+                        match self
+                            .make_property_key(key)
+                            .and_then(|pk| self.try_delete_property(id, pk))
+                        {
+                            Ok(true) => self.stack.push(JsValue::Boolean(true)),
+                            // §12.5.3.2: strict-mode throw when [[Delete]]
+                            // returns false.
+                            Ok(false) => self.throw_error(
+                                VmError::type_error(NON_CONFIGURABLE_DELETE_MSG),
+                                entry_frame_depth,
+                            )?,
+                            Err(e) => self.throw_error(e, entry_frame_depth)?,
+                        }
+                    }
                 }
 
                 // ── Object/Array creation ───────────────────────────
