@@ -158,6 +158,13 @@ pub(crate) struct VmInner {
     /// End-of-drain scan warns on entries still `Rejected && !handled`.
     /// PromiseRejectionEvent dispatch ships with PR3.
     pub(crate) pending_rejections: Vec<ObjectId>,
+    /// Error.prototype (§19.5.3) — shared by Error and the built-in
+    /// error subclasses (TypeError, RangeError, …, AggregateError).
+    pub(crate) error_prototype: Option<ObjectId>,
+    /// AggregateError.prototype (§20.5.7) — chains to Error.prototype
+    /// (NOT Object.prototype) so `instanceof Error` is true for
+    /// AggregateError instances.
+    pub(crate) aggregate_error_prototype: Option<ObjectId>,
     /// Generator.prototype — shared prototype for generator iterators.
     pub(crate) generator_prototype: Option<ObjectId>,
     /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
@@ -854,6 +861,8 @@ impl Vm {
                 microtask_queue: VecDeque::new(),
                 microtask_drain_depth: 0,
                 pending_rejections: Vec::new(),
+                error_prototype: None,
+                aggregate_error_prototype: None,
                 generator_prototype: None,
                 generator_yielded: None,
                 current_microtask: None,

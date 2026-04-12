@@ -510,6 +510,81 @@ fn promise_any_empty_rejects_immediately() {
     );
 }
 
+#[test]
+fn promise_any_aggregate_error_is_instance_of_error() {
+    // §20.5.7: AggregateError.prototype chains to Error.prototype, so
+    // the rejection reason satisfies `instanceof Error` as well as
+    // `instanceof AggregateError`.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.out = ''; \
+             Promise.any([Promise.reject(1), Promise.reject(2)]).catch(e => { \
+                 globalThis.out = (e instanceof Error) + ':' + (e instanceof AggregateError); \
+             });",
+            "out"
+        ),
+        "true:true"
+    );
+}
+
+// ─── AggregateError constructor ───────────────────────────────────────────
+
+#[test]
+fn aggregate_error_constructor_collects_errors_array() {
+    // `new AggregateError([…])` runs the errors iterable into an array
+    // on the `.errors` own property.
+    assert_eq!(
+        eval_string(
+            "var e = new AggregateError([1, 2, 3], 'oops'); \
+             e.name + ':' + e.message + '/' + e.errors.join(',');"
+        ),
+        "AggregateError:oops/1,2,3"
+    );
+}
+
+#[test]
+fn aggregate_error_constructor_default_message_empty() {
+    // Without a message argument, .message comes from
+    // AggregateError.prototype and defaults to the empty string.
+    assert_eq!(eval_string("new AggregateError([]).message;"), "");
+}
+
+#[test]
+fn aggregate_error_prototype_chain() {
+    // `instanceof Error` + `instanceof AggregateError` hold for
+    // instances built via the constructor (mirrors the Promise.any
+    // rejection).
+    assert_eq!(
+        eval_string(
+            "var e = new AggregateError([1]); \
+             (e instanceof Error) + ':' + (e instanceof AggregateError);"
+        ),
+        "true:true"
+    );
+}
+
+#[test]
+fn aggregate_error_accepts_any_iterable() {
+    // Per §20.5.7.1 step 3, the first argument is iterated via the
+    // iterator protocol — any iterable (including generator output)
+    // works.
+    assert_eq!(
+        eval_string(
+            "function* g() { yield 'a'; yield 'b'; } \
+             new AggregateError(g(), 'msg').errors.join(',');"
+        ),
+        "a,b"
+    );
+}
+
+#[test]
+fn aggregate_error_non_iterable_errors_throws_type_error() {
+    // Spec: GetIterator on a non-iterable throws TypeError.
+    let mut vm = crate::vm::Vm::new();
+    let err = vm.eval("new AggregateError(42);");
+    assert!(err.is_err());
+}
+
 // ─── Promise.prototype.finally ────────────────────────────────────────────
 
 #[test]

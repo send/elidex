@@ -247,17 +247,24 @@ fn settle_all_settled_slot(vm: &mut VmInner, state_id: ObjectId, index: u32, ent
 }
 
 /// Build an `AggregateError` for `Promise.any` when every input rejects.
-/// Minimal `Error` shape carrying `.errors` and a fixed message — full
-/// AggregateError wiring (spec-correct prototype chain) lands with the
-/// Error cleanup in PR2.5.
+/// Uses the spec-correct prototype chain (AggregateError.prototype →
+/// Error.prototype → Object.prototype) so `instanceof Error` and
+/// `instanceof AggregateError` both hold.  The shape kind remains
+/// `Ordinary` (mirroring what `new AggregateError(…)` produces via the
+/// constructor path) — the "is an error" identity is carried by the
+/// prototype chain, not by `ObjectKind::Error`.
 fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
     let name_id = vm.strings.intern("AggregateError");
     let obj = vm.alloc_object(Object {
-        kind: ObjectKind::Error { name: name_id },
+        kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: vm.object_prototype,
+        prototype: vm.aggregate_error_prototype.or(vm.error_prototype),
         extensible: true,
     });
+    // `.name` lives on AggregateError.prototype too (as default), so we
+    // only need an own-property copy when it actually differs; keeping
+    // it here matches what the constructor path does and simplifies
+    // String(err) handling.
     vm.define_shaped_property(
         obj,
         PropertyKey::String(vm.well_known.name),

@@ -518,6 +518,64 @@ pub(super) fn native_uri_error_constructor(
     error_ctor_impl(ctx, this, args, "URIError")
 }
 
+/// `AggregateError(errors, message)` — §20.5.7.1.
+///
+/// Differs from the other error constructors by taking `errors` (an
+/// iterable) as its *first* argument and `message` as its second; sets
+/// `.errors` to a new Array built from the iterable.  The prototype
+/// chain (AggregateError.prototype → Error.prototype → Object.prototype)
+/// is wired in `globals::register_error_constructors`.
+pub(super) fn native_aggregate_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(errors_arg) = args.first().copied() else {
+        return Err(VmError::type_error(
+            "AggregateError requires an errors iterable",
+        ));
+    };
+    let message_arg = args.get(1).copied();
+
+    // Collect errors via the iterator protocol (§20.5.7.1 step 3:
+    // IteratorToList on the errors argument).
+    let Some(iter) = ctx.vm.resolve_iterator(errors_arg)? else {
+        return Err(VmError::type_error(
+            "AggregateError errors argument is not iterable",
+        ));
+    };
+    let mut list = Vec::new();
+    while let Some(v) = ctx.vm.iter_next(iter)? {
+        if list.len() >= super::ops::DENSE_ARRAY_LEN_LIMIT {
+            return Err(VmError::range_error(
+                "AggregateError errors iterable exceeds implementation limit",
+            ));
+        }
+        list.push(v);
+    }
+    let errors_array = ctx.vm.create_array_object(list);
+
+    if let JsValue::Object(id) = this {
+        // §20.5.7.1 step 4-5: set .name + optional .message via the shared
+        // Error constructor path (with "AggregateError").
+        error_ctor_impl(
+            ctx,
+            this,
+            &[message_arg.unwrap_or(JsValue::Undefined)],
+            "AggregateError",
+        )?;
+        // .errors — non-enumerable, writable, configurable per §20.5.7.3.
+        let errors_key = PropertyKey::String(ctx.vm.well_known.errors);
+        ctx.vm.define_shaped_property(
+            id,
+            errors_key,
+            super::value::PropertyValue::Data(JsValue::Object(errors_array)),
+            super::shape::PropertyAttrs::DATA,
+        );
+    }
+    Ok(this)
+}
+
 // -- Array constructor & static methods --------------------------------------
 
 /// `Array(n)` / `Array(a, b, c)` constructor (ES2020 §22.1.1).

@@ -4,6 +4,10 @@
 //! standard JS built-ins (console, Math, JSON, Error constructors, etc.).
 
 use super::natives::{
+    native_aggregate_error_constructor, native_symbol_constructor, native_symbol_for,
+    native_symbol_key_for, native_symbol_prototype_to_string, native_type_error_constructor,
+};
+use super::natives::{
     native_array_constructor, native_array_is_array, native_array_iterator_next,
     native_array_values, native_console_error, native_console_log, native_console_warn,
     native_decode_uri, native_decode_uri_component, native_encode_uri, native_encode_uri_component,
@@ -25,10 +29,6 @@ use super::natives::{
     native_string_starts_with, native_string_substring, native_string_to_lower_case,
     native_string_to_upper_case, native_string_trim, native_syntax_error_constructor,
     native_uri_error_constructor,
-};
-use super::natives::{
-    native_symbol_constructor, native_symbol_for, native_symbol_key_for,
-    native_symbol_prototype_to_string, native_type_error_constructor,
 };
 use super::natives_array::{
     native_array_concat, native_array_copy_within, native_array_fill, native_array_includes,
@@ -437,11 +437,16 @@ impl VmInner {
     }
 
     fn register_error_constructors(&mut self) {
-        // §19.5.3 Error.prototype — shared by Error and all native error
-        // subclasses (TypeError, RangeError, etc.) in elidex; not fully
-        // spec-compliant (each should have its own prototype chained to
-        // Error.prototype), but sufficient for String(new TypeError(...))
-        // to produce "TypeError: msg" via inherited .toString.
+        // §19.5.3 Error.prototype — shared by Error and the built-in
+        // error subclasses (TypeError, RangeError, …) in elidex.  Not
+        // fully spec-compliant (each subclass should have its own
+        // prototype chained to Error.prototype), but sufficient for
+        // `String(new TypeError(...))` to produce "TypeError: msg" via
+        // inherited .toString.  AggregateError *does* get its own
+        // prototype chained to Error.prototype — see below — because
+        // its signature (`(errors, message)`) differs enough from the
+        // shared `error_ctor_impl` path that tests routinely check
+        // `instanceof AggregateError` distinctly.
         let error_proto = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
@@ -472,6 +477,7 @@ impl VmInner {
             PropertyValue::Data(JsValue::String(self.well_known.empty)),
             PropertyAttrs::METHOD,
         );
+        self.error_prototype = Some(error_proto);
 
         let ctors: &[(&str, NativeFn)] = &[
             ("Error", native_error_constructor),
@@ -495,6 +501,49 @@ impl VmInner {
             let name_id = self.strings.intern(name);
             self.globals.insert(name_id, JsValue::Object(fn_id));
         }
+
+        // AggregateError.prototype (§20.5.7.3) — its own prototype
+        // chained to Error.prototype so `instanceof Error` is true for
+        // AggregateError instances.  Own `.name` = "AggregateError",
+        // `.message` = "".
+        let agg_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(error_proto),
+            extensible: true,
+        });
+        let agg_name_val = JsValue::String(self.strings.intern("AggregateError"));
+        self.define_shaped_property(
+            agg_proto,
+            default_name_key,
+            PropertyValue::Data(agg_name_val),
+            PropertyAttrs::METHOD,
+        );
+        self.define_shaped_property(
+            agg_proto,
+            default_msg_key,
+            PropertyValue::Data(JsValue::String(self.well_known.empty)),
+            PropertyAttrs::METHOD,
+        );
+        self.aggregate_error_prototype = Some(agg_proto);
+
+        let agg_ctor = self
+            .create_constructable_function("AggregateError", native_aggregate_error_constructor);
+        self.define_shaped_property(
+            agg_ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(agg_proto)),
+            PropertyAttrs::BUILTIN,
+        );
+        let agg_ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            agg_proto,
+            agg_ctor_key,
+            PropertyValue::Data(JsValue::Object(agg_ctor)),
+            PropertyAttrs::BUILTIN,
+        );
+        let agg_name_id = self.strings.intern("AggregateError");
+        self.globals.insert(agg_name_id, JsValue::Object(agg_ctor));
     }
 
     fn register_object_global(&mut self) {
