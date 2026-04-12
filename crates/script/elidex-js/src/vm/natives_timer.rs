@@ -56,6 +56,15 @@ impl Eq for TimerEntry {}
 // Scheduling primitives
 // ---------------------------------------------------------------------------
 
+/// Floor on `setInterval` repeat delay (WHATWG §8.7 step 11 approximation —
+/// the spec bumps to 4 ms once nesting level exceeds 5, which elidex does
+/// not track yet).  This is a conservative clamp that also prevents the
+/// `setInterval(fn, 0)` infinite-loop-in-drain failure mode, because
+/// re-armed deadlines would otherwise stay at `<= now` forever.  Full
+/// nesting-level semantics are tracked under phase 4 primitive-wrapper
+/// polish (spec-alignment PR).
+const MIN_INTERVAL_REPEAT_MS: u64 = 4;
+
 /// Core scheduler: allocates an id, pushes a [`TimerEntry`] onto the heap.
 /// `repeat=None` for `setTimeout`, `Some(delay)` for `setInterval`.
 fn schedule_timer(
@@ -113,6 +122,17 @@ fn schedule_timer(
         Vec::new()
     };
 
+    // Intervals: floor the re-arm period at MIN_INTERVAL_REPEAT_MS so a
+    // `setInterval(fn, 0)` cannot wedge `drain_timers` in an infinite
+    // fire-re-arm loop (re-armed `deadline + 0ms` stays `<= now`).  The
+    // initial `deadline` still respects the caller-requested delay so
+    // the first firing is prompt; only the steady-state cadence is
+    // clamped.  `setTimeout` (repeat=None) is unaffected.
+    let interval_repeat = if repeat {
+        Some(delay.max(Duration::from_millis(MIN_INTERVAL_REPEAT_MS)))
+    } else {
+        None
+    };
     let id = ctx.vm.next_timer_id;
     ctx.vm.next_timer_id = ctx.vm.next_timer_id.wrapping_add(1);
     ctx.vm.active_timer_ids.insert(id);
@@ -120,7 +140,7 @@ fn schedule_timer(
         id,
         deadline: Instant::now() + delay,
         callback: func,
-        repeat: if repeat { Some(delay) } else { None },
+        repeat: interval_repeat,
         args: positional,
     });
     Ok(JsValue::Number(f64::from(id)))

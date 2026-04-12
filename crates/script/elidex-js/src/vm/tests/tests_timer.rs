@@ -169,6 +169,35 @@ fn set_interval_re_arms_after_each_fire() {
 }
 
 #[test]
+fn set_interval_zero_delay_does_not_infinite_loop() {
+    // Regression guard for Copilot PR #71 #10: `setInterval(fn, 0)` used
+    // to re-arm with `deadline + 0ms`, so the heap head stayed `<= now`
+    // forever and `drain_timers` spun indefinitely.  We now clamp the
+    // interval period to MIN_INTERVAL_REPEAT_MS (4 ms), so a single
+    // `drain_timers` call fires a bounded number of times for any finite
+    // `now` window.
+    let mut vm = installed_vm();
+    vm.eval(
+        "globalThis.count = 0; \
+         setInterval(() => { globalThis.count += 1; }, 0);",
+    )
+    .unwrap();
+    // Advance 20 ms.  With a 4 ms floor the interval fires at most
+    // 5 times in this window; without the clamp drain_timers never
+    // returns (the test would time out).
+    vm.inner
+        .drain_timers(Instant::now() + Duration::from_millis(20));
+    let fired = match vm.get_global("count") {
+        Some(JsValue::Number(n)) => n,
+        other => panic!("expected numeric count, got {other:?}"),
+    };
+    assert!(
+        fired > 0.0 && fired <= 10.0,
+        "expected bounded fire count, got {fired}"
+    );
+}
+
+#[test]
 fn clear_interval_stops_repetition() {
     let mut vm = installed_vm();
     vm.eval(
