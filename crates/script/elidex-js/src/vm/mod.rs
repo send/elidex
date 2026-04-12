@@ -9,6 +9,7 @@
 pub mod coerce;
 pub(crate) mod coerce_format;
 pub(crate) mod coerce_ops;
+mod coroutine_types;
 mod dispatch;
 mod dispatch_helpers;
 mod dispatch_ic;
@@ -16,9 +17,11 @@ mod dispatch_iter;
 mod dispatch_objects;
 pub(crate) mod gc;
 mod globals;
+mod globals_async;
 pub mod host_data;
 pub(crate) mod ic;
 pub mod interpreter;
+mod native_context;
 mod natives;
 mod natives_array;
 mod natives_array_hof;
@@ -31,6 +34,7 @@ mod natives_math;
 mod natives_number;
 mod natives_object;
 mod natives_promise;
+mod natives_promise_combinator;
 mod natives_regexp;
 mod natives_string;
 mod natives_string_ext;
@@ -46,12 +50,11 @@ pub mod value;
 mod tests;
 
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
-use std::time::{Duration, Instant};
 
 use pools::{BigIntPool, StringPool};
 use value::{
     CallFrame, FuncId, JsValue, NativeContext, NativeFunction, Object, ObjectId, ObjectKind,
-    ReactionKind, StringId, SymbolId, SymbolRecord, UpvalueId, VmError,
+    StringId, SymbolId, SymbolRecord, UpvalueId, VmError,
 };
 
 use crate::bytecode::compiled::CompiledFunction;
@@ -149,7 +152,7 @@ pub(crate) struct VmInner {
     /// checkpoints — currently just at the end of `eval()` and the end of
     /// event-listener invocations.  `queueMicrotask` / additional drain
     /// points are wired up in PR2 commit 2.
-    pub(crate) microtask_queue: VecDeque<Microtask>,
+    pub(crate) microtask_queue: VecDeque<natives_promise::Microtask>,
     /// Reentrancy guard: nonzero while a microtask drain is in progress.
     /// Prevents reentrancy from accidentally reordering the queue if a
     /// microtask triggers a nested eval or listener invocation.
@@ -171,69 +174,12 @@ pub(crate) struct VmInner {
     /// `drain_timers(now)` — the shell (PR6) calls this on each event-loop
     /// tick.  `next_timer_id` provides monotonically-increasing IDs for
     /// `setTimeout` / `setInterval` returns.
-    pub(crate) timer_queue: BinaryHeap<TimerEntry>,
+    pub(crate) timer_queue: BinaryHeap<natives_timer::TimerEntry>,
     pub(crate) next_timer_id: u32,
     /// IDs cleared via `clearTimeout` / `clearInterval` before firing.
     /// Checked at drain time so cancelled entries are skipped.  Entries
     /// age out of this set once they're popped from `timer_queue`.
     pub(crate) cancelled_timers: HashSet<u32>,
-}
-
-/// A pending timer entry.  Stored in `VmInner::timer_queue` as a min-heap
-/// keyed by deadline — the earliest fires first.
-pub(crate) struct TimerEntry {
-    pub id: u32,
-    pub deadline: Instant,
-    pub callback: ObjectId,
-    /// `Some(d)` for `setInterval` — on fire, re-queued with
-    /// `deadline + d`.  `None` for `setTimeout` (one-shot).
-    pub repeat: Option<Duration>,
-    /// Positional args passed to the callback (WHATWG §8.7 step 13.2).
-    pub args: Vec<JsValue>,
-}
-
-// BinaryHeap is a max-heap; we want earliest deadline first, so flip the
-// ordering of `deadline` when comparing.  `id` is the tiebreaker for FIFO
-// behaviour on identical deadlines.
-impl Ord for TimerEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Reverse the deadline comparison so smaller deadline = "greater" heap.
-        other
-            .deadline
-            .cmp(&self.deadline)
-            .then_with(|| other.id.cmp(&self.id))
-    }
-}
-impl PartialOrd for TimerEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl PartialEq for TimerEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.deadline == other.deadline && self.id == other.id
-    }
-}
-impl Eq for TimerEntry {}
-
-/// A queued microtask.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Microtask {
-    /// A pending Promise reaction: run `handler(resolution)` (or propagate
-    /// the resolution directly if `handler` is `None`) and settle `capability`
-    /// accordingly.  Mirrors ES2020 §25.6.1.3 `NewPromiseReactionJob`.
-    PromiseReaction {
-        kind: ReactionKind,
-        handler: Option<ObjectId>,
-        capability: ObjectId,
-        resolution: JsValue,
-    },
-    /// A bare callback enqueued via `globalThis.queueMicrotask(fn)`
-    /// (HTML §8.1.4.3).  Invoked with `this = undefined` and no arguments;
-    /// exceptions are reported to the host and do not propagate out of the
-    /// drain loop (spec: "If the callback throws an exception, report the
-    /// exception.").
-    Callback { func: ObjectId },
 }
 
 /// Frequently used interned string IDs, cached at VM creation.
@@ -1045,155 +991,5 @@ impl Vm {
 impl Default for Vm {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Native function helpers
-// ---------------------------------------------------------------------------
-
-impl NativeContext<'_> {
-    /// Intern a string from UTF-8.
-    #[inline]
-    pub fn intern(&mut self, s: &str) -> StringId {
-        self.vm.strings.intern(s)
-    }
-
-    /// Intern a string from raw WTF-16 code units.
-    #[inline]
-    pub fn intern_utf16(&mut self, units: &[u16]) -> StringId {
-        self.vm.strings.intern_utf16(units)
-    }
-
-    /// Look up an interned string as WTF-16.
-    #[inline]
-    pub fn get_u16(&self, id: StringId) -> &[u16] {
-        self.vm.strings.get(id)
-    }
-
-    /// Look up an interned string as UTF-8 (lossy for lone surrogates).
-    #[inline]
-    pub fn get_utf8(&self, id: StringId) -> String {
-        self.vm.strings.get_utf8(id)
-    }
-
-    /// Allocate an object.
-    pub fn alloc_object(&mut self, obj: Object) -> ObjectId {
-        self.vm.alloc_object(obj)
-    }
-
-    /// Get a reference to an object.
-    #[inline]
-    pub fn get_object(&self, id: ObjectId) -> &Object {
-        self.vm.get_object(id)
-    }
-
-    /// Get a mutable reference to an object.
-    #[inline]
-    pub fn get_object_mut(&mut self, id: ObjectId) -> &mut Object {
-        self.vm.get_object_mut(id)
-    }
-
-    /// Convert a value to f64 using ES2020 ToNumber.
-    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.4).
-    #[inline]
-    pub fn to_number(&self, val: JsValue) -> Result<f64, VmError> {
-        coerce::to_number(self.vm, val)
-    }
-
-    /// Convert a value to an interned string using ES2020 ToString.
-    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.12).
-    #[inline]
-    pub fn to_string_val(&mut self, val: JsValue) -> Result<StringId, VmError> {
-        coerce::to_string(self.vm, val)
-    }
-
-    /// Convert a value to bool using ES2020 ToBoolean.
-    #[inline]
-    pub fn to_boolean(&self, val: JsValue) -> bool {
-        coerce::to_boolean(self.vm, val)
-    }
-
-    /// Call a JS function object by `ObjectId` (e.g. getter/setter invoke).
-    ///
-    /// Enables native functions to call back into the VM for re-entrant
-    /// execution (e.g. invoking accessor getters from `Object.values`).
-    pub fn call_function(
-        &mut self,
-        callee: ObjectId,
-        this: JsValue,
-        args: &[JsValue],
-    ) -> Result<JsValue, VmError> {
-        self.vm.call(callee, this, args)
-    }
-
-    /// Call a value as a function (type-checked: must be an object).
-    pub fn call_value(
-        &mut self,
-        callee: JsValue,
-        this: JsValue,
-        args: &[JsValue],
-    ) -> Result<JsValue, VmError> {
-        self.vm.call_value(callee, this, args)
-    }
-
-    /// Resolve a `PropertyValue` slot to a `JsValue`, invoking the getter
-    /// if the slot is an accessor.
-    pub fn resolve_slot(
-        &mut self,
-        slot: value::PropertyValue,
-        this: JsValue,
-    ) -> Result<JsValue, VmError> {
-        self.vm.resolve_slot(slot, this)
-    }
-
-    /// Perform a fresh `Get` (§7.3.1) on an object by `PropertyKey`.
-    /// Looks up the property (own + prototype chain), resolves accessors.
-    /// Returns `JsValue::Undefined` when the property does not exist.
-    pub fn get_property_value(
-        &mut self,
-        obj_id: value::ObjectId,
-        key: value::PropertyKey,
-    ) -> Result<JsValue, VmError> {
-        self.vm.get_property_value(obj_id, key)
-    }
-
-    /// Returns `true` if the current native function is being invoked via
-    /// `[[Construct]]` (i.e. `new F(...)`).  Used by constructors to choose
-    /// between wrapper-object and primitive return paths.
-    #[inline]
-    pub fn is_construct(&self) -> bool {
-        self.vm.in_construct
-    }
-
-    /// Access the host data.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no `HostData` has been installed on the VM.
-    pub fn host(&mut self) -> &mut host_data::HostData {
-        self.vm
-            .host_data
-            .as_deref_mut()
-            .expect("NativeContext::host() called without HostData installed")
-    }
-
-    /// Access the host data, returning `None` if not installed.
-    pub fn host_opt(&mut self) -> Option<&mut host_data::HostData> {
-        self.vm.host_data.as_deref_mut()
-    }
-
-    /// `HasProperty` + `Get` (§7.3.1): returns `None` if the property does
-    /// not exist anywhere on the prototype chain, `Some(value)` otherwise.
-    pub fn try_get_property_value(
-        &mut self,
-        obj_id: value::ObjectId,
-        key: value::PropertyKey,
-    ) -> Result<Option<JsValue>, VmError> {
-        let exists = coerce::get_property(self.vm, obj_id, key).is_some();
-        if !exists {
-            return Ok(None);
-        }
-        Ok(Some(self.vm.get_property_value(obj_id, key)?))
     }
 }

@@ -118,7 +118,8 @@ impl VmInner {
                     self.gc_enabled = false;
                     let call_args = owned_args.as_deref().unwrap_or(args);
                     let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
-                    let result = super::natives_promise::step_combinator(self, step, value);
+                    let result =
+                        super::natives_promise_combinator::step_combinator(self, step, value);
                     self.gc_enabled = saved_gc;
                     return result;
                 }
@@ -132,7 +133,7 @@ impl VmInner {
                     let is_reject = *is_reject;
                     let call_args = owned_args.as_deref().unwrap_or(args);
                     let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
-                    return super::natives_promise::run_finally_step(
+                    return super::natives_promise_combinator::run_finally_step(
                         self, on_finally, is_reject, value,
                     );
                 }

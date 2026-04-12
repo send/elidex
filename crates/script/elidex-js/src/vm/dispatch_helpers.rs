@@ -97,6 +97,24 @@ pub(super) fn regress_flags_from_str(flags: &str) -> regress::Flags {
 // ---------------------------------------------------------------------------
 
 impl VmInner {
+    /// `Op::TemplateConcat`: pop `count` values from the stack, `ToString`
+    /// each, concatenate their WTF-16 units, intern the result, and push
+    /// the resulting `JsValue::String` back.  Extracted from the dispatch
+    /// loop so the opcode arm stays compact.
+    pub(crate) fn op_template_concat(&mut self, count: usize) -> Result<(), super::value::VmError> {
+        let start = self.stack.len() - count;
+        let parts: Vec<super::value::JsValue> = self.stack[start..].to_vec();
+        self.stack.truncate(start);
+        let mut result: Vec<u16> = Vec::new();
+        for val in parts {
+            let sid = super::coerce::to_string(self, val)?;
+            result.extend_from_slice(self.strings.get(sid));
+        }
+        let id = self.strings.intern_utf16(&result);
+        self.stack.push(super::value::JsValue::String(id));
+        Ok(())
+    }
+
     pub(crate) fn read_u8_op(&mut self) -> u8 {
         let frame = self.frames.last_mut().unwrap();
         let bc = &self.compiled_functions[frame.func_id.0 as usize].bytecode;

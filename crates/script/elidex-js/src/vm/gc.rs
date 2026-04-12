@@ -23,11 +23,12 @@
 use std::collections::HashMap;
 
 use super::ic;
+use super::natives_promise::Microtask;
 use super::value::{
     CallFrame, JsValue, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, Upvalue,
     UpvalueId, UpvalueState,
 };
-use super::{Microtask, VmInner};
+use super::VmInner;
 use crate::bytecode::compiled::CompiledFunction;
 use crate::vm::value::StringId;
 
@@ -123,7 +124,7 @@ struct GcRoots<'a> {
     pending_rejections: &'a [ObjectId],
     /// Pending timers — pin callbacks + args so they aren't collected
     /// between scheduling and firing.
-    timer_queue: &'a std::collections::BinaryHeap<super::TimerEntry>,
+    timer_queue: &'a std::collections::BinaryHeap<super::natives_timer::TimerEntry>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.

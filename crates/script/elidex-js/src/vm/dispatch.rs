@@ -5,7 +5,7 @@
 
 use crate::bytecode::opcode::Op;
 
-use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, to_string, typeof_str};
+use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
 use super::ops::{parse_array_index_u16, try_as_array_index};
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
@@ -201,60 +201,35 @@ impl VmInner {
                         }
                     }
                 }
-                Op::Sub => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Sub) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Mul => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Mul) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Div => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Div) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Mod => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Rem) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Exp => {
-                    if let Err(e) = self.binary_numeric(NumericBinaryOp::Exp) {
+                // Numeric binary ops share a common shape: pick the enum
+                // variant, run the coerced binary op, propagate via throw
+                // path on error.
+                Op::Sub | Op::Mul | Op::Div | Op::Mod | Op::Exp => {
+                    let numop = match op {
+                        Op::Sub => NumericBinaryOp::Sub,
+                        Op::Mul => NumericBinaryOp::Mul,
+                        Op::Div => NumericBinaryOp::Div,
+                        Op::Mod => NumericBinaryOp::Rem,
+                        _ => NumericBinaryOp::Exp,
+                    };
+                    if let Err(e) = self.binary_numeric(numop) {
                         self.throw_error(e, entry_frame_depth)?;
                     }
                 }
 
                 // ── Bitwise ─────────────────────────────────────────
-                Op::BitAnd => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::And) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::BitOr => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::Or) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::BitXor => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::Xor) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Shl => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::Shl) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::Shr => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::Shr) {
-                        self.throw_error(e, entry_frame_depth)?;
-                    }
-                }
-                Op::UShr => {
-                    if let Err(e) = self.binary_bitwise(BitwiseOp::UShr) {
+                // Same shape as the numeric group — pick the enum variant,
+                // run the coerced bitwise op, rethrow via the handler path.
+                Op::BitAnd | Op::BitOr | Op::BitXor | Op::Shl | Op::Shr | Op::UShr => {
+                    let bitop = match op {
+                        Op::BitAnd => BitwiseOp::And,
+                        Op::BitOr => BitwiseOp::Or,
+                        Op::BitXor => BitwiseOp::Xor,
+                        Op::Shl => BitwiseOp::Shl,
+                        Op::Shr => BitwiseOp::Shr,
+                        _ => BitwiseOp::UShr,
+                    };
+                    if let Err(e) = self.binary_bitwise(bitop) {
                         self.throw_error(e, entry_frame_depth)?;
                     }
                 }
@@ -685,26 +660,9 @@ impl VmInner {
                 // ── Template ────────────────────────────────────────
                 Op::TemplateConcat => {
                     let count = self.read_u16_op() as usize;
-                    let start = self.stack.len() - count;
-                    let parts: Vec<JsValue> = self.stack[start..].to_vec();
-                    self.stack.truncate(start);
-                    let mut result: Vec<u16> = Vec::new();
-                    let mut err: Option<VmError> = None;
-                    for val in parts {
-                        match to_string(self, val) {
-                            Ok(s_id) => result.extend_from_slice(self.strings.get(s_id)),
-                            Err(e) => {
-                                err = Some(e);
-                                break;
-                            }
-                        }
-                    }
-                    if let Some(e) = err {
+                    if let Err(e) = self.op_template_concat(count) {
                         self.throw_error(e, entry_frame_depth)?;
-                        continue;
                     }
-                    let id = self.strings.intern_utf16(&result);
-                    self.stack.push(JsValue::String(id));
                 }
 
                 // ── Function call ───────────────────────────────────
@@ -956,57 +914,14 @@ impl VmInner {
 
                 // ── Generator/Async ─────────────────────────────────
                 Op::Yield | Op::Await => {
-                    // [yielded_value -- ] (Op::Yield) or [awaited -- ] (Op::Await)
-                    // Both opcodes suspend the current frame identically;
-                    // the difference is interpreted at the driver level —
-                    // generators produce `{value, done}`, async coroutines
-                    // wrap the value as a Promise and subscribe
-                    // continuation steps.
+                    // Both Yield and Await suspend the current frame
+                    // identically — the driver (Generator.prototype.next
+                    // or the async coroutine driver) interprets the
+                    // yielded value.  The suspend mechanics live in
+                    // `natives_generator::op_yield_suspend` so the
+                    // dispatcher stays compact.
                     let value = self.pop()?;
-                    let gen_id = self.frames[frame_idx].generator.ok_or_else(|| {
-                        VmError::internal("Yield/Await outside a coroutine frame")
-                    })?;
-
-                    // Move the frame out of the stack + drain its stack
-                    // slice; close any open upvalues pointing to this frame.
-                    let mut frame = self.frames.pop().expect("frame for Yield");
-                    let stack_slice: Vec<JsValue> = self.stack.drain(frame.base..).collect();
-                    // Restore caller's completion_value so it survives.
-                    self.completion_value = frame.saved_completion;
-
-                    // Close open upvalues pointing to this frame's locals.
-                    // Save (uv_id, slot) so resume can reopen.
-                    let mut upvalue_slots = Vec::new();
-                    let base_before_drain = frame.base;
-                    for &uv_id in &frame.local_upvalue_ids {
-                        let uv = &mut self.upvalues[uv_id.0 as usize];
-                        if let super::value::UpvalueState::Open { slot, .. } = uv.state {
-                            let idx = slot as usize;
-                            let captured =
-                                stack_slice.get(idx).copied().unwrap_or(JsValue::Undefined);
-                            uv.state = super::value::UpvalueState::Closed(captured);
-                            upvalue_slots.push((uv_id, slot));
-                        }
-                    }
-                    let _ = base_before_drain;
-
-                    // Convert handler stack_depth to frame-relative so
-                    // resume can rebase to the new VM stack base.
-                    for h in &mut frame.exception_handlers {
-                        h.stack_depth = h.stack_depth.saturating_sub(frame.base);
-                    }
-
-                    let suspended = super::value::SuspendedFrame {
-                        frame,
-                        stack_slice,
-                        upvalue_slots,
-                    };
-                    if let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind {
-                        state.suspended = Some(suspended);
-                        state.status = super::value::GeneratorStatus::SuspendedYield;
-                    }
-                    self.generator_yielded = Some(value);
-
+                    super::natives_generator::op_yield_suspend(self, frame_idx, value)?;
                     if self.frames.len() <= entry_frame_depth {
                         // resume_generator takes `generator_yielded` out
                         // of the VM to decide yield vs return; the raw
@@ -1015,7 +930,7 @@ impl VmInner {
                     }
                     // Generator frame popped but we're below the entry
                     // frame — control resumes in the caller's frame on
-                    // the next loop iteration; no explicit continue needed.
+                    // the next loop iteration.
                 }
                 Op::YieldDelegate => {
                     // Full `yield*` spec (arg / return value / throw forward)

@@ -11,10 +11,73 @@
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     GeneratorStatus, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
-    PropertyStorage, PropertyValue, UpvalueState, VmError, VmErrorKind,
+    PropertyStorage, PropertyValue, SuspendedFrame, UpvalueState, VmError, VmErrorKind,
 };
 #[allow(unused_imports)] // VmErrorKind is used by resume_generator_throw
 use super::VmInner;
+
+// ---------------------------------------------------------------------------
+// Suspend — invoked from the dispatcher on Op::Yield / Op::Await
+// ---------------------------------------------------------------------------
+
+/// Capture the current frame into its enclosing generator as a
+/// [`SuspendedFrame`] and record the yielded value on
+/// [`VmInner::generator_yielded`].  The dispatcher calls this from the
+/// `Op::Yield | Op::Await` arm; resumption is handled separately by
+/// [`VmInner::resume_generator`].
+///
+/// Semantics captured here:
+/// - Pop the current frame out of `vm.frames` and drain its stack slice.
+/// - Restore the caller's `completion_value`.
+/// - Close every open upvalue pointing at this frame's locals (save the
+///   `(uv_id, slot)` pairs so `resume_generator` can reopen).
+/// - Rebase frame-relative handler depths.
+/// - Mark the generator `SuspendedYield` with the built [`SuspendedFrame`].
+pub(crate) fn op_yield_suspend(
+    vm: &mut VmInner,
+    frame_idx: usize,
+    value: JsValue,
+) -> Result<(), VmError> {
+    let gen_id = vm.frames[frame_idx]
+        .generator
+        .ok_or_else(|| VmError::internal("Yield/Await outside a coroutine frame"))?;
+
+    let mut frame = vm.frames.pop().expect("frame for Yield");
+    let stack_slice: Vec<JsValue> = vm.stack.drain(frame.base..).collect();
+    vm.completion_value = frame.saved_completion;
+
+    // Close open upvalues; remember their slots for the later reopen.
+    let mut upvalue_slots = Vec::new();
+    for &uv_id in &frame.local_upvalue_ids {
+        let uv = &mut vm.upvalues[uv_id.0 as usize];
+        if let UpvalueState::Open { slot, .. } = uv.state {
+            let captured = stack_slice
+                .get(slot as usize)
+                .copied()
+                .unwrap_or(JsValue::Undefined);
+            uv.state = UpvalueState::Closed(captured);
+            upvalue_slots.push((uv_id, slot));
+        }
+    }
+
+    // Make handler stack_depths frame-relative; `resume_generator` adds
+    // the new base back on restore.
+    for h in &mut frame.exception_handlers {
+        h.stack_depth = h.stack_depth.saturating_sub(frame.base);
+    }
+
+    let suspended = SuspendedFrame {
+        frame,
+        stack_slice,
+        upvalue_slots,
+    };
+    if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
+        state.suspended = Some(suspended);
+        state.status = GeneratorStatus::SuspendedYield;
+    }
+    vm.generator_yielded = Some(value);
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
 // Resume — invoked by Generator.prototype.next

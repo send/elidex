@@ -8,8 +8,49 @@
 
 use std::time::{Duration, Instant};
 
-use super::value::{JsValue, NativeContext, VmError};
-use super::{TimerEntry, VmInner};
+use super::value::{JsValue, NativeContext, ObjectId, VmError};
+use super::VmInner;
+
+// ---------------------------------------------------------------------------
+// TimerEntry — min-heap payload
+// ---------------------------------------------------------------------------
+
+/// A pending timer entry.  Stored in `VmInner::timer_queue` as a min-heap
+/// keyed by deadline — the earliest fires first.
+pub(crate) struct TimerEntry {
+    pub id: u32,
+    pub deadline: Instant,
+    pub callback: ObjectId,
+    /// `Some(d)` for `setInterval` — on fire, re-queued with
+    /// `deadline + d`.  `None` for `setTimeout` (one-shot).
+    pub repeat: Option<Duration>,
+    /// Positional args passed to the callback (WHATWG §8.7 step 13.2).
+    pub args: Vec<JsValue>,
+}
+
+// BinaryHeap is a max-heap; we want earliest deadline first, so flip the
+// ordering of `deadline` when comparing.  `id` is the tiebreaker for FIFO
+// behaviour on identical deadlines.
+impl Ord for TimerEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Reverse the deadline comparison so smaller deadline = "greater" heap.
+        other
+            .deadline
+            .cmp(&self.deadline)
+            .then_with(|| other.id.cmp(&self.id))
+    }
+}
+impl PartialOrd for TimerEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialEq for TimerEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.deadline == other.deadline && self.id == other.id
+    }
+}
+impl Eq for TimerEntry {}
 
 // ---------------------------------------------------------------------------
 // Scheduling primitives
