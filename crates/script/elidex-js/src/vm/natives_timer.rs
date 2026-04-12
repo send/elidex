@@ -6,11 +6,6 @@
 //! [`VmInner::drain_timers`] on each event-loop tick — typical wiring
 //! lives in the shell (PR6).
 
-// `drain_timers` / `fire_timer` are dead until PR6 wires them into the
-// shell; same for `TimerEntry.repeat` via pattern destructuring.  Allow
-// until then so the rest of the file stays warning-clean.
-#![allow(dead_code)]
-
 use std::time::{Duration, Instant};
 
 use super::value::{JsValue, NativeContext, VmError};
@@ -130,6 +125,10 @@ pub(super) fn native_clear_interval(
 // Drain — invoked by the event loop on each tick
 // ---------------------------------------------------------------------------
 
+// `drain_timers` is wired into `ScriptEngine::drain_timers` under the
+// `engine` feature + used by `tests_timer` in tests.  Without either,
+// rustc flags it dead — allow explicitly for the no-feature lib build.
+#[allow(dead_code)]
 impl VmInner {
     /// Fire every timer whose deadline is `<= now`.  Cancelled entries
     /// are skipped; interval entries are re-queued with `deadline + repeat`.
