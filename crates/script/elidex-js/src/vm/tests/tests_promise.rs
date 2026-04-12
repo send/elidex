@@ -189,18 +189,17 @@ fn promise_idempotent_settle() {
 #[test]
 fn promise_self_resolution_rejects_with_typeerror() {
     // §25.6.1.3.2 step 7: resolving a promise with itself ⇒ the promise
-    // rejects.  Verify the catch handler observes the thrown reason as a
-    // string (elidex-js uses a descriptive message rather than a fresh
-    // TypeError instance; exact shape may tighten when Error wiring lands).
+    // rejects with a fresh TypeError.  Verify both the `.name` and the
+    // message shape.
     assert_eq!(
         eval_global_string(
-            "globalThis.r = ''; var captured; \
+            "globalThis.out = ''; var captured; \
              var p = new Promise((resolve, _) => { captured = resolve; }); \
              captured(p); \
-             p.catch(e => { globalThis.r = typeof e; });",
-            "r"
+             p.catch(e => { globalThis.out = e.name + ':' + e.message; });",
+            "out"
         ),
-        "string"
+        "TypeError:Chaining cycle detected for promise"
     );
 }
 
@@ -553,6 +552,64 @@ fn promise_finally_throw_overrides_reason() {
         ),
         99.0
     );
+}
+
+// ─── Unhandled-rejection tracking ─────────────────────────────────────────
+//
+// The warning output itself is an `eprintln!` stream (PR3 will swap it for
+// a proper PromiseRejectionEvent); here we verify the *state machine* —
+// that attaching a reject handler marks the promise handled, and that
+// already-handled rejections do not appear in `pending_rejections`.
+
+#[test]
+fn promise_catch_clears_pending_rejection() {
+    use crate::vm::Vm;
+
+    let mut vm = Vm::new();
+    // Rejected promise with a .catch: must NOT remain in pending_rejections
+    // after the drain (the .catch microtask marks handled=true).
+    vm.eval("Promise.reject(1).catch(() => {});").unwrap();
+    assert!(
+        vm.inner.pending_rejections.is_empty(),
+        "handled rejection must not leave a pending entry"
+    );
+}
+
+#[test]
+fn promise_unhandled_rejection_marks_handled_after_warning() {
+    use crate::vm::Vm;
+
+    // A bare Promise.reject with no handler: after eval's drain, the
+    // end-of-drain scan emits a warning and marks the promise handled so
+    // subsequent drains don't re-warn.
+    let mut vm = Vm::new();
+    vm.eval("Promise.reject('bare');").unwrap();
+    // pending_rejections is cleared at drain end.
+    assert!(vm.inner.pending_rejections.is_empty());
+    // A second drain (no new rejections) is a no-op.
+    vm.inner.drain_microtasks();
+    assert!(vm.inner.pending_rejections.is_empty());
+}
+
+#[test]
+fn promise_late_catch_still_clears_handled() {
+    // A .catch attached AFTER the rejecting promise settles still marks
+    // the source promise handled — the tracker tolerates this pattern
+    // (it's common in real code).
+    use crate::vm::Vm;
+
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.x = 0; \
+         var p = Promise.reject(42); \
+         p.catch(r => { globalThis.x = r; });",
+    )
+    .unwrap();
+    assert_eq!(
+        vm.get_global("x"),
+        Some(crate::vm::value::JsValue::Number(42.0))
+    );
+    assert!(vm.inner.pending_rejections.is_empty());
 }
 
 #[test]

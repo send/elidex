@@ -119,6 +119,8 @@ struct GcRoots<'a> {
     /// Pending microtasks — hold references to handler functions, capability
     /// promises, and resolution values that would otherwise be unreachable.
     microtask_queue: &'a std::collections::VecDeque<Microtask>,
+    /// Rejected promises awaiting end-of-drain unhandled-rejection reporting.
+    pending_rejections: &'a [ObjectId],
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -195,6 +197,13 @@ fn mark_roots(
                 mark_object(*func, obj_marks, work);
             }
         }
+    }
+
+    // (g) Unhandled-rejection watchlist.  These promises must survive until
+    // the end-of-drain scan so their status/reason can be inspected for
+    // diagnostic output.
+    for &id in roots.pending_rejections {
+        mark_object(id, obj_marks, work);
     }
 }
 
@@ -436,6 +445,7 @@ impl VmInner {
             objects: &self.objects,
             host_data: self.host_data.as_deref(),
             microtask_queue: &self.microtask_queue,
+            pending_rejections: &self.pending_rejections,
         };
 
         self.gc_work_list.clear();

@@ -92,12 +92,12 @@ pub(super) fn settle_promise(
     }
 
     // resolve(thisPromise) — §25.6.1.3.2 step 7: reject with a
-    // SelfResolutionError-ish TypeError.
+    // SelfResolutionError-ish TypeError (spec step 7.a).
     if !is_reject {
         if let JsValue::Object(resolution_id) = value {
             if resolution_id == promise {
-                let msg = vm.strings.intern("Chaining cycle detected for promise");
-                reject_promise(vm, promise, JsValue::String(msg));
+                let err = build_type_error(vm, "Chaining cycle detected for promise");
+                reject_promise(vm, promise, err);
                 return Ok(JsValue::Undefined);
             }
             // If resolution is a Promise, wait for it to settle and then
@@ -142,8 +142,12 @@ fn fulfill_promise(vm: &mut VmInner, promise: ObjectId, value: JsValue) {
 }
 
 /// Transition `promise` to Rejected and queue each reject reaction.
+///
+/// Also tracks unhandled rejections: if no reject reactions were attached
+/// when we settle, add the promise to `VmInner::pending_rejections` so the
+/// end-of-drain check can warn about it.
 fn reject_promise(vm: &mut VmInner, promise: ObjectId, reason: JsValue) {
-    let reactions = {
+    let (reactions, unhandled) = {
         let obj = vm.get_object_mut(promise);
         let ObjectKind::Promise(state) = &mut obj.kind else {
             return;
@@ -154,11 +158,47 @@ fn reject_promise(vm: &mut VmInner, promise: ObjectId, reason: JsValue) {
         state.status = PromiseStatus::Rejected;
         state.result = reason;
         state.fulfill_reactions.clear();
-        std::mem::take(&mut state.reject_reactions)
+        let taken = std::mem::take(&mut state.reject_reactions);
+        // If we have no reactions to dispatch AND no prior .catch/.then(_, f)
+        // has marked us handled, queue an unhandled-rejection check.
+        let unhandled = taken.is_empty() && !state.handled;
+        (taken, unhandled)
     };
+    if unhandled {
+        vm.pending_rejections.push(promise);
+    }
     for r in reactions {
         enqueue_reaction(vm, r, reason);
     }
+}
+
+/// Build a TypeError instance matching the shape used elsewhere in the VM
+/// (`ObjectKind::Error { name }` + `.name` / `.message` data properties).
+/// Returned as a `JsValue::Object` ready to use as a rejection reason.
+pub(super) fn build_type_error(vm: &mut VmInner, message: &str) -> JsValue {
+    let name_id = vm.strings.intern("TypeError");
+    let msg_id = vm.strings.intern(message);
+    let obj = vm.alloc_object(Object {
+        kind: ObjectKind::Error { name: name_id },
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: vm.object_prototype,
+        extensible: true,
+    });
+    let name_key = PropertyKey::String(vm.well_known.name);
+    vm.define_shaped_property(
+        obj,
+        name_key,
+        PropertyValue::Data(JsValue::String(name_id)),
+        PropertyAttrs::DATA,
+    );
+    let message_key = PropertyKey::String(vm.well_known.message);
+    vm.define_shaped_property(
+        obj,
+        message_key,
+        PropertyValue::Data(JsValue::String(msg_id)),
+        PropertyAttrs::DATA,
+    );
+    JsValue::Object(obj)
 }
 
 /// Subscribe `dst` to `src`'s settlement: when `src` settles (or
@@ -250,7 +290,48 @@ impl VmInner {
                 }
             }
         }
+        // End-of-drain: emit unhandled-rejection warnings.  The spec hook
+        // (HostPromiseRejectionTracker → PromiseRejectionEvent) is deferred
+        // to PR3 when event dispatch is wired up; for now an eprintln keeps
+        // the diagnostic visible during development.
+        warn_unhandled_rejections(self);
         self.microtask_drain_depth -= 1;
+    }
+}
+
+/// Walk `pending_rejections`, warn on any entry still unhandled, and clear
+/// the list.  Marks the reported promise `handled` so a second drain pass
+/// doesn't re-warn.
+fn warn_unhandled_rejections(vm: &mut VmInner) {
+    if vm.pending_rejections.is_empty() {
+        return;
+    }
+    let pending = std::mem::take(&mut vm.pending_rejections);
+    for id in pending {
+        let Some(obj) = vm.objects.get(id.0 as usize).and_then(|o| o.as_ref()) else {
+            continue;
+        };
+        let ObjectKind::Promise(state) = &obj.kind else {
+            continue;
+        };
+        if state.status != PromiseStatus::Rejected || state.handled {
+            continue;
+        }
+        // Format the reason for display.  Intern via `to_display_string`
+        // so Error instances render as "TypeError: msg" etc.
+        let reason = state.result;
+        let reason_id = super::coerce::to_display_string(vm, reason);
+        let reason_str = vm.strings.get_utf8(reason_id);
+        eprintln!("Uncaught (in promise): {reason_str}");
+        // Re-borrow mutably now that to_display_string/get_utf8 are done.
+        if let Some(ObjectKind::Promise(state)) = vm
+            .objects
+            .get_mut(id.0 as usize)
+            .and_then(|o| o.as_mut())
+            .map(|o| &mut o.kind)
+        {
+            state.handled = true;
+        }
     }
 }
 

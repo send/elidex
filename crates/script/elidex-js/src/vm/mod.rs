@@ -151,6 +151,12 @@ pub(crate) struct VmInner {
     /// Prevents reentrancy from accidentally reordering the queue if a
     /// microtask triggers a nested eval or listener invocation.
     pub(crate) microtask_drain_depth: u32,
+    /// Rejected promises that had no reject handler attached at the
+    /// moment they settled.  Checked at the end of every microtask drain:
+    /// any entry whose target is still `Rejected && !handled` emits a
+    /// warning (HTML "unhandled promise rejection").  The hookup to a
+    /// proper `PromiseRejectionEvent` dispatch is deferred to PR3.
+    pub(crate) pending_rejections: Vec<ObjectId>,
 }
 
 /// A queued microtask.
@@ -820,6 +826,7 @@ impl Vm {
                 promise_prototype: None,
                 microtask_queue: VecDeque::new(),
                 microtask_drain_depth: 0,
+                pending_rejections: Vec::new(),
             },
         };
 
