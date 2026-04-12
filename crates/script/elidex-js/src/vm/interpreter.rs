@@ -156,6 +156,7 @@ impl VmInner {
         let local_count = compiled.local_count as usize;
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
+        let is_generator = compiled.is_generator;
 
         let entry_frames = self.frames.len();
         let base = self.stack.len();
@@ -172,6 +173,57 @@ impl VmInner {
         let saved_completion = self.completion_value;
         self.completion_value = JsValue::Undefined;
         let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
+
+        // Generator: build initial suspended frame and return Generator
+        // object directly — body runs only when `.next()` resumes.
+        if is_generator {
+            let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
+            self.completion_value = saved_completion;
+            let initial_frame = CallFrame {
+                func_id,
+                ip: 0,
+                base,
+                cleanup_base: base,
+                upvalue_ids,
+                local_upvalue_ids: Vec::new(),
+                this_value: this,
+                exception_handlers: Vec::new(),
+                tdz_bits,
+                tdz_overflow,
+                actual_args: if needs_arguments {
+                    Some(args.to_vec())
+                } else {
+                    None
+                },
+                new_instance: None,
+                saved_completion: JsValue::Undefined,
+                generator: None,
+            };
+            let suspended = super::value::SuspendedFrame {
+                frame: initial_frame,
+                stack_slice,
+                upvalue_slots: Vec::new(),
+            };
+            let proto = self.generator_prototype;
+            let gen_id = self.alloc_object(super::value::Object {
+                kind: super::value::ObjectKind::Generator(super::value::GeneratorState {
+                    status: super::value::GeneratorStatus::SuspendedStart,
+                    suspended: Some(suspended),
+                }),
+                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                prototype: proto,
+                extensible: true,
+            });
+            if let super::value::ObjectKind::Generator(state) =
+                &mut self.get_object_mut(gen_id).kind
+            {
+                if let Some(susp) = &mut state.suspended {
+                    susp.frame.generator = Some(gen_id);
+                }
+            }
+            let _ = entry_frames; // unused on this early-return path
+            return Ok(JsValue::Object(gen_id));
+        }
 
         self.frames.push(CallFrame {
             func_id,
@@ -191,6 +243,7 @@ impl VmInner {
             cleanup_base: base,
             new_instance: None,
             saved_completion,
+            generator: None,
         });
 
         let result = self.run();
@@ -223,12 +276,14 @@ impl VmInner {
         cleanup_offset: usize,
         new_instance: Option<ObjectId>,
     ) {
-        let base = self.stack.len() - argc;
-        let cleanup_base = base - cleanup_offset;
         let compiled = self.get_compiled(callee.func_id);
         let local_count = compiled.local_count as usize;
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
+        let is_generator = compiled.is_generator;
+
+        let base = self.stack.len() - argc;
+        let cleanup_base = base - cleanup_offset;
 
         // Capture actual args before mutating the stack (only when needed).
         let actual_args = if needs_arguments {
@@ -254,9 +309,67 @@ impl VmInner {
         }
 
         let saved_completion = self.completion_value;
-        self.completion_value = JsValue::Undefined;
         let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
 
+        // Generator short-circuit: the call returns a Generator object
+        // *without* executing the body.  Build an initial SuspendedFrame
+        // that `.next()` will later resume, drop the call args from the
+        // stack, and push the Generator in place of the call result.
+        if is_generator {
+            // Take the just-prepared locals as the initial stack slice.
+            let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
+            // Restore caller's completion_value — we never started the body.
+            self.completion_value = saved_completion;
+            // Drop the callee (+ receiver for method calls) that are
+            // still sitting below `base` on the stack.
+            self.stack.truncate(cleanup_base);
+
+            let initial_frame = CallFrame {
+                func_id: callee.func_id,
+                ip: 0,
+                // These two will be rebased on resume — store the original
+                // base here for clarity; resume_generator rewrites them.
+                base,
+                cleanup_base: base,
+                upvalue_ids: callee.upvalue_ids,
+                local_upvalue_ids: Vec::new(),
+                this_value: this,
+                exception_handlers: Vec::new(),
+                tdz_bits,
+                tdz_overflow,
+                actual_args,
+                new_instance,
+                saved_completion: JsValue::Undefined,
+                generator: None, // filled in after Generator alloc below
+            };
+            let suspended = super::value::SuspendedFrame {
+                frame: initial_frame,
+                stack_slice,
+                upvalue_slots: Vec::new(),
+            };
+            let proto = self.generator_prototype;
+            let gen_id = self.alloc_object(super::value::Object {
+                kind: super::value::ObjectKind::Generator(super::value::GeneratorState {
+                    status: super::value::GeneratorStatus::SuspendedStart,
+                    suspended: Some(suspended),
+                }),
+                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                prototype: proto,
+                extensible: true,
+            });
+            // Back-link the saved frame to the generator it belongs to.
+            if let super::value::ObjectKind::Generator(state) =
+                &mut self.get_object_mut(gen_id).kind
+            {
+                if let Some(susp) = &mut state.suspended {
+                    susp.frame.generator = Some(gen_id);
+                }
+            }
+            self.stack.push(JsValue::Object(gen_id));
+            return;
+        }
+
+        self.completion_value = JsValue::Undefined;
         self.frames.push(CallFrame {
             func_id: callee.func_id,
             ip: 0,
@@ -271,6 +384,7 @@ impl VmInner {
             cleanup_base,
             new_instance,
             saved_completion,
+            generator: None,
         });
     }
 

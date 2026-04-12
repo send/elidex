@@ -954,13 +954,78 @@ impl VmInner {
                     }
                 }
 
-                // ── Generator/Async (not in M4-10) ──────────────────
-                Op::Yield
-                | Op::YieldDelegate
-                | Op::Await
-                | Op::CreateGenerator
-                | Op::CreateAsyncGenerator => {
-                    return Err(VmError::internal("generator/async not supported in M4-10"));
+                // ── Generator/Async ─────────────────────────────────
+                Op::Yield => {
+                    // [yielded_value -- ]: snapshot frame into its Generator
+                    // object, close local upvalues, and unwind back to
+                    // resume_generator via the entry-frame check.
+                    let value = self.pop()?;
+                    let gen_id = self.frames[frame_idx]
+                        .generator
+                        .ok_or_else(|| VmError::internal("Yield outside a generator frame"))?;
+
+                    // Move the frame out of the stack + drain its stack
+                    // slice; close any open upvalues pointing to this frame.
+                    let mut frame = self.frames.pop().expect("frame for Yield");
+                    let stack_slice: Vec<JsValue> = self.stack.drain(frame.base..).collect();
+                    // Restore caller's completion_value so it survives.
+                    self.completion_value = frame.saved_completion;
+
+                    // Close open upvalues pointing to this frame's locals.
+                    // Save (uv_id, slot) so resume can reopen.
+                    let mut upvalue_slots = Vec::new();
+                    let base_before_drain = frame.base;
+                    for &uv_id in &frame.local_upvalue_ids {
+                        let uv = &mut self.upvalues[uv_id.0 as usize];
+                        if let super::value::UpvalueState::Open { slot, .. } = uv.state {
+                            let idx = slot as usize;
+                            let captured =
+                                stack_slice.get(idx).copied().unwrap_or(JsValue::Undefined);
+                            uv.state = super::value::UpvalueState::Closed(captured);
+                            upvalue_slots.push((uv_id, slot));
+                        }
+                    }
+                    let _ = base_before_drain;
+
+                    // Convert handler stack_depth to frame-relative so
+                    // resume can rebase to the new VM stack base.
+                    for h in &mut frame.exception_handlers {
+                        h.stack_depth = h.stack_depth.saturating_sub(frame.base);
+                    }
+
+                    let suspended = super::value::SuspendedFrame {
+                        frame,
+                        stack_slice,
+                        upvalue_slots,
+                    };
+                    if let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind {
+                        state.suspended = Some(suspended);
+                        state.status = super::value::GeneratorStatus::SuspendedYield;
+                    }
+                    self.generator_yielded = Some(value);
+
+                    if self.frames.len() <= entry_frame_depth {
+                        // resume_generator takes `generator_yielded` out
+                        // of the VM to decide yield vs return; the raw
+                        // return value here is ignored by that path.
+                        return Ok(JsValue::Undefined);
+                    }
+                    // Generator frame popped but we're below the entry
+                    // frame — control resumes in the caller's frame on
+                    // the next loop iteration; no explicit continue needed.
+                }
+                Op::YieldDelegate => {
+                    // Full `yield*` spec (arg / return value / throw forward)
+                    // lands in PR2.5 (generator spec completion).  Unlike
+                    // `Op::Yield`, we cannot produce a correct single-step
+                    // answer, so we throw.
+                    return Err(VmError::internal(
+                        "yield* (YieldDelegate) not supported in PR2 commit 4 — see PR2.5",
+                    ));
+                }
+                Op::Await => {
+                    // Async function handling lands in PR2 commit 5.
+                    return Err(VmError::internal("await not supported until PR2 commit 5"));
                 }
 
                 // ── Misc stubs ──────────────────────────────────────

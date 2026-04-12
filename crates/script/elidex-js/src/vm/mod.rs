@@ -25,6 +25,7 @@ mod natives_array_hof;
 mod natives_bigint;
 mod natives_boolean;
 mod natives_function;
+mod natives_generator;
 mod natives_json;
 mod natives_math;
 mod natives_number;
@@ -157,6 +158,13 @@ pub(crate) struct VmInner {
     /// warning (HTML "unhandled promise rejection").  The hookup to a
     /// proper `PromiseRejectionEvent` dispatch is deferred to PR3.
     pub(crate) pending_rejections: Vec<ObjectId>,
+    /// Generator.prototype — shared prototype for generator iterator
+    /// objects.  Holds `next` / `return` / `throw` and `[Symbol.iterator]`.
+    pub(crate) generator_prototype: Option<ObjectId>,
+    /// Set by `Op::Yield` to signal the enclosing `resume_generator` that
+    /// the generator paused with this value.  Taken (cleared) by the
+    /// generator driver.  `None` outside of a yield dispatch.
+    pub(crate) generator_yielded: Option<JsValue>,
 }
 
 /// A queued microtask.
@@ -827,6 +835,8 @@ impl Vm {
                 microtask_queue: VecDeque::new(),
                 microtask_drain_depth: 0,
                 pending_rejections: Vec::new(),
+                generator_prototype: None,
+                generator_yielded: None,
             },
         };
 

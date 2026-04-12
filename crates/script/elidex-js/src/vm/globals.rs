@@ -173,6 +173,11 @@ impl VmInner {
 
         // Promise global (constructable) + prototype
         self.register_promise_global();
+
+        // Generator.prototype — shared prototype for generator iterator
+        // objects. No constructable `Generator` global is exposed (spec);
+        // users obtain generators by calling `function* g() { ... }` forms.
+        self.register_generator_prototype();
     }
 
     /// Helper: register a native function as a global.
@@ -983,6 +988,33 @@ impl VmInner {
 
         let name = self.strings.intern("Promise");
         self.globals.insert(name, JsValue::Object(ctor_id));
+    }
+
+    /// Generator.prototype (§25.4.1) — shared prototype for generator
+    /// iterator objects.  Holds `next` / `return` / `throw` and the
+    /// `[Symbol.iterator]` that returns the generator itself.
+    fn register_generator_prototype(&mut self) {
+        use super::natives_generator::{
+            native_generator_iterator_self, native_generator_next, native_generator_return,
+            native_generator_throw,
+        };
+
+        let proto_id = self.create_object_with_methods(&[
+            ("next", native_generator_next),
+            ("return", native_generator_return),
+            ("throw", native_generator_throw),
+        ]);
+        // `[Symbol.iterator]` returns the generator itself (spec §25.4.1.5).
+        let iter_fn =
+            self.create_native_function("[Symbol.iterator]", native_generator_iterator_self);
+        let sym_iter_key = PropertyKey::Symbol(self.well_known_symbols.iterator);
+        self.define_shaped_property(
+            proto_id,
+            sym_iter_key,
+            PropertyValue::Data(JsValue::Object(iter_fn)),
+            PropertyAttrs::METHOD,
+        );
+        self.generator_prototype = Some(proto_id);
     }
 
     fn register_console(&mut self) {

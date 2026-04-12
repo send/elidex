@@ -4,6 +4,7 @@ mod tests_array_prototype;
 mod tests_array_prototype_ext;
 mod tests_bigint;
 mod tests_function_prototype;
+mod tests_generator;
 mod tests_json;
 mod tests_m4_10_2;
 mod tests_m4_11;

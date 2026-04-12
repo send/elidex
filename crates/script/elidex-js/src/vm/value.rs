@@ -490,6 +490,52 @@ pub enum ObjectKind {
         on_finally: ObjectId,
         is_reject: bool,
     },
+    /// An ES2020 §25.4 Generator object.  Created by a generator function
+    /// call (the function body never runs on the initial call — instead,
+    /// the Generator holds the initial suspended frame).  `.next()` /
+    /// `.return()` / `.throw()` drive execution.
+    Generator(GeneratorState),
+}
+
+/// `[[GeneratorState]]` internal slot.  Tracks where in its lifecycle the
+/// generator is, so `.next()` can reject invalid re-entry (running into
+/// yourself).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GeneratorStatus {
+    /// Just created, body hasn't started.  First `.next()` enters the body.
+    SuspendedStart,
+    /// Paused at a `yield` expression.  Next `.next(arg)` pushes `arg` as
+    /// the value of that `yield`.
+    SuspendedYield,
+    /// Currently executing body.  Re-entering via `.next()` throws TypeError.
+    Running,
+    /// Body returned or threw.  Subsequent `.next()` returns
+    /// `{value: undefined, done: true}`.
+    Completed,
+}
+
+/// Runtime state of a Generator object.  The inactive-phase frame state
+/// (when `status != Running`) lives in `suspended`.
+pub struct GeneratorState {
+    pub status: GeneratorStatus,
+    pub suspended: Option<SuspendedFrame>,
+}
+
+/// Saved state of a generator's call frame while the generator is paused.
+///
+/// `frame` is the original [`CallFrame`] moved out of `VmInner::frames`;
+/// on resume it goes back, after rebasing `base`, `cleanup_base`, handler
+/// stack depths, and any open upvalues pointing at this frame (stored in
+/// `upvalue_slots`).  `stack_slice` is the portion of `VmInner::stack`
+/// from `frame.base` up to `yield`'s pop point.
+pub struct SuspendedFrame {
+    pub frame: CallFrame,
+    pub stack_slice: Vec<JsValue>,
+    /// `(upvalue id, local slot)` pairs for every open upvalue that was
+    /// referring to this frame's locals when the yield ran.  On save the
+    /// upvalue is temporarily `Closed(value)`; on resume we write the
+    /// closed value back into the stack slot and reopen.
+    pub upvalue_slots: Vec<(UpvalueId, u16)>,
 }
 
 /// Shared state for a Promise combinator (§25.6.4.1–3).  `values` doubles
@@ -805,6 +851,10 @@ pub struct CallFrame {
     pub new_instance: Option<ObjectId>,
     /// Saved `completion_value` from the parent scope, restored on return.
     pub saved_completion: JsValue,
+    /// If set, this frame belongs to a generator; `Op::Yield` suspends
+    /// into this generator object instead of completing normally.  `None`
+    /// for ordinary (non-generator) frames.
+    pub generator: Option<ObjectId>,
 }
 
 impl CallFrame {

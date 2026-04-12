@@ -110,7 +110,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 12],
+    proto_roots: [Option<ObjectId>; 13],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -153,6 +153,9 @@ fn mark_roots(
             mark_object(id, obj_marks, work);
         }
         mark_value(frame.saved_completion, obj_marks, work);
+        if let Some(gen_id) = frame.generator {
+            mark_object(gen_id, obj_marks, work);
+        }
     }
 
     // (c) Global variables
@@ -211,6 +214,7 @@ fn mark_roots(
 ///
 /// Uses exhaustive matching on `ObjectKind` — adding a new variant without
 /// updating this function will produce a compile error (no wildcard fallback).
+#[allow(clippy::too_many_lines)]
 fn trace_work_list(
     objects: &[Option<Object>],
     upvalues: &[Upvalue],
@@ -303,6 +307,33 @@ fn trace_work_list(
             }
             ObjectKind::PromiseFinallyStep { on_finally, .. } => {
                 mark_object(*on_finally, obj_marks, work);
+            }
+            ObjectKind::Generator(state) => {
+                if let Some(susp) = &state.suspended {
+                    // The suspended frame carries its own set of roots —
+                    // this_value, upvalue_ids, actual_args, saved_completion,
+                    // new_instance, and the stack slice that was taken off
+                    // the VM stack at yield time.
+                    mark_value(susp.frame.this_value, obj_marks, work);
+                    for &uv_id in susp.frame.upvalue_ids.iter() {
+                        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
+                    }
+                    for &uv_id in &susp.frame.local_upvalue_ids {
+                        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
+                    }
+                    if let Some(ref args) = susp.frame.actual_args {
+                        for &v in args {
+                            mark_value(v, obj_marks, work);
+                        }
+                    }
+                    if let Some(id) = susp.frame.new_instance {
+                        mark_object(id, obj_marks, work);
+                    }
+                    mark_value(susp.frame.saved_completion, obj_marks, work);
+                    for &v in &susp.stack_slice {
+                        mark_value(v, obj_marks, work);
+                    }
+                }
             }
             // No ObjectId references — only StringId / scalar fields.
             ObjectKind::Ordinary
@@ -439,6 +470,7 @@ impl VmInner {
                 self.array_iterator_prototype,
                 self.string_iterator_prototype,
                 self.promise_prototype,
+                self.generator_prototype,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
