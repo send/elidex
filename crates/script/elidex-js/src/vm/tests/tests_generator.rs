@@ -8,7 +8,7 @@
 //! - `.return(v)` / `.throw(e)` abrupt-completion forwarding with finally
 //! - Await / async function integration (PR2 commit 5)
 
-use super::{eval_bool, eval_global_number, eval_number, eval_string};
+use super::{eval_bool, eval_global_number, eval_global_string, eval_number, eval_string};
 
 // ─── Shape of the generator object ───────────────────────────────────────
 
@@ -159,6 +159,76 @@ fn generator_try_catch_across_yield() {
              var it = g(); it.next(); it.next().value;"
         ),
         2.0
+    );
+}
+
+#[test]
+fn generator_try_finally_runs_finally_after_normal_completion() {
+    // Normal exit from a try block inside a generator: finally runs exactly
+    // once when the body completes, observable via an external side-effect
+    // string.  Guards against regressing the "finally-runs-twice" bug fixed
+    // in commit a5205be — we specifically check the generator path since the
+    // fix touched the compiler's Throw lowering, and we want coverage across
+    // yield suspension boundaries too.
+    assert_eq!(
+        eval_global_number(
+            "globalThis.n = 0; \
+             function* g() { \
+                 try { yield 1; yield 2; } \
+                 finally { globalThis.n += 1; } \
+             } \
+             var it = g(); it.next(); it.next(); it.next();",
+            "n"
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn generator_try_catch_finally_ordering_across_yield() {
+    // `try { yield; throw }` followed by `catch { ... }` and `finally`
+    // must run each branch exactly once, in order T/C/F.  The throw takes
+    // the runtime handler path (compile-time inline finally emission was
+    // removed from Op::Throw in commit a5205be), so this test would catch a
+    // regression that re-introduces the double-finally bug via the
+    // generator resume path.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             function* g() { \
+                 try { \
+                     yield 1; \
+                     globalThis.log += 'T'; \
+                     throw 'boom'; \
+                 } \
+                 catch (e) { globalThis.log += 'C'; } \
+                 finally { globalThis.log += 'F'; } \
+             } \
+             var it = g(); it.next(); it.next();",
+            "log"
+        ),
+        "TCF"
+    );
+}
+
+#[test]
+fn generator_for_of_completion_runs_finally_once() {
+    // Driving a generator through `for (...of g())` to normal completion
+    // still runs the finally block exactly once, exercising the iterator
+    // protocol's value/done transition while a finally is pending.
+    assert_eq!(
+        eval_global_number(
+            "globalThis.n = 0; \
+             function* g() { \
+                 try { yield 1; yield 2; } \
+                 finally { globalThis.n += 1; } \
+             } \
+             var sum = 0; \
+             for (var v of g()) { sum += v; } \
+             globalThis.n;",
+            "n"
+        ),
+        1.0
     );
 }
 
