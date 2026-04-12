@@ -83,12 +83,15 @@ impl BigIntPool {
     }
 
     /// Allocate a new BigInt, returning its `BigIntId`.
-    /// Returns cached IDs for 0 and 1.
+    /// Returns cached IDs for 0 and 1.  `num_traits::One::is_one()` avoids
+    /// constructing a temporary `BigInt::from(1)` on every call (hot for
+    /// `i + 1n` / incrementing loops).
     pub(crate) fn alloc(&mut self, val: num_bigint::BigInt) -> value::BigIntId {
         use num_bigint::Sign;
+        use num_traits::One;
         match val.sign() {
             Sign::NoSign => return self.zero,
-            Sign::Plus if val == num_bigint::BigInt::from(1) => return self.one,
+            Sign::Plus if val.is_one() => return self.one,
             _ => {}
         }
         let id = value::BigIntId(self.values.len() as u32);

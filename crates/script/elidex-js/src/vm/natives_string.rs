@@ -756,12 +756,16 @@ pub(crate) fn native_string_constructor(
 }
 
 /// Format a symbol as `"Symbol(<description>)"` per §19.4.3.2.1.
+/// Builds the output in WTF-16 so that descriptions containing unpaired
+/// surrogates round-trip losslessly (UTF-8 round-trip would corrupt them).
 fn symbol_to_descriptive_string(
     ctx: &mut NativeContext<'_>,
     sid: super::value::SymbolId,
 ) -> StringId {
-    let desc = ctx.vm.symbols[sid.0 as usize]
-        .description
-        .map_or_else(String::new, |d| ctx.vm.strings.get_utf8(d));
-    ctx.vm.strings.intern(&format!("Symbol({desc})"))
+    let mut units: Vec<u16> = "Symbol(".encode_utf16().collect();
+    if let Some(desc) = ctx.vm.symbols[sid.0 as usize].description {
+        units.extend_from_slice(ctx.vm.strings.get(desc));
+    }
+    units.push(u16::from(b')'));
+    ctx.vm.strings.intern_utf16(&units)
 }

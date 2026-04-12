@@ -25,19 +25,34 @@ pub(super) fn native_number_to_string(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
-    // §20.1.3.6 step 5-8: radix defaults to 10; if specified, ToInteger
-    // + range check [2, 36]; invalid → RangeError.
+    // §20.1.3.6 step 5-8: radix defaults to 10; if specified, apply
+    // ToIntegerOrInfinity FIRST, then range-check the integer value in
+    // [2, 36].  `36.1` must truncate to 36 and be accepted; `36.5` likewise;
+    // +Infinity and values outside the range throw RangeError.
     let radix = match args.first().copied() {
         None | Some(JsValue::Undefined) => 10u32,
         Some(val) => {
             let r = ctx.to_number(val)?;
-            if !r.is_finite() || !(2.0..=36.0).contains(&r) {
+            let r_int = if r.is_nan() {
+                0.0 // ToIntegerOrInfinity(NaN) = 0
+            } else if r.is_infinite() {
+                return Err(VmError::range_error(
+                    "toString() radix must be between 2 and 36",
+                ));
+            } else {
+                r.trunc()
+            };
+            // §20.1.3.6 step 8: radix of 0 (i.e. absent) would have hit the
+            // default branch above; here 0 comes from ToIntegerOrInfinity(NaN)
+            // which spec does not special-case — we follow V8 and treat it
+            // as an out-of-range error rather than silently defaulting.
+            if !(2.0..=36.0).contains(&r_int) {
                 return Err(VmError::range_error(
                     "toString() radix must be between 2 and 36",
                 ));
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let r_u32 = r.trunc() as u32;
+            let r_u32 = r_int as u32;
             r_u32
         }
     };

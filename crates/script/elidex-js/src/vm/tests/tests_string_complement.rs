@@ -510,6 +510,14 @@ fn number_to_string_radix_out_of_range() {
 }
 
 #[test]
+fn number_to_string_radix_fractional_truncates() {
+    // §20.1.3.6 step 5-8: ToIntegerOrInfinity first, then range check.
+    // `36.1` truncates to `36`, which is in [2, 36] → accepted.
+    assert_eq!(eval_string("(35).toString(36.1);"), "z");
+    assert_eq!(eval_string("(255).toString(16.9);"), "ff");
+}
+
+#[test]
 fn number_to_string_radix_default_is_decimal() {
     assert_eq!(eval_string("(255).toString();"), "255");
     assert_eq!(eval_string("(255).toString(10);"), "255");
