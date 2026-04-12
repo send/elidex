@@ -934,8 +934,9 @@ impl VmInner {
 
     fn register_console(&mut self) {
         use super::natives::{native_console_debug, native_console_info, native_console_trace};
-        // Namespace object; no Object.prototype so console isn't surprising
-        // under `for-in` (matches most engines' direct-property layout).
+        // Namespace object; omit Object.prototype so console behaves like a
+        // direct-property host object with only its own methods, matching
+        // most engines' layout more closely.
         let console_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),

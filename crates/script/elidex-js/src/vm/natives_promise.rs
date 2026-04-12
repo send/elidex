@@ -440,14 +440,15 @@ pub(super) fn native_promise_constructor(
     Ok(JsValue::Object(promise_id))
 }
 
-/// `Promise.resolve(value)` — §25.6.4.5
+/// `Promise.resolve(value)` — §25.6.4.7 (ES2021; `Promise.any` shifted
+/// this one down from §25.6.4.5 in earlier editions).
 pub(super) fn native_promise_resolve(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
-    // Pass-through for Promise instances (§25.6.4.5.1 step 2 when C === %Promise%).
+    // Pass-through for Promise instances (§25.6.4.7.1 step 2 when C === %Promise%).
     if let JsValue::Object(id) = value {
         if matches!(ctx.get_object(id).kind, ObjectKind::Promise(_)) {
             return Ok(value);
@@ -458,7 +459,8 @@ pub(super) fn native_promise_resolve(
     Ok(JsValue::Object(id))
 }
 
-/// `Promise.reject(reason)` — §25.6.4.4
+/// `Promise.reject(reason)` — §25.6.4.6 (ES2021; `Promise.any` at §25.6.4.3
+/// shifted `.reject` / `.resolve` down by two).
 pub(super) fn native_promise_reject(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
