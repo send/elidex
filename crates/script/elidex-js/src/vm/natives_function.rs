@@ -155,19 +155,35 @@ fn target_function_length_name(
     let length_key = super::value::PropertyKey::String(ctx.vm.well_known.length);
     let name_key = super::value::PropertyKey::String(ctx.vm.well_known.name);
 
-    // §19.2.3.2 step 4-5: ToIntegerOrInfinity on the Number value.  NaN
-    // → 0; ±Infinity propagate; other numbers truncate to integer.  Any
-    // non-Number type → 0.  Absent property → internal param_count
-    // (authoritative for user functions whose `.length` is not yet a
-    // data property).
-    #[allow(clippy::cast_precision_loss)]
+    // §19.2.3.2 step 4-5: `ToIntegerOrInfinity(? Get(target, "length"))`.
+    // The spec runs ToNumber on the raw value first (so String/Boolean/etc
+    // route through their standard coercions), then applies the
+    // integer-or-infinity step: NaN → 0, ±Infinity propagate, otherwise
+    // truncate towards zero and clamp negatives to 0.  Absent property
+    // falls back to the internal `param_count` (authoritative for user
+    // functions whose `.length` is not yet materialised as a data
+    // property).  Symbol values propagate the ToNumber TypeError — `?`
+    // in the spec means abrupt completions bubble.
     let length: f64 = match ctx.try_get_property_value(target_id, length_key)? {
-        Some(JsValue::Number(n)) if n.is_nan() => 0.0,
-        Some(JsValue::Number(n)) if n.is_infinite() => n,
-        Some(JsValue::Number(n)) if n > 0.0 => n.trunc(),
-        // Non-positive finite Numbers and non-Number values → 0.
-        Some(_) => 0.0,
-        None => internal_function_length(ctx, target_id) as f64,
+        None => {
+            #[allow(clippy::cast_precision_loss)]
+            let fallback = internal_function_length(ctx, target_id) as f64;
+            fallback
+        }
+        Some(raw) => {
+            let n = ctx.to_number(raw)?;
+            if n.is_nan() {
+                0.0
+            } else if n.is_infinite() {
+                n
+            } else if n > 0.0 {
+                n.trunc()
+            } else {
+                // Non-positive finite numbers clamp to 0 per
+                // ToIntegerOrInfinity step 5.
+                0.0
+            }
+        }
     };
     // §19.2.3.2 step 11-13: `targetName` is `? Get(target, "name")`.
     // Non-String results get `ToString`-coerced (e.g. `{value: 42}` → "42");
