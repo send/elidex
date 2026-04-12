@@ -394,6 +394,48 @@ fn decode_hex_u16(unit: u16) -> Option<u8> {
 
 // -- Error constructors -----------------------------------------------------
 
+/// §19.5.3.4 Error.prototype.toString.
+/// Build `"<name>: <message>"` from the instance's own `.name` / `.message`
+/// properties (falling back to "Error" / "").  Each field goes through
+/// `ToString` so that non-String values (e.g. `name = 42`) coerce per spec.
+pub(super) fn native_error_to_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::Object(obj_id) = this else {
+        return Err(VmError::type_error(
+            "Error.prototype.toString requires an Object",
+        ));
+    };
+    let name_key = PropertyKey::String(ctx.vm.well_known.name);
+    let msg_key = PropertyKey::String(ctx.vm.well_known.message);
+    let name_sid = match ctx.try_get_property_value(obj_id, name_key)? {
+        None | Some(JsValue::Undefined) => ctx.intern("Error"),
+        Some(v) => ctx.to_string_val(v)?,
+    };
+    let msg_sid = match ctx.try_get_property_value(obj_id, msg_key)? {
+        None | Some(JsValue::Undefined) => ctx.vm.well_known.empty,
+        Some(v) => ctx.to_string_val(v)?,
+    };
+    let name_units = ctx.vm.strings.get(name_sid).to_vec();
+    let msg_units = ctx.vm.strings.get(msg_sid).to_vec();
+    // §19.5.3.4 steps 7-9: empty name → msg; empty msg → name; else name + ": " + msg.
+    let result_id = if name_units.is_empty() {
+        msg_sid
+    } else if msg_units.is_empty() {
+        name_sid
+    } else {
+        let mut units = Vec::with_capacity(name_units.len() + 2 + msg_units.len());
+        units.extend_from_slice(&name_units);
+        units.push(u16::from(b':'));
+        units.push(u16::from(b' '));
+        units.extend_from_slice(&msg_units);
+        ctx.vm.strings.intern_utf16(&units)
+    };
+    Ok(JsValue::String(result_id))
+}
+
 fn error_ctor_impl(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

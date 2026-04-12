@@ -703,6 +703,41 @@ fn for_in_prototype_chain_cap() {
 }
 
 #[test]
+fn error_to_string_includes_name_and_message() {
+    // §19.5.3.4: Error.prototype.toString returns "name: message".
+    // Call `.toString()` directly — `String(obj)` would hit the known
+    // OrdinaryToPrimitive fallback (tracked as follow-up PR) and yield
+    // "[object Object]".
+    assert_eq!(eval_string("new Error('oops').toString();"), "Error: oops");
+    assert_eq!(
+        eval_string("new TypeError('nope').toString();"),
+        "TypeError: nope"
+    );
+    // No-message case: just the name (prototype's default message is "").
+    assert_eq!(eval_string("new Error().toString();"), "Error");
+}
+
+// Note: `Symbol.prototype.toString` now accepts a SymbolWrapper `this`
+// (fixed in this round), but exercising it from JS requires
+// `Object(Symbol(...))` or `new Symbol(...)`, neither of which elidex
+// currently supports (Object constructor is a methods object, Symbol
+// constructor is non-constructable).  The fix is covered by the internal
+// ToObject path in `coerce.rs` which creates SymbolWrapper.
+
+#[test]
+fn array_to_locale_string_invokes_per_element() {
+    // §22.1.3.28: each element's own toLocaleString must be called.
+    assert_eq!(
+        eval_string(
+            "var a = {toLocaleString: function() { return 'A'; }};
+             var b = {toLocaleString: function() { return 'B'; }};
+             [a, b].toLocaleString();"
+        ),
+        "A,B"
+    );
+}
+
+#[test]
 fn function_tostring_chain_depth_cap() {
     // §19.2.3.5: Function.prototype.toString on a deeply-bound chain
     // must enforce the same depth cap as call/construct to prevent

@@ -595,10 +595,46 @@ pub(super) fn native_array_to_string(
 }
 
 /// `Array.prototype.toLocaleString()` — same as toString (locale not supported).
+/// §22.1.3.28 Array.prototype.toLocaleString: invoke `.toLocaleString()`
+/// on each element (honoring user overrides), then join with `","`.
+/// Locale-aware separator is not implemented (elidex has no Intl yet).
+/// Holes / undefined / null elements produce empty string (spec step 7.a).
 pub(super) fn native_array_to_locale_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    native_array_join(ctx, this, &[])
+    let id = this_object_id(this)?;
+    array_len(ctx, id)?;
+    let elements = clone_elements(ctx, id);
+    let to_locale_key = super::value::PropertyKey::String(ctx.intern("toLocaleString"));
+    let mut result: Vec<u16> = Vec::new();
+    for (i, v) in elements.iter().enumerate() {
+        if i > 0 {
+            result.push(u16::from(b','));
+        }
+        if v.is_empty() || v.is_nullish() {
+            continue;
+        }
+        // Invoke(v, "toLocaleString"): Get(v, key), call if callable.
+        let JsValue::Object(obj_id) = *v else {
+            // Primitive: ToString fallback (spec §22.1.3.28 step 7.c uses
+            // Invoke which would throw if non-callable, but callers expect
+            // primitive → string coercion in practice).
+            let sid = ctx.to_string_val(*v)?;
+            result.extend_from_slice(ctx.vm.strings.get(sid));
+            continue;
+        };
+        let method = ctx.try_get_property_value(obj_id, to_locale_key)?;
+        let str_sid = match method {
+            Some(JsValue::Object(fn_id)) if ctx.get_object(fn_id).kind.is_callable() => {
+                let ret = ctx.call_function(fn_id, *v, &[])?;
+                ctx.to_string_val(ret)?
+            }
+            _ => ctx.to_string_val(*v)?,
+        };
+        result.extend_from_slice(ctx.vm.strings.get(str_sid));
+    }
+    let sid = ctx.vm.strings.intern_utf16(&result);
+    Ok(JsValue::String(sid))
 }

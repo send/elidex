@@ -57,10 +57,24 @@ pub(super) fn native_symbol_prototype_to_string(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let JsValue::Symbol(sid) = this else {
-        return Err(VmError::type_error(
-            "Symbol.prototype.toString requires a symbol value",
-        ));
+    // §19.4.3.3 thisSymbolValue: accept both Symbol primitive and a
+    // Symbol wrapper object (unwrap `[[SymbolData]]`).
+    let sid = match this {
+        JsValue::Symbol(sid) => sid,
+        JsValue::Object(obj_id) => {
+            if let ObjectKind::SymbolWrapper(sid) = ctx.get_object(obj_id).kind {
+                sid
+            } else {
+                return Err(VmError::type_error(
+                    "Symbol.prototype.toString requires a symbol value",
+                ));
+            }
+        }
+        _ => {
+            return Err(VmError::type_error(
+                "Symbol.prototype.toString requires a symbol value",
+            ));
+        }
     };
     // Build the output in WTF-16 so descriptions with unpaired surrogates
     // are preserved losslessly (UTF-8 round-trip via get_utf8 would

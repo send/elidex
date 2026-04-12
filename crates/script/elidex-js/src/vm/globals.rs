@@ -415,6 +415,42 @@ impl VmInner {
     }
 
     fn register_error_constructors(&mut self) {
+        // §19.5.3 Error.prototype — shared by Error and all native error
+        // subclasses (TypeError, RangeError, etc.) in elidex; not fully
+        // spec-compliant (each should have its own prototype chained to
+        // Error.prototype), but sufficient for String(new TypeError(...))
+        // to produce "TypeError: msg" via inherited .toString.
+        let error_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: self.object_prototype,
+            extensible: true,
+        });
+        let to_string_fn =
+            self.create_native_function("toString", super::natives::native_error_to_string);
+        let to_string_key = PropertyKey::String(self.strings.intern("toString"));
+        self.define_shaped_property(
+            error_proto,
+            to_string_key,
+            PropertyValue::Data(JsValue::Object(to_string_fn)),
+            PropertyAttrs::METHOD,
+        );
+        let default_name_key = PropertyKey::String(self.well_known.name);
+        let default_name_val = JsValue::String(self.strings.intern("Error"));
+        self.define_shaped_property(
+            error_proto,
+            default_name_key,
+            PropertyValue::Data(default_name_val),
+            PropertyAttrs::METHOD,
+        );
+        let default_msg_key = PropertyKey::String(self.well_known.message);
+        self.define_shaped_property(
+            error_proto,
+            default_msg_key,
+            PropertyValue::Data(JsValue::String(self.well_known.empty)),
+            PropertyAttrs::METHOD,
+        );
+
         let ctors: &[(&str, NativeFn)] = &[
             ("Error", native_error_constructor),
             ("TypeError", native_type_error_constructor),
@@ -423,8 +459,17 @@ impl VmInner {
             ("SyntaxError", native_syntax_error_constructor),
             ("URIError", native_uri_error_constructor),
         ];
+        let proto_key = PropertyKey::String(self.well_known.prototype);
         for &(name, func) in ctors {
             let fn_id = self.create_constructable_function(name, func);
+            // Set ctor.prototype = error_proto so `new Error(...)` instances
+            // inherit from Error.prototype (via do_new's lookup chain).
+            self.define_shaped_property(
+                fn_id,
+                proto_key,
+                PropertyValue::Data(JsValue::Object(error_proto)),
+                PropertyAttrs::BUILTIN,
+            );
             let name_id = self.strings.intern(name);
             self.globals.insert(name_id, JsValue::Object(fn_id));
         }
