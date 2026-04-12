@@ -738,6 +738,21 @@ fn array_to_locale_string_invokes_per_element() {
 }
 
 #[test]
+fn array_to_locale_string_honors_primitive_prototype_override() {
+    // §22.1.3.28 step 7.c calls `Invoke(element, "toLocaleString")`.
+    // Invoke = `? Call(? GetV(V, P), V)`, and GetV boxes primitives via
+    // ToObject for property lookup — so prototype overrides on
+    // Number/String/Boolean must be observed for primitive elements.
+    assert_eq!(
+        eval_string(
+            "Number.prototype.toLocaleString = function() { return 'N:' + this; };
+             [1, 2, 3].toLocaleString();"
+        ),
+        "N:1,N:2,N:3"
+    );
+}
+
+#[test]
 fn function_tostring_chain_depth_cap() {
     // §19.2.3.5: Function.prototype.toString on a deeply-bound chain
     // must enforce the same depth cap as call/construct to prevent

@@ -616,22 +616,24 @@ pub(super) fn native_array_to_locale_string(
         if v.is_empty() || v.is_nullish() {
             continue;
         }
-        // Invoke(v, "toLocaleString"): Get(v, key), call if callable.
-        let JsValue::Object(obj_id) = *v else {
-            // Primitive: ToString fallback (spec §22.1.3.28 step 7.c uses
-            // Invoke which would throw if non-callable, but callers expect
-            // primitive → string coercion in practice).
-            let sid = ctx.to_string_val(*v)?;
-            result.extend_from_slice(ctx.vm.strings.get(sid));
-            continue;
+        // §22.1.3.28 step 7.c: `? ToString(? Invoke(nextElement, "toLocaleString"))`.
+        // Invoke(V, P) = ? Call(? GetV(V, P), V); GetV boxes primitives via
+        // ToObject for the property lookup but passes the original V as the
+        // receiver/this.  So we box primitives only to reach the prototype
+        // chain (Number.prototype.toLocaleString / etc.) while the call
+        // receiver stays the primitive — enabling `Number.prototype.toLocaleString`
+        // overrides to be observed for `[1].toLocaleString()`.
+        let (obj_id, receiver) = match *v {
+            JsValue::Object(obj_id) => (obj_id, *v),
+            primitive => (super::coerce::to_object(ctx.vm, primitive)?, primitive),
         };
         let method = ctx.try_get_property_value(obj_id, to_locale_key)?;
         let str_sid = match method {
             Some(JsValue::Object(fn_id)) if ctx.get_object(fn_id).kind.is_callable() => {
-                let ret = ctx.call_function(fn_id, *v, &[])?;
+                let ret = ctx.call_function(fn_id, receiver, &[])?;
                 ctx.to_string_val(ret)?
             }
-            _ => ctx.to_string_val(*v)?,
+            _ => ctx.to_string_val(receiver)?,
         };
         result.extend_from_slice(ctx.vm.strings.get(str_sid));
     }

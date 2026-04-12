@@ -237,6 +237,41 @@ pub(super) fn native_object_prototype_to_string(
     Ok(JsValue::String(id))
 }
 
+// -- Object.prototype.toLocaleString (ES2020 §19.1.3.5) -------------------
+//
+// Spec: `Return ? Invoke(O, "toString")`.  Previously wired as an alias of
+// Object.prototype.toString, which bypassed per-type overrides and made
+// `(5).toLocaleString()` yield "[object Number]" instead of "5".
+pub(super) fn native_object_prototype_to_locale_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Invoke(V, "toString") = ? Call(? GetV(V, "toString"), V).  GetV boxes
+    // primitives via ToObject for property lookup but passes the original V
+    // as the receiver, so Number.prototype.toString etc. apply correctly.
+    let (obj_id, receiver) = match this {
+        JsValue::Object(obj_id) => (obj_id, this),
+        JsValue::Null | JsValue::Undefined | JsValue::Empty => {
+            return Err(VmError::type_error(
+                "Object.prototype.toLocaleString called on null or undefined",
+            ));
+        }
+        primitive => (super::coerce::to_object(ctx.vm, primitive)?, primitive),
+    };
+    let to_string_key = PropertyKey::String(ctx.intern("toString"));
+    let method = ctx
+        .try_get_property_value(obj_id, to_string_key)?
+        .unwrap_or(JsValue::Undefined);
+    let JsValue::Object(fn_id) = method else {
+        return Err(VmError::type_error("toString is not callable"));
+    };
+    if !ctx.get_object(fn_id).kind.is_callable() {
+        return Err(VmError::type_error("toString is not callable"));
+    }
+    ctx.call_function(fn_id, receiver, &[])
+}
+
 // -- String iterator (Symbol.iterator protocol) ------------------------------
 
 /// `String.prototype[Symbol.iterator]()` — creates a StringIterator.
