@@ -423,6 +423,12 @@ impl PropertyStorage {
 }
 
 /// The internal kind of an object.
+//
+// `Generator(GeneratorState)` is the largest variant (≈280 bytes:
+// carries a full suspended `CallFrame`) — boxing it would push an
+// allocation + dereference onto every Generator creation + resume
+// step, which are both hot paths.  Accept the variant-size skew.
+#[allow(clippy::large_enum_variant)]
 pub enum ObjectKind {
     /// Plain `{}` object.
     Ordinary,
