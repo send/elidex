@@ -853,9 +853,12 @@ fn internalize(
                             &[JsValue::String(key_sid), new_val],
                         )?;
                         if matches!(result, JsValue::Undefined) {
-                            let _ = ctx
-                                .vm
-                                .try_delete_property(obj_id, PropertyKey::String(key_sid));
+                            // §24.5.1.1 step 3.d: `? O.[[Delete]](P)`.
+                            // Observable only via Proxy deleteProperty trap
+                            // (not yet implemented), but propagate for spec
+                            // conformance once Proxy lands.
+                            ctx.vm
+                                .try_delete_property(obj_id, PropertyKey::String(key_sid))?;
                         } else {
                             ctx.vm
                                 .set_property_val(JsValue::Object(obj_id), key_sid, result)?;

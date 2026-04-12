@@ -30,6 +30,12 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 // ---------------------------------------------------------------------------
 
 /// ToNumber (ES2020 §7.1.4). Symbol → TypeError per spec.
+///
+/// KNOWN LIMITATION: For non-wrapper Objects, this returns `NaN` instead
+/// of performing `? ToPrimitive(val, "number") → ? ToNumber(prim)` per
+/// §7.1.4 step 4.  Fixing this requires threading `&mut VmInner` through
+/// ~175 call sites (all arithmetic / comparison / bitwise paths).  Tracked
+/// as a dedicated follow-up PR — see phase4-plan.md.
 pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> Result<f64, VmError> {
     match val {
         JsValue::Empty | JsValue::Undefined => Ok(f64::NAN),
@@ -212,6 +218,10 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
                 let s = vm.bigints.get(bi_id).to_string();
                 Ok(vm.strings.intern(&s))
             }
+            // KNOWN LIMITATION: §7.1.12 step 9 requires
+            // `? ToPrimitive(val, "string") → ? ToString(prim)` for
+            // non-wrapper Objects.  Tracked as dedicated follow-up
+            // alongside ToNumber (see phase4-plan.md).
             _ => Ok(vm.well_known.object_to_string),
         },
     }
@@ -381,39 +391,41 @@ pub(crate) fn strict_eq(vm: &VmInner, a: JsValue, b: JsValue) -> bool {
 // Abstract Equality (ES2020 §7.2.15)
 // ---------------------------------------------------------------------------
 
-/// Abstract equality (`==`). May need string/number coercions.
-pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
+/// Abstract equality (`==`). May need string/number coercions.  Returns
+/// `Err` when a user-defined `@@toPrimitive`/`valueOf`/`toString` throws
+/// (§7.2.15 `?` steps 10-12 require abrupt-completion propagation).
+pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bool, VmError> {
     // Empty (sparse hole) is treated as Undefined in all coercions.
     let a = if a.is_empty() { JsValue::Undefined } else { a };
     let b = if b.is_empty() { JsValue::Undefined } else { b };
 
     // Same type → strict_eq
     if same_type(a, b) {
-        return strict_eq(vm, a, b);
+        return Ok(strict_eq(vm, a, b));
     }
 
-    match (a, b) {
+    Ok(match (a, b) {
         // null == undefined (and vice versa)
         (JsValue::Null, JsValue::Undefined) | (JsValue::Undefined, JsValue::Null) => true,
 
         // Number == String → Number == ToNumber(String)
         (JsValue::Number(_), JsValue::String(s)) => {
             let n = string_to_number(&vm.strings.get_utf8(s));
-            abstract_eq(vm, a, JsValue::Number(n))
+            abstract_eq(vm, a, JsValue::Number(n))?
         }
         (JsValue::String(s), JsValue::Number(_)) => {
             let n = string_to_number(&vm.strings.get_utf8(s));
-            abstract_eq(vm, JsValue::Number(n), b)
+            abstract_eq(vm, JsValue::Number(n), b)?
         }
 
         // BigInt == BigInt handled by same_type above.
         // BigInt == Number (§7.2.14 step 5/6)
         (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) => {
             if n.is_nan() || n.is_infinite() {
-                return false;
+                return Ok(false);
             }
             if n != n.floor() {
-                return false;
+                return Ok(false);
             }
             // Integer Number → compare with BigInt value.
             #[allow(clippy::cast_possible_truncation)]
@@ -423,7 +435,7 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
                 // Large integer — use string round-trip.
                 match format!("{n:.0}").parse::<BigIntValue>() {
                     Ok(v) => v,
-                    Err(_) => return false,
+                    Err(_) => return Ok(false),
                 }
             };
             vm.bigints.get(bi) == &n_big
@@ -452,24 +464,26 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> bool {
         // Boolean == x → ToNumber(Boolean) == x
         (JsValue::Boolean(bl), _) => {
             let n = if bl { 1.0 } else { 0.0 };
-            abstract_eq(vm, JsValue::Number(n), b)
+            abstract_eq(vm, JsValue::Number(n), b)?
         }
         (_, JsValue::Boolean(bl)) => {
             let n = if bl { 1.0 } else { 0.0 };
-            abstract_eq(vm, a, JsValue::Number(n))
+            abstract_eq(vm, a, JsValue::Number(n))?
         }
 
-        // Object == primitive → ToPrimitive (§7.2.15 steps 10, 12)
-        (JsValue::Object(_), _) => match vm.to_primitive(a, "default") {
-            Ok(prim) => abstract_eq(vm, prim, b),
-            Err(_) => false,
-        },
-        (_, JsValue::Object(_)) => match vm.to_primitive(b, "default") {
-            Ok(prim) => abstract_eq(vm, a, prim),
-            Err(_) => false,
-        },
+        // Object == primitive → ? ToPrimitive (§7.2.15 steps 10, 12).
+        // Abrupt completion from a user-defined @@toPrimitive / valueOf /
+        // toString must propagate per spec `?` mark.
+        (JsValue::Object(_), _) => {
+            let prim = vm.to_primitive(a, "default")?;
+            abstract_eq(vm, prim, b)?
+        }
+        (_, JsValue::Object(_)) => {
+            let prim = vm.to_primitive(b, "default")?;
+            abstract_eq(vm, a, prim)?
+        }
         _ => false,
-    }
+    })
 }
 
 /// Check if two values have the same JS type.
@@ -758,21 +772,9 @@ mod tests {
     #[test]
     fn abstract_eq_null_undefined() {
         let mut vm = Vm::new();
-        assert!(abstract_eq(
-            &mut vm.inner,
-            JsValue::Null,
-            JsValue::Undefined
-        ));
-        assert!(abstract_eq(
-            &mut vm.inner,
-            JsValue::Undefined,
-            JsValue::Null
-        ));
-        assert!(!abstract_eq(
-            &mut vm.inner,
-            JsValue::Null,
-            JsValue::Boolean(false)
-        ));
+        assert!(abstract_eq(&mut vm.inner, JsValue::Null, JsValue::Undefined).unwrap());
+        assert!(abstract_eq(&mut vm.inner, JsValue::Undefined, JsValue::Null).unwrap());
+        assert!(!abstract_eq(&mut vm.inner, JsValue::Null, JsValue::Boolean(false)).unwrap());
     }
 
     #[test]
@@ -784,19 +786,12 @@ mod tests {
             &mut vm.inner,
             JsValue::String(one_str),
             JsValue::Number(1.0)
-        ));
+        )
+        .unwrap());
         // true == 1
-        assert!(abstract_eq(
-            &mut vm.inner,
-            JsValue::Boolean(true),
-            JsValue::Number(1.0)
-        ));
+        assert!(abstract_eq(&mut vm.inner, JsValue::Boolean(true), JsValue::Number(1.0)).unwrap());
         // false == 0
-        assert!(abstract_eq(
-            &mut vm.inner,
-            JsValue::Boolean(false),
-            JsValue::Number(0.0)
-        ));
+        assert!(abstract_eq(&mut vm.inner, JsValue::Boolean(false), JsValue::Number(0.0)).unwrap());
     }
 
     #[test]

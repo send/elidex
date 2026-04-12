@@ -249,14 +249,30 @@ impl VmInner {
                 Op::Eq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let r = abstract_eq(self, a, b);
-                    self.stack.push(JsValue::Boolean(r));
+                    match abstract_eq(self, a, b) {
+                        Ok(r) => self.stack.push(JsValue::Boolean(r)),
+                        Err(e) => {
+                            let thrown = self.vm_error_to_thrown(&e);
+                            if self.handle_exception(thrown, entry_frame_depth) {
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
                 Op::NotEq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    let r = !abstract_eq(self, a, b);
-                    self.stack.push(JsValue::Boolean(r));
+                    match abstract_eq(self, a, b) {
+                        Ok(r) => self.stack.push(JsValue::Boolean(!r)),
+                        Err(e) => {
+                            let thrown = self.vm_error_to_thrown(&e);
+                            if self.handle_exception(thrown, entry_frame_depth) {
+                                continue;
+                            }
+                            return Err(e);
+                        }
+                    }
                 }
                 Op::StrictEq => {
                     let b = self.pop()?;

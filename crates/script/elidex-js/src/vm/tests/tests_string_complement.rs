@@ -466,6 +466,18 @@ fn bind_honors_defineproperty_length() {
 }
 
 #[test]
+fn abstract_eq_propagates_to_primitive_throw() {
+    // §7.2.15 steps 10/12: Object == primitive calls ? ToPrimitive; an
+    // abrupt completion from @@toPrimitive must propagate, not silently
+    // yield `false`.  Regression guard for the swallow fix in abstract_eq.
+    eval_throws(
+        "var o = {};
+         o[Symbol.toPrimitive] = function() { throw new Error('prim-throw'); };
+         o == 1;",
+    );
+}
+
+#[test]
 fn bind_propagates_name_getter_throw() {
     // §19.2.3.2 step 11: `Get(target, "name")` is an abrupt completion
     // point.  If the getter throws, bind must propagate the exception

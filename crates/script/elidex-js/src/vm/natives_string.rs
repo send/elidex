@@ -56,20 +56,19 @@ fn build_match_result(
 }
 
 /// Read the current `lastIndex` from a RegExp object (as raw f64).
-/// §21.2.5.2.1 step 4: `Get(R, "lastIndex")` — walks the prototype chain
-/// and invokes accessors, so user-defined `Object.defineProperty(re,
-/// "lastIndex", {get})` overrides are honored.  Non-number results coerce
-/// to NaN via `JsValue::as_number`; NaN → 0 to preserve the previous
-/// "missing slot → 0" behavior.
+/// §21.2.5.2.1 step 4: `? Get(R, "lastIndex")` — walks the prototype
+/// chain and invokes accessors.  Abrupt completions (accessor throw)
+/// propagate per the spec `?` mark.  Missing / non-number results fall
+/// back to 0 to preserve existing behavior.
 pub(super) fn get_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
-) -> f64 {
+) -> Result<f64, VmError> {
     let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
-    match ctx.try_get_property_value(obj_id, last_index_key) {
-        Ok(Some(JsValue::Number(n))) if n.is_finite() => n,
+    Ok(match ctx.try_get_property_value(obj_id, last_index_key)? {
+        Some(JsValue::Number(n)) if n.is_finite() => n,
         _ => 0.0,
-    }
+    })
 }
 
 /// Set `lastIndex` on a RegExp object (UTF-16 code unit index).
@@ -647,7 +646,7 @@ pub(super) fn native_string_search(
         }
     }
     // §21.1.3.15: save lastIndex, set to 0, run, restore.
-    let saved = get_regexp_last_index(ctx, re_id);
+    let saved = get_regexp_last_index(ctx, re_id)?;
     set_regexp_last_index(ctx, re_id, 0);
     let result = super::natives_regexp::run_regexp(ctx, re_id, &subject)?.map(|m| m.start());
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
