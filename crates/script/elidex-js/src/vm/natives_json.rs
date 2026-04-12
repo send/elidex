@@ -386,7 +386,7 @@ pub(super) fn native_json_stringify(
         PropertyAttrs::DATA,
     );
 
-    let to_json_key = ctx.intern("toJSON");
+    let to_json_key = ctx.vm.well_known.to_json;
     let mut serializer = JsonSerializer {
         output: String::with_capacity(128),
         stack: Vec::new(),

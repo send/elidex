@@ -579,7 +579,7 @@ pub(super) fn native_array_to_string(
     let JsValue::Object(obj_id) = this else {
         return native_array_join(ctx, this, &[]);
     };
-    let join_key = super::value::PropertyKey::String(ctx.intern("join"));
+    let join_key = super::value::PropertyKey::String(ctx.vm.well_known.join);
     let join_fn = ctx.try_get_property_value(obj_id, join_key)?;
     if let Some(JsValue::Object(fn_id)) = join_fn {
         if ctx.get_object(fn_id).kind.is_callable() {

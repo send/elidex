@@ -65,7 +65,13 @@ mod engine_feature {
                 !self.is_bound(),
                 "HostData::bind called while already bound; missing unbind()?"
             );
-            debug_assert!(!session.is_null() && !dom.is_null());
+            // Non-null enforcement in release builds too: a null session
+            // or dom pointer would make subsequent session()/dom() deref
+            // immediate UB.
+            assert!(
+                !session.is_null() && !dom.is_null(),
+                "HostData::bind requires non-null session and dom pointers"
+            );
             self.session_ptr = session;
             self.dom_ptr = dom;
             self.document_entity = Some(document);

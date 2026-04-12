@@ -192,12 +192,12 @@ pub(super) fn native_object_define_property(
 
     // Extract descriptor fields.
     let new_prop = if let JsValue::Object(desc_id) = desc_val {
-        let get_key = PropertyKey::String(ctx.intern("get"));
-        let set_key = PropertyKey::String(ctx.intern("set"));
-        let value_key = PropertyKey::String(ctx.intern("value"));
-        let enumerable_key = PropertyKey::String(ctx.intern("enumerable"));
-        let configurable_key = PropertyKey::String(ctx.intern("configurable"));
-        let writable_key = PropertyKey::String(ctx.intern("writable"));
+        let get_key = PropertyKey::String(ctx.vm.well_known.get);
+        let set_key = PropertyKey::String(ctx.vm.well_known.set);
+        let value_key = PropertyKey::String(ctx.vm.well_known.value);
+        let enumerable_key = PropertyKey::String(ctx.vm.well_known.enumerable);
+        let configurable_key = PropertyKey::String(ctx.vm.well_known.configurable);
+        let writable_key = PropertyKey::String(ctx.vm.well_known.writable);
 
         // §6.2.5.5 ToPropertyDescriptor: HasProperty + Get per field in
         // spec order (enumerable, configurable, value, writable, get, set).
@@ -577,12 +577,12 @@ pub(super) fn native_object_get_own_property_descriptor(
         prototype: ctx.vm.object_prototype,
         extensible: true,
     });
-    let configurable_key = PropertyKey::String(ctx.intern("configurable"));
-    let enumerable_key = PropertyKey::String(ctx.intern("enumerable"));
+    let configurable_key = PropertyKey::String(ctx.vm.well_known.configurable);
+    let enumerable_key = PropertyKey::String(ctx.vm.well_known.enumerable);
     match slot {
         super::value::PropertyValue::Data(v) => {
             let value_key = PropertyKey::String(ctx.vm.well_known.value);
-            let writable_key = PropertyKey::String(ctx.intern("writable"));
+            let writable_key = PropertyKey::String(ctx.vm.well_known.writable);
             ctx.vm.define_shaped_property(
                 desc_id,
                 value_key,
@@ -597,8 +597,8 @@ pub(super) fn native_object_get_own_property_descriptor(
             );
         }
         super::value::PropertyValue::Accessor { getter, setter } => {
-            let get_key = PropertyKey::String(ctx.intern("get"));
-            let set_key = PropertyKey::String(ctx.intern("set"));
+            let get_key = PropertyKey::String(ctx.vm.well_known.get);
+            let set_key = PropertyKey::String(ctx.vm.well_known.set);
             let get_val = getter.map_or(JsValue::Undefined, JsValue::Object);
             let set_val = setter.map_or(JsValue::Undefined, JsValue::Object);
             ctx.vm.define_shaped_property(

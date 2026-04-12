@@ -56,19 +56,19 @@ fn build_match_result(
 }
 
 /// Read the current `lastIndex` from a RegExp object (as raw f64).
-/// §21.2.5.2.1 step 4-5: `ToLength(? Get(R, "lastIndex"))` — walks the
-/// prototype chain, invokes accessors, then applies ToLength:
-/// NaN / negative → 0, +Infinity clamped to 2^53 - 1.  Non-Number results
-/// fall back to 0 (spec coerces via ToNumber, but ToNumber of non-wrapper
-/// Object is tracked as a follow-up refactor).
+/// §21.2.5.2.1 step 4-5: `ToLength(? ToNumber(? Get(R, "lastIndex")))`.
+/// Walks the prototype chain, invokes accessors, coerces via ToNumber
+/// (strings like "5", booleans, null, undefined), then applies ToLength:
+/// NaN / negative → 0, +Infinity clamped to 2^53 - 1.  Symbols propagate
+/// as TypeError from ToNumber.  Missing property → 0.
 pub(super) fn get_regexp_last_index(
     ctx: &mut NativeContext<'_>,
     obj_id: super::value::ObjectId,
 ) -> Result<f64, VmError> {
     let last_index_key = PropertyKey::String(ctx.vm.well_known.last_index);
     let raw = match ctx.try_get_property_value(obj_id, last_index_key)? {
-        Some(JsValue::Number(n)) => n,
-        _ => 0.0,
+        Some(val) => ctx.to_number(val)?,
+        None => 0.0,
     };
     Ok(to_length(raw))
 }

@@ -495,24 +495,6 @@ fn bind_length_zero_for_non_number_property() {
 }
 
 #[test]
-fn regexp_last_index_coerces_non_number_to_zero() {
-    // §21.2.5.2.1 step 4-5: ToLength on Get(R, "lastIndex").
-    // Non-Number value must coerce to 0 (treated as missing here).
-    // We can't set lastIndex directly to non-number (write coerces), but
-    // an accessor override demonstrates the path.
-    assert_eq!(
-        eval_string(
-            "var proto = Object.create({});
-             Object.defineProperty(proto, 'lastIndex', { get() { return 'abc'; } });
-             // Can't swap proto of literal regex, but the to_length coercion
-             // is exercised internally; covered by unit test of to_length.
-             'ok';"
-        ),
-        "ok"
-    );
-}
-
-#[test]
 fn array_to_string_honors_join_override() {
     // §22.1.3.30: Array.prototype.toString calls Get(O, "join"); if
     // callable, invokes it.  User-installed .join override must be honored.

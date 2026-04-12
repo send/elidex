@@ -176,6 +176,13 @@ pub(crate) struct WellKnownStrings {
     pub(crate) last_index: StringId,
     pub(crate) index: StringId,
     pub(crate) input: StringId,
+    pub(crate) join: StringId,
+    pub(crate) to_json: StringId,
+    pub(crate) get: StringId,
+    pub(crate) set: StringId,
+    pub(crate) enumerable: StringId,
+    pub(crate) configurable: StringId,
+    pub(crate) writable: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -690,6 +697,13 @@ impl Vm {
             last_index: strings.intern("lastIndex"),
             index: strings.intern("index"),
             input: strings.intern("input"),
+            join: strings.intern("join"),
+            to_json: strings.intern("toJSON"),
+            get: strings.intern("get"),
+            set: strings.intern("set"),
+            enumerable: strings.intern("enumerable"),
+            configurable: strings.intern("configurable"),
+            writable: strings.intern("writable"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).
