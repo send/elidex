@@ -274,6 +274,27 @@ fn trace_work_list(
             ObjectKind::PromiseResolver { promise, .. } => {
                 mark_object(*promise, obj_marks, work);
             }
+            ObjectKind::PromiseCombinatorState(state) => {
+                mark_object(state.result, obj_marks, work);
+                for &v in &state.values {
+                    mark_value(v, obj_marks, work);
+                }
+            }
+            ObjectKind::PromiseCombinatorStep(step) => {
+                use super::value::PromiseCombinatorStep as Step;
+                let state_id = match step {
+                    Step::AllFulfill { state, .. }
+                    | Step::AllReject { state }
+                    | Step::AllSettledFulfill { state, .. }
+                    | Step::AllSettledReject { state, .. }
+                    | Step::AnyFulfill { state }
+                    | Step::AnyReject { state, .. } => *state,
+                };
+                mark_object(state_id, obj_marks, work);
+            }
+            ObjectKind::PromiseFinallyStep { on_finally, .. } => {
+                mark_object(*on_finally, obj_marks, work);
+            }
             // No ObjectId references — only StringId / scalar fields.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)

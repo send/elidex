@@ -112,6 +112,30 @@ impl VmInner {
                     self.gc_enabled = saved_gc;
                     return result;
                 }
+                ObjectKind::PromiseCombinatorStep(step) => {
+                    let step = *step;
+                    let saved_gc = self.gc_enabled;
+                    self.gc_enabled = false;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    let result = super::natives_promise::step_combinator(self, step, value);
+                    self.gc_enabled = saved_gc;
+                    return result;
+                }
+                ObjectKind::PromiseFinallyStep {
+                    on_finally,
+                    is_reject,
+                } => {
+                    // `on_finally` itself runs user JS, so leave GC alone —
+                    // the callee paths already save/restore `gc_enabled`.
+                    let on_finally = *on_finally;
+                    let is_reject = *is_reject;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    return super::natives_promise::run_finally_step(
+                        self, on_finally, is_reject, value,
+                    );
+                }
                 _ => return Err(VmError::type_error("not a function")),
             }
         }

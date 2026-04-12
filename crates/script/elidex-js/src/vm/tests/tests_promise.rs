@@ -351,6 +351,210 @@ fn queue_microtask_interleaves_with_promise_reactions_fifo() {
     );
 }
 
+// ─── Promise.all ──────────────────────────────────────────────────────────
+
+#[test]
+fn promise_all_resolves_with_array_of_values() {
+    assert_eq!(
+        eval_global_number(
+            "globalThis.sum = 0; \
+             Promise.all([1, Promise.resolve(2), 3]).then(arr => { \
+                 globalThis.sum = arr[0] + arr[1] + arr[2]; \
+             });",
+            "sum"
+        ),
+        6.0
+    );
+}
+
+#[test]
+fn promise_all_preserves_input_order() {
+    // Values must appear at the same index as their input, even when
+    // inner promises fulfil in a different order (here: chained .then
+    // enqueues happen at microtask time).
+    assert_eq!(
+        eval_global_string(
+            "globalThis.out = ''; \
+             var p1 = Promise.resolve('a'); \
+             var p2 = Promise.resolve('b'); \
+             var p3 = Promise.resolve('c'); \
+             Promise.all([p1, p2, p3]).then(arr => { globalThis.out = arr.join(','); });",
+            "out"
+        ),
+        "a,b,c"
+    );
+}
+
+#[test]
+fn promise_all_empty_resolves_with_empty_array() {
+    assert_eq!(
+        eval_global_number(
+            "globalThis.len = -1; \
+             Promise.all([]).then(arr => { globalThis.len = arr.length; });",
+            "len"
+        ),
+        0.0
+    );
+}
+
+#[test]
+fn promise_all_rejects_on_first_rejection() {
+    assert_eq!(
+        eval_global_number(
+            "globalThis.err = 0; \
+             Promise.all([1, Promise.reject(42), 3]).catch(r => { globalThis.err = r; });",
+            "err"
+        ),
+        42.0
+    );
+}
+
+// ─── Promise.allSettled ───────────────────────────────────────────────────
+
+#[test]
+fn promise_all_settled_reports_each_outcome() {
+    assert_eq!(
+        eval_global_string(
+            "globalThis.out = ''; \
+             Promise.allSettled([Promise.resolve(1), Promise.reject(2), 3]).then(arr => { \
+                 globalThis.out = arr[0].status + ',' + arr[0].value + '|' \
+                                 + arr[1].status + ',' + arr[1].reason + '|' \
+                                 + arr[2].status + ',' + arr[2].value; \
+             });",
+            "out"
+        ),
+        "fulfilled,1|rejected,2|fulfilled,3"
+    );
+}
+
+#[test]
+fn promise_all_settled_empty() {
+    assert_eq!(
+        eval_global_number(
+            "globalThis.len = -1; \
+             Promise.allSettled([]).then(arr => { globalThis.len = arr.length; });",
+            "len"
+        ),
+        0.0
+    );
+}
+
+// ─── Promise.race ─────────────────────────────────────────────────────────
+
+#[test]
+fn promise_race_resolves_with_first_fulfilled() {
+    // Already-settled plain values in the iterable settle synchronously
+    // (as microtasks), so the first item wins.
+    assert_eq!(
+        eval_global_number(
+            "globalThis.winner = 0; \
+             Promise.race([1, Promise.resolve(2), 3]).then(v => { globalThis.winner = v; });",
+            "winner"
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn promise_race_rejects_with_first_rejection() {
+    assert_eq!(
+        eval_global_number(
+            "globalThis.err = 0; \
+             Promise.race([Promise.reject(9), Promise.resolve(1)]).catch(r => { globalThis.err = r; });",
+            "err"
+        ),
+        9.0
+    );
+}
+
+// ─── Promise.any ──────────────────────────────────────────────────────────
+
+#[test]
+fn promise_any_resolves_with_first_fulfilled() {
+    assert_eq!(
+        eval_global_number(
+            "globalThis.val = 0; \
+             Promise.any([Promise.reject(1), Promise.resolve(7), Promise.reject(2)]).then(v => { \
+                 globalThis.val = v; \
+             });",
+            "val"
+        ),
+        7.0
+    );
+}
+
+#[test]
+fn promise_any_rejects_with_aggregate_when_all_reject() {
+    // AggregateError: we expect `.errors` to be an array of the rejection
+    // reasons in input order, and `.message` to be non-empty.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.out = ''; \
+             Promise.any([Promise.reject('a'), Promise.reject('b')]).catch(e => { \
+                 globalThis.out = e.name + ':' + e.errors.join(','); \
+             });",
+            "out"
+        ),
+        "AggregateError:a,b"
+    );
+}
+
+#[test]
+fn promise_any_empty_rejects_immediately() {
+    assert_eq!(
+        eval_global_string(
+            "globalThis.out = ''; \
+             Promise.any([]).catch(e => { globalThis.out = e.name; });",
+            "out"
+        ),
+        "AggregateError"
+    );
+}
+
+// ─── Promise.prototype.finally ────────────────────────────────────────────
+
+#[test]
+fn promise_finally_runs_on_fulfill_and_passes_value() {
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             Promise.resolve(5).finally(() => { globalThis.log += 'F'; }).then(v => { \
+                 globalThis.log += 'v' + v; \
+             });",
+            "log"
+        ),
+        "Fv5"
+    );
+}
+
+#[test]
+fn promise_finally_runs_on_reject_and_preserves_reason() {
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             Promise.reject(7).finally(() => { globalThis.log += 'F'; }).catch(r => { \
+                 globalThis.log += 'r' + r; \
+             });",
+            "log"
+        ),
+        "Fr7"
+    );
+}
+
+#[test]
+fn promise_finally_throw_overrides_reason() {
+    // Spec §25.6.5.3: if `onFinally` itself throws, the derived promise
+    // rejects with that error, overriding the original outcome.
+    assert_eq!(
+        eval_global_number(
+            "globalThis.err = 0; \
+             Promise.resolve(1).finally(() => { throw 99; }).catch(r => { globalThis.err = r; });",
+            "err"
+        ),
+        99.0
+    );
+}
+
 #[test]
 fn promise_chain_dispatched_in_separate_microtasks() {
     // Each link in a promise chain settles in its own microtask.  A chain

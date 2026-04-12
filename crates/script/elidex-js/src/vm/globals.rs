@@ -930,14 +930,17 @@ impl VmInner {
     /// `ObjectKind::Promise` in place.
     fn register_promise_global(&mut self) {
         use super::natives_promise::{
+            native_promise_all, native_promise_all_settled, native_promise_any,
             native_promise_constructor, native_promise_prototype_catch,
-            native_promise_prototype_then, native_promise_reject, native_promise_resolve,
+            native_promise_prototype_finally, native_promise_prototype_then, native_promise_race,
+            native_promise_reject, native_promise_resolve,
         };
 
-        // Promise.prototype with `.then` / `.catch`.
+        // Promise.prototype with `.then` / `.catch` / `.finally`.
         let proto_id = self.create_object_with_methods(&[
             ("then", native_promise_prototype_then),
             ("catch", native_promise_prototype_catch),
+            ("finally", native_promise_prototype_finally),
         ]);
         self.promise_prototype = Some(proto_id);
 
@@ -959,10 +962,14 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
 
-        // Static methods: Promise.resolve / Promise.reject.
+        // Static methods: resolve / reject / all / allSettled / race / any.
         for (name, func) in [
             ("resolve", native_promise_resolve as NativeFn),
             ("reject", native_promise_reject as NativeFn),
+            ("all", native_promise_all as NativeFn),
+            ("allSettled", native_promise_all_settled as NativeFn),
+            ("race", native_promise_race as NativeFn),
+            ("any", native_promise_any as NativeFn),
         ] {
             let fn_id = self.create_native_function(name, func);
             let key = PropertyKey::String(self.strings.intern(name));
