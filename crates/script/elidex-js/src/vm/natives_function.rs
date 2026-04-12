@@ -92,8 +92,11 @@ pub(super) fn native_function_bind(
     // BoundFunction's own `.name` is already "bound foo" from the prior bind,
     // so this naturally yields "bound bound foo" without walking the chain.
     // Abrupt completions from user-defined getters propagate (spec `?`).
-    let (target_length, target_name) = target_function_length_name(ctx, target_id)?;
-    let bound_length = target_length.saturating_sub(bound_args.len());
+    let (target_length, target_name): (f64, String) = target_function_length_name(ctx, target_id)?;
+    // §19.2.3.2 step 8: L = max(0, targetLen - argCount).  Keep as f64
+    // so that `+Infinity - argCount` stays `+Infinity` per spec.
+    #[allow(clippy::cast_precision_loss)]
+    let bound_length = (target_length - bound_args.len() as f64).max(0.0);
     let name_str = format!("bound {target_name}");
     let name_id = ctx.intern(&name_str);
 
@@ -114,8 +117,7 @@ pub(super) fn native_function_bind(
     ctx.vm.define_shaped_property(
         bound_id,
         length_key,
-        #[allow(clippy::cast_precision_loss)]
-        super::value::PropertyValue::Data(JsValue::Number(bound_length as f64)),
+        super::value::PropertyValue::Data(JsValue::Number(bound_length)),
         NON_WRITABLE_CONFIGURABLE,
     );
     // Set name (non-writable, non-enumerable, configurable).
@@ -141,18 +143,23 @@ pub(super) fn native_function_bind(
 fn target_function_length_name(
     ctx: &mut NativeContext<'_>,
     target_id: ObjectId,
-) -> Result<(usize, String), VmError> {
+) -> Result<(f64, String), VmError> {
     let length_key = super::value::PropertyKey::String(ctx.vm.well_known.length);
     let name_key = super::value::PropertyKey::String(ctx.vm.well_known.name);
 
-    // §19.2.3.2 step 4-5: if Get(target, "length") yields a Number, use
-    // ToInteger(max(0, n)); if any other type, yield 0; if absent, fall
-    // back to the internal param_count (authoritative for user functions).
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let length = match ctx.try_get_property_value(target_id, length_key)? {
-        Some(JsValue::Number(n)) if n.is_finite() && n >= 0.0 => n as usize,
-        Some(_) => 0,
-        None => internal_function_length(ctx, target_id),
+    // §19.2.3.2 step 4-5: ToIntegerOrInfinity on the Number value.  NaN
+    // → 0; ±Infinity propagate; other numbers truncate to integer.  Any
+    // non-Number type → 0.  Absent property → internal param_count
+    // (authoritative for user functions whose `.length` is not yet a
+    // data property).
+    #[allow(clippy::cast_precision_loss)]
+    let length: f64 = match ctx.try_get_property_value(target_id, length_key)? {
+        Some(JsValue::Number(n)) if n.is_nan() => 0.0,
+        Some(JsValue::Number(n)) if n.is_infinite() => n,
+        Some(JsValue::Number(n)) if n > 0.0 => n.trunc(),
+        // Non-positive finite Numbers and non-Number values → 0.
+        Some(_) => 0.0,
+        None => internal_function_length(ctx, target_id) as f64,
     };
     // §19.2.3.2 step 11-13: `targetName` is `? Get(target, "name")`.
     // Non-String results get `ToString`-coerced (e.g. `{value: 42}` → "42");

@@ -529,6 +529,28 @@ fn string_split_limit_coerces_via_to_number() {
 }
 
 #[test]
+fn string_split_limit_non_finite_is_zero() {
+    // §7.1.7 ToUint32: NaN / ±Infinity → 0.  `split(sep, Infinity)` must
+    // not throw; it yields an empty array (limit = 0).
+    assert_eq!(eval_number("'a,b,c'.split(',', Infinity).length;"), 0.0);
+    assert_eq!(eval_number("'a,b,c'.split(',', NaN).length;"), 0.0);
+}
+
+#[test]
+fn bind_length_propagates_infinity() {
+    // §19.2.3.2 step 5 (ToIntegerOrInfinity): +Infinity length propagates.
+    // max(0, Infinity - argCount) = Infinity.
+    assert_eq!(
+        eval_number(
+            "function f() {}
+             Object.defineProperty(f, 'length', { value: Infinity, configurable: true });
+             f.bind(null, 1, 2, 3).length;"
+        ),
+        f64::INFINITY
+    );
+}
+
+#[test]
 fn array_to_string_honors_join_override() {
     // §22.1.3.30: Array.prototype.toString calls Get(O, "join"); if
     // callable, invokes it.  User-installed .join override must be honored.
