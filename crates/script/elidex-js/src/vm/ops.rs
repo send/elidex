@@ -27,6 +27,44 @@ pub(crate) const DENSE_ARRAY_LEN_LIMIT: usize = 1 << 27;
 /// Separate from array limit since strings are denser (2 bytes/unit vs 16 bytes/JsValue).
 pub(crate) const STRING_LEN_LIMIT: usize = 1 << 24;
 
+impl VmInner {
+    /// Collect every value produced by `iterator` into a `Vec`.  Caps at
+    /// [`DENSE_ARRAY_LEN_LIMIT`] to prevent a hostile user iterator from
+    /// forcing unbounded allocation.  `iterator` must already be an
+    /// Iterator object (post-`@@iterator`); see [`Self::collect_iterable`]
+    /// for the IteratorToList entry that starts from an iterable.
+    pub(crate) fn collect_iterator(&mut self, iterator: JsValue) -> Result<Vec<JsValue>, VmError> {
+        let mut out = Vec::new();
+        while let Some(v) = self.iter_next(iterator)? {
+            if out.len() >= DENSE_ARRAY_LEN_LIMIT {
+                return Err(VmError::range_error(
+                    "iterable exceeds implementation limit",
+                ));
+            }
+            out.push(v);
+        }
+        Ok(out)
+    }
+}
+
+/// Action signalled by [`VmInner::op_end_finally`] back to the dispatch
+/// loop.  Keeps the loop's control-flow (return / continue) local to
+/// dispatch while the decision logic lives alongside other ops.
+pub(crate) enum EndFinallyAction {
+    /// No pending completion — fall through to the next opcode.
+    Continue,
+    /// The helper rewrote `frame.ip` (routed to an outer finally, or a
+    /// catch via `handle_exception`) or popped an inline frame; the
+    /// dispatch loop should continue normally.
+    Jumped,
+    /// Entry-frame return — the helper popped the entry frame; the
+    /// dispatch loop must return `Ok(v)` from `run()`.
+    EntryReturn(JsValue),
+    /// Uncaught throw — helper already unwound frames; dispatch must
+    /// return `Err(VmError::throw(e))`.
+    ThrowUncaught(JsValue),
+}
+
 /// Try to interpret an `f64` as a valid ES array index (0..=2^32−2).
 /// Returns `None` for negative, non-integer, or out-of-range values.
 #[inline]
@@ -322,6 +360,65 @@ impl VmInner {
         }
     }
 
+    /// Execute `Op::EndFinally`: consult `pending_completion` on the
+    /// current frame and resume the completion that entered the finally
+    /// (routing to an outer finally, returning, or re-throwing).
+    /// Returns an [`EndFinallyAction`] describing how the dispatch loop
+    /// should react — the loop's own control-flow statements
+    /// (`continue` / `return`) stay local to dispatch.
+    pub(crate) fn op_end_finally(
+        &mut self,
+        frame_idx: usize,
+        entry_frame_depth: usize,
+    ) -> EndFinallyAction {
+        let pending = self
+            .frames
+            .last_mut()
+            .expect("op_end_finally runs inside an active frame")
+            .pending_completion
+            .take();
+        match pending.as_deref().copied() {
+            None | Some(super::value::FrameCompletion::Normal(_)) => EndFinallyAction::Continue,
+            Some(super::value::FrameCompletion::Return(v)) => {
+                // Walk outer handlers for another finally.  If found,
+                // route there; the resumed EndFinally at that finally's
+                // tail will take over propagation.
+                if let Some(target_ip) =
+                    self.route_to_next_finally(super::value::FrameCompletion::Return(v))
+                {
+                    self.frames
+                        .last_mut()
+                        .expect("op_end_finally runs inside an active frame")
+                        .ip = target_ip;
+                    return EndFinallyAction::Jumped;
+                }
+                // No more finallies — perform the return.
+                if frame_idx == entry_frame_depth {
+                    self.pop_frame();
+                    EndFinallyAction::EntryReturn(v)
+                } else {
+                    self.complete_inline_frame(v);
+                    EndFinallyAction::Continue
+                }
+            }
+            Some(super::value::FrameCompletion::Throw(e)) => {
+                // Re-raise.  handle_exception handles cross-frame routing
+                // (intermediate finallies + entry frame boundary).  If no
+                // handler, propagate as VmError.
+                if self.handle_exception(e, entry_frame_depth) {
+                    return EndFinallyAction::Jumped;
+                }
+                while self.frames.len() > entry_frame_depth + 1 {
+                    let frame = self.frames.pop().unwrap();
+                    self.close_upvalues(&frame.local_upvalue_ids);
+                    self.completion_value = frame.saved_completion;
+                    self.stack.truncate(frame.cleanup_base);
+                }
+                EndFinallyAction::ThrowUncaught(e)
+            }
+        }
+    }
+
     /// Route a pending abrupt completion (from [`super::value::FrameCompletion`])
     /// to the next outer finally block on the current frame, if any.
     ///
@@ -335,16 +432,19 @@ impl VmInner {
     /// Invariant: `finally_ip != u32::MAX` in a handler whose try statement
     /// has a finally clause — the compiler emits a valid `finally_ip` for
     /// every such handler (including the try/finally-without-catch layout).
-    pub(crate) fn route_to_next_finally(
+    pub(super) fn route_to_next_finally(
         &mut self,
         completion: super::value::FrameCompletion,
     ) -> Option<usize> {
-        let frame = self.frames.last_mut().unwrap();
+        let frame = self
+            .frames
+            .last_mut()
+            .expect("route_to_next_finally runs inside an active frame");
         while let Some(handler) = frame.exception_handlers.pop() {
             if handler.finally_ip != u32::MAX {
                 let target_ip = handler.finally_ip as usize;
                 let stack_depth = handler.stack_depth;
-                frame.pending_completion = Some(completion);
+                frame.pending_completion = Some(Box::new(completion));
                 self.stack.truncate(stack_depth);
                 return Some(target_ip);
             }

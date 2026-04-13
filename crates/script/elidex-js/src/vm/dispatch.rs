@@ -7,7 +7,7 @@ use crate::bytecode::opcode::Op;
 
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
-use super::ops::{parse_array_index_u16, try_as_array_index};
+use super::ops::{parse_array_index_u16, try_as_array_index, EndFinallyAction};
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
@@ -756,53 +756,11 @@ impl VmInner {
                     let exc = self.current_exception;
                     self.stack.push(exc);
                 }
-                Op::EndFinally => {
-                    // End of a finally body.  If the finally was entered
-                    // because of an externally injected abrupt completion
-                    // (e.g. `Generator.prototype.return`), resume that
-                    // completion now — walking further outer finally
-                    // blocks if any remain.  A finally that performed its
-                    // own abrupt completion never reaches here (the inline
-                    // return / break / continue / throw machinery replaced
-                    // the pending completion with its own flow).
-                    let frame = self.frames.last_mut().unwrap();
-                    let pending = frame.pending_completion.take();
-                    match pending {
-                        None | Some(super::value::FrameCompletion::Normal(_)) => {
-                            // Normal fall-through; continue the dispatch loop.
-                        }
-                        Some(super::value::FrameCompletion::Return(v)) => {
-                            // Walk outer handlers for another finally.
-                            if let Some(target_ip) =
-                                self.route_to_next_finally(super::value::FrameCompletion::Return(v))
-                            {
-                                self.frames.last_mut().unwrap().ip = target_ip;
-                                continue;
-                            }
-                            // No more finallies; perform the return.
-                            if frame_idx == entry_frame_depth {
-                                self.pop_frame();
-                                return Ok(v);
-                            }
-                            self.complete_inline_frame(v);
-                        }
-                        Some(super::value::FrameCompletion::Throw(e)) => {
-                            // Re-raise.  handle_exception handles cross-frame
-                            // routing (intermediate finallies + entry frame
-                            // boundary).  If no handler, propagate as VmError.
-                            if self.handle_exception(e, entry_frame_depth) {
-                                continue;
-                            }
-                            while self.frames.len() > entry_frame_depth + 1 {
-                                let frame = self.frames.pop().unwrap();
-                                self.close_upvalues(&frame.local_upvalue_ids);
-                                self.completion_value = frame.saved_completion;
-                                self.stack.truncate(frame.cleanup_base);
-                            }
-                            return Err(VmError::throw(e));
-                        }
-                    }
-                }
+                Op::EndFinally => match self.op_end_finally(frame_idx, entry_frame_depth) {
+                    EndFinallyAction::Continue | EndFinallyAction::Jumped => {}
+                    EndFinallyAction::EntryReturn(v) => return Ok(v),
+                    EndFinallyAction::ThrowUncaught(e) => return Err(VmError::throw(e)),
+                },
 
                 // ── Switch ──────────────────────────────────────────
                 Op::SwitchJump => {
@@ -1003,7 +961,7 @@ impl VmInner {
     ///
     /// Handles constructor semantics: if `new_instance` is set and `return_value`
     /// is not an object, the instance is returned instead.
-    fn complete_inline_frame(&mut self, return_value: JsValue) {
+    pub(crate) fn complete_inline_frame(&mut self, return_value: JsValue) {
         let frame = self.frames.pop().unwrap();
         self.close_upvalues(&frame.local_upvalue_ids);
         self.completion_value = frame.saved_completion;

@@ -423,12 +423,6 @@ impl PropertyStorage {
 }
 
 /// The internal kind of an object.
-//
-// `Generator(GeneratorState)` is the largest variant (≈280 bytes:
-// carries a full suspended `CallFrame`) — boxing it would push an
-// allocation + dereference onto every Generator creation + resume
-// step, which are both hot paths.  Accept the variant-size skew.
-#[allow(clippy::large_enum_variant)]
 pub enum ObjectKind {
     /// Plain `{}` object.
     Ordinary,
@@ -751,7 +745,14 @@ pub struct CallFrame {
     /// injected abrupt completion (e.g. `Generator.prototype.return`);
     /// consulted by `Op::EndFinally` to resume that completion once the
     /// finally body finishes.  `None` for normal control flow.
-    pub pending_completion: Option<FrameCompletion>,
+    ///
+    /// Boxed so `CallFrame` stays pointer-sized for the field — the
+    /// common case is `None` on every call, and the inline 24-byte
+    /// `Option<FrameCompletion>` would transitively push
+    /// `ObjectKind::Generator` past the `large_enum_variant` limit.
+    /// The heap allocation only fires on `.return()` / `.throw()`
+    /// injection or a finally cascade (cold paths).
+    pub pending_completion: Option<Box<FrameCompletion>>,
 }
 
 impl CallFrame {

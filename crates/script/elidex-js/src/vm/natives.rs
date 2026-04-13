@@ -544,16 +544,13 @@ pub(super) fn native_aggregate_error_constructor(
             "AggregateError errors argument is not iterable",
         ));
     };
-    let mut list = Vec::new();
-    while let Some(v) = ctx.vm.iter_next(iter)? {
-        if list.len() >= super::ops::DENSE_ARRAY_LEN_LIMIT {
-            return Err(VmError::range_error(
-                "AggregateError errors iterable exceeds implementation limit",
-            ));
-        }
-        list.push(v);
-    }
+    let list = ctx.vm.collect_iterator(iter)?;
     let errors_array = ctx.vm.create_array_object(list);
+    // Root `errors_array` on the VM stack — `error_ctor_impl` below may
+    // call `ToString` on a non-string message argument which can
+    // allocate and trip GC.  `this` is already rooted (it's the receiver
+    // do_new pushed onto the stack); only the fresh array needs pinning.
+    ctx.vm.stack.push(JsValue::Object(errors_array));
 
     if let JsValue::Object(id) = this {
         // §20.5.7.1 step 4-5: set .name + optional .message via the shared
@@ -573,6 +570,7 @@ pub(super) fn native_aggregate_error_constructor(
             super::shape::PropertyAttrs::DATA,
         );
     }
+    ctx.vm.stack.pop();
     Ok(this)
 }
 

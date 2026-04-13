@@ -152,17 +152,9 @@ pub fn compile_stmt(
 
             fc.patch_jump(end_patch);
 
-            // Patch the exception handler: catch_ip = catch handler, finally_ip = 0xFFFF.
-            assert!(
-                u16::try_from(catch_ip).is_ok(),
-                "for-of catch entry {catch_ip} exceeds u16 range"
-            );
-            let catch_bytes = (catch_ip as u16).to_le_bytes();
-            fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
-            fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-            let no_finally = 0xFFFFu16.to_le_bytes();
-            fc.bytecode[(handler_patch_pos + 2) as usize] = no_finally[0];
-            fc.bytecode[(handler_patch_pos + 3) as usize] = no_finally[1];
+            // Patch the exception handler: catch_ip = catch handler,
+            // no finally_ip.
+            fc.patch_exception_handler(handler_patch_pos, Some(catch_ip), None);
 
             fc.pop_loop();
             fc.current_scope_idx = saved_scope;
@@ -552,20 +544,11 @@ pub fn compile_stmt(
 
                 // Patch handler: catch_ip = rethrow_entry,
                 //                finally_ip = normal_finally_pc.
-                assert!(
-                    u16::try_from(rethrow_entry).is_ok(),
-                    "rethrow entry {rethrow_entry} exceeds u16 range"
+                fc.patch_exception_handler(
+                    handler_patch_pos,
+                    Some(rethrow_entry),
+                    Some(normal_finally_pc),
                 );
-                let catch_bytes = (rethrow_entry as u16).to_le_bytes();
-                fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
-                fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-                assert!(
-                    u16::try_from(normal_finally_pc).is_ok(),
-                    "normal finally pc {normal_finally_pc} exceeds u16 range"
-                );
-                let finally_bytes = (normal_finally_pc as u16).to_le_bytes();
-                fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
-                fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
             } else {
                 // Original layout for try/catch, try/catch/finally.
                 let finally_jump = fc.emit_jump(Op::Jump); // jump over catch
@@ -644,31 +627,14 @@ pub fn compile_stmt(
                     fc.emit(Op::EndFinally);
                 }
 
-                // Patch the exception handler offsets.
-                let catch_u16 = if catch_offset == u32::MAX {
-                    0xFFFFu16
-                } else {
-                    assert!(
-                        u16::try_from(catch_offset).is_ok(),
-                        "catch offset {catch_offset} exceeds u16 range"
-                    );
-                    catch_offset as u16
-                };
-                let catch_bytes = catch_u16.to_le_bytes();
-                fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
-                fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-                let finally_offset = if let Some(fpc) = finally_pc {
-                    assert!(
-                        u16::try_from(fpc).is_ok(),
-                        "finally offset {fpc} exceeds u16 range"
-                    );
-                    fpc as u16
-                } else {
-                    0xFFFF
-                };
-                let finally_bytes = finally_offset.to_le_bytes();
-                fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
-                fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
+                // Patch the exception handler offsets.  `u32::MAX` on
+                // `catch_offset` is the "no catch" sentinel; map to None
+                // for the helper's absent-slot encoding.
+                fc.patch_exception_handler(
+                    handler_patch_pos,
+                    (catch_offset != u32::MAX).then_some(catch_offset),
+                    finally_pc,
+                );
 
                 // Patch the catch-body exception handler (if present).
                 // This handler routes exceptions thrown inside `catch` to a
@@ -688,17 +654,8 @@ pub fn compile_stmt(
 
                     fc.patch_jump(end_jump);
 
-                    // Patch: catch_ip = rethrow_entry, finally_ip = 0xFFFF
-                    assert!(
-                        u16::try_from(rethrow_entry).is_ok(),
-                        "catch-body rethrow entry {rethrow_entry} exceeds u16 range"
-                    );
-                    let rethrow_bytes = (rethrow_entry as u16).to_le_bytes();
-                    fc.bytecode[patch_pos as usize] = rethrow_bytes[0];
-                    fc.bytecode[(patch_pos + 1) as usize] = rethrow_bytes[1];
-                    let no_finally = 0xFFFFu16.to_le_bytes();
-                    fc.bytecode[(patch_pos + 2) as usize] = no_finally[0];
-                    fc.bytecode[(patch_pos + 3) as usize] = no_finally[1];
+                    // Patch: catch_ip = rethrow_entry, no finally_ip.
+                    fc.patch_exception_handler(patch_pos, Some(rethrow_entry), None);
                 }
             }
         }

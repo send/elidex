@@ -335,6 +335,25 @@ fn generator_closure_write_between_yields_is_preserved() {
 // ─── Generator return / throw ────────────────────────────────────────────
 
 #[test]
+fn generator_return_on_never_started_skips_body_entirely() {
+    // `.return(v)` on a generator that hasn't been `.next()`'d yet
+    // (status = SuspendedStart) must not execute any body code — it
+    // just completes with `v`.  Exercises the no-finally short-circuit
+    // in `resume_generator` on the SuspendedStart path.
+    assert_eq!(
+        eval_global_number(
+            "globalThis.ran = 0; \
+             function* g() { globalThis.ran = 1; yield 1; } \
+             var it = g(); \
+             it.return(42); \
+             globalThis.ran;",
+            "ran"
+        ),
+        0.0
+    );
+}
+
+#[test]
 fn generator_return_completes_iterator_no_finally() {
     // No try/finally in scope → `.return(v)` marks the generator Completed
     // with `{value: v, done: true}` without running any user code.
@@ -581,6 +600,25 @@ fn yield_star_forwards_return_via_iterator_close() {
             "out"
         ),
         "inner.return,99"
+    );
+}
+
+#[test]
+fn yield_star_throw_caught_by_outer_try_catch() {
+    // Outer `.throw(e)` while inside yield*: our simplified path closes
+    // inner and rethrows — so an outer `try/catch` *around* the yield*
+    // must see the thrown value.  (Spec-correct `iter.throw` method
+    // forwarding is deferred; this verifies the close-then-rethrow
+    // fallback interacts correctly with an outer catch.)
+    assert_eq!(
+        eval_string(
+            "function* inner() { yield 1; yield 2; } \
+             function* outer() { \
+               try { yield* inner(); } catch(e) { yield 'caught:' + e; } \
+             } \
+             var it = outer(); it.next(); it.throw('boom').value;"
+        ),
+        "caught:boom"
     );
 }
 

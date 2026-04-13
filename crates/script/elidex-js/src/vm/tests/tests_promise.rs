@@ -550,6 +550,20 @@ fn aggregate_error_constructor_default_message_empty() {
 }
 
 #[test]
+fn aggregate_error_prototype_constructor_backlink() {
+    // §20.5.7.3.1: AggregateError.prototype.constructor is AggregateError.
+    // Verifies the prototype → ctor back-link wired in
+    // `register_error_constructors`.
+    assert!(eval_bool(
+        "AggregateError.prototype.constructor === AggregateError;"
+    ));
+    // And instances reach it via the prototype chain.
+    assert!(eval_bool(
+        "new AggregateError([]).constructor === AggregateError;"
+    ));
+}
+
+#[test]
 fn aggregate_error_prototype_chain() {
     // `instanceof Error` + `instanceof AggregateError` hold for
     // instances built via the constructor (mirrors the Promise.any

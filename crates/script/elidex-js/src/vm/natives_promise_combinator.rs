@@ -256,23 +256,20 @@ fn settle_all_settled_slot(vm: &mut VmInner, state_id: ObjectId, index: u32, ent
 /// constructor path) — the "is an error" identity is carried by the
 /// prototype chain, not by `ObjectKind::Error`.
 fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
-    let name_id = vm.strings.intern("AggregateError");
     let obj = vm.alloc_object(Object {
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
         prototype: vm.aggregate_error_prototype.or(vm.error_prototype),
         extensible: true,
     });
-    // `.name` lives on AggregateError.prototype too (as default), so we
-    // only need an own-property copy when it actually differs; keeping
-    // it here matches what the constructor path does and simplifies
-    // String(err) handling.
-    vm.define_shaped_property(
-        obj,
-        PropertyKey::String(vm.well_known.name),
-        PropertyValue::Data(JsValue::String(name_id)),
-        PropertyAttrs::DATA,
-    );
+    // Root `obj` on the VM stack while subsequent allocations run —
+    // `create_array_object` below can trip GC if the threshold has
+    // been bumping over recent allocations (e.g. after Promise.any over
+    // many rejected inputs), and `obj` is otherwise only held in this
+    // Rust local.
+    vm.stack.push(JsValue::Object(obj));
+    // `.name` is inherited from AggregateError.prototype (set in
+    // `register_error_constructors`); no own-property copy needed.
     let message_val = JsValue::String(vm.strings.intern("All promises were rejected"));
     vm.define_shaped_property(
         obj,
@@ -287,6 +284,7 @@ fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
         PropertyValue::Data(JsValue::Object(errors_arr)),
         PropertyAttrs::DATA,
     );
+    vm.stack.pop();
     JsValue::Object(obj)
 }
 
@@ -318,7 +316,7 @@ fn run_combinator(
     // `total` up front to pre-size the state's values vec.  This also
     // matches the spec's eager `IteratorStep` loop — values are awaited
     // via `.then` attachment, not pulled lazily.
-    let items = collect_items(ctx.vm, iterator)?;
+    let items = ctx.vm.collect_iterator(iterator)?;
     let total = u32::try_from(items.len())
         .map_err(|_| VmError::range_error("Promise combinator input exceeded u32 length limit"))?;
 
@@ -404,24 +402,6 @@ fn run_combinator(
     }
 
     Ok(JsValue::Object(result))
-}
-
-/// Collect every value produced by `iterator` into a `Vec`.  Caps at
-/// `DENSE_ARRAY_LEN_LIMIT` to prevent a hostile user iterator from forcing
-/// unbounded allocation before the caller's `u32::try_from(len)` check.
-/// IteratorClose on error is handled by `iter_next` itself — we just
-/// propagate.
-fn collect_items(vm: &mut VmInner, iterator: JsValue) -> Result<Vec<JsValue>, VmError> {
-    let mut out = Vec::new();
-    while let Some(v) = vm.iter_next(iterator)? {
-        if out.len() >= super::ops::DENSE_ARRAY_LEN_LIMIT {
-            return Err(VmError::range_error(
-                "Promise combinator iterable exceeds implementation limit",
-            ));
-        }
-        out.push(v);
-    }
-    Ok(out)
 }
 
 /// `item.then(on_fulfilled, on_rejected)` after `Promise.resolve(item)`

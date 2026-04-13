@@ -194,6 +194,37 @@ impl FunctionCompiler {
         self.bytecode[(patch_pos + 1) as usize] = bytes[1];
     }
 
+    /// Patch a previously-emitted `PushExceptionHandler` opcode's
+    /// `(catch_ip, finally_ip)` operands.  `patch_pos` is the byte offset
+    /// of the first operand (one byte after the opcode byte itself —
+    /// i.e. `pc_of_opcode + 1`).
+    ///
+    /// Pass `None` for either slot to encode `0xFFFF`, meaning "no
+    /// handler at that slot" (the runtime's `handle_exception` skips
+    /// slots whose value is `0xFFFF`).  Both callers that want a real
+    /// target and those that want the "no-slot" sentinel share this
+    /// helper so the byte layout lives in one place.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn patch_exception_handler(
+        &mut self,
+        patch_pos: u32,
+        catch_ip: Option<u32>,
+        finally_ip: Option<u32>,
+    ) {
+        let encode = |ip: Option<u32>, label: &str| -> u16 {
+            ip.map_or(0xFFFF, |pc| {
+                assert!(u16::try_from(pc).is_ok(), "{label} {pc} exceeds u16 range");
+                pc as u16
+            })
+        };
+        let catch_bytes = encode(catch_ip, "catch_ip").to_le_bytes();
+        let finally_bytes = encode(finally_ip, "finally_ip").to_le_bytes();
+        self.bytecode[patch_pos as usize] = catch_bytes[0];
+        self.bytecode[(patch_pos + 1) as usize] = catch_bytes[1];
+        self.bytecode[(patch_pos + 2) as usize] = finally_bytes[0];
+        self.bytecode[(patch_pos + 3) as usize] = finally_bytes[1];
+    }
+
     /// Emit a backward jump to `target`.
     #[allow(clippy::cast_possible_wrap)]
     pub fn emit_jump_to(&mut self, op: Op, target: u32) {

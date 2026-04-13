@@ -113,9 +113,13 @@ impl VmInner {
         gen_id: ObjectId,
         completion: FrameCompletion,
     ) -> Result<(JsValue, bool), VmError> {
-        // ── Early exits that don't touch the suspended frame ────────────
-        {
-            let ObjectKind::Generator(state) = &self.get_object(gen_id).kind else {
+        // ── Early exits + lift the suspended frame in one borrow ────────
+        //
+        // Hot path (Normal + SuspendedYield → take the frame, transition
+        // to Running) takes a single `get_object_mut`; the cold error /
+        // already-completed branches short-circuit out before the take.
+        let (suspended, initial) = {
+            let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
                 return Err(VmError::type_error("resume on non-Generator"));
             };
             match (state.status, completion) {
@@ -135,18 +139,12 @@ impl VmInner {
                         "Cannot resume a generator that is already running",
                     ));
                 }
-                _ => {}
+                (status, _) => {
+                    let initial = matches!(status, GeneratorStatus::SuspendedStart);
+                    state.status = GeneratorStatus::Running;
+                    (state.suspended.take().expect("suspended frame"), initial)
+                }
             }
-        }
-
-        // ── Lift the suspended frame out of the Generator ───────────────
-        let (suspended, initial) = {
-            let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
-                unreachable!("guarded above");
-            };
-            let initial = matches!(state.status, GeneratorStatus::SuspendedStart);
-            state.status = GeneratorStatus::Running;
-            (state.suspended.take().expect("suspended frame"), initial)
         };
 
         // ── Rebase + restore the frame onto the VM stack ────────────────
