@@ -402,6 +402,13 @@ fn create_array_iterator(
 
 /// Drain an iterator into a `Vec`, optionally applying a map function.
 /// Delegates to `VmInner::iter_next` for spec-compliant protocol handling.
+///
+/// §7.4.6: any abrupt completion *after* `.next()` succeeded (e.g.
+/// `mapFn` throws, or the result exceeds `DENSE_ARRAY_LEN_LIMIT`) must
+/// call `IteratorClose` on the iterator.  If that `.return()` itself
+/// throws, its error takes precedence over the original abrupt.  An
+/// abrupt from `.next()` itself does NOT close — per spec, an iterator
+/// that threw is already considered closed.
 fn drain_iterator(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,
@@ -410,18 +417,38 @@ fn drain_iterator(
 ) -> Result<Vec<JsValue>, VmError> {
     let mut result = Vec::new();
     loop {
+        // Err here = iterator's own `.next()` threw → no IteratorClose.
         let Some(value) = ctx.vm.iter_next(iter_val)? else {
             break;
         };
-        let mapped = if let Some(fn_id) = map_fn {
-            ctx.call_function(fn_id, this_arg, &[value, index_to_number(result.len())])?
+        // Any error below this point is an abrupt completion of the
+        // for-of-like body; close the iterator before propagating.
+        let mapped_result: Result<JsValue, VmError> = if let Some(fn_id) = map_fn {
+            ctx.call_function(fn_id, this_arg, &[value, index_to_number(result.len())])
         } else {
-            value
+            Ok(value)
+        };
+        let mapped = match mapped_result {
+            Ok(v) => v,
+            Err(e) => return Err(close_with_precedence(ctx, iter_val, e)),
         };
         result.push(mapped);
-        check_len(result.len())?;
+        if let Err(e) = check_len(result.len()) {
+            return Err(close_with_precedence(ctx, iter_val, e));
+        }
     }
     Ok(result)
+}
+
+/// Helper: close `iter_val` via `.return()` and return the higher-
+/// precedence error — a throw from `.return()` wins over the triggering
+/// abrupt completion (§7.4.6 IteratorClose step 6-7).
+fn close_with_precedence(
+    ctx: &mut NativeContext<'_>,
+    iter_val: JsValue,
+    fallback: VmError,
+) -> VmError {
+    ctx.vm.iter_close(iter_val).err().unwrap_or(fallback)
 }
 
 /// `Array.from(arrayLike, mapFn?, thisArg?)` — create array from iterable/array-like.
