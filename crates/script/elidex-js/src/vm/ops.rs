@@ -182,10 +182,18 @@ impl VmInner {
                 };
                 let name_id = self.strings.intern(error_name);
                 let msg_id = self.strings.intern(&error.message);
+                // Inherit from `Error.prototype` (§19.5.3) so
+                // VM-thrown TypeError/RangeError/... satisfy
+                // `e instanceof Error` and pick up
+                // `Error.prototype.toString`.  Fallback to
+                // `object_prototype` only if `error_prototype` hasn't
+                // been registered yet (register_error_constructors
+                // runs during `register_globals`; the fallback covers
+                // a narrow bootstrap window).
                 let error_obj = self.alloc_object(super::value::Object {
                     kind: ObjectKind::Error { name: name_id },
                     storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                    prototype: self.object_prototype,
+                    prototype: self.error_prototype.or(self.object_prototype),
                     extensible: true,
                 });
                 // §19.5.1.1 step 3/4: own `.name` + `.message` are

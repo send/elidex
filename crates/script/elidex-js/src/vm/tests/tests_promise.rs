@@ -630,6 +630,26 @@ fn aggregate_error_errors_own_property_is_non_enumerable() {
 }
 
 #[test]
+fn vm_thrown_type_error_inherits_from_error_prototype() {
+    // `vm_error_to_thrown` now uses `Error.prototype` as the
+    // instance's prototype (§19.5.3), so VM-thrown errors satisfy
+    // `instanceof Error` and inherit `Error.prototype.toString`.
+    // Regression for Copilot PR2.5 round 4 finding.
+    assert!(eval_bool(
+        "var caught; try { null.x; } catch(e) { caught = e; } \
+         caught instanceof Error && caught.name === 'TypeError';"
+    ));
+    // toString composes "<name>: <message>" via the inherited method.
+    assert_eq!(
+        eval_string(
+            "var caught; try { null.x; } catch(e) { caught = e; } \
+             caught.toString().slice(0, 10);"
+        ),
+        "TypeError:"
+    );
+}
+
+#[test]
 fn error_call_with_explicit_receiver_does_not_mutate_it() {
     // `Error.call(obj, 'msg')` must NOT mutate `obj` — spec §19.5.1.1
     // step 2 (OrdinaryCreateFromConstructor) always yields a fresh

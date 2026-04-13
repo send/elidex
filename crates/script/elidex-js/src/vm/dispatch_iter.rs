@@ -300,14 +300,26 @@ impl VmInner {
     /// closing the iterator and, if `.return()` itself throws, having
     /// that new throw take precedence over the triggering abrupt
     /// completion.
+    ///
+    /// `iter_val` is rooted on `self.stack` for the duration of the
+    /// `.return()` call — without this the iterator would only be
+    /// held in a Rust local, and a user-defined `.return()` that
+    /// triggers GC could collect it mid-call.  Callers therefore do
+    /// not need to root the iterator themselves.
     pub(crate) fn iter_close(&mut self, iter_val: JsValue) -> Result<(), VmError> {
-        if let JsValue::Object(iter_id) = iter_val {
-            let return_key = PropertyKey::String(self.well_known.return_str);
-            if let Some(return_result) = get_property(self, iter_id, return_key) {
-                let return_fn = self.resolve_property(return_result, iter_val)?;
-                self.call_value(return_fn, iter_val, &[])?;
-            }
-        }
-        Ok(())
+        let JsValue::Object(iter_id) = iter_val else {
+            return Ok(());
+        };
+        self.stack.push(iter_val);
+        let return_key = PropertyKey::String(self.well_known.return_str);
+        let result = match get_property(self, iter_id, return_key) {
+            Some(return_result) => match self.resolve_property(return_result, iter_val) {
+                Ok(return_fn) => self.call_value(return_fn, iter_val, &[]).map(|_| ()),
+                Err(e) => Err(e),
+            },
+            None => Ok(()),
+        };
+        self.stack.pop();
+        result
     }
 }
