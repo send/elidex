@@ -43,7 +43,7 @@ pub struct GeneratorState {
 /// Used in two roles:
 ///
 /// 1. **Generator resumption kind** (argument to
-///    [`VmInner::resume_generator`]): distinguishes `.next(v)` (`Normal`)
+///    `VmInner::resume_generator`): distinguishes `.next(v)` (`Normal`)
 ///    from `.return(v)` (`Return`) and `.throw(e)` (`Throw`).
 ///
 /// 2. **Pending abrupt completion on a call frame**
