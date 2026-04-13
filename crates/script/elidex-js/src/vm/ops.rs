@@ -176,17 +176,19 @@ impl VmInner {
                     prototype: self.object_prototype,
                     extensible: true,
                 });
+                // §19.5.1.1 step 3/4: own `.name` + `.message` are
+                // non-enumerable (`{W, ¬E, C}` = METHOD).
                 self.define_shaped_property(
                     error_obj,
                     PropertyKey::String(self.well_known.name),
                     PropertyValue::Data(JsValue::String(name_id)),
-                    super::shape::PropertyAttrs::DATA,
+                    super::shape::PropertyAttrs::METHOD,
                 );
                 self.define_shaped_property(
                     error_obj,
                     PropertyKey::String(self.well_known.message),
                     PropertyValue::Data(JsValue::String(msg_id)),
-                    super::shape::PropertyAttrs::DATA,
+                    super::shape::PropertyAttrs::METHOD,
                 );
                 JsValue::Object(error_obj)
             }

@@ -443,13 +443,17 @@ fn error_ctor_impl(
     error_name: &str,
 ) -> Result<JsValue, VmError> {
     if let JsValue::Object(id) = this {
+        // §19.5.1.1 step 3/4 specifies own `.name` and `.message` as
+        // `{W, ¬E, C}` (CreateNonEnumerableDataPropertyOrThrow); that
+        // matches `PropertyAttrs::METHOD`.  Observable via
+        // `JSON.stringify(new Error(...))` and `Object.keys(...)`.
         let name_key = PropertyKey::String(ctx.vm.well_known.name);
         let name_val = JsValue::String(ctx.intern(error_name));
         ctx.vm.define_shaped_property(
             id,
             name_key,
             super::value::PropertyValue::Data(name_val),
-            super::shape::PropertyAttrs::DATA,
+            super::shape::PropertyAttrs::METHOD,
         );
         // §19.5.1.1 step 4: only set `message` when the argument is not
         // undefined.  Otherwise, `.message` falls through to
@@ -462,7 +466,7 @@ fn error_ctor_impl(
                     id,
                     msg_key,
                     super::value::PropertyValue::Data(JsValue::String(msg_id)),
-                    super::shape::PropertyAttrs::DATA,
+                    super::shape::PropertyAttrs::METHOD,
                 );
             }
         }

@@ -592,6 +592,32 @@ fn aggregate_error_accepts_any_iterable() {
 }
 
 #[test]
+fn error_instance_name_and_message_are_non_enumerable() {
+    // §19.5.1.1 step 3/4: own `.name` and `.message` on Error
+    // instances are `{W, ¬E, C}`.  Observable via `Object.keys`
+    // (returns []) and `JSON.stringify` (returns "{}").  Covers the
+    // same-pattern audit for Copilot's `.errors` finding on
+    // AggregateError — the bug existed on all error subclasses.
+    assert_eq!(eval_string("Object.keys(new Error('boom')).join(',');"), "");
+    assert_eq!(
+        eval_string("Object.keys(new TypeError('t')).join(',');"),
+        ""
+    );
+    assert_eq!(eval_string("JSON.stringify(new Error('boom'));"), "{}");
+}
+
+#[test]
+fn aggregate_error_message_own_property_is_non_enumerable() {
+    // Same invariant for AggregateError instances (both the
+    // user-constructor path and `Promise.any`'s internal
+    // `build_aggregate_error` set `.message` as `{W, ¬E, C}`).
+    assert_eq!(
+        eval_string("Object.keys(new AggregateError([1], 'oops')).join(',');"),
+        ""
+    );
+}
+
+#[test]
 fn aggregate_error_errors_own_property_is_non_enumerable() {
     // §20.5.7.3: `.errors` on an AggregateError instance is
     // `{writable, configurable, ¬enumerable}`.  Covers both the

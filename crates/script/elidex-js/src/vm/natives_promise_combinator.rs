@@ -270,12 +270,13 @@ fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
     vm.stack.push(JsValue::Object(obj));
     // `.name` is inherited from AggregateError.prototype (set in
     // `register_error_constructors`); no own-property copy needed.
+    // `.message` is `{W, ¬E, C}` per §19.5.1.1 step 4 (= METHOD).
     let message_val = JsValue::String(vm.strings.intern("All promises were rejected"));
     vm.define_shaped_property(
         obj,
         PropertyKey::String(vm.well_known.message),
         PropertyValue::Data(message_val),
-        PropertyAttrs::DATA,
+        PropertyAttrs::METHOD,
     );
     let errors_arr = vm.create_array_object(errors);
     // `.errors` = `{W, ¬E, C}` per §20.5.7.3; `METHOD` attrs match.
