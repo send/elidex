@@ -257,13 +257,20 @@ impl VmInner {
             match self.iter_next(iter_val) {
                 Ok(Some(value)) => {
                     if self.stack.len() - stack_root_base >= DENSE_ARRAY_LEN_LIMIT {
+                        // §7.4.6: close iterator on abrupt completion;
+                        // if `.return()` throws, that takes precedence
+                        // over the range-error.
                         self.stack.truncate(stack_root_base);
-                        return Err(VmError::range_error("Array allocation failed"));
+                        let close_result = self.iter_close(iter_val);
+                        return Err(close_result
+                            .err()
+                            .unwrap_or_else(|| VmError::range_error("Array allocation failed")));
                     }
                     self.stack.push(value);
                 }
                 Ok(None) => break,
                 Err(e) => {
+                    // `.next()` threw — iterator abandoned, no close.
                     self.stack.truncate(stack_root_base);
                     return Err(e);
                 }
@@ -282,6 +289,18 @@ impl VmInner {
     /// `Op::IteratorClose` — call `iterator.return()` if present.
     pub(super) fn op_iterator_close(&mut self) -> Result<(), VmError> {
         let iter_val = self.pop()?;
+        self.iter_close(iter_val)
+    }
+
+    /// IteratorClose (§7.4.6) on an iterator value already held by the
+    /// caller — does not pop from the stack.  Invokes `iterator.return()`
+    /// if present; no-op for non-object iterators.  Used by abrupt
+    /// completion paths (e.g. `collect_iterator` / `op_iterator_rest`
+    /// aborting on `DENSE_ARRAY_LEN_LIMIT`) where the spec requires
+    /// closing the iterator and, if `.return()` itself throws, having
+    /// that new throw take precedence over the triggering abrupt
+    /// completion.
+    pub(crate) fn iter_close(&mut self, iter_val: JsValue) -> Result<(), VmError> {
         if let JsValue::Object(iter_id) = iter_val {
             let return_key = PropertyKey::String(self.well_known.return_str);
             if let Some(return_result) = get_property(self, iter_id, return_key) {

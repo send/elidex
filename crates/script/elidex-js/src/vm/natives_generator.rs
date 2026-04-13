@@ -251,7 +251,22 @@ impl VmInner {
                 if !self.handle_exception(reason, entry_frames_post) {
                     // No handler — frame was left in place
                     // (handle_exception stops at entry_frame_depth).
-                    // Pop it and surface as a VmError to our caller.
+                    // Clean up the frame properly: close any upvalues
+                    // we reopened on the restored frame, drop the
+                    // restored stack slice, then pop.  Using raw
+                    // `frames.pop()` without these would leak
+                    // `UpvalueState::Open` pointers into a stack slot
+                    // we're about to discard.
+                    for (uv_id, _) in &upvalue_slots {
+                        let val = match self.upvalues[uv_id.0 as usize].state {
+                            UpvalueState::Open { frame_base, slot } => {
+                                self.stack[frame_base + slot as usize]
+                            }
+                            UpvalueState::Closed(v) => v,
+                        };
+                        self.upvalues[uv_id.0 as usize].state = UpvalueState::Closed(val);
+                    }
+                    self.stack.truncate(new_base);
                     self.frames.pop();
                     self.completion_value = saved_completion;
                     mark_completed(self);

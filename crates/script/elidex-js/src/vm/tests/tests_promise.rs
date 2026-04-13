@@ -630,6 +630,33 @@ fn aggregate_error_errors_own_property_is_non_enumerable() {
 }
 
 #[test]
+fn error_call_with_explicit_receiver_does_not_mutate_it() {
+    // `Error.call(obj, 'msg')` must NOT mutate `obj` — spec §19.5.1.1
+    // step 2 (OrdinaryCreateFromConstructor) always yields a fresh
+    // instance.  Before the `in_construct` gate on
+    // `ensure_instance_or_alloc`, the constructor would have mutated
+    // and returned the explicit receiver.
+    assert!(eval_bool(
+        "var target = { existing: 1 }; \
+         var result = Error.call(target, 'boom'); \
+         result !== target \
+           && result instanceof Error \
+           && result.message === 'boom' \
+           && !target.hasOwnProperty('message') \
+           && !target.hasOwnProperty('name') \
+           && target.existing === 1;"
+    ));
+    // Same invariant for AggregateError.
+    assert!(eval_bool(
+        "var target = {}; \
+         var result = AggregateError.call(target, [1, 2], 'm'); \
+         result !== target \
+           && result instanceof AggregateError \
+           && !target.hasOwnProperty('errors');"
+    ));
+}
+
+#[test]
 fn aggregate_error_callable_without_new() {
     // §20.5.7.1 step 1-2: AggregateError is callable — calling without
     // `new` must still produce a fresh AggregateError instance, not

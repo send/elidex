@@ -50,15 +50,27 @@ impl VmInner {
             match self.iter_next(iter) {
                 Ok(Some(v)) => {
                     if self.stack.len() - values_start >= DENSE_ARRAY_LEN_LIMIT {
+                        // §7.4.6: abrupt completion during iteration must
+                        // call IteratorClose (`.return()`).  Drop
+                        // collected values first but keep `iter` rooted
+                        // for the .return() call; if that call itself
+                        // throws, its error takes precedence over the
+                        // range-error we'd otherwise surface.
+                        self.stack.truncate(values_start);
+                        let close_result = self.iter_close(iter);
                         self.stack.truncate(iter_slot);
-                        return Err(VmError::range_error(
-                            "iterable exceeds implementation limit",
-                        ));
+                        return Err(close_result.err().unwrap_or_else(|| {
+                            VmError::range_error("iterable exceeds implementation limit")
+                        }));
                     }
                     self.stack.push(v);
                 }
                 Ok(None) => break,
                 Err(e) => {
+                    // Err from `iter_next` means the iterator's own
+                    // `.next()` threw — the iterator is abandoned as-is,
+                    // no IteratorClose (per spec, an iterator that
+                    // threw is not closed again).
                     self.stack.truncate(iter_slot);
                     return Err(e);
                 }

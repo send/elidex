@@ -315,20 +315,30 @@ impl VmInner {
         }
     }
 
-    /// Resolve a constructor's `this` for call-mode (when invoked
-    /// without `new`): return it as-is if it's already an object
-    /// (the pre-allocated receiver from `do_new`), otherwise allocate
-    /// a fresh Ordinary instance with the given prototype.  Implements
-    /// the "callable constructor" shape of §19.5.1.1 step 1-2 where a
-    /// call-mode invocation still yields a new instance of the same
-    /// kind as `new`-mode.
+    /// Resolve a constructor's receiver for both `new`-mode and
+    /// call-mode invocations.
+    ///
+    /// - `new F(...)`: native dispatch sets `self.in_construct = true`
+    ///   and `do_new` supplies a pre-allocated object receiver — we
+    ///   must reuse `this` as-is so the constructor initializes the
+    ///   same instance the caller will receive.
+    /// - `F(...)` (call-mode): `in_construct = false`; allocate a
+    ///   fresh Ordinary with `prototype`.  An explicit receiver
+    ///   passed via `F.call(obj, ...)` / `F.apply(obj, ...)` is *not*
+    ///   reused — spec §19.5.1.1 step 2 (OrdinaryCreateFromConstructor)
+    ///   always yields a new object.
+    ///
+    /// Implements the "callable constructor" shape of §19.5.1.1
+    /// step 1-2.
     pub(crate) fn ensure_instance_or_alloc(
         &mut self,
         this: JsValue,
         prototype: Option<ObjectId>,
     ) -> JsValue {
-        if matches!(this, JsValue::Object(_)) {
-            return this;
+        if self.in_construct {
+            if let JsValue::Object(_) = this {
+                return this;
+            }
         }
         let obj = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,

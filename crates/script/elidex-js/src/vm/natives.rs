@@ -436,23 +436,17 @@ pub(super) fn native_error_to_string(
     Ok(JsValue::String(result_id))
 }
 
+/// Initialize `.name` / `.message` on an already-resolved error
+/// instance (given `this` as `JsValue::Object`).  The receiver is
+/// resolved by each native ctor wrapper via
+/// `VmInner::ensure_instance_or_alloc` so this helper is a pure init
+/// step regardless of `new` vs call-mode.
 fn error_ctor_impl(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
     error_name: &str,
 ) -> Result<JsValue, VmError> {
-    // §19.5.1.1 step 1-2: Error (and its built-in subclasses) is
-    // callable — `Error("msg")` without `new` still creates a fresh
-    // Error instance.  `do_new` supplies a pre-allocated receiver for
-    // `new`-mode; in call-mode `this` is globalThis / undefined and
-    // we allocate here instead.  All Error subclasses share
-    // `Error.prototype` in elidex (see `register_error_constructors`),
-    // so `ctx.vm.error_prototype` is the right prototype for every
-    // wrapper calling into this helper.
-    let this = ctx
-        .vm
-        .ensure_instance_or_alloc(this, ctx.vm.error_prototype);
     if let JsValue::Object(id) = this {
         // §19.5.1.1 step 3/4 specifies own `.name` and `.message` as
         // `{W, ¬E, C}` (CreateNonEnumerableDataPropertyOrThrow); that
@@ -485,12 +479,29 @@ fn error_ctor_impl(
     Ok(this)
 }
 
+/// Entry wrapper shared by all plain Error-family ctors.  Resolves the
+/// receiver via `ensure_instance_or_alloc` (reusing `new`-mode's
+/// pre-allocated receiver, allocating fresh in call-mode with
+/// `Error.prototype` — all plain subclasses share that prototype in
+/// elidex; AggregateError has its own and uses a different entry).
+fn error_entry(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    error_name: &str,
+) -> Result<JsValue, VmError> {
+    let receiver = ctx
+        .vm
+        .ensure_instance_or_alloc(this, ctx.vm.error_prototype);
+    error_ctor_impl(ctx, receiver, args, error_name)
+}
+
 pub(super) fn native_error_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    error_ctor_impl(ctx, this, args, "Error")
+    error_entry(ctx, this, args, "Error")
 }
 
 pub(super) fn native_type_error_constructor(
@@ -498,7 +509,7 @@ pub(super) fn native_type_error_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    error_ctor_impl(ctx, this, args, "TypeError")
+    error_entry(ctx, this, args, "TypeError")
 }
 
 pub(super) fn native_reference_error_constructor(
@@ -506,7 +517,7 @@ pub(super) fn native_reference_error_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    error_ctor_impl(ctx, this, args, "ReferenceError")
+    error_entry(ctx, this, args, "ReferenceError")
 }
 
 pub(super) fn native_range_error_constructor(
@@ -514,7 +525,7 @@ pub(super) fn native_range_error_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    error_ctor_impl(ctx, this, args, "RangeError")
+    error_entry(ctx, this, args, "RangeError")
 }
 
 pub(super) fn native_syntax_error_constructor(
@@ -522,7 +533,7 @@ pub(super) fn native_syntax_error_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    error_ctor_impl(ctx, this, args, "SyntaxError")
+    error_entry(ctx, this, args, "SyntaxError")
 }
 
 pub(super) fn native_uri_error_constructor(
@@ -530,7 +541,7 @@ pub(super) fn native_uri_error_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    error_ctor_impl(ctx, this, args, "URIError")
+    error_entry(ctx, this, args, "URIError")
 }
 
 /// `AggregateError(errors, message)` — §20.5.7.1.
@@ -567,10 +578,13 @@ pub(super) fn native_aggregate_error_constructor(
     // with the AggregateError prototype (chained to Error.prototype).
     // Root both the receiver and the fresh errors array across
     // `error_ctor_impl` below, which can call `ToString` on a
-    // non-string message argument and trip GC.
+    // non-string message argument and trip GC.  The pops MUST run on
+    // both the success and error paths of `error_ctor_impl` so we
+    // don't leak temp roots on the VM stack when ToString throws.
     let receiver = ctx
         .vm
         .ensure_instance_or_alloc(this, ctx.vm.aggregate_error_prototype);
+    let stack_root = ctx.vm.stack.len();
     ctx.vm.stack.push(receiver);
     ctx.vm.stack.push(JsValue::Object(errors_array));
 
@@ -579,12 +593,16 @@ pub(super) fn native_aggregate_error_constructor(
     };
     // §20.5.7.1 step 4-5: set .name + optional .message via the shared
     // Error constructor path (with "AggregateError").
-    error_ctor_impl(
+    let init_result = error_ctor_impl(
         ctx,
         receiver,
         &[message_arg.unwrap_or(JsValue::Undefined)],
         "AggregateError",
-    )?;
+    );
+    if let Err(e) = init_result {
+        ctx.vm.stack.truncate(stack_root);
+        return Err(e);
+    }
     // .errors — non-enumerable, writable, configurable per §20.5.7.3.
     // `METHOD` encodes `{W, ¬E, C}`, which matches the spec descriptor.
     let errors_key = PropertyKey::String(ctx.vm.well_known.errors);
@@ -594,8 +612,7 @@ pub(super) fn native_aggregate_error_constructor(
         super::value::PropertyValue::Data(JsValue::Object(errors_array)),
         super::shape::PropertyAttrs::METHOD,
     );
-    ctx.vm.stack.pop();
-    ctx.vm.stack.pop();
+    ctx.vm.stack.truncate(stack_root);
     Ok(receiver)
 }
 
