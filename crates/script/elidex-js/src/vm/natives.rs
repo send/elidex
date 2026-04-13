@@ -576,17 +576,21 @@ pub(super) fn native_aggregate_error_constructor(
     // §20.5.7.1 step 1-2: AggregateError is callable — in call-mode
     // `this` is globalThis / undefined, so allocate a fresh instance
     // with the AggregateError prototype (chained to Error.prototype).
-    // Root both the receiver and the fresh errors array across
+    //
+    // Root `errors_array` *before* calling `ensure_instance_or_alloc`
+    // — that call may hit `alloc_object` for a fresh instance in
+    // call-mode, and if GC fires the Rust-local `errors_array` is
+    // otherwise unreachable.  Then root the receiver across
     // `error_ctor_impl` below, which can call `ToString` on a
     // non-string message argument and trip GC.  The pops MUST run on
     // both the success and error paths of `error_ctor_impl` so we
     // don't leak temp roots on the VM stack when ToString throws.
+    let stack_root = ctx.vm.stack.len();
+    ctx.vm.stack.push(JsValue::Object(errors_array));
     let receiver = ctx
         .vm
         .ensure_instance_or_alloc(this, ctx.vm.aggregate_error_prototype);
-    let stack_root = ctx.vm.stack.len();
     ctx.vm.stack.push(receiver);
-    ctx.vm.stack.push(JsValue::Object(errors_array));
 
     let JsValue::Object(id) = receiver else {
         unreachable!("ensure_instance_or_alloc always returns an Object");
