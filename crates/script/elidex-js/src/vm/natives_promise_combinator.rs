@@ -278,11 +278,12 @@ fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
         PropertyAttrs::DATA,
     );
     let errors_arr = vm.create_array_object(errors);
+    // `.errors` = `{W, ¬E, C}` per §20.5.7.3; `METHOD` attrs match.
     vm.define_shaped_property(
         obj,
         PropertyKey::String(vm.well_known.errors),
         PropertyValue::Data(JsValue::Object(errors_arr)),
-        PropertyAttrs::DATA,
+        PropertyAttrs::METHOD,
     );
     vm.stack.pop();
     JsValue::Object(obj)

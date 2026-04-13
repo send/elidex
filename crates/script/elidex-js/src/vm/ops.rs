@@ -31,18 +31,41 @@ impl VmInner {
     /// Collect every value produced by `iterator` into a `Vec`.  Caps at
     /// [`DENSE_ARRAY_LEN_LIMIT`] to prevent a hostile user iterator from
     /// forcing unbounded allocation.  `iterator` must already be an
-    /// Iterator object (post-`@@iterator`); see [`Self::collect_iterable`]
-    /// for the IteratorToList entry that starts from an iterable.
+    /// Iterator object (post-`@@iterator`).
+    ///
+    /// GC-safe against user-defined `.next()` methods: the iterator and
+    /// each collected value are pushed onto `self.stack` while iteration
+    /// runs, so a GC cycle triggered by user code inside `iter_next` sees
+    /// them as roots.  Mirrors the pattern in
+    /// [`Self::op_iterator_rest`].  The returned `Vec` is not itself a
+    /// GC root; callers that allocate further before the values are
+    /// placed into a GC-reachable container must re-root (or pass the
+    /// `Vec` to [`Self::create_array_object`], which roots internally).
     pub(crate) fn collect_iterator(&mut self, iterator: JsValue) -> Result<Vec<JsValue>, VmError> {
-        let mut out = Vec::new();
-        while let Some(v) = self.iter_next(iterator)? {
-            if out.len() >= DENSE_ARRAY_LEN_LIMIT {
-                return Err(VmError::range_error(
-                    "iterable exceeds implementation limit",
-                ));
+        let iter_slot = self.stack.len();
+        self.stack.push(iterator);
+        let values_start = self.stack.len();
+        loop {
+            let iter = self.stack[iter_slot]; // re-read in case stack moved
+            match self.iter_next(iter) {
+                Ok(Some(v)) => {
+                    if self.stack.len() - values_start >= DENSE_ARRAY_LEN_LIMIT {
+                        self.stack.truncate(iter_slot);
+                        return Err(VmError::range_error(
+                            "iterable exceeds implementation limit",
+                        ));
+                    }
+                    self.stack.push(v);
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    self.stack.truncate(iter_slot);
+                    return Err(e);
+                }
             }
-            out.push(v);
         }
+        let out = self.stack[values_start..].to_vec();
+        self.stack.truncate(iter_slot);
         Ok(out)
     }
 }

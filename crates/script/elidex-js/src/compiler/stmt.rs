@@ -487,10 +487,17 @@ pub fn compile_stmt(
             fc.current_scope_idx = saved_try_scope;
             fc.emit(Op::PopExceptionHandler);
 
-            // Finally body is compiled outside its own `finally_stack`
-            // entry — pop now, we re-push nothing (caller cares only about
-            // entries that correspond to *enclosing* try statements).
-            if finalizer.is_some() {
+            // The finalizer stays on `finally_stack` while we compile
+            // the catch body below — a `return`/`break`/`continue` inside
+            // catch must still inline this finally before the abrupt
+            // completion.  We only pop early when there is no catch,
+            // because the no-catch path compiles the finally body
+            // immediately next (and the finally body itself must be
+            // compiled *outside* its own `finally_stack` entry to keep
+            // `emit_pending_finally_bodies` clean).  For the catch path,
+            // the pop happens right before compiling the shared finally
+            // body, further down.
+            if finalizer.is_some() && handler.is_none() {
                 fc.finally_stack.pop();
             }
 
@@ -615,6 +622,16 @@ pub fn compile_stmt(
                 // `finally_ip`, or `Generator.prototype.return`) can resume
                 // propagation.  For normal fall-through pending_completion
                 // is `None` and EndFinally is a no-op.
+                //
+                // Pop `finally_stack` right before compiling the finally
+                // body so that `return`/`break`/`continue` *inside* the
+                // finally body does not re-emit itself via
+                // `emit_pending_finally_bodies`.  We kept it on the stack
+                // up through the catch body so abrupt completions *from
+                // catch* correctly include this finalizer.
+                if finalizer.is_some() {
+                    fc.finally_stack.pop();
+                }
                 let finally_pc = if finalizer.is_some() {
                     Some(fc.pc())
                 } else {

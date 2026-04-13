@@ -592,6 +592,18 @@ fn aggregate_error_accepts_any_iterable() {
 }
 
 #[test]
+fn aggregate_error_errors_own_property_is_non_enumerable() {
+    // §20.5.7.3: `.errors` on an AggregateError instance is
+    // `{writable, configurable, ¬enumerable}`.  Covers both the
+    // constructor path and (indirectly) the Promise.any build path.
+    assert!(eval_bool(
+        "Object.getOwnPropertyDescriptor(new AggregateError([1,2]), 'errors').writable \
+         && Object.getOwnPropertyDescriptor(new AggregateError([1,2]), 'errors').configurable \
+         && !Object.getOwnPropertyDescriptor(new AggregateError([1,2]), 'errors').enumerable;"
+    ));
+}
+
+#[test]
 fn aggregate_error_non_iterable_errors_throws_type_error() {
     // Spec: GetIterator on a non-iterable throws TypeError.
     let mut vm = crate::vm::Vm::new();

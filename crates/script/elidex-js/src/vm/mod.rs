@@ -317,12 +317,25 @@ impl VmInner {
 
     /// Allocate an `ObjectKind::Array` with the standard prototype.
     pub(crate) fn create_array_object(&mut self, elements: Vec<JsValue>) -> ObjectId {
-        self.alloc_object(Object {
+        // `alloc_object` can trigger GC *before* the new object is
+        // inserted into `self.objects`.  At that point `elements` lives
+        // only in the Rust-local `Object` struct — not a GC root — so
+        // any `JsValue::Object` entries could be collected mid-call.
+        // Push a temporary rooted copy onto the VM stack for the
+        // allocation window; GC scans `self.stack`, so every element
+        // stays alive.  After the new object is installed in
+        // `self.objects`, its elements are reachable via the object
+        // and the stack copy can go.
+        let stack_root = self.stack.len();
+        self.stack.extend_from_slice(&elements);
+        let obj = self.alloc_object(Object {
             kind: ObjectKind::Array { elements },
             storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.array_prototype,
             extensible: true,
-        })
+        });
+        self.stack.truncate(stack_root);
+        obj
     }
 
     /// Allocate a `StringWrapper` with `length` stored as a non-writable data

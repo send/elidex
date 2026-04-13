@@ -562,12 +562,13 @@ pub(super) fn native_aggregate_error_constructor(
             "AggregateError",
         )?;
         // .errors — non-enumerable, writable, configurable per §20.5.7.3.
+        // `METHOD` encodes `{W, ¬E, C}`, which matches the spec descriptor.
         let errors_key = PropertyKey::String(ctx.vm.well_known.errors);
         ctx.vm.define_shaped_property(
             id,
             errors_key,
             super::value::PropertyValue::Data(JsValue::Object(errors_array)),
-            super::shape::PropertyAttrs::DATA,
+            super::shape::PropertyAttrs::METHOD,
         );
     }
     ctx.vm.stack.pop();

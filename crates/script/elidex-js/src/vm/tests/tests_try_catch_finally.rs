@@ -76,6 +76,68 @@ fn eval_finally_runs_on_break() {
 }
 
 #[test]
+fn eval_finally_runs_on_catch_return() {
+    // `return` inside a catch block must still inline the enclosing
+    // try's finally body before the abrupt return takes effect.
+    // Regression for the `finally_stack` pop-too-early bug (Copilot
+    // review, PR2.5): the pop must happen before the finally body
+    // itself is compiled — NOT before the catch body.
+    //
+    // Expected: try throws → catch runs (x=2, would return 43) →
+    // return 43 inlines finally (x = x*10 = 20) → but finally body
+    // is also a `try {} finally {}` participant on the outer f(),
+    // which the inline form covers.  f() returns 43, x === 20.
+    assert_eq!(
+        eval_number(
+            "var x = 0; \
+             function f() { \
+               try { throw 0; } \
+               catch (e) { x = 2; return 43; } \
+               finally { x = x * 10; } \
+             } \
+             f(); x;"
+        ),
+        20.0
+    );
+}
+
+#[test]
+fn eval_catch_return_overridden_by_finally_return() {
+    // §13.15: a `return` from finally overrides a `return` from catch.
+    // Requires the catch-body's `return` to inline the enclosing
+    // finally — that finally's own `return` fires first, bypassing
+    // catch's `return 43`.
+    assert_eq!(
+        eval_number(
+            "function f() { \
+               try { throw 0; } \
+               catch (e) { return 43; } \
+               finally { return 99; } \
+             } \
+             f();"
+        ),
+        99.0
+    );
+}
+
+#[test]
+fn eval_finally_runs_on_catch_break() {
+    // `break` inside catch must inline the enclosing try's finally.
+    assert_eq!(
+        eval_number(
+            "var x = 0; \
+             while (true) { \
+               try { throw 0; } \
+               catch (e) { x = 2; break; } \
+               finally { x = x * 10; } \
+             } \
+             x;"
+        ),
+        20.0
+    );
+}
+
+#[test]
 fn eval_finally_runs_on_catch_throw() {
     // throw inside catch must still execute finally
     assert_eq!(
