@@ -315,6 +315,30 @@ impl VmInner {
         }
     }
 
+    /// Resolve a constructor's `this` for call-mode (when invoked
+    /// without `new`): return it as-is if it's already an object
+    /// (the pre-allocated receiver from `do_new`), otherwise allocate
+    /// a fresh Ordinary instance with the given prototype.  Implements
+    /// the "callable constructor" shape of §19.5.1.1 step 1-2 where a
+    /// call-mode invocation still yields a new instance of the same
+    /// kind as `new`-mode.
+    pub(crate) fn ensure_instance_or_alloc(
+        &mut self,
+        this: JsValue,
+        prototype: Option<ObjectId>,
+    ) -> JsValue {
+        if matches!(this, JsValue::Object(_)) {
+            return this;
+        }
+        let obj = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype,
+            extensible: true,
+        });
+        JsValue::Object(obj)
+    }
+
     /// Allocate an `ObjectKind::Array` with the standard prototype.
     pub(crate) fn create_array_object(&mut self, elements: Vec<JsValue>) -> ObjectId {
         // `alloc_object` can trigger GC *before* the new object is

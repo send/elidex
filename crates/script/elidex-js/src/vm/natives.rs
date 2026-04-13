@@ -442,6 +442,17 @@ fn error_ctor_impl(
     args: &[JsValue],
     error_name: &str,
 ) -> Result<JsValue, VmError> {
+    // §19.5.1.1 step 1-2: Error (and its built-in subclasses) is
+    // callable — `Error("msg")` without `new` still creates a fresh
+    // Error instance.  `do_new` supplies a pre-allocated receiver for
+    // `new`-mode; in call-mode `this` is globalThis / undefined and
+    // we allocate here instead.  All Error subclasses share
+    // `Error.prototype` in elidex (see `register_error_constructors`),
+    // so `ctx.vm.error_prototype` is the right prototype for every
+    // wrapper calling into this helper.
+    let this = ctx
+        .vm
+        .ensure_instance_or_alloc(this, ctx.vm.error_prototype);
     if let JsValue::Object(id) = this {
         // §19.5.1.1 step 3/4 specifies own `.name` and `.message` as
         // `{W, ¬E, C}` (CreateNonEnumerableDataPropertyOrThrow); that
@@ -550,33 +561,42 @@ pub(super) fn native_aggregate_error_constructor(
     };
     let list = ctx.vm.collect_iterator(iter)?;
     let errors_array = ctx.vm.create_array_object(list);
-    // Root `errors_array` on the VM stack — `error_ctor_impl` below may
-    // call `ToString` on a non-string message argument which can
-    // allocate and trip GC.  `this` is already rooted (it's the receiver
-    // do_new pushed onto the stack); only the fresh array needs pinning.
+
+    // §20.5.7.1 step 1-2: AggregateError is callable — in call-mode
+    // `this` is globalThis / undefined, so allocate a fresh instance
+    // with the AggregateError prototype (chained to Error.prototype).
+    // Root both the receiver and the fresh errors array across
+    // `error_ctor_impl` below, which can call `ToString` on a
+    // non-string message argument and trip GC.
+    let receiver = ctx
+        .vm
+        .ensure_instance_or_alloc(this, ctx.vm.aggregate_error_prototype);
+    ctx.vm.stack.push(receiver);
     ctx.vm.stack.push(JsValue::Object(errors_array));
 
-    if let JsValue::Object(id) = this {
-        // §20.5.7.1 step 4-5: set .name + optional .message via the shared
-        // Error constructor path (with "AggregateError").
-        error_ctor_impl(
-            ctx,
-            this,
-            &[message_arg.unwrap_or(JsValue::Undefined)],
-            "AggregateError",
-        )?;
-        // .errors — non-enumerable, writable, configurable per §20.5.7.3.
-        // `METHOD` encodes `{W, ¬E, C}`, which matches the spec descriptor.
-        let errors_key = PropertyKey::String(ctx.vm.well_known.errors);
-        ctx.vm.define_shaped_property(
-            id,
-            errors_key,
-            super::value::PropertyValue::Data(JsValue::Object(errors_array)),
-            super::shape::PropertyAttrs::METHOD,
-        );
-    }
+    let JsValue::Object(id) = receiver else {
+        unreachable!("ensure_instance_or_alloc always returns an Object");
+    };
+    // §20.5.7.1 step 4-5: set .name + optional .message via the shared
+    // Error constructor path (with "AggregateError").
+    error_ctor_impl(
+        ctx,
+        receiver,
+        &[message_arg.unwrap_or(JsValue::Undefined)],
+        "AggregateError",
+    )?;
+    // .errors — non-enumerable, writable, configurable per §20.5.7.3.
+    // `METHOD` encodes `{W, ¬E, C}`, which matches the spec descriptor.
+    let errors_key = PropertyKey::String(ctx.vm.well_known.errors);
+    ctx.vm.define_shaped_property(
+        id,
+        errors_key,
+        super::value::PropertyValue::Data(JsValue::Object(errors_array)),
+        super::shape::PropertyAttrs::METHOD,
+    );
     ctx.vm.stack.pop();
-    Ok(this)
+    ctx.vm.stack.pop();
+    Ok(receiver)
 }
 
 // -- Array constructor & static methods --------------------------------------

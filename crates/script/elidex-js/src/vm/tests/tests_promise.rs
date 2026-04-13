@@ -630,6 +630,48 @@ fn aggregate_error_errors_own_property_is_non_enumerable() {
 }
 
 #[test]
+fn aggregate_error_callable_without_new() {
+    // §20.5.7.1 step 1-2: AggregateError is callable — calling without
+    // `new` must still produce a fresh AggregateError instance, not
+    // return undefined or pollute globalThis.
+    assert!(eval_bool(
+        "var e = AggregateError([1, 2], 'm'); \
+         e instanceof AggregateError && e instanceof Error \
+           && e.message === 'm' && e.errors.length === 2;"
+    ));
+    // Each call produces a distinct instance.
+    assert!(eval_bool("AggregateError([]) !== AggregateError([]);"));
+}
+
+#[test]
+fn error_constructors_callable_without_new() {
+    // Same call-mode invariant for the rest of the Error family
+    // (§19.5.1.1 step 1-2).  `error_ctor_impl` uses
+    // `ensure_instance_or_alloc(error_prototype)` so every subclass
+    // gets a fresh instance in call-mode.
+    assert!(eval_bool(
+        "var e = Error('x'); \
+         e instanceof Error && e.message === 'x';"
+    ));
+    assert!(eval_bool(
+        "var e = TypeError('t'); \
+         e instanceof Error && e.name === 'TypeError';"
+    ));
+    assert!(eval_bool(
+        "var e = RangeError('r'); \
+         e instanceof Error && e.message === 'r';"
+    ));
+    // Call-mode doesn't leak properties onto globalThis (regression
+    // for the bug Copilot flagged where `this` was globalThis in
+    // non-strict and the init block wrote `.name` / `.message` onto
+    // it).  Strict mode is the top-level default (PR1.5).
+    assert!(eval_bool(
+        "Error('leak-check'); \
+         !globalThis.hasOwnProperty('name') && !globalThis.hasOwnProperty('message');"
+    ));
+}
+
+#[test]
 fn aggregate_error_non_iterable_errors_throws_type_error() {
     // Spec: GetIterator on a non-iterable throws TypeError.
     let mut vm = crate::vm::Vm::new();
