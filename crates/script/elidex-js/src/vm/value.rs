@@ -512,6 +512,25 @@ pub enum ObjectKind {
         /// the reject handler (throw the received value inside the body).
         is_throw: bool,
     },
+    /// Host (DOM) object — the VM-side wrapper for an ECS `Entity`.
+    ///
+    /// Every DOM element / document / window surfaces in JS as a
+    /// `HostObject` with its entity packed into `entity_bits`
+    /// (`Entity::to_bits().get()`).  Native DOM methods recover the
+    /// Entity by pattern-matching on this variant and consulting
+    /// `HostData::dom()`.
+    ///
+    /// Identity is preserved across lookups (`el === el`) via
+    /// `HostData::wrapper_cache`, which maps `entity_bits` to the
+    /// existing `ObjectId` so repeated `create_element_wrapper` calls
+    /// return the same object.  The prototype is `EventTarget.prototype`
+    /// so `addEventListener` / `removeEventListener` / `dispatchEvent`
+    /// are inherited without per-wrapper allocation.
+    ///
+    /// The variant carries no `ObjectId` references, so GC has nothing
+    /// to trace.  The wrapper itself is kept alive by `wrapper_cache`
+    /// (rooted via `HostData::gc_root_object_ids`).
+    HostObject { entity_bits: u64 },
 }
 
 impl ObjectKind {

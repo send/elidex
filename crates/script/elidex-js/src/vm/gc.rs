@@ -400,6 +400,10 @@ fn trace_work_list(
                 }
             }
             // No ObjectId references — only StringId / scalar fields.
+            // `HostObject` is listed explicitly (not folded under a
+            // wildcard) so adding a future field that holds an ObjectId
+            // (e.g. cached child wrapper list) becomes a compile error
+            // until this arm is updated.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)
             | ObjectKind::RegExp { .. }
@@ -410,7 +414,8 @@ fn trace_work_list(
             | ObjectKind::StringWrapper(_)
             | ObjectKind::BooleanWrapper(_)
             | ObjectKind::BigIntWrapper(_)
-            | ObjectKind::SymbolWrapper(_) => {}
+            | ObjectKind::SymbolWrapper(_)
+            | ObjectKind::HostObject { .. } => {}
         }
     }
 }

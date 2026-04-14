@@ -8,6 +8,7 @@ mod tests_console;
 mod tests_event_target;
 mod tests_function_prototype;
 mod tests_generator;
+mod tests_host_object;
 mod tests_json;
 mod tests_m4_10_2;
 mod tests_m4_11;
