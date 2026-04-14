@@ -19,6 +19,7 @@ pub(crate) mod gc;
 mod globals;
 mod globals_async;
 mod globals_errors;
+mod host;
 pub mod host_data;
 pub(crate) mod ic;
 pub mod interpreter;
@@ -169,6 +170,12 @@ pub(crate) struct VmInner {
     pub(crate) aggregate_error_prototype: Option<ObjectId>,
     /// Generator.prototype — shared prototype for generator iterators.
     pub(crate) generator_prototype: Option<ObjectId>,
+    /// `EventTarget.prototype` — shared prototype for every DOM wrapper.
+    /// Holds `addEventListener` / `removeEventListener` / `dispatchEvent`.
+    /// `None` until `register_event_target_prototype()` runs during
+    /// `register_globals()`.  Read when `create_element_wrapper` (PR3 C2)
+    /// allocates a `HostObject` wrapper.
+    pub(crate) event_target_prototype: Option<ObjectId>,
     /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
     /// the yielded value.  `None` outside a yield dispatch.
     pub(crate) generator_yielded: Option<JsValue>,
@@ -915,6 +922,7 @@ impl Vm {
                 error_prototype: None,
                 aggregate_error_prototype: None,
                 generator_prototype: None,
+                event_target_prototype: None,
                 generator_yielded: None,
                 current_microtask: None,
                 timer_queue: BinaryHeap::new(),
