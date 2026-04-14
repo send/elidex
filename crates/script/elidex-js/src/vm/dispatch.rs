@@ -766,7 +766,18 @@ impl VmInner {
                 Op::EndFinally => match self.op_end_finally(frame_idx, entry_frame_depth) {
                     EndFinallyAction::Continue | EndFinallyAction::Jumped => {}
                     EndFinallyAction::EntryReturn(v) => return Ok(v),
-                    EndFinallyAction::ThrowUncaught(e) => return Err(VmError::throw(e)),
+                    // Match Op::Throw's unhandled path (same semantic
+                    // event: a throw value exiting the script without
+                    // any handler catching it) so diagnostic messages
+                    // are consistent regardless of whether the throw
+                    // originated directly from Op::Throw or was
+                    // re-raised here via a finally block.
+                    EndFinallyAction::ThrowUncaught(e) => {
+                        return Err(VmError {
+                            kind: VmErrorKind::ThrowValue(e),
+                            message: "uncaught throw".into(),
+                        });
+                    }
                 },
 
                 // ── Switch ──────────────────────────────────────────
