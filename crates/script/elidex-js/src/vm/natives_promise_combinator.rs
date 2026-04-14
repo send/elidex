@@ -268,9 +268,20 @@ fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
     // many rejected inputs), and `obj` is otherwise only held in this
     // Rust local.
     vm.stack.push(JsValue::Object(obj));
-    // `.name` is inherited from AggregateError.prototype (set in
-    // `register_error_constructors`); no own-property copy needed.
-    // `.message` is `{W, ¬E, C}` per §19.5.1.1 step 4 (= METHOD).
+    // §25.6.4.3 Promise.any step 3.c creates the AggregateError via
+    // `Construct(%AggregateError%, ...)` which goes through the
+    // constructor body and sets own `.name` / `.message` as
+    // non-enumerable (§19.5.1.1 step 3/4).  Mirror that here so a
+    // `Promise.any` rejection's shape matches `new AggregateError(...)`
+    // for own-property reflection (Copilot PR2.5 round 7).
+    // `.name` + `.message` both `{W, ¬E, C}` = METHOD.
+    let name_val = JsValue::String(vm.well_known.aggregate_error);
+    vm.define_shaped_property(
+        obj,
+        PropertyKey::String(vm.well_known.name),
+        PropertyValue::Data(name_val),
+        PropertyAttrs::METHOD,
+    );
     let message_val = JsValue::String(vm.strings.intern("All promises were rejected"));
     vm.define_shaped_property(
         obj,

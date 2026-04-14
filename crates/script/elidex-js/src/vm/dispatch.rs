@@ -716,11 +716,18 @@ impl VmInner {
                 Op::PushExceptionHandler => {
                     let catch_ip = self.read_u16_op();
                     let finally_ip = self.read_u16_op();
+                    // Compiler encodes "no slot" as 0xFFFF; decode to
+                    // `None` here so downstream callers
+                    // (`handle_exception`, `route_to_next_finally`,
+                    // `resume_generator`'s `has_finally` check) work
+                    // with a type-safe sentinel.
+                    let decode =
+                        |ip: u16| -> Option<u32> { (ip != 0xFFFF).then_some(u32::from(ip)) };
                     let stack_depth = self.stack.len();
                     let frame = self.frames.last_mut().unwrap();
                     frame.exception_handlers.push(super::value::HandlerEntry {
-                        catch_ip: u32::from(catch_ip),
-                        finally_ip: u32::from(finally_ip),
+                        catch_ip: decode(catch_ip),
+                        finally_ip: decode(finally_ip),
                         stack_depth,
                     });
                 }

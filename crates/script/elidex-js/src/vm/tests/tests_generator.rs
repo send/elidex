@@ -673,6 +673,38 @@ fn array_iterator_result_inherits_object_prototype() {
     ));
 }
 
+// ─── Handler sentinel decode (PR2.5 round 7 regression) ──────────────────
+
+#[test]
+fn generator_return_on_try_catch_no_finally_completes_cleanly() {
+    // Regression for PR2.5 round 7 Copilot finding: `HandlerEntry`'s
+    // `finally_ip` was `u32::MAX`-checked, but the bytecode encodes
+    // "no slot" as `0xFFFF` — a try/catch *without* finally was
+    // mis-identified as "has finally" and `.return(v)` tried to jump
+    // to ip=0xFFFF (corrupt control flow).  The decode now maps
+    // `0xFFFF → None` at `PushExceptionHandler` time; this test keeps
+    // a generator paused inside a `try/catch` (no finally) and calls
+    // `.return(v)` — it must complete cleanly with `{value: v,
+    // done: true}` and *not* execute the catch body (the catch is
+    // bypassed per §25.4.1.3 when there is no finally to forward
+    // through).
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             function* g() { \
+               try { yield 1; globalThis.log += 'T'; } \
+               catch (e) { globalThis.log += 'C' + e; } \
+             } \
+             var it = g(); it.next(); \
+             var r = it.return(99); \
+             globalThis.out = globalThis.log + '/v=' + r.value + '/d=' + r.done;",
+            "out"
+        ),
+        // No log written — catch is skipped for .return without a finally.
+        "/v=99/d=true"
+    );
+}
+
 // ─── IteratorClose gating on iter.next throw (§7.4.6 / §14.4.14) ─────────
 
 #[test]

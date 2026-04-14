@@ -808,12 +808,18 @@ impl CallFrame {
 }
 
 /// A registered exception handler within a call frame.
+///
+/// The compiler encodes a missing slot as `0xFFFF` in the bytecode
+/// operand; `PushExceptionHandler` decodes that to `None` here so
+/// runtime callers work with a type-safe sentinel instead of a raw
+/// magic number (avoids confusing `u32::MAX` vs `0xFFFF` mismatches
+/// — see PR #72 round 7).
 #[derive(Clone, Debug)]
 pub struct HandlerEntry {
-    /// Bytecode offset of the catch block (`u32::MAX` if no catch).
-    pub catch_ip: u32,
-    /// Bytecode offset of the finally block (`u32::MAX` if no finally).
-    pub finally_ip: u32,
+    /// Bytecode offset of the catch block, or `None` if no catch.
+    pub catch_ip: Option<u32>,
+    /// Bytecode offset of the finally block, or `None` if no finally.
+    pub finally_ip: Option<u32>,
     /// Stack depth when the handler was registered (for unwinding).
     pub stack_depth: usize,
 }

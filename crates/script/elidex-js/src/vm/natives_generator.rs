@@ -220,7 +220,7 @@ impl VmInner {
                 let has_finally = frame
                     .exception_handlers
                     .iter()
-                    .any(|h| h.finally_ip != u32::MAX);
+                    .any(|h| h.finally_ip.is_some());
                 if !has_finally {
                     // Pop closed upvalues we already reopened (they'd
                     // otherwise dangle), drop the frame and stack slice.

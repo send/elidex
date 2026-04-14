@@ -511,6 +511,29 @@ fn promise_any_empty_rejects_immediately() {
 }
 
 #[test]
+fn promise_any_aggregate_error_has_own_name_matching_ctor_path() {
+    // Regression for PR2.5 round 7: `build_aggregate_error` (used by
+    // Promise.any's internal rejection) now installs own `.name` as
+    // METHOD, matching what `new AggregateError(...)` produces via
+    // the constructor path.  Per §25.6.4.3 step 3.c Promise.any
+    // invokes `Construct(%AggregateError%, ...)`, so this parity is
+    // observable via own-property reflection.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.out = ''; \
+             Promise.any([Promise.reject(1), Promise.reject(2)]).catch(e => { \
+                 var d = Object.getOwnPropertyDescriptor(e, 'name'); \
+                 globalThis.out = (d && d.value === 'AggregateError' \
+                   && d.writable && d.configurable && !d.enumerable) \
+                   ? 'own-name-method' : 'fail'; \
+             });",
+            "out"
+        ),
+        "own-name-method"
+    );
+}
+
+#[test]
 fn promise_any_aggregate_error_is_instance_of_error() {
     // §20.5.7: AggregateError.prototype chains to Error.prototype, so
     // the rejection reason satisfies `instanceof Error` as well as

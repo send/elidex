@@ -383,10 +383,10 @@ impl VmInner {
                 self.stack.truncate(handler.stack_depth);
 
                 // Jump to catch block if present, otherwise finally.
-                if handler.catch_ip != u32::MAX {
-                    self.frames[frame_idx].ip = handler.catch_ip as usize;
-                } else if handler.finally_ip != u32::MAX {
-                    self.frames[frame_idx].ip = handler.finally_ip as usize;
+                if let Some(ip) = handler.catch_ip {
+                    self.frames[frame_idx].ip = ip as usize;
+                } else if let Some(ip) = handler.finally_ip {
+                    self.frames[frame_idx].ip = ip as usize;
                 } else {
                     // Neither catch nor finally — shouldn't happen but continue unwinding.
                     continue;
@@ -474,9 +474,11 @@ impl VmInner {
     /// resume propagation.  Returns the bytecode offset to jump to, or
     /// `None` if no outer finally exists in the current frame.
     ///
-    /// Invariant: `finally_ip != u32::MAX` in a handler whose try statement
-    /// has a finally clause — the compiler emits a valid `finally_ip` for
-    /// every such handler (including the try/finally-without-catch layout).
+    /// Invariant: `finally_ip == Some(_)` in a handler whose try
+    /// statement has a finally clause — the compiler emits a valid
+    /// `finally_ip` for every such handler (including the
+    /// try/finally-without-catch layout).  `None` means the original
+    /// bytecode encoded `0xFFFF` for the no-slot sentinel.
     pub(super) fn route_to_next_finally(
         &mut self,
         completion: super::value::FrameCompletion,
@@ -486,8 +488,8 @@ impl VmInner {
             .last_mut()
             .expect("route_to_next_finally runs inside an active frame");
         while let Some(handler) = frame.exception_handlers.pop() {
-            if handler.finally_ip != u32::MAX {
-                let target_ip = handler.finally_ip as usize;
+            if let Some(ip) = handler.finally_ip {
+                let target_ip = ip as usize;
                 let stack_depth = handler.stack_depth;
                 frame.pending_completion = Some(Box::new(completion));
                 self.stack.truncate(stack_depth);
