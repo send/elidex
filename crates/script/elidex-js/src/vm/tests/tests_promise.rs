@@ -510,6 +510,245 @@ fn promise_any_empty_rejects_immediately() {
     );
 }
 
+#[test]
+fn promise_any_aggregate_error_has_own_name_matching_ctor_path() {
+    // Regression for PR2.5 round 7: `build_aggregate_error` (used by
+    // Promise.any's internal rejection) now installs own `.name` as
+    // METHOD, matching what `new AggregateError(...)` produces via
+    // the constructor path.  Per §25.6.4.3 step 3.c Promise.any
+    // invokes `Construct(%AggregateError%, ...)`, so this parity is
+    // observable via own-property reflection.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.out = ''; \
+             Promise.any([Promise.reject(1), Promise.reject(2)]).catch(e => { \
+                 var d = Object.getOwnPropertyDescriptor(e, 'name'); \
+                 globalThis.out = (d && d.value === 'AggregateError' \
+                   && d.writable && d.configurable && !d.enumerable) \
+                   ? 'own-name-method' : 'fail'; \
+             });",
+            "out"
+        ),
+        "own-name-method"
+    );
+}
+
+#[test]
+fn promise_any_aggregate_error_is_instance_of_error() {
+    // §20.5.7: AggregateError.prototype chains to Error.prototype, so
+    // the rejection reason satisfies `instanceof Error` as well as
+    // `instanceof AggregateError`.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.out = ''; \
+             Promise.any([Promise.reject(1), Promise.reject(2)]).catch(e => { \
+                 globalThis.out = (e instanceof Error) + ':' + (e instanceof AggregateError); \
+             });",
+            "out"
+        ),
+        "true:true"
+    );
+}
+
+// ─── AggregateError constructor ───────────────────────────────────────────
+
+#[test]
+fn aggregate_error_constructor_collects_errors_array() {
+    // `new AggregateError([…])` runs the errors iterable into an array
+    // on the `.errors` own property.
+    assert_eq!(
+        eval_string(
+            "var e = new AggregateError([1, 2, 3], 'oops'); \
+             e.name + ':' + e.message + '/' + e.errors.join(',');"
+        ),
+        "AggregateError:oops/1,2,3"
+    );
+}
+
+#[test]
+fn aggregate_error_constructor_default_message_empty() {
+    // Without a message argument, .message comes from
+    // AggregateError.prototype and defaults to the empty string.
+    assert_eq!(eval_string("new AggregateError([]).message;"), "");
+}
+
+#[test]
+fn aggregate_error_prototype_constructor_backlink() {
+    // §20.5.7.3.1: AggregateError.prototype.constructor is AggregateError.
+    // Verifies the prototype → ctor back-link wired in
+    // `register_error_constructors`.
+    assert!(eval_bool(
+        "AggregateError.prototype.constructor === AggregateError;"
+    ));
+    // And instances reach it via the prototype chain.
+    assert!(eval_bool(
+        "new AggregateError([]).constructor === AggregateError;"
+    ));
+}
+
+#[test]
+fn aggregate_error_prototype_chain() {
+    // `instanceof Error` + `instanceof AggregateError` hold for
+    // instances built via the constructor (mirrors the Promise.any
+    // rejection).
+    assert_eq!(
+        eval_string(
+            "var e = new AggregateError([1]); \
+             (e instanceof Error) + ':' + (e instanceof AggregateError);"
+        ),
+        "true:true"
+    );
+}
+
+#[test]
+fn aggregate_error_accepts_any_iterable() {
+    // Per §20.5.7.1 step 3, the first argument is iterated via the
+    // iterator protocol — any iterable (including generator output)
+    // works.
+    assert_eq!(
+        eval_string(
+            "function* g() { yield 'a'; yield 'b'; } \
+             new AggregateError(g(), 'msg').errors.join(',');"
+        ),
+        "a,b"
+    );
+}
+
+#[test]
+fn error_instance_name_and_message_are_non_enumerable() {
+    // §19.5.1.1 step 3/4: own `.name` and `.message` on Error
+    // instances are `{W, ¬E, C}`.  Observable via `Object.keys`
+    // (returns []) and `JSON.stringify` (returns "{}").  Covers the
+    // same-pattern audit for Copilot's `.errors` finding on
+    // AggregateError — the bug existed on all error subclasses.
+    assert_eq!(eval_string("Object.keys(new Error('boom')).join(',');"), "");
+    assert_eq!(
+        eval_string("Object.keys(new TypeError('t')).join(',');"),
+        ""
+    );
+    assert_eq!(eval_string("JSON.stringify(new Error('boom'));"), "{}");
+}
+
+#[test]
+fn aggregate_error_message_own_property_is_non_enumerable() {
+    // Same invariant for AggregateError instances (both the
+    // user-constructor path and `Promise.any`'s internal
+    // `build_aggregate_error` set `.message` as `{W, ¬E, C}`).
+    assert_eq!(
+        eval_string("Object.keys(new AggregateError([1], 'oops')).join(',');"),
+        ""
+    );
+}
+
+#[test]
+fn aggregate_error_errors_own_property_is_non_enumerable() {
+    // §20.5.7.3: `.errors` on an AggregateError instance is
+    // `{writable, configurable, ¬enumerable}`.  Covers both the
+    // constructor path and (indirectly) the Promise.any build path.
+    assert!(eval_bool(
+        "Object.getOwnPropertyDescriptor(new AggregateError([1,2]), 'errors').writable \
+         && Object.getOwnPropertyDescriptor(new AggregateError([1,2]), 'errors').configurable \
+         && !Object.getOwnPropertyDescriptor(new AggregateError([1,2]), 'errors').enumerable;"
+    ));
+}
+
+#[test]
+fn vm_thrown_type_error_inherits_from_error_prototype() {
+    // `vm_error_to_thrown` now uses `Error.prototype` as the
+    // instance's prototype (§19.5.3), so VM-thrown errors satisfy
+    // `instanceof Error` and inherit `Error.prototype.toString`.
+    // Regression for Copilot PR2.5 round 4 finding.
+    assert!(eval_bool(
+        "var caught; try { null.x; } catch(e) { caught = e; } \
+         caught instanceof Error && caught.name === 'TypeError';"
+    ));
+    // toString composes "<name>: <message>" via the inherited method.
+    assert_eq!(
+        eval_string(
+            "var caught; try { null.x; } catch(e) { caught = e; } \
+             caught.toString().slice(0, 10);"
+        ),
+        "TypeError:"
+    );
+}
+
+#[test]
+fn error_call_with_explicit_receiver_does_not_mutate_it() {
+    // `Error.call(obj, 'msg')` must NOT mutate `obj` — spec §19.5.1.1
+    // step 2 (OrdinaryCreateFromConstructor) always yields a fresh
+    // instance.  Before the `in_construct` gate on
+    // `ensure_instance_or_alloc`, the constructor would have mutated
+    // and returned the explicit receiver.
+    assert!(eval_bool(
+        "var target = { existing: 1 }; \
+         var result = Error.call(target, 'boom'); \
+         result !== target \
+           && result instanceof Error \
+           && result.message === 'boom' \
+           && !target.hasOwnProperty('message') \
+           && !target.hasOwnProperty('name') \
+           && target.existing === 1;"
+    ));
+    // Same invariant for AggregateError.
+    assert!(eval_bool(
+        "var target = {}; \
+         var result = AggregateError.call(target, [1, 2], 'm'); \
+         result !== target \
+           && result instanceof AggregateError \
+           && !target.hasOwnProperty('errors');"
+    ));
+}
+
+#[test]
+fn aggregate_error_callable_without_new() {
+    // §20.5.7.1 step 1-2: AggregateError is callable — calling without
+    // `new` must still produce a fresh AggregateError instance, not
+    // return undefined or pollute globalThis.
+    assert!(eval_bool(
+        "var e = AggregateError([1, 2], 'm'); \
+         e instanceof AggregateError && e instanceof Error \
+           && e.message === 'm' && e.errors.length === 2;"
+    ));
+    // Each call produces a distinct instance.
+    assert!(eval_bool("AggregateError([]) !== AggregateError([]);"));
+}
+
+#[test]
+fn error_constructors_callable_without_new() {
+    // Same call-mode invariant for the rest of the Error family
+    // (§19.5.1.1 step 1-2).  `error_ctor_impl` uses
+    // `ensure_instance_or_alloc(error_prototype)` so every subclass
+    // gets a fresh instance in call-mode.
+    assert!(eval_bool(
+        "var e = Error('x'); \
+         e instanceof Error && e.message === 'x';"
+    ));
+    assert!(eval_bool(
+        "var e = TypeError('t'); \
+         e instanceof Error && e.name === 'TypeError';"
+    ));
+    assert!(eval_bool(
+        "var e = RangeError('r'); \
+         e instanceof Error && e.message === 'r';"
+    ));
+    // Call-mode doesn't leak properties onto globalThis (regression
+    // for the bug Copilot flagged where `this` was globalThis in
+    // non-strict and the init block wrote `.name` / `.message` onto
+    // it).  Strict mode is the top-level default (PR1.5).
+    assert!(eval_bool(
+        "Error('leak-check'); \
+         !globalThis.hasOwnProperty('name') && !globalThis.hasOwnProperty('message');"
+    ));
+}
+
+#[test]
+fn aggregate_error_non_iterable_errors_throws_type_error() {
+    // Spec: GetIterator on a non-iterable throws TypeError.
+    let mut vm = crate::vm::Vm::new();
+    let err = vm.eval("new AggregateError(42);");
+    assert!(err.is_err());
+}
+
 // ─── Promise.prototype.finally ────────────────────────────────────────────
 
 #[test]

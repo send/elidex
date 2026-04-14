@@ -1,7 +1,7 @@
 //! Extended tests for Array.prototype — Array.from/of, sparse interactions,
 //! edge cases, callback propagation, thisArg binding, and return types.
 
-use super::{eval_bool, eval_number, eval_string, eval_throws};
+use super::{eval_bool, eval_global_string, eval_number, eval_string, eval_throws};
 
 // ---------------------------------------------------------------------------
 // Array.from / Array.of
@@ -22,6 +22,29 @@ fn array_from_with_map() {
     assert_eq!(
         eval_string("Array.from([1,2,3], function(v) { return v * 2; }).join(',');"),
         "2,4,6"
+    );
+}
+
+#[test]
+fn array_from_map_throw_closes_inner_iterator() {
+    // §7.4.6: `Array.from(iter, mapFn)` where `mapFn` throws must call
+    // `IteratorClose` on the inner iterator before propagating.
+    // Observable via a hand-rolled iterator whose `.return()` records
+    // it was called.  Regression for the `drain_iterator` abrupt path
+    // that previously abandoned the iterator on callback throw.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             var iter = { \
+               next() { return { value: 1, done: false }; }, \
+               return() { globalThis.log += 'closed,'; return { done: true }; }, \
+               [Symbol.iterator]() { return this; } \
+             }; \
+             try { Array.from(iter, function() { throw 'boom'; }); } \
+             catch(e) { globalThis.log += 'caught:' + e; }",
+            "log"
+        ),
+        "closed,caught:boom"
     );
 }
 

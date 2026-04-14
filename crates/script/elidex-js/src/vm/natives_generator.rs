@@ -10,8 +10,8 @@
 
 use super::shape::{self, PropertyAttrs};
 use super::value::{
-    GeneratorStatus, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
-    PropertyStorage, PropertyValue, SuspendedFrame, UpvalueState, VmError,
+    FrameCompletion, GeneratorStatus, JsValue, NativeContext, Object, ObjectId, ObjectKind,
+    PropertyKey, PropertyStorage, PropertyValue, SuspendedFrame, UpvalueState, VmError,
 };
 use super::VmInner;
 
@@ -83,48 +83,66 @@ pub(crate) fn op_yield_suspend(
 // ---------------------------------------------------------------------------
 
 impl VmInner {
-    /// Resume `gen_id` with input `arg`.  Returns the yielded (or returned)
-    /// value plus a `done` flag; builds the actual `{value, done}` object
-    /// on top of that.
+    /// Resume `gen_id` with the given completion injected at the yield
+    /// point.  Returns the yielded (or returned) value plus a `done` flag;
+    /// `Generator.prototype.next` then wraps the pair in a `{value, done}`
+    /// iterator-result object.
     ///
-    /// Failure modes:
-    /// - Generator already Running → TypeError
-    /// - Generator already Completed → `{value: undefined, done: true}`
-    /// - Body throws → propagate the thrown value and mark Completed
+    /// `completion`:
+    /// - [`FrameCompletion::Normal(v)`] — resume `.next(v)`.  `v` is used
+    ///   as the value of the yield expression (or discarded on the first
+    ///   entry, which hasn't hit a yield yet).
+    /// - [`FrameCompletion::Throw(e)`] — resume `.throw(e)`: inject an
+    ///   exception at the yield point, letting any in-scope catch/finally
+    ///   observe it.
+    /// - [`FrameCompletion::Return(v)`] — resume `.return(v)` or implicit
+    ///   iterator close (e.g. `for (… of gen) { break }`): walk handlers
+    ///   to find a finally block, run it, then complete with `v`.  If no
+    ///   finally is in scope, no body runs — the generator is marked
+    ///   Completed directly.
+    ///
+    /// Failure modes (same across variants):
+    /// - Generator already Running → TypeError.
+    /// - Generator already Completed → `Normal` returns
+    ///   `(undefined, true)`; `Return(v)` returns `(v, true)`; `Throw(e)`
+    ///   surfaces the thrown value as a `VmError`.
+    /// - Body throws uncaught → propagate and mark Completed.
+    #[allow(clippy::too_many_lines)] // Normal / Return / Throw + setup share one frame-restore
     pub(crate) fn resume_generator(
         &mut self,
         gen_id: ObjectId,
-        arg: JsValue,
+        completion: FrameCompletion,
     ) -> Result<(JsValue, bool), VmError> {
-        // ── Lift the suspended frame out of the Generator ───────────────
+        // ── Early exits + lift the suspended frame in one borrow ────────
+        //
+        // Hot path (Normal + SuspendedYield → take the frame, transition
+        // to Running) takes a single `get_object_mut`; the cold error /
+        // already-completed branches short-circuit out before the take.
         let (suspended, initial) = {
             let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
-                return Err(VmError::type_error(
-                    "Generator.prototype.next called on non-Generator",
-                ));
+                return Err(VmError::type_error("resume on non-Generator"));
             };
-            match state.status {
-                GeneratorStatus::Completed => {
+            match (state.status, completion) {
+                (GeneratorStatus::Completed, FrameCompletion::Normal(_)) => {
                     return Ok((JsValue::Undefined, true));
                 }
-                GeneratorStatus::Running => {
+                (GeneratorStatus::Completed, FrameCompletion::Return(v)) => {
+                    return Ok((v, true));
+                }
+                (GeneratorStatus::Completed, FrameCompletion::Throw(e)) => {
+                    // §25.4.1.4: throw on a completed iterator propagates
+                    // the reason as the thrown completion.
+                    return Err(VmError::throw(e));
+                }
+                (GeneratorStatus::Running, _) => {
                     return Err(VmError::type_error(
                         "Cannot resume a generator that is already running",
                     ));
                 }
-                GeneratorStatus::SuspendedStart => {
+                (status, _) => {
+                    let initial = matches!(status, GeneratorStatus::SuspendedStart);
                     state.status = GeneratorStatus::Running;
-                    (
-                        state.suspended.take().expect("SuspendedStart has frame"),
-                        true,
-                    )
-                }
-                GeneratorStatus::SuspendedYield => {
-                    state.status = GeneratorStatus::Running;
-                    (
-                        state.suspended.take().expect("SuspendedYield has frame"),
-                        false,
-                    )
+                    (state.suspended.take().expect("suspended frame"), initial)
                 }
             }
         };
@@ -175,14 +193,87 @@ impl VmInner {
         self.completion_value = JsValue::Undefined;
         frame.saved_completion = saved_completion;
 
-        // On resume from yield, the arg becomes the value of the `yield`
-        // expression.  On the initial `.next()` call the generator hasn't
-        // hit a yield yet, so we don't push anything (arg is discarded).
-        if !initial {
-            self.stack.push(arg);
-        }
+        let mark_completed = |vm: &mut Self| {
+            if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
+                state.status = GeneratorStatus::Completed;
+                state.suspended = None;
+            }
+        };
 
-        self.frames.push(frame);
+        match completion {
+            FrameCompletion::Normal(arg) => {
+                // On resume from yield, the arg becomes the value of the
+                // `yield` expression.  On the initial `.next()` call the
+                // generator hasn't hit a yield yet, so we don't push
+                // anything (arg is discarded).
+                if !initial {
+                    self.stack.push(arg);
+                }
+                self.frames.push(frame);
+            }
+            FrameCompletion::Return(v) => {
+                // `.return(v)` injection: if the suspended frame has no
+                // finally in scope, abandon it entirely — no user code
+                // runs, the generator is simply completed with `v`.  Spec
+                // §25.4.1.3 step 3 plus §13.15: `.return(v)` bypasses
+                // `catch` blocks, only finally observes it.
+                let has_finally = frame
+                    .exception_handlers
+                    .iter()
+                    .any(|h| h.finally_ip.is_some());
+                if !has_finally {
+                    // Pop closed upvalues we already reopened (they'd
+                    // otherwise dangle), drop the frame and stack slice.
+                    for (uv_id, _) in &upvalue_slots {
+                        let val = match self.upvalues[uv_id.0 as usize].state {
+                            UpvalueState::Open { frame_base, slot } => {
+                                self.stack[frame_base + slot as usize]
+                            }
+                            UpvalueState::Closed(v) => v,
+                        };
+                        self.upvalues[uv_id.0 as usize].state = UpvalueState::Closed(val);
+                    }
+                    self.stack.truncate(new_base);
+                    self.completion_value = saved_completion;
+                    mark_completed(self);
+                    return Ok((v, true));
+                }
+                self.frames.push(frame);
+                // Route to innermost finally on the now-top frame.
+                let target_ip = self
+                    .route_to_next_finally(FrameCompletion::Return(v))
+                    .expect("has_finally checked above");
+                self.frames.last_mut().unwrap().ip = target_ip;
+            }
+            FrameCompletion::Throw(reason) => {
+                self.frames.push(frame);
+                let entry_frames_post = self.frames.len() - 1;
+                if !self.handle_exception(reason, entry_frames_post) {
+                    // No handler — frame was left in place
+                    // (handle_exception stops at entry_frame_depth).
+                    // Clean up the frame properly: close any upvalues
+                    // we reopened on the restored frame, drop the
+                    // restored stack slice, then pop.  Using raw
+                    // `frames.pop()` without these would leak
+                    // `UpvalueState::Open` pointers into a stack slot
+                    // we're about to discard.
+                    for (uv_id, _) in &upvalue_slots {
+                        let val = match self.upvalues[uv_id.0 as usize].state {
+                            UpvalueState::Open { frame_base, slot } => {
+                                self.stack[frame_base + slot as usize]
+                            }
+                            UpvalueState::Closed(v) => v,
+                        };
+                        self.upvalues[uv_id.0 as usize].state = UpvalueState::Closed(val);
+                    }
+                    self.stack.truncate(new_base);
+                    self.frames.pop();
+                    self.completion_value = saved_completion;
+                    mark_completed(self);
+                    return Err(VmError::throw(reason));
+                }
+            }
+        }
 
         // ── Run until Yield / Return / Throw ───────────────────────────
         let run_result = self.run();
@@ -204,13 +295,6 @@ impl VmInner {
         // a yield value (discard) or a return value (propagate).
         let yielded = self.generator_yielded.take();
         self.completion_value = saved_completion;
-
-        let mark_completed = |vm: &mut Self| {
-            if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
-                state.status = GeneratorStatus::Completed;
-                state.suspended = None;
-            }
-        };
 
         match run_result {
             Ok(_) if yielded.is_some() => {
@@ -235,124 +319,15 @@ impl VmInner {
         }
     }
 
-    /// Resume `gen_id` by throwing `reason` at the point where it last
-    /// yielded.  Used by async-function reject continuations: if the
-    /// awaited Promise rejects, the awaiting body should observe a throw
-    /// rather than a value.
+    /// Build a `{ value, done }` iterator-result object (§7.4.8
+    /// CreateIterResultObject).  Shared between generator `.next` /
+    /// `.return` / `.throw`, array iterator next, string iterator next,
+    /// and any other `IteratorResult`-shaped allocation.
     ///
-    /// The mechanics mirror [`resume_generator`] but instead of pushing the
-    /// resume arg, we restore the frame and invoke `handle_exception` with
-    /// the generator frame as the entry point.  If the body has a handler
-    /// in scope, execution continues at catch/finally; otherwise the error
-    /// propagates out of the coroutine.
-    pub(crate) fn resume_generator_throw(
-        &mut self,
-        gen_id: ObjectId,
-        reason: JsValue,
-    ) -> Result<(JsValue, bool), VmError> {
-        // ── Lift the suspended frame out (same gate as resume_generator) ─
-        let suspended = {
-            let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
-                return Err(VmError::type_error("throw on non-Generator"));
-            };
-            match state.status {
-                GeneratorStatus::Completed => {
-                    // Spec §25.4.1.4: throw on a completed iterator propagates
-                    // the reason as the thrown completion.
-                    return Err(VmError::throw(reason));
-                }
-                GeneratorStatus::Running => {
-                    return Err(VmError::type_error(
-                        "Cannot resume a generator that is already running",
-                    ));
-                }
-                GeneratorStatus::SuspendedStart | GeneratorStatus::SuspendedYield => {
-                    state.status = GeneratorStatus::Running;
-                    state.suspended.take().expect("suspended state must exist")
-                }
-            }
-        };
-        let super::value::SuspendedFrame {
-            mut frame,
-            stack_slice,
-            upvalue_slots,
-        } = suspended;
-
-        let new_base = self.stack.len();
-        self.stack.extend(stack_slice);
-        // See `resume_generator` for the rationale: `local_upvalue_ids`
-        // is preserved on the suspended frame, so re-pushing `uv_id` here
-        // would cause each upvalue to accumulate in the list across every
-        // resume cycle.
-        for (uv_id, slot) in &upvalue_slots {
-            if let UpvalueState::Closed(val) = self.upvalues[uv_id.0 as usize].state {
-                let idx = new_base + *slot as usize;
-                if idx < self.stack.len() {
-                    self.stack[idx] = val;
-                }
-            }
-            self.upvalues[uv_id.0 as usize].state = UpvalueState::Open {
-                frame_base: new_base,
-                slot: *slot,
-            };
-        }
-        frame.base = new_base;
-        frame.cleanup_base = new_base;
-        for h in &mut frame.exception_handlers {
-            h.stack_depth += new_base;
-        }
-        let saved_completion = self.completion_value;
-        self.completion_value = JsValue::Undefined;
-        frame.saved_completion = saved_completion;
-        self.frames.push(frame);
-
-        // ── Inject a throw at the suspension point ──────────────────────
-        let entry_frames = self.frames.len() - 1;
-        let mark_completed = |vm: &mut Self| {
-            if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
-                state.status = GeneratorStatus::Completed;
-                state.suspended = None;
-            }
-        };
-
-        if !self.handle_exception(reason, entry_frames) {
-            // No handler — frame was left in place (handle_exception stops
-            // at `frame_idx <= entry_frame_depth`).  Pop it and surface
-            // the throw as a VmError to our caller.
-            self.frames.pop();
-            self.completion_value = saved_completion;
-            mark_completed(self);
-            return Err(VmError::throw(reason));
-        }
-
-        // Handler active — proceed with normal run() resumption.
-        let entry_frames_post_inject = self.frames.len() - 1;
-        let run_result = self.run();
-        if run_result.is_err()
-            && self.frames.len() > entry_frames_post_inject
-            && self.frames.last().map(|f| f.base) == Some(new_base)
-        {
-            self.pop_frame();
-        }
-        let yielded = self.generator_yielded.take();
-        self.completion_value = saved_completion;
-
-        match run_result {
-            Ok(_) if yielded.is_some() => Ok((yielded.expect("just checked"), false)),
-            Ok(return_value) => {
-                mark_completed(self);
-                Ok((return_value, true))
-            }
-            Err(e) => {
-                mark_completed(self);
-                Err(e)
-            }
-        }
-    }
-
-    /// Build a `{value, done}` iterator-result object, used by
-    /// `Generator.prototype.next` and similar iterator steps.
-    pub(super) fn iter_result_object(&mut self, value: JsValue, done: bool) -> ObjectId {
+    /// Prototype is `%Object.prototype%` per spec (CreateIterResultObject
+    /// step 1: OrdinaryObjectCreate(%Object.prototype%)), making
+    /// `gen.next().toString === Object.prototype.toString`.
+    pub(crate) fn create_iter_result(&mut self, value: JsValue, done: bool) -> ObjectId {
         let obj = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
@@ -398,17 +373,20 @@ pub(super) fn native_generator_next(
         ));
     }
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let (value, done) = ctx.vm.resume_generator(gen_id, arg)?;
-    let obj = ctx.vm.iter_result_object(value, done);
+    let (value, done) = ctx
+        .vm
+        .resume_generator(gen_id, FrameCompletion::Normal(arg))?;
+    let obj = ctx.vm.create_iter_result(value, done);
     Ok(JsValue::Object(obj))
 }
 
-/// `Generator.prototype.return(value)` — §25.4.1.3
+/// `Generator.prototype.return(value)` — §25.4.1.3.
 ///
-/// PR2 commit 4: simplified form — marks the generator Completed without
-/// running the body's `finally` blocks, and returns `{value, done: true}`.
-/// Spec-complete semantics (abrupt-completion forwarding + finally) ship
-/// with PR2.5.
+/// Injects a `return v` completion at the suspension point.  The
+/// generator's in-scope `finally` blocks run (via the shared
+/// [`VmInner::resume_generator`] path); if a finally performs its own
+/// abrupt completion that overrides per §13.15.  If no finally is in
+/// scope, the generator is simply completed with `v`.
 pub(super) fn native_generator_return(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -425,19 +403,18 @@ pub(super) fn native_generator_return(
         ));
     }
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
-    if let ObjectKind::Generator(state) = &mut ctx.vm.get_object_mut(gen_id).kind {
-        state.status = GeneratorStatus::Completed;
-        state.suspended = None;
-    }
-    let obj = ctx.vm.iter_result_object(value, true);
+    let (v, done) = ctx
+        .vm
+        .resume_generator(gen_id, FrameCompletion::Return(value))?;
+    let obj = ctx.vm.create_iter_result(v, done);
     Ok(JsValue::Object(obj))
 }
 
-/// `Generator.prototype.throw(err)` — §25.4.1.4
+/// `Generator.prototype.throw(err)` — §25.4.1.4.
 ///
-/// PR2 commit 4: simplified form — marks the generator Completed and
-/// propagates the thrown value synchronously as the native result.  Full
-/// semantics (catch-block forwarding + finally) ship with PR2.5.
+/// Injects a throw at the suspension point so in-scope catch / finally
+/// can observe it.  An uncaught throw propagates out as a [`VmError`]
+/// and marks the generator Completed.
 pub(super) fn native_generator_throw(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -453,12 +430,12 @@ pub(super) fn native_generator_throw(
             "Generator.prototype.throw called on non-Generator",
         ));
     }
-    if let ObjectKind::Generator(state) = &mut ctx.vm.get_object_mut(gen_id).kind {
-        state.status = GeneratorStatus::Completed;
-        state.suspended = None;
-    }
     let reason = args.first().copied().unwrap_or(JsValue::Undefined);
-    Err(VmError::throw(reason))
+    let (v, done) = ctx
+        .vm
+        .resume_generator(gen_id, FrameCompletion::Throw(reason))?;
+    let obj = ctx.vm.create_iter_result(v, done);
+    Ok(JsValue::Object(obj))
 }
 
 /// `Generator.prototype[Symbol.iterator]` returns `this`.
@@ -491,11 +468,12 @@ pub(crate) fn drive_async_coroutine(
     is_throw: bool,
 ) -> Result<(), VmError> {
     // Resume: either with a value (from fulfill) or a throw (from reject).
-    let result = if is_throw {
-        vm.resume_generator_throw(gen_id, value)
+    let completion = if is_throw {
+        FrameCompletion::Throw(value)
     } else {
-        vm.resume_generator(gen_id, value)
+        FrameCompletion::Normal(value)
     };
+    let result = vm.resume_generator(gen_id, completion);
 
     // Look up the wrapper promise (pre-established at async function call).
     let wrapper = match &vm.get_object(gen_id).kind {

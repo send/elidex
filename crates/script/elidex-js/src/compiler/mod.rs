@@ -6,6 +6,7 @@
 mod expr;
 mod expr_class;
 mod expr_function;
+mod expr_yield_star;
 pub mod function;
 pub mod resolve;
 mod stmt;

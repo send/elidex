@@ -116,18 +116,41 @@ pub fn compile_stmt(
             fc.emit_u16(Op::SetLocal, iter_slot);
             fc.emit(Op::Pop);
 
+            // §7.4.6 + §13.7.5.13: a throw from `IteratorNext` itself
+            // (i.e. the iterator's own `.next()` threw) does NOT trigger
+            // IteratorClose — the iterator is already considered closed.
+            // Only abrupt completions *after* a successful step (e.g.
+            // throw from the loop body) close the iterator.  Gate the
+            // catch handler's IteratorClose on `close_flag`, set true
+            // after each successful IteratorNext and reset to false
+            // before the next step.
+            let close_flag_slot = func_scopes[fc.func_scope_idx].next_local;
+            func_scopes[fc.func_scope_idx].next_local += 1;
+            fc.emit(Op::PushFalse);
+            fc.emit_u16(Op::SetLocal, close_flag_slot);
+            fc.emit(Op::Pop);
+
             // Wrap the loop body in an implicit exception handler so that
-            // an uncaught throw from the body closes the iterator (ES2020
-            // §13.7.5.13 ForIn/OfBodyEvaluation — IteratorClose on abrupt).
+            // an uncaught throw from the body closes the iterator.
             let handler_pos = fc.pc();
             fc.emit_u16_u16(Op::PushExceptionHandler, 0, 0);
             let handler_patch_pos = handler_pos + 1; // offset of catch u16
 
             let loop_start = fc.pc();
             fc.push_for_of_loop(loop_start, iter_slot);
+            // Reset close_flag = false before IteratorNext so a throw
+            // from .next() itself skips the catch handler's close.
+            fc.emit(Op::PushFalse);
+            fc.emit_u16(Op::SetLocal, close_flag_slot);
+            fc.emit(Op::Pop);
             fc.emit(Op::IteratorNext); // [iterator value done]
             let exit_patch = fc.emit_jump(Op::JumpIfTrue); // if done, exit
-                                                           // Bind `left` to value (value is on stack).
+                                                           // IteratorNext succeeded → arm close_flag for any
+                                                           // subsequent abrupt (e.g. body throw).
+            fc.emit(Op::PushTrue);
+            fc.emit_u16(Op::SetLocal, close_flag_slot);
+            fc.emit(Op::Pop);
+            // Bind `left` to value (value is on stack).
             compile_forin_left_binding(fc, prog, analysis, func_scopes, left)?;
             compile_stmt(fc, prog, analysis, func_scopes, *body)?;
             // Patch continue jumps to loop_start.
@@ -139,30 +162,26 @@ pub fn compile_stmt(
             fc.emit(Op::Pop); // normal exhaustion: discard iterator without calling .return()
             let end_patch = fc.emit_jump(Op::Jump); // jump over catch handler
 
-            // Catch handler: close iterator, then re-throw the original exception.
-            // NOTE: If IteratorClose (.return()) itself throws, that new error
-            // correctly takes precedence over the original abrupt completion
-            // per ECMA-262 §7.4.6 IteratorClose. The opcode order here already
-            // matches: a throw from Op::IteratorClose skips the re-throw below.
+            // Catch handler: gate IteratorClose on close_flag, then
+            // re-throw the original exception.  If IteratorClose
+            // itself throws, that new error correctly takes
+            // precedence over the original abrupt completion per
+            // §7.4.6 (a throw from Op::IteratorClose skips the
+            // re-throw below).
             let catch_ip = fc.pc();
+            fc.emit_u16(Op::GetLocal, close_flag_slot);
+            let skip_close = fc.emit_jump(Op::JumpIfFalse);
             fc.emit_u16(Op::GetLocal, iter_slot);
             fc.emit(Op::IteratorClose);
+            fc.patch_jump(skip_close);
             fc.emit(Op::PushException);
             fc.emit(Op::Throw);
 
             fc.patch_jump(end_patch);
 
-            // Patch the exception handler: catch_ip = catch handler, finally_ip = 0xFFFF.
-            assert!(
-                u16::try_from(catch_ip).is_ok(),
-                "for-of catch entry {catch_ip} exceeds u16 range"
-            );
-            let catch_bytes = (catch_ip as u16).to_le_bytes();
-            fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
-            fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-            let no_finally = 0xFFFFu16.to_le_bytes();
-            fc.bytecode[(handler_patch_pos + 2) as usize] = no_finally[0];
-            fc.bytecode[(handler_patch_pos + 3) as usize] = no_finally[1];
+            // Patch the exception handler: catch_ip = catch handler,
+            // no finally_ip.
+            fc.patch_exception_handler(handler_patch_pos, Some(catch_ip), None);
 
             fc.pop_loop();
             fc.current_scope_idx = saved_scope;
@@ -383,14 +402,16 @@ pub fn compile_stmt(
 
         StmtKind::Throw(expr_id) => {
             compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
-            // NOTE: DO NOT pre-emit pending finally bodies here.  Unlike
-            // `return`/`break`/`continue`, a `throw` routes through the
-            // runtime's exception-handler mechanism, which naturally
-            // transfers control to the nearest catch (which falls through
-            // to finally) or to the rethrow-stub (which runs finally +
-            // re-throws).  Pre-emitting inline would cause finally to run
-            // twice when caught locally.
-            emit_iter_close_range(fc, 0, fc.loop_stack.len());
+            // NOTE: DO NOT pre-emit pending finally bodies OR iterator
+            // closes here.  Unlike `return`/`break`/`continue`, a `throw`
+            // routes through the runtime's exception-handler mechanism,
+            // which naturally transfers control to the nearest catch
+            // (which falls through to finally) or to a for-of body's
+            // catch handler (which performs the IteratorClose).
+            // Pre-emitting either inline would cause it to run twice
+            // when caught locally — for finally bodies (per the bug fix
+            // in PR2 commit 9), and for iterators (the for-of catch
+            // handler also closes via close_flag).
             fc.emit(Op::Throw);
         }
 
@@ -474,7 +495,10 @@ pub fn compile_stmt(
             let handler_patch_pos = catch_placeholder + 1; // offset of catch u16
 
             // Push finally body onto the stack so that return/break/continue
-            // inside the try block will emit it before jumping.
+            // inside the try block will emit it before jumping.  The stack
+            // entry is popped before compiling the finally body itself: from
+            // the finally body's own perspective there is no pending finally
+            // to inline (that would recurse on `return` inside finally).
             if let Some(fin_block) = finalizer {
                 fc.finally_stack.push(fin_block.clone());
             }
@@ -492,31 +516,59 @@ pub fn compile_stmt(
             fc.current_scope_idx = saved_try_scope;
             fc.emit(Op::PopExceptionHandler);
 
+            // The finalizer stays on `finally_stack` while we compile
+            // the catch body below — a `return`/`break`/`continue` inside
+            // catch must still inline this finally before the abrupt
+            // completion.  We only pop early when there is no catch,
+            // because the no-catch path compiles the finally body
+            // immediately next (and the finally body itself must be
+            // compiled *outside* its own `finally_stack` entry to keep
+            // `emit_pending_finally_bodies` clean).  For the catch path,
+            // the pop happens right before compiling the shared finally
+            // body, further down.
+            if finalizer.is_some() && handler.is_none() {
+                fc.finally_stack.pop();
+            }
+
             // ── try/finally without catch: two-copy layout ──────────
             //
-            //   PushExceptionHandler(catch=rethrow_entry, finally=0xFFFF)
+            //   PushExceptionHandler(catch=rethrow_entry,
+            //                        finally=normal_finally_pc)
             //   <try body>
             //   PopExceptionHandler
-            //   <finally body>          ← normal path
-            //   Jump(end)
-            //   rethrow_entry:          ← exception path
+            //   <finally body>          ← normal path (also the finally_ip
+            //   Op::EndFinally           target for `Generator.prototype
+            //   Jump(end)                .return` injection when we need to
+            //   rethrow_entry:           run finally before returning)
             //   PushException
-            //   <finally body>          (duplicate)
+            //   <finally body>          (duplicate for exception path)
             //   Throw                   ← re-throw the saved exception
             //   end:
             //
+            // The `finally_ip` in the exception handler points at the
+            // *normal-path* finally body — `handle_exception` still routes
+            // throws through `catch_ip` (rethrow_entry) because `catch_ip`
+            // takes precedence, but `Op::EndFinally` / `.return` routing
+            // use `finally_ip` to reach the finally body without the
+            // PushException-then-Throw wrapper.
+            //
             // When a catch block is present the original layout is kept:
-            // exception → catch → finally (shared).
+            // exception → catch → finally (shared), with finally_ip
+            // pointing at the shared finally body.
 
             if handler.is_none() && finalizer.is_some() {
-                // Normal path: run finally body, then jump over rethrow.
                 let fin_block = finalizer.as_ref().unwrap();
+                // Normal path: run finally body, then jump over rethrow.
+                let normal_finally_pc = fc.pc();
                 for &s in fin_block {
                     compile_stmt(fc, prog, analysis, func_scopes, s)?;
                 }
+                fc.emit(Op::EndFinally);
                 let end_jump = fc.emit_jump(Op::Jump);
 
                 // Exception path: PushException → finally body → Throw.
+                // No EndFinally here: the trailing Throw handles abrupt
+                // completion propagation (re-raising the saved exception).
                 let rethrow_entry = fc.pc();
                 fc.emit(Op::PushException);
                 for &s in fin_block {
@@ -526,17 +578,13 @@ pub fn compile_stmt(
 
                 fc.patch_jump(end_jump);
 
-                // Patch handler: catch_ip = rethrow_entry, finally_ip = 0xFFFF.
-                assert!(
-                    u16::try_from(rethrow_entry).is_ok(),
-                    "rethrow entry {rethrow_entry} exceeds u16 range"
+                // Patch handler: catch_ip = rethrow_entry,
+                //                finally_ip = normal_finally_pc.
+                fc.patch_exception_handler(
+                    handler_patch_pos,
+                    Some(rethrow_entry),
+                    Some(normal_finally_pc),
                 );
-                let catch_bytes = (rethrow_entry as u16).to_le_bytes();
-                fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
-                fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-                let finally_bytes = 0xFFFFu16.to_le_bytes();
-                fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
-                fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
             } else {
                 // Original layout for try/catch, try/catch/finally.
                 let finally_jump = fc.emit_jump(Op::Jump); // jump over catch
@@ -597,7 +645,22 @@ pub fn compile_stmt(
 
                 fc.patch_jump(finally_jump);
 
-                // Finally block (if present).
+                // Finally block (if present).  Emit `Op::EndFinally` after
+                // the body so externally injected abrupt completions that
+                // routed here (via `handle_exception` falling through to
+                // `finally_ip`, or `Generator.prototype.return`) can resume
+                // propagation.  For normal fall-through pending_completion
+                // is `None` and EndFinally is a no-op.
+                //
+                // Pop `finally_stack` right before compiling the finally
+                // body so that `return`/`break`/`continue` *inside* the
+                // finally body does not re-emit itself via
+                // `emit_pending_finally_bodies`.  We kept it on the stack
+                // up through the catch body so abrupt completions *from
+                // catch* correctly include this finalizer.
+                if finalizer.is_some() {
+                    fc.finally_stack.pop();
+                }
                 let finally_pc = if finalizer.is_some() {
                     Some(fc.pc())
                 } else {
@@ -607,37 +670,22 @@ pub fn compile_stmt(
                     for &s in fin_block {
                         compile_stmt(fc, prog, analysis, func_scopes, s)?;
                     }
+                    fc.emit(Op::EndFinally);
                 }
 
-                // Patch the exception handler offsets.
-                let catch_u16 = if catch_offset == u32::MAX {
-                    0xFFFFu16
-                } else {
-                    assert!(
-                        u16::try_from(catch_offset).is_ok(),
-                        "catch offset {catch_offset} exceeds u16 range"
-                    );
-                    catch_offset as u16
-                };
-                let catch_bytes = catch_u16.to_le_bytes();
-                fc.bytecode[handler_patch_pos as usize] = catch_bytes[0];
-                fc.bytecode[(handler_patch_pos + 1) as usize] = catch_bytes[1];
-                let finally_offset = if let Some(fpc) = finally_pc {
-                    assert!(
-                        u16::try_from(fpc).is_ok(),
-                        "finally offset {fpc} exceeds u16 range"
-                    );
-                    fpc as u16
-                } else {
-                    0xFFFF
-                };
-                let finally_bytes = finally_offset.to_le_bytes();
-                fc.bytecode[(handler_patch_pos + 2) as usize] = finally_bytes[0];
-                fc.bytecode[(handler_patch_pos + 3) as usize] = finally_bytes[1];
+                // Patch the exception handler offsets.  `u32::MAX` on
+                // `catch_offset` is the "no catch" sentinel; map to None
+                // for the helper's absent-slot encoding.
+                fc.patch_exception_handler(
+                    handler_patch_pos,
+                    (catch_offset != u32::MAX).then_some(catch_offset),
+                    finally_pc,
+                );
 
                 // Patch the catch-body exception handler (if present).
                 // This handler routes exceptions thrown inside `catch` to a
                 // rethrow stub that runs `finally` body then re-throws.
+                // No EndFinally here: the trailing Throw handles propagation.
                 if let Some(patch_pos) = catch_rethrow_patch {
                     let end_jump = fc.emit_jump(Op::Jump); // skip rethrow stub on normal path
 
@@ -652,23 +700,9 @@ pub fn compile_stmt(
 
                     fc.patch_jump(end_jump);
 
-                    // Patch: catch_ip = rethrow_entry, finally_ip = 0xFFFF
-                    assert!(
-                        u16::try_from(rethrow_entry).is_ok(),
-                        "catch-body rethrow entry {rethrow_entry} exceeds u16 range"
-                    );
-                    let rethrow_bytes = (rethrow_entry as u16).to_le_bytes();
-                    fc.bytecode[patch_pos as usize] = rethrow_bytes[0];
-                    fc.bytecode[(patch_pos + 1) as usize] = rethrow_bytes[1];
-                    let no_finally = 0xFFFFu16.to_le_bytes();
-                    fc.bytecode[(patch_pos + 2) as usize] = no_finally[0];
-                    fc.bytecode[(patch_pos + 3) as usize] = no_finally[1];
+                    // Patch: catch_ip = rethrow_entry, no finally_ip.
+                    fc.patch_exception_handler(patch_pos, Some(rethrow_entry), None);
                 }
-            }
-
-            // Pop the finally stack entry (if we pushed one).
-            if finalizer.is_some() {
-                fc.finally_stack.pop();
             }
         }
 
@@ -885,21 +919,31 @@ fn emit_iter_close_range(fc: &mut FunctionCompiler, from: usize, to: usize) {
 ///
 /// This ensures `try { return x; } finally { cleanup(); }` runs the cleanup
 /// before the return takes effect.
+///
+/// Each finally body is compiled with *itself* temporarily removed from
+/// `fc.finally_stack` (outer finallies remain).  Without this, a
+/// `return` *inside* the finally body would trigger another
+/// `emit_pending_finally_bodies` that sees the same finally on the stack
+/// and recurses infinitely.  The outer finallies must stay visible, so a
+/// nested `return` inside one finally still forwards through its enclosing
+/// finallies correctly.
 fn emit_pending_finally_bodies(
     fc: &mut FunctionCompiler,
     prog: &Program,
     analysis: &ScopeAnalysis,
     func_scopes: &mut [FunctionScope],
 ) -> Result<(), CompileError> {
-    // Clone the stack to avoid borrow conflict (finally_stack is on fc).
-    let stacks: Vec<Vec<NodeId<Stmt>>> = fc.finally_stack.clone();
-    // Emit innermost (last pushed) first — but for return semantics,
-    // we need innermost-to-outermost order, which is reverse iteration.
-    for fin_stmts in stacks.iter().rev() {
-        for &s in fin_stmts {
+    let saved = std::mem::take(&mut fc.finally_stack);
+    // Iterate innermost-to-outermost: indices (n-1)..=0 in reverse.
+    for i in (0..saved.len()).rev() {
+        // Outer finallies remain on the stack; this finally is excluded
+        // from its own compile (prevents self-recursion on `return`).
+        fc.finally_stack = saved[..i].to_vec();
+        for &s in &saved[i] {
             compile_stmt(fc, prog, analysis, func_scopes, s)?;
         }
     }
+    fc.finally_stack = saved;
     Ok(())
 }
 

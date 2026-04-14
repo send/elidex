@@ -27,6 +27,79 @@ pub(crate) const DENSE_ARRAY_LEN_LIMIT: usize = 1 << 27;
 /// Separate from array limit since strings are denser (2 bytes/unit vs 16 bytes/JsValue).
 pub(crate) const STRING_LEN_LIMIT: usize = 1 << 24;
 
+impl VmInner {
+    /// Collect every value produced by `iterator` into a `Vec`.  Caps at
+    /// [`DENSE_ARRAY_LEN_LIMIT`] to prevent a hostile user iterator from
+    /// forcing unbounded allocation.  `iterator` must already be an
+    /// Iterator object (post-`@@iterator`).
+    ///
+    /// GC-safe against user-defined `.next()` methods: the iterator and
+    /// each collected value are pushed onto `self.stack` while iteration
+    /// runs, so a GC cycle triggered by user code inside `iter_next` sees
+    /// them as roots.  Mirrors the pattern in
+    /// [`Self::op_iterator_rest`].  The returned `Vec` is not itself a
+    /// GC root; callers that allocate further before the values are
+    /// placed into a GC-reachable container must re-root (or pass the
+    /// `Vec` to [`Self::create_array_object`], which roots internally).
+    pub(crate) fn collect_iterator(&mut self, iterator: JsValue) -> Result<Vec<JsValue>, VmError> {
+        let iter_slot = self.stack.len();
+        self.stack.push(iterator);
+        let values_start = self.stack.len();
+        loop {
+            let iter = self.stack[iter_slot]; // re-read in case stack moved
+            match self.iter_next(iter) {
+                Ok(Some(v)) => {
+                    if self.stack.len() - values_start >= DENSE_ARRAY_LEN_LIMIT {
+                        // §7.4.6: abrupt completion during iteration must
+                        // call IteratorClose (`.return()`).  Drop
+                        // collected values first but keep `iter` rooted
+                        // for the .return() call; if that call itself
+                        // throws, its error takes precedence over the
+                        // range-error we'd otherwise surface.
+                        self.stack.truncate(values_start);
+                        let close_result = self.iter_close(iter);
+                        self.stack.truncate(iter_slot);
+                        return Err(close_result.err().unwrap_or_else(|| {
+                            VmError::range_error("iterable exceeds implementation limit")
+                        }));
+                    }
+                    self.stack.push(v);
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    // Err from `iter_next` means the iterator's own
+                    // `.next()` threw — the iterator is abandoned as-is,
+                    // no IteratorClose (per spec, an iterator that
+                    // threw is not closed again).
+                    self.stack.truncate(iter_slot);
+                    return Err(e);
+                }
+            }
+        }
+        let out = self.stack[values_start..].to_vec();
+        self.stack.truncate(iter_slot);
+        Ok(out)
+    }
+}
+
+/// Action signalled by [`VmInner::op_end_finally`] back to the dispatch
+/// loop.  Keeps the loop's control-flow (return / continue) local to
+/// dispatch while the decision logic lives alongside other ops.
+pub(crate) enum EndFinallyAction {
+    /// No pending completion — fall through to the next opcode.
+    Continue,
+    /// The helper rewrote `frame.ip` (routed to an outer finally, or a
+    /// catch via `handle_exception`) or popped an inline frame; the
+    /// dispatch loop should continue normally.
+    Jumped,
+    /// Entry-frame return — the helper popped the entry frame; the
+    /// dispatch loop must return `Ok(v)` from `run()`.
+    EntryReturn(JsValue),
+    /// Uncaught throw — helper already unwound frames; dispatch must
+    /// return `Err(VmError::throw(e))`.
+    ThrowUncaught(JsValue),
+}
+
 /// Try to interpret an `f64` as a valid ES array index (0..=2^32−2).
 /// Returns `None` for negative, non-integer, or out-of-range values.
 #[inline]
@@ -109,23 +182,33 @@ impl VmInner {
                 };
                 let name_id = self.strings.intern(error_name);
                 let msg_id = self.strings.intern(&error.message);
+                // Inherit from `Error.prototype` (§19.5.3) so
+                // VM-thrown TypeError/RangeError/... satisfy
+                // `e instanceof Error` and pick up
+                // `Error.prototype.toString`.  Fallback to
+                // `object_prototype` only if `error_prototype` hasn't
+                // been registered yet (register_error_constructors
+                // runs during `register_globals`; the fallback covers
+                // a narrow bootstrap window).
                 let error_obj = self.alloc_object(super::value::Object {
                     kind: ObjectKind::Error { name: name_id },
                     storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                    prototype: self.object_prototype,
+                    prototype: self.error_prototype.or(self.object_prototype),
                     extensible: true,
                 });
+                // §19.5.1.1 step 3/4: own `.name` + `.message` are
+                // non-enumerable (`{W, ¬E, C}` = METHOD).
                 self.define_shaped_property(
                     error_obj,
                     PropertyKey::String(self.well_known.name),
                     PropertyValue::Data(JsValue::String(name_id)),
-                    super::shape::PropertyAttrs::DATA,
+                    super::shape::PropertyAttrs::METHOD,
                 );
                 self.define_shaped_property(
                     error_obj,
                     PropertyKey::String(self.well_known.message),
                     PropertyValue::Data(JsValue::String(msg_id)),
-                    super::shape::PropertyAttrs::DATA,
+                    super::shape::PropertyAttrs::METHOD,
                 );
                 JsValue::Object(error_obj)
             }
@@ -300,10 +383,10 @@ impl VmInner {
                 self.stack.truncate(handler.stack_depth);
 
                 // Jump to catch block if present, otherwise finally.
-                if handler.catch_ip != u32::MAX {
-                    self.frames[frame_idx].ip = handler.catch_ip as usize;
-                } else if handler.finally_ip != u32::MAX {
-                    self.frames[frame_idx].ip = handler.finally_ip as usize;
+                if let Some(ip) = handler.catch_ip {
+                    self.frames[frame_idx].ip = ip as usize;
+                } else if let Some(ip) = handler.finally_ip {
+                    self.frames[frame_idx].ip = ip as usize;
                 } else {
                     // Neither catch nor finally — shouldn't happen but continue unwinding.
                     continue;
@@ -320,6 +403,104 @@ impl VmInner {
             self.completion_value = frame.saved_completion;
             self.stack.truncate(frame.cleanup_base);
         }
+    }
+
+    /// Execute `Op::EndFinally`: consult `pending_completion` on the
+    /// current frame and resume the completion that entered the finally
+    /// (routing to an outer finally, returning, or re-throwing).
+    /// Returns an [`EndFinallyAction`] describing how the dispatch loop
+    /// should react — the loop's own control-flow statements
+    /// (`continue` / `return`) stay local to dispatch.
+    pub(crate) fn op_end_finally(
+        &mut self,
+        frame_idx: usize,
+        entry_frame_depth: usize,
+    ) -> EndFinallyAction {
+        let pending = self
+            .frames
+            .last_mut()
+            .expect("op_end_finally runs inside an active frame")
+            .pending_completion
+            .take();
+        match pending.as_deref().copied() {
+            None | Some(super::value::FrameCompletion::Normal(_)) => EndFinallyAction::Continue,
+            Some(super::value::FrameCompletion::Return(v)) => {
+                // Walk outer handlers for another finally.  If found,
+                // route there; the resumed EndFinally at that finally's
+                // tail will take over propagation.
+                if let Some(target_ip) =
+                    self.route_to_next_finally(super::value::FrameCompletion::Return(v))
+                {
+                    self.frames
+                        .last_mut()
+                        .expect("op_end_finally runs inside an active frame")
+                        .ip = target_ip;
+                    return EndFinallyAction::Jumped;
+                }
+                // No more finallies — perform the return.
+                if frame_idx == entry_frame_depth {
+                    self.pop_frame();
+                    EndFinallyAction::EntryReturn(v)
+                } else {
+                    self.complete_inline_frame(v);
+                    EndFinallyAction::Continue
+                }
+            }
+            Some(super::value::FrameCompletion::Throw(e)) => {
+                // Re-raise.  handle_exception handles cross-frame routing
+                // (intermediate finallies + entry frame boundary).  If no
+                // handler, propagate as VmError.
+                if self.handle_exception(e, entry_frame_depth) {
+                    return EndFinallyAction::Jumped;
+                }
+                while self.frames.len() > entry_frame_depth + 1 {
+                    let frame = self.frames.pop().unwrap();
+                    self.close_upvalues(&frame.local_upvalue_ids);
+                    self.completion_value = frame.saved_completion;
+                    self.stack.truncate(frame.cleanup_base);
+                }
+                EndFinallyAction::ThrowUncaught(e)
+            }
+        }
+    }
+
+    /// Route a pending abrupt completion (from [`super::value::FrameCompletion`])
+    /// to the next outer finally block on the current frame, if any.
+    ///
+    /// Pops handlers that cannot host the completion (catch-only handlers,
+    /// skipped for Return completions per §13.15 since `.return(v)` must
+    /// bypass `catch`), truncates the stack, and writes `pending_completion`
+    /// on the frame so the reached finally's trailing `Op::EndFinally` will
+    /// resume propagation.  Returns the bytecode offset to jump to, or
+    /// `None` if no outer finally exists in the current frame.
+    ///
+    /// Invariant: `finally_ip == Some(_)` in a handler whose try
+    /// statement has a finally clause — the compiler emits a valid
+    /// `finally_ip` for every such handler (including the
+    /// try/finally-without-catch layout).  `None` means the original
+    /// bytecode encoded `0xFFFF` for the no-slot sentinel.
+    pub(super) fn route_to_next_finally(
+        &mut self,
+        completion: super::value::FrameCompletion,
+    ) -> Option<usize> {
+        let frame = self
+            .frames
+            .last_mut()
+            .expect("route_to_next_finally runs inside an active frame");
+        while let Some(handler) = frame.exception_handlers.pop() {
+            if let Some(ip) = handler.finally_ip {
+                let target_ip = ip as usize;
+                let stack_depth = handler.stack_depth;
+                frame.pending_completion = Some(Box::new(completion));
+                self.stack.truncate(stack_depth);
+                return Some(target_ip);
+            }
+            // Catch-only handler: skip for abrupt completions that bypass
+            // catch (Return).  Throw is routed by `handle_exception`, not
+            // this function, so we'd only get here with Return in practice
+            // — still skip uniformly for clarity.
+        }
+        None
     }
 
     pub(crate) fn pop_frame(&mut self) {

@@ -347,31 +347,15 @@ pub(super) fn native_string_iterator_next(
     create_iter_result(ctx, JsValue::String(str_id), false)
 }
 
-/// Helper: create a `{ value, done }` iterator result object.
+/// Local wrapper around [`VmInner::create_iter_result`] that fits the
+/// `NativeContext` call shape.  The shared helper on `VmInner` anchors
+/// the prototype at `%Object.prototype%` (§7.4.8) and is used by every
+/// IteratorResult-shaped allocation in the VM (generator, array, string
+/// iterators).
 fn create_iter_result(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     done: bool,
 ) -> Result<JsValue, VmError> {
-    let value_key = PropertyKey::String(ctx.vm.well_known.value);
-    let done_key = PropertyKey::String(ctx.vm.well_known.done);
-    let obj = ctx.alloc_object(Object {
-        kind: ObjectKind::Ordinary,
-        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-        prototype: None,
-        extensible: true,
-    });
-    ctx.vm.define_shaped_property(
-        obj,
-        value_key,
-        super::value::PropertyValue::Data(value),
-        super::shape::PropertyAttrs::DATA,
-    );
-    ctx.vm.define_shaped_property(
-        obj,
-        done_key,
-        super::value::PropertyValue::Data(JsValue::Boolean(done)),
-        super::shape::PropertyAttrs::DATA,
-    );
-    Ok(JsValue::Object(obj))
+    Ok(JsValue::Object(ctx.vm.create_iter_result(value, done)))
 }

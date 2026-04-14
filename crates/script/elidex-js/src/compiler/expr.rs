@@ -414,14 +414,23 @@ pub fn compile_expr(
         }
 
         ExprKind::Yield { argument, delegate } => {
-            if let Some(arg) = argument {
-                compile_expr(fc, prog, analysis, func_scopes, *arg)?;
-            } else {
-                fc.emit(Op::PushUndefined);
-            }
             if *delegate {
-                fc.emit(Op::YieldDelegate);
+                // `yield* expr` is expanded inline into a loop that
+                // drives the iterator's `.next(received)`, yielding each
+                // `value` and using `result.value` as the yield*
+                // expression's own value once `done` is true.  See
+                // `compile_yield_star` for the full layout + abrupt
+                // completion (return / throw) forwarding.
+                let arg_id = argument.ok_or_else(|| CompileError {
+                    message: "yield* requires an operand".into(),
+                })?;
+                compile_yield_star(fc, prog, analysis, func_scopes, arg_id)?;
             } else {
+                if let Some(arg) = argument {
+                    compile_expr(fc, prog, analysis, func_scopes, *arg)?;
+                } else {
+                    fc.emit(Op::PushUndefined);
+                }
                 fc.emit(Op::Yield);
             }
         }
@@ -977,3 +986,4 @@ fn compound_op_to_opcode(op: AssignOp) -> Op {
 // Re-exports from split modules so that existing call-sites keep working.
 pub(super) use super::expr_class::compile_class;
 pub(super) use super::expr_function::{compile_arrow_function, compile_nested_function};
+pub(super) use super::expr_yield_star::compile_yield_star;

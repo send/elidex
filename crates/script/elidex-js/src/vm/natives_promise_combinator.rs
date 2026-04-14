@@ -4,7 +4,9 @@
 //! `natives_promise`; this file owns the aggregator-style combinators
 //! which share an ObjectKind-variant-based closure pattern.
 
-use super::natives_promise::{create_promise, create_resolver_pair, settle_promise, then_impl};
+use super::natives_promise::{
+    create_promise, create_resolver_pair, settle_promise, then_impl, then_impl_internal,
+};
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     CombinatorKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PromiseCombinatorState,
@@ -247,37 +249,55 @@ fn settle_all_settled_slot(vm: &mut VmInner, state_id: ObjectId, index: u32, ent
 }
 
 /// Build an `AggregateError` for `Promise.any` when every input rejects.
-/// Minimal `Error` shape carrying `.errors` and a fixed message — full
-/// AggregateError wiring (spec-correct prototype chain) lands with the
-/// Error cleanup in PR2.5.
+/// Uses the spec-correct prototype chain (AggregateError.prototype →
+/// Error.prototype → Object.prototype) so `instanceof Error` and
+/// `instanceof AggregateError` both hold.  The shape kind remains
+/// `Ordinary` (mirroring what `new AggregateError(…)` produces via the
+/// constructor path) — the "is an error" identity is carried by the
+/// prototype chain, not by `ObjectKind::Error`.
 fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
-    let name_id = vm.strings.intern("AggregateError");
     let obj = vm.alloc_object(Object {
-        kind: ObjectKind::Error { name: name_id },
+        kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: vm.object_prototype,
+        prototype: vm.aggregate_error_prototype.or(vm.error_prototype),
         extensible: true,
     });
+    // Root `obj` on the VM stack while subsequent allocations run —
+    // `create_array_object` below can trip GC if the threshold has
+    // been bumping over recent allocations (e.g. after Promise.any over
+    // many rejected inputs), and `obj` is otherwise only held in this
+    // Rust local.
+    vm.stack.push(JsValue::Object(obj));
+    // §25.6.4.3 Promise.any step 3.c creates the AggregateError via
+    // `Construct(%AggregateError%, ...)` which goes through the
+    // constructor body and sets own `.name` / `.message` as
+    // non-enumerable (§19.5.1.1 step 3/4).  Mirror that here so a
+    // `Promise.any` rejection's shape matches `new AggregateError(...)`
+    // for own-property reflection (Copilot PR2.5 round 7).
+    // `.name` + `.message` both `{W, ¬E, C}` = METHOD.
+    let name_val = JsValue::String(vm.well_known.aggregate_error);
     vm.define_shaped_property(
         obj,
         PropertyKey::String(vm.well_known.name),
-        PropertyValue::Data(JsValue::String(name_id)),
-        PropertyAttrs::DATA,
+        PropertyValue::Data(name_val),
+        PropertyAttrs::METHOD,
     );
     let message_val = JsValue::String(vm.strings.intern("All promises were rejected"));
     vm.define_shaped_property(
         obj,
         PropertyKey::String(vm.well_known.message),
         PropertyValue::Data(message_val),
-        PropertyAttrs::DATA,
+        PropertyAttrs::METHOD,
     );
     let errors_arr = vm.create_array_object(errors);
+    // `.errors` = `{W, ¬E, C}` per §20.5.7.3; `METHOD` attrs match.
     vm.define_shaped_property(
         obj,
         PropertyKey::String(vm.well_known.errors),
         PropertyValue::Data(JsValue::Object(errors_arr)),
-        PropertyAttrs::DATA,
+        PropertyAttrs::METHOD,
     );
+    vm.stack.pop();
     JsValue::Object(obj)
 }
 
@@ -309,7 +329,7 @@ fn run_combinator(
     // `total` up front to pre-size the state's values vec.  This also
     // matches the spec's eager `IteratorStep` loop — values are awaited
     // via `.then` attachment, not pulled lazily.
-    let items = collect_items(ctx.vm, iterator)?;
+    let items = ctx.vm.collect_iterator(iterator)?;
     let total = u32::try_from(items.len())
         .map_err(|_| VmError::range_error("Promise combinator input exceeded u32 length limit"))?;
 
@@ -397,24 +417,6 @@ fn run_combinator(
     Ok(JsValue::Object(result))
 }
 
-/// Collect every value produced by `iterator` into a `Vec`.  Caps at
-/// `DENSE_ARRAY_LEN_LIMIT` to prevent a hostile user iterator from forcing
-/// unbounded allocation before the caller's `u32::try_from(len)` check.
-/// IteratorClose on error is handled by `iter_next` itself — we just
-/// propagate.
-fn collect_items(vm: &mut VmInner, iterator: JsValue) -> Result<Vec<JsValue>, VmError> {
-    let mut out = Vec::new();
-    while let Some(v) = vm.iter_next(iterator)? {
-        if out.len() >= super::ops::DENSE_ARRAY_LEN_LIMIT {
-            return Err(VmError::range_error(
-                "Promise combinator iterable exceeds implementation limit",
-            ));
-        }
-        out.push(v);
-    }
-    Ok(out)
-}
-
 /// `item.then(on_fulfilled, on_rejected)` after `Promise.resolve(item)`
 /// normalisation.  Used by every combinator to wire per-item reactions
 /// onto the outer state machine.
@@ -438,7 +440,16 @@ fn subscribe(
         let _ = settle_promise(ctx.vm, p, false, item);
         p
     };
-    then_impl(ctx.vm, promise_id, Some(on_fulfilled), Some(on_rejected))?;
+    // Combinator per-item subscribers never observe the derived promise
+    // (settlement flows through the combinator state, not through a
+    // `.then` chain), so we skip the capability allocation.
+    then_impl_internal(
+        ctx.vm,
+        promise_id,
+        Some(on_fulfilled),
+        Some(on_rejected),
+        None,
+    )?;
     Ok(())
 }
 

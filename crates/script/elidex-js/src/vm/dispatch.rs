@@ -7,7 +7,7 @@ use crate::bytecode::opcode::Op;
 
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
-use super::ops::{parse_array_index_u16, try_as_array_index};
+use super::ops::{parse_array_index_u16, try_as_array_index, EndFinallyAction};
 use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
@@ -716,11 +716,18 @@ impl VmInner {
                 Op::PushExceptionHandler => {
                     let catch_ip = self.read_u16_op();
                     let finally_ip = self.read_u16_op();
+                    // Compiler encodes "no slot" as 0xFFFF; decode to
+                    // `None` here so downstream callers
+                    // (`handle_exception`, `route_to_next_finally`,
+                    // `resume_generator`'s `has_finally` check) work
+                    // with a type-safe sentinel.
+                    let decode =
+                        |ip: u16| -> Option<u32> { (ip != 0xFFFF).then_some(u32::from(ip)) };
                     let stack_depth = self.stack.len();
                     let frame = self.frames.last_mut().unwrap();
                     frame.exception_handlers.push(super::value::HandlerEntry {
-                        catch_ip: u32::from(catch_ip),
-                        finally_ip: u32::from(finally_ip),
+                        catch_ip: decode(catch_ip),
+                        finally_ip: decode(finally_ip),
                         stack_depth,
                     });
                 }
@@ -756,6 +763,22 @@ impl VmInner {
                     let exc = self.current_exception;
                     self.stack.push(exc);
                 }
+                Op::EndFinally => match self.op_end_finally(frame_idx, entry_frame_depth) {
+                    EndFinallyAction::Continue | EndFinallyAction::Jumped => {}
+                    EndFinallyAction::EntryReturn(v) => return Ok(v),
+                    // Match Op::Throw's unhandled path (same semantic
+                    // event: a throw value exiting the script without
+                    // any handler catching it) so diagnostic messages
+                    // are consistent regardless of whether the throw
+                    // originated directly from Op::Throw or was
+                    // re-raised here via a finally block.
+                    EndFinallyAction::ThrowUncaught(e) => {
+                        return Err(VmError {
+                            kind: VmErrorKind::ThrowValue(e),
+                            message: "uncaught throw".into(),
+                        });
+                    }
+                },
 
                 // ── Switch ──────────────────────────────────────────
                 Op::SwitchJump => {
@@ -932,16 +955,6 @@ impl VmInner {
                     // frame — control resumes in the caller's frame on
                     // the next loop iteration.
                 }
-                Op::YieldDelegate => {
-                    // Full `yield*` spec (arg / return value / throw forward)
-                    // lands in PR2.5 (generator spec completion).  Unlike
-                    // `Op::Yield`, we cannot produce a correct single-step
-                    // answer, so we throw.
-                    return Err(VmError::internal(
-                        "yield* (YieldDelegate) not supported in PR2 commit 4 — see PR2.5",
-                    ));
-                }
-
                 // ── Misc stubs ──────────────────────────────────────
                 Op::NewTarget | Op::ImportMeta => {
                     self.stack.push(JsValue::Undefined);
@@ -966,7 +979,7 @@ impl VmInner {
     ///
     /// Handles constructor semantics: if `new_instance` is set and `return_value`
     /// is not an object, the instance is returned instead.
-    fn complete_inline_frame(&mut self, return_value: JsValue) {
+    pub(crate) fn complete_inline_frame(&mut self, return_value: JsValue) {
         let frame = self.frames.pop().unwrap();
         self.close_upvalues(&frame.local_upvalue_ids);
         self.completion_value = frame.saved_completion;

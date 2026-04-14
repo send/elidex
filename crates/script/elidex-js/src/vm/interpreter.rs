@@ -210,6 +210,7 @@ impl VmInner {
                 new_instance: None,
                 saved_completion: JsValue::Undefined,
                 generator: None,
+                pending_completion: None,
             };
             let suspended = super::value::SuspendedFrame {
                 frame: initial_frame,
@@ -243,6 +244,7 @@ impl VmInner {
                 new_instance: None,
                 saved_completion: JsValue::Undefined,
                 generator: None,
+                pending_completion: None,
             };
             let suspended = super::value::SuspendedFrame {
                 frame: initial_frame,
@@ -289,6 +291,7 @@ impl VmInner {
             new_instance: None,
             saved_completion,
             generator: None,
+            pending_completion: None,
         });
 
         let result = self.run();
@@ -381,6 +384,7 @@ impl VmInner {
                 new_instance,
                 saved_completion: JsValue::Undefined,
                 generator: None,
+                pending_completion: None,
             };
             let suspended = super::value::SuspendedFrame {
                 frame: initial_frame,
@@ -432,6 +436,7 @@ impl VmInner {
                 new_instance,
                 saved_completion: JsValue::Undefined,
                 generator: None, // filled in after Generator alloc below
+                pending_completion: None,
             };
             let suspended = super::value::SuspendedFrame {
                 frame: initial_frame,
@@ -477,6 +482,7 @@ impl VmInner {
             new_instance,
             saved_completion,
             generator: None,
+            pending_completion: None,
         });
     }
 

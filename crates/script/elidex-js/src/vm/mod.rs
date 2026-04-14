@@ -18,6 +18,7 @@ mod dispatch_objects;
 pub(crate) mod gc;
 mod globals;
 mod globals_async;
+mod globals_errors;
 pub mod host_data;
 pub(crate) mod ic;
 pub mod interpreter;
@@ -45,6 +46,7 @@ mod ops_property;
 pub mod pools;
 pub(crate) mod shape;
 pub mod value;
+mod vm_api;
 
 #[cfg(test)]
 mod tests;
@@ -158,6 +160,13 @@ pub(crate) struct VmInner {
     /// End-of-drain scan warns on entries still `Rejected && !handled`.
     /// PromiseRejectionEvent dispatch ships with PR3.
     pub(crate) pending_rejections: Vec<ObjectId>,
+    /// Error.prototype (§19.5.3) — shared by Error and the built-in
+    /// error subclasses (TypeError, RangeError, …, AggregateError).
+    pub(crate) error_prototype: Option<ObjectId>,
+    /// AggregateError.prototype (§20.5.7) — chains to Error.prototype
+    /// (NOT Object.prototype) so `instanceof Error` is true for
+    /// AggregateError instances.
+    pub(crate) aggregate_error_prototype: Option<ObjectId>,
     /// Generator.prototype — shared prototype for generator iterators.
     pub(crate) generator_prototype: Option<ObjectId>,
     /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
@@ -245,6 +254,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) rejected: StringId,
     pub(crate) reason: StringId,
     pub(crate) errors: StringId,
+    pub(crate) aggregate_error: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -305,14 +315,61 @@ impl VmInner {
         }
     }
 
+    /// Resolve a constructor's receiver for both `new`-mode and
+    /// call-mode invocations.
+    ///
+    /// - `new F(...)`: native dispatch sets `self.in_construct = true`
+    ///   and `do_new` supplies a pre-allocated object receiver — we
+    ///   must reuse `this` as-is so the constructor initializes the
+    ///   same instance the caller will receive.
+    /// - `F(...)` (call-mode): `in_construct = false`; allocate a
+    ///   fresh Ordinary with `prototype`.  An explicit receiver
+    ///   passed via `F.call(obj, ...)` / `F.apply(obj, ...)` is *not*
+    ///   reused — spec §19.5.1.1 step 2 (OrdinaryCreateFromConstructor)
+    ///   always yields a new object.
+    ///
+    /// Implements the "callable constructor" shape of §19.5.1.1
+    /// step 1-2.
+    pub(crate) fn ensure_instance_or_alloc(
+        &mut self,
+        this: JsValue,
+        prototype: Option<ObjectId>,
+    ) -> JsValue {
+        if self.in_construct {
+            if let JsValue::Object(_) = this {
+                return this;
+            }
+        }
+        let obj = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype,
+            extensible: true,
+        });
+        JsValue::Object(obj)
+    }
+
     /// Allocate an `ObjectKind::Array` with the standard prototype.
     pub(crate) fn create_array_object(&mut self, elements: Vec<JsValue>) -> ObjectId {
-        self.alloc_object(Object {
+        // `alloc_object` can trigger GC *before* the new object is
+        // inserted into `self.objects`.  At that point `elements` lives
+        // only in the Rust-local `Object` struct — not a GC root — so
+        // any `JsValue::Object` entries could be collected mid-call.
+        // Push a temporary rooted copy onto the VM stack for the
+        // allocation window; GC scans `self.stack`, so every element
+        // stays alive.  After the new object is installed in
+        // `self.objects`, its elements are reachable via the object
+        // and the stack copy can go.
+        let stack_root = self.stack.len();
+        self.stack.extend_from_slice(&elements);
+        let obj = self.alloc_object(Object {
             kind: ObjectKind::Array { elements },
             storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.array_prototype,
             extensible: true,
-        })
+        });
+        self.stack.truncate(stack_root);
+        obj
     }
 
     /// Allocate a `StringWrapper` with `length` stored as a non-writable data
@@ -773,6 +830,7 @@ impl Vm {
             rejected: strings.intern("rejected"),
             reason: strings.intern("reason"),
             errors: strings.intern("errors"),
+            aggregate_error: strings.intern("AggregateError"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).
@@ -854,6 +912,8 @@ impl Vm {
                 microtask_queue: VecDeque::new(),
                 microtask_drain_depth: 0,
                 pending_rejections: Vec::new(),
+                error_prototype: None,
+                aggregate_error_prototype: None,
                 generator_prototype: None,
                 generator_yielded: None,
                 current_microtask: None,
@@ -870,153 +930,9 @@ impl Vm {
         vm
     }
 
-    // -- Public API: all delegate to VmInner --------------------------------
-
-    /// Parse, compile, and execute JavaScript source code.
-    pub fn eval(&mut self, source: &str) -> Result<JsValue, VmError> {
-        self.inner.eval(source)
-    }
-
-    /// Load and execute a compiled script.
-    pub fn run_script(
-        &mut self,
-        script: crate::bytecode::compiled::CompiledScript,
-    ) -> Result<JsValue, VmError> {
-        self.inner.run_script(script)
-    }
-
-    /// Call a JS function object with the given `this` and arguments.
-    pub fn call(
-        &mut self,
-        func_obj_id: ObjectId,
-        this: JsValue,
-        args: &[JsValue],
-    ) -> Result<JsValue, VmError> {
-        self.inner.call(func_obj_id, this, args)
-    }
-
-    /// Intern a string, returning its `StringId`.
-    #[inline]
-    pub fn intern(&mut self, s: &str) -> StringId {
-        self.inner.strings.intern(s)
-    }
-
-    /// Look up an interned string by its ID, returning WTF-16 code units.
-    #[inline]
-    pub fn get_string_u16(&self, id: StringId) -> &[u16] {
-        self.inner.strings.get(id)
-    }
-
-    /// Look up an interned string by its ID, returning a UTF-8 `String`.
-    #[inline]
-    pub fn get_string(&self, id: StringId) -> String {
-        self.inner.strings.get_utf8(id)
-    }
-
-    /// Allocate an object, returning its `ObjectId`.
-    pub fn alloc_object(&mut self, obj: Object) -> ObjectId {
-        self.inner.alloc_object(obj)
-    }
-
-    /// Get a reference to an object.
-    #[inline]
-    pub fn get_object(&self, id: ObjectId) -> &Object {
-        self.inner.get_object(id)
-    }
-
-    /// Get a mutable reference to an object.
-    #[inline]
-    pub fn get_object_mut(&mut self, id: ObjectId) -> &mut Object {
-        self.inner.get_object_mut(id)
-    }
-
-    /// Register a compiled function in the VM, returning its `FuncId`.
-    pub fn register_function(&mut self, func: CompiledFunction) -> FuncId {
-        self.inner.register_function(func)
-    }
-
-    /// Get a reference to a compiled function.
-    #[inline]
-    pub fn get_compiled(&self, id: FuncId) -> &CompiledFunction {
-        self.inner.get_compiled(id)
-    }
-
-    /// Allocate an upvalue, returning its `UpvalueId`.
-    pub fn alloc_upvalue(&mut self, uv: value::Upvalue) -> UpvalueId {
-        self.inner.alloc_upvalue(uv)
-    }
-
-    /// Install a `HostData` instance for browser shell integration.
-    /// Call once, typically at `ElidexJsEngine` construction.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a `HostData` is already installed, to prevent accidentally
-    /// dropping caches (listener_store, wrapper_cache) from a prior bind.
-    pub fn install_host_data(&mut self, hd: host_data::HostData) {
-        assert!(
-            self.inner.host_data.is_none(),
-            "HostData already installed; use host_data() to access or a fresh Vm to reinstall"
-        );
-        self.inner.host_data = Some(Box::new(hd));
-    }
-
-    /// Access the host data (if installed).
-    pub fn host_data(&mut self) -> Option<&mut host_data::HostData> {
-        self.inner.host_data.as_deref_mut()
-    }
-
-    /// Bind host pointers for a JS execution call.  No-op if `HostData` is absent.
-    ///
-    /// # Safety
-    ///
-    /// See [`host_data::HostData::bind`]: pointers must remain valid (and not
-    /// be aliased via any Rust reference) until `unbind()` is called.
-    #[cfg(feature = "engine")]
-    #[allow(unsafe_code)]
-    pub unsafe fn bind(
-        &mut self,
-        session: *mut elidex_script_session::SessionCore,
-        dom: *mut elidex_ecs::EcsDom,
-        document: elidex_ecs::Entity,
-    ) {
-        if let Some(hd) = self.inner.host_data.as_deref_mut() {
-            unsafe { hd.bind(session, dom, document) };
-        }
-    }
-
-    /// Clear host pointers after JS execution.  No-op if unbound.
-    pub fn unbind(&mut self) {
-        if let Some(hd) = self.inner.host_data.as_deref_mut() {
-            hd.unbind();
-        }
-    }
-
-    /// Install a new global variable.
-    ///
-    /// Reusing a name is normally a bug — shell host globals and JS-visible
-    /// built-ins must not collide — so this convenience method ignores any
-    /// previous value.  Use [`Vm::set_global_checked`] if the caller needs
-    /// to detect replacement explicitly.
-    pub fn set_global(&mut self, name: &str, value: JsValue) {
-        let _ = self.set_global_checked(name, value);
-    }
-
-    /// Install a new global variable and return the previous value, if any.
-    pub fn set_global_checked(&mut self, name: &str, value: JsValue) -> Option<JsValue> {
-        let id = self.inner.strings.intern(name);
-        self.inner.globals.insert(id, value)
-    }
-
-    /// Get a global variable.
-    pub fn get_global(&self, name: &str) -> Option<JsValue> {
-        let sid = self.inner.strings.lookup(name)?;
-        self.inner.globals.get(&sid).copied()
-    }
-}
-
-impl Default for Vm {
-    fn default() -> Self {
-        Self::new()
-    }
+    // -- Public API --
+    //
+    // The thin wrapper methods that delegate into `VmInner` live in
+    // `vm_api.rs` — split out to keep this file under the 1000-line
+    // convention.
 }

@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 13],
+    proto_roots: [Option<ObjectId>; 15],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -168,6 +168,17 @@ fn mark_roots(
         if let Some(gen_id) = frame.generator {
             mark_object(gen_id, obj_marks, work);
         }
+        // Pending abrupt completion value (Return/Throw) — held across a
+        // finally body execution, only alive for that window but an
+        // independent root during it.
+        match frame.pending_completion.as_deref() {
+            Some(
+                super::value::FrameCompletion::Return(v) | super::value::FrameCompletion::Throw(v),
+            ) => {
+                mark_value(*v, obj_marks, work);
+            }
+            Some(super::value::FrameCompletion::Normal(_)) | None => {}
+        }
     }
 
     // (c) Global variables
@@ -204,7 +215,9 @@ fn mark_roots(
             if let Some(h) = handler {
                 mark_object(*h, obj_marks, work);
             }
-            mark_object(*capability, obj_marks, work);
+            if let Some(cap) = capability {
+                mark_object(*cap, obj_marks, work);
+            }
             mark_value(*resolution, obj_marks, work);
         }
         Microtask::Callback { func } => {
@@ -307,13 +320,17 @@ fn trace_work_list(
                     if let Some(h) = reaction.handler {
                         mark_object(h, obj_marks, work);
                     }
-                    mark_object(reaction.capability, obj_marks, work);
+                    if let Some(cap) = reaction.capability {
+                        mark_object(cap, obj_marks, work);
+                    }
                 }
                 for reaction in &state.reject_reactions {
                     if let Some(h) = reaction.handler {
                         mark_object(h, obj_marks, work);
                     }
-                    mark_object(reaction.capability, obj_marks, work);
+                    if let Some(cap) = reaction.capability {
+                        mark_object(cap, obj_marks, work);
+                    }
                 }
             }
             ObjectKind::PromiseResolver { promise, .. } => {
@@ -368,6 +385,15 @@ fn trace_work_list(
                         mark_object(id, obj_marks, work);
                     }
                     mark_value(susp.frame.saved_completion, obj_marks, work);
+                    match susp.frame.pending_completion.as_deref() {
+                        Some(
+                            super::value::FrameCompletion::Return(v)
+                            | super::value::FrameCompletion::Throw(v),
+                        ) => {
+                            mark_value(*v, obj_marks, work);
+                        }
+                        Some(super::value::FrameCompletion::Normal(_)) | None => {}
+                    }
                     for &v in &susp.stack_slice {
                         mark_value(v, obj_marks, work);
                     }
@@ -509,6 +535,8 @@ impl VmInner {
                 self.string_iterator_prototype,
                 self.promise_prototype,
                 self.generator_prototype,
+                self.error_prototype,
+                self.aggregate_error_prototype,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
