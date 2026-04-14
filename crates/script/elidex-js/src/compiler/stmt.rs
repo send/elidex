@@ -116,18 +116,41 @@ pub fn compile_stmt(
             fc.emit_u16(Op::SetLocal, iter_slot);
             fc.emit(Op::Pop);
 
+            // §7.4.6 + §13.7.5.13: a throw from `IteratorNext` itself
+            // (i.e. the iterator's own `.next()` threw) does NOT trigger
+            // IteratorClose — the iterator is already considered closed.
+            // Only abrupt completions *after* a successful step (e.g.
+            // throw from the loop body) close the iterator.  Gate the
+            // catch handler's IteratorClose on `close_flag`, set true
+            // after each successful IteratorNext and reset to false
+            // before the next step.
+            let close_flag_slot = func_scopes[fc.func_scope_idx].next_local;
+            func_scopes[fc.func_scope_idx].next_local += 1;
+            fc.emit(Op::PushFalse);
+            fc.emit_u16(Op::SetLocal, close_flag_slot);
+            fc.emit(Op::Pop);
+
             // Wrap the loop body in an implicit exception handler so that
-            // an uncaught throw from the body closes the iterator (ES2020
-            // §13.7.5.13 ForIn/OfBodyEvaluation — IteratorClose on abrupt).
+            // an uncaught throw from the body closes the iterator.
             let handler_pos = fc.pc();
             fc.emit_u16_u16(Op::PushExceptionHandler, 0, 0);
             let handler_patch_pos = handler_pos + 1; // offset of catch u16
 
             let loop_start = fc.pc();
             fc.push_for_of_loop(loop_start, iter_slot);
+            // Reset close_flag = false before IteratorNext so a throw
+            // from .next() itself skips the catch handler's close.
+            fc.emit(Op::PushFalse);
+            fc.emit_u16(Op::SetLocal, close_flag_slot);
+            fc.emit(Op::Pop);
             fc.emit(Op::IteratorNext); // [iterator value done]
             let exit_patch = fc.emit_jump(Op::JumpIfTrue); // if done, exit
-                                                           // Bind `left` to value (value is on stack).
+                                                           // IteratorNext succeeded → arm close_flag for any
+                                                           // subsequent abrupt (e.g. body throw).
+            fc.emit(Op::PushTrue);
+            fc.emit_u16(Op::SetLocal, close_flag_slot);
+            fc.emit(Op::Pop);
+            // Bind `left` to value (value is on stack).
             compile_forin_left_binding(fc, prog, analysis, func_scopes, left)?;
             compile_stmt(fc, prog, analysis, func_scopes, *body)?;
             // Patch continue jumps to loop_start.
@@ -139,14 +162,18 @@ pub fn compile_stmt(
             fc.emit(Op::Pop); // normal exhaustion: discard iterator without calling .return()
             let end_patch = fc.emit_jump(Op::Jump); // jump over catch handler
 
-            // Catch handler: close iterator, then re-throw the original exception.
-            // NOTE: If IteratorClose (.return()) itself throws, that new error
-            // correctly takes precedence over the original abrupt completion
-            // per ECMA-262 §7.4.6 IteratorClose. The opcode order here already
-            // matches: a throw from Op::IteratorClose skips the re-throw below.
+            // Catch handler: gate IteratorClose on close_flag, then
+            // re-throw the original exception.  If IteratorClose
+            // itself throws, that new error correctly takes
+            // precedence over the original abrupt completion per
+            // §7.4.6 (a throw from Op::IteratorClose skips the
+            // re-throw below).
             let catch_ip = fc.pc();
+            fc.emit_u16(Op::GetLocal, close_flag_slot);
+            let skip_close = fc.emit_jump(Op::JumpIfFalse);
             fc.emit_u16(Op::GetLocal, iter_slot);
             fc.emit(Op::IteratorClose);
+            fc.patch_jump(skip_close);
             fc.emit(Op::PushException);
             fc.emit(Op::Throw);
 
@@ -375,14 +402,16 @@ pub fn compile_stmt(
 
         StmtKind::Throw(expr_id) => {
             compile_expr(fc, prog, analysis, func_scopes, *expr_id)?;
-            // NOTE: DO NOT pre-emit pending finally bodies here.  Unlike
-            // `return`/`break`/`continue`, a `throw` routes through the
-            // runtime's exception-handler mechanism, which naturally
-            // transfers control to the nearest catch (which falls through
-            // to finally) or to the rethrow-stub (which runs finally +
-            // re-throws).  Pre-emitting inline would cause finally to run
-            // twice when caught locally.
-            emit_iter_close_range(fc, 0, fc.loop_stack.len());
+            // NOTE: DO NOT pre-emit pending finally bodies OR iterator
+            // closes here.  Unlike `return`/`break`/`continue`, a `throw`
+            // routes through the runtime's exception-handler mechanism,
+            // which naturally transfers control to the nearest catch
+            // (which falls through to finally) or to a for-of body's
+            // catch handler (which performs the IteratorClose).
+            // Pre-emitting either inline would cause it to run twice
+            // when caught locally — for finally bodies (per the bug fix
+            // in PR2 commit 9), and for iterators (the for-of catch
+            // handler also closes via close_flag).
             fc.emit(Op::Throw);
         }
 

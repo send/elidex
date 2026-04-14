@@ -46,10 +46,13 @@ pub(super) fn compile_yield_star(
     compile_expr(fc, prog, analysis, func_scopes, arg_id)?;
     fc.emit(Op::GetIterator);
 
-    // Temp locals: iter + received (resume value passed to iter.next).
+    // Temp locals: iter + received (resume value passed to iter.next)
+    // + close_flag (gate for IteratorClose on throw — see below).
     let iter_slot = func_scopes[fc.func_scope_idx].next_local;
     func_scopes[fc.func_scope_idx].next_local += 1;
     let received_slot = func_scopes[fc.func_scope_idx].next_local;
+    func_scopes[fc.func_scope_idx].next_local += 1;
+    let close_flag_slot = func_scopes[fc.func_scope_idx].next_local;
     func_scopes[fc.func_scope_idx].next_local += 1;
 
     fc.emit_u16(Op::SetLocal, iter_slot);
@@ -60,10 +63,23 @@ pub(super) fn compile_yield_star(
     fc.emit_u16(Op::SetLocal, received_slot);
     fc.emit(Op::Pop);
 
-    // Exception handler: catch_ip = throw-forwarding stub that
-    //                    IteratorCloses + rethrows; finally_ip = finally
-    //                    stub that IteratorCloses + EndFinallys so outer
-    //                    `.return(v)` can propagate through.
+    // close_flag = false initially.  §7.4.6 + §14.4.14: a throw from
+    // `iter.next()` itself does NOT trigger IteratorClose (the iterator
+    // is already considered closed); only abrupt completions *after* a
+    // successful step (e.g. an outer `.throw()` injected at the yield)
+    // close it.  We gate the throw_handler's `IteratorClose` on this
+    // flag, set to true after each successful `.next()`, reset to false
+    // before the next call.
+    fc.emit(Op::PushFalse);
+    fc.emit_u16(Op::SetLocal, close_flag_slot);
+    fc.emit(Op::Pop);
+
+    // Exception handler: catch_ip = throw-forwarding stub that gates
+    //                    IteratorClose on close_flag; finally_ip =
+    //                    finally stub that always IteratorCloses (the
+    //                    `.return(v)` injection only fires after at
+    //                    least one step has happened, so the close is
+    //                    appropriate there).
     let handler_patch_pos = fc.pc() + 1; // skip opcode byte
     fc.emit_u16_u16(Op::PushExceptionHandler, 0, 0);
 
@@ -73,6 +89,12 @@ pub(super) fn compile_yield_star(
     let value_name = fc.add_name("value");
 
     let loop_start = fc.pc();
+    // Reset close_flag = false right before iter.next; if iter.next
+    // throws, throw_handler sees false and skips IteratorClose.
+    fc.emit(Op::PushFalse);
+    fc.emit_u16(Op::SetLocal, close_flag_slot);
+    fc.emit(Op::Pop);
+
     // Call iter.next(received).
     //   [iter iter.next received] → CallMethod(1) → [result]
     fc.emit_u16(Op::GetLocal, iter_slot);
@@ -82,6 +104,13 @@ pub(super) fn compile_yield_star(
     fc.emit_u16(Op::GetLocal, received_slot);
     let call_ic = fc.alloc_call_ic_slot();
     fc.emit_u8_u16(Op::CallMethod, 1, call_ic);
+
+    // iter.next succeeded → set close_flag = true.  Subsequent throws
+    // (e.g. from `Yield` resumed via outer `.throw()`) will route to
+    // throw_handler with close_flag=true → IteratorClose runs.
+    fc.emit(Op::PushTrue);
+    fc.emit_u16(Op::SetLocal, close_flag_slot);
+    fc.emit(Op::Pop);
 
     // Check result.done.  If true, exit; result stays on stack for
     // result.value retrieval as the expression result.
@@ -105,13 +134,17 @@ pub(super) fn compile_yield_star(
     fc.emit(Op::PopExceptionHandler);
     let end_jump = fc.emit_jump(Op::Jump);
 
-    // ── Throw handler: close inner, then rethrow ──────────────────────
-    // Entered via handle_exception when an outer `.throw(e)` or any
-    // uncaught throw from iter.next reaches this frame.
+    // ── Throw handler: gate IteratorClose on close_flag, then rethrow ──
+    // close_flag distinguishes "throw from iter.next" (skip close) from
+    // "throw after a successful iter.next" (e.g. outer `.throw()` at
+    // the yield → close).  Spec §14.4.14 step 8.a.ii / §7.4.6.
     let throw_handler = fc.pc();
     fc.emit(Op::PushException);
+    fc.emit_u16(Op::GetLocal, close_flag_slot);
+    let skip_close = fc.emit_jump(Op::JumpIfFalse);
     fc.emit_u16(Op::GetLocal, iter_slot);
     fc.emit(Op::IteratorClose);
+    fc.patch_jump(skip_close);
     fc.emit(Op::Throw);
 
     // ── Finally stub: close inner, then propagate pending completion ──

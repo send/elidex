@@ -3,9 +3,7 @@
 //! - `Op::Yield`-based generators (value yielding, received-value
 //!   forwarding via `.next(arg)`, return, iterator protocol).
 //! - `.return(v)` / `.throw(e)` with `finally` forwarding (PR2.5).
-//!
-//! Out of scope (future milestones):
-//! - `Op::YieldDelegate` (`yield*` via bytecode expansion — PR2.5 1.2)
+//! - `yield*` (delegating yield) via bytecode expansion (PR2.5).
 
 use super::{eval_bool, eval_global_number, eval_global_string, eval_number, eval_string};
 
@@ -673,6 +671,100 @@ fn array_iterator_result_inherits_object_prototype() {
          var r = it.next(); \
          typeof r.toString === 'function';"
     ));
+}
+
+// ─── IteratorClose gating on iter.next throw (§7.4.6 / §14.4.14) ─────────
+
+#[test]
+fn yield_star_does_not_close_when_inner_next_throws() {
+    // Spec §14.4.14 step 8.a.ii / §7.4.6: when the delegated iterator's
+    // own `.next()` throws, the iterator is considered "already closed"
+    // — IteratorClose (`.return()`) must NOT fire.  Only abrupt
+    // completions *after* a successful step (e.g. an outer `.throw()`
+    // injected at the yield) should close.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             var iter = { \
+               next() { throw 'boom'; }, \
+               return() { globalThis.log += 'closed-WRONG;'; return { done: true }; }, \
+               [Symbol.iterator]() { return this; }, \
+             }; \
+             function* g() { yield* iter; } \
+             try { g().next(); } catch(e) { globalThis.log += 'caught:' + e; } \
+             globalThis.out = globalThis.log;",
+            "out"
+        ),
+        "caught:boom"
+    );
+}
+
+#[test]
+fn for_of_does_not_close_when_inner_next_throws() {
+    // Same §7.4.6 invariant for plain `for-of` loops (compiled in
+    // stmt.rs).  IteratorNext throw → iterator is already closed,
+    // skip IteratorClose; only body-side throws close.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             var iter = { \
+               next() { throw 'boom'; }, \
+               return() { globalThis.log += 'closed-WRONG;'; return { done: true }; }, \
+               [Symbol.iterator]() { return this; }, \
+             }; \
+             try { for (var v of iter) { globalThis.log += 'body;'; } } \
+             catch(e) { globalThis.log += 'caught:' + e; } \
+             globalThis.out = globalThis.log;",
+            "out"
+        ),
+        "caught:boom"
+    );
+}
+
+#[test]
+fn for_of_body_throw_closes_iterator_exactly_once() {
+    // Regression: `Throw` stmt previously emitted `emit_iter_close_range`
+    // INLINE before `Op::Throw`, AND for-of's catch handler also closed
+    // (with the new close_flag fix, gated on a successful step).  That
+    // double-close fired `.return()` twice on a body throw.  Removing
+    // the inline emission (since handle_exception routes through the
+    // for-of catch which already closes) leaves exactly one close.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = []; \
+             var iter = { \
+               next() { return { value: 1, done: false }; }, \
+               return() { globalThis.log.push('R'); return { done: true }; }, \
+               [Symbol.iterator]() { return this; }, \
+             }; \
+             try { for (var v of iter) { globalThis.log.push('B'); throw 'x'; } } \
+             catch(e) {} \
+             globalThis.out = globalThis.log.join(',');",
+            "out"
+        ),
+        "B,R"
+    );
+}
+
+#[test]
+fn for_of_does_close_when_body_throws() {
+    // Sanity: body throws → iterator IS closed (the `close_flag` was
+    // set true by the successful IteratorNext).
+    assert_eq!(
+        eval_global_string(
+            "globalThis.log = ''; \
+             var iter = { \
+               next() { return { value: 1, done: false }; }, \
+               return() { globalThis.log += 'closed;'; return { done: true }; }, \
+               [Symbol.iterator]() { return this; }, \
+             }; \
+             try { for (var v of iter) { throw 'boom'; } } \
+             catch(e) { globalThis.log += 'caught:' + e; } \
+             globalThis.out = globalThis.log;",
+            "out"
+        ),
+        "closed;caught:boom"
+    );
 }
 
 // ─── Sanity: yield outside a generator is a syntax error (compiler) ───────
