@@ -360,6 +360,11 @@ fn trace_work_list(
             ObjectKind::AsyncDriverStep { gen, .. } => {
                 mark_object(*gen, obj_marks, work);
             }
+            ObjectKind::Event { composed_path, .. } => {
+                if let Some(id) = *composed_path {
+                    mark_object(id, obj_marks, work);
+                }
+            }
             ObjectKind::Generator(state) => {
                 if let Some(wrapper) = state.wrapper {
                     mark_object(wrapper, obj_marks, work);

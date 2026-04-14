@@ -29,6 +29,7 @@ mod natives_array;
 mod natives_array_hof;
 mod natives_bigint;
 mod natives_boolean;
+mod natives_event;
 mod natives_function;
 mod natives_generator;
 mod natives_json;
