@@ -12,4 +12,5 @@
 //!   `addEventListener` / `removeEventListener` / `dispatchEvent`
 //!   inherited by every DOM wrapper.
 
+pub(super) mod elements;
 pub(super) mod event_target;
