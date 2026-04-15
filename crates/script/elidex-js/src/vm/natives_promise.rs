@@ -438,10 +438,20 @@ fn dispatch_unhandled_rejection_event(
     // sees prior `preventDefault` / `stopPropagation` calls.  Never
     // enters the session event queue or 3-phase dispatch; the loop
     // honours `stopImmediatePropagation` directly.
+    //
+    // Initialise `phase` / `current_target` / `dispatch_flag` /
+    // `composed_path` to spec-consistent at-target state so JS
+    // observers see `e.eventPhase === 2` (AT_TARGET), `e.currentTarget`
+    // === document, and `e.composedPath() === [document]` — same as
+    // they would for a regular dispatch through `script_dispatch_event_core`.
     let mut event = elidex_script_session::DispatchEvent::new("unhandledrejection", document);
     event.bubbles = false;
     event.cancelable = true;
     event.composed = false;
+    event.phase = elidex_plugin::EventPhase::AtTarget;
+    event.current_target = Some(document);
+    event.dispatch_flag = true;
+    event.composed_path = vec![document];
 
     let doc_wrapper = vm.create_element_wrapper(document);
     let promise_key = vm.well_known.promise;

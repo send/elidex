@@ -349,6 +349,50 @@ fn pending_rejections_drained_after_dispatch() {
 }
 
 #[test]
+fn rejection_event_phase_is_at_target_and_current_target_is_document() {
+    // Regression: `dispatch_unhandled_rejection_event` used to leave
+    // the synthetic DispatchEvent's `phase` at `EventPhase::None` and
+    // `current_target` at `None`.  JS observers saw `e.eventPhase ===
+    // 0` even though the event was being dispatched at the document
+    // target — diverging from regular dispatch (which threads
+    // AT_TARGET via `script_dispatch_event_core`).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    bound_vm(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.observed_phase = -1;
+         globalThis.current_is_document = false;
+         document.addEventListener('unhandledrejection', function (e) {
+             globalThis.observed_phase = e.eventPhase;
+             globalThis.current_is_document = (e.currentTarget === document);
+         });
+         (function () { Promise.reject('phase-test'); })();",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.get_global("observed_phase").unwrap(),
+        JsValue::Number(2.0),
+        "PromiseRejectionEvent.eventPhase must be AT_TARGET (2), \
+         not NONE (0) — synthetic event needs spec-consistent phase"
+    );
+    assert_eq!(
+        vm.get_global("current_is_document").unwrap(),
+        JsValue::Boolean(true),
+        "PromiseRejectionEvent.currentTarget must equal document"
+    );
+
+    // composedPath() population from DispatchEvent.composed_path
+    // is not yet wired in create_event_object (lazily returns []);
+    // the DispatchEvent's composed_path = [document] is set for
+    // forward compatibility when the wiring lands.
+
+    vm.unbind();
+}
+
+#[test]
 fn no_listener_silently_falls_back_no_panic() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

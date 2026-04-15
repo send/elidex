@@ -147,18 +147,26 @@ pub(super) fn native_event_target_add_event_listener(
     }
 
     // Register in the ECS component (creating the component if absent).
-    let host = ctx.host();
-    let dom = host.dom();
-    let listener_id = {
+    // `insert_one` can fail if the entity has been despawned between
+    // `entity_from_this`'s extraction and now (e.g. a concurrent DOM
+    // mutation observer removed it).  In that case, skip the
+    // listener_store insert entirely — storing it would create an
+    // orphan entry that ECS could never reach for dispatch and that
+    // would hold the JS function ObjectId rooted via gc until the
+    // VM dies.
+    let listener_id: Option<elidex_script_session::ListenerId> = {
+        let dom = ctx.host().dom();
         if dom
             .world()
             .get::<&elidex_script_session::EventListeners>(entity)
             .is_ok()
         {
-            dom.world_mut()
-                .get::<&mut elidex_script_session::EventListeners>(entity)
-                .expect("just-checked component must exist")
-                .add_with_options(event_type, options.capture, options.once, options.passive)
+            Some(
+                dom.world_mut()
+                    .get::<&mut elidex_script_session::EventListeners>(entity)
+                    .expect("just-checked component must exist")
+                    .add_with_options(event_type, options.capture, options.once, options.passive),
+            )
         } else {
             let mut listeners = elidex_script_session::EventListeners::new();
             let id = listeners.add_with_options(
@@ -167,12 +175,16 @@ pub(super) fn native_event_target_add_event_listener(
                 options.once,
                 options.passive,
             );
-            // `insert_one` returns Err only on already-despawned
-            // entities, which would also have failed the world.get()
-            // probe above — silently ignore the result.
-            let _ = dom.world_mut().insert_one(entity, listeners);
-            id
+            if dom.world_mut().insert_one(entity, listeners).is_ok() {
+                Some(id)
+            } else {
+                None
+            }
         }
+    };
+
+    let Some(listener_id) = listener_id else {
+        return Ok(JsValue::Undefined);
     };
 
     // Stash the JS function ObjectId so dispatch can look it up.
