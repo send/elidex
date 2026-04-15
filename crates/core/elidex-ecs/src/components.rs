@@ -325,10 +325,22 @@ pub enum NodeKind {
     DocumentType,
     /// Document fragment node (nodeType = 11).
     DocumentFragment,
+    /// Window object (WHATWG HTML §7.2).
+    ///
+    /// Not a Node per WHATWG DOM — has no `nodeType` — but tracked as a
+    /// `NodeKind` so that the scripting layer can distinguish the global
+    /// `window` entity from DOM tree entities with a uniform component query.
+    /// Window entities carry only this component (no `TreeRelation`,
+    /// `Attributes`, etc.) and never participate in tree traversal.
+    Window,
 }
 
 impl NodeKind {
     /// Returns the WHATWG `Node.nodeType` numeric value.
+    ///
+    /// Returns `0` for [`NodeKind::Window`], which has no `nodeType`
+    /// (Window is not a Node per WHATWG). `from_node_type(0)` is therefore
+    /// `None`, i.e. Window is deliberately excluded from the round-trip.
     #[must_use]
     pub fn node_type(self) -> u32 {
         match self {
@@ -341,6 +353,7 @@ impl NodeKind {
             Self::Document => 9,
             Self::DocumentType => 10,
             Self::DocumentFragment => 11,
+            Self::Window => 0,
         }
     }
 

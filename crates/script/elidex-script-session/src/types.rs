@@ -55,6 +55,8 @@ pub enum ComponentKind {
     DocumentType,
     /// A document fragment node.
     DocumentFragment,
+    /// The Window object (WHATWG HTML §7.2). Not a Node — no `nodeType`.
+    Window,
 
     // --- Sub-object types (not node kinds) ---
     /// The element's computed/inline style object.
@@ -81,6 +83,7 @@ impl ComponentKind {
             NodeKind::Document => Self::Document,
             NodeKind::DocumentType => Self::DocumentType,
             NodeKind::DocumentFragment => Self::DocumentFragment,
+            NodeKind::Window => Self::Window,
         }
     }
 
@@ -97,7 +100,7 @@ impl ComponentKind {
             Self::Document => Some(9),
             Self::DocumentType => Some(10),
             Self::DocumentFragment => Some(11),
-            Self::Style | Self::ClassList | Self::ChildNodes | Self::Dataset => None,
+            Self::Style | Self::ClassList | Self::ChildNodes | Self::Dataset | Self::Window => None,
         }
     }
 }
