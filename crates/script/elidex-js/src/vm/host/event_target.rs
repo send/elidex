@@ -174,11 +174,23 @@ pub(super) fn native_event_target_add_event_listener(
     Ok(JsValue::Undefined)
 }
 
-/// Extract the ECS Entity from `this` if it is a `HostObject` wrapper.
-/// Returns `None` for any other receiver — addEventListener on a
-/// non-HostObject is a silent no-op.
+/// Extract the ECS Entity from `this` if it is a `HostObject` wrapper
+/// AND `HostData` is currently bound.  Returns `None` (silent no-op)
+/// for either failure mode, so callers can early-return without
+/// further conditionals.
+///
+/// The bound-check covers a real scenario: JS code retains a
+/// `HostObject` wrapper (e.g. saves `document` to a global, then
+/// `Vm::unbind()` runs at end of the tick) and later invokes a
+/// method on it across the unbind boundary.  Without the check,
+/// the subsequent `host.dom()` call would panic on null pointers.
+/// Treating it as a no-op matches browser behaviour for unattached
+/// document references.
 #[cfg(feature = "engine")]
 fn entity_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option<elidex_ecs::Entity> {
+    if !ctx.vm.host_data.as_deref().is_some_and(|h| h.is_bound()) {
+        return None;
+    }
     let JsValue::Object(id) = this else {
         return None;
     };
@@ -253,6 +265,11 @@ fn parse_listener_options(
 /// picked the first (type, capture) entry and bailed if its callback
 /// didn't match, missing later matching entries when an element had
 /// multiple listeners of the same type+capture.
+///
+/// **Precondition**: caller must have verified `HostData` is bound
+/// (typically by passing `entity` from a successful
+/// [`entity_from_this`] call).  This helper calls `ctx.host().dom()`
+/// directly, which would panic on a null dom pointer.
 #[cfg(feature = "engine")]
 fn find_listener_id(
     ctx: &mut NativeContext<'_>,

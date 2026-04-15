@@ -34,10 +34,19 @@ impl VmInner {
     ///
     /// # Panics
     ///
-    /// Panics if `HostData` is not bound (no session/dom to cache
-    /// against) or if `event_target_prototype` has not been initialised
-    /// (`register_globals` not yet run — should be impossible after
-    /// `Vm::new`).
+    /// Panics if `HostData` has not been *installed* via
+    /// `Vm::install_host_data` (the cache lives on `HostData` so
+    /// nowhere to cache the result), or if `event_target_prototype`
+    /// has not been initialised (`register_globals` not yet run —
+    /// should be impossible after `Vm::new` returns).
+    ///
+    /// Bind state is **irrelevant** here: the wrapper cache is a
+    /// HashMap on `HostData`, not a session/dom dereference, so this
+    /// function works after `Vm::unbind()` too — useful for code
+    /// paths that build wrappers as part of pre-eval setup.  Calling
+    /// methods on the returned wrapper that touch `dom()` does still
+    /// require a bound HostData; see the per-native checks in
+    /// `vm/host/event_target.rs`.
     ///
     /// # GC safety
     ///
@@ -60,17 +69,20 @@ impl VmInner {
             return existing;
         }
 
-        let proto = self.event_target_prototype;
-        debug_assert!(
-            proto.is_some(),
-            "create_element_wrapper called before register_event_target_prototype"
-        );
+        // `event_target_prototype` is set by `register_globals` during
+        // `Vm::new` — it should never be None here.  Use `expect` so a
+        // future refactor that reorders init fails loudly in release
+        // too, instead of silently creating a wrapper without
+        // EventTarget.prototype (breaking method lookup via the chain).
+        let proto = self
+            .event_target_prototype
+            .expect("create_element_wrapper called before register_event_target_prototype");
         let obj = self.alloc_object(Object {
             kind: ObjectKind::HostObject {
                 entity_bits: entity.to_bits().get(),
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: proto,
+            prototype: Some(proto),
             extensible: true,
         });
 
@@ -79,7 +91,7 @@ impl VmInner {
         // rooted via `HostData::gc_root_object_ids`).
         self.host_data
             .as_deref_mut()
-            .expect("create_element_wrapper requires bound HostData")
+            .expect("create_element_wrapper requires installed HostData")
             .cache_wrapper(entity, obj);
         obj
     }

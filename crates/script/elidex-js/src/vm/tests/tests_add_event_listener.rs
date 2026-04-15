@@ -259,6 +259,60 @@ fn calls_on_non_host_object_silently_no_op() {
 }
 
 #[test]
+fn calls_after_unbind_are_silent_no_op() {
+    // Regression: JS retains a `HostObject` wrapper across
+    // `Vm::unbind()` (e.g. via `globalThis.savedDoc = document`)
+    // and later invokes `addEventListener` on it.  The native used
+    // to panic in `host.dom()` because the bound dom pointer is
+    // null after unbind.  `entity_from_this` now early-returns None
+    // when HostData is unbound, so the native silently no-ops.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+
+    // First eval: stash document into a global, then unbind.
+    vm.eval("globalThis.savedDoc = document;").unwrap();
+    vm.unbind();
+
+    // Re-bind for a fresh eval cycle, but keep the saved document
+    // reference around.  Calling addEventListener through a
+    // wrapper that was created in a prior bind cycle should still
+    // work (entity is the same; bound state is restored).
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+    }
+    let result = vm.eval("savedDoc.addEventListener('click', function () {});");
+    assert!(
+        result.is_ok(),
+        "addEventListener on a wrapper retained across unbind/bind must succeed: {result:?}"
+    );
+
+    // Now actually unbind and try again — must silently no-op,
+    // not panic.  Have to use an unsafe construction since the
+    // public API doesn't expose a "unbound eval" path; reach in
+    // and clear the bound pointers directly via `unbind()`, then
+    // dispatch a native via the saved wrapper.  We can't `eval`
+    // unbound (eval doesn't auto-bind, but document global was
+    // installed by the most recent bind) — so we install a fresh
+    // unbound HostData, eval, and verify no panic.
+    vm.unbind();
+    // After unbind, the native invocation path:
+    //   savedDoc.addEventListener(...)
+    //   → method lookup via prototype → native fn
+    //   → entity_from_this: host_data still installed but
+    //     `is_bound()` returns false → None → silent no-op
+    let result = vm.eval("savedDoc.addEventListener('click', function () {});");
+    assert!(
+        result.is_ok(),
+        "addEventListener on a HostObject after Vm::unbind() must \
+         silently no-op (not panic), got {result:?}"
+    );
+}
+
+#[test]
 fn registered_listener_stored_in_listener_store() {
     // After addEventListener succeeds, HostData::listener_store must
     // contain the function ObjectId so dispatch can resolve it.
