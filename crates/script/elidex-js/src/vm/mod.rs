@@ -306,6 +306,53 @@ pub(crate) struct WellKnownStrings {
     pub(crate) document: StringId,
     pub(crate) unhandledrejection: StringId,
     pub(crate) promise: StringId,
+
+    // -- Event payload property keys (PR3.6) --
+    // Pre-interned so `create_event_object`'s payload installation
+    // can feed them directly into the precomputed-shape slot array
+    // without per-dispatch `strings.intern(name)` calls.  Also used
+    // by `PrecomputedEventShapes::build` to walk the shape-transition
+    // chain once at `register_globals` time.
+    //
+    // Shared keys (used by multiple payload variants) are defined
+    // once: `alt_key`, `ctrl_key`, `meta_key`, `shift_key`, `data`,
+    // `code`, `elapsed_time`, `pseudo_element`, `key`.
+    pub(crate) client_x: StringId,
+    pub(crate) client_y: StringId,
+    pub(crate) button: StringId,
+    pub(crate) buttons: StringId,
+    pub(crate) alt_key: StringId,
+    pub(crate) ctrl_key: StringId,
+    pub(crate) meta_key: StringId,
+    pub(crate) shift_key: StringId,
+    pub(crate) key: StringId,
+    pub(crate) code: StringId,
+    pub(crate) repeat: StringId,
+    pub(crate) property_name: StringId,
+    pub(crate) elapsed_time: StringId,
+    pub(crate) pseudo_element: StringId,
+    pub(crate) animation_name: StringId,
+    pub(crate) input_type: StringId,
+    pub(crate) data: StringId,
+    pub(crate) is_composing: StringId,
+    pub(crate) data_type: StringId,
+    pub(crate) related_target: StringId,
+    pub(crate) delta_x: StringId,
+    pub(crate) delta_y: StringId,
+    pub(crate) delta_mode: StringId,
+    pub(crate) origin: StringId,
+    pub(crate) last_event_id: StringId,
+    // `close_event_code` — CloseEvent's numeric code (WebSocket close
+    // frame code).  Distinct from the `code` key (KeyboardEvent).
+    // JS-visible name is `"code"`; the Rust field disambiguates.
+    pub(crate) close_event_code: StringId,
+    pub(crate) was_clean: StringId,
+    pub(crate) old_url: StringId,
+    pub(crate) new_url: StringId,
+    pub(crate) persisted: StringId,
+    pub(crate) old_value: StringId,
+    pub(crate) new_value: StringId,
+    pub(crate) url: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -1008,6 +1055,48 @@ impl Vm {
             document: strings.intern("document"),
             unhandledrejection: strings.intern("unhandledrejection"),
             promise: strings.intern("promise"),
+
+            // Event-payload property keys (PR3.6).  Interned once here
+            // so `create_event_object` can feed slots into
+            // `define_with_precomputed_shape` without re-interning.
+            client_x: strings.intern("clientX"),
+            client_y: strings.intern("clientY"),
+            button: strings.intern("button"),
+            buttons: strings.intern("buttons"),
+            alt_key: strings.intern("altKey"),
+            ctrl_key: strings.intern("ctrlKey"),
+            meta_key: strings.intern("metaKey"),
+            shift_key: strings.intern("shiftKey"),
+            key: strings.intern("key"),
+            code: strings.intern("code"),
+            repeat: strings.intern("repeat"),
+            property_name: strings.intern("propertyName"),
+            elapsed_time: strings.intern("elapsedTime"),
+            pseudo_element: strings.intern("pseudoElement"),
+            animation_name: strings.intern("animationName"),
+            input_type: strings.intern("inputType"),
+            data: strings.intern("data"),
+            is_composing: strings.intern("isComposing"),
+            data_type: strings.intern("dataType"),
+            related_target: strings.intern("relatedTarget"),
+            delta_x: strings.intern("deltaX"),
+            delta_y: strings.intern("deltaY"),
+            delta_mode: strings.intern("deltaMode"),
+            origin: strings.intern("origin"),
+            last_event_id: strings.intern("lastEventId"),
+            // CloseEvent's numeric code reuses the JS-visible name
+            // `"code"`, but we pre-intern it under a distinct Rust
+            // field name to avoid shadowing the `code` (Keyboard) key.
+            // The underlying StringId is equal because `intern` is
+            // canonical.
+            close_event_code: strings.intern("code"),
+            was_clean: strings.intern("wasClean"),
+            old_url: strings.intern("oldURL"),
+            new_url: strings.intern("newURL"),
+            persisted: strings.intern("persisted"),
+            old_value: strings.intern("oldValue"),
+            new_value: strings.intern("newValue"),
+            url: strings.intern("url"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).
