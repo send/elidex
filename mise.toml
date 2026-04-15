@@ -34,7 +34,8 @@ description = "Format code"
 run = "cargo fmt --all"
 
 [tasks.doc]
-description = "Build documentation"
+description = "Build documentation (same flags as CI — warnings are errors)"
+env = { RUSTDOCFLAGS = "-D warnings" }
 run = "cargo doc --workspace --no-deps"
 
 [tasks.deny]
@@ -43,7 +44,7 @@ run = "cargo deny check"
 
 [tasks.ci]
 description = "Run all CI checks locally"
-depends = ["check", "lint", "test-all", "deny"]
+depends = ["check", "lint", "test-all", "doc", "deny"]
 
 [tasks.bench]
 description = "Run all benchmarks"

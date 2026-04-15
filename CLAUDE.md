@@ -5,13 +5,13 @@ elidex is an experimental browser engine written in Rust.
 ## Common Commands
 
 ```sh
-mise run ci          # Run all CI checks locally (lint + test-all + deny)
+mise run ci          # Run all CI checks locally (check + lint + test-all + doc + deny)
 mise run test        # cargo nextest run --workspace (no doc-tests, fast)
 mise run test-all    # nextest + doc-tests (full)
 mise run test-doc    # doc-tests only
 mise run lint        # clippy + fmt check
+mise run doc         # cargo doc with RUSTDOCFLAGS=-D warnings (matches CI)
 mise run fmt         # cargo fmt --all
-cargo doc --workspace --no-deps  # Build docs
 mise run bench                   # Run all benchmarks (CSS, style, layout)
 ```
 
@@ -45,7 +45,7 @@ Detailed per-crate architecture documentation is in `docs/architecture/`:
 - **html5ever 非依存**: Layout は html5ever の暗黙的 DOM 構造修正に依存しない（自前 parser 置換予定）。anonymous table object generation 等は layout 側で実装する
 - **Git ワークフロー**: main 直接 push 禁止、必ず PR 経由。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 - **コミット前**: `cargo fmt --all` を実行
-- **Push 前**: `mise run ci` を実行（fmt + clippy + test + deny）
+- **Push 前**: `mise run ci` を実行（fmt + clippy + test + doc + deny）
 - **テストは変更クレートに絞る**: `cargo test -p <crate>`。`--workspace` は最終検証時のみ
 - **後方互換性は維持しない**: デッドコードや shim は残さず削除
 
