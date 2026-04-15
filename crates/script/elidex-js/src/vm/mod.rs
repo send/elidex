@@ -48,8 +48,13 @@ mod ops;
 mod ops_property;
 pub mod pools;
 pub(crate) mod shape;
+mod temp_root;
 pub mod value;
 mod vm_api;
+mod well_known;
+
+#[cfg(feature = "engine")]
+pub(crate) use temp_root::VmTempRoot;
 
 #[cfg(test)]
 mod tests;
@@ -57,12 +62,11 @@ mod tests;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use pools::{BigIntPool, StringPool};
-#[cfg(feature = "engine")]
-use value::same_value;
 use value::{
     CallFrame, FuncId, JsValue, NativeContext, NativeFunction, Object, ObjectId, ObjectKind,
     StringId, SymbolId, SymbolRecord, UpvalueId, VmError,
 };
+use well_known::{WellKnownStrings, WellKnownSymbols};
 
 use crate::bytecode::compiled::CompiledFunction;
 
@@ -242,139 +246,6 @@ pub(crate) struct VmInner {
     pub(crate) cancelled_timers: HashSet<u32>,
 }
 
-/// Frequently used interned string IDs, cached at VM creation.
-#[allow(dead_code)] // Fields used by interpreter and future built-ins.
-pub(crate) struct WellKnownStrings {
-    pub(crate) undefined: StringId,
-    pub(crate) null: StringId,
-    pub(crate) r#true: StringId,
-    pub(crate) r#false: StringId,
-    pub(crate) nan: StringId,
-    pub(crate) infinity: StringId,
-    pub(crate) neg_infinity: StringId,
-    pub(crate) zero: StringId,
-    pub(crate) empty: StringId,
-    pub(crate) prototype: StringId,
-    pub(crate) constructor: StringId,
-    pub(crate) length: StringId,
-    pub(crate) name: StringId,
-    pub(crate) message: StringId,
-    pub(crate) log: StringId,
-    pub(crate) error: StringId,
-    pub(crate) warn: StringId,
-    pub(crate) object_type: StringId,
-    pub(crate) boolean_type: StringId,
-    pub(crate) number_type: StringId,
-    pub(crate) string_type: StringId,
-    pub(crate) function_type: StringId,
-    pub(crate) symbol_type: StringId,
-    pub(crate) bigint_type: StringId,
-    pub(crate) object_to_string: StringId,
-    pub(crate) next: StringId,
-    pub(crate) value: StringId,
-    pub(crate) done: StringId,
-    pub(crate) return_str: StringId,
-    pub(crate) last_index: StringId,
-    pub(crate) index: StringId,
-    pub(crate) input: StringId,
-    pub(crate) join: StringId,
-    pub(crate) to_json: StringId,
-    pub(crate) get: StringId,
-    pub(crate) set: StringId,
-    pub(crate) enumerable: StringId,
-    pub(crate) configurable: StringId,
-    pub(crate) writable: StringId,
-    pub(crate) source: StringId,
-    pub(crate) flags: StringId,
-    pub(crate) status: StringId,
-    pub(crate) fulfilled: StringId,
-    pub(crate) rejected: StringId,
-    pub(crate) reason: StringId,
-    pub(crate) errors: StringId,
-    pub(crate) aggregate_error: StringId,
-
-    // -- Event-dispatch identifiers (PR3) --
-    // Property names installed on every event object — pre-interned
-    // here to avoid a HashMap lookup per name per dispatch.  Listener
-    // option keys (`capture`/`once`/`passive`) live here too since
-    // every `addEventListener` with options-object form reads them.
-    pub(crate) event_type: StringId,
-    pub(crate) bubbles: StringId,
-    pub(crate) cancelable: StringId,
-    pub(crate) event_phase: StringId,
-    pub(crate) target: StringId,
-    pub(crate) current_target: StringId,
-    pub(crate) time_stamp: StringId,
-    pub(crate) composed: StringId,
-    pub(crate) is_trusted: StringId,
-    pub(crate) default_prevented: StringId,
-    pub(crate) prevent_default: StringId,
-    pub(crate) stop_propagation: StringId,
-    pub(crate) stop_immediate_propagation: StringId,
-    pub(crate) composed_path: StringId,
-    pub(crate) capture: StringId,
-    pub(crate) once: StringId,
-    pub(crate) passive: StringId,
-    pub(crate) document: StringId,
-    pub(crate) unhandledrejection: StringId,
-    pub(crate) promise: StringId,
-
-    // -- Event payload property keys --
-    // Pre-interned so `create_event_object`'s payload installation
-    // can feed them directly into the precomputed-shape slot array
-    // without per-dispatch `strings.intern(name)` calls.  Also used
-    // by `VmInner::build_precomputed_event_shapes` to walk the
-    // shape-transition chain once at `register_globals` time.
-    //
-    // Shared keys (used by multiple payload variants) are defined
-    // once: `alt_key`, `ctrl_key`, `meta_key`, `shift_key`, `data`,
-    // `code`, `elapsed_time`, `pseudo_element`, `key`.
-    pub(crate) client_x: StringId,
-    pub(crate) client_y: StringId,
-    pub(crate) button: StringId,
-    pub(crate) buttons: StringId,
-    pub(crate) alt_key: StringId,
-    pub(crate) ctrl_key: StringId,
-    pub(crate) meta_key: StringId,
-    pub(crate) shift_key: StringId,
-    pub(crate) key: StringId,
-    pub(crate) code: StringId,
-    pub(crate) repeat: StringId,
-    pub(crate) property_name: StringId,
-    pub(crate) elapsed_time: StringId,
-    pub(crate) pseudo_element: StringId,
-    pub(crate) animation_name: StringId,
-    pub(crate) input_type: StringId,
-    pub(crate) data: StringId,
-    pub(crate) is_composing: StringId,
-    pub(crate) data_type: StringId,
-    pub(crate) related_target: StringId,
-    pub(crate) delta_x: StringId,
-    pub(crate) delta_y: StringId,
-    pub(crate) delta_mode: StringId,
-    pub(crate) origin: StringId,
-    pub(crate) last_event_id: StringId,
-    pub(crate) was_clean: StringId,
-    pub(crate) old_url: StringId,
-    pub(crate) new_url: StringId,
-    pub(crate) persisted: StringId,
-    pub(crate) old_value: StringId,
-    pub(crate) new_value: StringId,
-    pub(crate) url: StringId,
-}
-
-/// Well-known symbol IDs, allocated at VM creation.
-#[allow(dead_code)]
-pub(crate) struct WellKnownSymbols {
-    pub(crate) iterator: SymbolId,
-    pub(crate) async_iterator: SymbolId,
-    pub(crate) has_instance: SymbolId,
-    pub(crate) to_primitive: SymbolId,
-    pub(crate) to_string_tag: SymbolId,
-    pub(crate) species: SymbolId,
-    pub(crate) is_concat_spreadable: SymbolId,
-}
-
 impl VmInner {
     /// Allocate a new symbol, returning its `SymbolId`.
     pub(crate) fn alloc_symbol(&mut self, description: Option<StringId>) -> SymbolId {
@@ -549,110 +420,6 @@ impl VmInner {
         self.objects[id.0 as usize]
             .as_mut()
             .expect("object already freed")
-    }
-
-    /// Push `value` onto the VM stack as a temporary GC root and
-    /// return an RAII guard that restores the stack on drop.
-    ///
-    /// See [`VmTempRoot`] for the rooting contract — the guard
-    /// derefs to `&mut VmInner` so the rooted region is written as
-    /// method calls on the guard:
-    ///
-    /// ```rust,ignore
-    /// let mut g = vm.push_temp_root(JsValue::Object(id));
-    /// let _ = g.call(func_id, this, &[arg]);
-    /// match g.get_object(id).kind { ... }
-    /// // guard drops here; stack restored to pre-push length
-    /// ```
-    ///
-    /// Engine-feature gated: rooting matters only when host code can
-    /// produce un-rooted intermediate `JsValue`s (event objects,
-    /// PromiseRejection synthetic events, etc.).  Without the engine
-    /// feature there is no host bridge and no caller.
-    #[cfg(feature = "engine")]
-    pub(crate) fn push_temp_root(&mut self, value: JsValue) -> VmTempRoot<'_> {
-        let saved_len = self.stack.len();
-        self.stack.push(value);
-        VmTempRoot {
-            vm: self,
-            saved_len,
-            expected: value,
-        }
-    }
-}
-
-/// RAII guard for a temporary GC root pushed onto the VM stack.
-///
-/// Created via [`VmInner::push_temp_root`].  Restores the stack to
-/// its pre-push length on drop, **including during panic unwinding**
-/// — this is the key property over a bare `push` / `pop` pair, which
-/// would leak the root through a `catch_unwind` boundary upstream
-/// and corrupt subsequent GC cycles.
-///
-/// On normal (non-panic) drop, two release-enforced asserts catch
-/// closure-side stack-corruption bugs:
-///
-/// - **Length check**: stack must end at `saved_len + 1` (no leaked
-///   pushes, no over-pops).
-/// - **Slot identity**: `stack[saved_len]` must still hold the
-///   pushed value (defends against pop-then-push-different which
-///   leaves length unchanged but unroots the original).  Comparison
-///   uses `same_value` (NaN-safe) since `JsValue::Number(NaN) !=
-///   JsValue::Number(NaN)` under JS strict equality.
-///
-/// During panic unwinding (`std::thread::panicking()`) both asserts
-/// are skipped to avoid double-panic process-abort; the stack is
-/// truncated unconditionally so any propagation through
-/// `catch_unwind` upstream sees a clean stack.
-#[cfg(feature = "engine")]
-pub(crate) struct VmTempRoot<'a> {
-    vm: &'a mut VmInner,
-    saved_len: usize,
-    expected: JsValue,
-}
-
-#[cfg(feature = "engine")]
-impl std::ops::Deref for VmTempRoot<'_> {
-    type Target = VmInner;
-    #[inline]
-    fn deref(&self) -> &VmInner {
-        self.vm
-    }
-}
-
-#[cfg(feature = "engine")]
-impl std::ops::DerefMut for VmTempRoot<'_> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut VmInner {
-        self.vm
-    }
-}
-
-#[cfg(feature = "engine")]
-impl Drop for VmTempRoot<'_> {
-    fn drop(&mut self) {
-        let stack = &mut self.vm.stack;
-        if std::thread::panicking() {
-            // Avoid double-panic; just restore.  An assertion failure
-            // here while unwinding would abort the process and lose the
-            // original panic's diagnostic.
-            stack.truncate(self.saved_len);
-            return;
-        }
-        assert_eq!(
-            stack.len(),
-            self.saved_len + 1,
-            "VmTempRoot: rooted region left the VM stack at {} entries, \
-             expected {} — GC root corruption hazard",
-            stack.len(),
-            self.saved_len + 1,
-        );
-        assert!(
-            same_value(stack[self.saved_len], self.expected),
-            "VmTempRoot: stack[saved_len] no longer holds the rooted value \
-             — rooted region pop'd and re-push'd the slot"
-        );
-        stack.truncate(self.saved_len);
     }
 }
 
@@ -1055,134 +822,11 @@ pub struct Vm {
 
 impl Vm {
     /// Create a new VM with built-in globals registered.
-    #[allow(clippy::too_many_lines)]
     pub fn new() -> Self {
         let mut strings = StringPool::new();
 
-        let well_known = WellKnownStrings {
-            undefined: strings.intern("undefined"),
-            null: strings.intern("null"),
-            r#true: strings.intern("true"),
-            r#false: strings.intern("false"),
-            nan: strings.intern("NaN"),
-            infinity: strings.intern("Infinity"),
-            neg_infinity: strings.intern("-Infinity"),
-            zero: strings.intern("0"),
-            empty: strings.intern(""),
-            prototype: strings.intern("prototype"),
-            constructor: strings.intern("constructor"),
-            length: strings.intern("length"),
-            name: strings.intern("name"),
-            message: strings.intern("message"),
-            log: strings.intern("log"),
-            error: strings.intern("error"),
-            warn: strings.intern("warn"),
-            object_type: strings.intern("object"),
-            boolean_type: strings.intern("boolean"),
-            number_type: strings.intern("number"),
-            string_type: strings.intern("string"),
-            function_type: strings.intern("function"),
-            symbol_type: strings.intern("symbol"),
-            bigint_type: strings.intern("bigint"),
-            object_to_string: strings.intern("[object Object]"),
-            next: strings.intern("next"),
-            value: strings.intern("value"),
-            done: strings.intern("done"),
-            return_str: strings.intern("return"),
-            last_index: strings.intern("lastIndex"),
-            index: strings.intern("index"),
-            input: strings.intern("input"),
-            join: strings.intern("join"),
-            to_json: strings.intern("toJSON"),
-            get: strings.intern("get"),
-            set: strings.intern("set"),
-            enumerable: strings.intern("enumerable"),
-            configurable: strings.intern("configurable"),
-            writable: strings.intern("writable"),
-            source: strings.intern("source"),
-            flags: strings.intern("flags"),
-            status: strings.intern("status"),
-            fulfilled: strings.intern("fulfilled"),
-            rejected: strings.intern("rejected"),
-            reason: strings.intern("reason"),
-            errors: strings.intern("errors"),
-            aggregate_error: strings.intern("AggregateError"),
-            event_type: strings.intern("type"),
-            bubbles: strings.intern("bubbles"),
-            cancelable: strings.intern("cancelable"),
-            event_phase: strings.intern("eventPhase"),
-            target: strings.intern("target"),
-            current_target: strings.intern("currentTarget"),
-            time_stamp: strings.intern("timeStamp"),
-            composed: strings.intern("composed"),
-            is_trusted: strings.intern("isTrusted"),
-            default_prevented: strings.intern("defaultPrevented"),
-            prevent_default: strings.intern("preventDefault"),
-            stop_propagation: strings.intern("stopPropagation"),
-            stop_immediate_propagation: strings.intern("stopImmediatePropagation"),
-            composed_path: strings.intern("composedPath"),
-            capture: strings.intern("capture"),
-            once: strings.intern("once"),
-            passive: strings.intern("passive"),
-            document: strings.intern("document"),
-            unhandledrejection: strings.intern("unhandledrejection"),
-            promise: strings.intern("promise"),
-
-            // Event-payload property keys.  Interned once here so
-            // `create_event_object` can feed slots into
-            // `define_with_precomputed_shape` without re-interning.
-            client_x: strings.intern("clientX"),
-            client_y: strings.intern("clientY"),
-            button: strings.intern("button"),
-            buttons: strings.intern("buttons"),
-            alt_key: strings.intern("altKey"),
-            ctrl_key: strings.intern("ctrlKey"),
-            meta_key: strings.intern("metaKey"),
-            shift_key: strings.intern("shiftKey"),
-            key: strings.intern("key"),
-            code: strings.intern("code"),
-            repeat: strings.intern("repeat"),
-            property_name: strings.intern("propertyName"),
-            elapsed_time: strings.intern("elapsedTime"),
-            pseudo_element: strings.intern("pseudoElement"),
-            animation_name: strings.intern("animationName"),
-            input_type: strings.intern("inputType"),
-            data: strings.intern("data"),
-            is_composing: strings.intern("isComposing"),
-            data_type: strings.intern("dataType"),
-            related_target: strings.intern("relatedTarget"),
-            delta_x: strings.intern("deltaX"),
-            delta_y: strings.intern("deltaY"),
-            delta_mode: strings.intern("deltaMode"),
-            origin: strings.intern("origin"),
-            last_event_id: strings.intern("lastEventId"),
-            was_clean: strings.intern("wasClean"),
-            old_url: strings.intern("oldURL"),
-            new_url: strings.intern("newURL"),
-            persisted: strings.intern("persisted"),
-            old_value: strings.intern("oldValue"),
-            new_value: strings.intern("newValue"),
-            url: strings.intern("url"),
-        };
-
-        // Allocate well-known symbols (fixed IDs 0-6).
-        let mut symbols = Vec::new();
-        let mut alloc_wk = |desc: &str| -> SymbolId {
-            let id = SymbolId(symbols.len() as u32);
-            symbols.push(SymbolRecord {
-                description: Some(strings.intern(desc)),
-            });
-            id
-        };
-        let well_known_symbols = WellKnownSymbols {
-            iterator: alloc_wk("Symbol.iterator"),
-            async_iterator: alloc_wk("Symbol.asyncIterator"),
-            has_instance: alloc_wk("Symbol.hasInstance"),
-            to_primitive: alloc_wk("Symbol.toPrimitive"),
-            to_string_tag: alloc_wk("Symbol.toStringTag"),
-            species: alloc_wk("Symbol.species"),
-            is_concat_spreadable: alloc_wk("Symbol.isConcatSpreadable"),
-        };
+        let well_known = WellKnownStrings::intern_all(&mut strings);
+        let (well_known_symbols, symbols) = WellKnownSymbols::alloc_all(&mut strings);
 
         let mut vm = Vm {
             inner: VmInner {
