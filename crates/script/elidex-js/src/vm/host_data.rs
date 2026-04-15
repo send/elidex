@@ -140,6 +140,21 @@ mod engine_feature {
             );
         }
 
+        /// Drop the cached wrapper for `entity`, returning the prior
+        /// `ObjectId` if any.  Called when an entity is destroyed
+        /// (DOM mutation removed it) so its wrapper becomes eligible
+        /// for GC instead of leaking via the cache root.
+        ///
+        /// PR3 introduces the API; the DOM-mutation hook that calls
+        /// it lives in PR4 alongside the rest of the tree-mutation
+        /// surface (`removeChild`, `replaceWith`, etc.).  Until then
+        /// wrappers for destroyed entities stay rooted — a known but
+        /// bounded leak (capped by the number of distinct entities
+        /// the page ever observes).
+        pub fn remove_wrapper(&mut self, entity: Entity) -> Option<ObjectId> {
+            self.wrapper_cache.remove(&entity.to_bits().get())
+        }
+
         pub fn gc_root_object_ids(&self) -> impl Iterator<Item = ObjectId> + '_ {
             self.listener_store
                 .values()
