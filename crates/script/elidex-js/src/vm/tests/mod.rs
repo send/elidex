@@ -20,6 +20,7 @@ mod tests_math;
 mod tests_number;
 mod tests_object_complement;
 mod tests_promise;
+mod tests_remove_event_listener;
 mod tests_sparse_array;
 mod tests_string_complement;
 mod tests_timer;

@@ -276,14 +276,102 @@ fn listener_already_registered(
         .any(|id| host.get_listener(*id) == Some(candidate_obj_id))
 }
 
-/// `EventTarget.prototype.removeEventListener(type, listener, options)` — stub.
-///
-/// Real implementation arrives in PR3 C8.
+/// `EventTarget.prototype.removeEventListener` — non-engine-feature stub.
+#[cfg(not(feature = "engine"))]
 pub(super) fn native_event_target_remove_event_listener(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    Ok(JsValue::Undefined)
+}
+
+/// `EventTarget.prototype.removeEventListener(type, listener, options)`.
+///
+/// WHATWG DOM §2.7.7: locate any listener whose (type, callback,
+/// capture) tuple matches and remove it from the entity's
+/// `EventListeners` component plus `HostData::listener_store`.
+///
+/// Behaviour parallels [`native_event_target_add_event_listener`]:
+/// - Non-HostObject `this` → silent no-op.
+/// - `null` / `undefined` callback → silent no-op (§2.7.7 step 2).
+/// - Non-callable callback → silent no-op (cannot match anything,
+///   spec just no-ops here too — only addEventListener throws).
+/// - Options third arg parsed identically (only `capture` is
+///   meaningful for removal — `once` / `passive` are not part of
+///   identity per §2.6 step 4).
+#[cfg(feature = "engine")]
+pub(super) fn native_event_target_remove_event_listener(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+
+    // Callback null/undefined or non-callable → silent no-op.
+    let callback_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let listener_obj_id = match callback_arg {
+        JsValue::Object(id) if ctx.vm.get_object(id).kind.is_callable() => id,
+        _ => return Ok(JsValue::Undefined),
+    };
+
+    let type_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
+    let event_type = ctx.vm.strings.get_utf8(type_sid);
+
+    let options = parse_listener_options(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
+    let capture = options.capture;
+
+    // Find the (sole) matching listener id.  We walk the listener
+    // entries on `entity` and pick the first whose function ObjectId
+    // matches; per §2.6 step 4 there can only be one match because
+    // duplicate registrations are forbidden.
+    let host = ctx.host();
+    let dom = host.dom();
+    let target_id = dom
+        .world()
+        .get::<&elidex_script_session::EventListeners>(entity)
+        .ok()
+        .and_then(|listeners| {
+            for entry in listeners.matching_all(&event_type) {
+                if entry.capture == capture {
+                    // Cross-reference the listener_store ObjectId.
+                    // `find_entry`-style lookup is fine but we already
+                    // have the iter — just defer the host borrow.
+                    return Some(entry.id);
+                }
+            }
+            None
+        });
+    let _ = dom;
+
+    let Some(listener_id) = target_id else {
+        return Ok(JsValue::Undefined);
+    };
+
+    // Confirm via listener_store that this id genuinely points at
+    // the candidate function before removing — guards against the
+    // (rare) case where a listener was added and removed elsewhere
+    // without going through addEventListener (e.g. manual
+    // HostData::store_listener bypass).
+    if ctx.host().get_listener(listener_id) != Some(listener_obj_id) {
+        return Ok(JsValue::Undefined);
+    }
+
+    // Remove from ECS component first, then from listener_store.
+    let host = ctx.host();
+    let dom = host.dom();
+    if let Ok(mut listeners) = dom
+        .world_mut()
+        .get::<&mut elidex_script_session::EventListeners>(entity)
+    {
+        listeners.remove(listener_id);
+    }
+    let _ = dom;
+    ctx.host().remove_listener(listener_id);
+
     Ok(JsValue::Undefined)
 }
 
