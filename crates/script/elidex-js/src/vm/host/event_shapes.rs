@@ -25,7 +25,7 @@
 //! share the `core` terminal shape directly.  Any non-exhaustive
 //! variant the VM doesn't yet recognise also falls through to `core`
 //! — those payloads install no extra properties (see the `_`
-//! fallthrough in `events::set_payload_properties`).
+//! fallthrough in `events::append_payload_slots`).
 
 #![cfg(feature = "engine")]
 
@@ -125,10 +125,10 @@ impl VmInner {
         let core = extend(self, ROOT_SHAPE, &core_keys);
 
         // Payload-specific keys per variant.  Order matches
-        // `events::set_payload_properties` — if the payload installer
-        // is reordered the matching payload_slots() in events.rs must
-        // be updated in lockstep (or the slot values end up in the
-        // wrong positions).
+        // `events::append_payload_slots` — if the payload-slot
+        // appender is reordered, this table must be updated in
+        // lockstep (or the slot values end up in the wrong
+        // positions).
         let mouse = extend(
             self,
             core,
