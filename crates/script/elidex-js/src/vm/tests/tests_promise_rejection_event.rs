@@ -16,9 +16,18 @@ use super::super::Vm;
 
 /// Convenience wrapper: create a document root + bind — every test
 /// here starts from the same two-liner.
+///
+/// # Safety
+///
+/// Inherits the contract of [`bind_vm`] (which this wraps): `session`
+/// / `dom` must stay live and non-aliased until [`Vm::unbind`] — the
+/// wrapper cannot enforce those lifetimes, so it is itself `unsafe`
+/// to call.
 #[allow(unsafe_code)]
-fn bound_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom) {
+unsafe fn bound_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom) {
     let doc = dom.create_document_root();
+    // SAFETY: forwarded from the caller — `bind_vm`'s contract is
+    // identical to our own.
     unsafe {
         bind_vm(vm, session, dom, doc);
     }
@@ -29,7 +38,10 @@ fn unhandled_rejection_fires_event_with_promise_and_reason() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     // Register an unhandledrejection listener that snapshots the
     // event's `.promise` / `.reason` into globals.  Then trigger an
@@ -74,7 +86,10 @@ fn prevent_default_suppresses_stderr_fallback() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     // Registering a listener that calls preventDefault flips the
     // event's default_prevented flag — the warn fallback path is
@@ -112,7 +127,10 @@ fn rejection_event_target_is_document() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     vm.eval(
         "globalThis.target_is_document = false;
@@ -142,7 +160,10 @@ fn each_listener_gets_a_fresh_event_object() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     vm.eval(
         "globalThis.b_saw_foo = null;
@@ -177,7 +198,10 @@ fn prevent_default_propagates_across_listeners() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     vm.eval(
         "globalThis.b_saw_default_prevented = null;
@@ -206,7 +230,10 @@ fn stop_immediate_propagation_breaks_listener_loop() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     vm.eval(
         "globalThis.b_fired = false;
@@ -239,7 +266,10 @@ fn once_listener_fires_only_for_first_rejection() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     vm.eval(
         "globalThis.fire_count = 0;
@@ -279,7 +309,10 @@ fn passive_listener_cannot_prevent_default() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     // Two listeners: A is passive and tries to preventDefault, B
     // observes whether the canceled flag actually flipped.
@@ -325,7 +358,10 @@ fn pending_rejections_drained_after_dispatch() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     vm.eval(
         "globalThis.fired = false;
@@ -360,7 +396,10 @@ fn rejection_event_phase_is_at_target_and_current_target_is_document() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     vm.eval(
         "globalThis.observed_phase = -1;
@@ -408,7 +447,10 @@ fn no_listener_silently_falls_back_no_panic() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    bound_vm(&mut vm, &mut session, &mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bound_vm(&mut vm, &mut session, &mut dom);
+    }
 
     // No listener registered — eprintln fallback fires (we don't
     // assert on stderr here, just that the path doesn't panic).

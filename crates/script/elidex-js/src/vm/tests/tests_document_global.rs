@@ -65,11 +65,11 @@ fn document_inherits_event_target_methods() {
     )
     .unwrap();
 
-    let entries = listeners_on(&dom, doc)
+    let entry_count = listeners_on(&dom, doc)
         .matching_all("DOMContentLoaded")
         .len();
     assert_eq!(
-        entries, 1,
+        entry_count, 1,
         "document.addEventListener must register on the document entity"
     );
 
