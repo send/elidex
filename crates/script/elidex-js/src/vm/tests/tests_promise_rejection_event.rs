@@ -306,7 +306,7 @@ fn passive_listener_cannot_prevent_default() {
 
 #[test]
 fn pending_rejections_drained_after_dispatch() {
-    // Smoke test for the structural fix in `warn_unhandled_rejections`:
+    // Smoke test for the structural fix in `process_pending_rejections`:
     // it used to `mem::take(pending_rejections)` before dispatching,
     // moving the Promise ObjectIds out of the GC root set.  An
     // alloc-triggered GC inside `dispatch_unhandled_rejection_event`
@@ -342,7 +342,7 @@ fn pending_rejections_drained_after_dispatch() {
     );
     assert!(
         vm.inner.pending_rejections.is_empty(),
-        "pending_rejections must be drained after warn_unhandled_rejections completes"
+        "pending_rejections must be drained after process_pending_rejections completes"
     );
 
     vm.unbind();

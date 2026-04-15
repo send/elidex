@@ -11,15 +11,22 @@
 //! `Promise.prototype` / `Array.prototype` are structured elsewhere in
 //! the VM.
 //!
-//! ## Stub status
+//! ## Method status
 //!
-//! - `addEventListener` — implemented (PR3 C7).
-//! - `removeEventListener` — stub (lands in PR3 C8).
-//! - `dispatchEvent`: **deferred to PR5a** alongside `Event` constructors,
-//!   which are the only meaningful way to pass a JS-constructed event
-//!   into a synchronous dispatch from script.  Until then the stub is a
-//!   no-op; `dispatchEvent` is still resolvable via the prototype chain,
-//!   which is enough for scripts that only feature-test its existence.
+//! - `addEventListener` — fully implemented (PR3 C7); options-object
+//!   form, capture/once/passive, duplicate check, ECS + listener_store
+//!   wiring.
+//! - `removeEventListener` — fully implemented (PR3 C8); WHATWG
+//!   §2.7.7 (type, callback, capture) match + ECS / listener_store
+//!   cleanup, options parsed via `parse_capture_only` (no spurious
+//!   `once`/`passive` getter calls — see PR3 R7).
+//! - `dispatchEvent` — **deferred to PR5a** alongside `Event`
+//!   constructors, which are the only meaningful way to pass a
+//!   JS-constructed event into a synchronous dispatch from script.
+//!   Until then the stub returns `false` (the spec default for
+//!   "event not dispatched"); the method itself is still resolvable
+//!   via the prototype chain, which is enough for scripts that only
+//!   feature-test its existence.
 
 use super::super::value::{JsValue, NativeContext, VmError};
 #[cfg(feature = "engine")]
@@ -306,25 +313,25 @@ fn find_listener_id(
     capture: bool,
     candidate_obj_id: ObjectId,
 ) -> Option<elidex_script_session::ListenerId> {
-    // Two-pass: collect candidate ids while holding the world borrow,
-    // then cross-reference each against `listener_store` (which goes
-    // through `host_data` and would conflict with the world borrow).
-    let host = ctx.host();
-    let dom = host.dom();
-    let candidate_ids: Vec<_> = dom
-        .world()
-        .get::<&elidex_script_session::EventListeners>(entity)
-        .ok()
-        .map(|listeners| {
-            listeners
-                .matching_all(event_type)
-                .iter()
-                .filter(|e| e.capture == capture)
-                .map(|e| e.id)
-                .collect()
-        })
-        .unwrap_or_default();
-    let _ = dom;
+    // Two-pass: collect candidate ids while holding the world borrow
+    // (scoped to the inner block), then cross-reference each against
+    // `listener_store` (which goes through `host_data` and would
+    // otherwise conflict with the world borrow).
+    let candidate_ids: Vec<_> = {
+        let dom = ctx.host().dom();
+        dom.world()
+            .get::<&elidex_script_session::EventListeners>(entity)
+            .ok()
+            .map(|listeners| {
+                listeners
+                    .matching_all(event_type)
+                    .iter()
+                    .filter(|e| e.capture == capture)
+                    .map(|e| e.id)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
     let host = ctx.host();
     candidate_ids
         .into_iter()
@@ -390,16 +397,18 @@ pub(super) fn native_event_target_remove_event_listener(
         return Ok(JsValue::Undefined);
     };
 
-    // Remove from ECS component first, then from listener_store.
-    let host = ctx.host();
-    let dom = host.dom();
-    if let Ok(mut listeners) = dom
-        .world_mut()
-        .get::<&mut elidex_script_session::EventListeners>(entity)
+    // Remove from ECS component first (scoped block so the world
+    // borrow is released before we re-grab `host` for listener_store
+    // cleanup), then from listener_store.
     {
-        listeners.remove(listener_id);
+        let dom = ctx.host().dom();
+        if let Ok(mut listeners) = dom
+            .world_mut()
+            .get::<&mut elidex_script_session::EventListeners>(entity)
+        {
+            listeners.remove(listener_id);
+        }
     }
-    let _ = dom;
     ctx.host().remove_listener(listener_id);
 
     Ok(JsValue::Undefined)

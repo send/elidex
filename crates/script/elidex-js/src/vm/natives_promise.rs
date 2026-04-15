@@ -296,7 +296,7 @@ impl VmInner {
         // HostPromiseRejectionTracker hook), falling back to an
         // `eprintln!` when no listener calls `preventDefault`.  Wired
         // in PR3 C10.
-        warn_unhandled_rejections(self);
+        process_pending_rejections(self);
         self.microtask_drain_depth -= 1;
     }
 }
@@ -306,7 +306,7 @@ impl VmInner {
 /// listener has called `preventDefault` (matches HTML §8.1.5.5
 /// "report the exception" hook).  Marks the reported promise
 /// `handled` so a second drain pass doesn't re-warn.
-fn warn_unhandled_rejections(vm: &mut VmInner) {
+fn process_pending_rejections(vm: &mut VmInner) {
     if vm.pending_rejections.is_empty() {
         return;
     }
