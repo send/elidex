@@ -425,8 +425,10 @@ fn dispatch_unhandled_rejection_event(
     );
 
     // Root the event object on the VM stack across all listener
-    // invocations.  The push/pop pair stays in-module here — see
-    // `Vm::with_temp_root` for the public API used by engine.rs.
+    // invocations.  Hardened in the same shape as `Vm::with_temp_root`:
+    // assert the per-listener loop leaves the stack balanced (no leaked
+    // push, no over-pop) before truncating back to the saved length.
+    let saved_stack_len = vm.stack.len();
     vm.stack.push(JsValue::Object(event_obj_id));
 
     for listener_id in listener_ids {
@@ -459,7 +461,20 @@ fn dispatch_unhandled_rejection_event(
             ..
         }
     );
-    vm.stack.pop();
+
+    assert_eq!(
+        vm.stack.len(),
+        saved_stack_len + 1,
+        "dispatch_unhandled_rejection_event: listener loop left VM stack at {} \
+         entries, expected {} — GC root corruption hazard",
+        vm.stack.len(),
+        saved_stack_len + 1,
+    );
+    debug_assert_eq!(
+        vm.stack.last().copied(),
+        Some(JsValue::Object(event_obj_id))
+    );
+    vm.stack.truncate(saved_stack_len);
     prevented
 }
 

@@ -36,7 +36,8 @@ impl Vm {
     }
 
     /// Run `f` with `value` pushed onto the VM stack as a temporary
-    /// GC root, popping it on return regardless of `f`'s result.
+    /// GC root, restoring the stack to its pre-push state on return
+    /// regardless of `f`'s result.
     ///
     /// Use this when an allocation has just produced a `JsValue` that
     /// is not yet reachable from any other root (a freshly created
@@ -44,13 +45,37 @@ impl Vm {
     /// into a property, etc.) and you need it to survive a GC cycle
     /// triggered by user JS that runs inside `f`.
     ///
-    /// The push/pop pair is paired even on early-return paths because
-    /// `f` consumes a `&mut Vm` — there's no way for it to bypass the
-    /// outer pop without panicking the whole interpreter.
+    /// # Stack invariant guard
+    ///
+    /// Bare `stack.push(v) → f(...) → stack.pop()` would silently
+    /// corrupt GC roots if `f` (or anything it called) left the
+    /// stack at a different height — the pop would either remove
+    /// the wrong value or underflow.  We `assert!` that the closure
+    /// is well-balanced (pushes match pops within `f`) and use
+    /// `truncate(saved_len)` to restore, which is robust against
+    /// minor leaks the assert may not catch in release builds.
+    ///
+    /// Panic semantics: if `f` panics, the truncate is skipped — the
+    /// VM doesn't use `catch_unwind`, so a panic aborts the entire
+    /// process and leaked roots don't matter.
     pub fn with_temp_root<R>(&mut self, value: JsValue, f: impl FnOnce(&mut Self) -> R) -> R {
+        let saved_len = self.inner.stack.len();
         self.inner.stack.push(value);
         let result = f(self);
-        self.inner.stack.pop();
+        assert_eq!(
+            self.inner.stack.len(),
+            saved_len + 1,
+            "with_temp_root: closure left the VM stack at {} entries, expected {} \
+             (saved_len + 1) — GC root corruption hazard",
+            self.inner.stack.len(),
+            saved_len + 1,
+        );
+        debug_assert_eq!(
+            self.inner.stack.last().copied(),
+            Some(value),
+            "with_temp_root: stack top changed during call"
+        );
+        self.inner.stack.truncate(saved_len);
         result
     }
 
