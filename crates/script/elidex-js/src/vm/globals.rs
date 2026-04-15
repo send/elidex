@@ -219,6 +219,9 @@ impl VmInner {
             // `performance` — HR-Time §5.  Shares the time origin
             // (`VmInner::start_instant`) with `Event.timeStamp`.
             self.register_performance_global();
+            // `location` — WHATWG HTML §7.1.  Reads/writes
+            // `VmInner::navigation` (in-memory only at Phase 2).
+            self.register_location_global();
         }
 
         // Internal Event-methods prototype (PR3) — `event_methods_prototype`

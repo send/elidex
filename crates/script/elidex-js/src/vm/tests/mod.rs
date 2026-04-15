@@ -16,6 +16,7 @@ mod tests_gc_audit;
 mod tests_generator;
 mod tests_host_object;
 mod tests_json;
+mod tests_location;
 mod tests_m4_10_2;
 mod tests_m4_11;
 mod tests_math;
