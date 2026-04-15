@@ -306,6 +306,53 @@ fn document_url_reflects_navigation_state() {
 }
 
 #[test]
+fn document_methods_install_per_document_entity() {
+    // Regression: `document_methods_installed` must track *which*
+    // document entity has been patched.  A VM-wide boolean would
+    // leave `getElementById` absent on every document bound after
+    // the first — observable as a missing method on the new wrapper.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+
+    // First document.
+    let (doc1, _, _, _, _) = build_fixture(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc1);
+    }
+    assert_eq!(
+        vm.eval("typeof document.getElementById;").unwrap(),
+        JsValue::String(vm.inner.well_known.function_type),
+    );
+    vm.unbind();
+
+    // Build a second, independent document tree and bind to it.
+    let doc2 = dom.create_document_root();
+    let html2 = dom.create_element("html", Attributes::default());
+    assert!(dom.append_child(doc2, html2));
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc2);
+    }
+    // The new wrapper must also have `getElementById` installed.
+    // Before the per-entity fix, this would evaluate to `"undefined"`.
+    assert_eq!(
+        vm.eval("typeof document.getElementById;").unwrap(),
+        JsValue::String(vm.inner.well_known.function_type),
+    );
+    // And be usable — document.documentElement must resolve to html2.
+    let JsValue::Object(id) = vm.eval("document.documentElement;").unwrap() else {
+        panic!()
+    };
+    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(id).kind else {
+        unreachable!()
+    };
+    assert_eq!(entity_bits, html2.to_bits().get());
+    vm.unbind();
+}
+
+#[test]
 fn document_ready_state_is_complete() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

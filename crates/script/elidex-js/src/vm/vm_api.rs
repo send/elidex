@@ -233,11 +233,23 @@ impl Vm {
             hd.unbind();
         }
         // Reset the `globalThis` `HostObject`'s `entity_bits` to the
-        // sentinel `0` so that any post-unbind `window.*` method
-        // invocation (JS may retain `globalThis` across unbind) falls
-        // into the `entity_from_this -> None` silent no-op path
-        // instead of reaching the stale Window entity with
-        // `host_data.dom()` (which would panic).  The
+        // sentinel `0` so that post-unbind **`entity_from_this`
+        // consumers** — `addEventListener` / `removeEventListener` /
+        // `dispatchEvent` on `window`, and any future method that
+        // resolves its Window entity from `this` — fall into the
+        // `None` silent no-op path instead of dereferencing
+        // `host_data.dom()` on a stale pointer (which would panic).
+        //
+        // Window-specific methods that do **not** consult
+        // `entity_bits` (viewport getters `innerWidth` / `scrollX` /
+        // …; scroll mutators `scrollTo` / `scrollBy`) still run after
+        // unbind because they only read/write
+        // `VmInner::viewport` — a purely VM-side struct with no
+        // bound-state dependency.  That is intentional: scripts that
+        // cache viewport values across a rebind should observe
+        // continuous state, and none of these methods can
+        // dereference a null pointer.
+        //
         // `HostData::window_entity` itself is retained so the next
         // `bind` restores identity.
         #[cfg(feature = "engine")]

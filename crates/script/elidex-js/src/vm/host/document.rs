@@ -273,15 +273,20 @@ impl Vm {
     /// *must* populate it.  The "already installed" check below
     /// keeps rebind cycles O(1).
     pub(in crate::vm) fn install_document_methods_if_needed(&mut self, doc_wrapper: ObjectId) {
-        // Fast path: `HostData` remembers whether this VM has already
-        // installed the suite on a document wrapper.  The methods are
-        // pointer-identical across wrappers (they come out of
-        // `create_native_function`), so one install per `HostData`
-        // lifetime is sufficient and the flag short-circuits every
-        // rebind without a prototype-chain probe.
+        // Fast path: skip if this specific document entity already
+        // has its wrapper patched.  A per-entity set (rather than a
+        // VM-wide flag) is load-bearing — a single `Vm` can be bound
+        // to multiple document entities over its lifetime and each
+        // produces a **distinct** wrapper via `wrapper_cache`.  A
+        // global flag would skip install on every document after the
+        // first, leaving `getElementById` etc. missing on later ones.
+        let doc_entity = self
+            .host_data()
+            .expect("install_document_methods_if_needed requires HostData")
+            .document();
         let already_installed = self
             .host_data()
-            .is_some_and(|hd| hd.document_methods_installed);
+            .is_some_and(|hd| hd.document_methods_installed.contains(&doc_entity));
         if already_installed {
             return;
         }
@@ -291,7 +296,7 @@ impl Vm {
             .install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
 
         if let Some(hd) = self.host_data() {
-            hd.document_methods_installed = true;
+            hd.document_methods_installed.insert(doc_entity);
         }
     }
 }

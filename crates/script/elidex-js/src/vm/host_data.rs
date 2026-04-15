@@ -18,7 +18,7 @@ mod engine_feature {
     use super::super::value::ObjectId;
     use elidex_ecs::Entity;
     use elidex_script_session::ListenerId;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     pub struct HostData {
         session_ptr: *mut elidex_script_session::SessionCore,
@@ -33,14 +33,21 @@ mod engine_feature {
         /// bind → unbind → bind boundaries keep pointing at the same ECS
         /// address (and therefore the same `EventListeners` component).
         window_entity: Option<Entity>,
-        /// Document host-object own-property suite (`getElementById` etc.)
-        /// has been installed on **some** document wrapper on this
-        /// `HostData`.  The install is idempotent and only needs to run
-        /// once per `Vm` (the methods are pointer-identical across
-        /// wrappers because they are `create_native_function` output).
-        /// This flag replaces a per-bind prototype-chain probe — see
+        /// Document entities whose wrapper has already had the
+        /// document-specific own-property suite (`getElementById` /
+        /// `createElement` / `body` accessor / ...) installed.
+        ///
+        /// Tracked **per-entity** because a single `Vm` can be bound
+        /// to multiple document entities over its lifetime (shell
+        /// navigation: unbind doc1 → bind doc2 produces a fresh
+        /// wrapper via `wrapper_cache`, and that wrapper needs its
+        /// own method install).  A single VM-wide boolean would skip
+        /// the install on every document after the first — see
         /// `vm/host/document.rs::install_document_methods_if_needed`.
-        pub(crate) document_methods_installed: bool,
+        ///
+        /// Bounded by the number of distinct documents a VM observes
+        /// (typically 1 — at most a handful).
+        pub(crate) document_methods_installed: HashSet<Entity>,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
         pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
     }
@@ -52,7 +59,7 @@ mod engine_feature {
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
                 window_entity: None,
-                document_methods_installed: false,
+                document_methods_installed: HashSet::new(),
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
             }

@@ -70,6 +70,29 @@ fn location_component_getters_no_port_no_query() {
 }
 
 #[test]
+fn location_pathname_defaults_to_slash_for_authority_urls() {
+    // WHATWG URL §4.4: absolute URLs with an authority but no
+    // explicit path have pathname `/`, not the empty string.
+    let mut vm = Vm::new();
+    vm.eval("location.href = 'https://example.com';").unwrap();
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
+    assert_eq!(eval_string(&mut vm, "location.host;"), "example.com");
+
+    // Same with port.
+    vm.eval("location.href = 'http://example.com:8080';")
+        .unwrap();
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
+    assert_eq!(eval_string(&mut vm, "location.port;"), "8080");
+
+    // Query + fragment after bare host still normalise pathname to "/".
+    vm.eval("location.href = 'https://example.com?q=1#f';")
+        .unwrap();
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
+    assert_eq!(eval_string(&mut vm, "location.search;"), "?q=1");
+    assert_eq!(eval_string(&mut vm, "location.hash;"), "#f");
+}
+
+#[test]
 fn location_origin_is_null_for_opaque_schemes() {
     let mut vm = Vm::new();
     // `about:blank` — no authority, opaque origin → "null".

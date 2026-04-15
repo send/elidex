@@ -77,10 +77,18 @@ fn parse_url(url: &str) -> UrlParts<'_> {
     parts.scheme = scheme;
 
     if let Some(after_slashes) = rest.strip_prefix("//") {
-        // scheme:// → host[:port] pathname
-        let end_auth = after_slashes.find('/').unwrap_or(after_slashes.len());
-        let authority = &after_slashes[..end_auth];
-        parts.pathname = &after_slashes[end_auth..];
+        // scheme:// → host[:port] pathname.  Per WHATWG URL §4.4,
+        // absolute URLs with an authority but no explicit path
+        // segment (`https://example.com`) have an effective pathname
+        // of `/`, not the empty string — `location.pathname` returns
+        // `/` in every conforming browser.
+        let authority = if let Some(path_start) = after_slashes.find('/') {
+            parts.pathname = &after_slashes[path_start..];
+            &after_slashes[..path_start]
+        } else {
+            parts.pathname = "/";
+            after_slashes
+        };
         if let Some(colon) = authority.rfind(':') {
             parts.host = &authority[..colon];
             parts.port = &authority[colon + 1..];

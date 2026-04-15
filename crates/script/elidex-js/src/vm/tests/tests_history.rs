@@ -113,6 +113,26 @@ fn history_go_accepts_delta() {
 }
 
 #[test]
+fn history_state_survives_gc() {
+    // Regression: `NavigationState.history_entries[*].state` is a GC
+    // root.  Pushing an object + forcing a GC + reading it back must
+    // preserve the value.  Without the root, the pushed object would
+    // be collected and `history.state.step` would read as `undefined`.
+    let mut vm = Vm::new();
+    vm.eval(
+        "history.pushState({step: 7, nested: {v: 99}}, '', '/x');
+         // Many allocations to raise GC pressure — if the state's
+         // nested object were unrooted, GC would have claimed it.
+         var filler = [];
+         for (var i = 0; i < 5000; i++) { filler.push({k: i}); }
+         filler = null;",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "history.state.step;"), 7.0);
+    assert_eq!(eval_number(&mut vm, "history.state.nested.v;"), 99.0);
+}
+
+#[test]
 fn history_push_state_truncates_forward_history() {
     let mut vm = Vm::new();
     vm.eval(

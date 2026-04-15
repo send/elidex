@@ -133,6 +133,14 @@ struct GcRoots<'a> {
     /// invariant as `current_microtask`: the callback/args must survive
     /// any GC triggered by the running callback.
     current_timer: Option<&'a super::natives_timer::TimerEntry>,
+    /// Navigation state — `HistoryEntry.state: JsValue` holds arbitrary
+    /// values passed to `history.pushState` / `replaceState`.  Without
+    /// tracing them here, objects stored in `history.state` could be
+    /// collected while still reachable via `history.state` read.
+    /// Engine-only — `VmInner::navigation` is gated behind
+    /// `feature = "engine"`.
+    #[cfg(feature = "engine")]
+    navigation: &'a super::host::navigation::NavigationState,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -252,6 +260,17 @@ fn mark_roots(
     }
     if let Some(entry) = roots.current_timer {
         mark_timer_entry(entry, obj_marks, work);
+    }
+
+    // (i) Navigation state — `history.pushState(state, ...)` and
+    // `replaceState` values.  Each entry's `state` is a `JsValue` that
+    // is not reachable from any other root (not the stack, not a
+    // function upvalue, and the entry itself lives on `VmInner`
+    // directly).  Without marking, objects handed to `pushState` can
+    // be collected between the call and a later `history.state` read.
+    #[cfg(feature = "engine")]
+    for entry in &roots.navigation.history_entries {
+        mark_value(entry.state, obj_marks, work);
     }
 }
 
@@ -560,6 +579,8 @@ impl VmInner {
             pending_rejections: &self.pending_rejections,
             timer_queue: &self.timer_queue,
             current_timer: self.current_timer.as_ref(),
+            #[cfg(feature = "engine")]
+            navigation: &self.navigation,
         };
 
         self.gc_work_list.clear();
