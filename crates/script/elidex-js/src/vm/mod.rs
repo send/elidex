@@ -56,6 +56,10 @@ mod well_known;
 #[cfg(feature = "engine")]
 pub(crate) use temp_root::VmTempRoot;
 
+#[cfg(feature = "engine")]
+#[doc(hidden)]
+pub mod test_helpers;
+
 #[cfg(test)]
 mod tests;
 

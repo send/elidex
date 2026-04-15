@@ -15,21 +15,13 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom};
 use elidex_script_session::SessionCore;
 
-use super::super::host_data::HostData;
 use super::super::shape;
+use super::super::test_helpers::bind_vm;
 use super::super::value::{JsValue, Object, ObjectId, ObjectKind, PropertyStorage};
 use super::super::Vm;
-
-#[allow(unsafe_code)]
-fn bind(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, doc: Entity) {
-    vm.install_host_data(HostData::new());
-    unsafe {
-        vm.bind(session as *mut _, dom as *mut _, doc);
-    }
-}
 
 /// Allocate an Event with a given `composed_path` ObjectId and return
 /// the Event's id.  No prototype installed — these tests touch the
@@ -57,7 +49,10 @@ fn listener_store_roots_function_object_across_gc() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let el = dom.create_element("div", Attributes::default());
-    bind(&mut vm, &mut session, &mut dom, doc);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
 
     // Compile a function and store it in listener_store.  Hold no
     // other JS-side root (no global, not on stack) — only the
@@ -90,7 +85,10 @@ fn wrapper_cache_roots_element_wrapper_across_gc() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let el = dom.create_element("span", Attributes::default());
-    bind(&mut vm, &mut session, &mut dom, doc);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
 
     let wrapper = vm.inner.create_element_wrapper(el);
     // No global / stack reference — only wrapper_cache holds it.
@@ -111,7 +109,10 @@ fn remove_wrapper_makes_entry_collectible_on_next_gc() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let el = dom.create_element("div", Attributes::default());
-    bind(&mut vm, &mut session, &mut dom, doc);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
 
     let wrapper = vm.inner.create_element_wrapper(el);
     assert!(vm.inner.objects[wrapper.0 as usize].is_some());
@@ -135,7 +136,10 @@ fn event_composed_path_is_traced_when_event_is_rooted() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    bind(&mut vm, &mut session, &mut dom, doc);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
 
     // Allocate the path Array first (no root).
     let path = vm.inner.create_array_object(vec![]);
@@ -189,7 +193,10 @@ fn host_object_in_global_survives_gc() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    bind(&mut vm, &mut session, &mut dom, doc);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
 
     let JsValue::Object(doc_id) = vm.get_global("document").unwrap() else {
         panic!("document must be installed");

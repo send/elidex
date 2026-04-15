@@ -9,45 +9,15 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
-use elidex_plugin::{EventPayload, EventPhase, FocusEventInit, KeyboardEventInit, MouseEventInit};
-use elidex_script_session::event_dispatch::DispatchEvent;
+use elidex_ecs::{Attributes, EcsDom};
+use elidex_plugin::{EventPayload, FocusEventInit, KeyboardEventInit, MouseEventInit};
 use elidex_script_session::SessionCore;
 
-use super::super::host_data::HostData;
+use super::super::test_helpers::{bind_vm, make_event};
 use super::super::value::{
     JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
 };
 use super::super::Vm;
-
-/// Thin wrapper around `Vm::bind` to make call sites short.
-#[allow(unsafe_code)]
-unsafe fn bind_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, document: Entity) {
-    vm.install_host_data(HostData::new());
-    unsafe {
-        vm.bind(session as *mut _, dom as *mut _, document);
-    }
-}
-
-/// Build a minimal DispatchEvent with the given type/payload and
-/// `target`/`current_target` set to `entity`.  Overrides the
-/// constructor defaults to match event-object read-back expectations
-/// (bubbles=false, phase=AtTarget, cancelable explicit).
-fn make_event(
-    event_type: &str,
-    cancelable: bool,
-    payload: EventPayload,
-    entity: Entity,
-) -> DispatchEvent {
-    let mut ev = DispatchEvent::new(event_type, entity);
-    ev.bubbles = false;
-    ev.cancelable = cancelable;
-    ev.payload = payload;
-    ev.phase = EventPhase::AtTarget;
-    ev.current_target = Some(entity);
-    ev.dispatch_flag = true;
-    ev
-}
 
 /// Read a named own property off an object and assert it is a Data
 /// property with the expected `JsValue`.

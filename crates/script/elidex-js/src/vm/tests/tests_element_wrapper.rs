@@ -18,23 +18,12 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom};
 use elidex_script_session::SessionCore;
 
-use super::super::host_data::HostData;
+use super::super::test_helpers::bind_vm;
 use super::super::value::{JsValue, ObjectKind};
 use super::super::Vm;
-
-/// Build a Vm with HostData installed and bound against the given
-/// session/dom.  The caller is responsible for keeping both alive (and
-/// not aliasing them) for the lifetime of the binding.
-#[allow(unsafe_code)]
-unsafe fn bind_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, document: Entity) {
-    vm.install_host_data(HostData::new());
-    unsafe {
-        vm.bind(session as *mut _, dom as *mut _, document);
-    }
-}
 
 #[test]
 fn wrapper_is_identity_cached() {
