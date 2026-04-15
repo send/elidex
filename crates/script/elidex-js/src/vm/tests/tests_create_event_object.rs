@@ -393,14 +393,14 @@ fn event_object_kind_carries_flag_seed() {
 }
 
 // ---------------------------------------------------------------------
-// PR3.6: Precomputed shape sharing.
+// Precomputed shape sharing.
 //
 // `create_event_object` allocates at the terminal shape for the
 // payload variant; two events with the same variant must share the
 // same `ShapeId` so that the hidden-class fast path (PIC etc.) sees
 // them as a single type.  A separate variant must land at a different
-// ShapeId.  Cross-type sharing would cause hidden-class polymorphism
-// and defeat the whole PR3.6 perf work.
+// ShapeId — cross-type shape sharing would cause hidden-class
+// polymorphism and defeat the precomputed-shape optimisation.
 // ---------------------------------------------------------------------
 
 fn shape_of(vm: &Vm, obj: ObjectId) -> u32 {

@@ -195,7 +195,7 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_event_methods_prototype();
 
-        // PR3.6: Precomputed Shape terminals per EventPayload variant.
+        // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the
         // shape-transition walk uses the interned StringIds.  Also

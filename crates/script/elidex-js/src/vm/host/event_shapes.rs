@@ -64,19 +64,11 @@ pub(crate) struct PrecomputedEventShapes {
 impl PrecomputedEventShapes {
     /// Return the terminal shape for `payload`.
     ///
-    /// The lookup's match arms mirror `events::set_payload_properties`
-    /// 1-to-1 — keeping them in sync is a structural invariant (each
-    /// variant's slot order is determined by this shape's
-    /// `ordered_entries`, which the set_payload_properties slot-fill
-    /// must respect).
-    // `EventPayload` is `#[non_exhaustive]` (wildcard required) and
-    // the `Scroll | None` arm happens to share the `core` shape with
-    // the wildcard — clippy flags them as duplicate, but collapsing
-    // them into one arm would lose the explicit enumeration that
-    // signals "these are known no-payload variants" vs "unknown
-    // future variant".  Keep them separate for documentation.
+    /// Match arms mirror `events::append_payload_slots` 1-to-1 —
+    /// keeping them in sync is a structural invariant (each variant's
+    /// slot order is determined by this shape's `ordered_entries`,
+    /// which the payload-slot assembly must respect).
     #[inline]
-    #[allow(clippy::match_same_arms)]
     pub(crate) fn shape_for(&self, payload: &EventPayload) -> ShapeId {
         match payload {
             EventPayload::Mouse(_) => self.mouse,
@@ -93,10 +85,10 @@ impl PrecomputedEventShapes {
             EventPayload::HashChange(_) => self.hash_change,
             EventPayload::PageTransition(_) => self.page_transition,
             EventPayload::Storage { .. } => self.storage,
-            EventPayload::Scroll | EventPayload::None => self.core,
-            // Unrecognised upstream non-exhaustive variant installs no
-            // payload properties (see `events::set_payload_properties`
-            // `_` arm), so core-9 alone is the correct terminal shape.
+            // `Scroll` / `None` install no payload properties; any
+            // future non-exhaustive variant without a matching arm
+            // in `append_payload_slots` likewise installs none, so
+            // all fall through to the core-9 shape.
             _ => self.core,
         }
     }
@@ -216,11 +208,14 @@ impl VmInner {
                 self.well_known.last_event_id,
             ],
         );
+        // CloseEvent's numeric `code` shares the JS-visible name with
+        // Keyboard's `code` → same StringId (StringPool canonicalises);
+        // the shared `well_known.code` field is used for both.
         let close_event = extend(
             self,
             core,
             &[
-                self.well_known.close_event_code,
+                self.well_known.code,
                 self.well_known.reason,
                 self.well_known.was_clean,
             ],

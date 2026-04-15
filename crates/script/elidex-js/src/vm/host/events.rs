@@ -112,26 +112,10 @@ impl VmInner {
     /// `Event` variant stores it so `preventDefault()` can no-op
     /// without looking it up from `HostData`.
     ///
-    /// # Property installation (PR3.6 fast path)
-    ///
-    /// Every own property of the event object is a data property
-    /// whose name and attributes are fixed by the payload variant.
-    /// We exploit this by:
-    ///
-    /// 1. Allocating at `ROOT_SHAPE` with an empty slot vec.
-    /// 2. Assembling a single `Vec<JsValue>` holding the core-9 values
-    ///    followed by the payload's values, in the exact order the
-    ///    precomputed shape was built with (see
-    ///    [`PrecomputedEventShapes`] / `build_precomputed_event_shapes`).
-    /// 3. Calling [`VmInner::define_with_precomputed_shape`] once to
-    ///    publish the final shape + slots in a single operation.
-    ///
-    /// This replaces 9 + N `define_shaped_property` calls (each doing
-    /// a transition-cache hashmap lookup + insertion-order clones
-    /// inside `shape_add_transition`) with a single storage
-    /// replacement, plus it eliminates the per-payload-property
-    /// `strings.intern(name)` calls — payload keys are pre-interned
-    /// into `WellKnownStrings` at `Vm::new` time.
+    /// Property installation goes through the precomputed-shape fast
+    /// path — see `host/event_shapes.rs` module doc for the layout
+    /// and [`VmInner::define_with_precomputed_shape`] for the
+    /// single-operation slot publish.
     ///
     /// # GC safety
     ///
@@ -200,24 +184,40 @@ impl VmInner {
         // `build_precomputed_event_shapes`'s transition chain.  Any
         // reordering here must be mirrored there or slot values land
         // under the wrong JS-visible keys.
+        //
+        // Built as `Vec<PropertyValue>` directly (not `Vec<JsValue>`
+        // with a later `.map(Data).collect()`) so
+        // `define_with_precomputed_shape` can *move* the vector into
+        // the object's slot storage — saves one heap allocation per
+        // dispatch.
         let type_sid = g.strings.intern(&event.event_type);
-        let mut slots: Vec<JsValue> = Vec::with_capacity(9 + 8); // 9 core + up to 8 payload (Mouse)
-        slots.push(JsValue::String(type_sid));
-        slots.push(JsValue::Boolean(event.bubbles));
-        slots.push(JsValue::Boolean(event.cancelable));
-        slots.push(JsValue::Number(f64::from(event.phase as u8)));
-        slots.push(JsValue::Object(target_wrapper_id));
-        slots.push(JsValue::Object(current_target_wrapper_id));
+        // 9 core + up to 8 payload (Mouse is the largest).  All 16 payload
+        // variants fit in this capacity with no reallocation.
+        let mut slots: Vec<PropertyValue> = Vec::with_capacity(17);
+        slots.push(PropertyValue::Data(JsValue::String(type_sid)));
+        slots.push(PropertyValue::Data(JsValue::Boolean(event.bubbles)));
+        slots.push(PropertyValue::Data(JsValue::Boolean(event.cancelable)));
+        slots.push(PropertyValue::Data(JsValue::Number(f64::from(
+            event.phase as u8,
+        ))));
+        slots.push(PropertyValue::Data(JsValue::Object(target_wrapper_id)));
+        slots.push(PropertyValue::Data(JsValue::Object(
+            current_target_wrapper_id,
+        )));
         // `timeStamp` held at 0.0 until `performance.now()` lands in
         // PR4 (tracked in zesty-inventing-galaxy.md PR4 section).
-        slots.push(JsValue::Number(0.0));
-        slots.push(JsValue::Boolean(event.composed));
-        slots.push(JsValue::Boolean(event.is_trusted));
+        slots.push(PropertyValue::Data(JsValue::Number(0.0)));
+        slots.push(PropertyValue::Data(JsValue::Boolean(event.composed)));
+        slots.push(PropertyValue::Data(JsValue::Boolean(event.is_trusted)));
 
         // Payload-specific slot values.  May allocate (Focus's
         // relatedTarget via `create_element_wrapper`); the returned
-        // wrapper ObjectId is rooted via wrapper_cache before we
-        // push it into `slots`.
+        // wrapper ObjectId is immediately rooted in `HostData::wrapper_cache`
+        // inside `create_element_wrapper` before we push it here.
+        // The existing `slots` Vec holds only primitives and already-rooted
+        // wrappers (target/currentTarget, composed-path wrappers, Focus
+        // relatedTarget) — no JsValue in the Vec would be reclaimed if a
+        // GC ran during the Focus allocation.
         append_payload_slots(&mut g, &mut slots, &event.payload);
 
         // ---- Publish shape + slots in one operation ----
@@ -229,7 +229,7 @@ impl VmInner {
             .as_ref()
             .expect("precomputed_event_shapes missing — register_globals must run before create_event_object")
             .shape_for(&event.payload);
-        g.define_with_precomputed_shape(event_id, shape_id, &slots);
+        g.define_with_precomputed_shape(event_id, shape_id, slots);
 
         drop(g);
         event_id
@@ -246,69 +246,84 @@ impl VmInner {
 // ---------------------------------------------------------------------
 
 #[allow(clippy::too_many_lines)]
-fn append_payload_slots(vm: &mut VmInner, slots: &mut Vec<JsValue>, payload: &EventPayload) {
+fn append_payload_slots(vm: &mut VmInner, slots: &mut Vec<PropertyValue>, payload: &EventPayload) {
+    // Local helpers — keep each variant arm readable by wrapping the
+    // repetitive `slots.push(PropertyValue::Data(JsValue::X(v)))` call.
+    fn num(slots: &mut Vec<PropertyValue>, v: f64) {
+        slots.push(PropertyValue::Data(JsValue::Number(v)));
+    }
+    fn b(slots: &mut Vec<PropertyValue>, v: bool) {
+        slots.push(PropertyValue::Data(JsValue::Boolean(v)));
+    }
+    fn s(slots: &mut Vec<PropertyValue>, sid: super::super::value::StringId) {
+        slots.push(PropertyValue::Data(JsValue::String(sid)));
+    }
+    fn v(slots: &mut Vec<PropertyValue>, v: JsValue) {
+        slots.push(PropertyValue::Data(v));
+    }
+
     match payload {
         EventPayload::Mouse(m) => {
             // clientX, clientY, button, buttons, altKey, ctrlKey, metaKey, shiftKey
-            slots.push(JsValue::Number(m.client_x));
-            slots.push(JsValue::Number(m.client_y));
-            slots.push(JsValue::Number(f64::from(m.button)));
-            slots.push(JsValue::Number(f64::from(m.buttons)));
-            slots.push(JsValue::Boolean(m.alt_key));
-            slots.push(JsValue::Boolean(m.ctrl_key));
-            slots.push(JsValue::Boolean(m.meta_key));
-            slots.push(JsValue::Boolean(m.shift_key));
+            num(slots, m.client_x);
+            num(slots, m.client_y);
+            num(slots, f64::from(m.button));
+            num(slots, f64::from(m.buttons));
+            b(slots, m.alt_key);
+            b(slots, m.ctrl_key);
+            b(slots, m.meta_key);
+            b(slots, m.shift_key);
         }
         EventPayload::Keyboard(k) => {
             // key, code, altKey, ctrlKey, metaKey, shiftKey, repeat
             let key_sid = vm.strings.intern(&k.key);
             let code_sid = vm.strings.intern(&k.code);
-            slots.push(JsValue::String(key_sid));
-            slots.push(JsValue::String(code_sid));
-            slots.push(JsValue::Boolean(k.alt_key));
-            slots.push(JsValue::Boolean(k.ctrl_key));
-            slots.push(JsValue::Boolean(k.meta_key));
-            slots.push(JsValue::Boolean(k.shift_key));
-            slots.push(JsValue::Boolean(k.repeat));
+            s(slots, key_sid);
+            s(slots, code_sid);
+            b(slots, k.alt_key);
+            b(slots, k.ctrl_key);
+            b(slots, k.meta_key);
+            b(slots, k.shift_key);
+            b(slots, k.repeat);
         }
         EventPayload::Transition(t) => {
             // propertyName, elapsedTime, pseudoElement
             let name_sid = vm.strings.intern(&t.property_name);
             let pe_sid = vm.strings.intern(&t.pseudo_element);
-            slots.push(JsValue::String(name_sid));
-            slots.push(JsValue::Number(t.elapsed_time));
-            slots.push(JsValue::String(pe_sid));
+            s(slots, name_sid);
+            num(slots, t.elapsed_time);
+            s(slots, pe_sid);
         }
         EventPayload::Animation(a) => {
             // animationName, elapsedTime, pseudoElement
             let name_sid = vm.strings.intern(&a.animation_name);
             let pe_sid = vm.strings.intern(&a.pseudo_element);
-            slots.push(JsValue::String(name_sid));
-            slots.push(JsValue::Number(a.elapsed_time));
-            slots.push(JsValue::String(pe_sid));
+            s(slots, name_sid);
+            num(slots, a.elapsed_time);
+            s(slots, pe_sid);
         }
         EventPayload::Input(i) => {
             // inputType, data, isComposing
             let type_sid = vm.strings.intern(&i.input_type);
             let data_val = match &i.data {
-                Some(s) => JsValue::String(vm.strings.intern(s)),
+                Some(str_) => JsValue::String(vm.strings.intern(str_)),
                 None => JsValue::Null,
             };
-            slots.push(JsValue::String(type_sid));
-            slots.push(data_val);
-            slots.push(JsValue::Boolean(i.is_composing));
+            s(slots, type_sid);
+            v(slots, data_val);
+            b(slots, i.is_composing);
         }
         EventPayload::Clipboard(c) => {
             // dataType, data
             let type_sid = vm.strings.intern(&c.data_type);
             let data_sid = vm.strings.intern(&c.data);
-            slots.push(JsValue::String(type_sid));
-            slots.push(JsValue::String(data_sid));
+            s(slots, type_sid);
+            s(slots, data_sid);
         }
         EventPayload::Composition(c) => {
             // data
             let data_sid = vm.strings.intern(&c.data);
-            slots.push(JsValue::String(data_sid));
+            s(slots, data_sid);
         }
         EventPayload::Focus(f) => {
             // relatedTarget
@@ -320,13 +335,13 @@ fn append_payload_slots(vm: &mut VmInner, slots: &mut Vec<JsValue>, payload: &Ev
                 Some(entity) => JsValue::Object(vm.create_element_wrapper(entity)),
                 None => JsValue::Null,
             };
-            slots.push(related_val);
+            v(slots, related_val);
         }
         EventPayload::Wheel(w) => {
             // deltaX, deltaY, deltaMode
-            slots.push(JsValue::Number(w.delta_x));
-            slots.push(JsValue::Number(w.delta_y));
-            slots.push(JsValue::Number(f64::from(w.delta_mode)));
+            num(slots, w.delta_x);
+            num(slots, w.delta_y);
+            num(slots, f64::from(w.delta_mode));
         }
         EventPayload::Message {
             data,
@@ -337,28 +352,28 @@ fn append_payload_slots(vm: &mut VmInner, slots: &mut Vec<JsValue>, payload: &Ev
             let data_sid = vm.strings.intern(data);
             let origin_sid = vm.strings.intern(origin);
             let last_id_sid = vm.strings.intern(last_event_id);
-            slots.push(JsValue::String(data_sid));
-            slots.push(JsValue::String(origin_sid));
-            slots.push(JsValue::String(last_id_sid));
+            s(slots, data_sid);
+            s(slots, origin_sid);
+            s(slots, last_id_sid);
             // `source` / `ports` populated when MessagePort lands (PR5b).
         }
         EventPayload::CloseEvent(c) => {
             // code, reason, wasClean
             let reason_sid = vm.strings.intern(&c.reason);
-            slots.push(JsValue::Number(f64::from(c.code)));
-            slots.push(JsValue::String(reason_sid));
-            slots.push(JsValue::Boolean(c.was_clean));
+            num(slots, f64::from(c.code));
+            s(slots, reason_sid);
+            b(slots, c.was_clean);
         }
         EventPayload::HashChange(h) => {
             // oldURL, newURL
             let old_sid = vm.strings.intern(&h.old_url);
             let new_sid = vm.strings.intern(&h.new_url);
-            slots.push(JsValue::String(old_sid));
-            slots.push(JsValue::String(new_sid));
+            s(slots, old_sid);
+            s(slots, new_sid);
         }
         EventPayload::PageTransition(p) => {
             // persisted
-            slots.push(JsValue::Boolean(p.persisted));
+            b(slots, p.persisted);
         }
         EventPayload::Storage {
             key,
@@ -367,23 +382,18 @@ fn append_payload_slots(vm: &mut VmInner, slots: &mut Vec<JsValue>, payload: &Ev
             url,
         } => {
             // key, oldValue, newValue, url
-            let key_val = match key {
-                Some(s) => JsValue::String(vm.strings.intern(s)),
+            let opt = |vm: &mut VmInner, str_: &Option<String>| match str_ {
+                Some(x) => JsValue::String(vm.strings.intern(x)),
                 None => JsValue::Null,
             };
-            let old_val = match old_value {
-                Some(s) => JsValue::String(vm.strings.intern(s)),
-                None => JsValue::Null,
-            };
-            let new_val = match new_value {
-                Some(s) => JsValue::String(vm.strings.intern(s)),
-                None => JsValue::Null,
-            };
+            let key_val = opt(vm, key);
+            let old_val = opt(vm, old_value);
+            let new_val = opt(vm, new_value);
             let url_sid = vm.strings.intern(url);
-            slots.push(key_val);
-            slots.push(old_val);
-            slots.push(new_val);
-            slots.push(JsValue::String(url_sid));
+            v(slots, key_val);
+            v(slots, old_val);
+            v(slots, new_val);
+            s(slots, url_sid);
             // `storageArea` populated when localStorage / sessionStorage land (PR5a).
         }
         EventPayload::Scroll | EventPayload::None => {

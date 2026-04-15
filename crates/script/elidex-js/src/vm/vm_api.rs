@@ -159,26 +159,29 @@ impl Vm {
     /// on every subsequent call.  See `vm/host/elements.rs` module
     /// doc for the identity contract.
     ///
-    /// Public hook for benches and shell integration (PR6) that need
-    /// to surface a DOM Entity to JS without routing through a full
-    /// dispatch.  Requires `HostData` to be installed (the cache
-    /// lives there).
+    /// **Bench-only hook.**  The returned `ObjectId` can only be kept
+    /// GC-alive by rooting machinery that is not yet public
+    /// (`push_temp_root` / `HostData::wrapper_cache`), so this is not
+    /// safe for external callers to persist across allocations.  Kept
+    /// `pub` + `#[doc(hidden)]` so `benches/event_dispatch.rs` can
+    /// construct test fixtures without reaching into `VmInner`.
+    /// Do not rely on this for anything beyond bench scaffolding.
     #[cfg(feature = "engine")]
+    #[doc(hidden)]
     pub fn create_element_wrapper(&mut self, entity: elidex_ecs::Entity) -> ObjectId {
         self.inner.create_element_wrapper(entity)
     }
 
     /// Build a JS event object for a single listener invocation.
-    /// Thin wrapper over the internal builder (see
-    /// `vm/host/events.rs::create_event_object`) — exposed pub so
-    /// benches and shell dispatch code can construct event objects
-    /// outside of the internal dispatch loop.
     ///
-    /// The caller must pass pre-resolved HostObject wrappers for
-    /// target / currentTarget (use [`Vm::create_element_wrapper`]).
-    /// Returned ObjectId is unrooted — root it immediately before
-    /// any operation that may allocate or run user JS.
+    /// **Bench-only hook** (same reasoning as
+    /// [`Vm::create_element_wrapper`]).  Thin wrapper over
+    /// `vm/host/events.rs::create_event_object`; the caller must
+    /// supply pre-resolved target/currentTarget `HostObject` wrappers.
+    /// Returned `ObjectId` is unrooted — not safe to persist across
+    /// subsequent allocations from external code.
     #[cfg(feature = "engine")]
+    #[doc(hidden)]
     pub fn create_event_object(
         &mut self,
         event: &elidex_script_session::event_dispatch::DispatchEvent,

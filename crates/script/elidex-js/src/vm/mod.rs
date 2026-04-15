@@ -195,7 +195,7 @@ pub(crate) struct VmInner {
     /// become this object's parent or replace it outright.
     pub(crate) event_methods_prototype: Option<ObjectId>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
-    /// during `register_globals` (PR3.6).  `None` on non-engine builds
+    /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after
     /// VM creation.
     ///
@@ -319,12 +319,12 @@ pub(crate) struct WellKnownStrings {
     pub(crate) unhandledrejection: StringId,
     pub(crate) promise: StringId,
 
-    // -- Event payload property keys (PR3.6) --
+    // -- Event payload property keys --
     // Pre-interned so `create_event_object`'s payload installation
     // can feed them directly into the precomputed-shape slot array
     // without per-dispatch `strings.intern(name)` calls.  Also used
-    // by `PrecomputedEventShapes::build` to walk the shape-transition
-    // chain once at `register_globals` time.
+    // by `VmInner::build_precomputed_event_shapes` to walk the
+    // shape-transition chain once at `register_globals` time.
     //
     // Shared keys (used by multiple payload variants) are defined
     // once: `alt_key`, `ctrl_key`, `meta_key`, `shift_key`, `data`,
@@ -354,10 +354,6 @@ pub(crate) struct WellKnownStrings {
     pub(crate) delta_mode: StringId,
     pub(crate) origin: StringId,
     pub(crate) last_event_id: StringId,
-    // `close_event_code` — CloseEvent's numeric code (WebSocket close
-    // frame code).  Distinct from the `code` key (KeyboardEvent).
-    // JS-visible name is `"code"`; the Rust field disambiguates.
-    pub(crate) close_event_code: StringId,
     pub(crate) was_clean: StringId,
     pub(crate) old_url: StringId,
     pub(crate) new_url: StringId,
@@ -762,15 +758,17 @@ impl VmInner {
     /// VM creation time (e.g. event objects via `PrecomputedEventShapes`):
     /// allocate the object at `ROOT_SHAPE` with an empty slot vec,
     /// then call this API once with the precomputed terminal shape and
-    /// the assembled slot values.  Replaces ~N `define_shaped_property`
+    /// the pre-assembled slot values.  Replaces ~N `define_shaped_property`
     /// calls with a single `PropertyStorage` replacement.
     ///
-    /// All slots are installed as [`value::PropertyValue::Data`].
-    /// Callers that need accessor properties on the fast path must
-    /// fall back to `define_shaped_property` (a design trade-off —
-    /// this API is optimised for the event-object case, where every
-    /// own property is a data property and accessors live on the
-    /// shared `event_methods_prototype`).
+    /// `slots` is consumed by value and **moved** into the object
+    /// (the caller's `Vec` becomes the object's slot storage
+    /// directly) — no intermediate `collect()` allocates a second
+    /// vector.  Callers that need accessor properties on the fast
+    /// path must fall back to `define_shaped_property` (a design
+    /// trade-off — this API is optimised for the event-object case,
+    /// where every own property is a data property and accessors
+    /// live on the shared `event_methods_prototype`).
     ///
     /// # Panics
     ///
@@ -795,7 +793,7 @@ impl VmInner {
         &mut self,
         obj_id: ObjectId,
         shape_id: shape::ShapeId,
-        slots: &[JsValue],
+        slots: Vec<value::PropertyValue>,
     ) {
         debug_assert_eq!(
             self.shapes[shape_id as usize].property_count() as usize,
@@ -804,16 +802,11 @@ impl VmInner {
             slots.len(),
             self.shapes[shape_id as usize].property_count(),
         );
-        let property_slots: Vec<value::PropertyValue> = slots
-            .iter()
-            .copied()
-            .map(value::PropertyValue::Data)
-            .collect();
         let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
         match &mut obj.storage {
             value::PropertyStorage::Shaped { shape, slots: s } => {
                 *shape = shape_id;
-                *s = property_slots;
+                *s = slots;
             }
             value::PropertyStorage::Dictionary(_) => {
                 panic!("define_with_precomputed_shape requires Shaped storage; got Dictionary");
@@ -1135,8 +1128,8 @@ impl Vm {
             unhandledrejection: strings.intern("unhandledrejection"),
             promise: strings.intern("promise"),
 
-            // Event-payload property keys (PR3.6).  Interned once here
-            // so `create_event_object` can feed slots into
+            // Event-payload property keys.  Interned once here so
+            // `create_event_object` can feed slots into
             // `define_with_precomputed_shape` without re-interning.
             client_x: strings.intern("clientX"),
             client_y: strings.intern("clientY"),
@@ -1163,12 +1156,6 @@ impl Vm {
             delta_mode: strings.intern("deltaMode"),
             origin: strings.intern("origin"),
             last_event_id: strings.intern("lastEventId"),
-            // CloseEvent's numeric code reuses the JS-visible name
-            // `"code"`, but we pre-intern it under a distinct Rust
-            // field name to avoid shadowing the `code` (Keyboard) key.
-            // The underlying StringId is equal because `intern` is
-            // canonical.
-            close_event_code: strings.intern("code"),
             was_clean: strings.intern("wasClean"),
             old_url: strings.intern("oldURL"),
             new_url: strings.intern("newURL"),
