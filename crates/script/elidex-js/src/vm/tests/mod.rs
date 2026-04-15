@@ -22,6 +22,7 @@ mod tests_math;
 mod tests_navigator;
 mod tests_number;
 mod tests_object_complement;
+mod tests_performance;
 mod tests_promise;
 mod tests_promise_rejection_event;
 mod tests_remove_event_listener;

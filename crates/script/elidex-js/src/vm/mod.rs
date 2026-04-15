@@ -267,13 +267,13 @@ pub(crate) struct VmInner {
     /// observed inside the same listener are directly comparable
     /// (spec requirement — the time origin is the same).
     ///
-    /// `Event.timeStamp` wiring lands in PR4d; the field is introduced
-    /// here in PR4b C3 so `performance.now()` (PR4b C5) can share it.
+    /// `Event.timeStamp` wiring lands in PR4d; the field is consumed
+    /// here by `performance.now()` (PR4b C5).
     ///
-    /// `#[allow(dead_code)]` until PR4b C5 — the field is consumed by
-    /// `performance.now()` and therefore reachable, but no call site
-    /// exists yet at C3 when the field is introduced.
-    #[allow(dead_code)]
+    /// Engine-only: both consumers (`performance.now`, `Event.timeStamp`)
+    /// live behind `#[cfg(feature = "engine")]`, so gating the field
+    /// keeps the non-engine VM minimal.
+    #[cfg(feature = "engine")]
     pub(crate) start_instant: std::time::Instant,
     /// Browsing-context navigation state — backs `location.*`,
     /// `history.*`, and `document.URL` / `document.documentURI`.  See
@@ -945,6 +945,7 @@ impl Vm {
                 next_timer_id: 1,
                 active_timer_ids: HashSet::new(),
                 cancelled_timers: HashSet::new(),
+                #[cfg(feature = "engine")]
                 start_instant: std::time::Instant::now(),
                 #[cfg(feature = "engine")]
                 navigation: host::navigation::NavigationState::new(),

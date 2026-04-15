@@ -216,6 +216,9 @@ impl VmInner {
             // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`
             // etc. resolve against `Object.prototype` as expected.
             self.register_navigator_global();
+            // `performance` — HR-Time §5.  Shares the time origin
+            // (`VmInner::start_instant`) with `Event.timeStamp`.
+            self.register_performance_global();
         }
 
         // Internal Event-methods prototype (PR3) — `event_methods_prototype`
