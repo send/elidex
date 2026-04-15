@@ -24,6 +24,15 @@ mod engine_feature {
         session_ptr: *mut elidex_script_session::SessionCore,
         dom_ptr: *mut elidex_ecs::EcsDom,
         document_entity: Option<Entity>,
+        /// Entity backing `globalThis` / `window` (WHATWG HTML §7.2).
+        ///
+        /// Created on the first [`Vm::bind`](super::Vm::bind) and **retained
+        /// across unbind cycles** — identity is stable for the whole
+        /// lifetime of the `HostData`, mirroring `wrapper_cache`.  A second
+        /// `bind` reuses the same entity, so JS references saved across
+        /// bind → unbind → bind boundaries keep pointing at the same ECS
+        /// address (and therefore the same `EventListeners` component).
+        window_entity: Option<Entity>,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
         pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
     }
@@ -34,6 +43,7 @@ mod engine_feature {
                 session_ptr: std::ptr::null_mut(),
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
+                window_entity: None,
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
             }
@@ -103,6 +113,33 @@ mod engine_feature {
         pub fn document(&self) -> Entity {
             assert!(self.is_bound(), "HostData accessed while unbound");
             self.document_entity.unwrap()
+        }
+
+        /// Return the cached Window entity, or `None` if
+        /// [`Vm::bind`](super::Vm::bind) has never run on this `HostData`.
+        ///
+        /// Unlike [`Self::document`], this **does not** require the
+        /// `HostData` to be currently bound — the Window entity is VM-owned
+        /// (allocated by `Vm::bind` through `dom().create_window_root()`)
+        /// and remains valid until the underlying `EcsDom` is dropped.
+        pub fn window_entity(&self) -> Option<Entity> {
+            self.window_entity
+        }
+
+        /// Record the Window entity allocated by [`Vm::bind`](super::Vm::bind).
+        ///
+        /// # Panics
+        ///
+        /// Panics if a Window entity is already stored — calling twice
+        /// would silently orphan the prior entity (losing its
+        /// `EventListeners` component) and is indicative of a missing
+        /// lifecycle guard in `Vm::bind`.
+        pub fn set_window_entity(&mut self, entity: Entity) {
+            assert!(
+                self.window_entity.is_none(),
+                "HostData::set_window_entity called twice (already stored)"
+            );
+            self.window_entity = Some(entity);
         }
 
         /// # Panics

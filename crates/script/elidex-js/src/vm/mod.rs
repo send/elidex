@@ -188,6 +188,17 @@ pub(crate) struct VmInner {
     /// `register_globals()`.  Read when `create_element_wrapper` (PR3 C2)
     /// allocates a `HostObject` wrapper.
     pub(crate) event_target_prototype: Option<ObjectId>,
+    /// `Window.prototype` — prototype for the `globalThis` / `window`
+    /// `HostObject` (WHATWG HTML §7.2).  Inherits from
+    /// `EventTarget.prototype` so `window.addEventListener` resolves
+    /// without a per-entity method install; own-property slots for
+    /// window-specific APIs (`innerWidth`, `scrollTo`, `navigator`,
+    /// `location`, …) land on this prototype in later PR4b commits.
+    ///
+    /// `None` until `register_window_prototype()` runs during
+    /// `register_globals()` (right after `register_event_target_prototype`
+    /// so the chain is built bottom-up).
+    pub(crate) window_prototype: Option<ObjectId>,
     /// Internal prototype for `ObjectKind::Event` instances.  Holds the
     /// four event methods (`preventDefault`, `stopPropagation`,
     /// `stopImmediatePropagation`, `composedPath`) and the
@@ -896,6 +907,7 @@ impl Vm {
                 aggregate_error_prototype: None,
                 generator_prototype: None,
                 event_target_prototype: None,
+                window_prototype: None,
                 event_methods_prototype: None,
                 #[cfg(feature = "engine")]
                 precomputed_event_shapes: None,

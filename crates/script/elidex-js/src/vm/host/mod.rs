@@ -17,3 +17,4 @@ pub(super) mod event_shapes;
 pub(super) mod event_target;
 pub(super) mod events;
 pub(super) mod globals;
+pub(super) mod window;

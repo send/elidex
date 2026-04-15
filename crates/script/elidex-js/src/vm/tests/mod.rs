@@ -29,6 +29,7 @@ mod tests_string_complement;
 mod tests_timer;
 mod tests_try_catch_finally;
 mod tests_value_types;
+mod tests_window_global;
 
 use super::value::{JsValue, Object, ObjectKind, VmError};
 use super::Vm;

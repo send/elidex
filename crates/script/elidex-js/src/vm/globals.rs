@@ -85,14 +85,25 @@ impl VmInner {
     // -- Global registration -------------------------------------------------
 
     pub(super) fn register_globals(&mut self) {
-        // Allocate the global object (globalThis). Writes through this object
-        // are mirrored into the globals HashMap, and reads fall back to
-        // globals so `this.<prop>` stays consistent with bare identifier
-        // access in non-strict functions (§9.2.1.2).
+        // Allocate the global object (`globalThis` / `window`).  It is a
+        // `HostObject` backed by the Window ECS entity so that
+        // `window.addEventListener(...)` targets a distinct entity from
+        // `document.addEventListener(...)` (WHATWG HTML §7.2).  The
+        // initial `entity_bits` is `0`, which `Entity::from_bits`
+        // rejects — `entity_from_this` therefore treats any
+        // pre-bind/post-unbind access as a silent no-op rather than
+        // panicking.  `Vm::bind` overwrites `entity_bits` with the
+        // `HostData::window_entity()` value on every bind; `Vm::unbind`
+        // resets it back to `0`.
+        //
+        // Writes through this object are mirrored into the `globals`
+        // HashMap, and reads fall back to `globals` so `this.<prop>`
+        // stays consistent with bare identifier access in non-strict
+        // functions (§9.2.1.2).
         let global_obj = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
+            kind: ObjectKind::HostObject { entity_bits: 0 },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: None, // will be set after Object.prototype exists
+            prototype: None, // chain finalised after Window.prototype exists
             extensible: true,
         });
         self.global_object = global_obj;
@@ -188,6 +199,19 @@ impl VmInner {
         // exposed yet; wrappers obtain the prototype via
         // `create_element_wrapper` (PR3 C2).
         self.register_event_target_prototype();
+
+        // Window.prototype — prototype for the `globalThis` `HostObject`
+        // (WHATWG HTML §7.2).  Must run *after*
+        // `register_event_target_prototype` because the Window prototype
+        // chains to it.  After creation, splice Window.prototype into
+        // globalThis's prototype slot, finalising
+        // `globalThis → Window.prototype → EventTarget.prototype →
+        // Object.prototype`.
+        #[cfg(feature = "engine")]
+        {
+            self.register_window_prototype();
+            self.get_object_mut(self.global_object).prototype = self.window_prototype;
+        }
 
         // Internal Event-methods prototype (PR3) — `event_methods_prototype`
         // is set under the `engine` feature only; without engine there are
