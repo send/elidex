@@ -8,6 +8,7 @@ use std::time::Instant;
 use elidex_ecs::Entity;
 use elidex_script_session::{DispatchEvent, EvalResult, ListenerId, ScriptContext, ScriptEngine};
 
+use crate::vm::value::{JsValue, ObjectKind};
 use crate::vm::Vm;
 
 /// elidex-js VM backed `ScriptEngine` implementation.
@@ -49,18 +50,77 @@ impl ScriptEngine for ElidexJsEngine {
 
     fn call_listener(
         &mut self,
-        _listener_id: ListenerId,
-        _event: &mut DispatchEvent,
-        _current_target: Entity,
-        _passive: bool,
+        listener_id: ListenerId,
+        event: &mut DispatchEvent,
+        current_target: Entity,
+        passive: bool,
         _ctx: &mut ScriptContext<'_>,
     ) {
-        // Stub — event listener invocation requires full DOM integration
-        // (lands with PR3 when Event/DOM wrappers become available).
+        // 1. Resolve the listener function ObjectId from HostData's
+        //    listener_store.  A miss means the listener was removed
+        //    between dispatch-plan freezing and this invocation —
+        //    silently no-op (matches WHATWG DOM §2.10 step 5.4 "if
+        //    listener's removed is true, then continue").
+        let Some(host) = self.vm.host_data() else {
+            return;
+        };
+        let Some(listener_obj_id) = host.get_listener(listener_id) else {
+            return;
+        };
+
+        // 2. Build target / currentTarget wrappers via the cached
+        //    `create_element_wrapper`.  Both end up rooted in
+        //    `wrapper_cache`, so they survive any GC triggered by the
+        //    listener body.
+        let target_wrapper = self.vm.inner.create_element_wrapper(event.target);
+        let current_wrapper = self.vm.inner.create_element_wrapper(current_target);
+
+        // 3. Build the per-listener event object.  `create_event_object`
+        //    suppresses GC during construction; on return the object is
+        //    not yet rooted by anything.  Push it onto the VM stack as a
+        //    temporary root so a GC inside the listener body cannot
+        //    collect the very event object the listener is reading.
+        let event_obj_id =
+            self.vm
+                .inner
+                .create_event_object(event, target_wrapper, current_wrapper, passive);
+        self.vm.inner.stack.push(JsValue::Object(event_obj_id));
+
+        // 4. Invoke the listener.  Errors are swallowed — there is no
+        //    sensible recovery path inside dispatch (browsers log to
+        //    console; we'll route through `host.session()` once the
+        //    log channel lands in PR4).
+        let _ = self.vm.call(
+            listener_obj_id,
+            JsValue::Object(current_wrapper),
+            &[JsValue::Object(event_obj_id)],
+        );
+
+        // 5. Sync the three flag fields back into `event.flags` so the
+        //    next listener (and the dispatch loop's stop-propagation
+        //    check) observes any preventDefault / stopPropagation calls.
+        if let ObjectKind::Event {
+            default_prevented,
+            propagation_stopped,
+            immediate_propagation_stopped,
+            ..
+        } = self.vm.inner.get_object(event_obj_id).kind
+        {
+            event.flags.default_prevented = default_prevented;
+            event.flags.propagation_stopped = propagation_stopped;
+            event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
+        }
+
+        // 6. Drop the temporary event-object root.  The event_obj_id
+        //    becomes unreachable after this pop and will be reclaimed
+        //    on the next GC cycle.
+        self.vm.inner.stack.pop();
     }
 
-    fn remove_listener(&mut self, _listener_id: ListenerId) {
-        // Stub — listener store lands with PR3.
+    fn remove_listener(&mut self, listener_id: ListenerId) {
+        if let Some(host) = self.vm.host_data() {
+            host.remove_listener(listener_id);
+        }
     }
 
     fn run_microtasks(&mut self, _ctx: &mut ScriptContext<'_>) {

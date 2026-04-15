@@ -42,6 +42,10 @@ mod engine;
 #[cfg(feature = "engine")]
 pub use engine::ElidexJsEngine;
 
+#[cfg(test)]
+#[cfg(feature = "engine")]
+mod tests_call_listener;
+
 mod lexer;
 mod parser;
 mod scope;
