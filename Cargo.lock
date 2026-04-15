@@ -2005,6 +2005,7 @@ name = "elidex-js"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",
+ "elidex-plugin",
  "elidex-script-session",
  "hashbrown 0.15.5",
  "num-bigint",

@@ -18,6 +18,33 @@
 
 use super::value::{JsValue, NativeContext, ObjectKind, VmError};
 
+/// Accessor getter for `Event.prototype.defaultPrevented`.
+///
+/// WHATWG DOM §2.9 defines `defaultPrevented` as a getter attribute
+/// that returns the current state of the canceled flag — i.e. it must
+/// reflect a `preventDefault()` call inside the same listener.
+/// Exposing as a live getter (rather than a stale data property) is
+/// the only spec-conforming representation.
+pub(super) fn native_event_get_default_prevented(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if let JsValue::Object(id) = this {
+        if let ObjectKind::Event {
+            default_prevented, ..
+        } = &ctx.vm.get_object(id).kind
+        {
+            return Ok(JsValue::Boolean(*default_prevented));
+        }
+    }
+    // Unreachable in well-formed callers — the getter is installed on
+    // the event object only, so `this` is always an `ObjectKind::Event`.
+    // Return `false` rather than throwing to match detached-method
+    // behaviour on the other event methods.
+    Ok(JsValue::Boolean(false))
+}
+
 /// `Event.prototype.preventDefault()` — WHATWG DOM §2.9 step 1 only
 /// sets `canceled flag` when the event is `cancelable` AND the listener
 /// is NOT passive; otherwise silent no-op.  The spec warning-in-console

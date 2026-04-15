@@ -5,6 +5,7 @@ mod tests_array_prototype_ext;
 mod tests_async;
 mod tests_bigint;
 mod tests_console;
+mod tests_create_event_object;
 mod tests_element_wrapper;
 mod tests_event_object;
 mod tests_event_target;
