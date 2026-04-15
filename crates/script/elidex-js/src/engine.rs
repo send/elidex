@@ -115,6 +115,17 @@ impl ScriptEngine for ElidexJsEngine {
         //    becomes unreachable after this pop and will be reclaimed
         //    on the next GC cycle.
         self.vm.inner.stack.pop();
+
+        // NOTE: microtask checkpoint is intentionally NOT performed
+        // here — the shared dispatch loop in
+        // `elidex_script_session::event_dispatch::script_dispatch_event_core`
+        // calls `engine.run_microtasks(ctx)` after every listener
+        // invocation (HTML §8.1.7.3).  Draining inside `call_listener`
+        // too would be a double-drain (the second pass would always
+        // see an empty queue) and would entangle this engine impl
+        // with the dispatch core's checkpoint policy.  Timer drain
+        // (`drain_timers`) is similarly host-driven — the shell event
+        // loop calls it once per event-loop tick, not per listener.
     }
 
     fn remove_listener(&mut self, listener_id: ListenerId) {

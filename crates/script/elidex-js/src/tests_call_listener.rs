@@ -221,6 +221,68 @@ fn current_target_is_the_this_binding_for_the_listener() {
 }
 
 #[test]
+fn microtask_scheduled_inside_listener_fires_on_next_run_microtasks() {
+    // Mirrors the shared dispatch core's pattern (HTML §8.1.7.3
+    // microtask checkpoint after each listener) — verifies that the
+    // VM's microtask queue is correctly populated by user JS during
+    // the listener body and drained by `engine.run_microtasks(ctx)`.
+    let mut engine = ElidexJsEngine::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let target = dom.create_element("div", Attributes::default());
+    let listener_id = ListenerId::from_raw(1);
+
+    register_listener_via_global(
+        &mut engine,
+        &mut session,
+        &mut dom,
+        doc,
+        // Listener schedules a microtask via Promise.resolve().then().
+        // The microtask body sets `__fired__` to true.
+        "function (e) {
+            globalThis.__fired__ = false;
+            Promise.resolve().then(function () {
+                globalThis.__fired__ = true;
+            });
+        }",
+        listener_id,
+    );
+
+    let mut event = DispatchEvent::new("click", target);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+
+    // Inside the listener body the microtask is queued but not yet
+    // run — verify it is still pending right after `call_listener`.
+    let pre = engine
+        .vm()
+        .get_global("__fired__")
+        .expect("__fired__ must be initialised by the listener");
+    assert_eq!(
+        pre,
+        JsValue::Boolean(false),
+        "microtask must NOT fire synchronously inside listener body"
+    );
+
+    // The shared dispatch loop calls engine.run_microtasks(ctx) after
+    // each listener; mirror that explicitly.
+    engine.run_microtasks(&mut ctx);
+
+    let post = engine
+        .vm()
+        .get_global("__fired__")
+        .expect("__fired__ must persist");
+    assert_eq!(
+        post,
+        JsValue::Boolean(true),
+        "Promise.resolve().then() callback must fire on engine.run_microtasks"
+    );
+
+    engine.vm().unbind();
+}
+
+#[test]
 fn missing_listener_id_silently_no_ops() {
     // A listener removed between dispatch-plan freeze and invocation
     // must not panic — the dispatch loop carries a stale ListenerId
