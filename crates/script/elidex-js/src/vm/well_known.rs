@@ -90,6 +90,15 @@ pub(crate) struct WellKnownStrings {
     pub(crate) performance: StringId,
     pub(crate) location: StringId,
     pub(crate) history: StringId,
+    /// `document.readyState` constant — returned every read of the
+    /// stub getter.  Pre-interning avoids a per-access StringPool
+    /// allocation on what would otherwise be a HashMap lookup path.
+    pub(crate) complete: StringId,
+    /// `history.scrollRestoration` constant — same rationale as `complete`.
+    pub(crate) auto: StringId,
+    /// Initial `location.href` / `document.URL` value; `NavigationState::new`
+    /// starts every VM here.
+    pub(crate) about_blank: StringId,
     pub(crate) unhandledrejection: StringId,
     pub(crate) promise: StringId,
 
@@ -216,6 +225,9 @@ impl WellKnownStrings {
             performance: strings.intern("performance"),
             location: strings.intern("location"),
             history: strings.intern("history"),
+            complete: strings.intern("complete"),
+            auto: strings.intern("auto"),
+            about_blank: strings.intern("about:blank"),
             unhandledrejection: strings.intern("unhandledrejection"),
             promise: strings.intern("promise"),
 

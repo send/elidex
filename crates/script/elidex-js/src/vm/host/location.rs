@@ -24,11 +24,8 @@
 #![cfg(feature = "engine")]
 
 use super::super::coerce;
-use super::super::shape::{self, PropertyAttrs};
-use super::super::value::{
-    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
-    VmError,
-};
+use super::super::shape;
+use super::super::value::{JsValue, NativeContext, PropertyKey, PropertyValue, VmError};
 use super::super::VmInner;
 
 /// Parsed URL components produced by [`parse_url`].
@@ -148,29 +145,20 @@ pub(super) fn native_location_get_href(
 /// `replace(url)`.  `replace_history` controls whether the mutation
 /// pushes a new history entry (`assign` / `href=`) or overwrites the
 /// current one (`replace`).
-fn set_location(
-    ctx: &mut NativeContext<'_>,
-    new_url: &str,
-    replace_history: bool,
-) -> Result<(), VmError> {
+fn set_location(ctx: &mut NativeContext<'_>, new_url: &str, replace_history: bool) {
     let nav = &mut ctx.vm.navigation;
     nav.current_url = new_url.to_string();
     if replace_history {
-        if let Some(entry) = nav.history_entries.get_mut(nav.history_index) {
-            entry.url = new_url.to_string();
-        }
+        // `history_entries` is non-empty by `NavigationState::new`
+        // invariant and every code path preserves it — index directly
+        // rather than `get_mut`.
+        debug_assert!(!nav.history_entries.is_empty());
+        nav.history_entries[nav.history_index]
+            .url
+            .clone_from(&nav.current_url);
     } else {
-        // Truncate forward history (assign navigates to a new entry,
-        // so forward entries become unreachable — matches browser
-        // behaviour).
-        nav.history_entries.truncate(nav.history_index + 1);
-        nav.history_entries.push(super::navigation::HistoryEntry {
-            url: new_url.to_string(),
-            state: JsValue::Null,
-        });
-        nav.history_index = nav.history_entries.len() - 1;
+        nav.push_entry(new_url.to_string(), JsValue::Null);
     }
-    Ok(())
 }
 
 pub(super) fn native_location_set_href(
@@ -181,42 +169,93 @@ pub(super) fn native_location_set_href(
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let url = ctx.vm.strings.get_utf8(sid);
-    set_location(ctx, &url, false)?;
+    set_location(ctx, &url, false);
     Ok(JsValue::Undefined)
 }
 
-/// Generate a component getter from a closure that extracts the
-/// relevant slice of `UrlParts`.  Keeps the native fn body small and
-/// avoids repeating the borrow-then-intern dance seven times.
-macro_rules! component_getter {
-    ($name:ident, |$p:ident| $body:expr) => {
-        pub(super) fn $name(
-            ctx: &mut NativeContext<'_>,
-            _this: JsValue,
-            _args: &[JsValue],
-        ) -> Result<JsValue, VmError> {
-            let url = read_url(ctx);
-            let $p = parse_url(&url);
-            let s = $body;
-            Ok(intern_current(ctx, &s))
-        }
-    };
+/// Shared body for every URL-component getter: read `current_url`,
+/// parse, apply `extract`, intern the result.  Native fn wrappers
+/// below differ only in which slice of `UrlParts` they pluck, so
+/// passing a closure is the clearest way to share the scaffolding
+/// (no macro needed — regular Rust syntax handles it).
+fn url_component(
+    ctx: &mut NativeContext<'_>,
+    extract: impl FnOnce(&UrlParts<'_>) -> String,
+) -> Result<JsValue, VmError> {
+    let url = read_url(ctx);
+    let s = extract(&parse_url(&url));
+    Ok(intern_current(ctx, &s))
 }
 
-component_getter!(native_location_get_protocol, |p| {
-    if p.scheme.is_empty() {
-        String::new()
-    } else {
-        format!("{}:", p.scheme)
-    }
-});
-component_getter!(native_location_get_host, |p| format_host(&p));
-component_getter!(native_location_get_hostname, |p| p.host.to_string());
-component_getter!(native_location_get_port, |p| p.port.to_string());
-component_getter!(native_location_get_pathname, |p| p.pathname.to_string());
-component_getter!(native_location_get_search, |p| p.search.to_string());
-component_getter!(native_location_get_hash, |p| p.hash.to_string());
-component_getter!(native_location_get_origin, |p| format_origin(&p));
+pub(super) fn native_location_get_protocol(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    url_component(ctx, |p| {
+        if p.scheme.is_empty() {
+            String::new()
+        } else {
+            format!("{}:", p.scheme)
+        }
+    })
+}
+
+pub(super) fn native_location_get_host(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    url_component(ctx, format_host)
+}
+
+pub(super) fn native_location_get_hostname(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    url_component(ctx, |p| p.host.to_string())
+}
+
+pub(super) fn native_location_get_port(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    url_component(ctx, |p| p.port.to_string())
+}
+
+pub(super) fn native_location_get_pathname(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    url_component(ctx, |p| p.pathname.to_string())
+}
+
+pub(super) fn native_location_get_search(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    url_component(ctx, |p| p.search.to_string())
+}
+
+pub(super) fn native_location_get_hash(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    url_component(ctx, |p| p.hash.to_string())
+}
+
+pub(super) fn native_location_get_origin(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    url_component(ctx, format_origin)
+}
 
 // ---------------------------------------------------------------------------
 // Methods
@@ -230,7 +269,7 @@ pub(super) fn native_location_assign(
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let url = ctx.vm.strings.get_utf8(sid);
-    set_location(ctx, &url, false)?;
+    set_location(ctx, &url, false);
     Ok(JsValue::Undefined)
 }
 
@@ -242,7 +281,7 @@ pub(super) fn native_location_replace(
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let url = ctx.vm.strings.get_utf8(sid);
-    set_location(ctx, &url, true)?;
+    set_location(ctx, &url, true);
     Ok(JsValue::Undefined)
 }
 
@@ -281,34 +320,11 @@ impl VmInner {
     /// as a distinct non-EventTarget interface; a future change that
     /// adds events on Location would upgrade this to a `HostObject`.)
     pub(in crate::vm) fn register_location_global(&mut self) {
-        let obj_id = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: self.object_prototype,
-            extensible: true,
-        });
+        let obj_id = self.create_object_with_methods(LOCATION_METHODS);
 
-        // Methods (non-enumerable per WebIDL default).
-        let methods: &[(&str, super::super::NativeFn)] = &[
-            ("assign", native_location_assign),
-            ("replace", native_location_replace),
-            ("reload", native_location_reload),
-            ("toString", native_location_to_string),
-        ];
-        for &(name, func) in methods {
-            let fn_id = self.create_native_function(name, func);
-            let key = PropertyKey::String(self.strings.intern(name));
-            self.define_shaped_property(
-                obj_id,
-                key,
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
-        }
-
-        // `href` — RW accessor (custom attrs: writable is irrelevant
-        // for accessors, but enumerable + configurable per WebIDL
-        // default).
+        // `href` — RW accessor.  `writable` is irrelevant for accessors
+        // but the structure requires a value; WebIDL defaults to
+        // `{enumerable, configurable}`.
         let rw_attrs = shape::PropertyAttrs {
             writable: false,
             enumerable: true,
@@ -328,33 +344,27 @@ impl VmInner {
             rw_attrs,
         );
 
-        // Read-only accessor components.
-        let ro_accessors: &[(&str, super::super::NativeFn)] = &[
-            ("protocol", native_location_get_protocol),
-            ("host", native_location_get_host),
-            ("hostname", native_location_get_hostname),
-            ("port", native_location_get_port),
-            ("pathname", native_location_get_pathname),
-            ("search", native_location_get_search),
-            ("hash", native_location_get_hash),
-            ("origin", native_location_get_origin),
-        ];
-        for &(name, getter) in ro_accessors {
-            let getter_name = format!("get {name}");
-            let gid = self.create_native_function(&getter_name, getter);
-            let key = PropertyKey::String(self.strings.intern(name));
-            self.define_shaped_property(
-                obj_id,
-                key,
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
-                PropertyAttrs::WEBIDL_RO_ACCESSOR,
-            );
-        }
+        self.install_ro_accessors(obj_id, LOCATION_RO_ACCESSORS);
 
         let name = self.well_known.location;
         self.globals.insert(name, JsValue::Object(obj_id));
     }
 }
+
+const LOCATION_METHODS: &[(&str, super::super::NativeFn)] = &[
+    ("assign", native_location_assign),
+    ("replace", native_location_replace),
+    ("reload", native_location_reload),
+    ("toString", native_location_to_string),
+];
+
+const LOCATION_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
+    ("protocol", native_location_get_protocol),
+    ("host", native_location_get_host),
+    ("hostname", native_location_get_hostname),
+    ("port", native_location_get_port),
+    ("pathname", native_location_get_pathname),
+    ("search", native_location_get_search),
+    ("hash", native_location_get_hash),
+    ("origin", native_location_get_origin),
+];

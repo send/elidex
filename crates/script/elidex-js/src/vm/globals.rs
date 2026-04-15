@@ -289,6 +289,21 @@ impl VmInner {
             prototype: self.object_prototype,
             extensible: true,
         });
+        self.install_methods(obj_id, methods);
+        obj_id
+    }
+
+    /// Install each `(name, native)` as a `DATA`/`METHOD`-attributed
+    /// property on `obj_id`.  Shared by `create_object_with_methods`,
+    /// the Window prototype registration (`host/window.rs`), and the
+    /// per-bind document-method installer (`host/document.rs`) —
+    /// everywhere we need to attach a batch of methods to an object
+    /// that already exists.
+    pub(crate) fn install_methods(
+        &mut self,
+        obj_id: super::value::ObjectId,
+        methods: &[(&str, NativeFn)],
+    ) {
         for &(name, func) in methods {
             let fn_id = self.create_native_function(name, func);
             let key = PropertyKey::String(self.strings.intern(name));
@@ -299,7 +314,35 @@ impl VmInner {
                 PropertyAttrs::METHOD,
             );
         }
-        obj_id
+    }
+
+    /// Install each `(name, getter)` as a read-only accessor on
+    /// `obj_id` with the WebIDL-default attrs (non-writable,
+    /// enumerable, configurable).  The getter's WebIDL name
+    /// (`"get foo"`) is derived from `name`.
+    ///
+    /// Engine-only — every call site lives behind `#[cfg(feature =
+    /// "engine")]` (host globals: `location`, `history`, `window`,
+    /// `document`).  Non-engine builds omit the helper entirely.
+    #[cfg(feature = "engine")]
+    pub(crate) fn install_ro_accessors(
+        &mut self,
+        obj_id: super::value::ObjectId,
+        accessors: &[(&str, NativeFn)],
+    ) {
+        for &(name, getter) in accessors {
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                obj_id,
+                key,
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: None,
+                },
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
     }
 
     #[allow(clippy::too_many_lines)]

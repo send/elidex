@@ -14,12 +14,17 @@
 //! lands alongside the shell navigation bridge.
 
 #![cfg(feature = "engine")]
-// C3 introduces the state struct.  Its consumers (location setter,
-// history.pushState, document.URL getter) land in C6 / C7 / C9 — the
-// fields are read exclusively by those later commits.
-#![allow(dead_code)]
 
 use super::super::value::JsValue;
+
+/// Maximum number of session-history entries retained by the
+/// in-memory [`NavigationState`].  Matches Chrome / Firefox's
+/// approximate cap.  When `push_entry` would exceed the limit,
+/// the oldest entry is evicted and [`NavigationState::history_index`]
+/// shifts accordingly — this keeps pathological
+/// `for (;;) history.pushState(...)` loops from growing the `Vec`
+/// (and its GC-rooted `state: JsValue` slots) unbounded.
+pub(crate) const MAX_HISTORY_ENTRIES: usize = 50;
 
 /// A single entry in [`NavigationState::history_entries`] (WHATWG HTML
 /// §7.4.1 "session history entry").
@@ -70,5 +75,24 @@ impl NavigationState {
             }],
             history_index: 0,
         }
+    }
+
+    /// Push a new entry (truncating any forward history) and apply
+    /// the [`MAX_HISTORY_ENTRIES`] cap by dropping the oldest entry
+    /// when the vec would otherwise exceed the limit.  Returns the
+    /// new index for convenience.
+    ///
+    /// Called by `location.assign` / `location.href=` / `history.pushState`.
+    pub(crate) fn push_entry(&mut self, url: String, state: JsValue) -> usize {
+        self.history_entries.truncate(self.history_index + 1);
+        self.history_entries.push(HistoryEntry { url, state });
+        if self.history_entries.len() > MAX_HISTORY_ENTRIES {
+            // Drop the oldest; shift the index down to keep pointing
+            // at the just-pushed entry.  Worst case this is O(len),
+            // but `len == MAX_HISTORY_ENTRIES+1` so it's bounded.
+            self.history_entries.remove(0);
+        }
+        self.history_index = self.history_entries.len() - 1;
+        self.history_index
     }
 }

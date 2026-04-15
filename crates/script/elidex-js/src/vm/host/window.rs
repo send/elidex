@@ -18,20 +18,20 @@
 //! up `ctx.host().dom()` and records the listener against the correct
 //! ECS entity (distinct from the Document).
 //!
-//! At C2 `Window.prototype` is an **empty** object — its sole purpose
-//! is to provide the inheritance seam.  Window-specific own-properties
-//! (`innerWidth`, `scrollX`, `scrollTo`, `navigator`, `location`, …)
-//! are installed by later PR4b commits either on this prototype (for
-//! shared accessor/method slots) or as globals on `globalThis`.
+//! `Window.prototype` carries the viewport accessors
+//! (`innerWidth` / `scrollX` / `devicePixelRatio` / …) and the scroll
+//! methods (`scrollTo` / `scrollBy`) so every `globalThis` reads them
+//! from the shared prototype rather than each wrapper holding its
+//! own copy.  Global singletons that are values rather than
+//! prototype-shared behaviour (`navigator`, `location`, `history`,
+//! `performance`, `document`) live on `globalThis` itself and are
+//! installed by their respective `register_*_global()` helpers.
 
 #![cfg(feature = "engine")]
 
 use super::super::coerce;
-use super::super::shape::{self, PropertyAttrs};
-use super::super::value::{
-    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
-    VmError,
-};
+use super::super::shape;
+use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
 use super::super::VmInner;
 
 /// In-memory viewport state (size + scroll offset) backing the
@@ -187,54 +187,14 @@ impl VmInner {
             extensible: true,
         });
 
-        // Methods on Window.prototype — every `globalThis` shares the
-        // same fn_id, matching the browser pattern where `Window`
-        // methods live on the prototype rather than each instance.
-        let methods: &[(&str, super::super::NativeFn)] = &[
-            ("scrollTo", native_window_scroll_to),
-            ("scrollBy", native_window_scroll_by),
-        ];
-        for &(name, func) in methods {
-            let fn_id = self.create_native_function(name, func);
-            let key = PropertyKey::String(self.strings.intern(name));
-            self.define_shaped_property(
-                proto_id,
-                key,
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
-        }
-
-        // Read-only accessors.  Aliases (`pageXOffset` ≡ `scrollX`,
-        // `pageYOffset` ≡ `scrollY`) share the same getter fn_id.
-        let g_scroll_x = self.create_native_function("get scrollX", native_window_get_scroll_x);
-        let g_scroll_y = self.create_native_function("get scrollY", native_window_get_scroll_y);
-        let g_width = self.create_native_function("get innerWidth", native_window_get_inner_width);
-        let g_height =
-            self.create_native_function("get innerHeight", native_window_get_inner_height);
-        let g_dpr = self
-            .create_native_function("get devicePixelRatio", native_window_get_device_pixel_ratio);
-        let accessors: &[(&str, super::super::value::ObjectId)] = &[
-            ("innerWidth", g_width),
-            ("innerHeight", g_height),
-            ("scrollX", g_scroll_x),
-            ("scrollY", g_scroll_y),
-            ("pageXOffset", g_scroll_x),
-            ("pageYOffset", g_scroll_y),
-            ("devicePixelRatio", g_dpr),
-        ];
-        for &(name, gid) in accessors {
-            let key = PropertyKey::String(self.strings.intern(name));
-            self.define_shaped_property(
-                proto_id,
-                key,
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
-                PropertyAttrs::WEBIDL_RO_ACCESSOR,
-            );
-        }
+        // `globalThis` shares this prototype's methods, matching the
+        // browser pattern where `Window` methods live on the prototype
+        // rather than each instance.
+        self.install_methods(proto_id, WINDOW_METHODS);
+        // `pageXOffset` / `pageYOffset` map to the same semantics as
+        // `scrollX` / `scrollY`; the native bodies all read the shared
+        // `ViewportState` so any pair points at the same slot.
+        self.install_ro_accessors(proto_id, WINDOW_RO_ACCESSORS);
 
         self.window_prototype = Some(proto_id);
     }
@@ -251,3 +211,20 @@ impl VmInner {
             .insert(name, JsValue::Object(self.global_object));
     }
 }
+
+const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
+    ("scrollTo", native_window_scroll_to),
+    ("scrollBy", native_window_scroll_by),
+];
+
+// `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /
+// `scrollY`; they share the same underlying native fn.
+const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
+    ("innerWidth", native_window_get_inner_width),
+    ("innerHeight", native_window_get_inner_height),
+    ("scrollX", native_window_get_scroll_x),
+    ("scrollY", native_window_get_scroll_y),
+    ("pageXOffset", native_window_get_scroll_x),
+    ("pageYOffset", native_window_get_scroll_y),
+    ("devicePixelRatio", native_window_get_device_pixel_ratio),
+];

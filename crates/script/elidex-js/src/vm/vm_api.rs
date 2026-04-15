@@ -164,12 +164,20 @@ impl Vm {
             // reconstruct the Window entity so
             // `window.addEventListener(...)` records the listener
             // against the correct ECS target (distinct from document).
+            //
+            // Skip the write on rebinds when `entity_bits` already
+            // equals the target — saves a (very cheap) store but also
+            // keeps the object's storage cache-line clean for the
+            // common rebind path.
             let global_id = self.inner.global_object;
+            let target_bits = window_entity.to_bits().get();
             if let super::value::ObjectKind::HostObject {
                 ref mut entity_bits,
             } = self.inner.get_object_mut(global_id).kind
             {
-                *entity_bits = window_entity.to_bits().get();
+                if *entity_bits != target_bits {
+                    *entity_bits = target_bits;
+                }
             }
             // Refresh the `document` global so JS code (and listener
             // bodies) sees the just-bound document entity.  Wrapper

@@ -17,10 +17,8 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::shape::{self, PropertyAttrs};
-use super::super::value::{
-    JsValue, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
-};
+use super::super::shape::PropertyAttrs;
+use super::super::value::{JsValue, PropertyKey, PropertyValue};
 use super::super::VmInner;
 
 impl VmInner {
@@ -32,12 +30,10 @@ impl VmInner {
     /// so that the prototype chain (`navigator → Object.prototype`)
     /// is well-formed.
     pub(in crate::vm) fn register_navigator_global(&mut self) {
-        let obj_id = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: self.object_prototype,
-            extensible: true,
-        });
+        // Navigator has no methods in Phase 2, only static fields — an
+        // empty method slice gives us the ordinary plain-object
+        // allocation + prototype wiring for free.
+        let obj_id = self.create_object_with_methods(&[]);
 
         // --- String-valued fields ---
         //

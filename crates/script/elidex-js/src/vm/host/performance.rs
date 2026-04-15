@@ -15,11 +15,8 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::shape::{self, PropertyAttrs};
-use super::super::value::{
-    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
-    VmError,
-};
+use super::super::shape::PropertyAttrs;
+use super::super::value::{JsValue, NativeContext, PropertyKey, PropertyValue, VmError};
 use super::super::VmInner;
 
 /// `performance.now()` — returns the monotonic elapsed milliseconds
@@ -40,30 +37,13 @@ impl VmInner {
     /// finalised so the `performance` plain object inherits
     /// `Object.prototype` correctly.
     pub(in crate::vm) fn register_performance_global(&mut self) {
-        let obj_id = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: self.object_prototype,
-            extensible: true,
-        });
+        let obj_id = self.create_object_with_methods(&[("now", native_performance_now)]);
 
-        let fn_id = self.create_native_function("now", native_performance_now);
-        let key = PropertyKey::String(self.strings.intern("now"));
-        self.define_shaped_property(
-            obj_id,
-            key,
-            PropertyValue::Data(JsValue::Object(fn_id)),
-            PropertyAttrs::METHOD,
-        );
-
-        // `timeOrigin` is spec-required (HR-Time §5.2) and trivially
-        // derivable from the VM's start_instant mapped to a wall-clock
-        // reference.  Without a reliable wall clock source here we
-        // report `0.0`, which is a conforming value per "the value is
-        // the time origin for the current session" loose language.
-        //
-        // Plumbing `SystemTime::UNIX_EPOCH` in would be a Phase 3 task
-        // (the shell owns the wall-clock policy).
+        // `timeOrigin` is spec-required (HR-Time §5.2).  Without a
+        // reliable wall-clock source the loose "any time origin for
+        // the current session" language allows `0.0` — plumbing
+        // `SystemTime::UNIX_EPOCH` in is a Phase 3 task owned by
+        // the shell.
         let key = PropertyKey::String(self.strings.intern("timeOrigin"));
         self.define_shaped_property(
             obj_id,

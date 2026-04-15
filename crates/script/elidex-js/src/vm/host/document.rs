@@ -26,8 +26,7 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::shape::{self, PropertyAttrs};
-use super::super::value::{JsValue, NativeContext, ObjectId, PropertyKey, PropertyValue, VmError};
+use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::VmInner;
 use super::super::{coerce, Vm};
 
@@ -73,12 +72,7 @@ pub(super) fn native_document_get_element_by_id(
     let sid = coerce::to_string(ctx.vm, arg)?;
     let target = ctx.vm.strings.get_utf8(sid);
 
-    if !ctx
-        .vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-    {
+    if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
 
@@ -107,6 +101,13 @@ pub(super) fn native_document_get_element_by_id(
 // ---------------------------------------------------------------------------
 // createElement / createTextNode
 // ---------------------------------------------------------------------------
+//
+// Unbound callers get `null` (not a throw) to match the no-op
+// behaviour of `getElementById` / `body` / `head` etc.  In practice
+// the only way to reach these natives while unbound is to retain a
+// `document` reference across an `unbind()` boundary; throwing
+// TypeError would crash the listener instead of producing the same
+// "document is detached" semantics that other methods already surface.
 
 pub(super) fn native_document_create_element(
     ctx: &mut NativeContext<'_>,
@@ -121,15 +122,8 @@ pub(super) fn native_document_create_element(
     // "HTML document" branch.  We treat every bind as HTML.
     let tag = raw_tag.to_ascii_lowercase();
 
-    if !ctx
-        .vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-    {
-        return Err(VmError::type_error(
-            "document.createElement called without a bound DOM",
-        ));
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
     }
 
     let new_entity = {
@@ -148,15 +142,8 @@ pub(super) fn native_document_create_text_node(
     let sid = coerce::to_string(ctx.vm, arg)?;
     let data = ctx.vm.strings.get_utf8(sid);
 
-    if !ctx
-        .vm
-        .host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-    {
-        return Err(VmError::type_error(
-            "document.createTextNode called without a bound DOM",
-        ));
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
     }
 
     let new_entity = {
@@ -266,8 +253,7 @@ pub(super) fn native_document_get_ready_state(
     // Phase 2: scripts run after parse completes (eval is synchronous
     // from the shell's perspective), so `complete` is honest.  The
     // shell wires real lifecycle transitions in PR6.
-    let sid = ctx.vm.strings.intern("complete");
-    Ok(JsValue::String(sid))
+    Ok(JsValue::String(ctx.vm.well_known.complete))
 }
 
 // ---------------------------------------------------------------------------
@@ -287,57 +273,44 @@ impl Vm {
     /// *must* populate it.  The "already installed" check below
     /// keeps rebind cycles O(1).
     pub(in crate::vm) fn install_document_methods_if_needed(&mut self, doc_wrapper: ObjectId) {
-        // Fast path: properties already installed on this wrapper.
-        let method_key = PropertyKey::String(
-            self.inner
-                .strings
-                .lookup("getElementById")
-                .unwrap_or(self.inner.strings.intern("getElementById")),
-        );
-        if crate::vm::coerce::get_property(&self.inner, doc_wrapper, method_key).is_some() {
+        // Fast path: `HostData` remembers whether this VM has already
+        // installed the suite on a document wrapper.  The methods are
+        // pointer-identical across wrappers (they come out of
+        // `create_native_function`), so one install per `HostData`
+        // lifetime is sufficient and the flag short-circuits every
+        // rebind without a prototype-chain probe.
+        let already_installed = self
+            .host_data()
+            .is_some_and(|hd| hd.document_methods_installed);
+        if already_installed {
             return;
         }
 
-        // Methods.
-        let methods: &[(&str, super::super::NativeFn)] = &[
-            ("getElementById", native_document_get_element_by_id),
-            ("createElement", native_document_create_element),
-            ("createTextNode", native_document_create_text_node),
-        ];
-        for &(name, func) in methods {
-            let fn_id = self.inner.create_native_function(name, func);
-            let key = PropertyKey::String(self.inner.strings.intern(name));
-            self.inner.define_shaped_property(
-                doc_wrapper,
-                key,
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
-        }
+        self.inner.install_methods(doc_wrapper, DOCUMENT_METHODS);
+        self.inner
+            .install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
 
-        // Read-only accessors.
-        let ro_accessors: &[(&str, super::super::NativeFn)] = &[
-            ("documentElement", native_document_get_document_element),
-            ("head", native_document_get_head),
-            ("body", native_document_get_body),
-            ("title", native_document_get_title),
-            ("URL", native_document_get_url),
-            ("documentURI", native_document_get_url),
-            ("readyState", native_document_get_ready_state),
-        ];
-        for &(name, getter) in ro_accessors {
-            let getter_name = format!("get {name}");
-            let gid = self.inner.create_native_function(&getter_name, getter);
-            let key = PropertyKey::String(self.inner.strings.intern(name));
-            self.inner.define_shaped_property(
-                doc_wrapper,
-                key,
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
-                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-            );
+        if let Some(hd) = self.host_data() {
+            hd.document_methods_installed = true;
         }
     }
 }
+
+// Method + accessor tables are file-scope constants so they are not
+// rebuilt on every bind and so the `install_document_methods_if_needed`
+// body reads top-down.
+const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
+    ("getElementById", native_document_get_element_by_id),
+    ("createElement", native_document_create_element),
+    ("createTextNode", native_document_create_text_node),
+];
+
+const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
+    ("documentElement", native_document_get_document_element),
+    ("head", native_document_get_head),
+    ("body", native_document_get_body),
+    ("title", native_document_get_title),
+    ("URL", native_document_get_url),
+    ("documentURI", native_document_get_url),
+    ("readyState", native_document_get_ready_state),
+];

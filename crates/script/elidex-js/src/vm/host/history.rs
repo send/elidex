@@ -13,11 +13,7 @@
 #![cfg(feature = "engine")]
 
 use super::super::coerce;
-use super::super::shape::{self, PropertyAttrs};
-use super::super::value::{
-    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
-    VmError,
-};
+use super::super::value::{JsValue, NativeContext, VmError};
 use super::super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -54,8 +50,7 @@ pub(super) fn native_history_get_scroll_restoration(
 ) -> Result<JsValue, VmError> {
     // Phase 2: always `"auto"`.  A writable setter arrives with the
     // scroll-anchoring work in PR5+.
-    let sid = ctx.vm.strings.intern("auto");
-    Ok(JsValue::String(sid))
+    Ok(JsValue::String(ctx.vm.well_known.auto))
 }
 
 // ---------------------------------------------------------------------------
@@ -68,21 +63,22 @@ pub(super) fn native_history_get_scroll_restoration(
 /// says out-of-range deltas silently no-op (no throw, no scroll).
 fn traverse(ctx: &mut NativeContext<'_>, delta: i64) {
     let nav = &mut ctx.vm.navigation;
-    let Some(len) = i64::try_from(nav.history_entries.len()).ok() else {
+    let Ok(len) = i64::try_from(nav.history_entries.len()) else {
         return;
     };
-    let Some(cur) = i64::try_from(nav.history_index).ok() else {
+    let Ok(cur) = i64::try_from(nav.history_index) else {
         return;
     };
     let target = cur + delta;
     if target < 0 || target >= len {
         return;
     }
-    let new_index = usize::try_from(target).unwrap_or(0);
+    // `target` is in `[0, len)` so `try_from` cannot fail; `debug_assert`
+    // pins the invariant without silencing clippy's cast-sign-loss lint.
+    let new_index = usize::try_from(target).expect("bounded above");
     nav.history_index = new_index;
-    if let Some(entry) = nav.history_entries.get(new_index) {
-        nav.current_url = entry.url.clone();
-    }
+    nav.current_url
+        .clone_from(&nav.history_entries[new_index].url);
 }
 
 pub(super) fn native_history_back(
@@ -153,19 +149,14 @@ fn state_mutate(
     };
 
     let nav = &mut ctx.vm.navigation;
+    // `history_entries` is non-empty by `NavigationState::new` invariant.
+    debug_assert!(!nav.history_entries.is_empty());
     if replace_index {
-        if let Some(entry) = nav.history_entries.get_mut(nav.history_index) {
-            entry.url.clone_from(&new_url);
-            entry.state = state;
-        }
+        let entry = &mut nav.history_entries[nav.history_index];
+        entry.url.clone_from(&new_url);
+        entry.state = state;
     } else {
-        // Push: truncate forward history, then append.
-        nav.history_entries.truncate(nav.history_index + 1);
-        nav.history_entries.push(super::navigation::HistoryEntry {
-            url: new_url.clone(),
-            state,
-        });
-        nav.history_index = nav.history_entries.len() - 1;
+        nav.push_entry(new_url.clone(), state);
     }
     nav.current_url = new_url;
     Ok(())
@@ -196,54 +187,23 @@ pub(super) fn native_history_replace_state(
 impl VmInner {
     /// Install `globalThis.history` (WHATWG HTML §7.4).
     pub(in crate::vm) fn register_history_global(&mut self) {
-        let obj_id = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: self.object_prototype,
-            extensible: true,
-        });
-
-        // Methods.
-        let methods: &[(&str, super::super::NativeFn)] = &[
-            ("back", native_history_back),
-            ("forward", native_history_forward),
-            ("go", native_history_go),
-            ("pushState", native_history_push_state),
-            ("replaceState", native_history_replace_state),
-        ];
-        for &(name, func) in methods {
-            let fn_id = self.create_native_function(name, func);
-            let key = PropertyKey::String(self.strings.intern(name));
-            self.define_shaped_property(
-                obj_id,
-                key,
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
-        }
-
-        // Read-only accessors.
-        let ro_accessors: &[(&str, super::super::NativeFn)] = &[
-            ("length", native_history_get_length),
-            ("state", native_history_get_state),
-            ("scrollRestoration", native_history_get_scroll_restoration),
-        ];
-        for &(name, getter) in ro_accessors {
-            let getter_name = format!("get {name}");
-            let gid = self.create_native_function(&getter_name, getter);
-            let key = PropertyKey::String(self.strings.intern(name));
-            self.define_shaped_property(
-                obj_id,
-                key,
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
-                PropertyAttrs::WEBIDL_RO_ACCESSOR,
-            );
-        }
-
+        let obj_id = self.create_object_with_methods(HISTORY_METHODS);
+        self.install_ro_accessors(obj_id, HISTORY_RO_ACCESSORS);
         let name = self.well_known.history;
         self.globals.insert(name, JsValue::Object(obj_id));
     }
 }
+
+const HISTORY_METHODS: &[(&str, super::super::NativeFn)] = &[
+    ("back", native_history_back),
+    ("forward", native_history_forward),
+    ("go", native_history_go),
+    ("pushState", native_history_push_state),
+    ("replaceState", native_history_replace_state),
+];
+
+const HISTORY_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
+    ("length", native_history_get_length),
+    ("state", native_history_get_state),
+    ("scrollRestoration", native_history_get_scroll_restoration),
+];

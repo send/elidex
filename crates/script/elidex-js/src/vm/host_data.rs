@@ -33,6 +33,14 @@ mod engine_feature {
         /// bind → unbind → bind boundaries keep pointing at the same ECS
         /// address (and therefore the same `EventListeners` component).
         window_entity: Option<Entity>,
+        /// Document host-object own-property suite (`getElementById` etc.)
+        /// has been installed on **some** document wrapper on this
+        /// `HostData`.  The install is idempotent and only needs to run
+        /// once per `Vm` (the methods are pointer-identical across
+        /// wrappers because they are `create_native_function` output).
+        /// This flag replaces a per-bind prototype-chain probe — see
+        /// `vm/host/document.rs::install_document_methods_if_needed`.
+        pub(crate) document_methods_installed: bool,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
         pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
     }
@@ -44,6 +52,7 @@ mod engine_feature {
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
                 window_entity: None,
+                document_methods_installed: false,
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
             }
