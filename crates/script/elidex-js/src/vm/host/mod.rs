@@ -15,3 +15,4 @@
 pub(super) mod elements;
 pub(super) mod event_target;
 pub(super) mod events;
+pub(super) mod globals;

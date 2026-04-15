@@ -122,6 +122,12 @@ impl Vm {
     ) {
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             unsafe { hd.bind(session, dom, document) };
+            // Refresh the `document` global so JS code (and listener
+            // bodies) sees the just-bound document entity.  Wrapper
+            // identity is preserved across bind/unbind cycles via
+            // `HostData::wrapper_cache` — repeated binds with the
+            // same document entity return the same ObjectId.
+            self.install_document_global();
         }
     }
 
