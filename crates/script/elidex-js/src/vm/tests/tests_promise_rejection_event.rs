@@ -364,9 +364,14 @@ fn rejection_event_phase_is_at_target_and_current_target_is_document() {
     vm.eval(
         "globalThis.observed_phase = -1;
          globalThis.current_is_document = false;
+         globalThis.path_length = -1;
+         globalThis.path_zero_is_document = false;
          document.addEventListener('unhandledrejection', function (e) {
              globalThis.observed_phase = e.eventPhase;
              globalThis.current_is_document = (e.currentTarget === document);
+             var p = e.composedPath();
+             globalThis.path_length = p.length;
+             globalThis.path_zero_is_document = (p[0] === document);
          });
          (function () { Promise.reject('phase-test'); })();",
     )
@@ -383,11 +388,16 @@ fn rejection_event_phase_is_at_target_and_current_target_is_document() {
         JsValue::Boolean(true),
         "PromiseRejectionEvent.currentTarget must equal document"
     );
-
-    // composedPath() population from DispatchEvent.composed_path
-    // is not yet wired in create_event_object (lazily returns []);
-    // the DispatchEvent's composed_path = [document] is set for
-    // forward compatibility when the wiring lands.
+    assert_eq!(
+        vm.get_global("path_length").unwrap(),
+        JsValue::Number(1.0),
+        "composedPath() must contain [document] (length 1)"
+    );
+    assert_eq!(
+        vm.get_global("path_zero_is_document").unwrap(),
+        JsValue::Boolean(true),
+        "composedPath()[0] must be the document wrapper"
+    );
 
     vm.unbind();
 }

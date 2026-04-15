@@ -113,19 +113,21 @@ pub(super) fn native_event_stop_immediate_propagation(
     Ok(JsValue::Undefined)
 }
 
-/// `Event.prototype.composedPath()` — returns the lazily-cached Array
-/// stored in the Event's internal slot.
+/// `Event.prototype.composedPath()` — returns the Array stored in
+/// the Event's internal `composed_path` slot.
 ///
 /// WHATWG DOM §2.9 requires the same Array be returned on every call
-/// (the internal propagation-path list is "cloned" into an Array
-/// once, and subsequent `composedPath()` invocations return that same
-/// Array).  The dispatch machinery (PR3 C5+) writes the actual
-/// target/ancestor wrapper list into `composed_path` before the first
-/// listener fires; if a listener calls `composedPath()` before that
-/// happens (or on a UA event with no propagation path), we lazily
-/// allocate an empty Array and write it back into the slot so the
-/// next call returns the same id.  Without this writeback, identity
-/// (`e.composedPath() === e.composedPath()`) would be lost.
+/// (the internal propagation-path list is "cloned" into an Array once
+/// and subsequent invocations return that same Array).
+///
+/// `create_event_object` populates the slot from
+/// `DispatchEvent.composed_path` when non-empty (resolving each
+/// Entity to its `HostObject` wrapper).  For events whose dispatch
+/// path didn't seed `composed_path` (UA events without a propagation
+/// path), the slot starts as `None`; this function then lazily
+/// allocates an empty Array, writes it back into the slot, and
+/// returns it — so the next call returns the same ObjectId and
+/// identity (`e.composedPath() === e.composedPath()`) holds.
 pub(super) fn native_event_composed_path(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

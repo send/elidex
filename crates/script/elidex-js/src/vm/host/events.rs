@@ -156,6 +156,27 @@ impl VmInner {
         // stack on drop, including during panic unwinding.
         let mut g = self.push_temp_root(JsValue::Object(event_id));
 
+        // ---- composedPath internal slot ----
+        // If the dispatch path populated `event.composed_path` (the
+        // ECS-side propagation list), translate each Entity into its
+        // HostObject wrapper and seed the Event's `composed_path`
+        // slot with the resulting Array.  `composedPath()` returns
+        // this Array directly (identity-preserving).  Empty
+        // `composed_path` leaves the slot None — `composedPath()`'s
+        // lazy-allocate path then provides an empty Array on first
+        // call and caches it (per WHATWG DOM §2.9 identity rule).
+        if !event.composed_path.is_empty() {
+            let elements: Vec<JsValue> = event
+                .composed_path
+                .iter()
+                .map(|&entity| JsValue::Object(g.create_element_wrapper(entity)))
+                .collect();
+            let arr_id = g.create_array_object(elements);
+            if let ObjectKind::Event { composed_path, .. } = &mut g.get_object_mut(event_id).kind {
+                *composed_path = Some(arr_id);
+            }
+        }
+
         // ---- Core properties (cached property names from WellKnownStrings) ----
         let type_sid = g.strings.intern(&event.event_type);
         let phase = event.phase as u8;

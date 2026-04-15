@@ -441,9 +441,12 @@ fn dispatch_unhandled_rejection_event(
     //
     // Initialise `phase` / `current_target` / `dispatch_flag` /
     // `composed_path` to spec-consistent at-target state so JS
-    // observers see `e.eventPhase === 2` (AT_TARGET), `e.currentTarget`
-    // === document, and `e.composedPath() === [document]` — same as
-    // they would for a regular dispatch through `script_dispatch_event_core`.
+    // observers see `e.eventPhase === 2` (AT_TARGET), `e.currentTarget
+    // === document`, and `e.composedPath() === [document]` — matching
+    // what a regular dispatch through `script_dispatch_event_core`
+    // would produce.  `create_event_object` resolves
+    // `composed_path`'s Entity list to `HostObject` wrappers and
+    // seeds the Event's internal slot.
     let mut event = elidex_script_session::DispatchEvent::new("unhandledrejection", document);
     event.bubbles = false;
     event.cancelable = true;
