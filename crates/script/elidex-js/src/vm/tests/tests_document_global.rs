@@ -93,9 +93,12 @@ fn document_identity_is_stable_across_rebinds() {
     // Rebind without reinstalling HostData — the wrapper_cache entry
     // from the prior bind cycle must survive and reproduce the same
     // ObjectId (document identity stable across bind/unbind).
+    // `bind_vm` is idempotent w.r.t. HostData: on this second call the
+    // install step is skipped (HostData already present) and the
+    // pre-existing wrapper_cache carries through.
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
     let second = vm.get_global("document").unwrap();
 

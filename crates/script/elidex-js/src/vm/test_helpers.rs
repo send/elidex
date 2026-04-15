@@ -27,8 +27,18 @@ use super::host_data::HostData;
 use super::value::JsValue;
 use super::Vm;
 
-/// Install a fresh [`HostData`] and bind `vm` against the given
-/// `session` / `dom` / `document`.
+/// Ensure `vm` has a [`HostData`] installed, then bind it against the
+/// given `session` / `dom` / `document`.
+///
+/// Idempotent with respect to `HostData`: fresh VMs get a new
+/// `HostData::new()` installed, and VMs that were previously bound and
+/// then unbound reuse the existing `HostData` (preserving
+/// `wrapper_cache` / `listener_store` — this mirrors how identity is
+/// expected to persist across `bind` → `unbind` → `bind` cycles, see
+/// `tests_document_global::document_identity_is_stable_across_rebinds`).
+/// Calling [`Vm::install_host_data`] unconditionally would panic on
+/// that second bind — the guard below is what makes the helper safe to
+/// reuse across cycles.
 ///
 /// # Safety
 ///
@@ -37,7 +47,9 @@ use super::Vm;
 /// until [`Vm::unbind`] is invoked.  This mirrors [`Vm::bind`] directly.
 #[allow(unsafe_code)]
 pub unsafe fn bind_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, document: Entity) {
-    vm.install_host_data(HostData::new());
+    if vm.host_data().is_none() {
+        vm.install_host_data(HostData::new());
+    }
     unsafe {
         vm.bind(session as *mut _, dom as *mut _, document);
     }
