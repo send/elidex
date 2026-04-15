@@ -182,6 +182,18 @@ impl VmInner {
         // objects. No constructable `Generator` global is exposed (spec);
         // users obtain generators by calling `function* g() { ... }` forms.
         self.register_generator_prototype();
+
+        // EventTarget.prototype — shared prototype for every DOM wrapper
+        // (WHATWG DOM §2.7).  No `EventTarget` constructable global is
+        // exposed yet; wrappers obtain the prototype via
+        // `create_element_wrapper` (PR3 C2).
+        self.register_event_target_prototype();
+
+        // Internal Event-methods prototype (PR3) — `event_methods_prototype`
+        // is set under the `engine` feature only; without engine there are
+        // no DOM events to dispatch and the methods are unused.
+        #[cfg(feature = "engine")]
+        self.register_event_methods_prototype();
     }
 
     /// Helper: register a native function as a global.

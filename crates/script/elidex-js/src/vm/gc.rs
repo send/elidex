@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 15],
+    proto_roots: [Option<ObjectId>; 17],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -360,6 +360,11 @@ fn trace_work_list(
             ObjectKind::AsyncDriverStep { gen, .. } => {
                 mark_object(*gen, obj_marks, work);
             }
+            ObjectKind::Event { composed_path, .. } => {
+                if let Some(id) = *composed_path {
+                    mark_object(id, obj_marks, work);
+                }
+            }
             ObjectKind::Generator(state) => {
                 if let Some(wrapper) = state.wrapper {
                     mark_object(wrapper, obj_marks, work);
@@ -400,6 +405,10 @@ fn trace_work_list(
                 }
             }
             // No ObjectId references — only StringId / scalar fields.
+            // `HostObject` is listed explicitly (not folded under a
+            // wildcard) so adding a future field that holds an ObjectId
+            // (e.g. cached child wrapper list) becomes a compile error
+            // until this arm is updated.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)
             | ObjectKind::RegExp { .. }
@@ -410,7 +419,8 @@ fn trace_work_list(
             | ObjectKind::StringWrapper(_)
             | ObjectKind::BooleanWrapper(_)
             | ObjectKind::BigIntWrapper(_)
-            | ObjectKind::SymbolWrapper(_) => {}
+            | ObjectKind::SymbolWrapper(_)
+            | ObjectKind::HostObject { .. } => {}
         }
     }
 }
@@ -537,6 +547,8 @@ impl VmInner {
                 self.generator_prototype,
                 self.error_prototype,
                 self.aggregate_error_prototype,
+                self.event_target_prototype,
+                self.event_methods_prototype,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,

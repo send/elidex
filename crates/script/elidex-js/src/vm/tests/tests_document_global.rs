@@ -1,0 +1,111 @@
+//! PR3 C9: `document` host global tests.
+//!
+//! Verifies that `Vm::bind` automatically installs `document` as a
+//! `HostObject` wrapper of the bound document entity, that
+//! `addEventListener`/`removeEventListener` resolve via the
+//! `EventTarget.prototype` chain on it, and that wrapper identity
+//! holds across rebinds.
+
+#![cfg(feature = "engine")]
+
+use elidex_ecs::EcsDom;
+use elidex_script_session::{EventListeners, SessionCore};
+
+use super::super::host_data::HostData;
+use super::super::value::{JsValue, ObjectKind};
+use super::super::Vm;
+
+#[test]
+fn bind_installs_document_as_host_object() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+
+    vm.install_host_data(HostData::new());
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+    }
+
+    let JsValue::Object(doc_id) = vm
+        .get_global("document")
+        .expect("bind() must install document")
+    else {
+        panic!("document must be an Object");
+    };
+    let entity_bits = match vm.inner.get_object(doc_id).kind {
+        ObjectKind::HostObject { entity_bits } => entity_bits,
+        _ => panic!("document must be HostObject"),
+    };
+    assert_eq!(
+        entity_bits,
+        doc.to_bits().get(),
+        "document HostObject must wrap the document entity"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn document_inherits_event_target_methods() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+
+    vm.install_host_data(HostData::new());
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+    }
+
+    // `addEventListener` is inherited via the prototype chain.
+    vm.eval(
+        "globalThis.h = function () {};
+         document.addEventListener('DOMContentLoaded', globalThis.h);",
+    )
+    .unwrap();
+
+    let listeners = match dom.world().get::<&EventListeners>(doc) {
+        Ok(r) => (*r).clone(),
+        Err(_) => EventListeners::default(),
+    };
+    let entries = listeners.matching_all("DOMContentLoaded");
+    assert_eq!(
+        entries.len(),
+        1,
+        "document.addEventListener must register on the document entity"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn document_identity_is_stable_across_rebinds() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    vm.install_host_data(HostData::new());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+    }
+    let first = vm.get_global("document").unwrap();
+    vm.unbind();
+
+    #[allow(unsafe_code)]
+    unsafe {
+        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+    }
+    let second = vm.get_global("document").unwrap();
+
+    assert_eq!(
+        first, second,
+        "document wrapper identity must persist across bind/unbind cycles"
+    );
+
+    vm.unbind();
+}

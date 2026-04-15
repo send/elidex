@@ -35,6 +35,29 @@ impl Vm {
         self.inner.call(func_obj_id, this, args)
     }
 
+    /// Push `value` onto the VM stack as a temporary GC root and
+    /// return an RAII guard that restores the stack on drop.
+    ///
+    /// Thin wrapper over [`VmInner::push_temp_root`] — see that for
+    /// the rooting contract (RAII Drop + length/slot-identity
+    /// asserts + panic-safe).
+    ///
+    /// Use this when an allocation has just produced a `JsValue` not
+    /// yet reachable from any other root (a freshly created event
+    /// object, a one-shot intermediate before being installed into a
+    /// property, etc.) and you need it to survive a GC cycle
+    /// triggered by user JS that runs while the guard is alive.
+    ///
+    /// ```rust,ignore
+    /// let mut g = vm.push_temp_root(JsValue::Object(id));
+    /// let _ = g.call(func_id, this, &[arg]);
+    /// // g drops here; stack restored to pre-push length
+    /// ```
+    #[cfg(feature = "engine")]
+    pub(crate) fn push_temp_root(&mut self, value: JsValue) -> super::VmTempRoot<'_> {
+        self.inner.push_temp_root(value)
+    }
+
     /// Intern a string, returning its `StringId`.
     #[inline]
     pub fn intern(&mut self, s: &str) -> StringId {
@@ -122,6 +145,12 @@ impl Vm {
     ) {
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             unsafe { hd.bind(session, dom, document) };
+            // Refresh the `document` global so JS code (and listener
+            // bodies) sees the just-bound document entity.  Wrapper
+            // identity is preserved across bind/unbind cycles via
+            // `HostData::wrapper_cache` — repeated binds with the
+            // same document entity return the same ObjectId.
+            self.install_document_global();
         }
     }
 

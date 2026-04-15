@@ -1,12 +1,20 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
+mod tests_add_event_listener;
 mod tests_array_prototype;
 mod tests_array_prototype_ext;
 mod tests_async;
 mod tests_bigint;
 mod tests_console;
+mod tests_create_event_object;
+mod tests_document_global;
+mod tests_element_wrapper;
+mod tests_event_object;
+mod tests_event_target;
 mod tests_function_prototype;
+mod tests_gc_audit;
 mod tests_generator;
+mod tests_host_object;
 mod tests_json;
 mod tests_m4_10_2;
 mod tests_m4_11;
@@ -14,6 +22,8 @@ mod tests_math;
 mod tests_number;
 mod tests_object_complement;
 mod tests_promise;
+mod tests_promise_rejection_event;
+mod tests_remove_event_listener;
 mod tests_sparse_array;
 mod tests_string_complement;
 mod tests_timer;

@@ -19,6 +19,7 @@ pub(crate) mod gc;
 mod globals;
 mod globals_async;
 mod globals_errors;
+mod host;
 pub mod host_data;
 pub(crate) mod ic;
 pub mod interpreter;
@@ -28,6 +29,8 @@ mod natives_array;
 mod natives_array_hof;
 mod natives_bigint;
 mod natives_boolean;
+#[cfg(feature = "engine")]
+mod natives_event;
 mod natives_function;
 mod natives_generator;
 mod natives_json;
@@ -54,6 +57,8 @@ mod tests;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use pools::{BigIntPool, StringPool};
+#[cfg(feature = "engine")]
+use value::same_value;
 use value::{
     CallFrame, FuncId, JsValue, NativeContext, NativeFunction, Object, ObjectId, ObjectKind,
     StringId, SymbolId, SymbolRecord, UpvalueId, VmError,
@@ -169,6 +174,26 @@ pub(crate) struct VmInner {
     pub(crate) aggregate_error_prototype: Option<ObjectId>,
     /// Generator.prototype — shared prototype for generator iterators.
     pub(crate) generator_prototype: Option<ObjectId>,
+    /// `EventTarget.prototype` — shared prototype for every DOM wrapper.
+    /// Holds `addEventListener` / `removeEventListener` / `dispatchEvent`.
+    /// `None` until `register_event_target_prototype()` runs during
+    /// `register_globals()`.  Read when `create_element_wrapper` (PR3 C2)
+    /// allocates a `HostObject` wrapper.
+    pub(crate) event_target_prototype: Option<ObjectId>,
+    /// Internal prototype for `ObjectKind::Event` instances.  Holds the
+    /// four event methods (`preventDefault`, `stopPropagation`,
+    /// `stopImmediatePropagation`, `composedPath`) and the
+    /// `defaultPrevented` accessor.  Methods are stateless `fn`
+    /// pointers that match on `this`'s `ObjectKind::Event` for state,
+    /// so a single prototype is shared across all dispatched events —
+    /// avoids 5 native-fn allocations + 5 shape transitions per
+    /// listener invocation.
+    ///
+    /// NOT exposed as `Event.prototype` to JS (the spec global +
+    /// constructor land in PR5a alongside `new Event(...)`); this is
+    /// a pure VM intrinsic.  When PR5a lands, `Event.prototype` can
+    /// become this object's parent or replace it outright.
+    pub(crate) event_methods_prototype: Option<ObjectId>,
     /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
     /// the yielded value.  `None` outside a yield dispatch.
     pub(crate) generator_yielded: Option<JsValue>,
@@ -255,6 +280,32 @@ pub(crate) struct WellKnownStrings {
     pub(crate) reason: StringId,
     pub(crate) errors: StringId,
     pub(crate) aggregate_error: StringId,
+
+    // -- Event-dispatch identifiers (PR3) --
+    // Property names installed on every event object — pre-interned
+    // here to avoid a HashMap lookup per name per dispatch.  Listener
+    // option keys (`capture`/`once`/`passive`) live here too since
+    // every `addEventListener` with options-object form reads them.
+    pub(crate) event_type: StringId,
+    pub(crate) bubbles: StringId,
+    pub(crate) cancelable: StringId,
+    pub(crate) event_phase: StringId,
+    pub(crate) target: StringId,
+    pub(crate) current_target: StringId,
+    pub(crate) time_stamp: StringId,
+    pub(crate) composed: StringId,
+    pub(crate) is_trusted: StringId,
+    pub(crate) default_prevented: StringId,
+    pub(crate) prevent_default: StringId,
+    pub(crate) stop_propagation: StringId,
+    pub(crate) stop_immediate_propagation: StringId,
+    pub(crate) composed_path: StringId,
+    pub(crate) capture: StringId,
+    pub(crate) once: StringId,
+    pub(crate) passive: StringId,
+    pub(crate) document: StringId,
+    pub(crate) unhandledrejection: StringId,
+    pub(crate) promise: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -445,6 +496,112 @@ impl VmInner {
             .expect("object already freed")
     }
 
+    /// Push `value` onto the VM stack as a temporary GC root and
+    /// return an RAII guard that restores the stack on drop.
+    ///
+    /// See [`VmTempRoot`] for the rooting contract — the guard
+    /// derefs to `&mut VmInner` so the rooted region is written as
+    /// method calls on the guard:
+    ///
+    /// ```rust,ignore
+    /// let mut g = vm.push_temp_root(JsValue::Object(id));
+    /// let _ = g.call(func_id, this, &[arg]);
+    /// match g.get_object(id).kind { ... }
+    /// // guard drops here; stack restored to pre-push length
+    /// ```
+    ///
+    /// Engine-feature gated: rooting matters only when host code can
+    /// produce un-rooted intermediate `JsValue`s (event objects,
+    /// PromiseRejection synthetic events, etc.).  Without the engine
+    /// feature there is no host bridge and no caller.
+    #[cfg(feature = "engine")]
+    pub(crate) fn push_temp_root(&mut self, value: JsValue) -> VmTempRoot<'_> {
+        let saved_len = self.stack.len();
+        self.stack.push(value);
+        VmTempRoot {
+            vm: self,
+            saved_len,
+            expected: value,
+        }
+    }
+}
+
+/// RAII guard for a temporary GC root pushed onto the VM stack.
+///
+/// Created via [`VmInner::push_temp_root`].  Restores the stack to
+/// its pre-push length on drop, **including during panic unwinding**
+/// — this is the key property over a bare `push` / `pop` pair, which
+/// would leak the root through a `catch_unwind` boundary upstream
+/// and corrupt subsequent GC cycles.
+///
+/// On normal (non-panic) drop, two release-enforced asserts catch
+/// closure-side stack-corruption bugs:
+///
+/// - **Length check**: stack must end at `saved_len + 1` (no leaked
+///   pushes, no over-pops).
+/// - **Slot identity**: `stack[saved_len]` must still hold the
+///   pushed value (defends against pop-then-push-different which
+///   leaves length unchanged but unroots the original).  Comparison
+///   uses `same_value` (NaN-safe) since `JsValue::Number(NaN) !=
+///   JsValue::Number(NaN)` under JS strict equality.
+///
+/// During panic unwinding (`std::thread::panicking()`) both asserts
+/// are skipped to avoid double-panic process-abort; the stack is
+/// truncated unconditionally so any propagation through
+/// `catch_unwind` upstream sees a clean stack.
+#[cfg(feature = "engine")]
+pub(crate) struct VmTempRoot<'a> {
+    vm: &'a mut VmInner,
+    saved_len: usize,
+    expected: JsValue,
+}
+
+#[cfg(feature = "engine")]
+impl std::ops::Deref for VmTempRoot<'_> {
+    type Target = VmInner;
+    #[inline]
+    fn deref(&self) -> &VmInner {
+        self.vm
+    }
+}
+
+#[cfg(feature = "engine")]
+impl std::ops::DerefMut for VmTempRoot<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut VmInner {
+        self.vm
+    }
+}
+
+#[cfg(feature = "engine")]
+impl Drop for VmTempRoot<'_> {
+    fn drop(&mut self) {
+        let stack = &mut self.vm.stack;
+        if std::thread::panicking() {
+            // Avoid double-panic; just restore.  An assertion failure
+            // here while unwinding would abort the process and lose the
+            // original panic's diagnostic.
+            stack.truncate(self.saved_len);
+            return;
+        }
+        assert_eq!(
+            stack.len(),
+            self.saved_len + 1,
+            "VmTempRoot: rooted region left the VM stack at {} entries, \
+             expected {} — GC root corruption hazard",
+            stack.len(),
+            self.saved_len + 1,
+        );
+        assert!(
+            same_value(stack[self.saved_len], self.expected),
+            "VmTempRoot: stack[saved_len] no longer holds the rooted value \
+             — rooted region pop'd and re-push'd the slot"
+        );
+        stack.truncate(self.saved_len);
+    }
+}
+
+impl VmInner {
     // -- Shape helpers --------------------------------------------------------
 
     /// Add-transition: add a new property to a Shape, returning the child ShapeId.
@@ -831,6 +988,26 @@ impl Vm {
             reason: strings.intern("reason"),
             errors: strings.intern("errors"),
             aggregate_error: strings.intern("AggregateError"),
+            event_type: strings.intern("type"),
+            bubbles: strings.intern("bubbles"),
+            cancelable: strings.intern("cancelable"),
+            event_phase: strings.intern("eventPhase"),
+            target: strings.intern("target"),
+            current_target: strings.intern("currentTarget"),
+            time_stamp: strings.intern("timeStamp"),
+            composed: strings.intern("composed"),
+            is_trusted: strings.intern("isTrusted"),
+            default_prevented: strings.intern("defaultPrevented"),
+            prevent_default: strings.intern("preventDefault"),
+            stop_propagation: strings.intern("stopPropagation"),
+            stop_immediate_propagation: strings.intern("stopImmediatePropagation"),
+            composed_path: strings.intern("composedPath"),
+            capture: strings.intern("capture"),
+            once: strings.intern("once"),
+            passive: strings.intern("passive"),
+            document: strings.intern("document"),
+            unhandledrejection: strings.intern("unhandledrejection"),
+            promise: strings.intern("promise"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).
@@ -915,6 +1092,8 @@ impl Vm {
                 error_prototype: None,
                 aggregate_error_prototype: None,
                 generator_prototype: None,
+                event_target_prototype: None,
+                event_methods_prototype: None,
                 generator_yielded: None,
                 current_microtask: None,
                 timer_queue: BinaryHeap::new(),

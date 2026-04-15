@@ -291,24 +291,43 @@ impl VmInner {
             }
             self.current_microtask = None;
         }
-        // End-of-drain: emit unhandled-rejection warnings.  The spec hook
-        // (HostPromiseRejectionTracker → PromiseRejectionEvent) is deferred
-        // to PR3 when event dispatch is wired up; for now an eprintln keeps
-        // the diagnostic visible during development.
-        warn_unhandled_rejections(self);
+        // End-of-drain: dispatch a `PromiseRejectionEvent` to the
+        // document's `unhandledrejection` listeners (HTML §8.1.5.5
+        // HostPromiseRejectionTracker hook), falling back to an
+        // `eprintln!` when no listener calls `preventDefault`.  Wired
+        // in PR3 C10.
+        process_pending_rejections(self);
         self.microtask_drain_depth -= 1;
     }
 }
 
-/// Walk `pending_rejections`, warn on any entry still unhandled, and clear
-/// the list.  Marks the reported promise `handled` so a second drain pass
-/// doesn't re-warn.
-fn warn_unhandled_rejections(vm: &mut VmInner) {
+/// Walk `pending_rejections`, dispatch a `PromiseRejectionEvent` to the
+/// host (if bound) for each, and fall back to `eprintln!` when no
+/// listener has called `preventDefault` (matches HTML §8.1.5.5
+/// "report the exception" hook).  Marks the reported promise
+/// `handled` so a second drain pass doesn't re-warn.
+fn process_pending_rejections(vm: &mut VmInner) {
     if vm.pending_rejections.is_empty() {
         return;
     }
-    let pending = std::mem::take(&mut vm.pending_rejections);
-    for id in pending {
+    // Iterate by index over the live `pending_rejections` Vec
+    // instead of `mem::take`-ing it.  `pending_rejections` is part
+    // of the GC root set (see `gc.rs::GcRoots::pending_rejections`),
+    // so the rejected Promise objects stay marked across the
+    // dispatch loop.  `dispatch_unhandled_rejection_event` allocates
+    // (wrappers, event objects), each of which can trigger GC; if
+    // we'd taken the Vec out, an otherwise-unreachable rejected
+    // Promise (the common case — `Promise.reject('x')` with no JS
+    // reference) would be reclaimed mid-loop, leaving `id` dangling
+    // when we install `event.promise`.
+    //
+    // `initial_count` snapshots the boundary: any pending_rejections
+    // pushed *during* the loop (a listener creating + rejecting
+    // another Promise) wait for the next outer drain — matches the
+    // microtask-checkpoint semantics in `script_dispatch_event_core`.
+    let initial_count = vm.pending_rejections.len();
+    for i in 0..initial_count {
+        let id = vm.pending_rejections[i];
         let Some(obj) = vm.objects.get(id.0 as usize).and_then(|o| o.as_ref()) else {
             continue;
         };
@@ -318,13 +337,19 @@ fn warn_unhandled_rejections(vm: &mut VmInner) {
         if state.status != PromiseStatus::Rejected || state.handled {
             continue;
         }
-        // Format the reason for display.  Intern via `to_display_string`
-        // so Error instances render as "TypeError: msg" etc.
         let reason = state.result;
-        let reason_id = super::coerce::to_display_string(vm, reason);
-        let reason_str = vm.strings.get_utf8(reason_id);
-        eprintln!("Uncaught (in promise): {reason_str}");
-        // Re-borrow mutably now that to_display_string/get_utf8 are done.
+
+        // Try host-side dispatch first; only fall back to stderr if
+        // no listener prevented the default.
+        let suppressed = dispatch_unhandled_rejection_event(vm, id, reason);
+        if !suppressed {
+            // Format the reason for display.  Intern via `to_display_string`
+            // so Error instances render as "TypeError: msg" etc.
+            let reason_id = super::coerce::to_display_string(vm, reason);
+            let reason_str = vm.strings.get_utf8(reason_id);
+            eprintln!("Uncaught (in promise): {reason_str}");
+        }
+        // Re-borrow mutably now that we're done reading.
         if let Some(ObjectKind::Promise(state)) = vm
             .objects
             .get_mut(id.0 as usize)
@@ -334,6 +359,208 @@ fn warn_unhandled_rejections(vm: &mut VmInner) {
             state.handled = true;
         }
     }
+    // Remove the entries we processed.  Anything pushed during the
+    // loop (idx >= initial_count) survives for the next drain.
+    vm.pending_rejections.drain(..initial_count);
+}
+
+/// Dispatch a `PromiseRejectionEvent` to the document's
+/// `unhandledrejection` listeners.  Returns `true` if dispatch
+/// happened AND a listener called `preventDefault()` — caller uses
+/// this to suppress the stderr fallback.
+///
+/// Bypasses the shared 3-phase dispatch core: per HTML §8.1.5.5 the
+/// event is non-bubbling and targeted at the global, so capture-phase
+/// listeners on ancestors are not in play.  Direct invocation also
+/// avoids the cross-crate `EventPayload::PromiseRejection { ... }`
+/// variant that would be required to thread VM-specific `ObjectId`
+/// and `JsValue` through `elidex-plugin`'s engine-agnostic payload
+/// enum (design decision D6, m4-12-pr3-plan.md).
+#[cfg(feature = "engine")]
+fn dispatch_unhandled_rejection_event(
+    vm: &mut VmInner,
+    promise_id: super::value::ObjectId,
+    reason: JsValue,
+) -> bool {
+    use super::shape::PropertyAttrs;
+    use super::value::{PropertyKey, PropertyValue};
+
+    // `HostData` must be bound and the document entity must have at
+    // least one `unhandledrejection` listener — otherwise nothing to
+    // dispatch.  Cheap pre-checks done first so the no-listener case
+    // bails before any allocation.
+    let document = match vm.host_data.as_deref() {
+        Some(host) if host.is_bound() => host.document(),
+        _ => return false,
+    };
+    // Collect the full (id, once, passive) tuple per matching
+    // listener — `once` gates ECS-component + listener_store
+    // removal after firing, `passive` threads through to the event
+    // object so `preventDefault` no-ops correctly.  Keeping the
+    // metadata captured at plan-build time mirrors
+    // `script_dispatch_event_core`'s behaviour and prevents the bug
+    // where `{once: true, passive: true}` listeners on
+    // unhandledrejection silently bypassed both options.
+    struct PendingListener {
+        id: elidex_script_session::ListenerId,
+        once: bool,
+        passive: bool,
+    }
+    let pending: Vec<PendingListener> = {
+        let dom = vm.host_data.as_deref_mut().unwrap().dom();
+        let Ok(listeners) = dom
+            .world()
+            .get::<&elidex_script_session::EventListeners>(document)
+        else {
+            return false;
+        };
+        // `EventListeners::iter_matching` takes `&str` (the ECS
+        // component stores Rust `String`s, not `StringId`s) — the
+        // literal here matches the cached `well_known.unhandledrejection`
+        // by definition.  Replacing with `get_utf8(well_known.…)` would
+        // allocate a `String` per call, defeating the cache.
+        // `iter_matching` (vs `matching_all`) skips the
+        // `Vec<&ListenerEntry>` intermediate alloc.
+        listeners
+            .iter_matching("unhandledrejection")
+            .map(|e| PendingListener {
+                id: e.id,
+                once: e.once,
+                passive: e.passive,
+            })
+            .collect()
+    };
+    if pending.is_empty() {
+        return false;
+    }
+
+    // Build a synthetic DispatchEvent — flag state is updated across
+    // iterations so the next listener's freshly-built event object
+    // sees prior `preventDefault` / `stopPropagation` calls.  Never
+    // enters the session event queue or 3-phase dispatch; the loop
+    // honours `stopImmediatePropagation` directly.
+    //
+    // Initialise `phase` / `current_target` / `dispatch_flag` /
+    // `composed_path` to spec-consistent at-target state so JS
+    // observers see `e.eventPhase === 2` (AT_TARGET), `e.currentTarget
+    // === document`, and `e.composedPath() === [document]` — matching
+    // what a regular dispatch through `script_dispatch_event_core`
+    // would produce.  `create_event_object` resolves
+    // `composed_path`'s Entity list to `HostObject` wrappers and
+    // seeds the Event's internal slot.
+    let mut event = elidex_script_session::DispatchEvent::new("unhandledrejection", document);
+    event.bubbles = false;
+    event.cancelable = true;
+    event.composed = false;
+    event.phase = elidex_plugin::EventPhase::AtTarget;
+    event.current_target = Some(document);
+    event.dispatch_flag = true;
+    event.composed_path = vec![document];
+
+    let doc_wrapper = vm.create_element_wrapper(document);
+    let promise_key = vm.well_known.promise;
+    let reason_key = vm.well_known.reason;
+
+    // Per-listener rebuild (matches design D4 + `engine.rs::call_listener`).
+    // Reusing one event object across listeners would leak listener-side
+    // mutations (e.g. `e.foo = 1`) into the next listener's view, which
+    // diverges from the regular dispatch path.
+    for entry in pending {
+        let Some(func_id) = vm
+            .host_data
+            .as_deref()
+            .and_then(|h| h.get_listener(entry.id))
+        else {
+            continue;
+        };
+
+        // WHATWG DOM §2.10 step 15: remove `once` listeners BEFORE
+        // invoking, so re-entrant dispatch in the callback doesn't
+        // re-fire them.  Mirrors `script_dispatch_event_core` line 452.
+        if entry.once {
+            if let Ok(mut listeners) = vm
+                .host_data
+                .as_deref_mut()
+                .unwrap()
+                .dom()
+                .world_mut()
+                .get::<&mut elidex_script_session::EventListeners>(document)
+            {
+                listeners.remove(entry.id);
+            }
+        }
+
+        // Build fresh event object for this listener.  `event.flags`
+        // carries forward accumulated state from previous iterations.
+        // `entry.passive` threads through so `preventDefault` no-ops
+        // for `{passive: true}` listeners.
+        let event_obj_id = vm.create_event_object(&event, doc_wrapper, doc_wrapper, entry.passive);
+        // Augment with the spec-required `promise` + `reason` props.
+        vm.define_shaped_property(
+            event_obj_id,
+            PropertyKey::String(promise_key),
+            PropertyValue::Data(JsValue::Object(promise_id)),
+            PropertyAttrs::WEBIDL_RO,
+        );
+        vm.define_shaped_property(
+            event_obj_id,
+            PropertyKey::String(reason_key),
+            PropertyValue::Data(reason),
+            PropertyAttrs::WEBIDL_RO,
+        );
+
+        // Root + invoke + sync flags back into DispatchEvent.
+        let mut g = vm.push_temp_root(JsValue::Object(event_obj_id));
+        // Errors swallowed — dispatch is a fire-and-forget host hook.
+        let _ = g.call(
+            func_id,
+            JsValue::Object(doc_wrapper),
+            &[JsValue::Object(event_obj_id)],
+        );
+        let mut should_break = false;
+        if let ObjectKind::Event {
+            default_prevented,
+            propagation_stopped,
+            immediate_propagation_stopped,
+            ..
+        } = g.get_object(event_obj_id).kind
+        {
+            event.flags.default_prevented = default_prevented;
+            event.flags.propagation_stopped = propagation_stopped;
+            event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
+            should_break = immediate_propagation_stopped;
+        }
+        drop(g);
+
+        // Clean up the `listener_store` entry for once-listeners now
+        // that the call returned (paired with the ECS-side removal
+        // above).  Together they prevent the leak where a function
+        // ObjectId stays GC-rooted via listener_store after its ECS
+        // entry is gone.
+        if entry.once {
+            vm.host_data
+                .as_deref_mut()
+                .unwrap()
+                .remove_listener(entry.id);
+        }
+        if should_break {
+            break;
+        }
+    }
+
+    event.flags.default_prevented
+}
+
+/// Stub for builds without the `engine` feature — no host means no
+/// listeners, so `false` always; the caller falls back to stderr.
+#[cfg(not(feature = "engine"))]
+#[allow(clippy::needless_pass_by_value)]
+fn dispatch_unhandled_rejection_event(
+    _vm: &mut VmInner,
+    _promise_id: super::value::ObjectId,
+    _reason: JsValue,
+) -> bool {
+    false
 }
 
 /// Execute a bare `queueMicrotask` callback (HTML §8.1.4.3).  Exceptions are

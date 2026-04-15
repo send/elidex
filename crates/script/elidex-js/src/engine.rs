@@ -8,6 +8,7 @@ use std::time::Instant;
 use elidex_ecs::Entity;
 use elidex_script_session::{DispatchEvent, EvalResult, ListenerId, ScriptContext, ScriptEngine};
 
+use crate::vm::value::{JsValue, ObjectKind};
 use crate::vm::Vm;
 
 /// elidex-js VM backed `ScriptEngine` implementation.
@@ -49,18 +50,73 @@ impl ScriptEngine for ElidexJsEngine {
 
     fn call_listener(
         &mut self,
-        _listener_id: ListenerId,
-        _event: &mut DispatchEvent,
-        _current_target: Entity,
-        _passive: bool,
+        listener_id: ListenerId,
+        event: &mut DispatchEvent,
+        current_target: Entity,
+        passive: bool,
         _ctx: &mut ScriptContext<'_>,
     ) {
-        // Stub — event listener invocation requires full DOM integration
-        // (lands with PR3 when Event/DOM wrappers become available).
+        // 1. Resolve the listener function ObjectId from HostData's
+        //    listener_store.  A miss means the listener was removed
+        //    between dispatch-plan freezing and this invocation —
+        //    silently no-op (matches WHATWG DOM §2.10 step 5.4 "if
+        //    listener's removed is true, then continue").
+        let Some(host) = self.vm.host_data() else {
+            return;
+        };
+        let Some(listener_obj_id) = host.get_listener(listener_id) else {
+            return;
+        };
+
+        // 2. Build target / currentTarget wrappers via the cached
+        //    `create_element_wrapper`.  Both end up rooted in
+        //    `wrapper_cache`, so they survive any GC triggered by the
+        //    listener body.
+        let target_wrapper = self.vm.inner.create_element_wrapper(event.target);
+        let current_wrapper = self.vm.inner.create_element_wrapper(current_target);
+
+        // Build the per-listener event object, root it across the
+        // listener call (it has no other GC root until the call's
+        // arg slot becomes a stack frame), invoke the listener,
+        // then sync flag fields back into `event.flags` so the next
+        // listener / outer dispatch loop sees prior preventDefault /
+        // stopPropagation calls.
+        //
+        // Microtask checkpoint is NOT performed here — the shared
+        // dispatch loop in
+        // `elidex_script_session::event_dispatch::script_dispatch_event_core`
+        // calls `engine.run_microtasks(ctx)` after every listener
+        // invocation (HTML §8.1.7.3).  Timer drain is similarly host
+        // event-loop driven, not per-listener.
+        let event_obj_id =
+            self.vm
+                .inner
+                .create_event_object(event, target_wrapper, current_wrapper, passive);
+        let mut g = self.vm.push_temp_root(JsValue::Object(event_obj_id));
+        let _ = g.call(
+            listener_obj_id,
+            JsValue::Object(current_wrapper),
+            &[JsValue::Object(event_obj_id)],
+        );
+        if let ObjectKind::Event {
+            default_prevented,
+            propagation_stopped,
+            immediate_propagation_stopped,
+            ..
+        } = g.get_object(event_obj_id).kind
+        {
+            event.flags.default_prevented = default_prevented;
+            event.flags.propagation_stopped = propagation_stopped;
+            event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
+        }
+        // `g` drops here; restores stack to pre-push length, even
+        // if the listener body panicked under `catch_unwind`.
     }
 
-    fn remove_listener(&mut self, _listener_id: ListenerId) {
-        // Stub — listener store lands with PR3.
+    fn remove_listener(&mut self, listener_id: ListenerId) {
+        if let Some(host) = self.vm.host_data() {
+            host.remove_listener(listener_id);
+        }
     }
 
     fn run_microtasks(&mut self, _ctx: &mut ScriptContext<'_>) {

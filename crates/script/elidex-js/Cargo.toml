@@ -12,7 +12,7 @@ categories = ["web-programming", "parsing"]
 
 [features]
 default = []
-engine = ["elidex-script-session", "elidex-ecs"]
+engine = ["elidex-script-session", "elidex-ecs", "elidex-plugin"]
 
 [dependencies]
 hashbrown = "0.15"
@@ -22,6 +22,7 @@ regress = { workspace = true }
 unicode-ident = "1.0"
 elidex-script-session = { workspace = true, optional = true }
 elidex-ecs = { workspace = true, optional = true }
+elidex-plugin = { workspace = true, optional = true }
 
 [lints]
 workspace = true

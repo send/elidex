@@ -512,6 +512,56 @@ pub enum ObjectKind {
         /// the reject handler (throw the received value inside the body).
         is_throw: bool,
     },
+    /// An Event object — the JS-side view of a DispatchEvent during
+    /// listener invocation.
+    ///
+    /// All three `*_prevented` / `*_stopped` flags live in internal slots
+    /// (not observable as own properties) and are written by the native
+    /// methods `preventDefault` / `stopPropagation` /
+    /// `stopImmediatePropagation`.  The `cancelable` / `passive` fields
+    /// are immutable after construction — `preventDefault` silently
+    /// no-ops when either is `false` (matches browser behaviour for
+    /// passive listeners and non-cancelable events, WHATWG DOM §2.9).
+    ///
+    /// `composed_path` is the lazily-built JS array returned by
+    /// `composedPath()` — cached on first call so repeated invocations
+    /// observe identical array identity, per WHATWG DOM §2.9
+    /// (`composedPath()` returns the internal list, so the same Array
+    /// exotic object is returned — exposing a different array each
+    /// call would be spec-non-conforming).
+    Event {
+        default_prevented: bool,
+        propagation_stopped: bool,
+        immediate_propagation_stopped: bool,
+        /// Immutable — set from `DispatchEvent::cancelable` at construction.
+        cancelable: bool,
+        /// Immutable — `true` when this event object is threaded to a
+        /// listener registered with `{passive: true}`.  Gates
+        /// `preventDefault` into a silent no-op.
+        passive: bool,
+        /// Lazily-allocated `[target, ...ancestors]` Array returned by
+        /// `composedPath()`.  `None` until the first call.
+        composed_path: Option<ObjectId>,
+    },
+    /// Host (DOM) object — the VM-side wrapper for an ECS `Entity`.
+    ///
+    /// Every DOM element / document / window surfaces in JS as a
+    /// `HostObject` with its entity packed into `entity_bits`
+    /// (`Entity::to_bits().get()`).  Native DOM methods recover the
+    /// Entity by pattern-matching on this variant and consulting
+    /// `HostData::dom()`.
+    ///
+    /// Identity is preserved across lookups (`el === el`) via
+    /// `HostData::wrapper_cache`, which maps `entity_bits` to the
+    /// existing `ObjectId` so repeated `create_element_wrapper` calls
+    /// return the same object.  The prototype is `EventTarget.prototype`
+    /// so `addEventListener` / `removeEventListener` / `dispatchEvent`
+    /// are inherited without per-wrapper allocation.
+    ///
+    /// The variant carries no `ObjectId` references, so GC has nothing
+    /// to trace.  The wrapper itself is kept alive by `wrapper_cache`
+    /// (rooted via `HostData::gc_root_object_ids`).
+    HostObject { entity_bits: u64 },
 }
 
 impl ObjectKind {

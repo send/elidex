@@ -1,0 +1,162 @@
+//! PR3 C2: `create_element_wrapper` + wrapper_cache identity tests.
+//!
+//! These exercise the full host-bound path: a real `SessionCore` +
+//! `EcsDom` is constructed, the VM is bound against them, and
+//! `create_element_wrapper` is called via the host pointer.  The
+//! tests verify:
+//!
+//! 1. Identity (`el === el`) — same Entity yields the same ObjectId.
+//! 2. Distinct entities yield distinct ObjectIds.
+//! 3. The wrapper's prototype is `EventTarget.prototype`.
+//! 4. The wrapper's `ObjectKind` is `HostObject` with matching
+//!    `entity_bits`.
+//! 5. A wrapper held only by `wrapper_cache` survives a GC cycle
+//!    (rooted via `HostData::gc_root_object_ids`).
+//!
+//! Compiled only with `feature = "engine"` — `HostData` is a stub
+//! otherwise.
+
+#![cfg(feature = "engine")]
+
+use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_script_session::SessionCore;
+
+use super::super::host_data::HostData;
+use super::super::value::{JsValue, ObjectKind};
+use super::super::Vm;
+
+/// Build a Vm with HostData installed and bound against the given
+/// session/dom.  The caller is responsible for keeping both alive (and
+/// not aliasing them) for the lifetime of the binding.
+#[allow(unsafe_code)]
+unsafe fn bind_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, document: Entity) {
+    vm.install_host_data(HostData::new());
+    unsafe {
+        vm.bind(session as *mut _, dom as *mut _, document);
+    }
+}
+
+#[test]
+fn wrapper_is_identity_cached() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("div", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let first = vm.inner.create_element_wrapper(el);
+    let second = vm.inner.create_element_wrapper(el);
+    assert_eq!(first, second, "create_element_wrapper must cache by Entity");
+
+    vm.unbind();
+}
+
+#[test]
+fn wrapper_is_distinct_per_entity() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let a = dom.create_element("div", Attributes::default());
+    let b = dom.create_element("span", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let wa = vm.inner.create_element_wrapper(a);
+    let wb = vm.inner.create_element_wrapper(b);
+    assert_ne!(wa, wb, "distinct entities must get distinct wrappers");
+
+    vm.unbind();
+}
+
+#[test]
+fn wrapper_prototype_is_event_target() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("div", Attributes::default());
+
+    let event_target_proto = vm.inner.event_target_prototype;
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let wrapper = vm.inner.create_element_wrapper(el);
+    let wrapper_proto = vm.inner.get_object(wrapper).prototype;
+    assert_eq!(
+        wrapper_proto, event_target_proto,
+        "wrapper prototype must be EventTarget.prototype so \
+         addEventListener etc. resolve via the prototype chain"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn wrapper_kind_carries_entity_bits() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("div", Attributes::default());
+    let expected_bits = el.to_bits().get();
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let wrapper = vm.inner.create_element_wrapper(el);
+    match vm.inner.get_object(wrapper).kind {
+        ObjectKind::HostObject { entity_bits } => {
+            assert_eq!(entity_bits, expected_bits);
+        }
+        _ => panic!("expected HostObject, got different ObjectKind"),
+    }
+
+    vm.unbind();
+}
+
+#[test]
+fn wrapper_survives_gc_via_cache_root() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("div", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let wrapper = vm.inner.create_element_wrapper(el);
+    // No stack root, no global — the only strong reference is
+    // HostData::wrapper_cache.  A GC cycle must not reclaim the slot.
+    vm.inner.collect_garbage();
+
+    assert!(
+        vm.inner.objects[wrapper.0 as usize].is_some(),
+        "wrapper held by wrapper_cache was collected"
+    );
+    // Calling again for the same Entity must still return the same id.
+    let second = vm.inner.create_element_wrapper(el);
+    assert_eq!(second, wrapper, "wrapper_cache lookup must survive GC");
+
+    // Sanity: the slot is still reachable as a JS value.
+    let as_value = JsValue::Object(wrapper);
+    assert!(matches!(as_value, JsValue::Object(_)));
+
+    vm.unbind();
+}
