@@ -113,10 +113,28 @@ pub fn make_event(
     ev
 }
 
-/// Snapshot the [`EventListeners`] component for `entity`, returning
-/// an owned clone (or [`EventListeners::default`] if the component is
-/// absent).  Callers can drop the world borrow before resuming VM work.
-pub fn listeners_on(dom: &EcsDom, entity: Entity) -> EventListeners {
+/// Snapshot the [`EventListeners`] component for `entity` via the
+/// VM's currently-bound `HostData`, returning an owned clone (or
+/// [`EventListeners::default`] if the component is absent).
+///
+/// Taking the DOM through `vm.host_data().dom()` — rather than via an
+/// external `&EcsDom` parameter — is deliberate: [`HostData::bind`]'s
+/// safety contract forbids any Rust reference to `dom` / `session` for
+/// the duration of the binding (raw-pointer / `&mut` aliasing is UB
+/// under Stacked Borrows).  Routing the lookup through the bound
+/// pointer keeps both the caller and this helper on the same side of
+/// that contract.
+///
+/// # Panics
+///
+/// Panics if the VM has no `HostData` installed or is not currently
+/// bound — both conditions indicate a test wiring bug (the snapshot
+/// requires the bound `EcsDom`).
+pub fn listeners_on(vm: &mut Vm, entity: Entity) -> EventListeners {
+    let dom = vm
+        .host_data()
+        .expect("listeners_on: HostData must be installed (call bind_vm first)")
+        .dom();
     match dom.world().get::<&EventListeners>(entity) {
         Ok(r) => (*r).clone(),
         Err(_) => EventListeners::default(),

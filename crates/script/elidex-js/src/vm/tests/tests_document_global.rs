@@ -65,7 +65,7 @@ fn document_inherits_event_target_methods() {
     )
     .unwrap();
 
-    let entry_count = listeners_on(&dom, doc)
+    let entry_count = listeners_on(&mut vm, doc)
         .matching_all("DOMContentLoaded")
         .len();
     assert_eq!(

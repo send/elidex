@@ -28,7 +28,7 @@ fn add_event_listener_inserts_into_ecs_component() {
     vm.eval("el.addEventListener('click', function () {});")
         .unwrap();
 
-    let listeners = listeners_on(&dom, el);
+    let listeners = listeners_on(&mut vm, el);
     let entries = listeners.matching_all("click");
     assert_eq!(entries.len(), 1, "click listener must be registered");
     assert!(!entries[0].capture, "default capture is false");
@@ -50,7 +50,7 @@ fn options_boolean_form_sets_capture() {
     vm.eval("el.addEventListener('click', function () {}, true);")
         .unwrap();
 
-    let entries = listeners_on(&dom, el)
+    let entries = listeners_on(&mut vm, el)
         .matching_all("click")
         .iter()
         .map(|e| (**e).clone())
@@ -76,7 +76,7 @@ fn options_object_form_reads_capture_once_passive() {
     )
     .unwrap();
 
-    let listeners = listeners_on(&dom, el);
+    let listeners = listeners_on(&mut vm, el);
     let entries = listeners.matching_all("click");
     assert_eq!(entries.len(), 1);
     assert!(entries[0].capture);
@@ -99,7 +99,7 @@ fn options_object_missing_keys_default_to_false() {
     vm.eval("el.addEventListener('click', function () {}, { passive: true });")
         .unwrap();
 
-    let listeners = listeners_on(&dom, el);
+    let listeners = listeners_on(&mut vm, el);
     let entries = listeners.matching_all("click");
     assert_eq!(entries.len(), 1);
     assert!(!entries[0].capture);
@@ -127,7 +127,7 @@ fn duplicate_same_callback_same_capture_is_silently_skipped() {
     )
     .unwrap();
 
-    let listeners = listeners_on(&dom, el);
+    let listeners = listeners_on(&mut vm, el);
     assert_eq!(
         listeners.matching_all("click").len(),
         1,
@@ -156,7 +156,7 @@ fn duplicate_check_is_per_capture_phase() {
     )
     .unwrap();
 
-    let listeners = listeners_on(&dom, el);
+    let listeners = listeners_on(&mut vm, el);
     let entries = listeners.matching_all("click");
     assert_eq!(entries.len(), 2);
     assert!(entries.iter().any(|e| e.capture));
@@ -178,7 +178,7 @@ fn null_callback_is_silently_ignored() {
     vm.eval("el.addEventListener('click', null);").unwrap();
     vm.eval("el.addEventListener('click', undefined);").unwrap();
 
-    let listeners = listeners_on(&dom, el);
+    let listeners = listeners_on(&mut vm, el);
     assert!(listeners.matching_all("click").is_empty());
 
     vm.unbind();
@@ -314,7 +314,7 @@ fn registered_listener_stored_in_listener_store() {
         panic!("handler must be an Object");
     };
 
-    let listeners = listeners_on(&dom, el);
+    let listeners = listeners_on(&mut vm, el);
     let listener_id = listeners.matching_all("click")[0].id;
     let stored = vm
         .host_data()
