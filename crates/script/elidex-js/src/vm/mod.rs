@@ -754,6 +754,70 @@ impl VmInner {
         }
     }
 
+    /// Install a pre-built shape and its matching slot values on an
+    /// object in a single operation — skipping the per-property
+    /// transition walk.
+    ///
+    /// Used by hot paths where the final property layout is fixed at
+    /// VM creation time (e.g. event objects via `PrecomputedEventShapes`):
+    /// allocate the object at `ROOT_SHAPE` with an empty slot vec,
+    /// then call this API once with the precomputed terminal shape and
+    /// the assembled slot values.  Replaces ~N `define_shaped_property`
+    /// calls with a single `PropertyStorage` replacement.
+    ///
+    /// All slots are installed as [`value::PropertyValue::Data`].
+    /// Callers that need accessor properties on the fast path must
+    /// fall back to `define_shaped_property` (a design trade-off —
+    /// this API is optimised for the event-object case, where every
+    /// own property is a data property and accessors live on the
+    /// shared `event_methods_prototype`).
+    ///
+    /// # Panics
+    ///
+    /// Debug-only asserts the slot count matches the shape's property
+    /// count; mismatch means the caller assembled the slot Vec in a
+    /// different order than the shape was built with — a structural
+    /// bug that would otherwise silently write values into the wrong
+    /// JS-visible property names.
+    ///
+    /// Also panics if the object is in `Dictionary` storage mode —
+    /// caller should only route objects that have never left
+    /// `Shaped` (freshly-allocated event objects never transition to
+    /// Dictionary).
+    //
+    // `#[allow(dead_code)]` until C4 lands — consumer is
+    // `create_event_object`'s rewrite.  Removed there.
+    #[allow(dead_code)]
+    pub(crate) fn define_with_precomputed_shape(
+        &mut self,
+        obj_id: ObjectId,
+        shape_id: shape::ShapeId,
+        slots: &[JsValue],
+    ) {
+        debug_assert_eq!(
+            self.shapes[shape_id as usize].property_count() as usize,
+            slots.len(),
+            "define_with_precomputed_shape: slot count ({}) does not match shape property count ({}) — caller built the slot Vec in a different order than the shape",
+            slots.len(),
+            self.shapes[shape_id as usize].property_count(),
+        );
+        let property_slots: Vec<value::PropertyValue> = slots
+            .iter()
+            .copied()
+            .map(value::PropertyValue::Data)
+            .collect();
+        let obj = self.objects[obj_id.0 as usize].as_mut().unwrap();
+        match &mut obj.storage {
+            value::PropertyStorage::Shaped { shape, slots: s } => {
+                *shape = shape_id;
+                *s = property_slots;
+            }
+            value::PropertyStorage::Dictionary(_) => {
+                panic!("define_with_precomputed_shape requires Shaped storage; got Dictionary");
+            }
+        }
+    }
+
     /// Define a new property on a Shaped object: transition + slot push.
     /// If the object is in Dictionary mode, pushes directly.
     pub(crate) fn define_shaped_property(
