@@ -354,9 +354,10 @@ impl DomApiHandler for GetNodeName {
                 // Attr.nodeName is the attribute name, but we don't have it here.
                 String::new()
             }
-            // Window is not a Node per WHATWG and does not have a nodeName.
-            Some(NodeKind::Window) => String::new(),
-            None => String::new(),
+            // Window is not a Node per WHATWG and does not have a
+            // nodeName.  `None` also collapses to empty per the spec
+            // fallthrough.
+            Some(NodeKind::Window) | None => String::new(),
         };
         Ok(JsValue::String(name))
     }
