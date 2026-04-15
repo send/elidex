@@ -310,8 +310,24 @@ fn warn_unhandled_rejections(vm: &mut VmInner) {
     if vm.pending_rejections.is_empty() {
         return;
     }
-    let pending = std::mem::take(&mut vm.pending_rejections);
-    for id in pending {
+    // Iterate by index over the live `pending_rejections` Vec
+    // instead of `mem::take`-ing it.  `pending_rejections` is part
+    // of the GC root set (see `gc.rs::GcRoots::pending_rejections`),
+    // so the rejected Promise objects stay marked across the
+    // dispatch loop.  `dispatch_unhandled_rejection_event` allocates
+    // (wrappers, event objects), each of which can trigger GC; if
+    // we'd taken the Vec out, an otherwise-unreachable rejected
+    // Promise (the common case — `Promise.reject('x')` with no JS
+    // reference) would be reclaimed mid-loop, leaving `id` dangling
+    // when we install `event.promise`.
+    //
+    // `initial_count` snapshots the boundary: any pending_rejections
+    // pushed *during* the loop (a listener creating + rejecting
+    // another Promise) wait for the next outer drain — matches the
+    // microtask-checkpoint semantics in `script_dispatch_event_core`.
+    let initial_count = vm.pending_rejections.len();
+    for i in 0..initial_count {
+        let id = vm.pending_rejections[i];
         let Some(obj) = vm.objects.get(id.0 as usize).and_then(|o| o.as_ref()) else {
             continue;
         };
@@ -343,6 +359,9 @@ fn warn_unhandled_rejections(vm: &mut VmInner) {
             state.handled = true;
         }
     }
+    // Remove the entries we processed.  Anything pushed during the
+    // loop (idx >= initial_count) survives for the next drain.
+    vm.pending_rejections.drain(..initial_count);
 }
 
 /// Dispatch a `PromiseRejectionEvent` to the document's

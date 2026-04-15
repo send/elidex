@@ -305,6 +305,50 @@ fn passive_listener_cannot_prevent_default() {
 }
 
 #[test]
+fn pending_rejections_drained_after_dispatch() {
+    // Smoke test for the structural fix in `warn_unhandled_rejections`:
+    // it used to `mem::take(pending_rejections)` before dispatching,
+    // moving the Promise ObjectIds out of the GC root set.  An
+    // alloc-triggered GC inside `dispatch_unhandled_rejection_event`
+    // could then reclaim a Promise whose only reachability was
+    // pending_rejections (e.g. `Promise.reject('x')` with no JS
+    // reference), leaving `e.promise` pointing at a freed slot.
+    //
+    // The fix iterates `pending_rejections` by index without `take`,
+    // then `drain(..initial_count)` at the end.  This test verifies
+    // the visible behaviour: after dispatch, `pending_rejections` is
+    // empty (the loop completed and drained).  We can't trivially
+    // force the GC-race window here without test-only infrastructure
+    // (no JS `gc()` global), so this test guards the structural
+    // invariant rather than the precise UAF symptom.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    bound_vm(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.fired = false;
+         document.addEventListener('unhandledrejection', function () {
+             globalThis.fired = true;
+         });
+         (function () { Promise.reject('drain-test'); })();",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.get_global("fired").unwrap(),
+        JsValue::Boolean(true),
+        "listener must fire on unhandled rejection"
+    );
+    assert!(
+        vm.inner.pending_rejections.is_empty(),
+        "pending_rejections must be drained after warn_unhandled_rejections completes"
+    );
+
+    vm.unbind();
+}
+
+#[test]
 fn no_listener_silently_falls_back_no_panic() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
