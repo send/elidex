@@ -1,5 +1,6 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
+mod tests_add_event_listener;
 mod tests_array_prototype;
 mod tests_array_prototype_ext;
 mod tests_async;
