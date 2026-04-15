@@ -26,10 +26,10 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_js::vm::host_data::HostData;
+use elidex_js::vm::test_helpers::make_event;
 use elidex_js::vm::value::ObjectId;
 use elidex_js::vm::Vm;
-use elidex_plugin::{EventPayload, EventPhase, KeyboardEventInit, MouseEventInit};
-use elidex_script_session::event_dispatch::DispatchEvent;
+use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
 use elidex_script_session::SessionCore;
 
 /// Stand up a Vm bound to a fresh DOM with a single `<button>` that
@@ -37,7 +37,11 @@ use elidex_script_session::SessionCore;
 ///
 /// Returns `(vm, session, dom, target_wrapper_id, button_entity)`.
 /// `session` and `dom` are heap-owned (Box) so the raw `*mut` passed
-/// to `Vm::bind` stays live for the benchmark's duration.
+/// to `Vm::bind` stays live for the benchmark's duration.  The bench
+/// keeps its own `setup()` rather than reusing `test_helpers::bind_vm`
+/// because only the bench needs the stable-address `Box` pattern; the
+/// stack-based test helpers (see `vm::test_helpers`) would force the
+/// caller to keep matching `let`-bindings alive manually.
 fn setup() -> (Box<Vm>, Box<SessionCore>, Box<EcsDom>, ObjectId, Entity) {
     let mut vm = Box::new(Vm::new());
     let mut session = Box::new(SessionCore::new());
@@ -52,22 +56,6 @@ fn setup() -> (Box<Vm>, Box<SessionCore>, Box<EcsDom>, ObjectId, Entity) {
     }
     let target = vm.create_element_wrapper(el);
     (vm, session, dom, target, el)
-}
-
-fn make_event(
-    event_type: &str,
-    cancelable: bool,
-    payload: EventPayload,
-    entity: Entity,
-) -> DispatchEvent {
-    let mut ev = DispatchEvent::new(event_type, entity);
-    ev.bubbles = false;
-    ev.cancelable = cancelable;
-    ev.payload = payload;
-    ev.phase = EventPhase::AtTarget;
-    ev.current_target = Some(entity);
-    ev.dispatch_flag = true;
-    ev
 }
 
 fn bench_mouse(c: &mut Criterion) {

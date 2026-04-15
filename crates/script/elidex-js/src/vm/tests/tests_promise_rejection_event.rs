@@ -10,16 +10,17 @@
 use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;
 
-use super::super::host_data::HostData;
+use super::super::test_helpers::bind_vm;
 use super::super::value::JsValue;
 use super::super::Vm;
 
+/// Convenience wrapper: create a document root + bind — every test
+/// here starts from the same two-liner.
 #[allow(unsafe_code)]
 fn bound_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom) {
     let doc = dom.create_document_root();
-    vm.install_host_data(HostData::new());
     unsafe {
-        vm.bind(session as *mut _, dom as *mut _, doc);
+        bind_vm(vm, session, dom, doc);
     }
 }
 

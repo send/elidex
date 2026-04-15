@@ -9,9 +9,9 @@
 #![cfg(feature = "engine")]
 
 use elidex_ecs::EcsDom;
-use elidex_script_session::{EventListeners, SessionCore};
+use elidex_script_session::SessionCore;
 
-use super::super::host_data::HostData;
+use super::super::test_helpers::{bind_vm, listeners_on};
 use super::super::value::{JsValue, ObjectKind};
 use super::super::Vm;
 
@@ -22,10 +22,9 @@ fn bind_installs_document_as_host_object() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
 
-    vm.install_host_data(HostData::new());
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
 
     let JsValue::Object(doc_id) = vm
@@ -54,10 +53,9 @@ fn document_inherits_event_target_methods() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
 
-    vm.install_host_data(HostData::new());
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
 
     // `addEventListener` is inherited via the prototype chain.
@@ -67,14 +65,11 @@ fn document_inherits_event_target_methods() {
     )
     .unwrap();
 
-    let listeners = match dom.world().get::<&EventListeners>(doc) {
-        Ok(r) => (*r).clone(),
-        Err(_) => EventListeners::default(),
-    };
-    let entries = listeners.matching_all("DOMContentLoaded");
+    let entries = listeners_on(&dom, doc)
+        .matching_all("DOMContentLoaded")
+        .len();
     assert_eq!(
-        entries.len(),
-        1,
+        entries, 1,
         "document.addEventListener must register on the document entity"
     );
 
@@ -87,15 +82,17 @@ fn document_identity_is_stable_across_rebinds() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    vm.install_host_data(HostData::new());
 
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
     let first = vm.get_global("document").unwrap();
     vm.unbind();
 
+    // Rebind without reinstalling HostData — the wrapper_cache entry
+    // from the prior bind cycle must survive and reproduce the same
+    // ObjectId (document identity stable across bind/unbind).
     #[allow(unsafe_code)]
     unsafe {
         vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
