@@ -80,9 +80,9 @@ fn bind_allocates_window_entity_and_threads_entity_bits() {
     assert_eq!(dom_ref.node_kind(win_entity), Some(NodeKind::Window));
 
     // globalThis.entity_bits == window_entity.to_bits().
-    let entity_bits = match vm.inner.get_object(vm.inner.global_object).kind {
-        ObjectKind::HostObject { entity_bits } => entity_bits,
-        _ => unreachable!(),
+    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(vm.inner.global_object).kind
+    else {
+        unreachable!()
     };
     assert_eq!(entity_bits, win_entity.to_bits().get());
 
@@ -102,9 +102,9 @@ fn unbind_resets_global_entity_bits_to_sentinel() {
     }
     vm.unbind();
 
-    let entity_bits = match vm.inner.get_object(vm.inner.global_object).kind {
-        ObjectKind::HostObject { entity_bits } => entity_bits,
-        _ => unreachable!(),
+    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(vm.inner.global_object).kind
+    else {
+        unreachable!()
     };
     assert_eq!(entity_bits, 0, "unbind must reset to sentinel");
 }

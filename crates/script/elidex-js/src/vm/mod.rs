@@ -259,6 +259,33 @@ pub(crate) struct VmInner {
     pub(crate) active_timer_ids: HashSet<u32>,
     /// IDs cleared before firing — skipped at drain time.
     pub(crate) cancelled_timers: HashSet<u32>,
+    /// Monotonic reference point for `performance.now()` and
+    /// `Event.timeStamp` (WHATWG DOM §2.2 / HR-Time §5).  Set once at
+    /// `Vm::new`; both APIs return `self.start_instant.elapsed()` in
+    /// milliseconds with sub-ms precision.  Sharing a single
+    /// `Instant` guarantees `event.timeStamp` and `performance.now()`
+    /// observed inside the same listener are directly comparable
+    /// (spec requirement — the time origin is the same).
+    ///
+    /// `Event.timeStamp` wiring lands in PR4d; the field is introduced
+    /// here in PR4b C3 so `performance.now()` (PR4b C5) can share it.
+    ///
+    /// `#[allow(dead_code)]` until PR4b C5 — the field is consumed by
+    /// `performance.now()` and therefore reachable, but no call site
+    /// exists yet at C3 when the field is introduced.
+    #[allow(dead_code)]
+    pub(crate) start_instant: std::time::Instant,
+    /// Browsing-context navigation state — backs `location.*`,
+    /// `history.*`, and `document.URL` / `document.documentURI`.  See
+    /// `host::navigation::NavigationState` for the field list and
+    /// Phase 2 scope (in-memory only, no shell bridge yet).
+    ///
+    /// `#[allow(dead_code)]` is scoped to the C3 introduction; the
+    /// field is consumed by `location` (C6), `history` (C7), and
+    /// `document` (C9) in later commits of this PR.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)]
+    pub(crate) navigation: host::navigation::NavigationState,
 }
 
 impl VmInner {
@@ -918,6 +945,9 @@ impl Vm {
                 next_timer_id: 1,
                 active_timer_ids: HashSet::new(),
                 cancelled_timers: HashSet::new(),
+                start_instant: std::time::Instant::now(),
+                #[cfg(feature = "engine")]
+                navigation: host::navigation::NavigationState::new(),
             },
         };
 
