@@ -12,6 +12,7 @@
 //!   `addEventListener` / `removeEventListener` / `dispatchEvent`
 //!   inherited by every DOM wrapper.
 
+pub(super) mod document;
 pub(super) mod elements;
 pub(super) mod event_shapes;
 pub(super) mod event_target;

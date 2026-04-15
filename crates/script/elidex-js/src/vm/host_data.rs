@@ -115,6 +115,18 @@ mod engine_feature {
             self.document_entity.unwrap()
         }
 
+        /// Same as [`Self::document`] but returns `None` when not
+        /// bound instead of panicking.  Used from document-global
+        /// natives that must silent-no-op when JS code calls a
+        /// retained `document` reference across an unbind boundary.
+        pub fn document_entity_opt(&self) -> Option<Entity> {
+            if self.is_bound() {
+                self.document_entity
+            } else {
+                None
+            }
+        }
+
         /// Return the cached Window entity, or `None` if
         /// [`Vm::bind`](super::Vm::bind) has never run on this `HostData`.
         ///
