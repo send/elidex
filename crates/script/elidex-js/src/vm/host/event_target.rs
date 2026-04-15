@@ -335,9 +335,13 @@ fn find_listener_id(
             .get::<&elidex_script_session::EventListeners>(entity)
             .ok()
             .map(|listeners| {
+                // `iter_matching` skips the `Vec<&ListenerEntry>`
+                // intermediate alloc that `matching_all` would
+                // require — `addEventListener` (duplicate check) and
+                // `removeEventListener` (find target) call this on
+                // every invocation, so the alloc savings add up.
                 listeners
-                    .matching_all(event_type)
-                    .iter()
+                    .iter_matching(event_type)
                     .filter(|e| e.capture == capture)
                     .map(|e| e.id)
                     .collect()

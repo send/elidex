@@ -8,13 +8,26 @@
 //! pointer, and the flag fields live in the canonical internal-slot
 //! location rather than as hidden JS properties.
 //!
+//! ## Receiver type-check policy (PR3)
+//!
 //! Detached method handles — `const pd = e.preventDefault; pd()` —
-//! see `this === undefined` and silently no-op, matching browser
-//! behaviour.  Calling the method with a `this` that is not an
-//! `ObjectKind::Event` is likewise a silent no-op; we do not throw,
-//! since the spec prose (§2.9) treats these methods as unconditionally
-//! callable on any Event instance — the flag writes just happen to be
-//! unobservable from non-Event receivers.
+//! see `this === undefined`.  Calls with a non-`ObjectKind::Event`
+//! receiver get the same treatment.  PR3 chooses **silent no-op**
+//! for both cases.
+//!
+//! This deviates from WebIDL: the spec generates non-generic
+//! bindings that throw `TypeError: Illegal invocation` when `this`
+//! fails the [[Brand]] check.  Spec-correct enforcement is
+//! deferred to **PR5a** alongside the `Event` constructor + the
+//! rest of the Event prototype's strict bindings (also covers the
+//! `defaultPrevented` getter).  See `m4-12-pr3-plan.md` /simplify
+//! Quality #14 for the deferral rationale.
+//!
+//! Until then, the no-op is a pragmatic choice: real-world code
+//! that escapes a method handle off an Event is exceedingly rare
+//! (linters block it), and the silent path keeps the dispatch
+//! machinery in PR3 simple.  WPT alignment tests for §2.9 receiver
+//! brand-checks will surface the gap when they run (Phase 4 late).
 
 use super::value::{JsValue, NativeContext, ObjectKind, VmError};
 

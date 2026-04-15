@@ -414,14 +414,15 @@ fn dispatch_unhandled_rejection_event(
         else {
             return false;
         };
-        // `EventListeners::matching_all` takes `&str` (the ECS
+        // `EventListeners::iter_matching` takes `&str` (the ECS
         // component stores Rust `String`s, not `StringId`s) — the
         // literal here matches the cached `well_known.unhandledrejection`
         // by definition.  Replacing with `get_utf8(well_known.…)` would
         // allocate a `String` per call, defeating the cache.
+        // `iter_matching` (vs `matching_all`) skips the
+        // `Vec<&ListenerEntry>` intermediate alloc.
         listeners
-            .matching_all("unhandledrejection")
-            .iter()
+            .iter_matching("unhandledrejection")
             .map(|e| PendingListener {
                 id: e.id,
                 once: e.once,
