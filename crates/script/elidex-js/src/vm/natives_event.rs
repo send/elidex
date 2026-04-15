@@ -140,21 +140,20 @@ pub(super) fn native_event_composed_path(
         {
             return Ok(JsValue::Object(*arr));
         }
-        // Lazy alloc + writeback for Event receivers.  Disable GC
-        // across the alloc + slot-write so the receiver `id` cannot
-        // be collected mid-sequence; this matters because direct
-        // native invocation from tests doesn't get the interpreter's
-        // per-native gc gate (interpreter.rs:71), so a GC threshold
-        // hit during `create_array_object` could otherwise reclaim
-        // the only Rust-local reference to the event.
+        // Lazy alloc + writeback for Event receivers.  Root the
+        // receiver `this` on the VM stack across `create_array_object`
+        // — the existing Event `id` is the only thing that ties the
+        // about-to-be-created Array back to a GC root, so it must
+        // outlive the alloc.  RAII guard is panic-safe (a panic
+        // between alloc and slot-write would otherwise leak the
+        // freshly-allocated Array's potential reachability).
         if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. }) {
-            let saved_gc = ctx.vm.gc_enabled;
-            ctx.vm.gc_enabled = false;
-            let arr = ctx.vm.create_array_object(Vec::new());
-            if let ObjectKind::Event { composed_path, .. } = &mut ctx.vm.get_object_mut(id).kind {
+            let mut g = ctx.vm.push_temp_root(this);
+            let arr = g.create_array_object(Vec::new());
+            if let ObjectKind::Event { composed_path, .. } = &mut g.get_object_mut(id).kind {
                 *composed_path = Some(arr);
             }
-            ctx.vm.gc_enabled = saved_gc;
+            drop(g);
             return Ok(JsValue::Object(arr));
         }
     }

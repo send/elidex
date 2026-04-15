@@ -374,7 +374,20 @@ fn dispatch_unhandled_rejection_event(
         Some(host) if host.is_bound() => host.document(),
         _ => return false,
     };
-    let listener_ids: Vec<elidex_script_session::ListenerId> = {
+    // Collect the full (id, once, passive) tuple per matching
+    // listener — `once` gates ECS-component + listener_store
+    // removal after firing, `passive` threads through to the event
+    // object so `preventDefault` no-ops correctly.  Keeping the
+    // metadata captured at plan-build time mirrors
+    // `script_dispatch_event_core`'s behaviour and prevents the bug
+    // where `{once: true, passive: true}` listeners on
+    // unhandledrejection silently bypassed both options.
+    struct PendingListener {
+        id: elidex_script_session::ListenerId,
+        once: bool,
+        passive: bool,
+    }
+    let pending: Vec<PendingListener> = {
         let dom = vm.host_data.as_deref_mut().unwrap().dom();
         let Ok(listeners) = dom
             .world()
@@ -390,10 +403,14 @@ fn dispatch_unhandled_rejection_event(
         listeners
             .matching_all("unhandledrejection")
             .iter()
-            .map(|e| e.id)
+            .map(|e| PendingListener {
+                id: e.id,
+                once: e.once,
+                passive: e.passive,
+            })
             .collect()
     };
-    if listener_ids.is_empty() {
+    if pending.is_empty() {
         return false;
     }
 
@@ -415,18 +432,36 @@ fn dispatch_unhandled_rejection_event(
     // Reusing one event object across listeners would leak listener-side
     // mutations (e.g. `e.foo = 1`) into the next listener's view, which
     // diverges from the regular dispatch path.
-    for listener_id in listener_ids {
+    for entry in pending {
         let Some(func_id) = vm
             .host_data
             .as_deref()
-            .and_then(|h| h.get_listener(listener_id))
+            .and_then(|h| h.get_listener(entry.id))
         else {
             continue;
         };
 
+        // WHATWG DOM §2.10 step 15: remove `once` listeners BEFORE
+        // invoking, so re-entrant dispatch in the callback doesn't
+        // re-fire them.  Mirrors `script_dispatch_event_core` line 452.
+        if entry.once {
+            if let Ok(mut listeners) = vm
+                .host_data
+                .as_deref_mut()
+                .unwrap()
+                .dom()
+                .world_mut()
+                .get::<&mut elidex_script_session::EventListeners>(document)
+            {
+                listeners.remove(entry.id);
+            }
+        }
+
         // Build fresh event object for this listener.  `event.flags`
         // carries forward accumulated state from previous iterations.
-        let event_obj_id = vm.create_event_object(&event, doc_wrapper, doc_wrapper, false);
+        // `entry.passive` threads through so `preventDefault` no-ops
+        // for `{passive: true}` listeners.
+        let event_obj_id = vm.create_event_object(&event, doc_wrapper, doc_wrapper, entry.passive);
         // Augment with the spec-required `promise` + `reason` props.
         vm.define_shaped_property(
             event_obj_id,
@@ -462,9 +497,19 @@ fn dispatch_unhandled_rejection_event(
             event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
             should_break = immediate_propagation_stopped;
         }
-        // `g` drops here; the per-iteration event obj becomes
-        // unreachable and will be reclaimed on the next GC cycle.
         drop(g);
+
+        // Clean up the `listener_store` entry for once-listeners now
+        // that the call returned (paired with the ECS-side removal
+        // above).  Together they prevent the leak where a function
+        // ObjectId stays GC-rooted via listener_store after its ECS
+        // entry is gone.
+        if entry.once {
+            vm.host_data
+                .as_deref_mut()
+                .unwrap()
+                .remove_listener(entry.id);
+        }
         if should_break {
             break;
         }

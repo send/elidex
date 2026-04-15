@@ -114,12 +114,13 @@ impl VmInner {
     ///
     /// # GC safety
     ///
-    /// GC is suppressed for the duration of construction — every
-    /// intermediate alloc is only reachable via local Rust variables
-    /// until the property writes complete.  This function restores
-    /// the previous `gc_enabled` state before returning, so the
-    /// returned `ObjectId` becomes vulnerable to collection from
-    /// the very next allocation.  Callers must root it immediately
+    /// The just-allocated event id is rooted internally via
+    /// [`VmInner::push_temp_root`] across all property installs
+    /// (Focus payloads' `relatedTarget` allocates a wrapper, which
+    /// could otherwise trigger GC and reclaim the in-progress event
+    /// obj).  The guard drops before return — so the returned
+    /// `ObjectId` becomes vulnerable to collection from the next
+    /// allocation by the caller.  Root it immediately
     /// (push to stack via [`VmInner::push_temp_root`], store in a
     /// frame slot, etc.) before any further VM operations that may
     /// allocate or run user JS.
@@ -130,9 +131,6 @@ impl VmInner {
         current_target_wrapper_id: ObjectId,
         passive: bool,
     ) -> ObjectId {
-        let saved_gc = self.gc_enabled;
-        self.gc_enabled = false;
-
         let event_id = self.alloc_object(Object {
             kind: ObjectKind::Event {
                 default_prevented: event.flags.default_prevented,
@@ -149,35 +147,49 @@ impl VmInner {
             extensible: true,
         });
 
+        // Root the just-allocated event_id across all property installs.
+        // `set_payload_properties` may call `create_element_wrapper`
+        // (Focus payload's `relatedTarget`), which allocates and could
+        // trigger GC — without rooting, the event obj would be the
+        // only thing tying its prototype/payload to a root and would
+        // be reclaimed mid-construction.  RAII guard restores the
+        // stack on drop, including during panic unwinding.
+        let mut g = self.push_temp_root(JsValue::Object(event_id));
+
         // ---- Core properties (cached property names from WellKnownStrings) ----
-        let type_sid = self.strings.intern(&event.event_type);
+        let type_sid = g.strings.intern(&event.event_type);
         let phase = event.phase as u8;
         let composed = event.composed;
         let bubbles = event.bubbles;
         let cancelable = event.cancelable;
         let is_trusted = event.is_trusted;
         // Hoist the StringId reads so the compiler doesn't have to
-        // re-borrow `self.well_known` interleaved with `&mut self` calls
+        // re-borrow `g.well_known` interleaved with `&mut g` calls
         // to `define_shaped_property`.
-        let wk = self.well_known_event_keys();
+        let wk = g.well_known_event_keys();
 
-        install_ro(self, event_id, wk.r#type, JsValue::String(type_sid));
-        install_ro(self, event_id, wk.bubbles, JsValue::Boolean(bubbles));
-        install_ro(self, event_id, wk.cancelable, JsValue::Boolean(cancelable));
+        install_ro(&mut g, event_id, wk.r#type, JsValue::String(type_sid));
+        install_ro(&mut g, event_id, wk.bubbles, JsValue::Boolean(bubbles));
         install_ro(
-            self,
+            &mut g,
+            event_id,
+            wk.cancelable,
+            JsValue::Boolean(cancelable),
+        );
+        install_ro(
+            &mut g,
             event_id,
             wk.event_phase,
             JsValue::Number(f64::from(phase)),
         );
         install_ro(
-            self,
+            &mut g,
             event_id,
             wk.target,
             JsValue::Object(target_wrapper_id),
         );
         install_ro(
-            self,
+            &mut g,
             event_id,
             wk.current_target,
             JsValue::Object(current_target_wrapper_id),
@@ -185,14 +197,19 @@ impl VmInner {
         // `timeStamp` is the wall-clock-ish DOM event timestamp.  Held
         // at 0.0 until `performance.now()` lands in PR4 — flagged in
         // module doc.
-        install_ro(self, event_id, wk.time_stamp, JsValue::Number(0.0));
-        install_ro(self, event_id, wk.composed, JsValue::Boolean(composed));
-        install_ro(self, event_id, wk.is_trusted, JsValue::Boolean(is_trusted));
+        install_ro(&mut g, event_id, wk.time_stamp, JsValue::Number(0.0));
+        install_ro(&mut g, event_id, wk.composed, JsValue::Boolean(composed));
+        install_ro(
+            &mut g,
+            event_id,
+            wk.is_trusted,
+            JsValue::Boolean(is_trusted),
+        );
 
         // ---- Payload-specific properties ----
-        set_payload_properties(self, event_id, &event.payload);
+        set_payload_properties(&mut g, event_id, &event.payload);
 
-        self.gc_enabled = saved_gc;
+        drop(g);
         event_id
     }
 

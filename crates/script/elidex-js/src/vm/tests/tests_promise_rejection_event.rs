@@ -229,6 +229,82 @@ fn stop_immediate_propagation_breaks_listener_loop() {
 }
 
 #[test]
+fn once_listener_fires_only_for_first_rejection() {
+    // Regression: dispatch_unhandled_rejection_event used to drop
+    // the per-listener `once` flag (collected only ListenerIds),
+    // so `{once: true}` listeners would re-fire on every subsequent
+    // rejection.  Mirrors WHATWG DOM §2.10 step 15: remove BEFORE
+    // invoking.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    bound_vm(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.fire_count = 0;
+         document.addEventListener(
+             'unhandledrejection',
+             function () { globalThis.fire_count += 1; },
+             { once: true });
+         Promise.reject('first');",
+    )
+    .unwrap();
+    assert_eq!(
+        vm.get_global("fire_count").unwrap(),
+        JsValue::Number(1.0),
+        "once listener fires on first rejection"
+    );
+
+    // Second rejection — the listener has been removed, so the
+    // counter must NOT advance.
+    vm.eval("Promise.reject('second');").unwrap();
+    assert_eq!(
+        vm.get_global("fire_count").unwrap(),
+        JsValue::Number(1.0),
+        "once listener must NOT re-fire after first invocation"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn passive_listener_cannot_prevent_default() {
+    // Regression: dispatch_unhandled_rejection_event used to call
+    // `create_event_object(..., passive: false)` unconditionally,
+    // so `{passive: true}` listeners could still successfully
+    // invoke `e.preventDefault()`.  Now the per-listener `passive`
+    // flag threads through to the event obj's internal slot, where
+    // `preventDefault` no-ops it.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    bound_vm(&mut vm, &mut session, &mut dom);
+
+    // Two listeners: A is passive and tries to preventDefault, B
+    // observes whether the canceled flag actually flipped.
+    vm.eval(
+        "globalThis.b_saw_default_prevented = null;
+         document.addEventListener(
+             'unhandledrejection',
+             function (e) { e.preventDefault(); },
+             { passive: true });
+         document.addEventListener('unhandledrejection', function (e) {
+             globalThis.b_saw_default_prevented = e.defaultPrevented;
+         });
+         Promise.reject('passive-test');",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.get_global("b_saw_default_prevented").unwrap(),
+        JsValue::Boolean(false),
+        "passive listener's preventDefault must be a silent no-op"
+    );
+
+    vm.unbind();
+}
+
+#[test]
 fn no_listener_silently_falls_back_no_panic() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
