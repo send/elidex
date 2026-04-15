@@ -177,6 +177,58 @@ fn remove_finds_correct_entry_among_multiple_same_type_capture() {
 }
 
 #[test]
+fn remove_does_not_read_once_or_passive_from_options() {
+    // WHATWG DOM §2.7.7 only flattens `capture` for removal — reading
+    // `once` / `passive` would fire user getters / Proxy traps that
+    // browsers don't trigger.  Use getter-equipped options bag to
+    // detect the unwanted reads.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+
+    vm.eval(
+        "globalThis.once_read = false;
+         globalThis.passive_read = false;
+         globalThis.capture_read = false;
+         var opts = {
+             get capture() { globalThis.capture_read = true; return false; },
+             get once() { globalThis.once_read = true; return false; },
+             get passive() { globalThis.passive_read = true; return false; },
+         };
+         var fn = function () {};
+         el.addEventListener('click', fn);
+         // Reset sentinels so addEventListener's reads don't pollute
+         // the signal.
+         globalThis.once_read = false;
+         globalThis.passive_read = false;
+         globalThis.capture_read = false;
+         el.removeEventListener('click', fn, opts);",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.get_global("capture_read").unwrap(),
+        JsValue::Boolean(true),
+        "removeEventListener MUST read .capture from options bag"
+    );
+    assert_eq!(
+        vm.get_global("once_read").unwrap(),
+        JsValue::Boolean(false),
+        "removeEventListener must NOT read .once from options bag \
+         (WHATWG DOM §2.7.7 only flattens capture)"
+    );
+    assert_eq!(
+        vm.get_global("passive_read").unwrap(),
+        JsValue::Boolean(false),
+        "removeEventListener must NOT read .passive from options bag"
+    );
+
+    vm.unbind();
+}
+
+#[test]
 fn remove_with_null_callback_is_silent_no_op() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

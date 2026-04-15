@@ -254,6 +254,34 @@ fn parse_listener_options(
     }
 }
 
+/// Extract ONLY the `capture` flag from `removeEventListener`'s
+/// third argument.
+///
+/// WHATWG DOM §2.7.7's "flatten options" step for removal is
+/// narrower than addEventListener's: it only consults the `capture`
+/// property.  Reading `once` / `passive` (which `parse_listener_options`
+/// does for addEventListener) would be observable through user
+/// getters or Proxy traps, deviating from browser behaviour.  This
+/// helper preserves that observability invariant by touching only
+/// the capture slot.
+#[cfg(feature = "engine")]
+fn parse_capture_only(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<bool, VmError> {
+    match val {
+        JsValue::Undefined | JsValue::Null => Ok(false),
+        JsValue::Boolean(capture) => Ok(capture),
+        JsValue::Object(opts_id) => {
+            let key_sid = ctx.vm.well_known.capture;
+            let v = ctx
+                .vm
+                .get_property_value(opts_id, PropertyKey::String(key_sid))?;
+            Ok(super::super::coerce::to_boolean(ctx.vm, v))
+        }
+        // Other primitive types coerce via ToBoolean per WHATWG —
+        // browsers accept e.g. `el.removeEventListener('click', f, 1)`.
+        other => Ok(super::super::coerce::to_boolean(ctx.vm, other)),
+    }
+}
+
 /// Find the `ListenerId` on `entity` whose (type, capture, callback)
 /// triple matches the given arguments — returns the id if such a
 /// listener is registered, `None` otherwise.
@@ -348,13 +376,16 @@ pub(super) fn native_event_target_remove_event_listener(
     let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
     let event_type = ctx.vm.strings.get_utf8(type_sid);
 
-    let options = parse_listener_options(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
+    // Spec §2.7.7: only `capture` is read from options for removal.
+    // `parse_listener_options` would also read `once` / `passive`,
+    // which would fire user getters / Proxy traps that browsers
+    // don't trigger here.
+    let capture = parse_capture_only(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
 
     // Locate the matching listener via the shared (type, capture,
     // callback) lookup.  WHATWG §2.6 step 4 forbids duplicates so at
     // most one match exists; if none matches, it's a silent no-op.
-    let Some(listener_id) =
-        find_listener_id(ctx, entity, &event_type, options.capture, listener_obj_id)
+    let Some(listener_id) = find_listener_id(ctx, entity, &event_type, capture, listener_obj_id)
     else {
         return Ok(JsValue::Undefined);
     };
