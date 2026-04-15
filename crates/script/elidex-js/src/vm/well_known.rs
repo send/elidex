@@ -85,6 +85,11 @@ pub(crate) struct WellKnownStrings {
     pub(crate) once: StringId,
     pub(crate) passive: StringId,
     pub(crate) document: StringId,
+    pub(crate) window: StringId,
+    pub(crate) navigator: StringId,
+    pub(crate) performance: StringId,
+    pub(crate) location: StringId,
+    pub(crate) history: StringId,
     pub(crate) unhandledrejection: StringId,
     pub(crate) promise: StringId,
 
@@ -206,6 +211,11 @@ impl WellKnownStrings {
             once: strings.intern("once"),
             passive: strings.intern("passive"),
             document: strings.intern("document"),
+            window: strings.intern("window"),
+            navigator: strings.intern("navigator"),
+            performance: strings.intern("performance"),
+            location: strings.intern("location"),
+            history: strings.intern("history"),
             unhandledrejection: strings.intern("unhandledrejection"),
             promise: strings.intern("promise"),
 

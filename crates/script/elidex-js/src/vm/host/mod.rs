@@ -18,4 +18,5 @@ pub(super) mod event_target;
 pub(super) mod events;
 pub(super) mod globals;
 pub(super) mod navigation;
+pub(super) mod navigator;
 pub(super) mod window;

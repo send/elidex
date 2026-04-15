@@ -211,6 +211,11 @@ impl VmInner {
         {
             self.register_window_prototype();
             self.get_object_mut(self.global_object).prototype = self.window_prototype;
+            // `navigator` — static Navigator object (WHATWG HTML §8.1.5).
+            // Installed after the Window prototype chain is in place so
+            // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`
+            // etc. resolve against `Object.prototype` as expected.
+            self.register_navigator_global();
         }
 
         // Internal Event-methods prototype (PR3) — `event_methods_prototype`
