@@ -194,6 +194,18 @@ pub(crate) struct VmInner {
     /// a pure VM intrinsic.  When PR5a lands, `Event.prototype` can
     /// become this object's parent or replace it outright.
     pub(crate) event_methods_prototype: Option<ObjectId>,
+    /// Terminal `ShapeId` per `EventPayload` variant, built once
+    /// during `register_globals` (PR3.6).  `None` on non-engine builds
+    /// (events don't dispatch there), `Some` on engine builds after
+    /// VM creation.
+    ///
+    /// Allows `create_event_object` to allocate at the final shape
+    /// instead of walking `shape_add_transition` 9-17 times per event
+    /// — the hot path for high-frequency dispatchers like mousemove.
+    /// See `host/event_shapes.rs` module doc for the per-variant
+    /// property list.
+    #[cfg(feature = "engine")]
+    pub(crate) precomputed_event_shapes: Option<host::event_shapes::PrecomputedEventShapes>,
     /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
     /// the yielded value.  `None` outside a yield dispatch.
     pub(crate) generator_yielded: Option<JsValue>,
@@ -1183,6 +1195,8 @@ impl Vm {
                 generator_prototype: None,
                 event_target_prototype: None,
                 event_methods_prototype: None,
+                #[cfg(feature = "engine")]
+                precomputed_event_shapes: None,
                 generator_yielded: None,
                 current_microtask: None,
                 timer_queue: BinaryHeap::new(),
