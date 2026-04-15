@@ -132,6 +132,103 @@ fn rejection_event_target_is_document() {
 }
 
 #[test]
+fn each_listener_gets_a_fresh_event_object() {
+    // Regression: dispatch_unhandled_rejection_event used to create
+    // ONE event object and reuse it for every listener.  Listener A
+    // mutating `e.foo = 1` would then leak into listener B's view,
+    // diverging from the per-listener-rebuild semantics of regular
+    // dispatch (engine.rs::call_listener).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    bound_vm(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.b_saw_foo = null;
+         document.addEventListener('unhandledrejection', function (e) {
+             // First listener mutates the event obj.
+             e.foo = 'leaked';
+         });
+         document.addEventListener('unhandledrejection', function (e) {
+             // Second listener observes — must see undefined since
+             // each listener gets a fresh event object.
+             globalThis.b_saw_foo = e.foo;
+         });
+         Promise.reject(new Error('rebuild-test'));",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.get_global("b_saw_foo").unwrap(),
+        JsValue::Undefined,
+        "second listener must see fresh event obj — `e.foo` set by \
+         listener A must NOT leak into listener B"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn prevent_default_propagates_across_listeners() {
+    // After the per-listener-rebuild fix, prior listener's
+    // preventDefault still has to be visible (via DispatchFlags)
+    // to subsequent listeners through the freshly-built event.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    bound_vm(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.b_saw_default_prevented = null;
+         document.addEventListener('unhandledrejection', function (e) {
+             e.preventDefault();
+         });
+         document.addEventListener('unhandledrejection', function (e) {
+             globalThis.b_saw_default_prevented = e.defaultPrevented;
+         });
+         Promise.reject('cross-listener');",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.get_global("b_saw_default_prevented").unwrap(),
+        JsValue::Boolean(true),
+        "second listener must observe prior listener's preventDefault \
+         via DispatchFlags carry-forward"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn stop_immediate_propagation_breaks_listener_loop() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    bound_vm(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.b_fired = false;
+         document.addEventListener('unhandledrejection', function (e) {
+             e.stopImmediatePropagation();
+         });
+         document.addEventListener('unhandledrejection', function () {
+             globalThis.b_fired = true;
+         });
+         Promise.reject('stop-immediate');",
+    )
+    .unwrap();
+
+    assert_eq!(
+        vm.get_global("b_fired").unwrap(),
+        JsValue::Boolean(false),
+        "stopImmediatePropagation in first listener must skip subsequent ones"
+    );
+
+    vm.unbind();
+}
+
+#[test]
 fn no_listener_silently_falls_back_no_panic() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

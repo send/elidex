@@ -116,9 +116,13 @@ impl VmInner {
     ///
     /// GC is suppressed for the duration of construction — every
     /// intermediate alloc is only reachable via local Rust variables
-    /// until the property writes complete.  Callers must root the
-    /// returned id immediately (push to stack, store in a frame slot,
-    /// etc.) before re-enabling GC.
+    /// until the property writes complete.  This function restores
+    /// the previous `gc_enabled` state before returning, so the
+    /// returned `ObjectId` becomes vulnerable to collection from
+    /// the very next allocation.  Callers must root it immediately
+    /// (push to stack via [`VmInner::push_temp_root`], store in a
+    /// frame slot, etc.) before any further VM operations that may
+    /// allocate or run user JS.
     pub(crate) fn create_event_object(
         &mut self,
         event: &DispatchEvent,

@@ -397,69 +397,80 @@ fn dispatch_unhandled_rejection_event(
         return false;
     }
 
-    // Build a synthetic DispatchEvent + JS event object.  Never enters
-    // the session event queue or 3-phase dispatch; the per-listener
-    // loop honours `stopImmediatePropagation` directly.
+    // Build a synthetic DispatchEvent — flag state is updated across
+    // iterations so the next listener's freshly-built event object
+    // sees prior `preventDefault` / `stopPropagation` calls.  Never
+    // enters the session event queue or 3-phase dispatch; the loop
+    // honours `stopImmediatePropagation` directly.
     let mut event = elidex_script_session::DispatchEvent::new("unhandledrejection", document);
     event.bubbles = false;
     event.cancelable = true;
     event.composed = false;
 
     let doc_wrapper = vm.create_element_wrapper(document);
-    let event_obj_id = vm.create_event_object(&event, doc_wrapper, doc_wrapper, false);
-
-    // Augment with the spec-required `promise` + `reason` properties.
     let promise_key = vm.well_known.promise;
     let reason_key = vm.well_known.reason;
-    vm.define_shaped_property(
-        event_obj_id,
-        PropertyKey::String(promise_key),
-        PropertyValue::Data(JsValue::Object(promise_id)),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    vm.define_shaped_property(
-        event_obj_id,
-        PropertyKey::String(reason_key),
-        PropertyValue::Data(reason),
-        PropertyAttrs::WEBIDL_RO,
-    );
 
-    // Root the event object on the VM stack via the shared RAII
-    // guard.  Drop runs even on panic unwind, so the stack returns
-    // to its pre-push length whatever the listener body does.
-    let mut g = vm.push_temp_root(JsValue::Object(event_obj_id));
-
+    // Per-listener rebuild (matches design D4 + `engine.rs::call_listener`).
+    // Reusing one event object across listeners would leak listener-side
+    // mutations (e.g. `e.foo = 1`) into the next listener's view, which
+    // diverges from the regular dispatch path.
     for listener_id in listener_ids {
-        let Some(func_id) = g
+        let Some(func_id) = vm
             .host_data
             .as_deref()
             .and_then(|h| h.get_listener(listener_id))
         else {
             continue;
         };
+
+        // Build fresh event object for this listener.  `event.flags`
+        // carries forward accumulated state from previous iterations.
+        let event_obj_id = vm.create_event_object(&event, doc_wrapper, doc_wrapper, false);
+        // Augment with the spec-required `promise` + `reason` props.
+        vm.define_shaped_property(
+            event_obj_id,
+            PropertyKey::String(promise_key),
+            PropertyValue::Data(JsValue::Object(promise_id)),
+            PropertyAttrs::WEBIDL_RO,
+        );
+        vm.define_shaped_property(
+            event_obj_id,
+            PropertyKey::String(reason_key),
+            PropertyValue::Data(reason),
+            PropertyAttrs::WEBIDL_RO,
+        );
+
+        // Root + invoke + sync flags back into DispatchEvent.
+        let mut g = vm.push_temp_root(JsValue::Object(event_obj_id));
         // Errors swallowed — dispatch is a fire-and-forget host hook.
         let _ = g.call(
             func_id,
             JsValue::Object(doc_wrapper),
             &[JsValue::Object(event_obj_id)],
         );
+        let mut should_break = false;
         if let ObjectKind::Event {
-            immediate_propagation_stopped: true,
+            default_prevented,
+            propagation_stopped,
+            immediate_propagation_stopped,
             ..
         } = g.get_object(event_obj_id).kind
         {
+            event.flags.default_prevented = default_prevented;
+            event.flags.propagation_stopped = propagation_stopped;
+            event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
+            should_break = immediate_propagation_stopped;
+        }
+        // `g` drops here; the per-iteration event obj becomes
+        // unreachable and will be reclaimed on the next GC cycle.
+        drop(g);
+        if should_break {
             break;
         }
     }
 
-    matches!(
-        g.get_object(event_obj_id).kind,
-        ObjectKind::Event {
-            default_prevented: true,
-            ..
-        }
-    )
-    // `g` drops here; restores the stack and asserts invariants.
+    event.flags.default_prevented
 }
 
 /// Stub for builds without the `engine` feature — no host means no
