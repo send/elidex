@@ -14,12 +14,23 @@
 //! # URL parsing
 //!
 //! Phase 2 uses an intentionally minimal, dependency-free parser
-//! limited to `http://` / `https://` / `file://` / `about:` URLs.
-//! It is *not* a WHATWG URL parser — the `url` crate lands in PR5
-//! alongside the network stack, and Location's getters get rewritten
-//! against it at that point.  Until then we refuse to silently return
-//! empty strings for unknown fields: getters return a conservative
-//! representation (e.g. `origin` returns `"null"` for opaque schemes).
+//! ([`parse_url`]).  It is *not* a WHATWG URL parser — the `url`
+//! crate lands in PR5 alongside the network stack, and Location's
+//! getters get rewritten against it at that point.
+//!
+//! Recognised shapes:
+//! - `scheme://host[:port]/pathname[?search][#hash]` (any scheme —
+//!   the splitter is scheme-agnostic).
+//! - `scheme:rest` — scheme-only URIs (`about:blank`, `data:text/...`)
+//!   keep the remainder as the pathname; host / port stay empty.
+//!
+//! [`format_origin`] adopts the HTML §7.2.3 origin tuple for the
+//! "special schemes" set (`http` / `https` / `ws` / `wss` / `ftp`)
+//! and returns `"null"` (opaque origin) for every other scheme,
+//! including `file:` and `about:` — so `location.origin` at
+//! `about:blank` is `"null"`.  IDN, percent-encoding, IPv6 hosts,
+//! and `file://` host-vs-path nuances are intentionally not
+//! handled here; they arrive with the `url` crate in PR5.
 
 #![cfg(feature = "engine")]
 

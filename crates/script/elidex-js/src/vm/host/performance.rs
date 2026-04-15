@@ -1,11 +1,17 @@
 //! `performance` global — subset of the W3C High-Resolution Time
 //! interface (HR-Time §5).
 //!
-//! At PR4b C5 we ship the one universally-used entry point:
-//! [`performance.now()`].  Everything else (`performance.mark`,
-//! `performance.measure`, `getEntriesByType`, `timeOrigin`, …) is
-//! deferred — they require a `PerformanceObserver` surface that is
-//! not worth building before the consuming code paths land.
+//! Implemented surface:
+//! - [`performance.now()`] — monotonic ms since `Vm::new`, real value.
+//! - `performance.timeOrigin` — stub constant `0.0`.  HR-Time §5.2
+//!   allows any "time origin for the current session"; a real
+//!   wall-clock mapping (`SystemTime::UNIX_EPOCH`-based) is a Phase 3
+//!   task owned by the shell.
+//!
+//! Deferred — require a `PerformanceObserver` surface that is not
+//! worth building before the consuming code paths land:
+//! `performance.mark`, `performance.measure`, `getEntriesByType`,
+//! `getEntriesByName`, `clearMarks`, `clearMeasures`.
 //!
 //! The clock is [`VmInner::start_instant`], which is *also* what
 //! `Event.timeStamp` will use (PR4d).  Sharing a single
