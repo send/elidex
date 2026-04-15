@@ -45,6 +45,9 @@ pub use engine::ElidexJsEngine;
 #[cfg(test)]
 #[cfg(feature = "engine")]
 mod tests_call_listener;
+#[cfg(test)]
+#[cfg(feature = "engine")]
+mod tests_dispatch_integration;
 
 mod lexer;
 mod parser;
