@@ -14,6 +14,7 @@ mod tests_event_target;
 mod tests_function_prototype;
 mod tests_gc_audit;
 mod tests_generator;
+mod tests_history;
 mod tests_host_object;
 mod tests_json;
 mod tests_location;

@@ -222,6 +222,9 @@ impl VmInner {
             // `location` — WHATWG HTML §7.1.  Reads/writes
             // `VmInner::navigation` (in-memory only at Phase 2).
             self.register_location_global();
+            // `history` — WHATWG HTML §7.4.  Shares navigation state
+            // with `location`.
+            self.register_history_global();
         }
 
         // Internal Event-methods prototype (PR3) — `event_methods_prototype`
