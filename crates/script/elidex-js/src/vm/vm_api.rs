@@ -154,6 +154,42 @@ impl Vm {
         }
     }
 
+    /// Resolve an ECS `Entity` to its shared JS wrapper `ObjectId`,
+    /// allocating on the first lookup and reusing the cached wrapper
+    /// on every subsequent call.  See `vm/host/elements.rs` module
+    /// doc for the identity contract.
+    ///
+    /// Public hook for benches and shell integration (PR6) that need
+    /// to surface a DOM Entity to JS without routing through a full
+    /// dispatch.  Requires `HostData` to be installed (the cache
+    /// lives there).
+    #[cfg(feature = "engine")]
+    pub fn create_element_wrapper(&mut self, entity: elidex_ecs::Entity) -> ObjectId {
+        self.inner.create_element_wrapper(entity)
+    }
+
+    /// Build a JS event object for a single listener invocation.
+    /// Thin wrapper over the internal builder (see
+    /// `vm/host/events.rs::create_event_object`) — exposed pub so
+    /// benches and shell dispatch code can construct event objects
+    /// outside of the internal dispatch loop.
+    ///
+    /// The caller must pass pre-resolved HostObject wrappers for
+    /// target / currentTarget (use [`Vm::create_element_wrapper`]).
+    /// Returned ObjectId is unrooted — root it immediately before
+    /// any operation that may allocate or run user JS.
+    #[cfg(feature = "engine")]
+    pub fn create_event_object(
+        &mut self,
+        event: &elidex_script_session::event_dispatch::DispatchEvent,
+        target: ObjectId,
+        current_target: ObjectId,
+        passive: bool,
+    ) -> ObjectId {
+        self.inner
+            .create_event_object(event, target, current_target, passive)
+    }
+
     /// Clear host pointers after JS execution.  No-op if unbound.
     pub fn unbind(&mut self) {
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
