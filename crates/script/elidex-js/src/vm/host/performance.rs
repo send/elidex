@@ -1,17 +1,24 @@
 //! `performance` global — subset of the W3C High-Resolution Time
 //! interface (HR-Time §5).
 //!
-//! Implemented surface:
+//! Implemented:
 //! - [`performance.now()`] — monotonic ms since `Vm::new`, real value.
-//! - `performance.timeOrigin` — stub constant `0.0`.  HR-Time §5.2
-//!   allows any "time origin for the current session"; a real
-//!   wall-clock mapping (`SystemTime::UNIX_EPOCH`-based) is a Phase 3
-//!   task owned by the shell.
 //!
-//! Deferred — require a `PerformanceObserver` surface that is not
-//! worth building before the consuming code paths land:
-//! `performance.mark`, `performance.measure`, `getEntriesByType`,
-//! `getEntriesByName`, `clearMarks`, `clearMeasures`.
+//! Deferred — surface installed for feature-detection compatibility,
+//! but the real semantics ship later:
+//! - `performance.timeOrigin` — installed as a stub constant `0.0`
+//!   so `typeof performance.timeOrigin === 'number'` succeeds.  The
+//!   real wall-clock mapping (`SystemTime::UNIX_EPOCH`-based) is a
+//!   Phase 3 task owned by the shell — until then `0.0` is a
+//!   conforming value per HR-Time §5.2 ("the time origin for the
+//!   current session"), it just happens to be the same for every
+//!   session.
+//!
+//! Deferred — surface not installed (require a `PerformanceObserver`
+//! surface that is not worth building before the consuming code
+//! paths land): `performance.mark`, `performance.measure`,
+//! `getEntriesByType`, `getEntriesByName`, `clearMarks`,
+//! `clearMeasures`.
 //!
 //! The clock is [`VmInner::start_instant`], which is *also* what
 //! `Event.timeStamp` will use (PR4d).  Sharing a single
