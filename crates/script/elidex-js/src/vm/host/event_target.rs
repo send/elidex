@@ -388,11 +388,22 @@ pub(super) fn native_event_target_remove_event_listener(
         return Ok(JsValue::Undefined);
     };
 
-    // Callback null/undefined or non-callable → silent no-op.
+    // WebIDL `EventListener? callback`: null/undefined are explicitly
+    // allowed and become a silent no-op (§2.7.7 step 2); any other
+    // non-callable value is a conversion failure that throws
+    // `TypeError`, matching `addEventListener` and browser behaviour
+    // (silently dropping `el.removeEventListener('click', 42)` would
+    // mask user bugs).
     let callback_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let listener_obj_id = match callback_arg {
+        JsValue::Null | JsValue::Undefined => return Ok(JsValue::Undefined),
         JsValue::Object(id) if ctx.vm.get_object(id).kind.is_callable() => id,
-        _ => return Ok(JsValue::Undefined),
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'removeEventListener' on 'EventTarget': \
+                 parameter 2 is not of type 'EventListener'.",
+            ));
+        }
     };
 
     let type_arg = args.first().copied().unwrap_or(JsValue::Undefined);

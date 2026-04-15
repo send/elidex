@@ -229,6 +229,29 @@ fn remove_does_not_read_once_or_passive_from_options() {
 }
 
 #[test]
+fn remove_with_non_callable_callback_throws_type_error() {
+    // Regression: WebIDL `EventListener? callback` accepts null /
+    // undefined as silent no-op, but any other non-callable value
+    // (e.g. number) is a conversion failure that throws TypeError.
+    // Previously `removeEventListener` silently ignored non-null
+    // non-callable values, masking user bugs.  Now matches
+    // `addEventListener`'s validation and browser behaviour.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+
+    let result = vm.eval("el.removeEventListener('click', 42);");
+    assert!(
+        result.is_err(),
+        "non-callable removeEventListener callback must throw TypeError"
+    );
+
+    vm.unbind();
+}
+
+#[test]
 fn remove_with_null_callback_is_silent_no_op() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
