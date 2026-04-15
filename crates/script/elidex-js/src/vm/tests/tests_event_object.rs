@@ -4,6 +4,12 @@
 //! JS `eval` — the properties that expose the methods / flag state on
 //! the JS side land in PR3 C4 (`create_event_object`) and PR3 C5
 //! (listener dispatch sync-back).
+//!
+//! Compiled only with `feature = "engine"` — the `natives_event`
+//! module is gated to that feature (no consumer otherwise; see
+//! `vm/host/events.rs`).
+
+#![cfg(feature = "engine")]
 
 use super::super::natives_event::{
     native_event_composed_path, native_event_prevent_default,

@@ -29,6 +29,7 @@ mod natives_array;
 mod natives_array_hof;
 mod natives_bigint;
 mod natives_boolean;
+#[cfg(feature = "engine")]
 mod natives_event;
 mod natives_function;
 mod natives_generator;

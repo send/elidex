@@ -129,10 +129,12 @@ pub(super) fn native_event_composed_path(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if let JsValue::Object(id) = this {
-        if let ObjectKind::Event { composed_path, .. } = &ctx.vm.get_object(id).kind {
-            if let Some(arr) = *composed_path {
-                return Ok(JsValue::Object(arr));
-            }
+        if let ObjectKind::Event {
+            composed_path: Some(arr),
+            ..
+        } = &ctx.vm.get_object(id).kind
+        {
+            return Ok(JsValue::Object(*arr));
         }
     }
     // Fallback — `this` not an Event, or path not yet populated.
