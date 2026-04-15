@@ -225,6 +225,8 @@ impl VmInner {
             // `history` — WHATWG HTML §7.4.  Shares navigation state
             // with `location`.
             self.register_history_global();
+            // `window === globalThis` (WHATWG HTML §7.2.4).
+            self.install_window_self_ref();
         }
 
         // Internal Event-methods prototype (PR3) — `event_methods_prototype`

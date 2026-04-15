@@ -144,3 +144,122 @@ fn globalthis_still_works_as_property_bag() {
         other => panic!("unexpected: {other:?}"),
     }
 }
+
+// -- PR4b C8: window self-ref, viewport, scroll --------------------------
+
+#[test]
+fn window_is_self_reference_to_global_this() {
+    let mut vm = Vm::new();
+    // Identity: `window === globalThis` must hold (WHATWG HTML §7.2.4).
+    let v = vm.eval("window === globalThis;").unwrap();
+    match v {
+        super::super::value::JsValue::Boolean(b) => {
+            assert!(b, "window must be globalThis");
+        }
+        other => panic!("expected bool, got {other:?}"),
+    }
+}
+
+#[test]
+fn window_inner_width_and_height_default() {
+    let mut vm = Vm::new();
+    let v = vm
+        .eval("window.innerWidth + ':' + window.innerHeight;")
+        .unwrap();
+    let super::super::value::JsValue::String(id) = v else {
+        panic!("expected string");
+    };
+    assert_eq!(vm.get_string(id), "1024:768");
+}
+
+#[test]
+fn window_scroll_x_and_y_default_to_zero() {
+    let mut vm = Vm::new();
+    let v = vm
+        .eval("window.scrollX === 0 && window.scrollY === 0;")
+        .unwrap();
+    match v {
+        super::super::value::JsValue::Boolean(b) => assert!(b),
+        _ => panic!(),
+    }
+}
+
+#[test]
+fn window_scroll_to_updates_state() {
+    let mut vm = Vm::new();
+    vm.eval("window.scrollTo(50, 100);").unwrap();
+    assert_eq!(vm.inner.viewport.scroll_x, 50.0);
+    assert_eq!(vm.inner.viewport.scroll_y, 100.0);
+}
+
+#[test]
+fn window_scroll_by_adds_delta() {
+    let mut vm = Vm::new();
+    vm.eval(
+        "window.scrollTo(10, 20);
+         window.scrollBy(5, 7);",
+    )
+    .unwrap();
+    assert_eq!(vm.inner.viewport.scroll_x, 15.0);
+    assert_eq!(vm.inner.viewport.scroll_y, 27.0);
+}
+
+#[test]
+fn page_offset_aliases_scroll_xy() {
+    let mut vm = Vm::new();
+    vm.eval("window.scrollTo(42, 99);").unwrap();
+    let v = vm
+        .eval("window.pageXOffset === 42 && window.pageYOffset === 99;")
+        .unwrap();
+    match v {
+        super::super::value::JsValue::Boolean(b) => assert!(b),
+        _ => panic!(),
+    }
+}
+
+#[test]
+fn device_pixel_ratio_is_one() {
+    let mut vm = Vm::new();
+    let v = vm.eval("window.devicePixelRatio;").unwrap();
+    match v {
+        super::super::value::JsValue::Number(n) => assert_eq!(n, 1.0),
+        _ => panic!(),
+    }
+}
+
+// -- WHATWG separation: window listeners go to window entity -------------
+
+#[test]
+fn window_add_event_listener_targets_window_entity_not_document() {
+    use super::super::test_helpers::{bind_vm, listeners_on};
+
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    vm.eval(
+        "globalThis.h = function () {};
+         window.addEventListener('resize', globalThis.h);",
+    )
+    .unwrap();
+
+    let window_entity = vm.host_data().unwrap().window_entity().unwrap();
+    // Listener landed on the window entity.
+    let win_count = listeners_on(&mut vm, window_entity)
+        .matching_all("resize")
+        .len();
+    assert_eq!(win_count, 1, "window listener must land on window entity");
+
+    // And *not* on the document entity (this was the bug that the
+    // separate window entity guards against — PR3 C9 design note).
+    let doc_count = listeners_on(&mut vm, doc).matching_all("resize").len();
+    assert_eq!(doc_count, 0, "document must not see window's listener");
+
+    vm.unbind();
+}

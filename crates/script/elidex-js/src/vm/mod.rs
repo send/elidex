@@ -279,13 +279,14 @@ pub(crate) struct VmInner {
     /// `history.*`, and `document.URL` / `document.documentURI`.  See
     /// `host::navigation::NavigationState` for the field list and
     /// Phase 2 scope (in-memory only, no shell bridge yet).
-    ///
-    /// `#[allow(dead_code)]` is scoped to the C3 introduction; the
-    /// field is consumed by `location` (C6), `history` (C7), and
-    /// `document` (C9) in later commits of this PR.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)]
     pub(crate) navigation: host::navigation::NavigationState,
+    /// Viewport size + scroll offset backing the window getters
+    /// (`innerWidth`, `innerHeight`, `scrollX`, `scrollY`,
+    /// `devicePixelRatio`) and setters (`scrollTo` / `scrollBy`).
+    /// Phase 2 defaults; shell pushes real values in PR6.
+    #[cfg(feature = "engine")]
+    pub(crate) viewport: host::window::ViewportState,
 }
 
 impl VmInner {
@@ -949,6 +950,8 @@ impl Vm {
                 start_instant: std::time::Instant::now(),
                 #[cfg(feature = "engine")]
                 navigation: host::navigation::NavigationState::new(),
+                #[cfg(feature = "engine")]
+                viewport: host::window::ViewportState::new(),
             },
         };
 
