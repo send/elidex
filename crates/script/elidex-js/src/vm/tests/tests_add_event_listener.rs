@@ -8,41 +8,13 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
-use elidex_script_session::{EventListeners, SessionCore};
+use elidex_ecs::EcsDom;
+use elidex_script_session::SessionCore;
 
 use super::super::host_data::HostData;
+use super::super::test_helpers::{listeners_on, setup_with_element};
 use super::super::value::JsValue;
 use super::super::Vm;
-
-/// Bootstrap a Vm with HostData bound, an element wrapper installed
-/// at `globalThis.el`, and the entity returned for direct DOM
-/// inspection.
-#[allow(unsafe_code)]
-fn setup_with_element(
-    vm: &mut Vm,
-    session: &mut SessionCore,
-    dom: &mut EcsDom,
-    doc: Entity,
-) -> Entity {
-    let el = dom.create_element("div", Attributes::default());
-    vm.install_host_data(HostData::new());
-    unsafe {
-        vm.bind(session as *mut _, dom as *mut _, doc);
-    }
-    let wrapper_id = vm.inner.create_element_wrapper(el);
-    vm.set_global("el", JsValue::Object(wrapper_id));
-    el
-}
-
-/// Read the EventListeners component for `entity`, returning a clone
-/// (so we can drop the world borrow before further VM work).
-fn listeners_on(dom: &EcsDom, entity: Entity) -> EventListeners {
-    match dom.world().get::<&EventListeners>(entity) {
-        Ok(r) => (*r).clone(),
-        Err(_) => EventListeners::default(),
-    }
-}
 
 #[test]
 fn add_event_listener_inserts_into_ecs_component() {
@@ -50,7 +22,7 @@ fn add_event_listener_inserts_into_ecs_component() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval("el.addEventListener('click', function () {});")
         .unwrap();
@@ -71,7 +43,7 @@ fn options_boolean_form_sets_capture() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval("el.addEventListener('click', function () {}, true);")
         .unwrap();
@@ -93,7 +65,7 @@ fn options_object_form_reads_capture_once_passive() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "el.addEventListener('click', function () {}, \
@@ -117,7 +89,7 @@ fn options_object_missing_keys_default_to_false() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     // `passive: true` only — capture/once must default to false.
     vm.eval("el.addEventListener('click', function () {}, { passive: true });")
@@ -139,7 +111,7 @@ fn duplicate_same_callback_same_capture_is_silently_skipped() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     // Same function identity, same capture (default false) → second
     // registration must be discarded per WHATWG DOM §2.6 step 4.
@@ -166,7 +138,7 @@ fn duplicate_check_is_per_capture_phase() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     // Same callback registered for both bubble and capture phase
     // must yield TWO entries — capture differs, so they are not
@@ -193,7 +165,7 @@ fn null_callback_is_silently_ignored() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     // §2.6 step 2: "If callback is null, then return."
     vm.eval("el.addEventListener('click', null);").unwrap();
@@ -211,7 +183,7 @@ fn non_callable_callback_throws_type_error() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     let result = vm.eval("el.addEventListener('click', 42);");
     assert!(
@@ -270,7 +242,7 @@ fn calls_after_unbind_are_silent_no_op() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     // First eval: stash document into a global, then unbind.
     vm.eval("globalThis.savedDoc = document;").unwrap();
@@ -320,7 +292,7 @@ fn registered_listener_stored_in_listener_store() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "globalThis.handler = function () {};

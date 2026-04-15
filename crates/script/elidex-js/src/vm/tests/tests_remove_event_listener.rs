@@ -2,36 +2,12 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
-use elidex_script_session::{EventListeners, SessionCore};
+use elidex_ecs::EcsDom;
+use elidex_script_session::SessionCore;
 
-use super::super::host_data::HostData;
+use super::super::test_helpers::{listeners_on, setup_with_element};
 use super::super::value::JsValue;
 use super::super::Vm;
-
-#[allow(unsafe_code)]
-fn setup_with_element(
-    vm: &mut Vm,
-    session: &mut SessionCore,
-    dom: &mut EcsDom,
-    doc: Entity,
-) -> Entity {
-    let el = dom.create_element("div", Attributes::default());
-    vm.install_host_data(HostData::new());
-    unsafe {
-        vm.bind(session as *mut _, dom as *mut _, doc);
-    }
-    let wrapper_id = vm.inner.create_element_wrapper(el);
-    vm.set_global("el", JsValue::Object(wrapper_id));
-    el
-}
-
-fn listeners_on(dom: &EcsDom, entity: Entity) -> EventListeners {
-    match dom.world().get::<&EventListeners>(entity) {
-        Ok(r) => (*r).clone(),
-        Err(_) => EventListeners::default(),
-    }
-}
 
 #[test]
 fn remove_drops_matching_listener() {
@@ -39,7 +15,7 @@ fn remove_drops_matching_listener() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "globalThis.h = function () {};
@@ -64,7 +40,7 @@ fn remove_also_clears_listener_store_entry() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "globalThis.h = function () {};
@@ -91,7 +67,7 @@ fn remove_capture_phase_only_affects_capture_listener() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "globalThis.h = function () {};
@@ -121,7 +97,7 @@ fn remove_with_unmatching_callback_is_silent_no_op() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "el.addEventListener('click', function () {});
@@ -146,7 +122,7 @@ fn remove_finds_correct_entry_among_multiple_same_type_capture() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "globalThis.h1 = function () {};
@@ -186,7 +162,7 @@ fn remove_does_not_read_once_or_passive_from_options() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "globalThis.once_read = false;
@@ -240,7 +216,7 @@ fn remove_with_non_callable_callback_throws_type_error() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     let result = vm.eval("el.removeEventListener('click', 42);");
     assert!(
@@ -257,7 +233,7 @@ fn remove_with_null_callback_is_silent_no_op() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
 
     vm.eval(
         "el.addEventListener('click', function () {});
