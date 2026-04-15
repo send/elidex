@@ -132,7 +132,7 @@ impl EcsDom {
     ///
     /// The Window entity is **not** a Node and does **not** participate in
     /// the DOM tree: it carries only the [`NodeKind::Window`] component and
-    /// has no [`TreeRelation`]. It exists purely as a stable ECS address so
+    /// has no `TreeRelation`. It exists purely as a stable ECS address so
     /// that the scripting layer can attach `EventListeners` / other
     /// window-scoped component data to a single entity per `Vm`.
     pub fn create_window_root(&mut self) -> Entity {
