@@ -51,10 +51,17 @@ pub unsafe fn bind_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, 
 /// `el` handle in JavaScript plus the Rust-side entity for direct DOM
 /// inspection (`listeners_on`, etc).
 ///
-/// The same lifetime constraints as [`bind_vm`] apply: `session` and
-/// `dom` must outlive the binding.
+/// # Safety
+///
+/// Inherits the full safety contract of [`bind_vm`] (to which this
+/// function delegates): the raw pointers derived from `session` and
+/// `dom` outlive this call, and the caller must keep both allocations
+/// live and non-aliased — no outstanding Rust references to either —
+/// until [`Vm::unbind`] is invoked.  Exposing this as a safe `fn`
+/// would allow UB from purely safe code (e.g. resuming use of
+/// `session` / `dom` while the VM still holds raw pointers into them).
 #[allow(unsafe_code)]
-pub fn setup_with_element(
+pub unsafe fn setup_with_element(
     vm: &mut Vm,
     session: &mut SessionCore,
     dom: &mut EcsDom,
@@ -62,9 +69,10 @@ pub fn setup_with_element(
     tag: &str,
 ) -> Entity {
     let el = dom.create_element(tag, Attributes::default());
-    vm.install_host_data(HostData::new());
+    // SAFETY: forwarded from the caller — `bind_vm`'s contract is
+    // identical to our own, and the two are documented together.
     unsafe {
-        vm.bind(session as *mut _, dom as *mut _, doc);
+        bind_vm(vm, session, dom, doc);
     }
     let wrapper_id = vm.inner.create_element_wrapper(el);
     vm.set_global("el", JsValue::Object(wrapper_id));

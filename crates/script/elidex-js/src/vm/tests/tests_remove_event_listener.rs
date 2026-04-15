@@ -15,7 +15,8 @@ fn remove_drops_matching_listener() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    #[allow(unsafe_code)]
+    let el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     vm.eval(
         "globalThis.h = function () {};
@@ -40,7 +41,8 @@ fn remove_also_clears_listener_store_entry() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    #[allow(unsafe_code)]
+    let el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     vm.eval(
         "globalThis.h = function () {};
@@ -67,7 +69,8 @@ fn remove_capture_phase_only_affects_capture_listener() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    #[allow(unsafe_code)]
+    let el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     vm.eval(
         "globalThis.h = function () {};
@@ -97,7 +100,8 @@ fn remove_with_unmatching_callback_is_silent_no_op() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    #[allow(unsafe_code)]
+    let el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     vm.eval(
         "el.addEventListener('click', function () {});
@@ -122,7 +126,8 @@ fn remove_finds_correct_entry_among_multiple_same_type_capture() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    #[allow(unsafe_code)]
+    let el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     vm.eval(
         "globalThis.h1 = function () {};
@@ -162,7 +167,8 @@ fn remove_does_not_read_once_or_passive_from_options() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    #[allow(unsafe_code)]
+    let _el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     vm.eval(
         "globalThis.once_read = false;
@@ -216,7 +222,8 @@ fn remove_with_non_callable_callback_throws_type_error() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let _el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    #[allow(unsafe_code)]
+    let _el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     let result = vm.eval("el.removeEventListener('click', 42);");
     assert!(
@@ -233,7 +240,8 @@ fn remove_with_null_callback_is_silent_no_op() {
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    #[allow(unsafe_code)]
+    let el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     vm.eval(
         "el.addEventListener('click', function () {});
