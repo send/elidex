@@ -92,24 +92,25 @@ impl ScriptEngine for ElidexJsEngine {
             self.vm
                 .inner
                 .create_event_object(event, target_wrapper, current_wrapper, passive);
-        self.vm.with_temp_root(JsValue::Object(event_obj_id), |vm| {
-            let _ = vm.call(
-                listener_obj_id,
-                JsValue::Object(current_wrapper),
-                &[JsValue::Object(event_obj_id)],
-            );
-            if let ObjectKind::Event {
-                default_prevented,
-                propagation_stopped,
-                immediate_propagation_stopped,
-                ..
-            } = vm.inner.get_object(event_obj_id).kind
-            {
-                event.flags.default_prevented = default_prevented;
-                event.flags.propagation_stopped = propagation_stopped;
-                event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
-            }
-        });
+        let mut g = self.vm.push_temp_root(JsValue::Object(event_obj_id));
+        let _ = g.call(
+            listener_obj_id,
+            JsValue::Object(current_wrapper),
+            &[JsValue::Object(event_obj_id)],
+        );
+        if let ObjectKind::Event {
+            default_prevented,
+            propagation_stopped,
+            immediate_propagation_stopped,
+            ..
+        } = g.get_object(event_obj_id).kind
+        {
+            event.flags.default_prevented = default_prevented;
+            event.flags.propagation_stopped = propagation_stopped;
+            event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
+        }
+        // `g` drops here; restores stack to pre-push length, even
+        // if the listener body panicked under `catch_unwind`.
     }
 
     fn remove_listener(&mut self, listener_id: ListenerId) {

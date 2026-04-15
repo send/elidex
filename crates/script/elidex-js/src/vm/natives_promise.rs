@@ -424,15 +424,13 @@ fn dispatch_unhandled_rejection_event(
         PropertyAttrs::WEBIDL_RO,
     );
 
-    // Root the event object on the VM stack across all listener
-    // invocations.  Hardened in the same shape as `Vm::with_temp_root`:
-    // assert the per-listener loop leaves the stack balanced (no leaked
-    // push, no over-pop) before truncating back to the saved length.
-    let saved_stack_len = vm.stack.len();
-    vm.stack.push(JsValue::Object(event_obj_id));
+    // Root the event object on the VM stack via the shared RAII
+    // guard.  Drop runs even on panic unwind, so the stack returns
+    // to its pre-push length whatever the listener body does.
+    let mut g = vm.push_temp_root(JsValue::Object(event_obj_id));
 
     for listener_id in listener_ids {
-        let Some(func_id) = vm
+        let Some(func_id) = g
             .host_data
             .as_deref()
             .and_then(|h| h.get_listener(listener_id))
@@ -440,7 +438,7 @@ fn dispatch_unhandled_rejection_event(
             continue;
         };
         // Errors swallowed — dispatch is a fire-and-forget host hook.
-        let _ = vm.call(
+        let _ = g.call(
             func_id,
             JsValue::Object(doc_wrapper),
             &[JsValue::Object(event_obj_id)],
@@ -448,34 +446,20 @@ fn dispatch_unhandled_rejection_event(
         if let ObjectKind::Event {
             immediate_propagation_stopped: true,
             ..
-        } = vm.get_object(event_obj_id).kind
+        } = g.get_object(event_obj_id).kind
         {
             break;
         }
     }
 
-    let prevented = matches!(
-        vm.get_object(event_obj_id).kind,
+    matches!(
+        g.get_object(event_obj_id).kind,
         ObjectKind::Event {
             default_prevented: true,
             ..
         }
-    );
-
-    assert_eq!(
-        vm.stack.len(),
-        saved_stack_len + 1,
-        "dispatch_unhandled_rejection_event: listener loop left VM stack at {} \
-         entries, expected {} — GC root corruption hazard",
-        vm.stack.len(),
-        saved_stack_len + 1,
-    );
-    debug_assert_eq!(
-        vm.stack.last().copied(),
-        Some(JsValue::Object(event_obj_id))
-    );
-    vm.stack.truncate(saved_stack_len);
-    prevented
+    )
+    // `g` drops here; restores the stack and asserts invariants.
 }
 
 /// Stub for builds without the `engine` feature — no host means no

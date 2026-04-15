@@ -35,48 +35,27 @@ impl Vm {
         self.inner.call(func_obj_id, this, args)
     }
 
-    /// Run `f` with `value` pushed onto the VM stack as a temporary
-    /// GC root, restoring the stack to its pre-push state on return
-    /// regardless of `f`'s result.
+    /// Push `value` onto the VM stack as a temporary GC root and
+    /// return an RAII guard that restores the stack on drop.
     ///
-    /// Use this when an allocation has just produced a `JsValue` that
-    /// is not yet reachable from any other root (a freshly created
-    /// event object, a one-shot intermediate before being installed
-    /// into a property, etc.) and you need it to survive a GC cycle
-    /// triggered by user JS that runs inside `f`.
+    /// Thin wrapper over [`VmInner::push_temp_root`] — see that for
+    /// the rooting contract (RAII Drop + length/slot-identity
+    /// asserts + panic-safe).
     ///
-    /// # Stack invariant guard
+    /// Use this when an allocation has just produced a `JsValue` not
+    /// yet reachable from any other root (a freshly created event
+    /// object, a one-shot intermediate before being installed into a
+    /// property, etc.) and you need it to survive a GC cycle
+    /// triggered by user JS that runs while the guard is alive.
     ///
-    /// Bare `stack.push(v) → f(...) → stack.pop()` would silently
-    /// corrupt GC roots if `f` (or anything it called) left the
-    /// stack at a different height — the pop would either remove
-    /// the wrong value or underflow.  We `assert!` that the closure
-    /// is well-balanced (pushes match pops within `f`) and use
-    /// `truncate(saved_len)` to restore, which is robust against
-    /// minor leaks the assert may not catch in release builds.
-    ///
-    /// Panic semantics: if `f` panics, the truncate is skipped — the
-    /// VM doesn't use `catch_unwind`, so a panic aborts the entire
-    /// process and leaked roots don't matter.
-    pub fn with_temp_root<R>(&mut self, value: JsValue, f: impl FnOnce(&mut Self) -> R) -> R {
-        let saved_len = self.inner.stack.len();
-        self.inner.stack.push(value);
-        let result = f(self);
-        assert_eq!(
-            self.inner.stack.len(),
-            saved_len + 1,
-            "with_temp_root: closure left the VM stack at {} entries, expected {} \
-             (saved_len + 1) — GC root corruption hazard",
-            self.inner.stack.len(),
-            saved_len + 1,
-        );
-        debug_assert_eq!(
-            self.inner.stack.last().copied(),
-            Some(value),
-            "with_temp_root: stack top changed during call"
-        );
-        self.inner.stack.truncate(saved_len);
-        result
+    /// ```rust,ignore
+    /// let mut g = vm.push_temp_root(JsValue::Object(id));
+    /// let _ = g.call(func_id, this, &[arg]);
+    /// // g drops here; stack restored to pre-push length
+    /// ```
+    #[cfg(feature = "engine")]
+    pub(crate) fn push_temp_root(&mut self, value: JsValue) -> super::VmTempRoot<'_> {
+        self.inner.push_temp_root(value)
     }
 
     /// Intern a string, returning its `StringId`.
