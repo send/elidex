@@ -154,6 +154,45 @@ impl Vm {
         }
     }
 
+    /// Resolve an ECS `Entity` to its shared JS wrapper `ObjectId`,
+    /// allocating on the first lookup and reusing the cached wrapper
+    /// on every subsequent call.  See `vm/host/elements.rs` module
+    /// doc for the identity contract.
+    ///
+    /// **Bench-only hook.**  The returned `ObjectId` can only be kept
+    /// GC-alive by rooting machinery that is not yet public
+    /// (`push_temp_root` / `HostData::wrapper_cache`), so this is not
+    /// safe for external callers to persist across allocations.  Kept
+    /// `pub` + `#[doc(hidden)]` so `benches/event_dispatch.rs` can
+    /// construct test fixtures without reaching into `VmInner`.
+    /// Do not rely on this for anything beyond bench scaffolding.
+    #[cfg(feature = "engine")]
+    #[doc(hidden)]
+    pub fn create_element_wrapper(&mut self, entity: elidex_ecs::Entity) -> ObjectId {
+        self.inner.create_element_wrapper(entity)
+    }
+
+    /// Build a JS event object for a single listener invocation.
+    ///
+    /// **Bench-only hook** (same reasoning as
+    /// [`Vm::create_element_wrapper`]).  Thin wrapper over
+    /// `vm/host/events.rs::create_event_object`; the caller must
+    /// supply pre-resolved target/currentTarget `HostObject` wrappers.
+    /// Returned `ObjectId` is unrooted — not safe to persist across
+    /// subsequent allocations from external code.
+    #[cfg(feature = "engine")]
+    #[doc(hidden)]
+    pub fn create_event_object(
+        &mut self,
+        event: &elidex_script_session::event_dispatch::DispatchEvent,
+        target: ObjectId,
+        current_target: ObjectId,
+        passive: bool,
+    ) -> ObjectId {
+        self.inner
+            .create_event_object(event, target, current_target, passive)
+    }
+
     /// Clear host pointers after JS execution.  No-op if unbound.
     pub fn unbind(&mut self) {
         if let Some(hd) = self.inner.host_data.as_deref_mut() {

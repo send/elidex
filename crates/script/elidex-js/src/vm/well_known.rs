@@ -1,0 +1,289 @@
+//! Pre-interned string IDs and well-known Symbol IDs, built once at
+//! `Vm::new` time and consulted on every property operation,
+//! identifier comparison, and event-object construction.
+//!
+//! Split out of `mod.rs` to keep that file under the project's
+//! 1000-line convention.  The structs themselves are passive data
+//! (fields are `Copy` newtypes) — the only behaviour here is the
+//! `new` constructors that pre-intern each name on the crate's
+//! `StringPool` / `SymbolRecord` table.
+
+use super::pools::StringPool;
+use super::value::{StringId, SymbolId, SymbolRecord};
+
+/// Frequently used interned string IDs, cached at VM creation.
+#[allow(dead_code)] // Fields used by interpreter and future built-ins.
+pub(crate) struct WellKnownStrings {
+    pub(crate) undefined: StringId,
+    pub(crate) null: StringId,
+    pub(crate) r#true: StringId,
+    pub(crate) r#false: StringId,
+    pub(crate) nan: StringId,
+    pub(crate) infinity: StringId,
+    pub(crate) neg_infinity: StringId,
+    pub(crate) zero: StringId,
+    pub(crate) empty: StringId,
+    pub(crate) prototype: StringId,
+    pub(crate) constructor: StringId,
+    pub(crate) length: StringId,
+    pub(crate) name: StringId,
+    pub(crate) message: StringId,
+    pub(crate) log: StringId,
+    pub(crate) error: StringId,
+    pub(crate) warn: StringId,
+    pub(crate) object_type: StringId,
+    pub(crate) boolean_type: StringId,
+    pub(crate) number_type: StringId,
+    pub(crate) string_type: StringId,
+    pub(crate) function_type: StringId,
+    pub(crate) symbol_type: StringId,
+    pub(crate) bigint_type: StringId,
+    pub(crate) object_to_string: StringId,
+    pub(crate) next: StringId,
+    pub(crate) value: StringId,
+    pub(crate) done: StringId,
+    pub(crate) return_str: StringId,
+    pub(crate) last_index: StringId,
+    pub(crate) index: StringId,
+    pub(crate) input: StringId,
+    pub(crate) join: StringId,
+    pub(crate) to_json: StringId,
+    pub(crate) get: StringId,
+    pub(crate) set: StringId,
+    pub(crate) enumerable: StringId,
+    pub(crate) configurable: StringId,
+    pub(crate) writable: StringId,
+    pub(crate) source: StringId,
+    pub(crate) flags: StringId,
+    pub(crate) status: StringId,
+    pub(crate) fulfilled: StringId,
+    pub(crate) rejected: StringId,
+    pub(crate) reason: StringId,
+    pub(crate) errors: StringId,
+    pub(crate) aggregate_error: StringId,
+
+    // -- Event-dispatch identifiers (PR3) --
+    // Property names installed on every event object — pre-interned
+    // here to avoid a HashMap lookup per name per dispatch.  Listener
+    // option keys (`capture`/`once`/`passive`) live here too since
+    // every `addEventListener` with options-object form reads them.
+    pub(crate) event_type: StringId,
+    pub(crate) bubbles: StringId,
+    pub(crate) cancelable: StringId,
+    pub(crate) event_phase: StringId,
+    pub(crate) target: StringId,
+    pub(crate) current_target: StringId,
+    pub(crate) time_stamp: StringId,
+    pub(crate) composed: StringId,
+    pub(crate) is_trusted: StringId,
+    pub(crate) default_prevented: StringId,
+    pub(crate) prevent_default: StringId,
+    pub(crate) stop_propagation: StringId,
+    pub(crate) stop_immediate_propagation: StringId,
+    pub(crate) composed_path: StringId,
+    pub(crate) capture: StringId,
+    pub(crate) once: StringId,
+    pub(crate) passive: StringId,
+    pub(crate) document: StringId,
+    pub(crate) unhandledrejection: StringId,
+    pub(crate) promise: StringId,
+
+    // -- Event payload property keys --
+    // Pre-interned so `create_event_object`'s payload installation
+    // can feed them directly into the precomputed-shape slot array
+    // without per-dispatch `strings.intern(name)` calls.  Also used
+    // by `VmInner::build_precomputed_event_shapes` to walk the
+    // shape-transition chain once at `register_globals` time.
+    //
+    // Shared keys (used by multiple payload variants) are defined
+    // once: `alt_key`, `ctrl_key`, `meta_key`, `shift_key`, `data`,
+    // `code`, `elapsed_time`, `pseudo_element`, `key`.
+    pub(crate) client_x: StringId,
+    pub(crate) client_y: StringId,
+    pub(crate) button: StringId,
+    pub(crate) buttons: StringId,
+    pub(crate) alt_key: StringId,
+    pub(crate) ctrl_key: StringId,
+    pub(crate) meta_key: StringId,
+    pub(crate) shift_key: StringId,
+    pub(crate) key: StringId,
+    pub(crate) code: StringId,
+    pub(crate) repeat: StringId,
+    pub(crate) property_name: StringId,
+    pub(crate) elapsed_time: StringId,
+    pub(crate) pseudo_element: StringId,
+    pub(crate) animation_name: StringId,
+    pub(crate) input_type: StringId,
+    pub(crate) data: StringId,
+    pub(crate) is_composing: StringId,
+    pub(crate) data_type: StringId,
+    pub(crate) related_target: StringId,
+    pub(crate) delta_x: StringId,
+    pub(crate) delta_y: StringId,
+    pub(crate) delta_mode: StringId,
+    pub(crate) origin: StringId,
+    pub(crate) last_event_id: StringId,
+    pub(crate) was_clean: StringId,
+    pub(crate) old_url: StringId,
+    pub(crate) new_url: StringId,
+    pub(crate) persisted: StringId,
+    pub(crate) old_value: StringId,
+    pub(crate) new_value: StringId,
+    pub(crate) url: StringId,
+}
+
+impl WellKnownStrings {
+    /// Intern every well-known name on `strings` and return the
+    /// populated table.  Must be the only caller to populate
+    /// `WellKnownStrings` — the fields carry expectations (e.g.
+    /// `empty` is literally `intern("")`) that other VM code relies
+    /// on without re-checking.
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn intern_all(strings: &mut StringPool) -> Self {
+        Self {
+            undefined: strings.intern("undefined"),
+            null: strings.intern("null"),
+            r#true: strings.intern("true"),
+            r#false: strings.intern("false"),
+            nan: strings.intern("NaN"),
+            infinity: strings.intern("Infinity"),
+            neg_infinity: strings.intern("-Infinity"),
+            zero: strings.intern("0"),
+            empty: strings.intern(""),
+            prototype: strings.intern("prototype"),
+            constructor: strings.intern("constructor"),
+            length: strings.intern("length"),
+            name: strings.intern("name"),
+            message: strings.intern("message"),
+            log: strings.intern("log"),
+            error: strings.intern("error"),
+            warn: strings.intern("warn"),
+            object_type: strings.intern("object"),
+            boolean_type: strings.intern("boolean"),
+            number_type: strings.intern("number"),
+            string_type: strings.intern("string"),
+            function_type: strings.intern("function"),
+            symbol_type: strings.intern("symbol"),
+            bigint_type: strings.intern("bigint"),
+            object_to_string: strings.intern("[object Object]"),
+            next: strings.intern("next"),
+            value: strings.intern("value"),
+            done: strings.intern("done"),
+            return_str: strings.intern("return"),
+            last_index: strings.intern("lastIndex"),
+            index: strings.intern("index"),
+            input: strings.intern("input"),
+            join: strings.intern("join"),
+            to_json: strings.intern("toJSON"),
+            get: strings.intern("get"),
+            set: strings.intern("set"),
+            enumerable: strings.intern("enumerable"),
+            configurable: strings.intern("configurable"),
+            writable: strings.intern("writable"),
+            source: strings.intern("source"),
+            flags: strings.intern("flags"),
+            status: strings.intern("status"),
+            fulfilled: strings.intern("fulfilled"),
+            rejected: strings.intern("rejected"),
+            reason: strings.intern("reason"),
+            errors: strings.intern("errors"),
+            aggregate_error: strings.intern("AggregateError"),
+            event_type: strings.intern("type"),
+            bubbles: strings.intern("bubbles"),
+            cancelable: strings.intern("cancelable"),
+            event_phase: strings.intern("eventPhase"),
+            target: strings.intern("target"),
+            current_target: strings.intern("currentTarget"),
+            time_stamp: strings.intern("timeStamp"),
+            composed: strings.intern("composed"),
+            is_trusted: strings.intern("isTrusted"),
+            default_prevented: strings.intern("defaultPrevented"),
+            prevent_default: strings.intern("preventDefault"),
+            stop_propagation: strings.intern("stopPropagation"),
+            stop_immediate_propagation: strings.intern("stopImmediatePropagation"),
+            composed_path: strings.intern("composedPath"),
+            capture: strings.intern("capture"),
+            once: strings.intern("once"),
+            passive: strings.intern("passive"),
+            document: strings.intern("document"),
+            unhandledrejection: strings.intern("unhandledrejection"),
+            promise: strings.intern("promise"),
+
+            // Event-payload property keys.  Interned once here so
+            // `create_event_object` can feed slots into
+            // `define_with_precomputed_shape` without re-interning.
+            client_x: strings.intern("clientX"),
+            client_y: strings.intern("clientY"),
+            button: strings.intern("button"),
+            buttons: strings.intern("buttons"),
+            alt_key: strings.intern("altKey"),
+            ctrl_key: strings.intern("ctrlKey"),
+            meta_key: strings.intern("metaKey"),
+            shift_key: strings.intern("shiftKey"),
+            key: strings.intern("key"),
+            code: strings.intern("code"),
+            repeat: strings.intern("repeat"),
+            property_name: strings.intern("propertyName"),
+            elapsed_time: strings.intern("elapsedTime"),
+            pseudo_element: strings.intern("pseudoElement"),
+            animation_name: strings.intern("animationName"),
+            input_type: strings.intern("inputType"),
+            data: strings.intern("data"),
+            is_composing: strings.intern("isComposing"),
+            data_type: strings.intern("dataType"),
+            related_target: strings.intern("relatedTarget"),
+            delta_x: strings.intern("deltaX"),
+            delta_y: strings.intern("deltaY"),
+            delta_mode: strings.intern("deltaMode"),
+            origin: strings.intern("origin"),
+            last_event_id: strings.intern("lastEventId"),
+            was_clean: strings.intern("wasClean"),
+            old_url: strings.intern("oldURL"),
+            new_url: strings.intern("newURL"),
+            persisted: strings.intern("persisted"),
+            old_value: strings.intern("oldValue"),
+            new_value: strings.intern("newValue"),
+            url: strings.intern("url"),
+        }
+    }
+}
+
+/// Well-known symbol IDs, allocated at VM creation.
+#[allow(dead_code)]
+pub(crate) struct WellKnownSymbols {
+    pub(crate) iterator: SymbolId,
+    pub(crate) async_iterator: SymbolId,
+    pub(crate) has_instance: SymbolId,
+    pub(crate) to_primitive: SymbolId,
+    pub(crate) to_string_tag: SymbolId,
+    pub(crate) species: SymbolId,
+    pub(crate) is_concat_spreadable: SymbolId,
+}
+
+impl WellKnownSymbols {
+    /// Allocate the 7 well-known Symbol records at fixed SymbolIds 0-6
+    /// and return the populated table alongside the symbol Vec (which
+    /// the caller stores on `VmInner.symbols`).  Returning the Vec
+    /// avoids a second `SymbolId` round-trip during VM construction —
+    /// the caller moves it straight into the field.
+    pub(crate) fn alloc_all(strings: &mut StringPool) -> (Self, Vec<SymbolRecord>) {
+        let mut symbols = Vec::new();
+        let mut alloc = |desc: &str| -> SymbolId {
+            let id = SymbolId(symbols.len() as u32);
+            symbols.push(SymbolRecord {
+                description: Some(strings.intern(desc)),
+            });
+            id
+        };
+        let well_known = Self {
+            iterator: alloc("Symbol.iterator"),
+            async_iterator: alloc("Symbol.asyncIterator"),
+            has_instance: alloc("Symbol.hasInstance"),
+            to_primitive: alloc("Symbol.toPrimitive"),
+            to_string_tag: alloc("Symbol.toStringTag"),
+            species: alloc("Symbol.species"),
+            is_concat_spreadable: alloc("Symbol.isConcatSpreadable"),
+        };
+        (well_known, symbols)
+    }
+}

@@ -16,7 +16,7 @@ use elidex_script_session::SessionCore;
 
 use super::super::host_data::HostData;
 use super::super::value::{
-    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue,
+    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
 };
 use super::super::Vm;
 
@@ -388,6 +388,144 @@ fn event_object_kind_carries_flag_seed() {
     assert!(default_prevented, "flag carried over from DispatchFlags");
     assert!(passive, "passive propagated from argument");
     assert!(cancelable, "cancelable copied from DispatchEvent");
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------
+// Precomputed shape sharing.
+//
+// `create_event_object` allocates at the terminal shape for the
+// payload variant; two events with the same variant must share the
+// same `ShapeId` so that the hidden-class fast path (PIC etc.) sees
+// them as a single type.  A separate variant must land at a different
+// ShapeId — cross-type shape sharing would cause hidden-class
+// polymorphism and defeat the precomputed-shape optimisation.
+// ---------------------------------------------------------------------
+
+fn shape_of(vm: &Vm, obj: ObjectId) -> u32 {
+    match &vm.inner.get_object(obj).storage {
+        PropertyStorage::Shaped { shape, .. } => *shape,
+        PropertyStorage::Dictionary(_) => {
+            panic!("event objects must remain in Shaped storage mode")
+        }
+    }
+}
+
+#[test]
+fn two_mouse_events_share_one_shape() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("button", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let payload = EventPayload::Mouse(MouseEventInit {
+        client_x: 1.0,
+        client_y: 2.0,
+        button: 0,
+        buttons: 0,
+        alt_key: false,
+        ctrl_key: false,
+        meta_key: false,
+        shift_key: false,
+    });
+    let target = vm.inner.create_element_wrapper(el);
+    let ev1 = make_event("click", true, payload.clone(), el);
+    let ev2 = make_event("click", true, payload, el);
+
+    let obj1 = vm.inner.create_event_object(&ev1, target, target, false);
+    let obj2 = vm.inner.create_event_object(&ev2, target, target, false);
+
+    assert_eq!(
+        shape_of(&vm, obj1),
+        shape_of(&vm, obj2),
+        "two Mouse events must share the precomputed terminal ShapeId",
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn different_payload_variants_use_different_shapes() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("input", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let mouse_payload = EventPayload::Mouse(MouseEventInit::default());
+    let kbd_payload = EventPayload::Keyboard(KeyboardEventInit {
+        key: "a".to_string(),
+        code: "KeyA".to_string(),
+        alt_key: false,
+        ctrl_key: false,
+        meta_key: false,
+        shift_key: false,
+        repeat: false,
+    });
+    let none_payload = EventPayload::None;
+
+    let target = vm.inner.create_element_wrapper(el);
+    let ev_m = make_event("click", true, mouse_payload, el);
+    let ev_k = make_event("keydown", true, kbd_payload, el);
+    let ev_n = make_event("load", false, none_payload, el);
+
+    let obj_m = vm.inner.create_event_object(&ev_m, target, target, false);
+    let obj_k = vm.inner.create_event_object(&ev_k, target, target, false);
+    let obj_n = vm.inner.create_event_object(&ev_n, target, target, false);
+
+    let sm = shape_of(&vm, obj_m);
+    let sk = shape_of(&vm, obj_k);
+    let sn = shape_of(&vm, obj_n);
+    assert_ne!(sm, sk, "Mouse and Keyboard must have distinct shapes");
+    assert_ne!(sm, sn, "Mouse and None must have distinct shapes");
+    assert_ne!(sk, sn, "Keyboard and None must have distinct shapes");
+
+    vm.unbind();
+}
+
+#[test]
+fn scroll_and_none_share_core_shape() {
+    // Both variants have zero payload keys; they terminate at the
+    // shared `core` shape per `PrecomputedEventShapes::shape_for`.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("div", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let target = vm.inner.create_element_wrapper(el);
+    let ev_scroll = make_event("scroll", false, EventPayload::Scroll, el);
+    let ev_none = make_event("load", false, EventPayload::None, el);
+
+    let obj_s = vm
+        .inner
+        .create_event_object(&ev_scroll, target, target, false);
+    let obj_n = vm
+        .inner
+        .create_event_object(&ev_none, target, target, false);
+
+    assert_eq!(
+        shape_of(&vm, obj_s),
+        shape_of(&vm, obj_n),
+        "Scroll and None must share the core-only shape",
+    );
 
     vm.unbind();
 }

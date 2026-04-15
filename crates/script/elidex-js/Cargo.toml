@@ -24,5 +24,17 @@ elidex-script-session = { workspace = true, optional = true }
 elidex-ecs = { workspace = true, optional = true }
 elidex-plugin = { workspace = true, optional = true }
 
+[dev-dependencies]
+criterion = { workspace = true }
+
+# Event-object construction throughput (PR3.6) — measures the per-
+# dispatch cost of `create_event_object` for each EventPayload variant.
+# Requires the `engine` feature for `DispatchEvent` / `HostData` /
+# `create_element_wrapper`.
+[[bench]]
+name = "event_dispatch"
+harness = false
+required-features = ["engine"]
+
 [lints]
 workspace = true

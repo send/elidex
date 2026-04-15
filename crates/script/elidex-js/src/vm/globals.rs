@@ -194,6 +194,18 @@ impl VmInner {
         // no DOM events to dispatch and the methods are unused.
         #[cfg(feature = "engine")]
         self.register_event_methods_prototype();
+
+        // Precomputed Shape terminals per EventPayload variant.
+        // Must run *after* payload-key WellKnownStrings are interned
+        // (done in `Vm::new` before `register_globals`) so the
+        // shape-transition walk uses the interned StringIds.  Also
+        // after `event_methods_prototype` so no field ordering assumes
+        // shapes exist without the prototype.
+        #[cfg(feature = "engine")]
+        {
+            let shapes = self.build_precomputed_event_shapes();
+            self.precomputed_event_shapes = Some(shapes);
+        }
     }
 
     /// Helper: register a native function as a global.
