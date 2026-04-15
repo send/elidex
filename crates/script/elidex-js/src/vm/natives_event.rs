@@ -114,21 +114,25 @@ pub(super) fn native_event_stop_immediate_propagation(
 }
 
 /// `Event.prototype.composedPath()` — returns the lazily-cached Array
-/// stored in the Event's internal slot.  If the slot has not been
-/// populated yet, returns an empty Array.  Populating is driven by the
-/// dispatch machinery (PR3 C5+), which writes the target/ancestor
-/// wrapper list into `composed_path` before the first listener fires.
+/// stored in the Event's internal slot.
 ///
-/// Spec §2.9 requires the same Array is returned on every call (the
-/// internal list is "cloned" into an Array on dispatch, and
-/// `composedPath()` returns that same Array), so we cache-and-return
-/// rather than rebuilding per call.
+/// WHATWG DOM §2.9 requires the same Array be returned on every call
+/// (the internal propagation-path list is "cloned" into an Array
+/// once, and subsequent `composedPath()` invocations return that same
+/// Array).  The dispatch machinery (PR3 C5+) writes the actual
+/// target/ancestor wrapper list into `composed_path` before the first
+/// listener fires; if a listener calls `composedPath()` before that
+/// happens (or on a UA event with no propagation path), we lazily
+/// allocate an empty Array and write it back into the slot so the
+/// next call returns the same id.  Without this writeback, identity
+/// (`e.composedPath() === e.composedPath()`) would be lost.
 pub(super) fn native_event_composed_path(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if let JsValue::Object(id) = this {
+        // Fast path: cached.
         if let ObjectKind::Event {
             composed_path: Some(arr),
             ..
@@ -136,9 +140,27 @@ pub(super) fn native_event_composed_path(
         {
             return Ok(JsValue::Object(*arr));
         }
+        // Lazy alloc + writeback for Event receivers.  Disable GC
+        // across the alloc + slot-write so the receiver `id` cannot
+        // be collected mid-sequence; this matters because direct
+        // native invocation from tests doesn't get the interpreter's
+        // per-native gc gate (interpreter.rs:71), so a GC threshold
+        // hit during `create_array_object` could otherwise reclaim
+        // the only Rust-local reference to the event.
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. }) {
+            let saved_gc = ctx.vm.gc_enabled;
+            ctx.vm.gc_enabled = false;
+            let arr = ctx.vm.create_array_object(Vec::new());
+            if let ObjectKind::Event { composed_path, .. } = &mut ctx.vm.get_object_mut(id).kind {
+                *composed_path = Some(arr);
+            }
+            ctx.vm.gc_enabled = saved_gc;
+            return Ok(JsValue::Object(arr));
+        }
     }
-    // Fallback — `this` not an Event, or path not yet populated.
-    // Return an empty Array to match the shape callers expect.
+    // Fallback — `this` not an Event.  No slot to cache in; return
+    // a fresh empty Array (callers in this branch are detached
+    // method invocations, identity is not meaningful).
     let empty = ctx.vm.create_array_object(Vec::new());
     Ok(JsValue::Object(empty))
 }

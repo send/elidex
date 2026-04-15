@@ -235,17 +235,25 @@ fn calls_on_non_host_object_silently_no_op() {
         vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
     }
 
-    // Plain object with `addEventListener` from EventTarget.prototype
-    // shouldn't blow up — silently no-op.
+    // Pull `addEventListener` off the EventTarget prototype (reached
+    // via `document`'s chain since `EventTarget` global doesn't exist
+    // until PR5a) and invoke it with a plain `{}` as `this`.  The
+    // `entity_from_this` extractor returns None for any receiver
+    // that isn't `ObjectKind::HostObject`, and the native must
+    // silently no-op (return undefined) — must not panic, must not
+    // throw, must not allocate any ECS component on the bogus
+    // receiver.
     let result = vm.eval(
-        "var p = Object.create(Object.getPrototypeOf({}));
-         // This won't actually inherit addEventListener (no prototype
-         // chain to EventTarget.prototype), but verifying that
-         // calling the method on a non-HostObject returns cleanly.
-         var et_proto = Object.getPrototypeOf({}); // sanity placeholder
-         true;",
+        "document.addEventListener.call(
+             {},
+             'click',
+             function () {}
+         );",
     );
-    assert!(result.is_ok());
+    assert!(
+        result.is_ok(),
+        "non-HostObject receiver must silently no-op, got {result:?}"
+    );
 
     vm.unbind();
 }

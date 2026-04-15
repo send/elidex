@@ -39,8 +39,9 @@ fn register_listener_via_global(
 ) {
     // Bind the host pointers, eval the JS to install the function on
     // globalThis under `__listener__`, then read the ObjectId out of
-    // globals and store it in HostData::listener_store.  The unbind
-    // happens at the end so subsequent call_listener uses a fresh bind.
+    // globals and store it in HostData::listener_store.  The VM is
+    // left bound on return; cleanup (`engine.vm().unbind()`) happens
+    // at the call site after the listener invocation.
     engine.vm().install_host_data(HostData::new());
     unsafe {
         engine.vm().bind(session as *mut _, dom as *mut _, document);

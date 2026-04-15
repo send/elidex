@@ -119,19 +119,44 @@ fn stop_immediate_propagation_sets_both_flags() {
 }
 
 #[test]
-fn composed_path_returns_empty_array_when_slot_none() {
+fn composed_path_lazy_caches_empty_array_on_first_call() {
+    // WHATWG DOM §2.9: same Array on every call.  The slot starts
+    // None; first call must allocate an empty Array AND write it
+    // back into the slot so identity holds for subsequent calls.
     let mut vm = Vm::new();
     let id = alloc_event(&mut vm, true, false);
-    let mut ctx = NativeContext { vm: &mut vm.inner };
-    let result = native_event_composed_path(&mut ctx, JsValue::Object(id), &[]).unwrap();
-    let JsValue::Object(arr_id) = result else {
-        panic!("composedPath should return an Object (Array), got {result:?}");
+
+    let first = {
+        let mut ctx = NativeContext { vm: &mut vm.inner };
+        native_event_composed_path(&mut ctx, JsValue::Object(id), &[]).unwrap()
+    };
+    let JsValue::Object(arr_id) = first else {
+        panic!("composedPath should return an Object (Array), got {first:?}");
     };
     match &vm.inner.get_object(arr_id).kind {
         ObjectKind::Array { elements } => {
             assert!(elements.is_empty(), "empty path → empty array");
         }
         _ => panic!("composedPath should return an Array"),
+    }
+
+    // Second call: must return the SAME ObjectId (cached in slot).
+    let second = {
+        let mut ctx = NativeContext { vm: &mut vm.inner };
+        native_event_composed_path(&mut ctx, JsValue::Object(id), &[]).unwrap()
+    };
+    assert_eq!(
+        second, first,
+        "composedPath() === composedPath() — second call must return the cached Array"
+    );
+
+    // Verify slot is now populated.
+    match vm.inner.get_object(id).kind {
+        ObjectKind::Event {
+            composed_path: Some(cached),
+            ..
+        } => assert_eq!(cached, arr_id, "slot must hold the same id we returned"),
+        _ => panic!("expected Event with cached composed_path"),
     }
 }
 

@@ -136,6 +136,47 @@ fn remove_with_unmatching_callback_is_silent_no_op() {
 }
 
 #[test]
+fn remove_finds_correct_entry_among_multiple_same_type_capture() {
+    // Regression: two listeners on the same (type, capture) tuple
+    // with DIFFERENT callbacks.  removeEventListener for the second
+    // listener must locate it specifically — earlier code picked the
+    // first (type, capture) match and bailed when its callback didn't
+    // match the candidate, missing the actually-matching later entry.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = setup_with_element(&mut vm, &mut session, &mut dom, doc);
+
+    vm.eval(
+        "globalThis.h1 = function () {};
+         globalThis.h2 = function () {};
+         el.addEventListener('click', globalThis.h1);
+         el.addEventListener('click', globalThis.h2);",
+    )
+    .unwrap();
+    assert_eq!(listeners_on(&dom, el).matching_all("click").len(), 2);
+
+    // Remove h2 specifically.  h1 must remain.
+    vm.eval("el.removeEventListener('click', globalThis.h2);")
+        .unwrap();
+
+    let listeners = listeners_on(&dom, el);
+    let entries = listeners.matching_all("click");
+    assert_eq!(entries.len(), 1, "h1 must remain after removing h2");
+    let surviving_id = entries[0].id;
+
+    // Cross-check listener_store: the surviving entry must point at h1.
+    let JsValue::Object(h1_id) = vm.get_global("h1").unwrap() else {
+        panic!("h1 must be an Object");
+    };
+    let stored = vm.host_data().unwrap().get_listener(surviving_id);
+    assert_eq!(stored, Some(h1_id), "surviving listener must be h1, not h2");
+
+    vm.unbind();
+}
+
+#[test]
 fn remove_with_null_callback_is_silent_no_op() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

@@ -133,11 +133,9 @@ pub(super) fn native_event_target_add_event_listener(
     // Argument 2: options — boolean (capture only) or object form.
     let options = parse_listener_options(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
 
-    // Duplicate check: walk existing listeners on `entity` matching
-    // (type, capture); for each, look up its function ObjectId in
-    // listener_store and compare to the candidate.  WHATWG §2.6
-    // step 4 explicitly excludes `once` and `passive` from identity.
-    if listener_already_registered(ctx, entity, &event_type, options.capture, listener_obj_id) {
+    // Duplicate check: WHATWG §2.6 step 4 excludes `once` / `passive`
+    // from identity, so we look up by (type, capture, callback).
+    if find_listener_id(ctx, entity, &event_type, options.capture, listener_obj_id).is_some() {
         return Ok(JsValue::Undefined);
     }
 
@@ -244,20 +242,31 @@ fn parse_listener_options(
     }
 }
 
-/// Walk existing listeners on `entity` matching (`event_type`,
-/// `capture`); return `true` if any of them maps (via listener_store)
-/// to `candidate_obj_id`.
+/// Find the `ListenerId` on `entity` whose (type, capture, callback)
+/// triple matches the given arguments — returns the id if such a
+/// listener is registered, `None` otherwise.
+///
+/// Used by both `addEventListener` (`.is_some()` for the §2.6 step 4
+/// duplicate check) and `removeEventListener` (the actual id to drop).
+/// Keeping a single helper prevents the two sites from drifting on
+/// what counts as a "match" — historically `removeEventListener`
+/// picked the first (type, capture) entry and bailed if its callback
+/// didn't match, missing later matching entries when an element had
+/// multiple listeners of the same type+capture.
 #[cfg(feature = "engine")]
-fn listener_already_registered(
+fn find_listener_id(
     ctx: &mut NativeContext<'_>,
     entity: elidex_ecs::Entity,
     event_type: &str,
     capture: bool,
     candidate_obj_id: ObjectId,
-) -> bool {
+) -> Option<elidex_script_session::ListenerId> {
+    // Two-pass: collect candidate ids while holding the world borrow,
+    // then cross-reference each against `listener_store` (which goes
+    // through `host_data` and would conflict with the world borrow).
     let host = ctx.host();
     let dom = host.dom();
-    let existing_ids: Vec<_> = dom
+    let candidate_ids: Vec<_> = dom
         .world()
         .get::<&elidex_script_session::EventListeners>(entity)
         .ok()
@@ -270,11 +279,11 @@ fn listener_already_registered(
                 .collect()
         })
         .unwrap_or_default();
-    let _ = dom; // release the borrow before re-grabbing host
+    let _ = dom;
     let host = ctx.host();
-    existing_ids
-        .iter()
-        .any(|id| host.get_listener(*id) == Some(candidate_obj_id))
+    candidate_ids
+        .into_iter()
+        .find(|id| host.get_listener(*id) == Some(candidate_obj_id))
 }
 
 /// `EventTarget.prototype.removeEventListener` — non-engine-feature stub.
@@ -323,43 +332,15 @@ pub(super) fn native_event_target_remove_event_listener(
     let event_type = ctx.vm.strings.get_utf8(type_sid);
 
     let options = parse_listener_options(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
-    let capture = options.capture;
 
-    // Find the (sole) matching listener id.  We walk the listener
-    // entries on `entity` and pick the first whose function ObjectId
-    // matches; per §2.6 step 4 there can only be one match because
-    // duplicate registrations are forbidden.
-    let host = ctx.host();
-    let dom = host.dom();
-    let target_id = dom
-        .world()
-        .get::<&elidex_script_session::EventListeners>(entity)
-        .ok()
-        .and_then(|listeners| {
-            for entry in listeners.matching_all(&event_type) {
-                if entry.capture == capture {
-                    // Cross-reference the listener_store ObjectId.
-                    // `find_entry`-style lookup is fine but we already
-                    // have the iter — just defer the host borrow.
-                    return Some(entry.id);
-                }
-            }
-            None
-        });
-    let _ = dom;
-
-    let Some(listener_id) = target_id else {
+    // Locate the matching listener via the shared (type, capture,
+    // callback) lookup.  WHATWG §2.6 step 4 forbids duplicates so at
+    // most one match exists; if none matches, it's a silent no-op.
+    let Some(listener_id) =
+        find_listener_id(ctx, entity, &event_type, options.capture, listener_obj_id)
+    else {
         return Ok(JsValue::Undefined);
     };
-
-    // Confirm via listener_store that this id genuinely points at
-    // the candidate function before removing — guards against the
-    // (rare) case where a listener was added and removed elsewhere
-    // without going through addEventListener (e.g. manual
-    // HostData::store_listener bypass).
-    if ctx.host().get_listener(listener_id) != Some(listener_obj_id) {
-        return Ok(JsValue::Undefined);
-    }
 
     // Remove from ECS component first, then from listener_store.
     let host = ctx.host();
