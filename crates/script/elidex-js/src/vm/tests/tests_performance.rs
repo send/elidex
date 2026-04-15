@@ -42,13 +42,11 @@ fn performance_now_is_monotonic() {
          globalThis.__t2 = performance.now();",
     )
     .unwrap();
-    let t1 = match vm.get_global("__t1").unwrap() {
-        JsValue::Number(n) => n,
-        _ => unreachable!(),
+    let JsValue::Number(t1) = vm.get_global("__t1").unwrap() else {
+        unreachable!()
     };
-    let t2 = match vm.get_global("__t2").unwrap() {
-        JsValue::Number(n) => n,
-        _ => unreachable!(),
+    let JsValue::Number(t2) = vm.get_global("__t2").unwrap() else {
+        unreachable!()
     };
     assert!(t2 >= t1, "non-monotonic: t1={t1} t2={t2}");
 }
