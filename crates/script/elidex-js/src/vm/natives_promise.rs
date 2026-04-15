@@ -291,18 +291,21 @@ impl VmInner {
             }
             self.current_microtask = None;
         }
-        // End-of-drain: emit unhandled-rejection warnings.  The spec hook
-        // (HostPromiseRejectionTracker → PromiseRejectionEvent) is deferred
-        // to PR3 when event dispatch is wired up; for now an eprintln keeps
-        // the diagnostic visible during development.
+        // End-of-drain: dispatch a `PromiseRejectionEvent` to the
+        // document's `unhandledrejection` listeners (HTML §8.1.5.5
+        // HostPromiseRejectionTracker hook), falling back to an
+        // `eprintln!` when no listener calls `preventDefault`.  Wired
+        // in PR3 C10.
         warn_unhandled_rejections(self);
         self.microtask_drain_depth -= 1;
     }
 }
 
-/// Walk `pending_rejections`, warn on any entry still unhandled, and clear
-/// the list.  Marks the reported promise `handled` so a second drain pass
-/// doesn't re-warn.
+/// Walk `pending_rejections`, dispatch a `PromiseRejectionEvent` to the
+/// host (if bound) for each, and fall back to `eprintln!` when no
+/// listener has called `preventDefault` (matches HTML §8.1.5.5
+/// "report the exception" hook).  Marks the reported promise
+/// `handled` so a second drain pass doesn't re-warn.
 fn warn_unhandled_rejections(vm: &mut VmInner) {
     if vm.pending_rejections.is_empty() {
         return;
@@ -318,13 +321,19 @@ fn warn_unhandled_rejections(vm: &mut VmInner) {
         if state.status != PromiseStatus::Rejected || state.handled {
             continue;
         }
-        // Format the reason for display.  Intern via `to_display_string`
-        // so Error instances render as "TypeError: msg" etc.
         let reason = state.result;
-        let reason_id = super::coerce::to_display_string(vm, reason);
-        let reason_str = vm.strings.get_utf8(reason_id);
-        eprintln!("Uncaught (in promise): {reason_str}");
-        // Re-borrow mutably now that to_display_string/get_utf8 are done.
+
+        // Try host-side dispatch first; only fall back to stderr if
+        // no listener prevented the default.
+        let suppressed = dispatch_unhandled_rejection_event(vm, id, reason);
+        if !suppressed {
+            // Format the reason for display.  Intern via `to_display_string`
+            // so Error instances render as "TypeError: msg" etc.
+            let reason_id = super::coerce::to_display_string(vm, reason);
+            let reason_str = vm.strings.get_utf8(reason_id);
+            eprintln!("Uncaught (in promise): {reason_str}");
+        }
+        // Re-borrow mutably now that we're done reading.
         if let Some(ObjectKind::Promise(state)) = vm
             .objects
             .get_mut(id.0 as usize)
@@ -334,6 +343,143 @@ fn warn_unhandled_rejections(vm: &mut VmInner) {
             state.handled = true;
         }
     }
+}
+
+/// Dispatch a `PromiseRejectionEvent` to the document's
+/// `unhandledrejection` listeners.  Returns `true` if dispatch
+/// happened AND a listener called `preventDefault()` — caller uses
+/// this to suppress the stderr fallback.
+///
+/// Bypasses the shared 3-phase dispatch core: per HTML §8.1.5.5 the
+/// event is non-bubbling and targeted at the global, so capture-phase
+/// listeners on ancestors are not in play.  Direct invocation also
+/// avoids the cross-crate `EventPayload::PromiseRejection { ... }`
+/// variant that would be required to thread VM-specific `ObjectId`
+/// and `JsValue` through `elidex-plugin`'s engine-agnostic payload
+/// enum (design decision D6, m4-12-pr3-plan.md).
+#[cfg(feature = "engine")]
+fn dispatch_unhandled_rejection_event(
+    vm: &mut VmInner,
+    promise_id: super::value::ObjectId,
+    reason: JsValue,
+) -> bool {
+    use super::shape::PropertyAttrs;
+    use super::value::{PropertyKey, PropertyValue};
+
+    // `HostData` must be bound; otherwise no listener routing is
+    // possible and we silently bail (caller eprintlns).
+    let host_bound = vm
+        .host_data
+        .as_deref()
+        .map(|h| h.is_bound())
+        .unwrap_or(false);
+    if !host_bound {
+        return false;
+    }
+    let document = vm.host_data.as_deref_mut().unwrap().document();
+
+    // Collect matching listener ids without holding the world borrow
+    // across allocations.
+    let listener_ids: Vec<elidex_script_session::ListenerId> = {
+        let dom = vm.host_data.as_deref_mut().unwrap().dom();
+        match dom
+            .world()
+            .get::<&elidex_script_session::EventListeners>(document)
+        {
+            Ok(listeners) => listeners
+                .matching_all("unhandledrejection")
+                .iter()
+                .map(|e| e.id)
+                .collect(),
+            Err(_) => return false,
+        }
+    };
+    if listener_ids.is_empty() {
+        return false;
+    }
+
+    // Build a synthetic DispatchEvent — never enters the session
+    // event queue or 3-phase dispatch; only used to thread the
+    // standard property set through `create_event_object`.
+    let mut event = elidex_script_session::DispatchEvent::new("unhandledrejection", document);
+    event.bubbles = false;
+    event.cancelable = true;
+    event.composed = false;
+
+    let doc_wrapper = vm.create_element_wrapper(document);
+    let event_obj_id = vm.create_event_object(&event, doc_wrapper, doc_wrapper, false);
+
+    // Augment with the spec-required `promise` + `reason` properties.
+    // Both are non-writable / configurable (matches the WebIDL
+    // `[Reflect]` default used elsewhere in this PR).
+    let attrs = PropertyAttrs {
+        writable: false,
+        enumerable: true,
+        configurable: true,
+        is_accessor: false,
+    };
+    let promise_key = vm.strings.intern("promise");
+    vm.define_shaped_property(
+        event_obj_id,
+        PropertyKey::String(promise_key),
+        PropertyValue::Data(JsValue::Object(promise_id)),
+        attrs,
+    );
+    let reason_key = vm.strings.intern("reason");
+    vm.define_shaped_property(
+        event_obj_id,
+        PropertyKey::String(reason_key),
+        PropertyValue::Data(reason),
+        attrs,
+    );
+
+    // Root the event object on the VM stack across all listener
+    // invocations — see C5 GC-safety note for the same pattern.
+    vm.stack.push(JsValue::Object(event_obj_id));
+
+    for listener_id in listener_ids {
+        let func_id = vm
+            .host_data
+            .as_deref()
+            .and_then(|h| h.get_listener(listener_id));
+        let Some(func_id) = func_id else { continue };
+        // Errors swallowed — dispatch is a fire-and-forget host hook.
+        let _ = vm.call(
+            func_id,
+            JsValue::Object(doc_wrapper),
+            &[JsValue::Object(event_obj_id)],
+        );
+        // Honour `stopImmediatePropagation` between listeners.
+        if let ObjectKind::Event {
+            immediate_propagation_stopped: true,
+            ..
+        } = vm.get_object(event_obj_id).kind
+        {
+            break;
+        }
+    }
+
+    let prevented = matches!(
+        vm.get_object(event_obj_id).kind,
+        ObjectKind::Event {
+            default_prevented: true,
+            ..
+        }
+    );
+    vm.stack.pop();
+    prevented
+}
+
+/// Stub for builds without the `engine` feature — no host means no
+/// listeners, so `false` always; the caller falls back to stderr.
+#[cfg(not(feature = "engine"))]
+#[allow(clippy::needless_pass_by_value)]
+fn dispatch_unhandled_rejection_event(
+    _vm: &mut VmInner,
+    _promise_id: super::value::ObjectId,
+    _reason: JsValue,
+) -> bool {
+    false
 }
 
 /// Execute a bare `queueMicrotask` callback (HTML §8.1.4.3).  Exceptions are
