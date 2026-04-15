@@ -785,9 +785,12 @@ impl VmInner {
     /// `Shaped` (freshly-allocated event objects never transition to
     /// Dictionary).
     //
-    // `#[allow(dead_code)]` until C4 lands — consumer is
-    // `create_event_object`'s rewrite.  Removed there.
-    #[allow(dead_code)]
+    // Engine-feature gated — the sole consumer is
+    // `host::events::create_event_object`, which is itself engine-only
+    // (no DOM events to dispatch in non-engine builds).  A future
+    // non-engine caller can relax this, but for now it keeps the
+    // non-engine build free of dead-code warnings.
+    #[cfg(feature = "engine")]
     pub(crate) fn define_with_precomputed_shape(
         &mut self,
         obj_id: ObjectId,

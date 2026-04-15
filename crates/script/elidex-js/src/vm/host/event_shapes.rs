@@ -38,11 +38,8 @@ use elidex_plugin::EventPayload;
 ///
 /// Built once during `register_globals` (after the payload-key
 /// `WellKnownStrings` are interned) and consulted by
-/// `create_event_object` on every dispatch.
-//
-// `#[allow(dead_code)]` on individual fields + `shape_for` until C4
-// lands (`create_event_object` rewrite).  Removed there.
-#[allow(dead_code)]
+/// `create_event_object` on every dispatch via
+/// [`PrecomputedEventShapes::shape_for`].
 pub(crate) struct PrecomputedEventShapes {
     /// Terminal shape for core-9 properties only.  Used for payload
     /// variants that install no extra properties (`None`, `Scroll`)
@@ -64,7 +61,6 @@ pub(crate) struct PrecomputedEventShapes {
     pub(crate) storage: ShapeId,
 }
 
-#[allow(dead_code)]
 impl PrecomputedEventShapes {
     /// Return the terminal shape for `payload`.
     ///
