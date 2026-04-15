@@ -219,13 +219,14 @@ fn parse_listener_options(
             ..Default::default()
         }),
         JsValue::Object(opts_id) => {
+            // Property names pre-interned in `WellKnownStrings` to avoid
+            // a HashMap lookup per addEventListener options object.
             let mut out = ListenerOptions::default();
-            for (rust_name, slot) in [
-                ("capture", &mut out.capture),
-                ("once", &mut out.once),
-                ("passive", &mut out.passive),
+            for (key_sid, slot) in [
+                (ctx.vm.well_known.capture, &mut out.capture),
+                (ctx.vm.well_known.once, &mut out.once),
+                (ctx.vm.well_known.passive, &mut out.passive),
             ] {
-                let key_sid = ctx.vm.strings.intern(rust_name);
                 let v = ctx
                     .vm
                     .get_property_value(opts_id, PropertyKey::String(key_sid))?;

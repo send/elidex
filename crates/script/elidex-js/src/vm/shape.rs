@@ -79,6 +79,27 @@ impl PropertyAttrs {
         configurable: false,
         is_accessor: false,
     };
+
+    /// WebIDL `[Reflect]` default attribute triple for read-only DOM
+    /// properties: `{¬W, E, C}`.  Used by event-object property
+    /// installation (`type`, `bubbles`, payload-specific keys, etc.)
+    /// where the WebIDL spec requires non-writable, enumerable, and
+    /// configurable.  Matches boa's `Attribute::READONLY` with the
+    /// CONFIGURABLE flag set.
+    pub const WEBIDL_RO: Self = Self {
+        writable: false,
+        enumerable: true,
+        configurable: true,
+        is_accessor: false,
+    };
+
+    /// `WEBIDL_RO` for accessor (getter/setter) properties.
+    pub const WEBIDL_RO_ACCESSOR: Self = Self {
+        writable: false,
+        enumerable: true,
+        configurable: true,
+        is_accessor: true,
+    };
 }
 
 /// Key for the transition table.

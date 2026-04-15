@@ -366,41 +366,40 @@ fn dispatch_unhandled_rejection_event(
     use super::shape::PropertyAttrs;
     use super::value::{PropertyKey, PropertyValue};
 
-    // `HostData` must be bound; otherwise no listener routing is
-    // possible and we silently bail (caller eprintlns).
-    let host_bound = vm
-        .host_data
-        .as_deref()
-        .map(|h| h.is_bound())
-        .unwrap_or(false);
-    if !host_bound {
-        return false;
-    }
-    let document = vm.host_data.as_deref_mut().unwrap().document();
-
-    // Collect matching listener ids without holding the world borrow
-    // across allocations.
+    // `HostData` must be bound and the document entity must have at
+    // least one `unhandledrejection` listener — otherwise nothing to
+    // dispatch.  Cheap pre-checks done first so the no-listener case
+    // bails before any allocation.
+    let document = match vm.host_data.as_deref() {
+        Some(host) if host.is_bound() => host.document(),
+        _ => return false,
+    };
     let listener_ids: Vec<elidex_script_session::ListenerId> = {
         let dom = vm.host_data.as_deref_mut().unwrap().dom();
-        match dom
+        let Ok(listeners) = dom
             .world()
             .get::<&elidex_script_session::EventListeners>(document)
-        {
-            Ok(listeners) => listeners
-                .matching_all("unhandledrejection")
-                .iter()
-                .map(|e| e.id)
-                .collect(),
-            Err(_) => return false,
-        }
+        else {
+            return false;
+        };
+        // `EventListeners::matching_all` takes `&str` (the ECS
+        // component stores Rust `String`s, not `StringId`s) — the
+        // literal here matches the cached `well_known.unhandledrejection`
+        // by definition.  Replacing with `get_utf8(well_known.…)` would
+        // allocate a `String` per call, defeating the cache.
+        listeners
+            .matching_all("unhandledrejection")
+            .iter()
+            .map(|e| e.id)
+            .collect()
     };
     if listener_ids.is_empty() {
         return false;
     }
 
-    // Build a synthetic DispatchEvent — never enters the session
-    // event queue or 3-phase dispatch; only used to thread the
-    // standard property set through `create_event_object`.
+    // Build a synthetic DispatchEvent + JS event object.  Never enters
+    // the session event queue or 3-phase dispatch; the per-listener
+    // loop honours `stopImmediatePropagation` directly.
     let mut event = elidex_script_session::DispatchEvent::new("unhandledrejection", document);
     event.bubbles = false;
     event.cancelable = true;
@@ -410,46 +409,40 @@ fn dispatch_unhandled_rejection_event(
     let event_obj_id = vm.create_event_object(&event, doc_wrapper, doc_wrapper, false);
 
     // Augment with the spec-required `promise` + `reason` properties.
-    // Both are non-writable / configurable (matches the WebIDL
-    // `[Reflect]` default used elsewhere in this PR).
-    let attrs = PropertyAttrs {
-        writable: false,
-        enumerable: true,
-        configurable: true,
-        is_accessor: false,
-    };
-    let promise_key = vm.strings.intern("promise");
+    let promise_key = vm.well_known.promise;
+    let reason_key = vm.well_known.reason;
     vm.define_shaped_property(
         event_obj_id,
         PropertyKey::String(promise_key),
         PropertyValue::Data(JsValue::Object(promise_id)),
-        attrs,
+        PropertyAttrs::WEBIDL_RO,
     );
-    let reason_key = vm.strings.intern("reason");
     vm.define_shaped_property(
         event_obj_id,
         PropertyKey::String(reason_key),
         PropertyValue::Data(reason),
-        attrs,
+        PropertyAttrs::WEBIDL_RO,
     );
 
     // Root the event object on the VM stack across all listener
-    // invocations — see C5 GC-safety note for the same pattern.
+    // invocations.  The push/pop pair stays in-module here — see
+    // `Vm::with_temp_root` for the public API used by engine.rs.
     vm.stack.push(JsValue::Object(event_obj_id));
 
     for listener_id in listener_ids {
-        let func_id = vm
+        let Some(func_id) = vm
             .host_data
             .as_deref()
-            .and_then(|h| h.get_listener(listener_id));
-        let Some(func_id) = func_id else { continue };
+            .and_then(|h| h.get_listener(listener_id))
+        else {
+            continue;
+        };
         // Errors swallowed — dispatch is a fire-and-forget host hook.
         let _ = vm.call(
             func_id,
             JsValue::Object(doc_wrapper),
             &[JsValue::Object(event_obj_id)],
         );
-        // Honour `stopImmediatePropagation` between listeners.
         if let ObjectKind::Event {
             immediate_propagation_stopped: true,
             ..

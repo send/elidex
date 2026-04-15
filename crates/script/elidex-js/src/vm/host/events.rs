@@ -10,35 +10,42 @@
 //! accumulated state (e.g. a prior listener's `preventDefault`)
 //! propagates correctly.
 //!
-//! ## Properties installed
+//! ## Per-instance vs prototype
 //!
-//! | Property / Method | Source | Shape |
-//! |-------------------|--------|-------|
+//! Methods (`preventDefault` / `stopPropagation` /
+//! `stopImmediatePropagation` / `composedPath`) and the
+//! `defaultPrevented` accessor live on a single shared internal
+//! prototype (`VmInner::event_methods_prototype`, populated once at
+//! `register_globals` time).  Per-event allocation is therefore just
+//! the data-property writes — no fresh `NativeFunction` objects per
+//! dispatch, no fresh shape transitions for the method properties.
+//!
+//! This is NOT exposed as the spec `Event.prototype` global; the
+//! constructor + visible `Event` global ship in PR5a alongside
+//! `new Event(...)`.  At that point this intrinsic can become the
+//! parent of (or be replaced by) the spec prototype.
+//!
+//! ## Properties installed on each event
+//!
+//! | Property | Source | Shape |
+//! |----------|--------|-------|
 //! | `type` | `event.event_type` | data, RO |
 //! | `bubbles` | `event.bubbles` | data, RO |
 //! | `cancelable` | `event.cancelable` | data, RO |
 //! | `eventPhase` | `event.phase as u8` | data, RO |
 //! | `target` | `target_wrapper_id` | data, RO |
 //! | `currentTarget` | `current_target_id` | data, RO |
-//! | `timeStamp` | `0.0` (TODO: PR3+) | data, RO |
+//! | `timeStamp` | `0.0` (TODO: PR4 `performance.now()`) | data, RO |
 //! | `composed` | `event.composed` | data, RO |
 //! | `isTrusted` | `event.is_trusted` | data, RO |
-//! | `defaultPrevented` | live getter → `ObjectKind::Event.default_prevented` | accessor, configurable |
-//! | `preventDefault` | `natives_event::…prevent_default` | method |
-//! | `stopPropagation` | `natives_event::…stop_propagation` | method |
-//! | `stopImmediatePropagation` | `natives_event::…stop_immediate_propagation` | method |
-//! | `composedPath` | `natives_event::…composed_path` | method |
 //! | `<payload-specific>` | `event.payload` | data, RO |
 //!
 //! ## Deferred to later PRs
 //!
-//! - `returnValue` legacy accessor (boa implements; not spec-critical
-//!   for WPT).  No major site depends on it; revisit in PR5a when
-//!   Event constructor lands and this file gains a dedicated test
-//!   pass against WPT `events/Event-*.html`.
-//! - `initEvent` / `initXXXEvent` legacy initializers — rare, skipped.
-//! - Timestamp population — currently a constant `0.0`; a proper
-//!   monotonic-clock read arrives with `performance.now()` in PR4.
+//! - `returnValue` legacy accessor → revisit when WPT
+//!   `events/Event-*.html` runs.
+//! - `initEvent` / `initXXXEvent` legacy initializers → rare, skipped.
+//! - Timestamp population → `performance.now()` lands in PR4.
 
 #![cfg(feature = "engine")]
 
@@ -51,71 +58,46 @@ use super::super::natives_event::{
 };
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
-    JsValue, NativeFunction, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue,
+    JsValue, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, PropertyValue, StringId,
 };
-use super::super::VmInner;
-
-/// Attribute triple used for DOM event properties: `{¬W, E, C}` — per
-/// WebIDL `[Reflect]` attributes are non-writable, enumerable, and
-/// configurable by default.  Matches boa's `Attribute::READONLY` with
-/// an explicit configurable flag.
-const EVENT_RO: PropertyAttrs = PropertyAttrs {
-    writable: false,
-    enumerable: true,
-    configurable: true,
-    is_accessor: false,
-};
-
-const EVENT_ACCESSOR: PropertyAttrs = PropertyAttrs {
-    writable: false,
-    enumerable: true,
-    configurable: true,
-    is_accessor: true,
-};
-
-/// Well-known string IDs needed by event-object construction.  We resolve
-/// them eagerly rather than re-interning on every event creation — event
-/// dispatch is a hot path.
-struct EventStrings {
-    r#type: super::super::value::StringId,
-    bubbles: super::super::value::StringId,
-    cancelable: super::super::value::StringId,
-    event_phase: super::super::value::StringId,
-    target: super::super::value::StringId,
-    current_target: super::super::value::StringId,
-    time_stamp: super::super::value::StringId,
-    composed: super::super::value::StringId,
-    is_trusted: super::super::value::StringId,
-    default_prevented: super::super::value::StringId,
-    prevent_default: super::super::value::StringId,
-    stop_propagation: super::super::value::StringId,
-    stop_immediate_propagation: super::super::value::StringId,
-    composed_path: super::super::value::StringId,
-}
-
-impl EventStrings {
-    fn intern(vm: &mut VmInner) -> Self {
-        Self {
-            r#type: vm.strings.intern("type"),
-            bubbles: vm.strings.intern("bubbles"),
-            cancelable: vm.strings.intern("cancelable"),
-            event_phase: vm.strings.intern("eventPhase"),
-            target: vm.strings.intern("target"),
-            current_target: vm.strings.intern("currentTarget"),
-            time_stamp: vm.strings.intern("timeStamp"),
-            composed: vm.strings.intern("composed"),
-            is_trusted: vm.strings.intern("isTrusted"),
-            default_prevented: vm.strings.intern("defaultPrevented"),
-            prevent_default: vm.strings.intern("preventDefault"),
-            stop_propagation: vm.strings.intern("stopPropagation"),
-            stop_immediate_propagation: vm.strings.intern("stopImmediatePropagation"),
-            composed_path: vm.strings.intern("composedPath"),
-        }
-    }
-}
+use super::super::{NativeFn, VmInner};
 
 impl VmInner {
+    /// Populate `event_methods_prototype` with the four event methods
+    /// + `defaultPrevented` accessor.
+    ///
+    /// Called once from `register_globals` after `Object.prototype`
+    /// exists; the resulting object is the prototype every event
+    /// instance inherits from.
+    pub(in crate::vm) fn register_event_methods_prototype(&mut self) {
+        let proto_id = self.create_object_with_methods(&[
+            ("preventDefault", native_event_prevent_default as NativeFn),
+            ("stopPropagation", native_event_stop_propagation),
+            (
+                "stopImmediatePropagation",
+                native_event_stop_immediate_propagation,
+            ),
+            ("composedPath", native_event_composed_path),
+        ]);
+        // `defaultPrevented` is an accessor (live getter), not a data
+        // property — WHATWG DOM §2.9 requires it to reflect the current
+        // canceled flag including writes from `preventDefault()` made
+        // inside the same listener body.
+        let getter =
+            self.create_native_function("get defaultPrevented", native_event_get_default_prevented);
+        let dp_key = PropertyKey::String(self.well_known.default_prevented);
+        self.define_shaped_property(
+            proto_id,
+            dp_key,
+            PropertyValue::Accessor {
+                getter: Some(getter),
+                setter: None,
+            },
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        self.event_methods_prototype = Some(proto_id);
+    }
+
     /// Build the JS event object for a single listener invocation.
     ///
     /// `target_wrapper_id` and `current_target_wrapper_id` are the
@@ -133,12 +115,10 @@ impl VmInner {
     /// # GC safety
     ///
     /// GC is suppressed for the duration of construction — every
-    /// intermediate alloc (native fn objects, the event itself) is
-    /// only reachable via local Rust variables until the property
-    /// writes complete, at which point the Event object is the root
-    /// via the returned ObjectId.  Callers must root the returned id
-    /// immediately (push to stack, store in a frame slot, etc.) before
-    /// re-enabling GC.
+    /// intermediate alloc is only reachable via local Rust variables
+    /// until the property writes complete.  Callers must root the
+    /// returned id immediately (push to stack, store in a frame slot,
+    /// etc.) before re-enabling GC.
     pub(crate) fn create_event_object(
         &mut self,
         event: &DispatchEvent,
@@ -149,7 +129,6 @@ impl VmInner {
         let saved_gc = self.gc_enabled;
         self.gc_enabled = false;
 
-        let strings = EventStrings::intern(self);
         let event_id = self.alloc_object(Object {
             kind: ObjectKind::Event {
                 default_prevented: event.flags.default_prevented,
@@ -160,112 +139,51 @@ impl VmInner {
                 composed_path: None,
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            // No prototype — Event.prototype (with full accessors etc.)
-            // ships in PR5a alongside `new Event(...)`.  For PR3 the
-            // four methods + defaultPrevented accessor are installed
-            // as own properties below.
-            prototype: self.object_prototype,
+            // Methods + `defaultPrevented` accessor inherited from the
+            // shared prototype — no per-event method install.
+            prototype: self.event_methods_prototype,
             extensible: true,
         });
 
-        // ---- Core properties ----
+        // ---- Core properties (cached property names from WellKnownStrings) ----
         let type_sid = self.strings.intern(&event.event_type);
-        install_data_ro(self, event_id, strings.r#type, JsValue::String(type_sid));
-        install_data_ro(
+        let phase = event.phase as u8;
+        let composed = event.composed;
+        let bubbles = event.bubbles;
+        let cancelable = event.cancelable;
+        let is_trusted = event.is_trusted;
+        // Hoist the StringId reads so the compiler doesn't have to
+        // re-borrow `self.well_known` interleaved with `&mut self` calls
+        // to `define_shaped_property`.
+        let wk = self.well_known_event_keys();
+
+        install_ro(self, event_id, wk.r#type, JsValue::String(type_sid));
+        install_ro(self, event_id, wk.bubbles, JsValue::Boolean(bubbles));
+        install_ro(self, event_id, wk.cancelable, JsValue::Boolean(cancelable));
+        install_ro(
             self,
             event_id,
-            strings.bubbles,
-            JsValue::Boolean(event.bubbles),
+            wk.event_phase,
+            JsValue::Number(f64::from(phase)),
         );
-        install_data_ro(
+        install_ro(
             self,
             event_id,
-            strings.cancelable,
-            JsValue::Boolean(event.cancelable),
-        );
-        install_data_ro(
-            self,
-            event_id,
-            strings.event_phase,
-            JsValue::Number(f64::from(event.phase as u8)),
-        );
-        install_data_ro(
-            self,
-            event_id,
-            strings.target,
+            wk.target,
             JsValue::Object(target_wrapper_id),
         );
-        install_data_ro(
+        install_ro(
             self,
             event_id,
-            strings.current_target,
+            wk.current_target,
             JsValue::Object(current_target_wrapper_id),
         );
-        install_data_ro(
-            self,
-            event_id,
-            strings.time_stamp,
-            // Populated properly once `performance.now()` lands (PR4).
-            JsValue::Number(0.0),
-        );
-        install_data_ro(
-            self,
-            event_id,
-            strings.composed,
-            JsValue::Boolean(event.composed),
-        );
-        install_data_ro(
-            self,
-            event_id,
-            strings.is_trusted,
-            JsValue::Boolean(event.is_trusted),
-        );
-
-        // ---- defaultPrevented accessor ----
-        let getter_id = alloc_native_fn(
-            self,
-            "get defaultPrevented",
-            native_event_get_default_prevented,
-        );
-        self.define_shaped_property(
-            event_id,
-            PropertyKey::String(strings.default_prevented),
-            PropertyValue::Accessor {
-                getter: Some(getter_id),
-                setter: None,
-            },
-            EVENT_ACCESSOR,
-        );
-
-        // ---- Four native methods (own data properties) ----
-        install_method(
-            self,
-            event_id,
-            strings.prevent_default,
-            "preventDefault",
-            native_event_prevent_default,
-        );
-        install_method(
-            self,
-            event_id,
-            strings.stop_propagation,
-            "stopPropagation",
-            native_event_stop_propagation,
-        );
-        install_method(
-            self,
-            event_id,
-            strings.stop_immediate_propagation,
-            "stopImmediatePropagation",
-            native_event_stop_immediate_propagation,
-        );
-        install_method(
-            self,
-            event_id,
-            strings.composed_path,
-            "composedPath",
-            native_event_composed_path,
-        );
+        // `timeStamp` is the wall-clock-ish DOM event timestamp.  Held
+        // at 0.0 until `performance.now()` lands in PR4 — flagged in
+        // module doc.
+        install_ro(self, event_id, wk.time_stamp, JsValue::Number(0.0));
+        install_ro(self, event_id, wk.composed, JsValue::Boolean(composed));
+        install_ro(self, event_id, wk.is_trusted, JsValue::Boolean(is_trusted));
 
         // ---- Payload-specific properties ----
         set_payload_properties(self, event_id, &event.payload);
@@ -273,62 +191,47 @@ impl VmInner {
         self.gc_enabled = saved_gc;
         event_id
     }
+
+    /// Snapshot of the WellKnownStrings entries used per event-object
+    /// construction.  All `Copy` (StringId is `u32`-newtype) — collected
+    /// once at the top of `create_event_object` so the `&mut self`
+    /// `install_ro` calls don't have to fight a `&self.well_known`
+    /// borrow.
+    fn well_known_event_keys(&self) -> EventKeys {
+        EventKeys {
+            r#type: self.well_known.event_type,
+            bubbles: self.well_known.bubbles,
+            cancelable: self.well_known.cancelable,
+            event_phase: self.well_known.event_phase,
+            target: self.well_known.target,
+            current_target: self.well_known.current_target,
+            time_stamp: self.well_known.time_stamp,
+            composed: self.well_known.composed,
+            is_trusted: self.well_known.is_trusted,
+        }
+    }
 }
 
-fn install_data_ro(
-    vm: &mut VmInner,
-    obj: ObjectId,
-    key: super::super::value::StringId,
-    value: JsValue,
-) {
+#[derive(Copy, Clone)]
+struct EventKeys {
+    r#type: StringId,
+    bubbles: StringId,
+    cancelable: StringId,
+    event_phase: StringId,
+    target: StringId,
+    current_target: StringId,
+    time_stamp: StringId,
+    composed: StringId,
+    is_trusted: StringId,
+}
+
+fn install_ro(vm: &mut VmInner, obj: ObjectId, key: StringId, value: JsValue) {
     vm.define_shaped_property(
         obj,
         PropertyKey::String(key),
         PropertyValue::Data(value),
-        EVENT_RO,
+        PropertyAttrs::WEBIDL_RO,
     );
-}
-
-fn install_method(
-    vm: &mut VmInner,
-    obj: ObjectId,
-    key: super::super::value::StringId,
-    name: &str,
-    func: fn(
-        &mut super::super::value::NativeContext<'_>,
-        JsValue,
-        &[JsValue],
-    ) -> Result<JsValue, super::super::value::VmError>,
-) {
-    let fn_id = alloc_native_fn(vm, name, func);
-    vm.define_shaped_property(
-        obj,
-        PropertyKey::String(key),
-        PropertyValue::Data(JsValue::Object(fn_id)),
-        PropertyAttrs::METHOD,
-    );
-}
-
-fn alloc_native_fn(
-    vm: &mut VmInner,
-    name: &str,
-    func: fn(
-        &mut super::super::value::NativeContext<'_>,
-        JsValue,
-        &[JsValue],
-    ) -> Result<JsValue, super::super::value::VmError>,
-) -> ObjectId {
-    let name_id = vm.strings.intern(name);
-    vm.alloc_object(Object {
-        kind: ObjectKind::NativeFunction(NativeFunction {
-            name: name_id,
-            func,
-            constructable: false,
-        }),
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: vm.function_prototype,
-        extensible: true,
-    })
 }
 
 /// Install payload-specific read-only properties per `EventPayload`
@@ -370,10 +273,7 @@ fn set_payload_properties(vm: &mut VmInner, event_id: ObjectId, payload: &EventP
             install_str(vm, event_id, "inputType", &i.input_type);
             match &i.data {
                 Some(s) => install_str(vm, event_id, "data", s),
-                None => {
-                    let key = vm.strings.intern("data");
-                    install_data_ro(vm, event_id, key, JsValue::Null);
-                }
+                None => install_named(vm, event_id, "data", JsValue::Null),
             }
             install_bool(vm, event_id, "isComposing", i.is_composing);
         }
@@ -393,8 +293,7 @@ fn set_payload_properties(vm: &mut VmInner, event_id: ObjectId, payload: &EventP
                 Some(entity) => JsValue::Object(vm.create_element_wrapper(entity)),
                 None => JsValue::Null,
             };
-            let key = vm.strings.intern("relatedTarget");
-            install_data_ro(vm, event_id, key, related_val);
+            install_named(vm, event_id, "relatedTarget", related_val);
         }
         EventPayload::Wheel(w) => {
             install_num(vm, event_id, "deltaX", w.delta_x);
@@ -409,11 +308,7 @@ fn set_payload_properties(vm: &mut VmInner, event_id: ObjectId, payload: &EventP
             install_str(vm, event_id, "data", data);
             install_str(vm, event_id, "origin", origin);
             install_str(vm, event_id, "lastEventId", last_event_id);
-            // `source` / `ports` intentionally omitted — populated by
-            // `postMessage` / MessagePort in PR5b; until then the
-            // property is absent (undefined on read) rather than null,
-            // matching WebKit's behaviour when the bridge has no
-            // MessagePort backing.
+            // `source` / `ports` populated when MessagePort lands (PR5b).
         }
         EventPayload::CloseEvent(c) => {
             install_num(vm, event_id, "code", f64::from(c.code));
@@ -437,45 +332,52 @@ fn set_payload_properties(vm: &mut VmInner, event_id: ObjectId, payload: &EventP
             install_optional_str(vm, event_id, "oldValue", old_value.as_deref());
             install_optional_str(vm, event_id, "newValue", new_value.as_deref());
             install_str(vm, event_id, "url", url);
-            // `storageArea` omitted — populated when `localStorage` /
-            // `sessionStorage` land in PR5a.
+            // `storageArea` populated when localStorage / sessionStorage land (PR5a).
         }
-        // `Scroll` / `None` carry no extra properties.  The `_` arm
-        // catches future `#[non_exhaustive]` variants added upstream
-        // without a matching setter here — a silent install of no
-        // extra props, picked up in CI via explicit tests per variant
-        // in PR3 C12 (integration tests).
-        EventPayload::Scroll | EventPayload::None => {}
-        _ => {}
+        EventPayload::Scroll | EventPayload::None => {
+            // No extra properties.
+        }
+        // `EventPayload` is `#[non_exhaustive]`.  A new upstream
+        // variant landing without a matching arm here installs no
+        // payload props.  Debug-trips so test runs surface the
+        // omission; release silently no-ops to avoid hard-failing
+        // dispatch on payloads we just don't display yet.
+        _ => debug_assert!(
+            false,
+            "unhandled EventPayload variant in set_payload_properties"
+        ),
     }
 }
 
 // ---------------------------------------------------------------------
-// Small helpers for property installation.  Kept non-inlined so the
-// per-variant code paths above stay readable.
+// Per-payload installation helpers.  Each interns the property name on
+// the StringPool — payload property names (`clientX`, `key`, etc.) are
+// not yet in `WellKnownStrings`; promoting the hottest ones is a
+// follow-up perf win once profiling identifies them.
 // ---------------------------------------------------------------------
 
-fn install_num(vm: &mut VmInner, obj: ObjectId, name: &str, value: f64) {
+fn install_named(vm: &mut VmInner, obj: ObjectId, name: &str, value: JsValue) {
     let key = vm.strings.intern(name);
-    install_data_ro(vm, obj, key, JsValue::Number(value));
+    install_ro(vm, obj, key, value);
+}
+
+fn install_num(vm: &mut VmInner, obj: ObjectId, name: &str, value: f64) {
+    install_named(vm, obj, name, JsValue::Number(value));
 }
 
 fn install_bool(vm: &mut VmInner, obj: ObjectId, name: &str, value: bool) {
-    let key = vm.strings.intern(name);
-    install_data_ro(vm, obj, key, JsValue::Boolean(value));
+    install_named(vm, obj, name, JsValue::Boolean(value));
 }
 
 fn install_str(vm: &mut VmInner, obj: ObjectId, name: &str, value: &str) {
-    let key = vm.strings.intern(name);
     let sid = vm.strings.intern(value);
-    install_data_ro(vm, obj, key, JsValue::String(sid));
+    install_named(vm, obj, name, JsValue::String(sid));
 }
 
 fn install_optional_str(vm: &mut VmInner, obj: ObjectId, name: &str, value: Option<&str>) {
-    let key = vm.strings.intern(name);
     let js_value = match value {
         Some(s) => JsValue::String(vm.strings.intern(s)),
         None => JsValue::Null,
     };
-    install_data_ro(vm, obj, key, js_value);
+    install_named(vm, obj, name, js_value);
 }

@@ -105,14 +105,17 @@ mod engine_feature {
             self.document_entity.unwrap()
         }
 
-        /// # Panics (debug builds)
+        /// # Panics
         ///
         /// Panics if the `ListenerId` is already registered.  `ListenerId`
         /// values are expected to be unique per `addEventListener` call;
-        /// a duplicate indicates a bug in listener-id allocation.
+        /// a duplicate would silently orphan the prior `ObjectId` and
+        /// drop it from `gc_root_object_ids` — a recipe for a
+        /// use-after-free if any JS-side reference to the old listener
+        /// still exists.  Enforced in release too.
         pub fn store_listener(&mut self, id: ListenerId, func: ObjectId) {
             let prev = self.listener_store.insert(id, func);
-            debug_assert!(prev.is_none(), "duplicate ListenerId {id:?}");
+            assert!(prev.is_none(), "duplicate ListenerId {id:?}");
         }
 
         pub fn get_listener(&self, id: ListenerId) -> Option<ObjectId> {
@@ -127,14 +130,17 @@ mod engine_feature {
             self.wrapper_cache.get(&entity.to_bits().get()).copied()
         }
 
-        /// # Panics (debug builds)
+        /// # Panics
         ///
         /// Panics if the Entity already has a cached wrapper.  Wrapper cache
         /// identity (`el === el`) requires the caller to check
-        /// `get_cached_wrapper()` first.
+        /// `get_cached_wrapper()` first; silently overwriting would
+        /// orphan the prior wrapper ObjectId, dropping it from
+        /// `gc_root_object_ids` while live JS references may still
+        /// reach it.  Enforced in release too.
         pub fn cache_wrapper(&mut self, entity: Entity, obj: ObjectId) {
             let prev = self.wrapper_cache.insert(entity.to_bits().get(), obj);
-            debug_assert!(
+            assert!(
                 prev.is_none(),
                 "wrapper already cached for Entity {entity:?}"
             );

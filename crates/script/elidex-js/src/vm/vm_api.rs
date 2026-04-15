@@ -35,6 +35,25 @@ impl Vm {
         self.inner.call(func_obj_id, this, args)
     }
 
+    /// Run `f` with `value` pushed onto the VM stack as a temporary
+    /// GC root, popping it on return regardless of `f`'s result.
+    ///
+    /// Use this when an allocation has just produced a `JsValue` that
+    /// is not yet reachable from any other root (a freshly created
+    /// event object, a one-shot intermediate before being installed
+    /// into a property, etc.) and you need it to survive a GC cycle
+    /// triggered by user JS that runs inside `f`.
+    ///
+    /// The push/pop pair is paired even on early-return paths because
+    /// `f` consumes a `&mut Vm` — there's no way for it to bypass the
+    /// outer pop without panicking the whole interpreter.
+    pub fn with_temp_root<R>(&mut self, value: JsValue, f: impl FnOnce(&mut Self) -> R) -> R {
+        self.inner.stack.push(value);
+        let result = f(self);
+        self.inner.stack.pop();
+        result
+    }
+
     /// Intern a string, returning its `StringId`.
     #[inline]
     pub fn intern(&mut self, s: &str) -> StringId {

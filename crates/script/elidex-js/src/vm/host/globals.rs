@@ -42,6 +42,11 @@ impl Vm {
             .expect("install_document_global requires bound HostData")
             .document();
         let wrapper = self.inner.create_element_wrapper(entity);
-        self.set_global("document", JsValue::Object(wrapper));
+        // Use the pre-interned StringId from `WellKnownStrings`
+        // instead of `set_global("document", …)` (which interns the
+        // literal each call) — `Vm::bind` runs this on every JS
+        // execution boundary.
+        let key = self.inner.well_known.document;
+        self.inner.globals.insert(key, JsValue::Object(wrapper));
     }
 }

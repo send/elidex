@@ -75,57 +75,41 @@ impl ScriptEngine for ElidexJsEngine {
         let target_wrapper = self.vm.inner.create_element_wrapper(event.target);
         let current_wrapper = self.vm.inner.create_element_wrapper(current_target);
 
-        // 3. Build the per-listener event object.  `create_event_object`
-        //    suppresses GC during construction; on return the object is
-        //    not yet rooted by anything.  Push it onto the VM stack as a
-        //    temporary root so a GC inside the listener body cannot
-        //    collect the very event object the listener is reading.
+        // Build the per-listener event object, root it across the
+        // listener call (it has no other GC root until the call's
+        // arg slot becomes a stack frame), invoke the listener,
+        // then sync flag fields back into `event.flags` so the next
+        // listener / outer dispatch loop sees prior preventDefault /
+        // stopPropagation calls.
+        //
+        // Microtask checkpoint is NOT performed here — the shared
+        // dispatch loop in
+        // `elidex_script_session::event_dispatch::script_dispatch_event_core`
+        // calls `engine.run_microtasks(ctx)` after every listener
+        // invocation (HTML §8.1.7.3).  Timer drain is similarly host
+        // event-loop driven, not per-listener.
         let event_obj_id =
             self.vm
                 .inner
                 .create_event_object(event, target_wrapper, current_wrapper, passive);
-        self.vm.inner.stack.push(JsValue::Object(event_obj_id));
-
-        // 4. Invoke the listener.  Errors are swallowed — there is no
-        //    sensible recovery path inside dispatch (browsers log to
-        //    console; we'll route through `host.session()` once the
-        //    log channel lands in PR4).
-        let _ = self.vm.call(
-            listener_obj_id,
-            JsValue::Object(current_wrapper),
-            &[JsValue::Object(event_obj_id)],
-        );
-
-        // 5. Sync the three flag fields back into `event.flags` so the
-        //    next listener (and the dispatch loop's stop-propagation
-        //    check) observes any preventDefault / stopPropagation calls.
-        if let ObjectKind::Event {
-            default_prevented,
-            propagation_stopped,
-            immediate_propagation_stopped,
-            ..
-        } = self.vm.inner.get_object(event_obj_id).kind
-        {
-            event.flags.default_prevented = default_prevented;
-            event.flags.propagation_stopped = propagation_stopped;
-            event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
-        }
-
-        // 6. Drop the temporary event-object root.  The event_obj_id
-        //    becomes unreachable after this pop and will be reclaimed
-        //    on the next GC cycle.
-        self.vm.inner.stack.pop();
-
-        // NOTE: microtask checkpoint is intentionally NOT performed
-        // here — the shared dispatch loop in
-        // `elidex_script_session::event_dispatch::script_dispatch_event_core`
-        // calls `engine.run_microtasks(ctx)` after every listener
-        // invocation (HTML §8.1.7.3).  Draining inside `call_listener`
-        // too would be a double-drain (the second pass would always
-        // see an empty queue) and would entangle this engine impl
-        // with the dispatch core's checkpoint policy.  Timer drain
-        // (`drain_timers`) is similarly host-driven — the shell event
-        // loop calls it once per event-loop tick, not per listener.
+        self.vm.with_temp_root(JsValue::Object(event_obj_id), |vm| {
+            let _ = vm.call(
+                listener_obj_id,
+                JsValue::Object(current_wrapper),
+                &[JsValue::Object(event_obj_id)],
+            );
+            if let ObjectKind::Event {
+                default_prevented,
+                propagation_stopped,
+                immediate_propagation_stopped,
+                ..
+            } = vm.inner.get_object(event_obj_id).kind
+            {
+                event.flags.default_prevented = default_prevented;
+                event.flags.propagation_stopped = propagation_stopped;
+                event.flags.immediate_propagation_stopped = immediate_propagation_stopped;
+            }
+        });
     }
 
     fn remove_listener(&mut self, listener_id: ListenerId) {

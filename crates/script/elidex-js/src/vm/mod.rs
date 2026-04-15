@@ -178,6 +178,20 @@ pub(crate) struct VmInner {
     /// `register_globals()`.  Read when `create_element_wrapper` (PR3 C2)
     /// allocates a `HostObject` wrapper.
     pub(crate) event_target_prototype: Option<ObjectId>,
+    /// Internal prototype for `ObjectKind::Event` instances.  Holds the
+    /// four event methods (`preventDefault`, `stopPropagation`,
+    /// `stopImmediatePropagation`, `composedPath`) and the
+    /// `defaultPrevented` accessor.  Methods are stateless `fn`
+    /// pointers that match on `this`'s `ObjectKind::Event` for state,
+    /// so a single prototype is shared across all dispatched events —
+    /// avoids 5 native-fn allocations + 5 shape transitions per
+    /// listener invocation.
+    ///
+    /// NOT exposed as `Event.prototype` to JS (the spec global +
+    /// constructor land in PR5a alongside `new Event(...)`); this is
+    /// a pure VM intrinsic.  When PR5a lands, `Event.prototype` can
+    /// become this object's parent or replace it outright.
+    pub(crate) event_methods_prototype: Option<ObjectId>,
     /// Set by `Op::Yield` to signal the enclosing `resume_generator` of
     /// the yielded value.  `None` outside a yield dispatch.
     pub(crate) generator_yielded: Option<JsValue>,
@@ -264,6 +278,32 @@ pub(crate) struct WellKnownStrings {
     pub(crate) reason: StringId,
     pub(crate) errors: StringId,
     pub(crate) aggregate_error: StringId,
+
+    // -- Event-dispatch identifiers (PR3) --
+    // Property names installed on every event object — pre-interned
+    // here to avoid a HashMap lookup per name per dispatch.  Listener
+    // option keys (`capture`/`once`/`passive`) live here too since
+    // every `addEventListener` with options-object form reads them.
+    pub(crate) event_type: StringId,
+    pub(crate) bubbles: StringId,
+    pub(crate) cancelable: StringId,
+    pub(crate) event_phase: StringId,
+    pub(crate) target: StringId,
+    pub(crate) current_target: StringId,
+    pub(crate) time_stamp: StringId,
+    pub(crate) composed: StringId,
+    pub(crate) is_trusted: StringId,
+    pub(crate) default_prevented: StringId,
+    pub(crate) prevent_default: StringId,
+    pub(crate) stop_propagation: StringId,
+    pub(crate) stop_immediate_propagation: StringId,
+    pub(crate) composed_path: StringId,
+    pub(crate) capture: StringId,
+    pub(crate) once: StringId,
+    pub(crate) passive: StringId,
+    pub(crate) document: StringId,
+    pub(crate) unhandledrejection: StringId,
+    pub(crate) promise: StringId,
 }
 
 /// Well-known symbol IDs, allocated at VM creation.
@@ -840,6 +880,26 @@ impl Vm {
             reason: strings.intern("reason"),
             errors: strings.intern("errors"),
             aggregate_error: strings.intern("AggregateError"),
+            event_type: strings.intern("type"),
+            bubbles: strings.intern("bubbles"),
+            cancelable: strings.intern("cancelable"),
+            event_phase: strings.intern("eventPhase"),
+            target: strings.intern("target"),
+            current_target: strings.intern("currentTarget"),
+            time_stamp: strings.intern("timeStamp"),
+            composed: strings.intern("composed"),
+            is_trusted: strings.intern("isTrusted"),
+            default_prevented: strings.intern("defaultPrevented"),
+            prevent_default: strings.intern("preventDefault"),
+            stop_propagation: strings.intern("stopPropagation"),
+            stop_immediate_propagation: strings.intern("stopImmediatePropagation"),
+            composed_path: strings.intern("composedPath"),
+            capture: strings.intern("capture"),
+            once: strings.intern("once"),
+            passive: strings.intern("passive"),
+            document: strings.intern("document"),
+            unhandledrejection: strings.intern("unhandledrejection"),
+            promise: strings.intern("promise"),
         };
 
         // Allocate well-known symbols (fixed IDs 0-6).
@@ -925,6 +985,7 @@ impl Vm {
                 aggregate_error_prototype: None,
                 generator_prototype: None,
                 event_target_prototype: None,
+                event_methods_prototype: None,
                 generator_yielded: None,
                 current_microtask: None,
                 timer_queue: BinaryHeap::new(),

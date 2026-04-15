@@ -123,11 +123,19 @@ fn default_prevented_is_accessor_and_reflects_flag_live() {
     let ev = make_event("click", true, EventPayload::None, el);
     let obj = vm.inner.create_event_object(&ev, target, target, false);
 
-    // Verify the property is indeed an accessor (not a stale data prop).
+    // `defaultPrevented` lives on `event_methods_prototype` (PR3
+    // simplify pass): the accessor is shared across every event
+    // instance so we look it up on the prototype rather than as an
+    // own property.
+    let proto_id = vm
+        .inner
+        .get_object(obj)
+        .prototype
+        .expect("event must have prototype = event_methods_prototype");
     let dp_sid = vm.inner.strings.lookup("defaultPrevented").unwrap();
     let (slot, attrs) = vm
         .inner
-        .get_object(obj)
+        .get_object(proto_id)
         .storage
         .get(PropertyKey::String(dp_sid), &vm.inner.shapes)
         .unwrap();
@@ -176,7 +184,11 @@ fn default_prevented_is_accessor_and_reflects_flag_live() {
 }
 
 #[test]
-fn four_methods_installed_as_own_data_properties() {
+fn four_methods_installed_on_event_methods_prototype() {
+    // Methods live on the shared `event_methods_prototype` intrinsic
+    // (PR3 simplify pass: avoids 4 native-fn allocs + 4 shape
+    // transitions per event).  Verify they're reachable via prototype
+    // chain by inspecting the prototype's own properties directly.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -191,6 +203,7 @@ fn four_methods_installed_as_own_data_properties() {
     let target = vm.inner.create_element_wrapper(el);
     let ev = make_event("click", true, EventPayload::None, el);
     let obj = vm.inner.create_event_object(&ev, target, target, false);
+    let proto_id = vm.inner.get_object(obj).prototype.expect("must have proto");
 
     for name in [
         "preventDefault",
@@ -198,12 +211,19 @@ fn four_methods_installed_as_own_data_properties() {
         "stopImmediatePropagation",
         "composedPath",
     ] {
-        let JsValue::Object(fn_id) = expect_data(&vm, obj, name) else {
-            panic!("{name} is not an Object");
+        let sid = vm.inner.strings.lookup(name).unwrap();
+        let (slot, _) = vm
+            .inner
+            .get_object(proto_id)
+            .storage
+            .get(PropertyKey::String(sid), &vm.inner.shapes)
+            .unwrap_or_else(|| panic!("{name} missing from event_methods_prototype"));
+        let PropertyValue::Data(JsValue::Object(fn_id)) = slot else {
+            panic!("{name}: expected Data(Object), got {slot:?}");
         };
         assert!(
             matches!(
-                vm.inner.get_object(fn_id).kind,
+                vm.inner.get_object(*fn_id).kind,
                 ObjectKind::NativeFunction(_)
             ),
             "{name}: expected NativeFunction"
