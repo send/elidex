@@ -34,7 +34,20 @@ use elidex_css::parse_selector_from_str;
 use elidex_ecs::{Attributes, Entity, TagType};
 
 // ---------------------------------------------------------------------------
-// Helpers — tree walk from the document root.
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Wrap a list of entities as a JS Array of element wrappers.
+fn wrap_entities_as_array(vm: &mut VmInner, entities: &[Entity]) -> JsValue {
+    let elements: Vec<JsValue> = entities
+        .iter()
+        .map(|&e| JsValue::Object(vm.create_element_wrapper(e)))
+        .collect();
+    JsValue::Object(vm.create_array_object(elements))
+}
+
+// ---------------------------------------------------------------------------
+// Tree walk from the document root.
 // ---------------------------------------------------------------------------
 
 /// Find the first element child of `parent` whose tag (lowercased)
@@ -191,12 +204,7 @@ pub(super) fn native_document_query_selector_all(
         }
     };
 
-    // Phase 2: wrap entities after releasing DOM borrow.
-    let elements: Vec<JsValue> = entities
-        .iter()
-        .map(|&e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
-        .collect();
-    Ok(JsValue::Object(ctx.vm.create_array_object(elements)))
+    Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +224,7 @@ pub(super) fn native_document_get_elements_by_tag_name(
         return Ok(JsValue::Null);
     }
 
-    let match_all = *tag == *"*";
+    let match_all = tag == "*";
     let entities: Vec<Entity> = {
         let doc = ctx
             .vm
@@ -245,11 +253,7 @@ pub(super) fn native_document_get_elements_by_tag_name(
         }
     };
 
-    let elements: Vec<JsValue> = entities
-        .iter()
-        .map(|&e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
-        .collect();
-    Ok(JsValue::Object(ctx.vm.create_array_object(elements)))
+    Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
 pub(super) fn native_document_get_elements_by_class_name(
@@ -263,7 +267,7 @@ pub(super) fn native_document_get_elements_by_class_name(
 
     let target_classes: Vec<&str> = class_str.split_whitespace().collect();
     if target_classes.is_empty() {
-        return Ok(JsValue::Object(ctx.vm.create_array_object(Vec::new())));
+        return Ok(wrap_entities_as_array(ctx.vm, &[]));
     }
 
     if ctx.host_if_bound().is_none() {
@@ -297,11 +301,7 @@ pub(super) fn native_document_get_elements_by_class_name(
         }
     };
 
-    let elements: Vec<JsValue> = entities
-        .iter()
-        .map(|&e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
-        .collect();
-    Ok(JsValue::Object(ctx.vm.create_array_object(elements)))
+    Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
 // ---------------------------------------------------------------------------

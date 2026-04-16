@@ -501,20 +501,28 @@ impl EcsDom {
         }
     }
 
+    /// Returns a zero-allocation **reverse** iterator over direct
+    /// children of `parent` (last child first, via `prev_sibling`).
+    #[must_use]
+    pub fn children_iter_rev(&self, parent: Entity) -> super::ChildrenIterRev<'_> {
+        let next = self.read_rel(parent, |rel| rel.last_child);
+        super::ChildrenIterRev {
+            dom: self,
+            next,
+            remaining: MAX_ANCESTOR_DEPTH,
+        }
+    }
+
     /// Pre-order DFS over all descendants of `root` (excluding `root`
     /// itself).  `visitor` receives each entity in document order and
     /// returns `true` to continue or `false` to stop early.
     pub fn traverse_descendants(&self, root: Entity, mut visitor: impl FnMut(Entity) -> bool) {
-        let mut stack: Vec<Entity> = self.children_iter(root).collect::<Vec<_>>();
-        stack.reverse();
+        let mut stack: Vec<Entity> = self.children_iter_rev(root).collect();
         while let Some(entity) = stack.pop() {
             if !visitor(entity) {
                 return;
             }
-            let children: Vec<_> = self.children_iter(entity).collect();
-            for child in children.into_iter().rev() {
-                stack.push(child);
-            }
+            stack.extend(self.children_iter_rev(entity));
         }
     }
 
