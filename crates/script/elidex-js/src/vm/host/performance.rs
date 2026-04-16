@@ -62,7 +62,7 @@ impl VmInner {
             obj_id,
             key,
             PropertyValue::Data(JsValue::Number(0.0)),
-            PropertyAttrs::BUILTIN,
+            PropertyAttrs::WEBIDL_RO,
         );
 
         let name = self.well_known.performance;

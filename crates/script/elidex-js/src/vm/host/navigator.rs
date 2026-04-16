@@ -63,7 +63,7 @@ impl VmInner {
                 obj_id,
                 key,
                 PropertyValue::Data(JsValue::String(sid)),
-                PropertyAttrs::BUILTIN,
+                PropertyAttrs::WEBIDL_RO,
             );
         }
 
@@ -84,7 +84,7 @@ impl VmInner {
                 obj_id,
                 key,
                 PropertyValue::Data(JsValue::Boolean(value)),
-                PropertyAttrs::BUILTIN,
+                PropertyAttrs::WEBIDL_RO,
             );
         }
 

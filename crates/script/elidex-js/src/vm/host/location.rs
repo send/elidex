@@ -175,6 +175,10 @@ fn set_location(ctx: &mut NativeContext<'_>, new_url: &str, replace_history: boo
         nav.history_entries[nav.history_index]
             .url
             .clone_from(&nav.current_url);
+        // `replace` is a navigation, not a state mutation — clear any
+        // prior `pushState` data so `history.state` reflects a fresh
+        // navigation entry rather than preserving stale state.
+        nav.history_entries[nav.history_index].state = JsValue::Null;
     } else {
         nav.push_entry(new_url.to_string(), JsValue::Null);
     }
