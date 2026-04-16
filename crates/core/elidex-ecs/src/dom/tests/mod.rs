@@ -13,5 +13,6 @@ mod creation;
 mod destroy;
 mod node_kind;
 mod shadow_dom;
+mod traversal;
 mod tree_ops;
 mod version;

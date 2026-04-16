@@ -34,7 +34,18 @@ impl DomApiHandler for QuerySelector {
             message: format!("Invalid selector: {selector_str}"),
         })?;
         reject_shadow_pseudos(&selectors)?;
-        match find_first_match(this, &selectors, dom) {
+        let mut matched = None;
+        dom.traverse_descendants(this, |entity| {
+            if dom.world().get::<&TagType>(entity).is_ok()
+                && selectors.iter().any(|sel| sel.matches(entity, dom))
+            {
+                matched = Some(entity);
+                false
+            } else {
+                true
+            }
+        });
+        match matched {
             Some(entity) => {
                 let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
                 Ok(JsValue::ObjectRef(obj_ref.to_raw()))
@@ -63,7 +74,16 @@ pub fn query_selector_all(
         message: format!("Invalid selector: {selector_str}"),
     })?;
     reject_shadow_pseudos(&selectors)?;
-    Ok(find_all_matches(root, &selectors, dom))
+    let mut result = Vec::new();
+    dom.traverse_descendants(root, |entity| {
+        if dom.world().get::<&TagType>(entity).is_ok()
+            && selectors.iter().any(|sel| sel.matches(entity, dom))
+        {
+            result.push(entity);
+        }
+        true
+    });
+    Ok(result)
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +106,7 @@ impl DomApiHandler for GetElementById {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let id = require_string_arg(args, 0)?;
-        match find_by_id(this, &id, dom) {
+        match dom.find_by_id(this, &id) {
             Some(entity) => {
                 let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
                 Ok(JsValue::ObjectRef(obj_ref.to_raw()))
@@ -169,26 +189,6 @@ impl DomApiHandler for CreateTextNode {
 // DOM tree walk helpers
 // ---------------------------------------------------------------------------
 
-/// Pre-order DFS traversal starting from `root` (excluding root itself).
-/// Calls `visitor` for each entity. The visitor returns `true` to continue, `false` to stop early.
-fn traverse_pre_order(dom: &EcsDom, root: Entity, mut visitor: impl FnMut(Entity) -> bool) {
-    let mut stack: Vec<Entity> = Vec::new();
-    // Push children of root in reverse order for correct traversal order.
-    let children: Vec<_> = dom.children_iter(root).collect();
-    for child in children.into_iter().rev() {
-        stack.push(child);
-    }
-    while let Some(entity) = stack.pop() {
-        if !visitor(entity) {
-            return;
-        }
-        let children: Vec<_> = dom.children_iter(entity).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
-        }
-    }
-}
-
 /// Check that no selector uses shadow-scoped pseudos (`:host`, `::slotted()`).
 ///
 /// These are invalid in `querySelector`/`querySelectorAll` per CSS Scoping §3.
@@ -200,51 +200,6 @@ fn reject_shadow_pseudos(selectors: &[Selector]) -> Result<(), DomApiError> {
         });
     }
     Ok(())
-}
-
-/// Find the first element matching any selector under `root` (pre-order DFS).
-fn find_first_match(root: Entity, selectors: &[Selector], dom: &EcsDom) -> Option<Entity> {
-    let mut result = None;
-    traverse_pre_order(dom, root, |entity| {
-        if dom.world().get::<&TagType>(entity).is_ok()
-            && selectors.iter().any(|sel| sel.matches(entity, dom))
-        {
-            result = Some(entity);
-            false // stop
-        } else {
-            true // continue
-        }
-    });
-    result
-}
-
-/// Find all elements matching any selector under `root` (pre-order DFS).
-fn find_all_matches(root: Entity, selectors: &[Selector], dom: &EcsDom) -> Vec<Entity> {
-    let mut result = Vec::new();
-    traverse_pre_order(dom, root, |entity| {
-        if dom.world().get::<&TagType>(entity).is_ok()
-            && selectors.iter().any(|sel| sel.matches(entity, dom))
-        {
-            result.push(entity);
-        }
-        true // always continue
-    });
-    result
-}
-
-/// Find the first element with a matching `id` attribute under `root`.
-fn find_by_id(root: Entity, id: &str, dom: &EcsDom) -> Option<Entity> {
-    let mut result = None;
-    traverse_pre_order(dom, root, |entity| {
-        if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
-            if attrs.get("id") == Some(id) {
-                result = Some(entity);
-                return false; // stop
-            }
-        }
-        true // continue
-    });
-    result
 }
 
 #[cfg(test)]

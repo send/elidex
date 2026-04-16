@@ -1,6 +1,6 @@
 //! Tree mutation and navigation methods for [`EcsDom`].
 
-use crate::components::{ShadowRoot, TagType, TreeRelation};
+use crate::components::{Attributes, ShadowRoot, TagType, TreeRelation};
 use hecs::Entity;
 
 use super::{EcsDom, MAX_ANCESTOR_DEPTH};
@@ -499,6 +499,41 @@ impl EcsDom {
             next,
             remaining: MAX_ANCESTOR_DEPTH,
         }
+    }
+
+    /// Pre-order DFS over all descendants of `root` (excluding `root`
+    /// itself).  `visitor` receives each entity in document order and
+    /// returns `true` to continue or `false` to stop early.
+    pub fn traverse_descendants(&self, root: Entity, mut visitor: impl FnMut(Entity) -> bool) {
+        let mut stack: Vec<Entity> = self.children_iter(root).collect::<Vec<_>>();
+        stack.reverse();
+        while let Some(entity) = stack.pop() {
+            if !visitor(entity) {
+                return;
+            }
+            let children: Vec<_> = self.children_iter(entity).collect();
+            for child in children.into_iter().rev() {
+                stack.push(child);
+            }
+        }
+    }
+
+    /// Find the first descendant of `root` whose `id` attribute equals
+    /// `id`.  Searches in document order (pre-order DFS) and returns on
+    /// first match — WHATWG DOM §4.2.4.
+    #[must_use]
+    pub fn find_by_id(&self, root: Entity, id: &str) -> Option<Entity> {
+        let mut result = None;
+        self.traverse_descendants(root, |entity| {
+            if let Ok(attrs) = self.world().get::<&Attributes>(entity) {
+                if attrs.get("id") == Some(id) {
+                    result = Some(entity);
+                    return false;
+                }
+            }
+            true
+        });
+        result
     }
 
     /// Find all element entities with the given tag name.
