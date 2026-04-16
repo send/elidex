@@ -96,8 +96,12 @@ pub(crate) struct WellKnownStrings {
     pub(crate) complete: StringId,
     /// `history.scrollRestoration` constant — same rationale as `complete`.
     pub(crate) auto: StringId,
-    /// Initial `location.href` / `document.URL` value; `NavigationState::new`
-    /// starts every VM here.
+    /// Pre-interned `"about:blank"` for callers that need the default
+    /// blank-document URL as a `StringId` without repeating
+    /// `strings.intern("about:blank")`.  `NavigationState::new` uses
+    /// the `String` form directly; this field ensures the pool entry
+    /// exists so that subsequent `intern` calls on the same literal
+    /// are HashMap hits rather than fresh insertions.
     pub(crate) about_blank: StringId,
     pub(crate) unhandledrejection: StringId,
     pub(crate) promise: StringId,
