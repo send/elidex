@@ -23,31 +23,29 @@ mod engine_feature {
     pub struct HostData {
         session_ptr: *mut elidex_script_session::SessionCore,
         dom_ptr: *mut elidex_ecs::EcsDom,
-        /// The `dom` pointer from the first [`Self::bind`] call.
-        ///
-        /// Retained across unbind cycles so that subsequent binds can
-        /// assert the caller passes the **same** `EcsDom` world.
-        /// Entity-based caches (`window_entity`, `wrapper_cache`,
-        /// `document_methods_installed`, `listener_store`) are
-        /// meaningful only within the world that allocated their
-        /// entities; rebinding to a different world would thread
-        /// stale `Entity` bits into `globalThis` and the wrapper
-        /// cache, leading to silent data corruption or panics on
-        /// the next `dom()` dereference.  The assert in [`Self::bind`]
-        /// catches this misuse at the call site.
-        first_dom_ptr: *mut elidex_ecs::EcsDom,
         document_entity: Option<Entity>,
         /// Entity backing `globalThis` / `window` (WHATWG HTML §7.2).
         ///
         /// Created on the first [`Vm::bind`](super::Vm::bind) via the
         /// bound `dom` and **retained across unbind cycles** — identity
-        /// is stable for the whole lifetime of the `HostData`, which
-        /// is itself tied to a single `EcsDom` world (enforced by
-        /// [`Self::bind`]'s `first_dom_ptr` assert).  A second `bind`
-        /// reuses the same entity, so JS references saved across
-        /// bind → unbind → bind boundaries keep pointing at the same
-        /// ECS address (and therefore the same `EventListeners`
-        /// component).
+        /// is stable for the whole lifetime of the `HostData`.
+        ///
+        /// # Single-world invariant
+        ///
+        /// This entity, along with `wrapper_cache`,
+        /// `document_methods_installed`, and `listener_store`, are
+        /// meaningful only within the `EcsDom` world that allocated
+        /// them.  **Callers must not rebind a `HostData` to a
+        /// different `EcsDom` world.**  Doing so would thread stale
+        /// `Entity` bits into `globalThis` and the wrapper cache.
+        ///
+        /// We do not enforce this with a pointer assert because
+        /// `EcsDom` is `!Pin` — the same world can legally move in
+        /// memory between unbind → bind cycles (e.g. `Vec` grow,
+        /// `mem::swap`), which would cause a false-positive panic.
+        /// A stable `EcsDom::world_id()` will be introduced when
+        /// Worker threads (PR5b) require per-world isolation; until
+        /// then the invariant is a caller contract.
         window_entity: Option<Entity>,
         /// Document entities whose wrapper has already had the
         /// document-specific own-property suite (`getElementById` /
@@ -73,7 +71,6 @@ mod engine_feature {
             Self {
                 session_ptr: std::ptr::null_mut(),
                 dom_ptr: std::ptr::null_mut(),
-                first_dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
                 window_entity: None,
                 document_methods_installed: HashSet::new(),
@@ -115,22 +112,6 @@ mod engine_feature {
                 !session.is_null() && !dom.is_null(),
                 "HostData::bind requires non-null session and dom pointers"
             );
-            // Single-world invariant: all entity-based caches
-            // (`window_entity`, `wrapper_cache`,
-            // `document_methods_installed`, `listener_store`) hold
-            // values allocated from a specific `EcsDom`.  Rebinding to
-            // a different world would thread stale entities into
-            // `globalThis` and the wrapper cache.  Catch misuse early.
-            if self.first_dom_ptr.is_null() {
-                self.first_dom_ptr = dom;
-            } else {
-                assert!(
-                    self.first_dom_ptr == dom,
-                    "HostData::bind called with a different EcsDom than the first bind; \
-                     entity-based caches (window_entity, wrapper_cache, etc.) are tied \
-                     to the original world and cannot be reused across worlds"
-                );
-            }
             self.session_ptr = session;
             self.dom_ptr = dom;
             self.document_entity = Some(document);
@@ -183,9 +164,9 @@ mod engine_feature {
         /// `HostData` to be currently bound — the Window entity is
         /// VM-owned (allocated by `Vm::bind` through
         /// `dom().create_window_root()`) and remains valid for the
-        /// lifetime of the `HostData`, which is itself tied to a
-        /// single `EcsDom` world (enforced by [`Self::bind`]'s
-        /// `first_dom_ptr` assert).
+        /// lifetime of the `HostData`, which is bound to a single
+        /// `EcsDom` world by caller contract (see the single-world
+        /// invariant documented on [`Self::window_entity`] field).
         pub fn window_entity(&self) -> Option<Entity> {
             self.window_entity
         }
