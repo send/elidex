@@ -11,9 +11,9 @@ fn traverse_descendants_pre_order() {
     let a = elem(&mut dom, "a");
     let b = elem(&mut dom, "b");
     let c = elem(&mut dom, "c");
-    dom.append_child(root, a);
-    dom.append_child(root, b);
-    dom.append_child(a, c);
+    assert!(dom.append_child(root, a));
+    assert!(dom.append_child(root, b));
+    assert!(dom.append_child(a, c));
 
     let mut visited = Vec::new();
     dom.traverse_descendants(root, |e| {
@@ -30,8 +30,8 @@ fn traverse_descendants_early_stop() {
     let root = elem(&mut dom, "div");
     let a = elem(&mut dom, "a");
     let b = elem(&mut dom, "b");
-    dom.append_child(root, a);
-    dom.append_child(root, b);
+    assert!(dom.append_child(root, a));
+    assert!(dom.append_child(root, b));
 
     let mut visited = Vec::new();
     dom.traverse_descendants(root, |e| {
@@ -67,7 +67,7 @@ fn find_by_id_found() {
         a.set("id", "target");
         a
     });
-    dom.append_child(root, child);
+    assert!(dom.append_child(root, child));
 
     assert_eq!(dom.find_by_id(root, "target"), Some(child));
 }
@@ -77,7 +77,7 @@ fn find_by_id_not_found() {
     let mut dom = EcsDom::new();
     let root = elem(&mut dom, "div");
     let child = elem(&mut dom, "span");
-    dom.append_child(root, child);
+    assert!(dom.append_child(root, child));
 
     assert_eq!(dom.find_by_id(root, "nonexistent"), None);
 }
@@ -92,8 +92,8 @@ fn find_by_id_nested() {
         a.set("id", "deep");
         a
     });
-    dom.append_child(root, mid);
-    dom.append_child(mid, deep);
+    assert!(dom.append_child(root, mid));
+    assert!(dom.append_child(mid, deep));
 
     assert_eq!(dom.find_by_id(root, "deep"), Some(deep));
 }

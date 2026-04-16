@@ -144,27 +144,17 @@ impl LiveCollection {
             // ByClassNames with empty vec always returns empty.
             CollectionFilter::ByClassNames(names) if names.is_empty() => Vec::new(),
             // All other filters: pre-order traversal of the subtree.
-            // Shadow roots and their entire subtrees are skipped (live
-            // collections don't cross shadow boundaries).  We use a
-            // manual DFS here rather than `traverse_descendants` because
-            // the latter has no "skip this node's children" signal — it
-            // always pushes children after the visitor returns `true`.
+            // Shadow boundaries are respected because `children_iter`
+            // (used internally by `traverse_descendants`) skips
+            // ShadowRoot entities, so shadow subtrees are unreachable.
             filter => {
                 let mut result = Vec::new();
-                let mut stack: Vec<Entity> = dom.children_iter(self.root).collect::<Vec<_>>();
-                stack.reverse();
-                while let Some(entity) = stack.pop() {
-                    if dom.world().get::<&ShadowRoot>(entity).is_ok() {
-                        continue; // skip shadow root AND its descendants
-                    }
+                dom.traverse_descendants(self.root, |entity| {
                     if matches_filter(entity, filter, dom) {
                         result.push(entity);
                     }
-                    let children: Vec<_> = dom.children_iter(entity).collect();
-                    for child in children.into_iter().rev() {
-                        stack.push(child);
-                    }
-                }
+                    true
+                });
                 result
             }
         }

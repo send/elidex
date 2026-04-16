@@ -142,8 +142,7 @@ impl BrowserDb {
 /// Convert `SystemTime` to Unix timestamp (seconds).
 pub fn system_time_to_unix(t: std::time::SystemTime) -> i64 {
     t.duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// Convert Unix timestamp (seconds) to `SystemTime`. Returns `None` for negative values. Zero returns `UNIX_EPOCH`.

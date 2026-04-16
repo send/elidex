@@ -74,10 +74,7 @@ impl VmInner {
     /// Inner loop for [`op_array_spread`] — extracted so iteration errors can
     /// be caught and `IteratorClose` called before propagating.
     fn spread_iter_loop(&mut self, iterator: JsValue, arr_val: JsValue) -> Result<(), VmError> {
-        loop {
-            let Some(value) = self.iter_next(iterator)? else {
-                break;
-            };
+        while let Some(value) = self.iter_next(iterator)? {
             if let JsValue::Object(arr_id) = arr_val {
                 let arr = self.get_object_mut(arr_id);
                 if let ObjectKind::Array { ref mut elements } = arr.kind {

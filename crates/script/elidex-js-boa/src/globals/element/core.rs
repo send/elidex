@@ -163,17 +163,15 @@ fn dom_child_operation(
                 // This handles nodes from fragment parsing or innerHTML.
                 crate::runtime::walk_subtree_for_upgrade(child_entity, bridge, dom, 0);
             }
-            "removeChild" => {
+            "removeChild" if crate::runtime::is_connected_to_document(parent, dom) => {
                 // Only fire disconnectedCallback if the parent is connected,
                 // meaning the child WAS connected before removal.
-                if crate::runtime::is_connected_to_document(parent, dom) {
-                    enqueue_ce_reactions_for_subtree(
-                        child_entity,
-                        CeReactionKind::Disconnected,
-                        bridge,
-                        dom,
-                    );
-                }
+                enqueue_ce_reactions_for_subtree(
+                    child_entity,
+                    CeReactionKind::Disconnected,
+                    bridge,
+                    dom,
+                );
             }
             _ => {}
         }

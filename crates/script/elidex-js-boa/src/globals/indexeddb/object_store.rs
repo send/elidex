@@ -679,12 +679,10 @@ fn extract_range_from_obj(obj: &JsObject, ctx: &mut Context) -> JsResult<Option<
     let upper = obj.get(js_string!("upper"), ctx).ok();
     let lower_open = obj
         .get(js_string!("lowerOpen"), ctx)
-        .map(|v| v.to_boolean())
-        .unwrap_or(false);
+        .is_ok_and(|v| v.to_boolean());
     let upper_open = obj
         .get(js_string!("upperOpen"), ctx)
-        .map(|v| v.to_boolean())
-        .unwrap_or(false);
+        .is_ok_and(|v| v.to_boolean());
 
     let lower_key = lower
         .as_ref()

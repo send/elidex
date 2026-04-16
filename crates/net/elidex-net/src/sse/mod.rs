@@ -180,21 +180,17 @@ impl SseParserState {
                 }
                 self.data_buf.push_str(value);
             }
-            "id" => {
+            "id" if !value.contains('\0') && !value.contains('\r') && !value.contains('\n') => {
                 // §9.2.6: If the field value does not contain U+0000 NULL,
                 // set the last event ID buffer to the value. Also reject
                 // CR/LF to prevent header injection when the ID is sent
                 // back as `Last-Event-ID`.
-                if !value.contains('\0') && !value.contains('\r') && !value.contains('\n') {
-                    self.last_event_id = value.to_string();
-                }
+                self.last_event_id = value.to_string();
             }
-            "retry" => {
+            "retry" if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) => {
                 // §9.2.6: Only accept if value consists of only ASCII digits.
-                if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
-                    if let Ok(ms) = value.parse::<u64>() {
-                        self.retry_ms = ms.max(1000); // Enforce minimum 1 second
-                    }
+                if let Ok(ms) = value.parse::<u64>() {
+                    self.retry_ms = ms.max(1000); // Enforce minimum 1 second
                 }
             }
             _ => {

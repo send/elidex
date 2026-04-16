@@ -118,7 +118,7 @@ pub struct ConnectionPool {
 
 impl std::fmt::Debug for ConnectionPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let pool_count = self.pools.lock().map(|p| p.len()).unwrap_or(0);
+        let pool_count = self.pools.lock().map_or(0, |p| p.len());
         f.debug_struct("ConnectionPool")
             .field("max_per_origin", &self.max_per_origin)
             .field("origins", &pool_count)

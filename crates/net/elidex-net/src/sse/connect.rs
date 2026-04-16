@@ -274,10 +274,8 @@ async fn validate_sse_response<R: AsyncRead + Unpin>(
                 "access-control-allow-origin" => {
                     acao = Some(value.trim().to_string());
                 }
-                "access-control-allow-credentials" => {
-                    if value.trim().eq_ignore_ascii_case("true") {
-                        acac_true = true;
-                    }
+                "access-control-allow-credentials" if value.trim().eq_ignore_ascii_case("true") => {
+                    acac_true = true;
                 }
                 _ => {}
             }

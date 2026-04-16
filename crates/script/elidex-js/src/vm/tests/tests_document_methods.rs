@@ -47,7 +47,14 @@ fn build_fixture(
 ///             > body#b > div.box#target > span
 ///                      > p.box.highlight
 /// ```
-fn build_query_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
+fn build_query_fixture(
+    dom: &mut EcsDom,
+) -> (
+    elidex_ecs::Entity, // doc
+    elidex_ecs::Entity, // div.box#target
+    elidex_ecs::Entity, // span
+    elidex_ecs::Entity, // p.box.highlight
+) {
     let (doc, _html, _head, body, _title) = build_fixture(dom);
     let div = dom.create_element("div", {
         let mut a = Attributes::default();
@@ -64,7 +71,7 @@ fn build_query_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     assert!(dom.append_child(body, div));
     assert!(dom.append_child(div, span));
     assert!(dom.append_child(body, p));
-    doc
+    (doc, div, span, p)
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +439,7 @@ fn query_selector_by_tag() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -448,7 +455,7 @@ fn query_selector_by_id() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -473,15 +480,23 @@ fn query_selector_by_class() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, div, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    // .box matches div.box (first in document order)
+    // .box matches div.box (first in document order), not p.box.highlight
     let v = vm.eval("document.querySelector('.box');").unwrap();
-    assert!(matches!(v, JsValue::Object(_)));
+    match v {
+        JsValue::Object(id) => match vm.inner.get_object(id).kind {
+            ObjectKind::HostObject { entity_bits } => {
+                assert_eq!(entity_bits, div.to_bits().get());
+            }
+            _ => panic!("expected HostObject"),
+        },
+        _ => panic!("expected Object"),
+    }
     vm.unbind();
 }
 
@@ -490,7 +505,7 @@ fn query_selector_descendant_combinator() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -506,7 +521,7 @@ fn query_selector_no_match() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -524,7 +539,7 @@ fn query_selector_invalid_throws() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -541,7 +556,7 @@ fn query_selector_all_returns_array() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -560,7 +575,7 @@ fn query_selector_all_empty() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -582,7 +597,7 @@ fn get_elements_by_tag_name_finds() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -601,7 +616,7 @@ fn get_elements_by_tag_name_wildcard() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -620,7 +635,7 @@ fn get_elements_by_tag_name_case_insensitive() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -638,7 +653,7 @@ fn get_elements_by_tag_name_no_match() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -656,7 +671,7 @@ fn get_elements_by_class_name_single() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -675,7 +690,7 @@ fn get_elements_by_class_name_multiple() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {
@@ -694,7 +709,7 @@ fn get_elements_by_class_name_no_match() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
-    let doc = build_query_fixture(&mut dom);
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
 
     #[allow(unsafe_code)]
     unsafe {

@@ -265,13 +265,13 @@ pub(super) fn native_document_get_elements_by_class_name(
     let sid = coerce::to_string(ctx.vm, arg)?;
     let class_str = ctx.vm.strings.get_utf8(sid);
 
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
     let target_classes: Vec<&str> = class_str.split_whitespace().collect();
     if target_classes.is_empty() {
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
-    }
-
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
     }
 
     let entities: Vec<Entity> = {

@@ -118,7 +118,7 @@ fn push_cascade_entry<'a>(
 
 /// Sort cascade entries by priority and return the last-wins per-property map.
 fn compute_winners<'a>(entries: &mut [CascadeEntry<'a>]) -> HashMap<&'a str, &'a CssValue> {
-    entries.sort_by(|a, b| a.priority.cmp(&b.priority));
+    entries.sort_by_key(|e| e.priority);
     let mut winners: HashMap<&str, &CssValue> = HashMap::with_capacity(entries.len());
     for entry in entries.iter() {
         winners.insert(entry.property, entry.value);
