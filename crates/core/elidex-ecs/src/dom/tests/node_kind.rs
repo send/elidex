@@ -93,6 +93,18 @@ fn from_node_type_invalid() {
 }
 
 #[test]
+fn create_window_root_has_node_kind() {
+    let mut dom = EcsDom::new();
+    let w = dom.create_window_root();
+    assert_eq!(dom.node_kind(w), Some(NodeKind::Window));
+    // Window is not a Node per WHATWG — it carries no `TreeRelation`.
+    assert!(dom.world().get::<&TreeRelation>(w).is_err());
+    // And does not have a `nodeType`.
+    assert_eq!(NodeKind::Window.node_type(), 0);
+    assert!(NodeKind::from_node_type(0).is_none());
+}
+
+#[test]
 fn attributes_insertion_order() {
     let mut attrs = Attributes::default();
     attrs.set("c", "3");

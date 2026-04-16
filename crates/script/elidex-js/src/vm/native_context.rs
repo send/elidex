@@ -143,6 +143,18 @@ impl NativeContext<'_> {
         self.vm.host_data.as_deref_mut()
     }
 
+    /// Access the host data only when it is both installed **and
+    /// currently bound** (i.e. `session`/`dom` pointers are valid).
+    /// Returns `None` in all unbound states.
+    ///
+    /// Use this from native functions that need to perform a DOM
+    /// operation via `host.dom()`: a post-unbind caller (JS retained a
+    /// wrapper across an `unbind()` boundary) gets a safe `None`
+    /// instead of panicking.
+    pub fn host_if_bound(&mut self) -> Option<&mut host_data::HostData> {
+        self.vm.host_data.as_deref_mut().filter(|h| h.is_bound())
+    }
+
     /// `HasProperty` + `Get` (§7.3.1): returns `None` if the property does
     /// not exist anywhere on the prototype chain, `Some(value)` otherwise.
     pub fn try_get_property_value(

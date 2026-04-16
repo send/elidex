@@ -188,6 +188,17 @@ pub(crate) struct VmInner {
     /// `register_globals()`.  Read when `create_element_wrapper` (PR3 C2)
     /// allocates a `HostObject` wrapper.
     pub(crate) event_target_prototype: Option<ObjectId>,
+    /// `Window.prototype` — prototype for the `globalThis` / `window`
+    /// `HostObject` (WHATWG HTML §7.2).  Inherits from
+    /// `EventTarget.prototype` so `window.addEventListener` resolves
+    /// without a per-entity method install; own-property slots for
+    /// window-specific APIs (`innerWidth`, `scrollTo`, `navigator`,
+    /// `location`, …) land on this prototype in later PR4b commits.
+    ///
+    /// `None` until `register_window_prototype()` runs during
+    /// `register_globals()` (right after `register_event_target_prototype`
+    /// so the chain is built bottom-up).
+    pub(crate) window_prototype: Option<ObjectId>,
     /// Internal prototype for `ObjectKind::Event` instances.  Holds the
     /// four event methods (`preventDefault`, `stopPropagation`,
     /// `stopImmediatePropagation`, `composedPath`) and the
@@ -248,6 +259,34 @@ pub(crate) struct VmInner {
     pub(crate) active_timer_ids: HashSet<u32>,
     /// IDs cleared before firing — skipped at drain time.
     pub(crate) cancelled_timers: HashSet<u32>,
+    /// Monotonic reference point for `performance.now()` and
+    /// `Event.timeStamp` (WHATWG DOM §2.2 / HR-Time §5).  Set once at
+    /// `Vm::new`; both APIs return `self.start_instant.elapsed()` in
+    /// milliseconds with sub-ms precision.  Sharing a single
+    /// `Instant` guarantees `event.timeStamp` and `performance.now()`
+    /// observed inside the same listener are directly comparable
+    /// (spec requirement — the time origin is the same).
+    ///
+    /// `Event.timeStamp` wiring lands in PR4d; the field is consumed
+    /// here by `performance.now()` (PR4b C5).
+    ///
+    /// Engine-only: both consumers (`performance.now`, `Event.timeStamp`)
+    /// live behind `#[cfg(feature = "engine")]`, so gating the field
+    /// keeps the non-engine VM minimal.
+    #[cfg(feature = "engine")]
+    pub(crate) start_instant: std::time::Instant,
+    /// Browsing-context navigation state — backs `location.*`,
+    /// `history.*`, and `document.URL` / `document.documentURI`.  See
+    /// `host::navigation::NavigationState` for the field list and
+    /// Phase 2 scope (in-memory only, no shell bridge yet).
+    #[cfg(feature = "engine")]
+    pub(crate) navigation: host::navigation::NavigationState,
+    /// Viewport size + scroll offset backing the window getters
+    /// (`innerWidth`, `innerHeight`, `scrollX`, `scrollY`,
+    /// `devicePixelRatio`) and setters (`scrollTo` / `scrollBy`).
+    /// Phase 2 defaults; shell pushes real values in PR6.
+    #[cfg(feature = "engine")]
+    pub(crate) viewport: host::window::ViewportState,
 }
 
 impl VmInner {
@@ -896,6 +935,7 @@ impl Vm {
                 aggregate_error_prototype: None,
                 generator_prototype: None,
                 event_target_prototype: None,
+                window_prototype: None,
                 event_methods_prototype: None,
                 #[cfg(feature = "engine")]
                 precomputed_event_shapes: None,
@@ -906,6 +946,12 @@ impl Vm {
                 next_timer_id: 1,
                 active_timer_ids: HashSet::new(),
                 cancelled_timers: HashSet::new(),
+                #[cfg(feature = "engine")]
+                start_instant: std::time::Instant::now(),
+                #[cfg(feature = "engine")]
+                navigation: host::navigation::NavigationState::new(),
+                #[cfg(feature = "engine")]
+                viewport: host::window::ViewportState::new(),
             },
         };
 

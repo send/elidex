@@ -85,14 +85,25 @@ impl VmInner {
     // -- Global registration -------------------------------------------------
 
     pub(super) fn register_globals(&mut self) {
-        // Allocate the global object (globalThis). Writes through this object
-        // are mirrored into the globals HashMap, and reads fall back to
-        // globals so `this.<prop>` stays consistent with bare identifier
-        // access in non-strict functions (§9.2.1.2).
+        // Allocate the global object (`globalThis` / `window`).  It is a
+        // `HostObject` backed by the Window ECS entity so that
+        // `window.addEventListener(...)` targets a distinct entity from
+        // `document.addEventListener(...)` (WHATWG HTML §7.2).  The
+        // initial `entity_bits` is `0`, which `Entity::from_bits`
+        // rejects — `entity_from_this` therefore treats any
+        // pre-bind/post-unbind access as a silent no-op rather than
+        // panicking.  `Vm::bind` overwrites `entity_bits` with the
+        // `HostData::window_entity()` value on every bind; `Vm::unbind`
+        // resets it back to `0`.
+        //
+        // Writes through this object are mirrored into the `globals`
+        // HashMap, and reads fall back to `globals` so `this.<prop>`
+        // stays consistent with bare identifier access in non-strict
+        // functions (§9.2.1.2).
         let global_obj = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
+            kind: ObjectKind::HostObject { entity_bits: 0 },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: None, // will be set after Object.prototype exists
+            prototype: None, // chain finalised after Window.prototype exists
             extensible: true,
         });
         self.global_object = global_obj;
@@ -189,6 +200,35 @@ impl VmInner {
         // `create_element_wrapper` (PR3 C2).
         self.register_event_target_prototype();
 
+        // Window.prototype — prototype for the `globalThis` `HostObject`
+        // (WHATWG HTML §7.2).  Must run *after*
+        // `register_event_target_prototype` because the Window prototype
+        // chains to it.  After creation, splice Window.prototype into
+        // globalThis's prototype slot, finalising
+        // `globalThis → Window.prototype → EventTarget.prototype →
+        // Object.prototype`.
+        #[cfg(feature = "engine")]
+        {
+            self.register_window_prototype();
+            self.get_object_mut(self.global_object).prototype = self.window_prototype;
+            // `navigator` — static Navigator object (WHATWG HTML §8.1.5).
+            // Installed after the Window prototype chain is in place so
+            // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`
+            // etc. resolve against `Object.prototype` as expected.
+            self.register_navigator_global();
+            // `performance` — HR-Time §5.  Shares the time origin
+            // (`VmInner::start_instant`) with `Event.timeStamp`.
+            self.register_performance_global();
+            // `location` — WHATWG HTML §7.1.  Reads/writes
+            // `VmInner::navigation` (in-memory only at Phase 2).
+            self.register_location_global();
+            // `history` — WHATWG HTML §7.4.  Shares navigation state
+            // with `location`.
+            self.register_history_global();
+            // `window === globalThis` (WHATWG HTML §7.2.4).
+            self.install_window_self_ref();
+        }
+
         // Internal Event-methods prototype (PR3) — `event_methods_prototype`
         // is set under the `engine` feature only; without engine there are
         // no DOM events to dispatch and the methods are unused.
@@ -249,6 +289,21 @@ impl VmInner {
             prototype: self.object_prototype,
             extensible: true,
         });
+        self.install_methods(obj_id, methods);
+        obj_id
+    }
+
+    /// Install each `(name, native)` as a `DATA`/`METHOD`-attributed
+    /// property on `obj_id`.  Shared by `create_object_with_methods`,
+    /// the Window prototype registration (`host/window.rs`), and the
+    /// per-bind document-method installer (`host/document.rs`) —
+    /// everywhere we need to attach a batch of methods to an object
+    /// that already exists.
+    pub(crate) fn install_methods(
+        &mut self,
+        obj_id: super::value::ObjectId,
+        methods: &[(&str, NativeFn)],
+    ) {
         for &(name, func) in methods {
             let fn_id = self.create_native_function(name, func);
             let key = PropertyKey::String(self.strings.intern(name));
@@ -259,7 +314,35 @@ impl VmInner {
                 PropertyAttrs::METHOD,
             );
         }
-        obj_id
+    }
+
+    /// Install each `(name, getter)` as a read-only accessor on
+    /// `obj_id` with the WebIDL-default attrs (non-writable,
+    /// enumerable, configurable).  The getter's WebIDL name
+    /// (`"get foo"`) is derived from `name`.
+    ///
+    /// Engine-only — every call site lives behind `#[cfg(feature =
+    /// "engine")]` (host globals: `location`, `history`, `window`,
+    /// `document`).  Non-engine builds omit the helper entirely.
+    #[cfg(feature = "engine")]
+    pub(crate) fn install_ro_accessors(
+        &mut self,
+        obj_id: super::value::ObjectId,
+        accessors: &[(&str, NativeFn)],
+    ) {
+        for &(name, getter) in accessors {
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                obj_id,
+                key,
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: None,
+                },
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
     }
 
     #[allow(clippy::too_many_lines)]

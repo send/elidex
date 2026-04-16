@@ -85,6 +85,24 @@ pub(crate) struct WellKnownStrings {
     pub(crate) once: StringId,
     pub(crate) passive: StringId,
     pub(crate) document: StringId,
+    pub(crate) window: StringId,
+    pub(crate) navigator: StringId,
+    pub(crate) performance: StringId,
+    pub(crate) location: StringId,
+    pub(crate) history: StringId,
+    /// `document.readyState` constant — returned every read of the
+    /// stub getter.  Pre-interning avoids a per-access StringPool
+    /// allocation on what would otherwise be a HashMap lookup path.
+    pub(crate) complete: StringId,
+    /// `history.scrollRestoration` constant — same rationale as `complete`.
+    pub(crate) auto: StringId,
+    /// Pre-interned `"about:blank"` for callers that need the default
+    /// blank-document URL as a `StringId` without repeating
+    /// `strings.intern("about:blank")`.  `NavigationState::new` uses
+    /// the `String` form directly; this field ensures the pool entry
+    /// exists so that subsequent `intern` calls on the same literal
+    /// are HashMap hits rather than fresh insertions.
+    pub(crate) about_blank: StringId,
     pub(crate) unhandledrejection: StringId,
     pub(crate) promise: StringId,
 
@@ -206,6 +224,14 @@ impl WellKnownStrings {
             once: strings.intern("once"),
             passive: strings.intern("passive"),
             document: strings.intern("document"),
+            window: strings.intern("window"),
+            navigator: strings.intern("navigator"),
+            performance: strings.intern("performance"),
+            location: strings.intern("location"),
+            history: strings.intern("history"),
+            complete: strings.intern("complete"),
+            auto: strings.intern("auto"),
+            about_blank: strings.intern("about:blank"),
             unhandledrejection: strings.intern("unhandledrejection"),
             promise: strings.intern("promise"),
 

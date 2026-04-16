@@ -42,6 +42,11 @@ impl Vm {
             .expect("install_document_global requires bound HostData")
             .document();
         let wrapper = self.inner.create_element_wrapper(entity);
+        // Populate the document-specific own-properties
+        // (`getElementById`, `body`, `title`, …) on the wrapper the
+        // first time it is seen.  Subsequent binds hit the
+        // already-installed fast path inside the helper.
+        self.install_document_methods_if_needed(wrapper);
         // Use the pre-interned StringId from `WellKnownStrings`
         // instead of `set_global("document", …)` (which interns the
         // literal each call) — `Vm::bind` runs this on every JS

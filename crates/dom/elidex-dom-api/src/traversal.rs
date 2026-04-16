@@ -32,6 +32,9 @@ fn node_kind_bit(kind: NodeKind) -> u32 {
         NodeKind::Document => SHOW_DOCUMENT,
         NodeKind::DocumentType => 0x200,
         NodeKind::DocumentFragment => 0x400,
+        // Window is not a Node per WHATWG and is not exposed through
+        // NodeIterator / TreeWalker `whatToShow`.
+        NodeKind::Window => 0,
     }
 }
 

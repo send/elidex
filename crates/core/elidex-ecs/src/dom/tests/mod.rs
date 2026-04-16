@@ -2,7 +2,7 @@ use super::shadow::VALID_SHADOW_HOST_TAGS;
 use super::*;
 use crate::components::{
     AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowHost, ShadowRootMode,
-    SlotAssignment, TextContent,
+    SlotAssignment, TextContent, TreeRelation,
 };
 
 fn elem(dom: &mut EcsDom, tag: &'static str) -> Entity {

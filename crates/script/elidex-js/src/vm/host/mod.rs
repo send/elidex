@@ -12,8 +12,15 @@
 //!   `addEventListener` / `removeEventListener` / `dispatchEvent`
 //!   inherited by every DOM wrapper.
 
+pub(super) mod document;
 pub(super) mod elements;
 pub(super) mod event_shapes;
 pub(super) mod event_target;
 pub(super) mod events;
 pub(super) mod globals;
+pub(super) mod history;
+pub(super) mod location;
+pub(super) mod navigation;
+pub(super) mod navigator;
+pub(super) mod performance;
+pub(super) mod window;

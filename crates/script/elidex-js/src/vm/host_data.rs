@@ -18,12 +18,50 @@ mod engine_feature {
     use super::super::value::ObjectId;
     use elidex_ecs::Entity;
     use elidex_script_session::ListenerId;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     pub struct HostData {
         session_ptr: *mut elidex_script_session::SessionCore,
         dom_ptr: *mut elidex_ecs::EcsDom,
         document_entity: Option<Entity>,
+        /// Entity backing `globalThis` / `window` (WHATWG HTML §7.2).
+        ///
+        /// Created on the first [`Vm::bind`](super::Vm::bind) via the
+        /// bound `dom` and **retained across unbind cycles** — identity
+        /// is stable for the whole lifetime of the `HostData`.
+        ///
+        /// # Single-world invariant
+        ///
+        /// This entity, along with `wrapper_cache`,
+        /// `document_methods_installed`, and `listener_store`, are
+        /// meaningful only within the `EcsDom` world that allocated
+        /// them.  **Callers must not rebind a `HostData` to a
+        /// different `EcsDom` world.**  Doing so would thread stale
+        /// `Entity` bits into `globalThis` and the wrapper cache.
+        ///
+        /// We do not enforce this with a pointer assert because
+        /// `EcsDom` is `!Pin` — the same world can legally move in
+        /// memory between unbind → bind cycles (e.g. `Vec` grow,
+        /// `mem::swap`), which would cause a false-positive panic.
+        /// A stable `EcsDom::world_id()` will be introduced when
+        /// Worker threads (PR5b) require per-world isolation; until
+        /// then the invariant is a caller contract.
+        window_entity: Option<Entity>,
+        /// Document entities whose wrapper has already had the
+        /// document-specific own-property suite (`getElementById` /
+        /// `createElement` / `body` accessor / ...) installed.
+        ///
+        /// Tracked **per-entity** because a single `Vm` can be bound
+        /// to multiple document entities over its lifetime (shell
+        /// navigation: unbind doc1 → bind doc2 produces a fresh
+        /// wrapper via `wrapper_cache`, and that wrapper needs its
+        /// own method install).  A single VM-wide boolean would skip
+        /// the install on every document after the first — see
+        /// `vm/host/document.rs::install_document_methods_if_needed`.
+        ///
+        /// Bounded by the number of distinct documents a VM observes
+        /// (typically 1 — at most a handful).
+        pub(crate) document_methods_installed: HashSet<Entity>,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
         pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
     }
@@ -34,6 +72,8 @@ mod engine_feature {
                 session_ptr: std::ptr::null_mut(),
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
+                window_entity: None,
+                document_methods_installed: HashSet::new(),
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
             }
@@ -103,6 +143,48 @@ mod engine_feature {
         pub fn document(&self) -> Entity {
             assert!(self.is_bound(), "HostData accessed while unbound");
             self.document_entity.unwrap()
+        }
+
+        /// Same as [`Self::document`] but returns `None` when not
+        /// bound instead of panicking.  Used from document-global
+        /// natives that must silent-no-op when JS code calls a
+        /// retained `document` reference across an unbind boundary.
+        pub fn document_entity_opt(&self) -> Option<Entity> {
+            if self.is_bound() {
+                self.document_entity
+            } else {
+                None
+            }
+        }
+
+        /// Return the cached Window entity, or `None` if
+        /// [`Vm::bind`](super::Vm::bind) has never run on this `HostData`.
+        ///
+        /// Unlike [`Self::document`], this **does not** require the
+        /// `HostData` to be currently bound — the Window entity is
+        /// VM-owned (allocated by `Vm::bind` through
+        /// `dom().create_window_root()`) and remains valid for the
+        /// lifetime of the `HostData`, which is bound to a single
+        /// `EcsDom` world by caller contract (see the single-world
+        /// invariant documented on [`Self::window_entity`] field).
+        pub fn window_entity(&self) -> Option<Entity> {
+            self.window_entity
+        }
+
+        /// Record the Window entity allocated by [`Vm::bind`](super::Vm::bind).
+        ///
+        /// # Panics
+        ///
+        /// Panics if a Window entity is already stored — calling twice
+        /// would silently orphan the prior entity (losing its
+        /// `EventListeners` component) and is indicative of a missing
+        /// lifecycle guard in `Vm::bind`.
+        pub fn set_window_entity(&mut self, entity: Entity) {
+            assert!(
+                self.window_entity.is_none(),
+                "HostData::set_window_entity called twice (already stored)"
+            );
+            self.window_entity = Some(entity);
         }
 
         /// # Panics

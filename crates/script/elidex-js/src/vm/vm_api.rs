@@ -145,6 +145,40 @@ impl Vm {
     ) {
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             unsafe { hd.bind(session, dom, document) };
+            // Resolve the Window ECS entity backing `globalThis`.
+            // First bind allocates via `dom().create_window_root()`;
+            // subsequent binds reuse the stored entity so identity (and
+            // the entity's `EventListeners` component) survives across
+            // bind → unbind → bind cycles — see
+            // `HostData::window_entity`.
+            let window_entity = if let Some(e) = hd.window_entity() {
+                e
+            } else {
+                let e = hd.dom().create_window_root();
+                hd.set_window_entity(e);
+                e
+            };
+            // Thread the Window entity through to the `globalThis`
+            // `HostObject`.  `entity_from_this` reads `entity_bits` and
+            // passes it to `Entity::from_bits` — non-zero values
+            // reconstruct the Window entity so
+            // `window.addEventListener(...)` records the listener
+            // against the correct ECS target (distinct from document).
+            //
+            // Skip the write on rebinds when `entity_bits` already
+            // equals the target — saves a (very cheap) store but also
+            // keeps the object's storage cache-line clean for the
+            // common rebind path.
+            let global_id = self.inner.global_object;
+            let target_bits = window_entity.to_bits().get();
+            if let super::value::ObjectKind::HostObject {
+                ref mut entity_bits,
+            } = self.inner.get_object_mut(global_id).kind
+            {
+                if *entity_bits != target_bits {
+                    *entity_bits = target_bits;
+                }
+            }
             // Refresh the `document` global so JS code (and listener
             // bodies) sees the just-bound document entity.  Wrapper
             // identity is preserved across bind/unbind cycles via
@@ -197,6 +231,36 @@ impl Vm {
     pub fn unbind(&mut self) {
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             hd.unbind();
+        }
+        // Reset the `globalThis` `HostObject`'s `entity_bits` to the
+        // sentinel `0` so that post-unbind **`entity_from_this`
+        // consumers** — `addEventListener` / `removeEventListener` /
+        // `dispatchEvent` on `window`, and any future method that
+        // resolves its Window entity from `this` — fall into the
+        // `None` silent no-op path instead of dereferencing
+        // `host_data.dom()` on a stale pointer (which would panic).
+        //
+        // Window-specific methods that do **not** consult
+        // `entity_bits` (viewport getters `innerWidth` / `scrollX` /
+        // …; scroll mutators `scrollTo` / `scrollBy`) still run after
+        // unbind because they only read/write
+        // `VmInner::viewport` — a purely VM-side struct with no
+        // bound-state dependency.  That is intentional: scripts that
+        // cache viewport values across a rebind should observe
+        // continuous state, and none of these methods can
+        // dereference a null pointer.
+        //
+        // `HostData::window_entity` itself is retained so the next
+        // `bind` restores identity.
+        #[cfg(feature = "engine")]
+        {
+            let global_id = self.inner.global_object;
+            if let super::value::ObjectKind::HostObject {
+                ref mut entity_bits,
+            } = self.inner.get_object_mut(global_id).kind
+            {
+                *entity_bits = 0;
+            }
         }
     }
 
