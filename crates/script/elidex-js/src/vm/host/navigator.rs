@@ -94,7 +94,7 @@ impl VmInner {
             obj_id,
             key,
             PropertyValue::Data(JsValue::Number(hardware_concurrency)),
-            PropertyAttrs::BUILTIN,
+            PropertyAttrs::WEBIDL_RO,
         );
 
         // --- `languages` is an Array ---
@@ -109,7 +109,7 @@ impl VmInner {
             obj_id,
             key,
             PropertyValue::Data(JsValue::Object(lang_arr)),
-            PropertyAttrs::BUILTIN,
+            PropertyAttrs::WEBIDL_RO,
         );
 
         let name = self.well_known.navigator;
