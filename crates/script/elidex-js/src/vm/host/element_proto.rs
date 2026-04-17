@@ -73,6 +73,7 @@ impl VmInner {
         self.install_element_tree_nav(proto_id);
         self.install_element_attributes(proto_id);
         self.install_element_mutation(proto_id);
+        self.install_element_matches(proto_id);
     }
 
     /// Install Element-only tree-navigation accessors + `contains` /
@@ -217,6 +218,23 @@ impl VmInner {
                 self.well_known.toggle_attribute,
                 native_element_toggle_attribute,
             ),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let fn_id = self.create_native_function(&name, func);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                shape::PropertyAttrs::METHOD,
+            );
+        }
+    }
+
+    /// Install `matches(selector)` / `closest(selector)` on `proto_id`.
+    fn install_element_matches(&mut self, proto_id: ObjectId) {
+        for (name_sid, func) in [
+            (self.well_known.matches, native_element_matches as NativeFn),
+            (self.well_known.closest, native_element_closest),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -946,4 +964,72 @@ fn native_element_remove(
         let _ = dom.remove_child(parent, entity);
     }
     Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// Natives: matches / closest (C6)
+// ---------------------------------------------------------------------------
+
+/// Parse `selector_str` and reject shadow-scoped pseudos, matching
+/// `document.querySelector`'s pattern.  Returns the parsed selectors
+/// or a `SyntaxError` VmError.
+fn parse_element_selector(selector_str: &str) -> Result<Vec<elidex_css::Selector>, VmError> {
+    let selectors = elidex_css::parse_selector_from_str(selector_str)
+        .map_err(|()| VmError::syntax_error(format!("Invalid selector: {selector_str}")))?;
+    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
+        return Err(VmError::syntax_error(
+            ":host and ::slotted() are not valid in matches/closest",
+        ));
+    }
+    Ok(selectors)
+}
+
+fn native_element_matches(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let selector_str = ctx.vm.strings.get_utf8(sid);
+    let selectors = parse_element_selector(&selector_str)?;
+    let dom = ctx.host().dom();
+    let matched = selectors.iter().any(|s| s.matches(entity, dom));
+    Ok(JsValue::Boolean(matched))
+}
+
+fn native_element_closest(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let selector_str = ctx.vm.strings.get_utf8(sid);
+    let selectors = parse_element_selector(&selector_str)?;
+
+    // Walk self → parent ancestors, returning the first matching
+    // Element.  WHATWG §4.9 closest() is inclusive and stops at the
+    // first non-Element parent (or at the root).
+    let matched: Option<Entity> = {
+        let dom = ctx.host().dom();
+        let mut current = Some(entity);
+        let mut out = None;
+        while let Some(e) = current {
+            if dom.world().get::<&TagType>(e).is_ok() && selectors.iter().any(|s| s.matches(e, dom))
+            {
+                out = Some(e);
+                break;
+            }
+            current = dom.get_parent(e);
+        }
+        out
+    };
+    Ok(wrap_or_null(ctx, matched))
 }

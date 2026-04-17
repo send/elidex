@@ -1151,6 +1151,148 @@ fn element_remove_on_detached_node_is_no_op() {
 }
 
 // ---------------------------------------------------------------------------
+// matches / closest (C6)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn element_matches_tag_class_id() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    assert!(matches!(
+        vm.eval("_div.matches('div');").unwrap(),
+        JsValue::Boolean(true)
+    ));
+    assert!(matches!(
+        vm.eval("_div.matches('.box');").unwrap(),
+        JsValue::Boolean(true)
+    ));
+    assert!(matches!(
+        vm.eval("_div.matches('.nonexistent');").unwrap(),
+        JsValue::Boolean(false)
+    ));
+    assert!(matches!(
+        vm.eval("document.getElementById('root').matches('#root');")
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_matches_throws_on_invalid_selector() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let r = vm.eval("document.getElementById('root').matches('!!!');");
+    assert!(r.is_err(), "invalid selector must throw SyntaxError");
+
+    vm.unbind();
+}
+
+#[test]
+fn element_matches_rejects_shadow_pseudos() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let r = vm.eval("document.getElementById('root').matches(':host');");
+    assert!(r.is_err());
+
+    vm.unbind();
+}
+
+#[test]
+fn element_closest_returns_self_when_self_matches() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    assert!(matches!(
+        vm.eval("_div.closest('.box') === _div;").unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_closest_walks_up_to_matching_ancestor() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, body, _p, _div, span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let span_wrapper = vm.inner.create_element_wrapper(span);
+    let body_wrapper = vm.inner.create_element_wrapper(body);
+    vm.set_global("_span", JsValue::Object(span_wrapper));
+    vm.set_global("_body", JsValue::Object(body_wrapper));
+    assert!(matches!(
+        vm.eval("_span.closest('#root') === _body;").unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_closest_returns_null_when_no_match() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval("document.getElementById('root').closest('.nonexistent');")
+            .unwrap(),
+        JsValue::Null
+    ));
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
 // Element-only members should NOT surface on Text nodes (C2 guard)
 // ---------------------------------------------------------------------------
 
