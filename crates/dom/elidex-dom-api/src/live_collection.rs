@@ -144,8 +144,8 @@ impl LiveCollection {
             // ByClassNames with empty vec always returns empty.
             CollectionFilter::ByClassNames(names) if names.is_empty() => Vec::new(),
             // All other filters: pre-order traversal of the subtree.
-            // Shadow boundaries are respected because `children_iter`
-            // (used internally by `traverse_descendants`) skips
+            // Shadow boundaries are respected because the child
+            // iterators used by `traverse_descendants` skip
             // ShadowRoot entities, so shadow subtrees are unreachable.
             filter => {
                 let mut result = Vec::new();
