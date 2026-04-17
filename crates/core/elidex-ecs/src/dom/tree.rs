@@ -503,6 +503,9 @@ impl EcsDom {
 
     /// Returns a zero-allocation **reverse** iterator over direct
     /// children of `parent` (last child first, via `prev_sibling`).
+    ///
+    /// Like [`Self::children_iter`], internal [`ShadowRoot`] entities
+    /// are skipped and iteration caps at [`MAX_ANCESTOR_DEPTH`].
     #[must_use]
     pub fn children_iter_rev(&self, parent: Entity) -> super::ChildrenIterRev<'_> {
         let next = self.read_rel(parent, |rel| rel.last_child);
@@ -513,9 +516,11 @@ impl EcsDom {
         }
     }
 
-    /// Pre-order DFS over all descendants of `root` (excluding `root`
-    /// itself).  `visitor` receives each entity in document order and
-    /// returns `true` to continue or `false` to stop early.
+    /// Pre-order DFS over descendants of `root` (excluding `root`
+    /// itself).  Traversal uses [`Self::children_iter_rev`], so it
+    /// respects shadow boundaries — shadow-root subtrees are not
+    /// entered.  `visitor` receives each entity in document order
+    /// and returns `true` to continue or `false` to stop early.
     pub fn traverse_descendants(&self, root: Entity, mut visitor: impl FnMut(Entity) -> bool) {
         let mut stack: Vec<Entity> = self.children_iter_rev(root).collect();
         while let Some(entity) = stack.pop() {

@@ -57,8 +57,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "" # read from rust-toolchain.toml
           components: rustfmt, clippy
 
       - name: Install fonts (Ubuntu)
@@ -87,7 +88,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "" # read from rust-toolchain.toml
 
       - uses: Swatinem/rust-cache@v2
 
@@ -105,7 +108,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "" # read from rust-toolchain.toml
 
       - uses: Swatinem/rust-cache@v2
 

@@ -299,7 +299,11 @@ impl Iterator for ChildrenIter<'_> {
 /// Zero-allocation reverse iterator over direct children of a DOM node.
 ///
 /// Walks from `last_child` via `prev_sibling` — yields children in
-/// reverse sibling order.  Created by [`EcsDom::children_iter_rev()`].
+/// reverse sibling order.  Like [`ChildrenIter`], internal
+/// [`ShadowRoot`] entities are skipped so the yielded items are the
+/// externally visible direct children.  Stops after
+/// [`MAX_ANCESTOR_DEPTH`] iterations to guard against corrupted
+/// sibling chains.  Created by [`EcsDom::children_iter_rev()`].
 pub struct ChildrenIterRev<'a> {
     pub(crate) dom: &'a EcsDom,
     pub(crate) next: Option<Entity>,
