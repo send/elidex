@@ -114,6 +114,10 @@ pub(super) fn native_document_query_selector(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let selector_str = ctx.vm.strings.get_utf8(sid);
@@ -124,10 +128,6 @@ pub(super) fn native_document_query_selector(
         return Err(VmError::syntax_error(
             ":host and ::slotted() are not valid in querySelector",
         ));
-    }
-
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
     }
 
     let matched: Option<Entity> = {
@@ -163,6 +163,10 @@ pub(super) fn native_document_query_selector_all(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let selector_str = ctx.vm.strings.get_utf8(sid);
@@ -173,10 +177,6 @@ pub(super) fn native_document_query_selector_all(
         return Err(VmError::syntax_error(
             ":host and ::slotted() are not valid in querySelectorAll",
         ));
-    }
-
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
     }
 
     // Phase 1: collect entities while DOM is borrowed.
@@ -287,8 +287,10 @@ pub(super) fn native_document_get_elements_by_class_name(
                 dom.traverse_descendants(d, |entity| {
                     if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
                         if let Some(cls) = attrs.get("class") {
-                            let element_classes: Vec<&str> = cls.split_whitespace().collect();
-                            if target_classes.iter().all(|tc| element_classes.contains(tc)) {
+                            if target_classes
+                                .iter()
+                                .all(|tc| cls.split_whitespace().any(|ec| ec == *tc))
+                            {
                                 result.push(entity);
                             }
                         }
