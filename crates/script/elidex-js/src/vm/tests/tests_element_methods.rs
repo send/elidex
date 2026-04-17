@@ -931,6 +931,226 @@ fn element_id_on_text_node_is_undefined() {
 }
 
 // ---------------------------------------------------------------------------
+// DOM mutation (C5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn element_append_child_adds_new_element_and_returns_it() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let v = vm
+        .eval(
+            "var el = document.createElement('section'); \
+             document.getElementById('root').appendChild(el) === el;",
+        )
+        .unwrap();
+    assert!(matches!(v, JsValue::Boolean(true)));
+
+    // Count elements on body (originally 2 — p, div; now 3 with new section).
+    assert!(matches!(
+        vm.eval("document.getElementById('root').childElementCount;")
+            .unwrap(),
+        JsValue::Number(n) if (n - 3.0).abs() < f64::EPSILON
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_remove_child_detaches_and_returns_node() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let p_wrapper = vm.inner.create_element_wrapper(p);
+    vm.set_global("_p", JsValue::Object(p_wrapper));
+    let v = vm
+        .eval("document.getElementById('root').removeChild(_p) === _p;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Boolean(true)));
+
+    // `_p.parentNode` is now null.
+    assert!(matches!(vm.eval("_p.parentNode;").unwrap(), JsValue::Null));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_remove_child_of_non_child_throws() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // span is a grandchild, not a direct child of body.
+    let span_wrapper = vm.inner.create_element_wrapper(span);
+    vm.set_global("_span", JsValue::Object(span_wrapper));
+    let r = vm.eval("document.getElementById('root').removeChild(_span);");
+    assert!(r.is_err(), "expected TypeError");
+
+    vm.unbind();
+}
+
+#[test]
+fn element_append_child_rejects_non_node_argument() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let r = vm.eval("document.getElementById('root').appendChild({});");
+    assert!(r.is_err());
+    let r = vm.eval("document.getElementById('root').appendChild(null);");
+    assert!(r.is_err());
+
+    vm.unbind();
+}
+
+#[test]
+fn element_insert_before_places_new_child_ahead_of_ref() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Insert a new section before div.  Ordering: p, text, section, div, comment.
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    let _ = p;
+    let v = vm
+        .eval(
+            "var s = document.createElement('section'); \
+             document.getElementById('root').insertBefore(s, _div); \
+             _div.previousElementSibling === s;",
+        )
+        .unwrap();
+    assert!(matches!(v, JsValue::Boolean(true)));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_insert_before_with_null_ref_appends() {
+    // insertBefore(new, null) behaves like appendChild.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let v = vm
+        .eval(
+            "var s = document.createElement('section'); \
+             document.getElementById('root').insertBefore(s, null); \
+             document.getElementById('root').lastElementChild === s;",
+        )
+        .unwrap();
+    assert!(matches!(v, JsValue::Boolean(true)));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_replace_child_returns_old_node() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let p_wrapper = vm.inner.create_element_wrapper(p);
+    vm.set_global("_p", JsValue::Object(p_wrapper));
+    let v = vm
+        .eval(
+            "var h = document.createElement('h1'); \
+             document.getElementById('root').replaceChild(h, _p) === _p;",
+        )
+        .unwrap();
+    assert!(matches!(v, JsValue::Boolean(true)));
+
+    // _p is now detached from body; h is in its place.
+    assert!(matches!(vm.eval("_p.parentNode;").unwrap(), JsValue::Null));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_remove_detaches_from_parent() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let p_wrapper = vm.inner.create_element_wrapper(p);
+    vm.set_global("_p", JsValue::Object(p_wrapper));
+    vm.eval("_p.remove();").unwrap();
+    assert!(matches!(vm.eval("_p.parentNode;").unwrap(), JsValue::Null));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_remove_on_detached_node_is_no_op() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // `createElement` produces a detached element.  `.remove()` is silent.
+    vm.eval("document.createElement('aside').remove();")
+        .unwrap();
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
 // Element-only members should NOT surface on Text nodes (C2 guard)
 // ---------------------------------------------------------------------------
 
