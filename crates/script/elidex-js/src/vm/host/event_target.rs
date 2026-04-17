@@ -206,7 +206,10 @@ pub(super) fn native_event_target_add_event_listener(
 /// Treating it as a no-op matches browser behaviour for unattached
 /// document references.
 #[cfg(feature = "engine")]
-fn entity_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option<elidex_ecs::Entity> {
+pub(super) fn entity_from_this(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+) -> Option<elidex_ecs::Entity> {
     if !ctx.vm.host_data.as_deref().is_some_and(|h| h.is_bound()) {
         return None;
     }

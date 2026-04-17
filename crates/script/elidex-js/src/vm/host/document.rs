@@ -50,27 +50,13 @@ fn wrap_entities_as_array(vm: &mut VmInner, entities: &[Entity]) -> JsValue {
 // Tree walk from the document root.
 // ---------------------------------------------------------------------------
 
-/// Find the first element child of `parent` whose tag (lowercased)
-/// equals `tag`.  Children are walked in document order.  Text /
-/// comment children are skipped without recursion.
-fn first_child_with_tag(dom: &elidex_ecs::EcsDom, parent: Entity, tag: &str) -> Option<Entity> {
-    for child in dom.children_iter(parent) {
-        if let Ok(tag_comp) = dom.world().get::<&TagType>(child) {
-            if tag_comp.0.eq_ignore_ascii_case(tag) {
-                return Some(child);
-            }
-        }
-    }
-    None
-}
-
 /// Locate the `<html>` root child of the bound document.  Returns
 /// `None` if there is no document entity or the document has no
 /// `<html>` child (e.g. empty tree).
 fn find_html_root(ctx: &mut NativeContext<'_>) -> Option<Entity> {
     let doc = ctx.vm.host_data.as_deref()?.document_entity_opt()?;
     let dom = ctx.host().dom();
-    first_child_with_tag(dom, doc, "html")
+    dom.first_child_with_tag(doc, "html")
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +380,7 @@ pub(super) fn native_document_get_head(
 ) -> Result<JsValue, VmError> {
     let head = find_html_root(ctx).and_then(|html| {
         let dom = ctx.host().dom();
-        first_child_with_tag(dom, html, "head")
+        dom.first_child_with_tag(html, "head")
     });
     Ok(wrap_entity_or_null(ctx.vm, head))
 }
@@ -406,7 +392,7 @@ pub(super) fn native_document_get_body(
 ) -> Result<JsValue, VmError> {
     let body = find_html_root(ctx).and_then(|html| {
         let dom = ctx.host().dom();
-        first_child_with_tag(dom, html, "body")
+        dom.first_child_with_tag(html, "body")
     });
     Ok(wrap_entity_or_null(ctx.vm, body))
 }
@@ -421,10 +407,10 @@ pub(super) fn native_document_get_title(
             return Ok(JsValue::String(ctx.vm.well_known.empty));
         };
         let dom = ctx.host().dom();
-        let Some(head) = first_child_with_tag(dom, html, "head") else {
+        let Some(head) = dom.first_child_with_tag(html, "head") else {
             return Ok(JsValue::String(ctx.vm.well_known.empty));
         };
-        let Some(title) = first_child_with_tag(dom, head, "title") else {
+        let Some(title) = dom.first_child_with_tag(head, "title") else {
             return Ok(JsValue::String(ctx.vm.well_known.empty));
         };
         // Concat all text-node children (matches WHATWG §3.2.9

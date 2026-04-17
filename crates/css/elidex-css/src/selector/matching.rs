@@ -4,9 +4,7 @@ use elidex_ecs::{
     Attributes, EcsDom, ElementState, Entity, ShadowHost, ShadowRoot, SlottedMarker, TagType,
 };
 
-use super::traverse::{
-    first_element_child, is_root_element, last_element_child, prev_element_sibling,
-};
+use super::traverse::{is_root_element, prev_element_sibling};
 use super::types::{AttributeMatcher, SelectorComponent};
 
 /// Recursive right-to-left selector matching.
@@ -149,13 +147,13 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
         "root" => is_root_element(entity, dom),
         "first-child" => dom
             .get_parent(entity)
-            .is_some_and(|parent| first_element_child(dom, parent) == Some(entity)),
+            .is_some_and(|parent| dom.first_element_child(parent) == Some(entity)),
         "last-child" => dom
             .get_parent(entity)
-            .is_some_and(|parent| last_element_child(dom, parent) == Some(entity)),
+            .is_some_and(|parent| dom.last_element_child(parent) == Some(entity)),
         "only-child" => dom.get_parent(entity).is_some_and(|parent| {
-            first_element_child(dom, parent) == Some(entity)
-                && last_element_child(dom, parent) == Some(entity)
+            dom.first_element_child(parent) == Some(entity)
+                && dom.last_element_child(parent) == Some(entity)
         }),
         "empty" => dom.get_first_child(entity).is_none(),
         "hover" | "focus" | "active" | "link" | "visited" => {

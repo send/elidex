@@ -280,6 +280,76 @@ impl EcsDom {
         self.read_rel(entity, |rel| rel.prev_sibling)
     }
 
+    /// Return the first child of `parent` that is an element (has a
+    /// [`TagType`] component).  Text, comment, and shadow-root
+    /// children are skipped.
+    #[must_use]
+    pub fn first_element_child(&self, parent: Entity) -> Option<Entity> {
+        let mut child = self.get_first_child(parent);
+        while let Some(c) = child {
+            if self.world.get::<&TagType>(c).is_ok() {
+                return Some(c);
+            }
+            child = self.get_next_sibling(c);
+        }
+        None
+    }
+
+    /// Return the last child of `parent` that is an element (has a
+    /// [`TagType`] component).
+    #[must_use]
+    pub fn last_element_child(&self, parent: Entity) -> Option<Entity> {
+        let mut child = self.get_last_child(parent);
+        while let Some(c) = child {
+            if self.world.get::<&TagType>(c).is_ok() {
+                return Some(c);
+            }
+            child = self.get_prev_sibling(c);
+        }
+        None
+    }
+
+    /// Return the next sibling of `entity` that is an element.
+    #[must_use]
+    pub fn next_element_sibling(&self, entity: Entity) -> Option<Entity> {
+        let mut current = self.get_next_sibling(entity);
+        while let Some(sib) = current {
+            if self.world.get::<&TagType>(sib).is_ok() {
+                return Some(sib);
+            }
+            current = self.get_next_sibling(sib);
+        }
+        None
+    }
+
+    /// Return the previous sibling of `entity` that is an element.
+    #[must_use]
+    pub fn prev_element_sibling(&self, entity: Entity) -> Option<Entity> {
+        let mut current = self.get_prev_sibling(entity);
+        while let Some(sib) = current {
+            if self.world.get::<&TagType>(sib).is_ok() {
+                return Some(sib);
+            }
+            current = self.get_prev_sibling(sib);
+        }
+        None
+    }
+
+    /// Return the first direct child of `parent` whose tag name
+    /// matches `tag` (ASCII case-insensitive).  Non-element children
+    /// are skipped.
+    #[must_use]
+    pub fn first_child_with_tag(&self, parent: Entity, tag: &str) -> Option<Entity> {
+        for child in self.children_iter(parent) {
+            if let Ok(tag_comp) = self.world.get::<&TagType>(child) {
+                if tag_comp.0.eq_ignore_ascii_case(tag) {
+                    return Some(child);
+                }
+            }
+        }
+        None
+    }
+
     /// Check if the entity's tag matches `tag`.
     ///
     /// Returns `false` for text nodes and entities without a `TagType` component.
