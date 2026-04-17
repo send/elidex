@@ -427,6 +427,208 @@ fn text_content_setter_null_becomes_empty() {
 }
 
 // ---------------------------------------------------------------------------
+// Element-only tree navigation (C3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn element_parent_element_returns_null_when_parent_not_element() {
+    // body's parent is <html>, which IS an element — sanity check.
+    // documentElement's parent is the document root (no TagType), so
+    // .parentElement must be null even though .parentNode is not.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval("document.documentElement.parentElement;").unwrap(),
+        JsValue::Null
+    ));
+    // But parentNode points at the document.
+    assert!(matches!(
+        vm.eval("document.documentElement.parentNode === document;")
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_child_nodes_and_children_differ_on_text_children() {
+    // body has mixed children: p, text, div, comment (4 nodes total;
+    // 2 of them are elements).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval("document.getElementById('root').childNodes.length;")
+            .unwrap(),
+        JsValue::Number(n) if (n - 4.0).abs() < f64::EPSILON
+    ));
+    assert!(matches!(
+        vm.eval("document.getElementById('root').children.length;")
+            .unwrap(),
+        JsValue::Number(n) if (n - 2.0).abs() < f64::EPSILON
+    ));
+    assert!(matches!(
+        vm.eval("document.getElementById('root').childElementCount;")
+            .unwrap(),
+        JsValue::Number(n) if (n - 2.0).abs() < f64::EPSILON
+    ));
+    assert!(matches!(
+        vm.eval("document.getElementById('root').hasChildNodes();")
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_first_and_last_element_child_skip_text() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let p_wrapper = vm.inner.create_element_wrapper(p);
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    vm.set_global("_p", JsValue::Object(p_wrapper));
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    assert!(matches!(
+        vm.eval("document.getElementById('root').firstElementChild === _p;")
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+    assert!(matches!(
+        vm.eval("document.getElementById('root').lastElementChild === _div;")
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_sibling_accessors_skip_non_elements() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let p_wrapper = vm.inner.create_element_wrapper(p);
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    vm.set_global("_p", JsValue::Object(p_wrapper));
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    assert!(matches!(
+        vm.eval("_p.nextElementSibling === _div;").unwrap(),
+        JsValue::Boolean(true)
+    ));
+    assert!(matches!(
+        vm.eval("_div.previousElementSibling === _p;").unwrap(),
+        JsValue::Boolean(true)
+    ));
+    // Last element in the chain — next is null.
+    assert!(matches!(
+        vm.eval("_div.nextElementSibling;").unwrap(),
+        JsValue::Null
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_is_connected_respects_document_root() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+    let detached = dom.create_element("aside", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let det_wrapper = vm.inner.create_element_wrapper(detached);
+    vm.set_global("_det", JsValue::Object(det_wrapper));
+    assert!(matches!(
+        vm.eval("document.getElementById('root').isConnected;")
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+    assert!(matches!(
+        vm.eval("_det.isConnected;").unwrap(),
+        JsValue::Boolean(false)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_contains_self_and_descendants_and_rejects_null() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, div, span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    let span_wrapper = vm.inner.create_element_wrapper(span);
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    vm.set_global("_span", JsValue::Object(span_wrapper));
+    assert!(matches!(
+        vm.eval("_div.contains(_div);").unwrap(),
+        JsValue::Boolean(true)
+    ));
+    assert!(matches!(
+        vm.eval("_div.contains(_span);").unwrap(),
+        JsValue::Boolean(true)
+    ));
+    assert!(matches!(
+        vm.eval("_span.contains(_div);").unwrap(),
+        JsValue::Boolean(false)
+    ));
+    assert!(matches!(
+        vm.eval("_div.contains(null);").unwrap(),
+        JsValue::Boolean(false)
+    ));
+    assert!(matches!(
+        vm.eval("_div.contains();").unwrap(),
+        JsValue::Boolean(false)
+    ));
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
 // Element-only members should NOT surface on Text nodes (C2 guard)
 // ---------------------------------------------------------------------------
 
