@@ -1,0 +1,466 @@
+//! PR4c: tests for the Element.prototype method suite and the
+//! Node-common accessors installed on `EventTarget.prototype`.
+//!
+//! The natives live across `vm/host/element_proto.rs` and
+//! `vm/host/event_target.rs`, but they share a small fixture and
+//! common assertions — the tests are grouped here so one file holds
+//! the full Element / Node surface verification.
+//!
+//! Compiled only with `feature = "engine"` (HostData bridging is a
+//! stub otherwise, so the natives no-op).
+
+#![cfg(feature = "engine")]
+
+use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_script_session::SessionCore;
+
+use super::super::test_helpers::bind_vm;
+use super::super::value::JsValue;
+use super::super::Vm;
+
+/// ```text
+/// doc > html > head
+///             > body#root > p.intro (text="hi")
+///                         > "raw-text"  (bare text child)
+///                         > div.box
+///                           > span
+///                         > !-- comment --
+/// ```
+///
+/// Covers the shape every test needs — mixed element/text/comment
+/// siblings, nested element, tag/class/id attributes — without
+/// requiring each test to rebuild the tree.
+fn build_element_fixture(
+    dom: &mut EcsDom,
+) -> (
+    Entity, // doc
+    Entity, // body
+    Entity, // p.intro (has text "hi")
+    Entity, // div.box
+    Entity, // span (inside div)
+    Entity, // text node "raw-text" (direct child of body)
+    Entity, // comment direct child of body
+) {
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let head = dom.create_element("head", Attributes::default());
+    let body = dom.create_element("body", {
+        let mut a = Attributes::default();
+        a.set("id", "root");
+        a
+    });
+    let p = dom.create_element("p", {
+        let mut a = Attributes::default();
+        a.set("class", "intro");
+        a
+    });
+    let p_text = dom.create_text("hi");
+    let raw_text = dom.create_text("raw-text");
+    let div = dom.create_element("div", {
+        let mut a = Attributes::default();
+        a.set("class", "box");
+        a
+    });
+    let span = dom.create_element("span", Attributes::default());
+    let comment = dom.create_comment("note");
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, head));
+    assert!(dom.append_child(html, body));
+    assert!(dom.append_child(body, p));
+    assert!(dom.append_child(p, p_text));
+    assert!(dom.append_child(body, raw_text));
+    assert!(dom.append_child(body, div));
+    assert!(dom.append_child(div, span));
+    assert!(dom.append_child(body, comment));
+    (doc, body, p, div, span, raw_text, comment)
+}
+
+// ---------------------------------------------------------------------------
+// Prototype chain sanity
+// ---------------------------------------------------------------------------
+
+#[test]
+fn element_prototype_chain_reaches_event_target() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Element wrapper's addEventListener resolves through the
+    // chain: wrapper → Element.prototype → EventTarget.prototype.
+    let t = vm
+        .eval("typeof document.getElementById('root').addEventListener;")
+        .unwrap();
+    let JsValue::String(sid) = t else {
+        panic!("typeof returned {t:?}");
+    };
+    assert_eq!(vm.get_string(sid), "function");
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Node common — parentNode / nextSibling / previousSibling
+// ---------------------------------------------------------------------------
+
+#[test]
+fn node_parent_node_returns_parent_wrapper() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, body, _p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // `div.parentNode === body`.
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    let body_wrapper = vm.inner.create_element_wrapper(body);
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    vm.set_global("_body", JsValue::Object(body_wrapper));
+    assert!(matches!(
+        vm.eval("_div.parentNode === _body;").unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn node_parent_node_root_is_null() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval("document.parentNode;").unwrap(),
+        JsValue::Null
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn node_next_and_previous_sibling_include_non_elements() {
+    // `nextSibling` / `previousSibling` traverse every Node — including
+    // Text and Comment — per WHATWG §4.4.  This matters: body's
+    // children are `p`, text, div, comment.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, p, _div, _span, raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // p.nextSibling points at the raw-text node (not the div).
+    let p_wrapper = vm.inner.create_element_wrapper(p);
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    vm.set_global("_p", JsValue::Object(p_wrapper));
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+    assert!(matches!(
+        vm.eval("_p.nextSibling === _raw;").unwrap(),
+        JsValue::Boolean(true)
+    ));
+    assert!(matches!(
+        vm.eval("_raw.previousSibling === _p;").unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// nodeType / nodeName / nodeValue
+// ---------------------------------------------------------------------------
+
+#[test]
+fn node_type_numeric_values_match_spec() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, raw, com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Element = 1, Text = 3, Comment = 8, Document = 9.
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    let com_wrapper = vm.inner.create_element_wrapper(com);
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+    vm.set_global("_com", JsValue::Object(com_wrapper));
+    assert!(matches!(
+        vm.eval("document.getElementById('root').nodeType;").unwrap(),
+        JsValue::Number(n) if (n - 1.0).abs() < f64::EPSILON
+    ));
+    assert!(matches!(
+        vm.eval("_raw.nodeType;").unwrap(),
+        JsValue::Number(n) if (n - 3.0).abs() < f64::EPSILON
+    ));
+    assert!(matches!(
+        vm.eval("_com.nodeType;").unwrap(),
+        JsValue::Number(n) if (n - 8.0).abs() < f64::EPSILON
+    ));
+    assert!(matches!(
+        vm.eval("document.nodeType;").unwrap(),
+        JsValue::Number(n) if (n - 9.0).abs() < f64::EPSILON
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn node_name_uppercase_tag_and_hash_names() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, raw, com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    let com_wrapper = vm.inner.create_element_wrapper(com);
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+    vm.set_global("_com", JsValue::Object(com_wrapper));
+
+    let cases = [
+        ("document.getElementById('root').nodeName;", "BODY"),
+        ("_raw.nodeName;", "#text"),
+        ("_com.nodeName;", "#comment"),
+        ("document.nodeName;", "#document"),
+    ];
+    for (expr, expected) in cases {
+        let v = vm.eval(expr).unwrap();
+        let JsValue::String(sid) = v else {
+            panic!("{expr}: unexpected {v:?}");
+        };
+        assert_eq!(vm.get_string(sid), expected, "expr: {expr}");
+    }
+
+    vm.unbind();
+}
+
+#[test]
+fn node_value_data_for_text_and_comment_else_null() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, raw, com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    let com_wrapper = vm.inner.create_element_wrapper(com);
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+    vm.set_global("_com", JsValue::Object(com_wrapper));
+
+    let raw_val = vm.eval("_raw.nodeValue;").unwrap();
+    let JsValue::String(sid) = raw_val else {
+        panic!();
+    };
+    assert_eq!(vm.get_string(sid), "raw-text");
+
+    let com_val = vm.eval("_com.nodeValue;").unwrap();
+    let JsValue::String(sid) = com_val else {
+        panic!();
+    };
+    assert_eq!(vm.get_string(sid), "note");
+
+    // Elements have `null` nodeValue.
+    assert!(matches!(
+        vm.eval("document.getElementById('root').nodeValue;")
+            .unwrap(),
+        JsValue::Null
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn node_value_setter_replaces_text_data() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+
+    // Setter returns whatever JS assigned (the right-hand side).
+    vm.eval("_raw.nodeValue = 'replaced';").unwrap();
+    let v = vm.eval("_raw.nodeValue;").unwrap();
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "replaced");
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// textContent
+// ---------------------------------------------------------------------------
+
+#[test]
+fn text_content_getter_concatenates_descendant_text() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // body's descendant text: "hi" (inside <p>) + "raw-text" direct.
+    let v = vm
+        .eval("document.getElementById('root').textContent;")
+        .unwrap();
+    let JsValue::String(sid) = v else {
+        panic!("unexpected {v:?}")
+    };
+    assert_eq!(vm.get_string(sid), "hiraw-text");
+
+    vm.unbind();
+}
+
+#[test]
+fn text_content_getter_text_node_is_own_data() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+    let v = vm.eval("_raw.textContent;").unwrap();
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "raw-text");
+
+    vm.unbind();
+}
+
+#[test]
+fn text_content_setter_replaces_children_with_single_text_node() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    vm.eval("document.getElementById('root').textContent = 'fresh';")
+        .unwrap();
+    // After assignment: body has a single Text child, "fresh".
+    let v = vm
+        .eval("document.getElementById('root').textContent;")
+        .unwrap();
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "fresh");
+    // Prior children (p / raw-text / div / comment) are detached —
+    // unbind first, then inspect `dom` directly (it outlives the VM
+    // bind since this test owns it on the stack).
+    vm.unbind();
+    assert_eq!(
+        dom.children_iter(body).count(),
+        1,
+        "body should have exactly one Text child after textContent setter"
+    );
+}
+
+#[test]
+fn text_content_setter_null_becomes_empty() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    vm.eval("document.getElementById('root').textContent = null;")
+        .unwrap();
+    let v = vm
+        .eval("document.getElementById('root').textContent;")
+        .unwrap();
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "");
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Element-only members should NOT surface on Text nodes (C2 guard)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn text_wrapper_does_not_expose_element_placeholder_marker() {
+    // At C2 Element.prototype is empty; at later commits it grows
+    // tree-nav / attr / mutation members.  This test documents the
+    // invariant: anything installed on Element.prototype must be
+    // `undefined` on Text nodes.  Until C3 installs the actual
+    // accessors the check uses a stable (post-C3) name —
+    // `firstElementChild` — that will be absent on Text.
+    //
+    // Intentionally tolerant pre-C3: assertion fires only if the
+    // accessor has been installed on Element.prototype but is
+    // incorrectly visible on Text wrappers.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+    let t = vm.eval("typeof _raw.firstElementChild;").unwrap();
+    let JsValue::String(sid) = t else { panic!() };
+    assert_eq!(
+        vm.get_string(sid),
+        "undefined",
+        "firstElementChild must not resolve on Text wrappers"
+    );
+
+    vm.unbind();
+}

@@ -28,9 +28,11 @@
 //!   via the prototype chain, which is enough for scripts that only
 //!   feature-test its existence.
 
+#[cfg(feature = "engine")]
+use super::super::shape;
 use super::super::value::{JsValue, NativeContext, VmError};
 #[cfg(feature = "engine")]
-use super::super::value::{ObjectId, ObjectKind, PropertyKey};
+use super::super::value::{ObjectId, ObjectKind, PropertyKey, PropertyValue};
 use super::super::{NativeFn, VmInner};
 
 impl VmInner {
@@ -56,6 +58,11 @@ impl VmInner {
             ("dispatchEvent", native_event_target_dispatch_event),
         ]);
         self.event_target_prototype = Some(proto_id);
+        // Node-level accessors (`parentNode`, `nodeType`, …) live on
+        // `EventTarget.prototype` too so both Element and Text wrappers
+        // surface them — see the module doc comment below.
+        #[cfg(feature = "engine")]
+        self.install_node_accessors_on_event_target();
     }
 }
 
@@ -442,6 +449,404 @@ pub(super) fn native_event_target_remove_event_listener(
     ctx.host().remove_listener(listener_id);
 
     Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// Node-common accessors (WHATWG DOM §4.4)
+// ---------------------------------------------------------------------------
+//
+// These live on `EventTarget.prototype` rather than a dedicated
+// `Node.prototype` because elidex does not yet distinguish Node from
+// EventTarget in its prototype chain.  Keeping them here avoids
+// introducing a third prototype level while preserving the invariant
+// that both Element and Text wrappers expose `parentNode`, `nodeType`,
+// `textContent`, etc. — the Node-level APIs that are valid on any DOM
+// node, independent of whether the node is an Element.
+//
+// Element-specific members (`children`, `getAttribute`, …) live on
+// the separate `Element.prototype` (`vm/host/element_proto.rs`),
+// which chains to `EventTarget.prototype`; Text / Comment wrappers
+// therefore do NOT see those members.
+
+#[cfg(feature = "engine")]
+pub(super) fn native_node_get_parent_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let parent = ctx.host().dom().get_parent(entity);
+    Ok(match parent {
+        Some(p) => JsValue::Object(ctx.vm.create_element_wrapper(p)),
+        None => JsValue::Null,
+    })
+}
+
+#[cfg(feature = "engine")]
+pub(super) fn native_node_get_next_sibling(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let sib = ctx.host().dom().get_next_sibling(entity);
+    Ok(match sib {
+        Some(s) => JsValue::Object(ctx.vm.create_element_wrapper(s)),
+        None => JsValue::Null,
+    })
+}
+
+#[cfg(feature = "engine")]
+pub(super) fn native_node_get_previous_sibling(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let sib = ctx.host().dom().get_prev_sibling(entity);
+    Ok(match sib {
+        Some(s) => JsValue::Object(ctx.vm.create_element_wrapper(s)),
+        None => JsValue::Null,
+    })
+}
+
+/// `Node.prototype.nodeType` — WHATWG DOM §4.4.
+///
+/// Returns the numeric `NodeKind::node_type()` or `0` when the entity
+/// has no `NodeKind` component (e.g. the raw Window placeholder before
+/// bind).
+#[cfg(feature = "engine")]
+pub(super) fn native_node_get_node_type(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Number(0.0));
+    };
+    let kind = ctx.host().dom().node_kind(entity);
+    let n = kind.map_or(0, elidex_ecs::NodeKind::node_type);
+    Ok(JsValue::Number(f64::from(n)))
+}
+
+/// `Node.prototype.nodeName` — WHATWG DOM §4.4.
+///
+/// - Element: upper-case tag name.
+/// - Text: `"#text"`.
+/// - Comment: `"#comment"`.
+/// - Document: `"#document"`.
+/// - DocumentFragment: `"#document-fragment"`.
+/// - Everything else: `""` (best-effort; no `#document-type` support yet).
+#[cfg(feature = "engine")]
+pub(super) fn native_node_get_node_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let name: String = {
+        let dom = ctx.host().dom();
+        if let Some(tag) = dom.get_tag_name(entity) {
+            tag.to_ascii_uppercase()
+        } else {
+            match dom.node_kind(entity) {
+                Some(elidex_ecs::NodeKind::Text) => "#text".to_string(),
+                Some(elidex_ecs::NodeKind::Comment) => "#comment".to_string(),
+                Some(elidex_ecs::NodeKind::Document) => "#document".to_string(),
+                Some(elidex_ecs::NodeKind::DocumentFragment) => "#document-fragment".to_string(),
+                _ => String::new(),
+            }
+        }
+    };
+    if name.is_empty() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    let sid = ctx.vm.strings.intern(&name);
+    Ok(JsValue::String(sid))
+}
+
+/// `Node.prototype.nodeValue` — WHATWG DOM §4.4.
+///
+/// For character-data nodes (Text, Comment), returns their data;
+/// for everything else, returns `null`.
+#[cfg(feature = "engine")]
+pub(super) fn native_node_get_node_value(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let data: Option<String> = {
+        let dom = ctx.host().dom();
+        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(entity) {
+            Some(text.0.clone())
+        } else if let Ok(c) = dom.world().get::<&elidex_ecs::CommentData>(entity) {
+            Some(c.0.clone())
+        } else {
+            None
+        }
+    };
+    match data {
+        Some(s) => {
+            let sid = ctx.vm.strings.intern(&s);
+            Ok(JsValue::String(sid))
+        }
+        None => Ok(JsValue::Null),
+    }
+}
+
+/// `Node.prototype.nodeValue` setter — spec-defined only for
+/// character-data (Text / Comment) nodes; no-op otherwise.
+#[cfg(feature = "engine")]
+pub(super) fn native_node_set_node_value(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    // WHATWG §4.4: nodeValue setter treats null as empty string; every
+    // other value is coerced via ToString.
+    let data: String = match arg {
+        JsValue::Null => String::new(),
+        other => {
+            let sid = super::super::coerce::to_string(ctx.vm, other)?;
+            ctx.vm.strings.get_utf8(sid)
+        }
+    };
+    {
+        let dom = ctx.host().dom();
+        let is_text = dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok();
+        if is_text {
+            if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
+                text.0 = data;
+            }
+        } else if dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok() {
+            if let Ok(mut c) = dom.world_mut().get::<&mut elidex_ecs::CommentData>(entity) {
+                c.0 = data;
+            }
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// `Node.prototype.textContent` getter — WHATWG DOM §4.4.
+///
+/// - Element / DocumentFragment: concatenation of descendant Text
+///   node data (pre-order DFS, excluding shadow roots).
+/// - Text / Comment: own data.
+/// - Everything else: `null`.
+#[cfg(feature = "engine")]
+pub(super) fn native_node_get_text_content(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let result: Option<String> = {
+        let dom = ctx.host().dom();
+        // Text / Comment nodes return their own data directly
+        // (shortcut for the common case + spec-correct: character
+        // data nodes are not "traversed" — they return their `data`).
+        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(entity) {
+            Some(text.0.clone())
+        } else if let Ok(c) = dom.world().get::<&elidex_ecs::CommentData>(entity) {
+            Some(c.0.clone())
+        } else {
+            // Element / DocumentFragment / Document: concatenate
+            // descendant Text data.  Null for every other node kind
+            // (Attribute, DocumentType — none currently reachable via
+            // a wrapper but the spec requires Null).
+            let kind = dom.node_kind(entity);
+            match kind {
+                Some(
+                    elidex_ecs::NodeKind::Element
+                    | elidex_ecs::NodeKind::DocumentFragment
+                    | elidex_ecs::NodeKind::Document,
+                ) => {
+                    let mut buf = String::new();
+                    dom.traverse_descendants(entity, |e| {
+                        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(e) {
+                            buf.push_str(&text.0);
+                        }
+                        true
+                    });
+                    Some(buf)
+                }
+                _ => None,
+            }
+        }
+    };
+    match result {
+        Some(s) => {
+            if s.is_empty() {
+                Ok(JsValue::String(ctx.vm.well_known.empty))
+            } else {
+                let sid = ctx.vm.strings.intern(&s);
+                Ok(JsValue::String(sid))
+            }
+        }
+        None => Ok(JsValue::Null),
+    }
+}
+
+/// `Node.prototype.textContent` setter — WHATWG DOM §4.4.
+///
+/// - Element / DocumentFragment: remove every existing child, then
+///   append a single Text child if the new value is non-empty.
+/// - Text / Comment: replace own data (null → empty string).
+/// - Everything else: no-op.
+#[cfg(feature = "engine")]
+pub(super) fn native_node_set_text_content(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let data: String = match arg {
+        JsValue::Null => String::new(),
+        other => {
+            let sid = super::super::coerce::to_string(ctx.vm, other)?;
+            ctx.vm.strings.get_utf8(sid)
+        }
+    };
+    {
+        let dom = ctx.host().dom();
+        // Character-data fast path.  Perform the type check with a
+        // shared borrow, then upgrade to a mutable one for the
+        // actual mutation — hecs's `RefMut` destructor re-enters the
+        // world, so two back-to-back `get::<&mut _>` calls in the
+        // same scope would clash even with ok/err short-circuits.
+        let is_text = dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok();
+        if is_text {
+            if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
+                text.0 = data;
+            }
+            return Ok(JsValue::Undefined);
+        }
+        let is_comment = dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok();
+        if is_comment {
+            if let Ok(mut c) = dom.world_mut().get::<&mut elidex_ecs::CommentData>(entity) {
+                c.0 = data;
+            }
+            return Ok(JsValue::Undefined);
+        }
+        // Only Element / Fragment / Document replace children.
+        let kind = dom.node_kind(entity);
+        if !matches!(
+            kind,
+            Some(
+                elidex_ecs::NodeKind::Element
+                    | elidex_ecs::NodeKind::DocumentFragment
+                    | elidex_ecs::NodeKind::Document
+            )
+        ) {
+            return Ok(JsValue::Undefined);
+        }
+        // Remove every existing child.  Collect first to avoid mutating
+        // the sibling chain mid-iteration.
+        let existing: Vec<elidex_ecs::Entity> = dom.children_iter(entity).collect();
+        for child in existing {
+            let _ = dom.remove_child(entity, child);
+        }
+        if !data.is_empty() {
+            let text_entity = dom.create_text(data);
+            let _ = dom.append_child(entity, text_entity);
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+impl VmInner {
+    /// Install the Node-common accessors on `EventTarget.prototype`.
+    ///
+    /// Called from `register_event_target_prototype` after the
+    /// EventTarget methods are in place.  `EventTarget.prototype` is
+    /// the common root for every DOM wrapper, so placing Node-level
+    /// accessors here means both Element and Text wrappers surface
+    /// them via their prototype chains without any per-wrapper work.
+    #[cfg(feature = "engine")]
+    pub(in crate::vm) fn install_node_accessors_on_event_target(&mut self) {
+        let proto = self
+            .event_target_prototype
+            .expect("install_node_accessors_on_event_target needs EventTarget.prototype");
+        // Read-only accessors: the value is computed on every get
+        // from live DOM state, so there is no slot to cache it in.
+        for (name_sid, getter) in [
+            (
+                self.well_known.parent_node,
+                native_node_get_parent_node as NativeFn,
+            ),
+            (self.well_known.next_sibling, native_node_get_next_sibling),
+            (
+                self.well_known.previous_sibling,
+                native_node_get_previous_sibling,
+            ),
+            (self.well_known.node_type, native_node_get_node_type),
+            (self.well_known.node_name, native_node_get_node_name),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            self.define_shaped_property(
+                proto,
+                PropertyKey::String(name_sid),
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: None,
+                },
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+        // Read/write accessors (nodeValue, textContent).
+        let rw_attrs = shape::PropertyAttrs {
+            writable: false,
+            enumerable: true,
+            configurable: true,
+            is_accessor: true,
+        };
+        for (name_sid, getter, setter) in [
+            (
+                self.well_known.node_value,
+                native_node_get_node_value as NativeFn,
+                native_node_set_node_value as NativeFn,
+            ),
+            (
+                self.well_known.text_content,
+                native_node_get_text_content,
+                native_node_set_text_content,
+            ),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            let sid = self.create_native_function(&format!("set {name}"), setter);
+            self.define_shaped_property(
+                proto,
+                PropertyKey::String(name_sid),
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: Some(sid),
+                },
+                rw_attrs,
+            );
+        }
+    }
 }
 
 /// `EventTarget.prototype.dispatchEvent(event)` — stub.

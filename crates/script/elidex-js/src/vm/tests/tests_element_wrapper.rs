@@ -7,7 +7,8 @@
 //!
 //! 1. Identity (`el === el`) — same Entity yields the same ObjectId.
 //! 2. Distinct entities yield distinct ObjectIds.
-//! 3. The wrapper's prototype is `EventTarget.prototype`.
+//! 3. Element wrappers receive `Element.prototype`; Text wrappers
+//!    skip it and receive `EventTarget.prototype` directly.
 //! 4. The wrapper's `ObjectKind` is `HostObject` with matching
 //!    `entity_bits`.
 //! 5. A wrapper held only by `wrapper_cache` survives a GC cycle
@@ -67,13 +68,14 @@ fn wrapper_is_distinct_per_entity() {
 }
 
 #[test]
-fn wrapper_prototype_is_event_target() {
+fn element_wrapper_prototype_is_element_prototype() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let el = dom.create_element("div", Attributes::default());
 
+    let element_proto = vm.inner.element_prototype;
     let event_target_proto = vm.inner.event_target_prototype;
 
     #[allow(unsafe_code)]
@@ -84,9 +86,45 @@ fn wrapper_prototype_is_event_target() {
     let wrapper = vm.inner.create_element_wrapper(el);
     let wrapper_proto = vm.inner.get_object(wrapper).prototype;
     assert_eq!(
+        wrapper_proto, element_proto,
+        "Element wrappers get Element.prototype so tree nav / attrs \
+         methods resolve via the prototype chain"
+    );
+
+    // And Element.prototype itself chains to EventTarget.prototype,
+    // so addEventListener still resolves.
+    let ep_proto = vm.inner.get_object(element_proto.unwrap()).prototype;
+    assert_eq!(
+        ep_proto, event_target_proto,
+        "Element.prototype must inherit from EventTarget.prototype"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn text_wrapper_prototype_is_event_target() {
+    // Text nodes (no `TagType`) must skip `Element.prototype` and
+    // chain directly to `EventTarget.prototype` so Element-only
+    // methods (getAttribute, children, …) are not visible on them.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let text = dom.create_text("hello");
+
+    let event_target_proto = vm.inner.event_target_prototype;
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let wrapper = vm.inner.create_element_wrapper(text);
+    let wrapper_proto = vm.inner.get_object(wrapper).prototype;
+    assert_eq!(
         wrapper_proto, event_target_proto,
-        "wrapper prototype must be EventTarget.prototype so \
-         addEventListener etc. resolve via the prototype chain"
+        "Text wrappers must chain straight to EventTarget.prototype"
     );
 
     vm.unbind();

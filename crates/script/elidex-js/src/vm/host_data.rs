@@ -140,6 +140,34 @@ mod engine_feature {
             unsafe { &mut *self.dom_ptr }
         }
 
+        /// Return `true` if this `HostData` is bound AND `entity` is
+        /// an Element (has the `TagType` component) in the bound
+        /// world.  Returns `false` when unbound so pre-bind or
+        /// post-unbind wrapper allocation can still decide a
+        /// reasonable prototype (EventTarget.prototype).
+        ///
+        /// Takes `&self` (not `&mut self`) because the lookup is
+        /// read-only — callers holding a shared borrow of `HostData`
+        /// (e.g. `create_element_wrapper`'s prototype branch) cannot
+        /// otherwise reach the world.
+        #[allow(unsafe_code)]
+        pub fn is_element_entity(&self, entity: Entity) -> bool {
+            if !self.is_bound() {
+                return false;
+            }
+            // SAFETY: `is_bound` implies `dom_ptr` is non-null and
+            // points at the `EcsDom` supplied by the most recent
+            // `bind()`.  The pointer lifetime is tied to that bind
+            // window; callers must not drop or move the `EcsDom`
+            // between bind and unbind (documented on `bind` itself).
+            // A shared reference to the world is sound while no
+            // `&mut` reference exists — this helper never produces
+            // one, and the only mutating users of the world hold a
+            // fresh `&mut` via `dom()`.
+            let dom = unsafe { &*self.dom_ptr };
+            dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
+        }
+
         pub fn document(&self) -> Entity {
             assert!(self.is_bound(), "HostData accessed while unbound");
             self.document_entity.unwrap()

@@ -183,11 +183,20 @@ pub(crate) struct VmInner {
     /// Generator.prototype — shared prototype for generator iterators.
     pub(crate) generator_prototype: Option<ObjectId>,
     /// `EventTarget.prototype` — shared prototype for every DOM wrapper.
-    /// Holds `addEventListener` / `removeEventListener` / `dispatchEvent`.
-    /// `None` until `register_event_target_prototype()` runs during
-    /// `register_globals()`.  Read when `create_element_wrapper` (PR3 C2)
-    /// allocates a `HostObject` wrapper.
+    /// Holds `addEventListener` / `removeEventListener` / `dispatchEvent`
+    /// plus the Node-level accessors (`parentNode`, `nodeType`, …)
+    /// that apply to both Element and Text wrappers.  `None` until
+    /// `register_event_target_prototype()` runs during `register_globals()`.
     pub(crate) event_target_prototype: Option<ObjectId>,
+    /// `Element.prototype` — shared prototype for every Element wrapper
+    /// (WHATWG DOM §4.9).  Chains to `EventTarget.prototype` so Node
+    /// / EventTarget members resolve without duplication.  Text and
+    /// Comment wrappers are **not** given this prototype — they chain
+    /// straight to `EventTarget.prototype`, so Element-only methods
+    /// (`getAttribute`, `children`, `appendChild`, …) do not surface
+    /// on them.  `None` until `register_element_prototype()` runs
+    /// during `register_globals()`.
+    pub(crate) element_prototype: Option<ObjectId>,
     /// `Window.prototype` — prototype for the `globalThis` / `window`
     /// `HostObject` (WHATWG HTML §7.2).  Inherits from
     /// `EventTarget.prototype` so `window.addEventListener` resolves
@@ -935,6 +944,7 @@ impl Vm {
                 aggregate_error_prototype: None,
                 generator_prototype: None,
                 event_target_prototype: None,
+                element_prototype: None,
                 window_prototype: None,
                 event_methods_prototype: None,
                 #[cfg(feature = "engine")]

@@ -200,6 +200,14 @@ impl VmInner {
         // `create_element_wrapper` (PR3 C2).
         self.register_event_target_prototype();
 
+        // Element.prototype — chained to EventTarget.prototype.  Holds
+        // Element-specific members (tree nav, attributes, mutation).
+        // Wrappers for entities carrying a `TagType` component pick it
+        // up automatically via `create_element_wrapper`'s per-entity
+        // prototype branch.
+        #[cfg(feature = "engine")]
+        self.register_element_prototype();
+
         // Window.prototype — prototype for the `globalThis` `HostObject`
         // (WHATWG HTML §7.2).  Must run *after*
         // `register_event_target_prototype` because the Window prototype
