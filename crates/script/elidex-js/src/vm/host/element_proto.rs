@@ -71,6 +71,7 @@ impl VmInner {
         });
         self.element_prototype = Some(proto_id);
         self.install_element_tree_nav(proto_id);
+        self.install_element_attributes(proto_id);
     }
 
     /// Install Element-only tree-navigation accessors + `contains` /
@@ -131,6 +132,90 @@ impl VmInner {
                 native_element_has_child_nodes as NativeFn,
             ),
             (self.well_known.contains, native_element_contains),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let fn_id = self.create_native_function(&name, func);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                shape::PropertyAttrs::METHOD,
+            );
+        }
+    }
+
+    /// Install Element attribute-manipulation methods + `id` /
+    /// `className` / `tagName` accessors on `proto_id`.
+    fn install_element_attributes(&mut self, proto_id: ObjectId) {
+        // `tagName` — read-only accessor (WHATWG §4.9, uppercase for
+        // HTML).
+        let tag_name_sid = self.well_known.tag_name;
+        let tag_name_name = self.strings.get_utf8(tag_name_sid);
+        let tag_gid = self
+            .create_native_function(&format!("get {tag_name_name}"), native_element_get_tag_name);
+        self.define_shaped_property(
+            proto_id,
+            PropertyKey::String(tag_name_sid),
+            PropertyValue::Accessor {
+                getter: Some(tag_gid),
+                setter: None,
+            },
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+
+        // `id` / `className` — read/write accessors (WHATWG §3.5).
+        let rw_attrs = shape::PropertyAttrs {
+            writable: false,
+            enumerable: true,
+            configurable: true,
+            is_accessor: true,
+        };
+        for (name_sid, getter, setter) in [
+            (
+                self.well_known.id,
+                native_element_get_id as NativeFn,
+                native_element_set_id as NativeFn,
+            ),
+            (
+                self.well_known.class_name,
+                native_element_get_class_name,
+                native_element_set_class_name,
+            ),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            let sid = self.create_native_function(&format!("set {name}"), setter);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: Some(sid),
+                },
+                rw_attrs,
+            );
+        }
+
+        // Attribute methods.
+        for (name_sid, func) in [
+            (
+                self.well_known.get_attribute,
+                native_element_get_attribute as NativeFn,
+            ),
+            (self.well_known.set_attribute, native_element_set_attribute),
+            (
+                self.well_known.remove_attribute,
+                native_element_remove_attribute,
+            ),
+            (self.well_known.has_attribute, native_element_has_attribute),
+            (
+                self.well_known.get_attribute_names,
+                native_element_get_attribute_names,
+            ),
+            (
+                self.well_known.toggle_attribute,
+                native_element_toggle_attribute,
+            ),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -393,4 +478,292 @@ fn native_element_contains(
             .dom()
             .is_ancestor_or_self(self_entity, other_entity),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Natives: attribute manipulation + id / className / tagName
+// ---------------------------------------------------------------------------
+
+fn native_element_get_tag_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    // WHATWG DOM §4.9 tagName: HTML elements are uppercase.  Every
+    // document we bind is treated as HTML in Phase 2.
+    let tag = ctx.host().dom().get_tag_name(entity);
+    match tag {
+        Some(t) => {
+            let upper = t.to_ascii_uppercase();
+            let sid = ctx.vm.strings.intern(&upper);
+            Ok(JsValue::String(sid))
+        }
+        None => Ok(JsValue::String(ctx.vm.well_known.empty)),
+    }
+}
+
+/// Read attribute `name` on `entity` as a String, or `None` if absent.
+fn attr_get(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) -> Option<String> {
+    let dom = ctx.host().dom();
+    dom.world()
+        .get::<&elidex_ecs::Attributes>(entity)
+        .ok()
+        .and_then(|attrs| attrs.get(name).map(str::to_owned))
+}
+
+/// Set attribute `name` = `value` on `entity`, inserting an
+/// `Attributes` component if one does not exist.  Returns `false`
+/// when the entity has been destroyed.
+fn attr_set(ctx: &mut NativeContext<'_>, entity: Entity, name: &str, value: String) -> bool {
+    let dom = ctx.host().dom();
+    let has_component = dom.world().get::<&elidex_ecs::Attributes>(entity).is_ok();
+    if has_component {
+        if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
+            attrs.set(name, value);
+            return true;
+        }
+        return false;
+    }
+    let mut attrs = elidex_ecs::Attributes::default();
+    attrs.set(name, value);
+    dom.world_mut().insert_one(entity, attrs).is_ok()
+}
+
+fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
+    let dom = ctx.host().dom();
+    if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
+        attrs.remove(name);
+    }
+}
+
+fn native_element_get_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let name = ctx.vm.strings.get_utf8(sid);
+    match attr_get(ctx, entity, &name) {
+        Some(v) => {
+            let sid = ctx.vm.strings.intern(&v);
+            Ok(JsValue::String(sid))
+        }
+        None => Ok(JsValue::Null),
+    }
+}
+
+fn native_element_set_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    // Coerce BOTH args (name then value) per WebIDL even though the
+    // spec name-validation step runs on a qualified name; we accept
+    // any string here and defer validation to a future HTML5 parser
+    // upgrade.
+    let name_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let name_sid = super::super::coerce::to_string(ctx.vm, name_arg)?;
+    let value_sid = super::super::coerce::to_string(ctx.vm, value_arg)?;
+    let name = ctx.vm.strings.get_utf8(name_sid);
+    let value = ctx.vm.strings.get_utf8(value_sid);
+    attr_set(ctx, entity, &name, value);
+    Ok(JsValue::Undefined)
+}
+
+fn native_element_remove_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let name = ctx.vm.strings.get_utf8(sid);
+    attr_remove(ctx, entity, &name);
+    Ok(JsValue::Undefined)
+}
+
+fn native_element_has_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let name = ctx.vm.strings.get_utf8(sid);
+    let has = {
+        let dom = ctx.host().dom();
+        dom.world()
+            .get::<&elidex_ecs::Attributes>(entity)
+            .ok()
+            .is_some_and(|attrs| attrs.contains(&name))
+    };
+    Ok(JsValue::Boolean(has))
+}
+
+fn native_element_get_attribute_names(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        // WHATWG §4.9.2 getAttributeNames — returns a list; we return
+        // an empty Array for unbound / non-HostObject receivers.
+        return Ok(JsValue::Object(ctx.vm.create_array_object(Vec::new())));
+    };
+    let names: Vec<String> = {
+        let dom = ctx.host().dom();
+        dom.world()
+            .get::<&elidex_ecs::Attributes>(entity)
+            .ok()
+            .map(|attrs| attrs.iter().map(|(k, _)| k.to_owned()).collect())
+            .unwrap_or_default()
+    };
+    let values: Vec<JsValue> = names
+        .into_iter()
+        .map(|n| {
+            let sid = ctx.vm.strings.intern(&n);
+            JsValue::String(sid)
+        })
+        .collect();
+    Ok(JsValue::Object(ctx.vm.create_array_object(values)))
+}
+
+fn native_element_toggle_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let name_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let name_sid = super::super::coerce::to_string(ctx.vm, name_arg)?;
+    let name = ctx.vm.strings.get_utf8(name_sid);
+
+    // `force` (second arg): undefined = toggle, true = ensure present,
+    // false = ensure absent.  WHATWG §4.9.2 toggleAttribute.
+    let force: Option<bool> = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => None,
+        v => Some(super::super::coerce::to_boolean(ctx.vm, v)),
+    };
+
+    let currently_present = {
+        let dom = ctx.host().dom();
+        dom.world()
+            .get::<&elidex_ecs::Attributes>(entity)
+            .ok()
+            .is_some_and(|attrs| attrs.contains(&name))
+    };
+
+    let final_present = match force {
+        Some(true) => {
+            if !currently_present {
+                // WHATWG §4.9.2: when force=true and absent, set value to
+                // empty string.
+                attr_set(ctx, entity, &name, String::new());
+            }
+            true
+        }
+        Some(false) => {
+            if currently_present {
+                attr_remove(ctx, entity, &name);
+            }
+            false
+        }
+        None => {
+            if currently_present {
+                attr_remove(ctx, entity, &name);
+                false
+            } else {
+                attr_set(ctx, entity, &name, String::new());
+                true
+            }
+        }
+    };
+    Ok(JsValue::Boolean(final_present))
+}
+
+// ---------------------------------------------------------------------------
+// id / className (reflected as the underlying attribute)
+// ---------------------------------------------------------------------------
+
+fn native_element_get_id(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    // WHATWG §4.9 reflected `id` / `className`: missing attribute
+    // returns the empty string (not `null` like `getAttribute`).
+    let val = attr_get(ctx, entity, "id").unwrap_or_default();
+    if val.is_empty() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    let sid = ctx.vm.strings.intern(&val);
+    Ok(JsValue::String(sid))
+}
+
+fn native_element_set_id(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let value = ctx.vm.strings.get_utf8(sid);
+    attr_set(ctx, entity, "id", value);
+    Ok(JsValue::Undefined)
+}
+
+fn native_element_get_class_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let val = attr_get(ctx, entity, "class").unwrap_or_default();
+    if val.is_empty() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    let sid = ctx.vm.strings.intern(&val);
+    Ok(JsValue::String(sid))
+}
+
+fn native_element_set_class_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let value = ctx.vm.strings.get_utf8(sid);
+    attr_set(ctx, entity, "class", value);
+    Ok(JsValue::Undefined)
 }
