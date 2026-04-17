@@ -2005,6 +2005,7 @@ name = "elidex-js"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "elidex-css",
  "elidex-ecs",
  "elidex-plugin",
  "elidex-script-session",

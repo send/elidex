@@ -52,24 +52,23 @@ pub(in crate::content) fn detect_iframe_mutations(
                     changed = true;
                 }
             }
-            MutationKind::Attribute => {
-                // src attribute change on <iframe> → re-navigate.
+            MutationKind::Attribute
                 if record
                     .attribute_name
                     .as_deref()
-                    .is_some_and(|name| name == "src")
-                {
-                    let target = record.target;
-                    if let Some(removed_entry) = state.iframes.remove(target) {
-                        unload_iframe_entry(state, target, removed_entry);
-                    }
-                    // Sync IframeData.src from Attributes.
-                    sync_iframe_src_from_attrs(state, target);
-                    state.iframes.remove_lazy_pending(target);
-                    // force=true: src change is explicit navigation.
-                    try_load_iframe_entity(state, target, true);
-                    changed = true;
+                    .is_some_and(|name| name == "src") =>
+            {
+                // src attribute change on <iframe> → re-navigate.
+                let target = record.target;
+                if let Some(removed_entry) = state.iframes.remove(target) {
+                    unload_iframe_entry(state, target, removed_entry);
                 }
+                // Sync IframeData.src from Attributes.
+                sync_iframe_src_from_attrs(state, target);
+                state.iframes.remove_lazy_pending(target);
+                // force=true: src change is explicit navigation.
+                try_load_iframe_entity(state, target, true);
+                changed = true;
             }
             _ => {}
         }

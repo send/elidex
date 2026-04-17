@@ -41,6 +41,39 @@ fn build_fixture(
     (doc, html, head, body, title)
 }
 
+/// Richer fixture for querySelector / getElementsBy* tests:
+/// ```text
+/// doc > html > head > title("Hello World")
+///             > body#b > div.box#target > span
+///                      > p.box.highlight
+/// ```
+fn build_query_fixture(
+    dom: &mut EcsDom,
+) -> (
+    elidex_ecs::Entity, // doc
+    elidex_ecs::Entity, // div.box#target
+    elidex_ecs::Entity, // span
+    elidex_ecs::Entity, // p.box.highlight
+) {
+    let (doc, _html, _head, body, _title) = build_fixture(dom);
+    let div = dom.create_element("div", {
+        let mut a = Attributes::default();
+        a.set("id", "target");
+        a.set("class", "box");
+        a
+    });
+    let span = dom.create_element("span", Attributes::default());
+    let p = dom.create_element("p", {
+        let mut a = Attributes::default();
+        a.set("class", "box highlight");
+        a
+    });
+    assert!(dom.append_child(body, div));
+    assert!(dom.append_child(div, span));
+    assert!(dom.append_child(body, p));
+    (doc, div, span, p)
+}
+
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -81,6 +114,32 @@ fn document_get_element_by_id_returns_null_for_miss() {
     }
     assert!(matches!(
         vm.eval("document.getElementById('nonexistent');").unwrap(),
+        JsValue::Null
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn document_get_element_by_id_ignores_non_descendant() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _, _) = build_fixture(&mut dom);
+
+    // Create an entity with id="orphan" that is NOT a child of the
+    // document tree — getElementById must not find it.
+    let _orphan = dom.create_element("div", {
+        let mut a = Attributes::default();
+        a.set("id", "orphan");
+        a
+    });
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    assert!(matches!(
+        vm.eval("document.getElementById('orphan');").unwrap(),
         JsValue::Null
     ));
     vm.unbind();
@@ -368,5 +427,297 @@ fn document_ready_state_is_complete() {
         JsValue::String(id) => assert_eq!(vm.get_string(id), "complete"),
         _ => panic!(),
     }
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// querySelector / querySelectorAll
+// ---------------------------------------------------------------------------
+
+#[test]
+fn query_selector_by_tag() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let v = vm.eval("document.querySelector('div');").unwrap();
+    assert!(matches!(v, JsValue::Object(_)));
+    vm.unbind();
+}
+
+#[test]
+fn query_selector_by_id() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let v = vm.eval("document.querySelector('#target');").unwrap();
+    match v {
+        JsValue::Object(id) => match vm.inner.get_object(id).kind {
+            ObjectKind::HostObject { entity_bits } => {
+                // #target is the div — verify it resolves to a valid entity.
+                assert_ne!(entity_bits, 0);
+            }
+            _ => panic!("expected HostObject"),
+        },
+        _ => panic!("expected Object"),
+    }
+    vm.unbind();
+}
+
+#[test]
+fn query_selector_by_class() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, div, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // .box matches div.box (first in document order), not p.box.highlight
+    let v = vm.eval("document.querySelector('.box');").unwrap();
+    match v {
+        JsValue::Object(id) => match vm.inner.get_object(id).kind {
+            ObjectKind::HostObject { entity_bits } => {
+                assert_eq!(entity_bits, div.to_bits().get());
+            }
+            _ => panic!("expected HostObject"),
+        },
+        _ => panic!("expected Object"),
+    }
+    vm.unbind();
+}
+
+#[test]
+fn query_selector_descendant_combinator() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let v = vm.eval("document.querySelector('body div');").unwrap();
+    assert!(matches!(v, JsValue::Object(_)));
+    vm.unbind();
+}
+
+#[test]
+fn query_selector_no_match() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    assert!(matches!(
+        vm.eval("document.querySelector('article');").unwrap(),
+        JsValue::Null
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn query_selector_invalid_throws() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Invalid selector throws — eval returns Err.
+    let result = vm.eval("document.querySelector('>>>');");
+    assert!(result.is_err());
+    vm.unbind();
+}
+
+#[test]
+fn query_selector_all_returns_array() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // .box matches div.box and p.box.highlight
+    let v = vm
+        .eval("document.querySelectorAll('.box').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 2.0));
+    vm.unbind();
+}
+
+#[test]
+fn query_selector_all_empty() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let v = vm
+        .eval("document.querySelectorAll('article').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 0.0));
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// getElementsByTagName / getElementsByClassName
+// ---------------------------------------------------------------------------
+
+#[test]
+fn get_elements_by_tag_name_finds() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // fixture has one <div>
+    let v = vm
+        .eval("document.getElementsByTagName('div').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 1.0));
+    vm.unbind();
+}
+
+#[test]
+fn get_elements_by_tag_name_wildcard() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // fixture: html, head, title, body, div, span, p = 7 elements
+    let v = vm
+        .eval("document.getElementsByTagName('*').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 7.0));
+    vm.unbind();
+}
+
+#[test]
+fn get_elements_by_tag_name_case_insensitive() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let v = vm
+        .eval("document.getElementsByTagName('DIV').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 1.0));
+    vm.unbind();
+}
+
+#[test]
+fn get_elements_by_tag_name_no_match() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let v = vm
+        .eval("document.getElementsByTagName('article').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 0.0));
+    vm.unbind();
+}
+
+#[test]
+fn get_elements_by_class_name_single() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // "box" matches div.box and p.box.highlight
+    let v = vm
+        .eval("document.getElementsByClassName('box').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 2.0));
+    vm.unbind();
+}
+
+#[test]
+fn get_elements_by_class_name_multiple() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // "box highlight" — both classes must be present; only p matches
+    let v = vm
+        .eval("document.getElementsByClassName('box highlight').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 1.0));
+    vm.unbind();
+}
+
+#[test]
+fn get_elements_by_class_name_no_match() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let v = vm
+        .eval("document.getElementsByClassName('nonexistent').length;")
+        .unwrap();
+    assert!(matches!(v, JsValue::Number(n) if n == 0.0));
     vm.unbind();
 }

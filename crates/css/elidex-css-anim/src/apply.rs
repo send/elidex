@@ -198,15 +198,11 @@ fn apply_color(field: &mut CssColor, value: &CssValue) {
 
 fn apply_dimension(field: &mut Dimension, value: &CssValue) {
     match value {
-        CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) => {
-            if v.is_finite() {
-                *field = Dimension::Length(*v);
-            }
+        CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) if v.is_finite() => {
+            *field = Dimension::Length(*v);
         }
-        CssValue::Percentage(p) => {
-            if p.is_finite() {
-                *field = Dimension::Percentage(*p);
-            }
+        CssValue::Percentage(p) if p.is_finite() => {
+            *field = Dimension::Percentage(*p);
         }
         CssValue::Auto => {
             *field = Dimension::Auto;
@@ -217,15 +213,11 @@ fn apply_dimension(field: &mut Dimension, value: &CssValue) {
 
 fn apply_flex_basis(field: &mut FlexBasis, value: &CssValue) {
     match value {
-        CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) => {
-            if v.is_finite() {
-                *field = FlexBasis::Length(*v);
-            }
+        CssValue::Length(v, LengthUnit::Px) | CssValue::Number(v) if v.is_finite() => {
+            *field = FlexBasis::Length(*v);
         }
-        CssValue::Percentage(p) => {
-            if p.is_finite() {
-                *field = FlexBasis::Percentage(*p);
-            }
+        CssValue::Percentage(p) if p.is_finite() => {
+            *field = FlexBasis::Percentage(*p);
         }
         CssValue::Auto => {
             *field = FlexBasis::Auto;

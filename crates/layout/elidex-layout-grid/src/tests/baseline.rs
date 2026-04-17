@@ -361,7 +361,7 @@ fn container_baseline_propagation() {
         "grid container should have first_baseline when align-items: baseline is used",
     );
     let baseline = clb.first_baseline.unwrap();
-    assert!(baseline > 0.0, "first_baseline ({baseline}) should be > 0",);
+    assert!(baseline > 0.0, "first_baseline ({baseline}) should be > 0");
     // The baseline should equal the row 0 baseline, which is the tallest
     // item's margin-box bottom = 50.
     assert!(

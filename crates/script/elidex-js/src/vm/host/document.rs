@@ -5,9 +5,9 @@
 //!
 //! # Scope
 //!
-//! - `getElementById(id)` — O(n) scan of all entities with
-//!   `Attributes` component; the first match wins (WHATWG DOM §4.5
-//!   "If the list has no items, return null").
+//! - `getElementById(id)` — pre-order DFS from the document root
+//!   (WHATWG DOM §4.2.4 "document descendants").  Uses
+//!   `EcsDom::find_by_id`.
 //! - `createElement(tag)` / `createTextNode(data)` — allocate ECS
 //!   entities; the Element form returns a freshly-cached wrapper,
 //!   the Text form returns a host object keyed on the text entity
@@ -30,10 +30,24 @@ use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::VmInner;
 use super::super::{coerce, Vm};
 
+use elidex_css::parse_selector_from_str;
 use elidex_ecs::{Attributes, Entity, TagType};
 
 // ---------------------------------------------------------------------------
-// Helpers — tree walk from the document root.
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Wrap a list of entities as a JS Array of element wrappers.
+fn wrap_entities_as_array(vm: &mut VmInner, entities: &[Entity]) -> JsValue {
+    let elements: Vec<JsValue> = entities
+        .iter()
+        .map(|&e| JsValue::Object(vm.create_element_wrapper(e)))
+        .collect();
+    JsValue::Object(vm.create_array_object(elements))
+}
+
+// ---------------------------------------------------------------------------
+// Tree walk from the document root.
 // ---------------------------------------------------------------------------
 
 /// Find the first element child of `parent` whose tag (lowercased)
@@ -68,34 +82,228 @@ pub(super) fn native_document_get_element_by_id(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let target = ctx.vm.strings.get_utf8(sid);
-
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
 
-    // O(n) scan.  A per-document id→entity index is tracked as a
-    // separate performance follow-up; the shell page crawler will
-    // surface real hot paths.
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let target = ctx.vm.strings.get_utf8(sid);
+
     let matched: Option<Entity> = {
+        let doc = ctx
+            .vm
+            .host_data
+            .as_deref()
+            .and_then(|hd| hd.document_entity_opt());
         let dom = ctx.host().dom();
-        dom.world()
-            .query::<(Entity, &Attributes)>()
-            .iter()
-            .find_map(|(e, attrs)| {
-                if attrs.get("id") == Some(&*target) {
-                    Some(e)
-                } else {
-                    None
-                }
-            })
+        doc.and_then(|d| dom.find_by_id(d, &target))
     };
     match matched {
         Some(e) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(e))),
         None => Ok(JsValue::Null),
     }
+}
+
+// ---------------------------------------------------------------------------
+// querySelector / querySelectorAll
+// ---------------------------------------------------------------------------
+
+pub(super) fn native_document_query_selector(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let selector_str = ctx.vm.strings.get_utf8(sid);
+
+    let selectors = parse_selector_from_str(&selector_str)
+        .map_err(|()| VmError::syntax_error(format!("Invalid selector: {selector_str}")))?;
+    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
+        return Err(VmError::syntax_error(
+            ":host and ::slotted() are not valid in querySelector",
+        ));
+    }
+
+    let matched: Option<Entity> = {
+        let doc = ctx
+            .vm
+            .host_data
+            .as_deref()
+            .and_then(|hd| hd.document_entity_opt());
+        let dom = ctx.host().dom();
+        doc.and_then(|d| {
+            let mut result = None;
+            dom.traverse_descendants(d, |entity| {
+                if dom.world().get::<&TagType>(entity).is_ok()
+                    && selectors.iter().any(|s| s.matches(entity, dom))
+                {
+                    result = Some(entity);
+                    false
+                } else {
+                    true
+                }
+            });
+            result
+        })
+    };
+    match matched {
+        Some(e) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(e))),
+        None => Ok(JsValue::Null),
+    }
+}
+
+pub(super) fn native_document_query_selector_all(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let selector_str = ctx.vm.strings.get_utf8(sid);
+
+    let selectors = parse_selector_from_str(&selector_str)
+        .map_err(|()| VmError::syntax_error(format!("Invalid selector: {selector_str}")))?;
+    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
+        return Err(VmError::syntax_error(
+            ":host and ::slotted() are not valid in querySelectorAll",
+        ));
+    }
+
+    // Phase 1: collect entities while DOM is borrowed.
+    let entities: Vec<Entity> = {
+        let doc = ctx
+            .vm
+            .host_data
+            .as_deref()
+            .and_then(|hd| hd.document_entity_opt());
+        let dom = ctx.host().dom();
+        match doc {
+            Some(d) => {
+                let mut result = Vec::new();
+                dom.traverse_descendants(d, |entity| {
+                    if dom.world().get::<&TagType>(entity).is_ok()
+                        && selectors.iter().any(|s| s.matches(entity, dom))
+                    {
+                        result.push(entity);
+                    }
+                    true
+                });
+                result
+            }
+            None => Vec::new(),
+        }
+    };
+
+    Ok(wrap_entities_as_array(ctx.vm, &entities))
+}
+
+// ---------------------------------------------------------------------------
+// getElementsByTagName / getElementsByClassName
+// ---------------------------------------------------------------------------
+
+pub(super) fn native_document_get_elements_by_tag_name(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let tag = ctx.vm.strings.get_utf8(sid);
+
+    let match_all = tag == "*";
+    let entities: Vec<Entity> = {
+        let doc = ctx
+            .vm
+            .host_data
+            .as_deref()
+            .and_then(|hd| hd.document_entity_opt());
+        let dom = ctx.host().dom();
+        match doc {
+            Some(d) => {
+                let mut result = Vec::new();
+                dom.traverse_descendants(d, |entity| {
+                    if match_all {
+                        if dom.world().get::<&TagType>(entity).is_ok() {
+                            result.push(entity);
+                        }
+                    } else if let Ok(tt) = dom.world().get::<&TagType>(entity) {
+                        if tt.0.eq_ignore_ascii_case(&tag) {
+                            result.push(entity);
+                        }
+                    }
+                    true
+                });
+                result
+            }
+            None => Vec::new(),
+        }
+    };
+
+    Ok(wrap_entities_as_array(ctx.vm, &entities))
+}
+
+pub(super) fn native_document_get_elements_by_class_name(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let class_str = ctx.vm.strings.get_utf8(sid);
+
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
+    let target_classes: Vec<&str> = class_str.split_whitespace().collect();
+    if target_classes.is_empty() {
+        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+    }
+
+    let entities: Vec<Entity> = {
+        let doc = ctx
+            .vm
+            .host_data
+            .as_deref()
+            .and_then(|hd| hd.document_entity_opt());
+        let dom = ctx.host().dom();
+        match doc {
+            Some(d) => {
+                let mut result = Vec::new();
+                dom.traverse_descendants(d, |entity| {
+                    if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
+                        if let Some(cls) = attrs.get("class") {
+                            if target_classes
+                                .iter()
+                                .all(|tc| cls.split_whitespace().any(|ec| ec == *tc))
+                            {
+                                result.push(entity);
+                            }
+                        }
+                    }
+                    true
+                });
+                result
+            }
+            None => Vec::new(),
+        }
+    };
+
+    Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +322,10 @@ pub(super) fn native_document_create_element(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let raw_tag = ctx.vm.strings.get_utf8(sid);
@@ -121,10 +333,6 @@ pub(super) fn native_document_create_element(
     // WHATWG DOM §4.5 createElement normalises to lowercase in the
     // "HTML document" branch.  We treat every bind as HTML.
     let tag = raw_tag.to_ascii_lowercase();
-
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
 
     let new_entity = {
         let dom = ctx.host().dom();
@@ -138,13 +346,13 @@ pub(super) fn native_document_create_text_node(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let data = ctx.vm.strings.get_utf8(sid);
-
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
+
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let data = ctx.vm.strings.get_utf8(sid);
 
     let new_entity = {
         let dom = ctx.host().dom();
@@ -306,6 +514,16 @@ impl Vm {
 // body reads top-down.
 const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
     ("getElementById", native_document_get_element_by_id),
+    ("querySelector", native_document_query_selector),
+    ("querySelectorAll", native_document_query_selector_all),
+    (
+        "getElementsByTagName",
+        native_document_get_elements_by_tag_name,
+    ),
+    (
+        "getElementsByClassName",
+        native_document_get_elements_by_class_name,
+    ),
     ("createElement", native_document_create_element),
     ("createTextNode", native_document_create_text_node),
 ];

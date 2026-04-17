@@ -144,9 +144,12 @@ impl LiveCollection {
             // ByClassNames with empty vec always returns empty.
             CollectionFilter::ByClassNames(names) if names.is_empty() => Vec::new(),
             // All other filters: pre-order traversal of the subtree.
+            // Shadow boundaries are respected because the child
+            // iterators used by `traverse_descendants` skip
+            // ShadowRoot entities, so shadow subtrees are unreachable.
             filter => {
                 let mut result = Vec::new();
-                traverse_pre_order(dom, self.root, |entity| {
+                dom.traverse_descendants(self.root, |entity| {
                     if matches_filter(entity, filter, dom) {
                         result.push(entity);
                     }
@@ -155,35 +158,6 @@ impl LiveCollection {
                 result
             }
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Traversal helpers
-// ---------------------------------------------------------------------------
-
-/// Pre-order DFS traversal starting from `root` (excluding root itself).
-/// Skips shadow tree nodes (entities inside a shadow root).
-fn traverse_pre_order(dom: &EcsDom, root: Entity, mut visitor: impl FnMut(Entity) -> bool) {
-    let mut stack: Vec<Entity> = Vec::new();
-    push_children_reversed(dom, root, &mut stack);
-    while let Some(entity) = stack.pop() {
-        // Skip shadow root entities.
-        if dom.world().get::<&ShadowRoot>(entity).is_ok() {
-            continue;
-        }
-        if !visitor(entity) {
-            return;
-        }
-        push_children_reversed(dom, entity, &mut stack);
-    }
-}
-
-/// Push direct children of `parent` onto `stack` in reverse order.
-fn push_children_reversed(dom: &EcsDom, parent: Entity, stack: &mut Vec<Entity>) {
-    let children: Vec<_> = dom.children_iter(parent).collect();
-    for child in children.into_iter().rev() {
-        stack.push(child);
     }
 }
 

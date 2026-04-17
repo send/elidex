@@ -80,8 +80,7 @@ pub(crate) fn register_iframe_accessors(
                     let allowed = dom
                         .world()
                         .get::<&elidex_ecs::IframeData>(entity)
-                        .map(|d| d.allow_fullscreen)
-                        .unwrap_or(false);
+                        .is_ok_and(|d| d.allow_fullscreen);
                     Ok(JsValue::from(allowed))
                 })
             },

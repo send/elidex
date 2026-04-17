@@ -441,8 +441,7 @@ pub fn collect_anonymous_pool(dom: &EcsDom, children: &[Entity], display: Displa
                 && dom
                     .world()
                     .get::<&ComputedStyle>(child)
-                    .map(|s| s.display == display)
-                    .unwrap_or(false)
+                    .is_ok_and(|s| s.display == display)
         })
         .collect()
 }

@@ -117,14 +117,14 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
             .map(|fcs| fcs.kind);
 
         match control_kind {
-            Some(FormControlKind::Radio) => {
+            Some(FormControlKind::Radio)
                 if elidex_form::toggle_radio(
                     &mut state.pipeline.dom,
                     hit_entity,
                     &mut state.pipeline.ancestor_cache,
-                ) {
-                    dispatch_state_change_events(state, hit_entity);
-                }
+                ) =>
+            {
+                dispatch_state_change_events(state, hit_entity);
             }
             Some(FormControlKind::Select) => {
                 if let Ok(mut fcs) = state
@@ -182,10 +182,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                         state.send_display_list();
                         return;
                     }
-                    Some("_top" | "_parent") => {
-                        // Sandbox allow-top-navigation check (WHATWG HTML §4.8.5):
-                        // block navigation to parent/top from sandboxed iframes
-                        // without the allow-top-navigation flag.
+                    Some("_top" | "_parent")
                         if state
                             .pipeline
                             .runtime
@@ -193,11 +190,15 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
                             .sandbox_flags()
                             .is_some_and(|f| {
                                 !f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_TOP_NAVIGATION)
-                            })
-                        {
-                            state.send_display_list();
-                            return;
-                        }
+                            }) =>
+                    {
+                        // Sandbox allow-top-navigation check (WHATWG HTML §4.8.5):
+                        // block navigation to parent/top from sandboxed iframes
+                        // without the allow-top-navigation flag.
+                        state.send_display_list();
+                        return;
+                    }
+                    Some("_top" | "_parent") => {
                         // Fall through to navigate current document
                         // (true parent/top navigation requires multi-process IPC).
                     }
@@ -573,14 +574,14 @@ fn handle_key_widget(
     control_info: Option<FormControlKind>,
 ) {
     match control_info {
-        Some(FormControlKind::Checkbox) if key == " " => {
-            if toggle_checkbox_if_needed(&mut state.pipeline.dom, target) {
-                // S15: Checkbox Space fires a synthetic click event.
-                let mut click_event = DispatchEvent::new_composed("click", target);
-                click_event.payload = EventPayload::Mouse(MouseEventInit::default());
-                state.pipeline.dispatch_event(&mut click_event);
-                dispatch_state_change_events(state, target);
-            }
+        Some(FormControlKind::Checkbox)
+            if key == " " && toggle_checkbox_if_needed(&mut state.pipeline.dom, target) =>
+        {
+            // S15: Checkbox Space fires a synthetic click event.
+            let mut click_event = DispatchEvent::new_composed("click", target);
+            click_event.payload = EventPayload::Mouse(MouseEventInit::default());
+            state.pipeline.dispatch_event(&mut click_event);
+            dispatch_state_change_events(state, target);
         }
         Some(FormControlKind::Radio) => {
             if key == " " {

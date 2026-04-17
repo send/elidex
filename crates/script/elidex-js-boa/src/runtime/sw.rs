@@ -310,8 +310,7 @@ impl JsRuntime {
 
         let did_respond = state_obj
             .get(js_string!("responded"), &mut self.ctx)
-            .map(|v| v.to_boolean())
-            .unwrap_or(false);
+            .is_ok_and(|v| v.to_boolean());
 
         if did_respond {
             let response = state_obj

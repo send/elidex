@@ -531,9 +531,8 @@ fn populate_index(
         .collect::<Result<Vec<_>, _>>()?;
 
     // Look up whether this index is unique (needed for error mapping).
-    let is_unique = get_index_meta(backend, db_name, store_name, index_name)
-        .map(|m| m.unique)
-        .unwrap_or(false);
+    let is_unique =
+        get_index_meta(backend, db_name, store_name, index_name).is_ok_and(|m| m.unique);
 
     for (pk_bytes, value) in &rows {
         let index_keys = extract_index_keys(value, key_path, multi_entry);

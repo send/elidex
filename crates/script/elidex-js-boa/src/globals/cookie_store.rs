@@ -47,8 +47,7 @@ fn build_cookie_list_item(snap: &elidex_net::CookieSnapshot, ctx: &mut Context) 
         snap.expires.map_or(JsValue::null(), |exp| {
             let ms = exp
                 .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .map(|d| d.as_millis() as f64)
-                .unwrap_or(0.0);
+                .map_or(0.0, |d| d.as_millis() as f64);
             JsValue::from(ms)
         }),
         Attribute::all(),
@@ -179,8 +178,7 @@ pub fn register_cookie_store(ctx: &mut Context, bridge: &HostBridge) {
                         // expires is milliseconds since epoch; Max-Age in seconds from now.
                         let now_ms = std::time::SystemTime::now()
                             .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                            .map(|d| d.as_millis() as f64)
-                            .unwrap_or(0.0);
+                            .map_or(0.0, |d| d.as_millis() as f64);
                         let max_age = ((exp - now_ms) / 1000.0).max(0.0) as u64;
                         write!(attrs, "; Max-Age={max_age}").unwrap();
                     }

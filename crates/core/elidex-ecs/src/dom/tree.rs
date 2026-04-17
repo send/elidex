@@ -1,6 +1,6 @@
 //! Tree mutation and navigation methods for [`EcsDom`].
 
-use crate::components::{ShadowRoot, TagType, TreeRelation};
+use crate::components::{Attributes, ShadowRoot, TagType, TreeRelation};
 use hecs::Entity;
 
 use super::{EcsDom, MAX_ANCESTOR_DEPTH};
@@ -499,6 +499,54 @@ impl EcsDom {
             next,
             remaining: MAX_ANCESTOR_DEPTH,
         }
+    }
+
+    /// Returns a zero-allocation **reverse** iterator over direct
+    /// children of `parent` (last child first, via `prev_sibling`).
+    ///
+    /// Like [`Self::children_iter`], internal [`ShadowRoot`] entities
+    /// are skipped and iteration caps at [`MAX_ANCESTOR_DEPTH`].
+    #[must_use]
+    pub fn children_iter_rev(&self, parent: Entity) -> super::ChildrenIterRev<'_> {
+        let next = self.read_rel(parent, |rel| rel.last_child);
+        super::ChildrenIterRev {
+            dom: self,
+            next,
+            remaining: MAX_ANCESTOR_DEPTH,
+        }
+    }
+
+    /// Pre-order DFS over descendants of `root` (excluding `root`
+    /// itself).  Traversal uses [`Self::children_iter_rev`], so it
+    /// respects shadow boundaries — shadow-root subtrees are not
+    /// entered.  `visitor` receives each entity in document order
+    /// and returns `true` to continue or `false` to stop early.
+    pub fn traverse_descendants(&self, root: Entity, mut visitor: impl FnMut(Entity) -> bool) {
+        let mut stack: Vec<Entity> = self.children_iter_rev(root).collect();
+        while let Some(entity) = stack.pop() {
+            if !visitor(entity) {
+                return;
+            }
+            stack.extend(self.children_iter_rev(entity));
+        }
+    }
+
+    /// Find the first descendant of `root` whose `id` attribute equals
+    /// `id`.  Searches in document order (pre-order DFS) and returns on
+    /// first match — WHATWG DOM §4.2.4.
+    #[must_use]
+    pub fn find_by_id(&self, root: Entity, id: &str) -> Option<Entity> {
+        let mut result = None;
+        self.traverse_descendants(root, |entity| {
+            if let Ok(attrs) = self.world().get::<&Attributes>(entity) {
+                if attrs.get("id") == Some(id) {
+                    result = Some(entity);
+                    return false;
+                }
+            }
+            true
+        });
+        result
     }
 
     /// Find all element entities with the given tag name.

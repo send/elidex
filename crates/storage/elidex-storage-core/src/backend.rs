@@ -18,7 +18,7 @@ impl Default for OpenOptions {
             read_only: false,
             create_if_missing: true,
             wal_mode: true,
-            busy_timeout: Duration::from_millis(5000),
+            busy_timeout: Duration::from_secs(5),
         }
     }
 }
@@ -126,7 +126,7 @@ mod tests {
         assert!(!opts.read_only);
         assert!(opts.create_if_missing);
         assert!(opts.wal_mode);
-        assert_eq!(opts.busy_timeout, Duration::from_millis(5000));
+        assert_eq!(opts.busy_timeout, Duration::from_secs(5));
     }
 
     #[test]

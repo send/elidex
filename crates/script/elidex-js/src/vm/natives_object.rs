@@ -330,17 +330,15 @@ pub(super) fn native_object_define_property(
                     super::value::PropertyValue::Data(existing_val),
                     super::value::PropertyValue::Data(new_val),
                 ) => {
-                    if !existing.writable {
-                        if new_prop.writable {
-                            return Err(VmError::type_error(
-                                "Cannot redefine property: cannot make non-writable property writable",
-                            ));
-                        }
-                        if !super::value::same_value(existing_val, new_val) {
-                            return Err(VmError::type_error(
-                                "Cannot redefine property: cannot change value of non-writable, non-configurable property",
-                            ));
-                        }
+                    if !existing.writable && new_prop.writable {
+                        return Err(VmError::type_error(
+                            "Cannot redefine property: cannot make non-writable property writable",
+                        ));
+                    }
+                    if !existing.writable && !super::value::same_value(existing_val, new_val) {
+                        return Err(VmError::type_error(
+                            "Cannot redefine property: cannot change value of non-writable, non-configurable property",
+                        ));
                     }
                 }
                 // Non-configurable accessor: cannot change getter or setter

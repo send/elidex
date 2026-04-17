@@ -274,7 +274,7 @@ fn outer_context_beats_inner_context() {
     collect_matching_rules(&mut entries, inner_div, &dom, &inner_sheets, None, false);
     collect_matching_rules(&mut entries, inner_div, &dom, &outer_sheets, None, true);
 
-    entries.sort_by(|a, b| a.priority.cmp(&b.priority));
+    entries.sort_by_key(|e| e.priority);
     let mut winners: HashMap<&str, &CssValue> = HashMap::new();
     for entry in &entries {
         winners.insert(entry.property, entry.value);

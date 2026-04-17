@@ -8,7 +8,7 @@ use std::path::Path;
 /// Sort a feature count map by count descending.
 fn sort_by_count_desc(map: FeatureCount) -> Vec<(String, usize)> {
     let mut items: Vec<_> = map.into_iter().collect();
-    items.sort_by(|a, b| b.1.cmp(&a.1));
+    items.sort_by_key(|item| std::cmp::Reverse(item.1));
     items
 }
 

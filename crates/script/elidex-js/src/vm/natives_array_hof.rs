@@ -416,11 +416,8 @@ fn drain_iterator(
     this_arg: JsValue,
 ) -> Result<Vec<JsValue>, VmError> {
     let mut result = Vec::new();
-    loop {
-        // Err here = iterator's own `.next()` threw → no IteratorClose.
-        let Some(value) = ctx.vm.iter_next(iter_val)? else {
-            break;
-        };
+    // Err here = iterator's own `.next()` threw → no IteratorClose.
+    while let Some(value) = ctx.vm.iter_next(iter_val)? {
         // Any error below this point is an abrupt completion of the
         // for-of-like body; close the iterator before propagating.
         let mapped_result: Result<JsValue, VmError> = if let Some(fn_id) = map_fn {
