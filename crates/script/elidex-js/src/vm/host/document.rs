@@ -82,13 +82,13 @@ pub(super) fn native_document_get_element_by_id(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let target = ctx.vm.strings.get_utf8(sid);
-
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
+
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let target = ctx.vm.strings.get_utf8(sid);
 
     let matched: Option<Entity> = {
         let doc = ctx
@@ -216,13 +216,13 @@ pub(super) fn native_document_get_elements_by_tag_name(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let tag = ctx.vm.strings.get_utf8(sid);
-
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
+
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let tag = ctx.vm.strings.get_utf8(sid);
 
     let match_all = tag == "*";
     let entities: Vec<Entity> = {
@@ -322,6 +322,10 @@ pub(super) fn native_document_create_element(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
     let raw_tag = ctx.vm.strings.get_utf8(sid);
@@ -329,10 +333,6 @@ pub(super) fn native_document_create_element(
     // WHATWG DOM §4.5 createElement normalises to lowercase in the
     // "HTML document" branch.  We treat every bind as HTML.
     let tag = raw_tag.to_ascii_lowercase();
-
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Null);
-    }
 
     let new_entity = {
         let dom = ctx.host().dom();
@@ -346,13 +346,13 @@ pub(super) fn native_document_create_text_node(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let data = ctx.vm.strings.get_utf8(sid);
-
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
+
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, arg)?;
+    let data = ctx.vm.strings.get_utf8(sid);
 
     let new_entity = {
         let dom = ctx.host().dom();
