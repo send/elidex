@@ -588,6 +588,28 @@ pub enum ObjectKind {
     /// allocation that recycles the `ObjectId` slot does not inherit
     /// stale state.
     AbortSignal,
+    /// `AbortController` instance (WHATWG DOM §3.1).  Carries the
+    /// paired `AbortSignal`'s `ObjectId` as an internal slot — the
+    /// spec models this as `[[signal]]` on the controller, accessible
+    /// only via `controller.signal` and `controller.abort()`.  Storing
+    /// the reference here (rather than reading it back from the
+    /// JS-visible `signal` own property) means user code cannot
+    /// retarget `abort()` by mutating object storage
+    /// (`Object.defineProperty(c, 'signal', {value: alien})`) and
+    /// `AbortController.prototype.abort.call({signal: realSignal})`
+    /// throws TypeError instead of aborting `realSignal` (Copilot
+    /// R4 finding).
+    ///
+    /// The visible `signal` data property is still set by the
+    /// constructor for normal `controller.signal` reads — both the
+    /// own-property write and the internal-slot write happen in
+    /// `native_abort_controller_constructor`, and they always agree
+    /// because user JS cannot reach the constructor's internal-slot
+    /// write path.
+    ///
+    /// GC contract: trace marks `signal_id` so the paired signal
+    /// survives as long as the controller is reachable.
+    AbortController { signal_id: ObjectId },
 }
 
 impl ObjectKind {

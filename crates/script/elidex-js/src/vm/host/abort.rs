@@ -337,6 +337,13 @@ fn native_abort_controller_constructor(
         unreachable!("constructor `this` is always an Object after `do_new`");
     };
     let signal_id = ctx.vm.create_abort_signal();
+    // Promote the pre-allocated Ordinary instance to an
+    // `AbortController` carrying `signal_id` as an internal slot.
+    // The internal slot is what `abort()` consults — the JS-visible
+    // `signal` own property (set below) is for `controller.signal`
+    // reads only and cannot be used to retarget `abort()` even if
+    // the user mutates it via `Object.defineProperty`.
+    ctx.vm.get_object_mut(ctrl_id).kind = ObjectKind::AbortController { signal_id };
     let signal_key = PropertyKey::String(ctx.vm.well_known.signal);
     // WHATWG: `signal` is an own property on the controller, RO and
     // configurable (matches WebIDL `[[Reflect]]` reflection).
@@ -356,30 +363,27 @@ fn native_abort_controller_abort(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let JsValue::Object(ctrl_id) = this else {
-        return Err(VmError::type_error(
-            "AbortController.prototype.abort called on non-object",
-        ));
-    };
-    // Locate the paired signal via own property `signal`.
-    let signal_key = PropertyKey::String(ctx.vm.well_known.signal);
-    let signal_val = match ctx
-        .vm
-        .get_object(ctrl_id)
-        .storage
-        .get(signal_key, &ctx.vm.shapes)
-    {
-        Some((PropertyValue::Data(v), _)) => *v,
+    // Read the paired signal from the controller's internal slot
+    // (`ObjectKind::AbortController`'s `signal_id`), not from the
+    // JS-visible `signal` own property.  Reading the property would
+    // let user code retarget abort via
+    // `Object.defineProperty(c, 'signal', {value: alien})` and would
+    // make `AbortController.prototype.abort.call({signal: real})`
+    // succeed against arbitrary objects — both spec-non-conforming.
+    let signal_id = match this {
+        JsValue::Object(ctrl_id) => match ctx.vm.get_object(ctrl_id).kind {
+            ObjectKind::AbortController { signal_id } => signal_id,
+            _ => {
+                return Err(VmError::type_error(
+                    "AbortController.prototype.abort called on incompatible receiver",
+                ))
+            }
+        },
         _ => {
             return Err(VmError::type_error(
-                "AbortController.prototype.abort called on object without a signal",
+                "AbortController.prototype.abort called on non-object",
             ))
         }
-    };
-    let JsValue::Object(signal_id) = signal_val else {
-        return Err(VmError::type_error(
-            "AbortController.prototype.abort: signal is not an object",
-        ));
     };
     let reason = args.first().copied().unwrap_or(JsValue::Undefined);
     abort_signal(ctx, signal_id, reason)?;

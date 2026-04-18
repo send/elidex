@@ -764,6 +764,85 @@ fn dispatch_event_on_real_signal_returns_false_stub() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Copilot R4: AbortController internal slot
+// ---------------------------------------------------------------------------
+
+#[test]
+fn abort_call_on_alien_object_with_signal_property_throws() {
+    // Regression: pre-fix, `controller.abort()` read the paired
+    // signal from the public own property `signal`, so
+    // `AbortController.prototype.abort.call({signal: realSignal})`
+    // happily aborted `realSignal`.  With the internal-slot fix,
+    // an alien receiver throws TypeError before reaching the
+    // dispatch path.
+    let mut vm = Vm::new();
+    let result = vm
+        .eval(
+            "var c = new AbortController();
+             var alien = {signal: c.signal};
+             var caught = '';
+             try {
+               AbortController.prototype.abort.call(alien);
+               caught = 'no-throw';
+             } catch(e) { caught = String(e); }
+             // The cross-call must throw AND must not abort the
+             // signal.
+             caught + '|aborted=' + c.signal.aborted;",
+        )
+        .unwrap();
+    let s = match result {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert!(
+        s.contains("TypeError") && s.ends_with("|aborted=false"),
+        "expected TypeError + signal not aborted, got {s}"
+    );
+}
+
+#[test]
+fn defining_signal_property_does_not_retarget_abort() {
+    // Regression: `Object.defineProperty(c, 'signal', {value: alien})`
+    // pre-fix made `c.abort()` abort the alien signal because the
+    // method read from the property storage.  With the internal
+    // slot, the original signal aborts and the alien is untouched.
+    let mut vm = Vm::new();
+    let result = vm
+        .eval(
+            "var c = new AbortController();
+             var original = c.signal;
+             var alien = new AbortController().signal;
+             // Replace the visible property — must not affect abort target.
+             Object.defineProperty(c, 'signal', {value: alien, configurable: true});
+             c.abort();
+             // Original signal aborts via internal slot; alien stays untouched.
+             original.aborted + '|' + alien.aborted;",
+        )
+        .unwrap();
+    let s = match result {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert_eq!(
+        s, "true|false",
+        "internal slot must drive abort target, not the JS-visible property; got {s}"
+    );
+}
+
+#[test]
+fn controller_signal_property_still_readable_normally() {
+    // Sanity: the internal-slot fix must not break the common
+    // `controller.signal` JS read path.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var c = new AbortController();
+         var s = c.signal;
+         typeof s === 'object' && s !== null && typeof s.aborted === 'boolean';"
+    ));
+}
+
 mod bound_listener_pruning {
     //! Regression for Copilot R2: `bound_listener_removals` must be
     //! pruned when the underlying listener is removed (via

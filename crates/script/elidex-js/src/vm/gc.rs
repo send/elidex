@@ -464,6 +464,14 @@ fn trace_work_list(
                     // needed here.
                 }
             }
+            // `AbortController` carries the paired signal `ObjectId`
+            // as an internal slot — mark it so the signal survives as
+            // long as the controller is reachable.  Same arm runs on
+            // both feature flavours because the variant exists
+            // unconditionally.
+            ObjectKind::AbortController { signal_id } => {
+                mark_object(*signal_id, obj_marks, work);
+            }
             // No ObjectId references — only StringId / scalar fields.
             // `HostObject` is listed explicitly (not folded under a
             // wildcard) so adding a future field that holds an ObjectId
