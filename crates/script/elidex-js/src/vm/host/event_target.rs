@@ -96,23 +96,33 @@ pub(super) fn native_event_target_add_event_listener(
 ///    Otherwise must be callable; non-callable throws `TypeError`.
 /// 4. `options` (`arg[2]`):
 ///    - boolean → `capture` flag.
-///    - object → `{capture, once, passive}` properties read as
-///      booleans.  Missing keys default to `false`.
-///    - undefined / missing → all flags `false`.
-/// 5. Duplicate check (§2.6 step 4): `(type, callback, capture)` —
+///    - object → `{capture, once, passive, signal}` properties read.
+///      Missing booleans default to `false`; missing/`null`/`undefined`
+///      `signal` means no AbortSignal is bound.  A non-AbortSignal
+///      `signal` value throws `TypeError` (WebIDL `AbortSignal?`).
+///    - undefined / missing → all flags `false`, no signal.
+/// 5. WHATWG §2.6.3 step 3: an already-aborted `signal` short-circuits
+///    registration entirely — no ECS write, no listener_store entry,
+///    no back-ref.
+/// 6. Duplicate check (§2.6 step 4): `(type, callback, capture)` —
 ///    `once` and `passive` are NOT part of the identity tuple.  A
 ///    second `addEventListener` with the same triple is silently
 ///    discarded.
-/// 6. The new listener is recorded in two places:
+/// 7. The new listener is recorded in three places:
 ///    - ECS `EventListeners` component on `entity` (metadata: type,
 ///      capture, once, passive).
 ///    - `HostData::listener_store` (`ListenerId` → JS function
 ///      `ObjectId`).  Both are GC-rooted via
 ///      `HostData::gc_root_object_ids()`.
+///    - When `{signal}` is provided: an entry in
+///      `abort_signal_states[signal_id].bound_listener_removals`
+///      plus a reverse-index entry in
+///      `VmInner::abort_listener_back_refs`, so `controller.abort()`
+///      can detach in O(1) and `removeEventListener` /
+///      `{once}` auto-removal can prune the back-ref symmetrically.
 ///
 /// Deferred:
-/// - `signal` option (AbortSignal) → PR4 once `AbortController` lands.
-/// - Object-form callback with `handleEvent` method (§2.7 step 8) →
+/// - Object-form callback with `handleEvent` method (§2.7 step 8) —
 ///   not yet a hot-path.
 #[cfg(feature = "engine")]
 pub(super) fn native_event_target_add_event_listener(
@@ -441,16 +451,24 @@ pub(super) fn native_event_target_remove_event_listener(
 ///
 /// WHATWG DOM §2.7.7: locate any listener whose (type, callback,
 /// capture) tuple matches and remove it from the entity's
-/// `EventListeners` component plus `HostData::listener_store`.
+/// `EventListeners` component, `HostData::listener_store`, and any
+/// `AbortSignal` back-ref pointing at it (the last via the shared
+/// [`super::super::VmInner::remove_listener_and_prune_back_ref`]
+/// helper, which is also called from the `{once}` auto-removal
+/// path).
 ///
 /// Behaviour parallels [`native_event_target_add_event_listener`]:
 /// - Non-HostObject `this` → silent no-op.
-/// - `null` / `undefined` callback → silent no-op (§2.7.7 step 2).
-/// - Non-callable callback → silent no-op (cannot match anything,
-///   spec just no-ops here too — only addEventListener throws).
-/// - Options third arg parsed identically (only `capture` is
-///   meaningful for removal — `once` / `passive` are not part of
-///   identity per §2.6 step 4).
+/// - `null` / `undefined` callback → silent no-op (§2.7.7 step 2:
+///   "If callback is null, then return.").
+/// - Other non-callable callback → throws `TypeError` (matches
+///   `addEventListener`'s WebIDL `EventListener?` conversion;
+///   silently dropping `el.removeEventListener('click', 42)`
+///   would mask user bugs).
+/// - Options third arg: only `capture` is read from the object form
+///   (`once` / `passive` are not part of identity per §2.6 step 4
+///   and reading them would fire user getters that browsers don't
+///   trigger here — see `parse_capture_only`).
 #[cfg(feature = "engine")]
 pub(super) fn native_event_target_remove_event_listener(
     ctx: &mut NativeContext<'_>,
