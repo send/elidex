@@ -353,6 +353,38 @@ pub(crate) struct VmInner {
 }
 
 impl VmInner {
+    /// Drop a `ListenerId` from `HostData::listener_store` AND prune
+    /// any `AbortSignal` back-ref to it.
+    ///
+    /// This is the canonical retirement path — both
+    /// `removeEventListener` and the `{once}` auto-removal that
+    /// `event_dispatch` triggers via `Engine::remove_listener` route
+    /// through this helper so the back-ref index stays bounded
+    /// regardless of how the listener was retired.  Skipping the
+    /// back-ref scrub would let `abort_listener_back_refs` and
+    /// `abort_signal_states[…].bound_listener_removals` grow
+    /// unbounded across `addEventListener({signal}, {once: true})`
+    /// dispatch cycles.
+    ///
+    /// Engine-only: `abort_signal_states` /
+    /// `abort_listener_back_refs` only exist behind the `engine`
+    /// feature; without it, the helper just defers to
+    /// `host_data.remove_listener`.
+    #[cfg(feature = "engine")]
+    pub(crate) fn remove_listener_and_prune_back_ref(
+        &mut self,
+        listener_id: elidex_script_session::ListenerId,
+    ) {
+        if let Some(host) = self.host_data.as_deref_mut() {
+            host.remove_listener(listener_id);
+        }
+        if let Some(signal_id) = self.abort_listener_back_refs.remove(&listener_id) {
+            if let Some(state) = self.abort_signal_states.get_mut(&signal_id) {
+                state.bound_listener_removals.remove(&listener_id);
+            }
+        }
+    }
+
     /// Allocate a new symbol, returning its `SymbolId`.
     pub(crate) fn alloc_symbol(&mut self, description: Option<StringId>) -> SymbolId {
         let id = SymbolId(self.symbols.len() as u32);

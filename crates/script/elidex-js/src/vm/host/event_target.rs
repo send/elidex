@@ -498,8 +498,8 @@ pub(super) fn native_event_target_remove_event_listener(
     };
 
     // Remove from ECS component first (scoped block so the world
-    // borrow is released before we re-grab `host` for listener_store
-    // cleanup), then from listener_store.
+    // borrow is released before the centralized listener-retirement
+    // helper re-grabs the host).
     {
         let dom = ctx.host().dom();
         if let Ok(mut listeners) = dom
@@ -509,18 +509,12 @@ pub(super) fn native_event_target_remove_event_listener(
             listeners.remove(listener_id);
         }
     }
-    ctx.host().remove_listener(listener_id);
-
-    // Prune the AbortSignal back-ref entry if this listener was
-    // registered with `{signal}` — without this, a long-lived signal
-    // accumulates stale `(listener_id → entity)` entries across
-    // add/remove cycles and `controller.abort()` then iterates dead
-    // pairs.  Reverse-index lookup is O(1).
-    if let Some(signal_id) = ctx.vm.abort_listener_back_refs.remove(&listener_id) {
-        if let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) {
-            state.bound_listener_removals.remove(&listener_id);
-        }
-    }
+    // Single helper that drops the listener from both
+    // `HostData::listener_store` AND any AbortSignal back-ref
+    // (`abort_listener_back_refs` + the per-signal HashMap).  Same
+    // helper is invoked by `Engine::remove_listener` for the {once}
+    // auto-removal path so both retirement routes stay in sync.
+    ctx.vm.remove_listener_and_prune_back_ref(listener_id);
 
     Ok(JsValue::Undefined)
 }
