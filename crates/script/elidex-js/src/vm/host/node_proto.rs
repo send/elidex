@@ -29,9 +29,10 @@
 //!
 //! Members installed here:
 //!
-//! - Accessors: `parentNode`, `firstChild`, `lastChild`,
-//!   `nextSibling`, `previousSibling`, `childNodes`, `nodeType`,
-//!   `nodeName`, `nodeValue`, `textContent`, `isConnected`.
+//! - Accessors: `parentNode`, `parentElement`, `firstChild`,
+//!   `lastChild`, `nextSibling`, `previousSibling`, `childNodes`,
+//!   `nodeType`, `nodeName`, `nodeValue`, `textContent`,
+//!   `isConnected`.
 //! - Methods:   `hasChildNodes`, `contains`, `appendChild`,
 //!   `removeChild`, `insertBefore`, `replaceChild`.
 //!
@@ -174,9 +175,10 @@ impl VmInner {
 // ---------------------------------------------------------------------------
 
 /// Extract an entity from a `JsValue` expected to be a Node
-/// HostObject.  Used by the four two-argument mutation methods —
-/// shared so error messages stay aligned across
-/// `appendChild`/`removeChild`/…
+/// HostObject.  Used by every Node method that accepts a `Node`
+/// argument — `contains`, `appendChild`, `removeChild`,
+/// `insertBefore`, `replaceChild` — so WebIDL-style conversion and
+/// error messages stay aligned across callers.
 ///
 /// Rejects:
 /// - values that are not `HostObject` wrappers,

@@ -82,11 +82,11 @@ impl VmInner {
         self.install_element_matches(proto_id);
     }
 
-    /// Install Element-only tree-navigation accessors — the
-    /// ParentNode / NonDocumentTypeChildNode mixins plus
-    /// `parentElement` (WHATWG DOM §4.4 / §4.9).  Node-level
-    /// accessors (`firstChild`, `childNodes`, …) live on
-    /// `Node.prototype`.
+    /// Install Element-only tree-navigation accessors from the
+    /// ParentNode / NonDocumentTypeChildNode mixins defined on
+    /// `Element.prototype` (WHATWG DOM §4.4 / §4.9).  Node-level
+    /// accessors (`parentNode`, `parentElement`, `firstChild`,
+    /// `childNodes`, …) live on `Node.prototype`.
     fn install_element_tree_nav(&mut self, proto_id: ObjectId) {
         for (name_sid, getter) in [
             (
