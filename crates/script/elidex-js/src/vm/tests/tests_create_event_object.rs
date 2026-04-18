@@ -69,7 +69,14 @@ fn core_properties_installed_and_typed() {
         expect_data(&vm, obj, "currentTarget"),
         JsValue::Object(current)
     );
-    assert_eq!(expect_data(&vm, obj, "timeStamp"), JsValue::Number(0.0));
+    let ts = match expect_data(&vm, obj, "timeStamp") {
+        JsValue::Number(n) => n,
+        other => panic!("timeStamp: expected Number, got {other:?}"),
+    };
+    assert!(
+        ts.is_finite() && ts >= 0.0,
+        "timeStamp must be a finite non-negative number, got {ts}"
+    );
     assert_eq!(expect_data(&vm, obj, "composed"), JsValue::Boolean(false));
     assert_eq!(expect_data(&vm, obj, "isTrusted"), JsValue::Boolean(true));
 
@@ -358,6 +365,50 @@ fn event_object_kind_carries_flag_seed() {
     assert!(default_prevented, "flag carried over from DispatchFlags");
     assert!(passive, "passive propagated from argument");
     assert!(cancelable, "cancelable copied from DispatchEvent");
+
+    vm.unbind();
+}
+
+#[test]
+fn timestamp_is_monotonic_and_shares_origin_with_performance_now() {
+    // PR4d C1: `Event.timeStamp` must use the same `start_instant`
+    // clock as `performance.now()` (HR-Time §5: identical time origin
+    // means values inside the same listener body are directly
+    // comparable).  Two back-to-back events read non-decreasing
+    // values, and a `performance.now()` reading sandwiched between
+    // them lies in the same range.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("div", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let target = vm.inner.create_element_wrapper(el);
+    let ev = make_event("click", true, EventPayload::None, el);
+
+    let obj1 = vm.inner.create_event_object(&ev, target, target, false);
+    let now_ms = vm.inner.start_instant.elapsed().as_secs_f64() * 1000.0;
+    let obj2 = vm.inner.create_event_object(&ev, target, target, false);
+
+    let JsValue::Number(ts1) = expect_data(&vm, obj1, "timeStamp") else {
+        unreachable!()
+    };
+    let JsValue::Number(ts2) = expect_data(&vm, obj2, "timeStamp") else {
+        unreachable!()
+    };
+    assert!(ts1 >= 0.0 && ts1.is_finite(), "ts1 = {ts1}");
+    assert!(ts2 >= ts1, "non-monotonic: ts1={ts1} ts2={ts2}");
+    // The interleaved performance.now() reading must fall inside the
+    // event timestamps' span (identical clock, same origin).
+    assert!(
+        now_ms >= ts1 && now_ms <= ts2 + 1e-3,
+        "performance.now()={now_ms} not within [ts1={ts1}, ts2={ts2}]"
+    );
 
     vm.unbind();
 }

@@ -287,8 +287,8 @@ pub(crate) struct VmInner {
     /// observed inside the same listener are directly comparable
     /// (spec requirement — the time origin is the same).
     ///
-    /// `Event.timeStamp` wiring lands in PR4d; the field is consumed
-    /// here by `performance.now()` (PR4b C5).
+    /// Consumed by `performance.now()` (PR4b C5) and
+    /// `Event.timeStamp` (PR4d C1).
     ///
     /// Engine-only: both consumers (`performance.now`, `Event.timeStamp`)
     /// live behind `#[cfg(feature = "engine")]`, so gating the field
