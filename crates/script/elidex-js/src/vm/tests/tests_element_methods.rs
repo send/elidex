@@ -1511,6 +1511,137 @@ fn append_child_rejects_window_argument() {
 }
 
 #[test]
+fn shadow_host_hides_shadow_root_from_light_tree_traversal() {
+    // A host with an attached shadow root and one light-DOM child
+    // must expose ONLY the light child via `firstChild` /
+    // `lastChild` / `childNodes` / `hasChildNodes()`.  The shadow
+    // root is internal and must not leak through any of these
+    // accessors.
+    use elidex_ecs::ShadowRootMode;
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+    // div currently has one child (span).  Attach a shadow root
+    // and also place a node inside it.
+    let shadow_root = dom
+        .attach_shadow(div, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let shadow_el = dom.create_element("article", Attributes::default());
+    assert!(dom.append_child(shadow_root, shadow_el));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+
+    // firstChild / lastChild resolve to the span, not the shadow root.
+    let v = vm.eval("_div.firstChild.tagName;").unwrap();
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "SPAN");
+    let v = vm.eval("_div.lastChild.tagName;").unwrap();
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "SPAN");
+
+    // childNodes / childElementCount count the span only.
+    assert!(matches!(
+        vm.eval("_div.childNodes.length;").unwrap(),
+        JsValue::Number(n) if (n - 1.0).abs() < f64::EPSILON
+    ));
+    assert!(matches!(
+        vm.eval("_div.hasChildNodes();").unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn shadow_host_has_child_nodes_false_when_only_shadow_root() {
+    // A host whose ONLY child is a shadow root reports
+    // `hasChildNodes() === false` (light-tree empty), matching the
+    // browser where `childNodes.length` is also 0.
+    use elidex_ecs::ShadowRootMode;
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let host = dom.create_element("section", {
+        let mut a = Attributes::default();
+        a.set("id", "shadow-host");
+        a
+    });
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+    assert!(dom.append_child(body, host));
+    let _ = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow");
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval("document.getElementById('shadow-host').hasChildNodes();")
+            .unwrap(),
+        JsValue::Boolean(false)
+    ));
+    assert!(matches!(
+        vm.eval("document.getElementById('shadow-host').firstChild;")
+            .unwrap(),
+        JsValue::Null
+    ));
+    assert!(matches!(
+        vm.eval("document.getElementById('shadow-host').childNodes.length;")
+            .unwrap(),
+        JsValue::Number(n) if n.abs() < f64::EPSILON
+    ));
+
+    vm.unbind();
+}
+
+#[test]
+fn contains_stops_at_shadow_boundary() {
+    // `host.contains(nodeInsideShadow)` must be false — the shadow
+    // root is NOT a light-tree descendant of its host, even though
+    // elidex stores it as a child for convenience.
+    use elidex_ecs::ShadowRootMode;
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+    let shadow_root = dom
+        .attach_shadow(div, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let shadow_el = dom.create_element("article", Attributes::default());
+    assert!(dom.append_child(shadow_root, shadow_el));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    let shadow_el_wrapper = vm.inner.create_element_wrapper(shadow_el);
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    vm.set_global("_shadow_el", JsValue::Object(shadow_el_wrapper));
+
+    assert!(matches!(
+        vm.eval("_div.contains(_shadow_el);").unwrap(),
+        JsValue::Boolean(false)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
 fn closest_stops_at_shadow_boundary() {
     // When walking ancestors from inside a shadow tree, `closest`
     // must stop at the shadow root (approximated by "non-Element

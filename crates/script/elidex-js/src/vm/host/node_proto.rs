@@ -249,7 +249,10 @@ fn native_node_get_first_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.get_first_child(e))
+    // `children_iter` skips `ShadowRoot` entities so `firstChild`
+    // never leaks a shadow root — matches `childNodes` and the Web
+    // platform.
+    tree_nav_getter(ctx, this, |dom, e| dom.children_iter(e).next())
 }
 
 fn native_node_get_last_child(
@@ -257,7 +260,8 @@ fn native_node_get_last_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.get_last_child(e))
+    // Same shadow-root-skipping rationale as `firstChild`.
+    tree_nav_getter(ctx, this, |dom, e| dom.children_iter_rev(e).next())
 }
 
 fn native_node_get_next_sibling(
@@ -265,7 +269,7 @@ fn native_node_get_next_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.get_next_sibling(e))
+    tree_nav_getter(ctx, this, |dom, e| dom.next_exposed_sibling(e))
 }
 
 fn native_node_get_previous_sibling(
@@ -273,7 +277,7 @@ fn native_node_get_previous_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.get_prev_sibling(e))
+    tree_nav_getter(ctx, this, |dom, e| dom.prev_exposed_sibling(e))
 }
 
 fn native_node_get_child_nodes(
@@ -563,8 +567,11 @@ fn native_node_has_child_nodes(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
+    // Use `children_iter` (skips shadow roots) so a host whose only
+    // child is a shadow root reports `false`, consistent with
+    // `childNodes.length === 0`.
     Ok(JsValue::Boolean(
-        ctx.host().dom().get_first_child(entity).is_some(),
+        ctx.host().dom().children_iter(entity).next().is_some(),
     ))
 }
 
@@ -589,10 +596,13 @@ fn native_node_contains(
     if self_entity == other_entity {
         return Ok(JsValue::Boolean(true));
     }
+    // Use the shadow-boundary-aware ancestor check so
+    // `host.contains(nodeInsideShadow)` returns `false` (shadow
+    // roots are not light-tree descendants of their host).
     Ok(JsValue::Boolean(
         ctx.host()
             .dom()
-            .is_ancestor_or_self(self_entity, other_entity),
+            .is_light_tree_ancestor_or_self(self_entity, other_entity),
     ))
 }
 

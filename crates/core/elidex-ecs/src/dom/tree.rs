@@ -335,6 +335,37 @@ impl EcsDom {
         None
     }
 
+    /// Return the next sibling of `entity` that is **exposed** as a
+    /// DOM child — i.e. does not carry a [`ShadowRoot`] component.
+    /// Mirrors the filtering `children_iter` applies, for walks that
+    /// start from a specific sibling rather than the parent's first
+    /// child.
+    #[must_use]
+    pub fn next_exposed_sibling(&self, entity: Entity) -> Option<Entity> {
+        let mut current = self.get_next_sibling(entity);
+        while let Some(sib) = current {
+            if self.world.get::<&ShadowRoot>(sib).is_err() {
+                return Some(sib);
+            }
+            current = self.get_next_sibling(sib);
+        }
+        None
+    }
+
+    /// Symmetric partner of [`Self::next_exposed_sibling`] — walks
+    /// the prev-sibling chain, skipping shadow-root entities.
+    #[must_use]
+    pub fn prev_exposed_sibling(&self, entity: Entity) -> Option<Entity> {
+        let mut current = self.get_prev_sibling(entity);
+        while let Some(sib) = current {
+            if self.world.get::<&ShadowRoot>(sib).is_err() {
+                return Some(sib);
+            }
+            current = self.get_prev_sibling(sib);
+        }
+        None
+    }
+
     /// Return the first direct child of `parent` whose tag name
     /// matches `tag` (ASCII case-insensitive).  Non-element children
     /// are skipped.
@@ -449,6 +480,41 @@ impl EcsDom {
     #[must_use]
     pub fn is_ancestor_or_self(&self, ancestor: Entity, descendant: Entity) -> bool {
         self.is_ancestor(ancestor, descendant)
+    }
+
+    /// Inclusive light-tree ancestor check: like
+    /// [`Self::is_ancestor_or_self`] but stops at the shadow
+    /// boundary.  A [`ShadowRoot`] component terminates the walk —
+    /// hosts therefore do **not** light-tree-contain their shadow
+    /// descendants, matching WHATWG "descendant" semantics (§4.2.1).
+    /// Queries where the ancestor **is** the shadow root itself
+    /// still succeed — `entity == ancestor` is checked before the
+    /// boundary test on each iteration.
+    ///
+    /// Used by `Node.prototype.contains` (WHATWG §4.4.2) so
+    /// `host.contains(nodeInShadowTree)` returns `false` in step
+    /// with `childNodes`, `firstChild`, and the rest of the
+    /// light-tree navigation surface.
+    #[must_use]
+    pub fn is_light_tree_ancestor_or_self(&self, ancestor: Entity, descendant: Entity) -> bool {
+        let mut current = Some(descendant);
+        let mut depth = 0;
+        while let Some(entity) = current {
+            if entity == ancestor {
+                return true;
+            }
+            // Shadow root is not a light-tree child of its host, so
+            // the walk stops here even if `ancestor` lies above.
+            if self.world.get::<&ShadowRoot>(entity).is_ok() {
+                return false;
+            }
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+            current = self.get_parent(entity);
+        }
+        false
     }
 
     /// Like `is_ancestor_or_self`, but when the walk reaches a `ShadowRoot`,
