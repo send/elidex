@@ -597,9 +597,25 @@ fn native_abort_signal_dispatch_event(
 /// Building a real Event here requires the `new Event(...)`
 /// constructor surface (not yet implemented).
 ///
-/// The abort listeners + onabort handler are cleared after firing to
-/// implement WHATWG's one-shot semantics — re-aborting is a no-op
-/// because the listener list is empty.
+/// # GC safety
+///
+/// The callback `ObjectId`s **must remain rooted** in
+/// `abort_signal_states` for the duration of dispatch.  If we
+/// `mem::take` them into a Rust local before iterating, a GC
+/// triggered by an earlier callback can reclaim the function
+/// objects we have not yet called (those `ObjectId`s would no
+/// longer be reachable from any GC root).  Instead we set the
+/// latch (`aborted = true`) up front — re-entrant
+/// `addEventListener` then short-circuits via the already-aborted
+/// guard — clone the `ObjectId` list into a local for stable
+/// iteration, and leave the originals in `state` so the trace
+/// step keeps marking them.  The `abort_listeners` Vec is drained
+/// at the very end to honour WHATWG's one-shot semantics.
+///
+/// `onabort` is intentionally **not** cleared by dispatch.  The
+/// IDL handler attribute remains observable from script after
+/// the event fires (browsers expose the same handler reference
+/// to subsequent `signal.onabort` reads).
 fn abort_signal(
     ctx: &mut NativeContext<'_>,
     signal_id: ObjectId,
@@ -625,18 +641,22 @@ fn abort_signal(
         reason
     };
 
-    // Snapshot listeners + handler, then clear state — calling user
-    // code while holding the borrow would re-enter via
-    // `signal.addEventListener` etc., and we want the new
-    // registration to be ignored (the signal already aborted).
+    // Latch state and snapshot for iteration.  `onabort` and
+    // `abort_listeners` are *cloned* (not taken) so they remain
+    // reachable from `abort_signal_states` while user callbacks
+    // run — see the # GC safety section above.
+    //
+    // `bound_listener_removals` is drained because its content is
+    // `(Entity, ListenerId)` pairs (no `ObjectId`s), so the GC has
+    // nothing to lose by moving them out.
     let (onabort, listeners, removals) = {
         let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) else {
             return Ok(());
         };
         state.aborted = true;
         state.reason = materialised_reason;
-        let onabort = state.onabort.take();
-        let listeners = std::mem::take(&mut state.abort_listeners);
+        let onabort = state.onabort;
+        let listeners = state.abort_listeners.clone();
         let removals = std::mem::take(&mut state.bound_listener_removals);
         (onabort, listeners, removals)
     };
@@ -657,6 +677,16 @@ fn abort_signal(
     for cb in listeners {
         let _ = ctx.call_function(cb, signal_val, &[JsValue::Undefined]);
     }
+
+    // One-shot: drain the listener list so a hypothetical second
+    // `controller.abort()` (already a no-op via the latch above)
+    // and any post-dispatch introspection see an empty list.
+    // `onabort` is intentionally retained — the IDL handler stays
+    // observable post-abort, matching browser behaviour.
+    if let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) {
+        state.abort_listeners.clear();
+    }
+
     Ok(())
 }
 
@@ -696,14 +726,31 @@ fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
 /// `EventListeners` component and the `HostData::listener_store`.
 /// Used when an `AbortSignal` aborts to drop listeners registered via
 /// `addEventListener({signal})`.
+///
+/// The two cleanup steps have **independent prerequisites**:
+///
+/// - `listener_store` removal requires only that `HostData` be
+///   *installed* — the entries can be cleaned up regardless of the
+///   bind state because the store is in-VM.
+/// - ECS `EventListeners` mutation requires the world to be *bound*
+///   (we need a live `EcsDom` pointer).
+///
+/// Combining the two under a single `host_if_bound()` early-return
+/// would leak `listener_store` entries (and keep their JS function
+/// `ObjectId`s rooted) whenever `controller.abort()` runs across an
+/// unbind boundary — e.g. JS retained the controller in a global
+/// and the shell unbound the VM between the registration and the
+/// abort.  Splitting the prerequisites keeps both stores in sync
+/// regardless of bind state.
 fn detach_bound_listeners(ctx: &mut NativeContext<'_>, removals: &[(Entity, ListenerId)]) {
-    if removals.is_empty() || ctx.host_if_bound().is_none() {
+    if removals.is_empty() {
         return;
     }
+    let bound = ctx.host_if_bound().is_some();
     for &(entity, listener_id) in removals {
-        // Drop from ECS first (scoped block so the world borrow
-        // releases before we re-grab `host` for listener_store).
-        {
+        if bound {
+            // Drop from ECS first (scoped block so the world borrow
+            // releases before we re-grab `host` for listener_store).
             let dom = ctx.host().dom();
             if let Ok(mut listeners) = dom
                 .world_mut()
@@ -712,6 +759,13 @@ fn detach_bound_listeners(ctx: &mut NativeContext<'_>, removals: &[(Entity, List
                 listeners.remove(listener_id);
             }
         }
-        ctx.host().remove_listener(listener_id);
+        // listener_store cleanup runs whether or not the VM is
+        // currently bound — we just need `HostData` itself to be
+        // installed.  Skipping this when unbound would leave the JS
+        // function `ObjectId` rooted via `gc_root_object_ids` for
+        // the rest of the VM's life.
+        if let Some(host) = ctx.host_opt() {
+            host.remove_listener(listener_id);
+        }
     }
 }

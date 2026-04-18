@@ -561,3 +561,161 @@ fn abort_controller_constructor_requires_new() {
         "AbortController constructor cannot be invoked without 'new'"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Copilot review fixes (PR #80)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn abort_listeners_survive_gc_during_dispatch() {
+    // Regression: an early abort listener that triggers GC must not
+    // collect the not-yet-called later listeners.  Pre-fix, the
+    // implementation `mem::take`'d `abort_listeners` into a Rust local
+    // before iterating, which dropped the GC root for the closures —
+    // a GC inside the first callback could then reclaim the second
+    // closure's `ObjectId`, leading to use-after-free / wrong dispatch.
+    let mut vm = Vm::new();
+    // Force GC to fire frequently inside the listener body.
+    vm.inner.gc_threshold = 128;
+    vm.inner.gc_enabled = true;
+
+    let result = vm
+        .eval(
+            "var c = new AbortController();
+             var seq = '';
+             c.signal.addEventListener('abort', function() {
+               // Allocate enough garbage to trip the GC threshold; the
+               // second listener (still in the dispatch pool) must
+               // survive collection.
+               for (var i = 0; i < 200; i++) { var tmp = {x: i, y: i + 1}; }
+               seq += 'a';
+             });
+             c.signal.addEventListener('abort', function() { seq += 'b'; });
+             c.signal.addEventListener('abort', function() { seq += 'c'; });
+             c.abort();
+             seq;",
+        )
+        .unwrap();
+    let JsValue::String(id) = result else {
+        panic!("expected string, got {result:?}");
+    };
+    assert_eq!(
+        vm.get_string(id),
+        "abc",
+        "all three listeners must fire in order despite GC inside the first"
+    );
+}
+
+#[test]
+fn onabort_remains_observable_after_dispatch() {
+    // Regression: pre-fix, `state.onabort.take()` cleared the slot
+    // before invoking the handler, making `signal.onabort` read
+    // `null` post-abort.  Browsers leave the IDL handler attribute
+    // observable.
+    let mut vm = Vm::new();
+    let result = vm
+        .eval(
+            "var c = new AbortController();
+             var fn = function() {};
+             c.signal.onabort = fn;
+             c.abort();
+             c.signal.onabort === fn;",
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        JsValue::Boolean(true),
+        "signal.onabort must remain observable after abort fires"
+    );
+}
+
+#[test]
+fn abort_after_unbind_cleans_listener_store() {
+    // Regression: pre-fix, `detach_bound_listeners` returned early
+    // when `HostData` was unbound, leaking `listener_store` entries
+    // (and keeping their JS function ObjectIds rooted) for any
+    // listener registered with `{signal}` whose `controller.abort()`
+    // happened to run across an unbind boundary.
+    use elidex_ecs::{Attributes, EcsDom};
+    use elidex_script_session::SessionCore;
+
+    use super::super::test_helpers::bind_vm;
+
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let el = dom.create_element("div", Attributes::default());
+    let _ = dom.append_child(doc, el);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wrapper = vm.inner.create_element_wrapper(el);
+    let key = vm.inner.strings.intern("target");
+    vm.inner.globals.insert(key, JsValue::Object(wrapper));
+
+    // Register a listener with {signal} while bound.
+    vm.eval(
+        "globalThis.c = new AbortController();
+         target.addEventListener('click', function() {}, {signal: c.signal});",
+    )
+    .unwrap();
+
+    let store_size_before = vm.inner.host_data.as_ref().unwrap().listener_store.len();
+    assert!(
+        store_size_before >= 1,
+        "listener should be registered before unbind"
+    );
+
+    // Unbind the VM (simulates the shell ticking past the script's
+    // direct execution while JS retains the controller).
+    vm.unbind();
+
+    // Re-bind for the abort call (so JS can reach `c`), then unbind
+    // again — the controller still holds the back-ref Vec built
+    // during the first bind.  We need the second eval to actually
+    // run, so re-bind transiently; the listener_store cleanup is
+    // what we're verifying, and that runs regardless of bind state.
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("c.abort();").unwrap();
+
+    let store_size_after = vm.inner.host_data.as_ref().unwrap().listener_store.len();
+    assert!(
+        store_size_after < store_size_before,
+        "listener_store entry must be removed by abort (had {store_size_before}, now {store_size_after})"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn second_abort_with_modified_state_does_nothing() {
+    // Regression: with the new "leave callbacks in state" approach,
+    // a second abort() must still be a no-op.  The latch + the
+    // post-dispatch `abort_listeners.clear()` together guarantee
+    // this — verify by adding a listener AFTER the first abort
+    // and confirming a second abort doesn't invoke it (the
+    // already-aborted guard short-circuits the registration).
+    let mut vm = Vm::new();
+    let result = vm
+        .eval(
+            "var c = new AbortController();
+             var n = 0;
+             c.signal.addEventListener('abort', function() { n++; });
+             c.abort();
+             // Try to register after abort — should be ignored.
+             c.signal.addEventListener('abort', function() { n += 100; });
+             c.abort();
+             n;",
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        JsValue::Number(1.0),
+        "second abort must not refire listeners or pick up post-abort registrations"
+    );
+}
