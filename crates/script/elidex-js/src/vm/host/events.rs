@@ -35,7 +35,7 @@
 //! | `eventPhase` | `event.phase as u8` | data, RO |
 //! | `target` | `target_wrapper_id` | data, RO |
 //! | `currentTarget` | `current_target_id` | data, RO |
-//! | `timeStamp` | `0.0` (TODO: PR4 `performance.now()`) | data, RO |
+//! | `timeStamp` | `start_instant.elapsed()` ms (shared with `performance.now`) | data, RO |
 //! | `composed` | `event.composed` | data, RO |
 //! | `isTrusted` | `event.is_trusted` | data, RO |
 //! | `<payload-specific>` | `event.payload` | data, RO |
@@ -45,7 +45,6 @@
 //! - `returnValue` legacy accessor → revisit when WPT
 //!   `events/Event-*.html` runs.
 //! - `initEvent` / `initXXXEvent` legacy initializers → rare, skipped.
-//! - Timestamp population → `performance.now()` lands in PR4.
 
 #![cfg(feature = "engine")]
 
@@ -204,9 +203,12 @@ impl VmInner {
         slots.push(PropertyValue::Data(JsValue::Object(
             current_target_wrapper_id,
         )));
-        // `timeStamp` held at 0.0 until `performance.now()` lands in
-        // PR4 (tracked in zesty-inventing-galaxy.md PR4 section).
-        slots.push(PropertyValue::Data(JsValue::Number(0.0)));
+        // `timeStamp` is the monotonic ms elapsed since `Vm::new` —
+        // shares `start_instant` with `performance.now()` so values
+        // inside the same listener body are directly comparable
+        // (HR-Time §5: identical time origin).
+        let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
+        slots.push(PropertyValue::Data(JsValue::Number(timestamp_ms)));
         slots.push(PropertyValue::Data(JsValue::Boolean(event.composed)));
         slots.push(PropertyValue::Data(JsValue::Boolean(event.is_trusted)));
 

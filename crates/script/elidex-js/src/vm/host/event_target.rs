@@ -44,6 +44,12 @@ impl VmInner {
     /// The three method bodies are **stubs** at C0 — see module doc for
     /// the per-method replacement schedule.
     pub(in crate::vm) fn register_event_target_prototype(&mut self) {
+        // `create_object_with_methods` interns the literal names; the
+        // resulting StringIds match `WellKnownStrings`'s pre-cached
+        // entries by construction (`StringPool::intern` is
+        // deduplicating), so `AbortSignal.prototype`'s shadow
+        // installer can use the well-known IDs and land on the same
+        // shape slots as the override target.
         let proto_id = self.create_object_with_methods(&[
             (
                 "addEventListener",
@@ -90,23 +96,33 @@ pub(super) fn native_event_target_add_event_listener(
 ///    Otherwise must be callable; non-callable throws `TypeError`.
 /// 4. `options` (`arg[2]`):
 ///    - boolean → `capture` flag.
-///    - object → `{capture, once, passive}` properties read as
-///      booleans.  Missing keys default to `false`.
-///    - undefined / missing → all flags `false`.
-/// 5. Duplicate check (§2.6 step 4): `(type, callback, capture)` —
+///    - object → `{capture, once, passive, signal}` properties read.
+///      Missing booleans default to `false`; missing/`null`/`undefined`
+///      `signal` means no AbortSignal is bound.  A non-AbortSignal
+///      `signal` value throws `TypeError` (WebIDL `AbortSignal?`).
+///    - undefined / missing → all flags `false`, no signal.
+/// 5. WHATWG §2.6.3 step 3: an already-aborted `signal` short-circuits
+///    registration entirely — no ECS write, no listener_store entry,
+///    no back-ref.
+/// 6. Duplicate check (§2.6 step 4): `(type, callback, capture)` —
 ///    `once` and `passive` are NOT part of the identity tuple.  A
 ///    second `addEventListener` with the same triple is silently
 ///    discarded.
-/// 6. The new listener is recorded in two places:
+/// 7. The new listener is recorded in three places:
 ///    - ECS `EventListeners` component on `entity` (metadata: type,
 ///      capture, once, passive).
 ///    - `HostData::listener_store` (`ListenerId` → JS function
 ///      `ObjectId`).  Both are GC-rooted via
 ///      `HostData::gc_root_object_ids()`.
+///    - When `{signal}` is provided: an entry in
+///      `abort_signal_states[signal_id].bound_listener_removals`
+///      plus a reverse-index entry in
+///      `VmInner::abort_listener_back_refs`, so `controller.abort()`
+///      can detach in O(1) and `removeEventListener` /
+///      `{once}` auto-removal can prune the back-ref symmetrically.
 ///
 /// Deferred:
-/// - `signal` option (AbortSignal) → PR4 once `AbortController` lands.
-/// - Object-form callback with `handleEvent` method (§2.7 step 8) →
+/// - Object-form callback with `handleEvent` method (§2.7 step 8) —
 ///   not yet a hot-path.
 #[cfg(feature = "engine")]
 pub(super) fn native_event_target_add_event_listener(
@@ -142,6 +158,22 @@ pub(super) fn native_event_target_add_event_listener(
 
     // Argument 2: options — boolean (capture only) or object form.
     let options = parse_listener_options(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
+
+    // WHATWG §2.6.3 step 3: an already-aborted signal short-circuits
+    // registration entirely — listener is never added.  Subsequent
+    // `controller.abort()` is a no-op for one-shot semantics, so the
+    // listener would have nothing to detach anyway.  Read-only borrow
+    // keeps this off the hot path for the common `signal === None` case.
+    if let Some(signal_id) = options.signal {
+        if ctx
+            .vm
+            .abort_signal_states
+            .get(&signal_id)
+            .is_some_and(|s| s.aborted)
+        {
+            return Ok(JsValue::Undefined);
+        }
+    }
 
     // Duplicate check: WHATWG §2.6 step 4 excludes `once` / `passive`
     // from identity, so we look up by (type, capture, callback).
@@ -193,6 +225,24 @@ pub(super) fn native_event_target_add_event_listener(
     // Stash the JS function ObjectId so dispatch can look it up.
     ctx.host().store_listener(listener_id, listener_obj_id);
 
+    // Tie this listener to the AbortSignal back-ref list so
+    // `controller.abort()` can detach it from the host's
+    // `EventListeners` component.  Done after `store_listener` so
+    // `detach_bound_listeners` (in `host::abort`) can clean up both
+    // the ECS slot and the JS function root in lockstep.  Also write
+    // a reverse index entry so `removeEventListener` can prune the
+    // back-ref in O(1) when the listener is dropped before abort —
+    // without that prune, a long-lived signal would accumulate stale
+    // entries across add/remove cycles (Copilot R2 finding).
+    if let Some(signal_id) = options.signal {
+        if let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) {
+            state.bound_listener_removals.insert(listener_id, entity);
+            ctx.vm
+                .abort_listener_back_refs
+                .insert(listener_id, signal_id);
+        }
+    }
+
     Ok(JsValue::Undefined)
 }
 
@@ -225,14 +275,20 @@ pub(super) fn entity_from_this(
     elidex_ecs::Entity::from_bits(entity_bits)
 }
 
-/// Parsed listener options — capture / once / passive.  AbortSignal is
-/// not represented yet (PR4).
+/// Parsed listener options — capture / once / passive / signal.
+///
+/// `signal` — `Some(signal_id)` when the caller passed an
+/// `AbortSignal` via `{signal}`.  When that signal aborts, the
+/// runtime detaches this listener from its host's
+/// `EventListeners` component (see
+/// [`super::abort::AbortSignalState::bound_listener_removals`]).
 #[cfg(feature = "engine")]
 #[derive(Default)]
 pub(super) struct ListenerOptions {
     pub(super) capture: bool,
     pub(super) once: bool,
     pub(super) passive: bool,
+    pub(super) signal: Option<ObjectId>,
 }
 
 /// WHATWG DOM §2.6 step 1 — extract listener flags from the third
@@ -267,6 +323,27 @@ fn parse_listener_options(
                     .get_property_value(opts_id, PropertyKey::String(key_sid))?;
                 *slot = super::super::coerce::to_boolean(ctx.vm, v);
             }
+            // `signal` (WebIDL `AbortSignal? signal`): `null` /
+            // `undefined` / missing key all mean "no signal"; any
+            // other non-AbortSignal value is a WebIDL conversion
+            // failure that throws TypeError, matching browsers.
+            let signal_val = ctx
+                .vm
+                .get_property_value(opts_id, PropertyKey::String(ctx.vm.well_known.signal))?;
+            out.signal = match signal_val {
+                JsValue::Undefined | JsValue::Null => None,
+                JsValue::Object(id)
+                    if matches!(ctx.vm.get_object(id).kind, ObjectKind::AbortSignal) =>
+                {
+                    Some(id)
+                }
+                _ => {
+                    return Err(VmError::type_error(
+                        "Failed to execute 'addEventListener' on 'EventTarget': \
+                         member signal is not of type 'AbortSignal'.",
+                    ));
+                }
+            };
             Ok(out)
         }
         // Other types coerce via ToBoolean per WHATWG (treated as
@@ -374,16 +451,24 @@ pub(super) fn native_event_target_remove_event_listener(
 ///
 /// WHATWG DOM §2.7.7: locate any listener whose (type, callback,
 /// capture) tuple matches and remove it from the entity's
-/// `EventListeners` component plus `HostData::listener_store`.
+/// `EventListeners` component, `HostData::listener_store`, and any
+/// `AbortSignal` back-ref pointing at it (the last via the shared
+/// [`super::super::VmInner::remove_listener_and_prune_back_ref`]
+/// helper, which is also called from the `{once}` auto-removal
+/// path).
 ///
 /// Behaviour parallels [`native_event_target_add_event_listener`]:
 /// - Non-HostObject `this` → silent no-op.
-/// - `null` / `undefined` callback → silent no-op (§2.7.7 step 2).
-/// - Non-callable callback → silent no-op (cannot match anything,
-///   spec just no-ops here too — only addEventListener throws).
-/// - Options third arg parsed identically (only `capture` is
-///   meaningful for removal — `once` / `passive` are not part of
-///   identity per §2.6 step 4).
+/// - `null` / `undefined` callback → silent no-op (§2.7.7 step 2:
+///   "If callback is null, then return.").
+/// - Other non-callable callback → throws `TypeError` (matches
+///   `addEventListener`'s WebIDL `EventListener?` conversion;
+///   silently dropping `el.removeEventListener('click', 42)`
+///   would mask user bugs).
+/// - Options third arg: only `capture` is read from the object form
+///   (`once` / `passive` are not part of identity per §2.6 step 4
+///   and reading them would fire user getters that browsers don't
+///   trigger here — see `parse_capture_only`).
 #[cfg(feature = "engine")]
 pub(super) fn native_event_target_remove_event_listener(
     ctx: &mut NativeContext<'_>,
@@ -431,8 +516,8 @@ pub(super) fn native_event_target_remove_event_listener(
     };
 
     // Remove from ECS component first (scoped block so the world
-    // borrow is released before we re-grab `host` for listener_store
-    // cleanup), then from listener_store.
+    // borrow is released before the centralized listener-retirement
+    // helper re-grabs the host).
     {
         let dom = ctx.host().dom();
         if let Ok(mut listeners) = dom
@@ -442,7 +527,12 @@ pub(super) fn native_event_target_remove_event_listener(
             listeners.remove(listener_id);
         }
     }
-    ctx.host().remove_listener(listener_id);
+    // Single helper that drops the listener from both
+    // `HostData::listener_store` AND any AbortSignal back-ref
+    // (`abort_listener_back_refs` + the per-signal HashMap).  Same
+    // helper is invoked by `Engine::remove_listener` for the {once}
+    // auto-removal path so both retirement routes stay in sync.
+    ctx.vm.remove_listener_and_prune_back_ref(listener_id);
 
     Ok(JsValue::Undefined)
 }

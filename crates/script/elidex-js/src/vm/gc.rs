@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 20],
+    proto_roots: [Option<ObjectId>; 21],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -141,6 +141,15 @@ struct GcRoots<'a> {
     /// `feature = "engine"`.
     #[cfg(feature = "engine")]
     navigation: &'a super::host::navigation::NavigationState,
+    /// `AbortSignal` per-instance state, traced when the owning
+    /// signal object survives.  Out-of-band `HashMap` so
+    /// `ObjectKind::AbortSignal` stays payload-free; tracing visits
+    /// every entry whose key was marked, marking the `reason` JsValue
+    /// and every `abort_listeners` callback ObjectId.  Sweep tail
+    /// prunes entries whose key was collected.
+    #[cfg(feature = "engine")]
+    abort_signal_states:
+        &'a std::collections::HashMap<ObjectId, super::host::abort::AbortSignalState>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -278,10 +287,14 @@ fn mark_roots(
 ///
 /// Uses exhaustive matching on `ObjectKind` — adding a new variant without
 /// updating this function will produce a compile error (no wildcard fallback).
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn trace_work_list(
     objects: &[Option<Object>],
     upvalues: &[Upvalue],
+    #[cfg(feature = "engine")] abort_signal_states: &std::collections::HashMap<
+        ObjectId,
+        super::host::abort::AbortSignalState,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -423,6 +436,42 @@ fn trace_work_list(
                     }
                 }
             }
+            // `AbortSignal`'s mutable state lives out-of-band in
+            // `VmInner::abort_signal_states`, keyed by this object's
+            // own `ObjectId`.  Trace it now so reachable callbacks +
+            // the `reason` value survive the sweep.  An entry that's
+            // missing from the map is treated as empty (matches a
+            // freshly allocated signal whose state was never
+            // touched — should not happen because
+            // `create_abort_signal` always inserts, but defensive
+            // here costs nothing and makes the trace robust to
+            // partial construction).
+            #[cfg(feature = "engine")]
+            ObjectKind::AbortSignal => {
+                if let Some(state) = abort_signal_states.get(&ObjectId(obj_idx)) {
+                    mark_value(state.reason, obj_marks, work);
+                    if let Some(handler) = state.onabort {
+                        mark_object(handler, obj_marks, work);
+                    }
+                    for &cb in &state.abort_listeners {
+                        mark_object(cb, obj_marks, work);
+                    }
+                    // `bound_listener_removals` carries (Entity,
+                    // ListenerId) pairs — Entity bits are not
+                    // `ObjectId`s, and `ListenerId` lookups go through
+                    // `HostData::listener_store`, which is itself
+                    // rooted via `gc_root_object_ids`.  No tracing
+                    // needed here.
+                }
+            }
+            // `AbortController` carries the paired signal `ObjectId`
+            // as an internal slot — mark it so the signal survives as
+            // long as the controller is reachable.  Same arm runs on
+            // both feature flavours because the variant exists
+            // unconditionally.
+            ObjectKind::AbortController { signal_id } => {
+                mark_object(*signal_id, obj_marks, work);
+            }
             // No ObjectId references — only StringId / scalar fields.
             // `HostObject` is listed explicitly (not folded under a
             // wildcard) so adding a future field that holds an ObjectId
@@ -440,6 +489,15 @@ fn trace_work_list(
             | ObjectKind::BigIntWrapper(_)
             | ObjectKind::SymbolWrapper(_)
             | ObjectKind::HostObject { .. } => {}
+            // Non-engine builds never construct AbortSignal — the
+            // variant exists in `ObjectKind` regardless of feature
+            // (gating an enum variant requires `cfg_attr` on the
+            // enum, which fragments downstream matching).  Tracing
+            // it as a no-op leak is correct because the
+            // `abort_signal_states` HashMap doesn't exist either —
+            // there's nothing to trace through.
+            #[cfg(not(feature = "engine"))]
+            ObjectKind::AbortSignal => {}
         }
     }
 }
@@ -571,6 +629,10 @@ impl VmInner {
                 self.element_prototype,
                 self.window_prototype,
                 self.event_methods_prototype,
+                #[cfg(feature = "engine")]
+                self.abort_signal_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
@@ -583,6 +645,8 @@ impl VmInner {
             current_timer: self.current_timer.as_ref(),
             #[cfg(feature = "engine")]
             navigation: &self.navigation,
+            #[cfg(feature = "engine")]
+            abort_signal_states: &self.abort_signal_states,
         };
 
         self.gc_work_list.clear();
@@ -597,6 +661,8 @@ impl VmInner {
         trace_work_list(
             roots.objects,
             roots.upvalues,
+            #[cfg(feature = "engine")]
+            roots.abort_signal_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -614,359 +680,34 @@ impl VmInner {
             &self.gc_upvalue_marks,
         );
 
-        // 4. IC invalidation.
+        // 4. AbortSignal out-of-band state cleanup.  Drop entries
+        // whose key `ObjectId` was collected — otherwise a recycled
+        // slot allocated for a different `ObjectKind` would inherit
+        // stale `aborted` / `reason` / listener data.  The reverse
+        // index (`abort_listener_back_refs`) is keyed by
+        // `ListenerId` and valued by signal `ObjectId`; prune entries
+        // whose value points at a now-dead signal so the index stays
+        // bounded.
+        #[cfg(feature = "engine")]
+        {
+            let marks = &self.gc_object_marks;
+            self.abort_signal_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.abort_listener_back_refs
+                .retain(|_, signal_id| bit_get(marks, signal_id.0));
+        }
+
+        // 5. IC invalidation.
         invalidate_ics(&mut self.compiled_functions, &self.gc_object_marks);
 
-        // 5. Reset allocation counter and adjust threshold.
+        // 6. Reset allocation counter and adjust threshold.
         self.gc_bytes_since_last = 0;
         self.gc_threshold = (live_count * 128).max(32768);
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::super::shape;
-    use super::super::value::{
-        FunctionObject, JsValue, Object, ObjectKind, Property, PropertyStorage, PropertyValue,
-        Upvalue, UpvalueState,
-    };
-    use super::super::Vm;
-
-    /// Helper: create a VM and return mutable access to inner.
-    fn test_vm() -> Vm {
-        Vm::new()
-    }
-
-    /// Helper: create an ordinary Object with a given prototype.
-    fn ordinary(proto: Option<super::super::value::ObjectId>) -> Object {
-        Object {
-            kind: ObjectKind::Ordinary,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: proto,
-            extensible: true,
-        }
-    }
-
-    // ── Basic correctness ─────────────────────────────────
-
-    #[test]
-    fn gc_collects_unreachable_object() {
-        let mut vm = test_vm();
-        let id = vm.inner.alloc_object(ordinary(None));
-        // Object is not referenced by any root.
-        vm.inner.gc_enabled = true;
-        vm.inner.collect_garbage();
-        assert!(vm.inner.objects[id.0 as usize].is_none());
-    }
-
-    #[test]
-    fn gc_retains_reachable_from_stack() {
-        let mut vm = test_vm();
-        let id = vm.inner.alloc_object(ordinary(None));
-        vm.inner.stack.push(JsValue::Object(id));
-        vm.inner.collect_garbage();
-        assert!(vm.inner.objects[id.0 as usize].is_some());
-        vm.inner.stack.pop();
-    }
-
-    #[test]
-    fn gc_retains_reachable_from_global() {
-        let mut vm = test_vm();
-        let id = vm.inner.alloc_object(ordinary(None));
-        let key = vm.inner.strings.intern("test_global");
-        vm.inner.globals.insert(key, JsValue::Object(id));
-        vm.inner.collect_garbage();
-        assert!(vm.inner.objects[id.0 as usize].is_some());
-    }
-
-    #[test]
-    fn gc_traces_prototype_chain() {
-        let mut vm = test_vm();
-        let parent = vm.inner.alloc_object(ordinary(None));
-        let child = vm.inner.alloc_object(ordinary(Some(parent)));
-        // Root the child only.
-        vm.inner.stack.push(JsValue::Object(child));
-        vm.inner.collect_garbage();
-        assert!(
-            vm.inner.objects[parent.0 as usize].is_some(),
-            "parent should survive via prototype chain"
-        );
-        assert!(vm.inner.objects[child.0 as usize].is_some());
-        vm.inner.stack.pop();
-    }
-
-    #[test]
-    fn gc_collects_unreachable_upvalue() {
-        let mut vm = test_vm();
-        let obj = vm.inner.alloc_object(ordinary(None));
-        let uv_id = vm.inner.alloc_upvalue(Upvalue {
-            state: UpvalueState::Closed(JsValue::Object(obj)),
-        });
-        // Neither the upvalue nor the object is rooted.
-        let _ = uv_id;
-        vm.inner.collect_garbage();
-        assert!(vm.inner.objects[obj.0 as usize].is_none());
-    }
-
-    // ── Object graph traversal ────────────────────────────
-
-    #[test]
-    fn gc_traces_array_elements() {
-        let mut vm = test_vm();
-        let elem = vm.inner.alloc_object(ordinary(None));
-        let arr = vm.inner.alloc_object(Object {
-            kind: ObjectKind::Array {
-                elements: vec![JsValue::Object(elem)],
-            },
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: None,
-            extensible: true,
-        });
-        vm.inner.stack.push(JsValue::Object(arr));
-        vm.inner.collect_garbage();
-        assert!(
-            vm.inner.objects[elem.0 as usize].is_some(),
-            "element should survive via array"
-        );
-        vm.inner.stack.pop();
-    }
-
-    #[test]
-    fn gc_traces_function_upvalues() {
-        let mut vm = test_vm();
-        let captured = vm.inner.alloc_object(ordinary(None));
-        let uv_id = vm.inner.alloc_upvalue(Upvalue {
-            state: UpvalueState::Closed(JsValue::Object(captured)),
-        });
-        let func = vm.inner.alloc_object(Object {
-            kind: ObjectKind::Function(FunctionObject {
-                func_id: super::super::value::FuncId(0),
-                upvalue_ids: vec![uv_id].into(),
-                this_mode: super::super::value::ThisMode::Strict,
-                name: None,
-                captured_this: None,
-            }),
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: None,
-            extensible: true,
-        });
-        vm.inner.stack.push(JsValue::Object(func));
-        vm.inner.collect_garbage();
-        assert!(
-            vm.inner.objects[captured.0 as usize].is_some(),
-            "captured object should survive via upvalue"
-        );
-        vm.inner.stack.pop();
-    }
-
-    #[test]
-    fn gc_traces_bound_function() {
-        let mut vm = test_vm();
-        let target = vm.inner.alloc_object(ordinary(None));
-        let arg_obj = vm.inner.alloc_object(ordinary(None));
-        let bound = vm.inner.alloc_object(Object {
-            kind: ObjectKind::BoundFunction {
-                target,
-                bound_this: JsValue::Undefined,
-                bound_args: vec![JsValue::Object(arg_obj)],
-            },
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: None,
-            extensible: true,
-        });
-        vm.inner.stack.push(JsValue::Object(bound));
-        vm.inner.collect_garbage();
-        assert!(vm.inner.objects[target.0 as usize].is_some());
-        assert!(vm.inner.objects[arg_obj.0 as usize].is_some());
-        vm.inner.stack.pop();
-    }
-
-    #[test]
-    fn gc_traces_accessor_property() {
-        let mut vm = test_vm();
-        let getter = vm.inner.alloc_object(ordinary(None));
-        let key_x = vm.inner.strings.intern("x");
-        let obj = vm.inner.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
-            storage: PropertyStorage::Dictionary(vec![(
-                super::super::value::PropertyKey::String(key_x),
-                Property {
-                    slot: PropertyValue::Accessor {
-                        getter: Some(getter),
-                        setter: None,
-                    },
-                    writable: false,
-                    enumerable: true,
-                    configurable: true,
-                },
-            )]),
-            prototype: None,
-            extensible: true,
-        });
-        vm.inner.stack.push(JsValue::Object(obj));
-        vm.inner.collect_garbage();
-        assert!(
-            vm.inner.objects[getter.0 as usize].is_some(),
-            "getter should survive via accessor"
-        );
-        vm.inner.stack.pop();
-    }
-
-    // ── Sweep + free list ─────────────────────────────────
-
-    #[test]
-    fn gc_free_list_reuse() {
-        let mut vm = test_vm();
-        let id1 = vm.inner.alloc_object(ordinary(None));
-        let idx = id1.0;
-        // Not rooted → will be collected.
-        vm.inner.collect_garbage();
-        assert!(vm.inner.objects[idx as usize].is_none());
-        // Allocate again — should reuse the freed slot.
-        let id2 = vm.inner.alloc_object(ordinary(None));
-        assert_eq!(id2.0, idx, "freed slot should be reused");
-    }
-
-    #[test]
-    fn gc_preserves_already_free_slots() {
-        let mut vm = test_vm();
-        let _initial_free = vm.inner.free_objects.len();
-        // Manually free a slot.
-        let id = vm.inner.alloc_object(ordinary(None));
-        vm.inner.objects[id.0 as usize] = None;
-        vm.inner.collect_garbage();
-        // The manually freed slot + any other free slots should be on the free list.
-        assert!(vm.inner.free_objects.contains(&id.0));
-    }
-
-    // ── IC invalidation ───────────────────────────────────
-
-    #[test]
-    fn gc_invalidates_call_ic() {
-        use crate::bytecode::compiled::CompiledFunction;
-
-        let mut vm = test_vm();
-        let callee = vm.inner.alloc_object(ordinary(None));
-        // Ensure at least one compiled function exists.
-        if vm.inner.compiled_functions.is_empty() {
-            vm.inner.compiled_functions.push(CompiledFunction::new());
-        }
-        // Set up a call IC referencing the callee (not rooted).
-        let cf = vm
-            .inner
-            .compiled_functions
-            .first_mut()
-            .expect("compiled_functions must not be empty");
-        cf.call_ic_slots.push(Some(super::super::ic::CallIC {
-            callee,
-            func_id: super::super::value::FuncId(0),
-            this_mode: super::super::value::ThisMode::Strict,
-            upvalue_ids: std::sync::Arc::from([]),
-            captured_this: None,
-        }));
-        vm.inner.collect_garbage();
-        // The callee was collected → IC should be invalidated.
-        let cf = vm
-            .inner
-            .compiled_functions
-            .first()
-            .expect("compiled_functions must not be empty");
-        let slot = cf
-            .call_ic_slots
-            .last()
-            .expect("call_ic_slots must not be empty");
-        assert!(
-            slot.is_none(),
-            "call IC should be invalidated after callee collected"
-        );
-    }
-
-    #[test]
-    fn gc_invalidates_proto_ic() {
-        use crate::bytecode::compiled::CompiledFunction;
-
-        let mut vm = test_vm();
-        let proto = vm.inner.alloc_object(ordinary(None));
-        // Ensure at least one compiled function exists.
-        if vm.inner.compiled_functions.is_empty() {
-            vm.inner.compiled_functions.push(CompiledFunction::new());
-        }
-        let cf = vm
-            .inner
-            .compiled_functions
-            .first_mut()
-            .expect("compiled_functions must not be empty");
-        cf.ic_slots.push(Some(super::super::ic::PropertyIC {
-            receiver_shape: shape::ROOT_SHAPE,
-            slot: 0,
-            holder: super::super::ic::ICHolder::Proto {
-                proto_shape: shape::ROOT_SHAPE,
-                proto_slot: 0,
-                proto_id: proto,
-            },
-        }));
-        vm.inner.collect_garbage();
-        let cf = vm
-            .inner
-            .compiled_functions
-            .first()
-            .expect("compiled_functions must not be empty");
-        let slot = cf.ic_slots.last().expect("ic_slots must not be empty");
-        assert!(
-            slot.is_none(),
-            "proto IC should be invalidated after proto collected"
-        );
-    }
-
-    // ── E2E ───────────────────────────────────────────────
-
-    #[test]
-    fn gc_heap_bounded_in_loop() {
-        let mut vm = test_vm();
-        // Set very low threshold to force frequent GC.
-        vm.inner.gc_threshold = 128;
-        vm.inner.gc_enabled = true;
-        let result = vm.eval(
-            "var sum = 0; for (var i = 0; i < 1000; i++) { var obj = {x: i}; sum += obj.x; } sum;",
-        );
-        assert_eq!(result.unwrap(), JsValue::Number(499_500.0));
-        // Heap should not have grown to 1000+ objects.
-        let live = vm.inner.objects.iter().filter(|o| o.is_some()).count();
-        // Base live count includes built-in prototypes/constructors (~250).
-        // Without GC, 1000 loop iterations would create 1000+ additional objects.
-        assert!(
-            live < 500,
-            "heap should be bounded by GC, got {live} live objects"
-        );
-    }
-
-    #[test]
-    fn gc_correctness_under_stress() {
-        let mut vm = test_vm();
-        vm.inner.gc_threshold = 128;
-        vm.inner.gc_enabled = true;
-        let result = vm.eval(
-            "
-            function make(n) {
-                if (n <= 0) return {val: 0};
-                var child = make(n - 1);
-                return {val: n, child: child};
-            }
-            var tree = make(20);
-            var sum = 0;
-            var node = tree;
-            while (node !== undefined) {
-                sum += node.val;
-                node = node.child;
-            }
-            sum;
-        ",
-        );
-        // 0 + 1 + 2 + ... + 20 = 210
-        assert_eq!(result.unwrap(), JsValue::Number(210.0));
-    }
-}
+// Tests live in `vm/gc_tests.rs` (sibling module declared in
+// `vm/mod.rs`).  Splitting them out keeps this file under the
+// project's 1000-line convention; the move is mechanical (test
+// bodies unchanged, `super::super::*` paths shortened to `super::*`
+// because the new file sits one level higher in the module tree).

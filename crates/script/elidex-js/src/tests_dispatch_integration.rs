@@ -256,6 +256,71 @@ fn once_listener_auto_removed_after_first_invocation() {
 }
 
 #[test]
+fn once_signal_listener_prunes_abort_back_ref() {
+    // Regression for the {once, signal} interaction: when a listener
+    // registered with both `{once: true}` and `{signal}` fires once,
+    // the auto-removal path goes through `Engine::remove_listener`
+    // (in `event_dispatch::dispatch_phase`) — not through
+    // `removeEventListener`.  Both paths must scrub the AbortSignal
+    // back-ref index, otherwise repeated `addEventListener({once,
+    // signal})` + dispatch cycles leak entries in
+    // `abort_listener_back_refs` and the per-signal back-ref
+    // HashMap.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    let target = dom.create_element("button", Attributes::default());
+    assert!(dom.append_child(doc, target));
+
+    bind_after_dom(&mut engine, &mut session, &mut dom, doc);
+    let wrapper = engine.vm().inner.create_element_wrapper(target);
+    engine.vm().set_global("el", JsValue::Object(wrapper));
+
+    engine
+        .vm()
+        .eval(
+            "globalThis.c = new AbortController();
+             el.addEventListener('click', function () {}, {once: true, signal: c.signal});",
+        )
+        .unwrap();
+
+    // Pre-dispatch: one back-ref entry, listener registered.
+    assert_eq!(
+        engine.vm().inner.abort_listener_back_refs.len(),
+        1,
+        "back-ref should exist before the listener fires"
+    );
+
+    // Fire the event — `{once}` auto-removal triggers
+    // `Engine::remove_listener`, which must also scrub the back-ref.
+    let mut event = DispatchEvent::new_composed("click", target);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    script_dispatch_event(&mut engine, &mut event, &mut ctx);
+
+    assert_eq!(
+        engine.vm().inner.abort_listener_back_refs.len(),
+        0,
+        "{{once,signal}} auto-removal must prune `abort_listener_back_refs`"
+    );
+
+    // The per-signal HashMap must also be empty so a subsequent
+    // `controller.abort()` does no spurious detach work.
+    let signal_id = match engine.vm().eval("c.signal;").unwrap() {
+        JsValue::Object(id) => id,
+        other => panic!("c.signal is not an object: {other:?}"),
+    };
+    let removals_count = engine
+        .vm()
+        .inner
+        .abort_signal_states
+        .get(&signal_id)
+        .map_or(usize::MAX, |s| s.bound_listener_removals.len());
+    assert_eq!(
+        removals_count, 0,
+        "per-signal `bound_listener_removals` must drop the entry too"
+    );
+    engine.vm().unbind();
+}
+
+#[test]
 fn passive_listener_prevent_default_does_not_propagate_to_return() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let target = dom.create_element("div", Attributes::default());

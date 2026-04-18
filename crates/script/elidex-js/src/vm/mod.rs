@@ -15,13 +15,18 @@ mod dispatch_helpers;
 mod dispatch_ic;
 mod dispatch_iter;
 mod dispatch_objects;
+mod error;
 pub(crate) mod gc;
+#[cfg(test)]
+mod gc_tests;
 mod globals;
 mod globals_async;
 mod globals_errors;
+mod globals_primitives;
 mod host;
 pub mod host_data;
 pub(crate) mod ic;
+mod init;
 pub mod interpreter;
 mod native_context;
 mod natives;
@@ -219,6 +224,44 @@ pub(crate) struct VmInner {
     /// `register_globals()` (right after `register_event_target_prototype`
     /// so the chain is built bottom-up).
     pub(crate) window_prototype: Option<ObjectId>,
+    /// `AbortSignal.prototype` — chained directly to
+    /// `EventTarget.prototype` (Node.prototype is **skipped**: WHATWG
+    /// DOM §3.1 / §7.2 — AbortSignal is an EventTarget but not a
+    /// Node, mirroring the Window arrangement).  Holds the signal's
+    /// own-property suite (`aborted`, `reason`, `onabort` accessors;
+    /// `throwIfAborted` method) plus listener overrides that route
+    /// through `abort_signal_states` instead of an ECS entity.
+    /// `None` until `register_abort_signal_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) abort_signal_prototype: Option<ObjectId>,
+    /// Per-signal mutable state, keyed by the `AbortSignal`'s own
+    /// `ObjectId`.  Out-of-band so [`ObjectKind::AbortSignal`] stays
+    /// payload-free and per-variant size discipline is preserved.
+    ///
+    /// GC contract:
+    /// - Trace step (`trace_work_list`) marks every `abort_listeners`
+    ///   callback ObjectId and the `reason` JsValue when the
+    ///   AbortSignal object is reachable.
+    /// - Sweep tail (`collect_garbage`) prunes entries whose key
+    ///   ObjectId was collected, so a recycled slot never inherits
+    ///   stale state.
+    #[cfg(feature = "engine")]
+    pub(crate) abort_signal_states: HashMap<ObjectId, host::abort::AbortSignalState>,
+    /// Reverse index from a `ListenerId` (registered via
+    /// `addEventListener(type, cb, {signal})`) back to the
+    /// `AbortSignal` `ObjectId` that owns it.  Lets
+    /// `removeEventListener` prune the corresponding back-ref entry
+    /// in `abort_signal_states[signal_id].bound_listener_removals`
+    /// in O(1) — without this lookup, the back-ref list would grow
+    /// unbounded across add/remove cycles for a long-lived signal.
+    ///
+    /// GC contract: cleaned alongside `abort_signal_states` in the
+    /// post-sweep pass — entries whose value `ObjectId` was
+    /// collected are dropped, since the owning signal no longer
+    /// exists.
+    #[cfg(feature = "engine")]
+    pub(crate) abort_listener_back_refs: HashMap<elidex_script_session::ListenerId, ObjectId>,
     /// Internal prototype for `ObjectKind::Event` instances.  Holds the
     /// four event methods (`preventDefault`, `stopPropagation`,
     /// `stopImmediatePropagation`, `composedPath`) and the
@@ -287,8 +330,8 @@ pub(crate) struct VmInner {
     /// observed inside the same listener are directly comparable
     /// (spec requirement — the time origin is the same).
     ///
-    /// `Event.timeStamp` wiring lands in PR4d; the field is consumed
-    /// here by `performance.now()` (PR4b C5).
+    /// Consumed by `performance.now()` and `Event.timeStamp` —
+    /// HR-Time §5 requires the two to share a time origin.
     ///
     /// Engine-only: both consumers (`performance.now`, `Event.timeStamp`)
     /// live behind `#[cfg(feature = "engine")]`, so gating the field
@@ -310,6 +353,38 @@ pub(crate) struct VmInner {
 }
 
 impl VmInner {
+    /// Drop a `ListenerId` from `HostData::listener_store` AND prune
+    /// any `AbortSignal` back-ref to it.
+    ///
+    /// This is the canonical retirement path — both
+    /// `removeEventListener` and the `{once}` auto-removal that
+    /// `event_dispatch` triggers via `Engine::remove_listener` route
+    /// through this helper so the back-ref index stays bounded
+    /// regardless of how the listener was retired.  Skipping the
+    /// back-ref scrub would let `abort_listener_back_refs` and
+    /// `abort_signal_states[…].bound_listener_removals` grow
+    /// unbounded across `addEventListener({signal}, {once: true})`
+    /// dispatch cycles.
+    ///
+    /// Engine-only: `abort_signal_states` /
+    /// `abort_listener_back_refs` only exist behind the `engine`
+    /// feature; without it, the helper just defers to
+    /// `host_data.remove_listener`.
+    #[cfg(feature = "engine")]
+    pub(crate) fn remove_listener_and_prune_back_ref(
+        &mut self,
+        listener_id: elidex_script_session::ListenerId,
+    ) {
+        if let Some(host) = self.host_data.as_deref_mut() {
+            host.remove_listener(listener_id);
+        }
+        if let Some(signal_id) = self.abort_listener_back_refs.remove(&listener_id) {
+            if let Some(state) = self.abort_signal_states.get_mut(&signal_id) {
+                state.bound_listener_removals.remove(&listener_id);
+            }
+        }
+    }
+
     /// Allocate a new symbol, returning its `SymbolId`.
     pub(crate) fn alloc_symbol(&mut self, description: Option<StringId>) -> SymbolId {
         let id = SymbolId(self.symbols.len() as u32);
@@ -883,108 +958,6 @@ pub struct Vm {
     pub(crate) inner: VmInner,
 }
 
-impl Vm {
-    /// Create a new VM with built-in globals registered.
-    pub fn new() -> Self {
-        let mut strings = StringPool::new();
-
-        let well_known = WellKnownStrings::intern_all(&mut strings);
-        let (well_known_symbols, symbols) = WellKnownSymbols::alloc_all(&mut strings);
-
-        let mut vm = Vm {
-            inner: VmInner {
-                stack: Vec::with_capacity(256),
-                frames: Vec::with_capacity(16),
-                strings,
-                bigints: BigIntPool::new(),
-                objects: Vec::new(),
-                free_objects: Vec::new(),
-                compiled_functions: Vec::new(),
-                upvalues: Vec::new(),
-                free_upvalues: Vec::new(),
-                globals: HashMap::new(),
-                symbols,
-                symbol_registry: HashMap::new(),
-                symbol_reverse_registry: HashMap::new(),
-                well_known,
-                well_known_symbols,
-                string_prototype: None,
-                symbol_prototype: None,
-                object_prototype: None,
-                array_prototype: None,
-                number_prototype: None,
-                boolean_prototype: None,
-                bigint_prototype: None,
-                function_prototype: None,
-                regexp_prototype: None,
-                array_iterator_prototype: None,
-                string_iterator_prototype: None,
-                // Placeholder — immediately replaced by register_globals().
-                global_object: ObjectId(0),
-                completion_value: JsValue::Undefined,
-                current_exception: JsValue::Undefined,
-                rng_state: {
-                    // Seed from OS-RNG via RandomState so each Vm gets a
-                    // unique sequence without requiring `rand`.
-                    use std::collections::hash_map::RandomState;
-                    use std::hash::{BuildHasher, Hasher};
-                    let mut hasher = RandomState::new().build_hasher();
-                    hasher.write_u64(0);
-                    let seed = hasher.finish();
-                    // Ensure non-zero (xorshift64 fixpoint).
-                    if seed == 0 {
-                        1
-                    } else {
-                        seed
-                    }
-                },
-                shapes: vec![shape::Shape::root()],
-                gc_object_marks: Vec::new(),
-                gc_upvalue_marks: Vec::new(),
-                gc_work_list: Vec::new(),
-                gc_bytes_since_last: 0,
-                gc_threshold: 65536,
-                gc_enabled: false,
-                in_construct: false,
-                host_data: None,
-                promise_prototype: None,
-                microtask_queue: VecDeque::new(),
-                microtask_drain_depth: 0,
-                pending_rejections: Vec::new(),
-                error_prototype: None,
-                aggregate_error_prototype: None,
-                generator_prototype: None,
-                event_target_prototype: None,
-                node_prototype: None,
-                element_prototype: None,
-                window_prototype: None,
-                event_methods_prototype: None,
-                #[cfg(feature = "engine")]
-                precomputed_event_shapes: None,
-                generator_yielded: None,
-                current_microtask: None,
-                timer_queue: BinaryHeap::new(),
-                current_timer: None,
-                next_timer_id: 1,
-                active_timer_ids: HashSet::new(),
-                cancelled_timers: HashSet::new(),
-                #[cfg(feature = "engine")]
-                start_instant: std::time::Instant::now(),
-                #[cfg(feature = "engine")]
-                navigation: host::navigation::NavigationState::new(),
-                #[cfg(feature = "engine")]
-                viewport: host::window::ViewportState::new(),
-            },
-        };
-
-        vm.inner.register_globals();
-        vm.inner.gc_enabled = true;
-        vm
-    }
-
-    // -- Public API --
-    //
-    // The thin wrapper methods that delegate into `VmInner` live in
-    // `vm_api.rs` — split out to keep this file under the 1000-line
-    // convention.
-}
+// `Vm::new` lives in `vm/init.rs` — split out so this file stays
+// focused on type definitions; the thin wrapper methods that
+// delegate into `VmInner` live in `vm/vm_api.rs`.

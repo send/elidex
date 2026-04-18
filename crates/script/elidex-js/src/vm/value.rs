@@ -11,6 +11,11 @@ use std::sync::Arc;
 // ObjectKind variants + external callers resolve them via `value::` paths.
 pub use super::coroutine_types::*;
 
+// `VmError` / `VmErrorKind` live in `vm/error.rs` for the same reason.
+// Re-exported here so the long-established `value::VmError` import path
+// keeps working for downstream code without churn.
+pub use super::error::{VmError, VmErrorKind};
+
 // ---------------------------------------------------------------------------
 // Handle types (u32 indices into Vm tables)
 // ---------------------------------------------------------------------------
@@ -562,6 +567,49 @@ pub enum ObjectKind {
     /// to trace.  The wrapper itself is kept alive by `wrapper_cache`
     /// (rooted via `HostData::gc_root_object_ids`).
     HostObject { entity_bits: u64 },
+    /// `AbortSignal` instance (WHATWG DOM §3.1).  An EventTarget that
+    /// is *not* a Node — its prototype chain skips `Node.prototype`
+    /// and goes directly `AbortSignal.prototype → EventTarget.prototype
+    /// → Object.prototype` (same shape as `Window`).
+    ///
+    /// The mutable signal state (`aborted` flag, `reason` value,
+    /// registered `'abort'` callbacks, and back-references for
+    /// `addEventListener({signal})` auto-removal) lives **out-of-band**
+    /// in `VmInner::abort_signal_states`, keyed by this object's
+    /// `ObjectId`.  Keeping the variant payload-free preserves
+    /// per-variant size discipline (every other DOM-side wrapper is
+    /// also payload-free or holds at most a small `Copy` field) and
+    /// lets GC trace state without widening `ObjectKind`.
+    ///
+    /// GC contract: the trace step looks up the entry in
+    /// `abort_signal_states` and marks `reason` + every
+    /// `abort_listeners` callback ObjectId.  After sweep, dead
+    /// AbortSignal entries are removed from the HashMap so the next
+    /// allocation that recycles the `ObjectId` slot does not inherit
+    /// stale state.
+    AbortSignal,
+    /// `AbortController` instance (WHATWG DOM §3.1).  Carries the
+    /// paired `AbortSignal`'s `ObjectId` as an internal slot — the
+    /// spec models this as `[[signal]]` on the controller, accessible
+    /// only via `controller.signal` and `controller.abort()`.  Storing
+    /// the reference here (rather than reading it back from the
+    /// JS-visible `signal` own property) means user code cannot
+    /// retarget `abort()` by mutating object storage
+    /// (`Object.defineProperty(c, 'signal', {value: alien})`) and
+    /// `AbortController.prototype.abort.call({signal: realSignal})`
+    /// throws TypeError instead of aborting `realSignal` (Copilot
+    /// R4 finding).
+    ///
+    /// The visible `signal` data property is still set by the
+    /// constructor for normal `controller.signal` reads — both the
+    /// own-property write and the internal-slot write happen in
+    /// `native_abort_controller_constructor`, and they always agree
+    /// because user JS cannot reach the constructor's internal-slot
+    /// write path.
+    ///
+    /// GC contract: trace marks `signal_id` so the paired signal
+    /// survives as long as the controller is reachable.
+    AbortController { signal_id: ObjectId },
 }
 
 impl ObjectKind {
@@ -908,108 +956,5 @@ pub struct StringIterState {
     pub index: usize,
 }
 
-// ---------------------------------------------------------------------------
-// VmError
-// ---------------------------------------------------------------------------
-
-/// An error raised during VM execution.
-#[derive(Debug)]
-pub struct VmError {
-    pub kind: VmErrorKind,
-    pub message: String,
-}
-
-/// The kind of VM error.
-#[derive(Debug)]
-pub enum VmErrorKind {
-    TypeError,
-    ReferenceError,
-    RangeError,
-    SyntaxError,
-    /// A URI encoding/decoding error.
-    UriError,
-    /// A user `throw` value — the thrown JS value is preserved.
-    ThrowValue(JsValue),
-    /// Internal VM error (should not occur in correct programs).
-    InternalError,
-    /// Compilation error.
-    CompileError,
-}
-
-impl fmt::Display for VmError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let prefix = match &self.kind {
-            VmErrorKind::TypeError => "TypeError",
-            VmErrorKind::ReferenceError => "ReferenceError",
-            VmErrorKind::RangeError => "RangeError",
-            VmErrorKind::SyntaxError => "SyntaxError",
-            VmErrorKind::UriError => "URIError",
-            VmErrorKind::ThrowValue(_) => "Uncaught",
-            VmErrorKind::InternalError => "InternalError",
-            VmErrorKind::CompileError => "CompileError",
-        };
-        write!(f, "{prefix}: {}", self.message)
-    }
-}
-
-impl std::error::Error for VmError {}
-
-impl VmError {
-    /// Build a VmError carrying a user-thrown JS value.  Used to propagate
-    /// `throw expr` and reject-forwarded reasons through the call stack
-    /// without coercing them back to strings.
-    ///
-    /// A generic `message` is attached for diagnostic paths that log via
-    /// the `Display` impl (timer / microtask callback swallow paths) —
-    /// otherwise `"Uncaught: "` with an empty tail would hit stderr.
-    /// Callers that want a richer message (e.g. the value's display form)
-    /// can build a `VmError` directly.
-    pub fn throw(value: JsValue) -> Self {
-        Self {
-            kind: VmErrorKind::ThrowValue(value),
-            message: "JavaScript value thrown".to_string(),
-        }
-    }
-
-    pub fn type_error(message: impl Into<String>) -> Self {
-        Self {
-            kind: VmErrorKind::TypeError,
-            message: message.into(),
-        }
-    }
-
-    pub fn reference_error(message: impl Into<String>) -> Self {
-        Self {
-            kind: VmErrorKind::ReferenceError,
-            message: message.into(),
-        }
-    }
-
-    pub fn syntax_error(message: impl Into<String>) -> Self {
-        Self {
-            kind: VmErrorKind::SyntaxError,
-            message: message.into(),
-        }
-    }
-
-    pub fn range_error(message: impl Into<String>) -> Self {
-        Self {
-            kind: VmErrorKind::RangeError,
-            message: message.into(),
-        }
-    }
-
-    pub fn uri_error(message: impl Into<String>) -> Self {
-        Self {
-            kind: VmErrorKind::UriError,
-            message: message.into(),
-        }
-    }
-
-    pub fn internal(message: impl Into<String>) -> Self {
-        Self {
-            kind: VmErrorKind::InternalError,
-            message: message.into(),
-        }
-    }
-}
+// `VmError` / `VmErrorKind` moved to `vm/error.rs` (re-exported above
+// so existing `value::VmError` import paths still resolve).

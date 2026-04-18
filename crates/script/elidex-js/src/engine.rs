@@ -114,9 +114,16 @@ impl ScriptEngine for ElidexJsEngine {
     }
 
     fn remove_listener(&mut self, listener_id: ListenerId) {
-        if let Some(host) = self.vm.host_data() {
-            host.remove_listener(listener_id);
-        }
+        // Goes through `VmInner::remove_listener_and_prune_back_ref`
+        // (not `host.remove_listener` directly) so that any
+        // AbortSignal back-ref to this listener is also dropped.
+        // The {once} auto-removal path that `event_dispatch` invokes
+        // through this trait method would otherwise leak both the
+        // back-ref entry and the reverse-index slot — see
+        // `VmInner::remove_listener_and_prune_back_ref`'s doc.
+        self.vm
+            .inner
+            .remove_listener_and_prune_back_ref(listener_id);
     }
 
     fn run_microtasks(&mut self, _ctx: &mut ScriptContext<'_>) {
