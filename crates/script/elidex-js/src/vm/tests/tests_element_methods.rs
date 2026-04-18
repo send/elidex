@@ -1316,6 +1316,7 @@ fn window_does_not_expose_node_members() {
     for expr in [
         "typeof window.nodeType",
         "typeof window.parentNode",
+        "typeof window.parentElement",
         "typeof window.textContent",
         "typeof window.firstChild",
         "typeof window.appendChild",
@@ -1334,6 +1335,33 @@ fn window_does_not_expose_node_members() {
     let v = vm.eval("typeof window.addEventListener;").unwrap();
     let JsValue::String(sid) = v else { panic!() };
     assert_eq!(vm.get_string(sid), "function");
+
+    vm.unbind();
+}
+
+#[test]
+fn text_parent_element_returns_parent_element() {
+    // `parentElement` is a Node member (WHATWG §4.4), not Element-
+    // specific — so a Text wrapper must expose it and return the
+    // parent element when its parent is one.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, body, _p, _div, _span, raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    let body_wrapper = vm.inner.create_element_wrapper(body);
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+    vm.set_global("_body", JsValue::Object(body_wrapper));
+    assert!(matches!(
+        vm.eval("_raw.parentElement === _body;").unwrap(),
+        JsValue::Boolean(true)
+    ));
 
     vm.unbind();
 }

@@ -82,12 +82,8 @@ impl VmInner {
     fn install_element_tree_nav(&mut self, proto_id: ObjectId) {
         for (name_sid, getter) in [
             (
-                self.well_known.parent_element,
-                native_element_get_parent_element as NativeFn,
-            ),
-            (
                 self.well_known.first_element_child,
-                native_element_get_first_element_child,
+                native_element_get_first_element_child as NativeFn,
             ),
             (
                 self.well_known.last_element_child,
@@ -269,24 +265,9 @@ fn collect_children(
 // Natives: tree-navigation accessors
 // ---------------------------------------------------------------------------
 
-fn native_element_get_parent_element(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // parentElement returns the parent only if it is itself an
-    // Element (per WHATWG §4.4) — the document root would otherwise
-    // leak as a parent of `<html>`.
-    tree_nav_getter(ctx, this, |dom, e| match dom.get_parent(e) {
-        Some(p) if dom.world().get::<&TagType>(p).is_ok() => Some(p),
-        _ => None,
-    })
-}
-
 /// Shared body for every "map `this` through one `EcsDom` tree-nav
-/// accessor and wrap-or-null" native.  Accessors that need to
-/// additionally filter the parent (e.g. `parentElement`) do not fit
-/// — those pass a custom closure via `tree_nav_getter_filtered`.
+/// accessor and wrap-or-null" native — handles both the bound-check
+/// and the wrapper lift.
 fn tree_nav_getter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

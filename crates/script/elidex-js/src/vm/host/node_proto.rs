@@ -49,7 +49,7 @@ use super::super::{NativeFn, VmInner};
 use super::dom_bridge::wrap_entity_or_null;
 use super::event_target::entity_from_this;
 
-use elidex_ecs::{Entity, NodeKind};
+use elidex_ecs::{Entity, NodeKind, TagType};
 
 impl VmInner {
     /// Allocate `Node.prototype` and populate it with the Node-level
@@ -83,6 +83,10 @@ impl VmInner {
             (
                 self.well_known.parent_node,
                 native_node_get_parent_node as NativeFn,
+            ),
+            (
+                self.well_known.parent_element,
+                native_node_get_parent_element,
             ),
             (self.well_known.first_child, native_node_get_first_child),
             (self.well_known.last_child, native_node_get_last_child),
@@ -224,6 +228,21 @@ fn native_node_get_parent_node(
     tree_nav_getter(ctx, this, |dom, e| dom.get_parent(e))
 }
 
+/// `Node.prototype.parentElement` — returns the parent only if it is
+/// itself an Element (WHATWG §4.4).  Defined on Node (not Element)
+/// so `textNode.parentElement` works.  The document root has no
+/// `TagType`, so `documentElement.parentElement === null`.
+fn native_node_get_parent_element(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| match dom.get_parent(e) {
+        Some(p) if dom.world().get::<&TagType>(p).is_ok() => Some(p),
+        _ => None,
+    })
+}
+
 fn native_node_get_first_child(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -283,9 +302,11 @@ fn native_node_get_is_connected(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    // WHATWG §4.4: connected iff shadow-including root is the
-    // document.  We approximate with the composed tree root; full
-    // shadow-aware semantics follow in PR5b alongside Custom Elements.
+    // WHATWG §4.4: connected iff the shadow-including root is the
+    // document.  We approximate that by walking the composed tree
+    // via `find_tree_root_composed` — if the resulting root matches
+    // the bound `document_entity`, the node is considered connected.
+    // Full shadow-aware semantics follow alongside Custom Elements.
     let dom = ctx.host().dom();
     let root = dom.find_tree_root_composed(entity);
     let connected = ctx
