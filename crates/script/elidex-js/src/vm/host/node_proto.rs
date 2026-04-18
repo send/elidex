@@ -46,7 +46,7 @@ use super::super::value::{
     PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::dom_bridge::wrap_entity_or_null;
+use super::dom_bridge::tree_nav_getter;
 use super::event_target::entity_from_this;
 
 use elidex_ecs::{Entity, NodeKind, TagType};
@@ -172,21 +172,6 @@ impl VmInner {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-/// Shared body for every "map `this` through one `EcsDom` tree-nav
-/// accessor and wrap-or-null" native.  Handles both the bound-check
-/// and the wrapper lift.
-fn tree_nav_getter(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    lookup: impl FnOnce(&elidex_ecs::EcsDom, Entity) -> Option<Entity>,
-) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let target = lookup(ctx.host().dom(), entity);
-    Ok(wrap_entity_or_null(ctx.vm, target))
-}
 
 /// Extract an entity from a `JsValue` expected to be a Node
 /// HostObject.  Used by the four two-argument mutation methods —
@@ -589,20 +574,16 @@ fn native_node_contains(
     let Some(self_entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    // WHATWG §4.4.2 contains(other):
-    //   "returns true if other is an inclusive descendant of this,
-    //    and false otherwise (including when other is null)."
-    let other_entity = match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Null | JsValue::Undefined => return Ok(JsValue::Boolean(false)),
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::HostObject { entity_bits } => match Entity::from_bits(entity_bits) {
-                Some(e) => e,
-                None => return Ok(JsValue::Boolean(false)),
-            },
-            _ => return Ok(JsValue::Boolean(false)),
-        },
-        _ => return Ok(JsValue::Boolean(false)),
-    };
+    // WebIDL: `boolean contains(Node? other)` — `null` / `undefined`
+    // short-circuit to `false` without throwing; any other non-Node
+    // value (arbitrary object, Window, …) is a WebIDL conversion
+    // failure and throws `TypeError`.  Delegate to `require_node_arg`
+    // once the nullable case is handled.
+    let other_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    if matches!(other_arg, JsValue::Null | JsValue::Undefined) {
+        return Ok(JsValue::Boolean(false));
+    }
+    let other_entity = require_node_arg(ctx, other_arg, "contains")?;
     if self_entity == other_entity {
         return Ok(JsValue::Boolean(true));
     }

@@ -617,6 +617,8 @@ fn element_contains_self_and_descendants_and_rejects_null() {
         vm.eval("_span.contains(_div);").unwrap(),
         JsValue::Boolean(false)
     ));
+    // `null` and `undefined` are the only non-Node values that do
+    // NOT throw — WebIDL `Node?` allows them and they map to `false`.
     assert!(matches!(
         vm.eval("_div.contains(null);").unwrap(),
         JsValue::Boolean(false)
@@ -625,6 +627,36 @@ fn element_contains_self_and_descendants_and_rejects_null() {
         vm.eval("_div.contains();").unwrap(),
         JsValue::Boolean(false)
     ));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_contains_throws_for_non_node_arguments() {
+    // WebIDL `boolean contains(Node? other)`: any non-Node that is
+    // not `null` / `undefined` must throw `TypeError`.  This
+    // includes plain objects, Window, and non-Node HostObjects.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    for expr in [
+        "document.getElementById('root').contains({});",
+        "document.getElementById('root').contains(42);",
+        "document.getElementById('root').contains('text');",
+        "document.getElementById('root').contains(window);",
+    ] {
+        assert!(
+            vm.eval(expr).is_err(),
+            "{expr} must throw TypeError for a non-Node argument"
+        );
+    }
 
     vm.unbind();
 }
@@ -911,7 +943,8 @@ fn element_class_name_reflects_class_attribute() {
 #[test]
 fn element_id_on_text_node_is_undefined() {
     // `id` / `className` live on Element.prototype, so Text wrappers
-    // (which chain through EventTarget.prototype) must NOT expose them.
+    // (which inherit via Node.prototype, not Element.prototype) must
+    // NOT expose them.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -1493,10 +1526,11 @@ fn closest_stops_at_shadow_boundary() {
 #[test]
 fn text_wrapper_does_not_expose_element_placeholder_marker() {
     // Invariant: members installed on `Element.prototype` must be
-    // `undefined` on Text wrappers — the Text branch chains straight
-    // to `EventTarget.prototype`, skipping Element.prototype.
-    // `firstElementChild` is an Element-only accessor, so `typeof`
-    // must be `undefined` on a Text node.
+    // `undefined` on Text wrappers — the Text branch skips
+    // `Element.prototype` and inherits from `Node.prototype` (and
+    // then `EventTarget.prototype`).  `firstElementChild` is an
+    // Element-only accessor, so `typeof` must be `undefined` on a
+    // Text node.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

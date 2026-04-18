@@ -45,7 +45,9 @@ use super::super::value::{
     PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::dom_bridge::{coerce_first_arg_to_string, parse_dom_selector, wrap_entity_or_null};
+use super::dom_bridge::{
+    coerce_first_arg_to_string, parse_dom_selector, tree_nav_getter, wrap_entity_or_null,
+};
 use super::event_target::entity_from_this;
 
 use elidex_ecs::{Entity, TagType};
@@ -270,21 +272,6 @@ fn collect_children(
 // ---------------------------------------------------------------------------
 // Natives: tree-navigation accessors
 // ---------------------------------------------------------------------------
-
-/// Shared body for every "map `this` through one `EcsDom` tree-nav
-/// accessor and wrap-or-null" native — handles both the bound-check
-/// and the wrapper lift.
-fn tree_nav_getter(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    lookup: impl FnOnce(&elidex_ecs::EcsDom, Entity) -> Option<Entity>,
-) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let target = lookup(ctx.host().dom(), entity);
-    Ok(wrap_entity_or_null(ctx.vm, target))
-}
 
 fn native_element_get_first_element_child(
     ctx: &mut NativeContext<'_>,

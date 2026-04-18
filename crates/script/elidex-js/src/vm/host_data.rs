@@ -144,7 +144,7 @@ mod engine_feature {
         /// an Element (has the `TagType` component) in the bound
         /// world.  Returns `false` when unbound so pre-bind or
         /// post-unbind wrapper allocation can still decide a
-        /// reasonable prototype (EventTarget.prototype).
+        /// reasonable fallback prototype (`Node.prototype`).
         ///
         /// Takes `&self` (not `&mut self`) because the lookup is
         /// read-only — callers holding a shared borrow of `HostData`
