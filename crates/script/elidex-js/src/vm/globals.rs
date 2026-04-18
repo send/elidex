@@ -253,6 +253,14 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_event_methods_prototype();
 
+        // `AbortController` constructor + `AbortSignal` global +
+        // `AbortSignal.prototype` (WHATWG DOM §3.1).  Must run after
+        // `register_event_target_prototype` (the prototype chains
+        // there) and after `register_error_constructors` (the default
+        // abort reason allocates against `error_prototype`).
+        #[cfg(feature = "engine")]
+        self.register_abort_signal_global();
+
         // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the

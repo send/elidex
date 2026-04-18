@@ -197,6 +197,21 @@ pub(crate) struct WellKnownStrings {
     pub(crate) hash_comment: StringId,
     pub(crate) hash_document: StringId,
     pub(crate) hash_document_fragment: StringId,
+
+    // -- AbortController / AbortSignal (PR4d) --
+    // Method, accessor, and listener-option key names.  Pre-interned
+    // here so `parse_listener_options` can look up `signal` without
+    // re-interning per `addEventListener` call, and so the prototype
+    // installer can assemble its property list without re-interning
+    // on every VM construction.
+    pub(crate) abort_controller: StringId,
+    pub(crate) abort_signal: StringId,
+    pub(crate) signal: StringId,
+    pub(crate) aborted: StringId,
+    pub(crate) abort: StringId,
+    pub(crate) onabort: StringId,
+    pub(crate) throw_if_aborted: StringId,
+    pub(crate) abort_error: StringId,
 }
 
 impl WellKnownStrings {
@@ -361,6 +376,16 @@ impl WellKnownStrings {
             hash_comment: strings.intern("#comment"),
             hash_document: strings.intern("#document"),
             hash_document_fragment: strings.intern("#document-fragment"),
+
+            // AbortController / AbortSignal (PR4d).
+            abort_controller: strings.intern("AbortController"),
+            abort_signal: strings.intern("AbortSignal"),
+            signal: strings.intern("signal"),
+            aborted: strings.intern("aborted"),
+            abort: strings.intern("abort"),
+            onabort: strings.intern("onabort"),
+            throw_if_aborted: strings.intern("throwIfAborted"),
+            abort_error: strings.intern("AbortError"),
         }
     }
 }

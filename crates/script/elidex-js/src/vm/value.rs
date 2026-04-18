@@ -562,6 +562,27 @@ pub enum ObjectKind {
     /// to trace.  The wrapper itself is kept alive by `wrapper_cache`
     /// (rooted via `HostData::gc_root_object_ids`).
     HostObject { entity_bits: u64 },
+    /// `AbortSignal` instance (WHATWG DOM §3.1).  An EventTarget that
+    /// is *not* a Node — its prototype chain skips `Node.prototype`
+    /// and goes directly `AbortSignal.prototype → EventTarget.prototype
+    /// → Object.prototype` (same shape as `Window`).
+    ///
+    /// The mutable signal state (`aborted` flag, `reason` value,
+    /// registered `'abort'` callbacks, and back-references for
+    /// `addEventListener({signal})` auto-removal) lives **out-of-band**
+    /// in [`VmInner::abort_signal_states`], keyed by this object's
+    /// `ObjectId`.  Keeping the variant payload-free preserves
+    /// per-variant size discipline (every other DOM-side wrapper is
+    /// also payload-free or holds at most a small `Copy` field) and
+    /// lets GC trace state without widening `ObjectKind`.
+    ///
+    /// GC contract: the trace step looks up the entry in
+    /// `abort_signal_states` and marks `reason` + every
+    /// `abort_listeners` callback ObjectId.  After sweep, dead
+    /// AbortSignal entries are removed from the HashMap so the next
+    /// allocation that recycles the `ObjectId` slot does not inherit
+    /// stale state.
+    AbortSignal,
 }
 
 impl ObjectKind {

@@ -219,6 +219,30 @@ pub(crate) struct VmInner {
     /// `register_globals()` (right after `register_event_target_prototype`
     /// so the chain is built bottom-up).
     pub(crate) window_prototype: Option<ObjectId>,
+    /// `AbortSignal.prototype` — chained directly to
+    /// `EventTarget.prototype` (Node.prototype is **skipped**: WHATWG
+    /// DOM §3.1 / §7.2 — AbortSignal is an EventTarget but not a
+    /// Node, mirroring the Window arrangement).  Holds the signal's
+    /// own-property suite (`aborted`, `reason`, `onabort` accessors;
+    /// `throwIfAborted` method) plus listener overrides that route
+    /// through `abort_signal_states` instead of an ECS entity.
+    /// `None` until `register_abort_signal_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) abort_signal_prototype: Option<ObjectId>,
+    /// Per-signal mutable state, keyed by the `AbortSignal`'s own
+    /// `ObjectId`.  Out-of-band so [`ObjectKind::AbortSignal`] stays
+    /// payload-free and per-variant size discipline is preserved.
+    ///
+    /// GC contract:
+    /// - Trace step (`trace_work_list`) marks every `abort_listeners`
+    ///   callback ObjectId and the `reason` JsValue when the
+    ///   AbortSignal object is reachable.
+    /// - Sweep tail (`collect_garbage`) prunes entries whose key
+    ///   ObjectId was collected, so a recycled slot never inherits
+    ///   stale state.
+    #[cfg(feature = "engine")]
+    pub(crate) abort_signal_states: HashMap<ObjectId, host::abort::AbortSignalState>,
     /// Internal prototype for `ObjectKind::Event` instances.  Holds the
     /// four event methods (`preventDefault`, `stopPropagation`,
     /// `stopImmediatePropagation`, `composedPath`) and the
@@ -959,6 +983,10 @@ impl Vm {
                 element_prototype: None,
                 window_prototype: None,
                 event_methods_prototype: None,
+                #[cfg(feature = "engine")]
+                abort_signal_prototype: None,
+                #[cfg(feature = "engine")]
+                abort_signal_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 precomputed_event_shapes: None,
                 generator_yielded: None,

@@ -24,6 +24,7 @@
 //! - [`dom_bridge`] — shared selector-parse and wrapper-lift helpers
 //!   used by both `document.rs` and Element / Node prototype natives.
 
+pub(crate) mod abort;
 pub(super) mod document;
 pub(super) mod dom_bridge;
 pub(super) mod element_proto;

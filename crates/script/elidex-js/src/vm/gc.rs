@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 20],
+    proto_roots: [Option<ObjectId>; 21],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -141,6 +141,15 @@ struct GcRoots<'a> {
     /// `feature = "engine"`.
     #[cfg(feature = "engine")]
     navigation: &'a super::host::navigation::NavigationState,
+    /// `AbortSignal` per-instance state, traced when the owning
+    /// signal object survives.  Out-of-band `HashMap` so
+    /// `ObjectKind::AbortSignal` stays payload-free; tracing visits
+    /// every entry whose key was marked, marking the `reason` JsValue
+    /// and every `abort_listeners` callback ObjectId.  Sweep tail
+    /// prunes entries whose key was collected.
+    #[cfg(feature = "engine")]
+    abort_signal_states:
+        &'a std::collections::HashMap<ObjectId, super::host::abort::AbortSignalState>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -278,10 +287,14 @@ fn mark_roots(
 ///
 /// Uses exhaustive matching on `ObjectKind` — adding a new variant without
 /// updating this function will produce a compile error (no wildcard fallback).
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn trace_work_list(
     objects: &[Option<Object>],
     upvalues: &[Upvalue],
+    #[cfg(feature = "engine")] abort_signal_states: &std::collections::HashMap<
+        ObjectId,
+        super::host::abort::AbortSignalState,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -423,6 +436,34 @@ fn trace_work_list(
                     }
                 }
             }
+            // `AbortSignal`'s mutable state lives out-of-band in
+            // `VmInner::abort_signal_states`, keyed by this object's
+            // own `ObjectId`.  Trace it now so reachable callbacks +
+            // the `reason` value survive the sweep.  An entry that's
+            // missing from the map is treated as empty (matches a
+            // freshly allocated signal whose state was never
+            // touched — should not happen because
+            // `create_abort_signal` always inserts, but defensive
+            // here costs nothing and makes the trace robust to
+            // partial construction).
+            #[cfg(feature = "engine")]
+            ObjectKind::AbortSignal => {
+                if let Some(state) = abort_signal_states.get(&ObjectId(obj_idx)) {
+                    mark_value(state.reason, obj_marks, work);
+                    if let Some(handler) = state.onabort {
+                        mark_object(handler, obj_marks, work);
+                    }
+                    for &cb in &state.abort_listeners {
+                        mark_object(cb, obj_marks, work);
+                    }
+                    // `bound_listener_removals` carries (Entity,
+                    // ListenerId) pairs — Entity bits are not
+                    // `ObjectId`s, and `ListenerId` lookups go through
+                    // `HostData::listener_store`, which is itself
+                    // rooted via `gc_root_object_ids`.  No tracing
+                    // needed here.
+                }
+            }
             // No ObjectId references — only StringId / scalar fields.
             // `HostObject` is listed explicitly (not folded under a
             // wildcard) so adding a future field that holds an ObjectId
@@ -440,6 +481,15 @@ fn trace_work_list(
             | ObjectKind::BigIntWrapper(_)
             | ObjectKind::SymbolWrapper(_)
             | ObjectKind::HostObject { .. } => {}
+            // Non-engine builds never construct AbortSignal — the
+            // variant exists in `ObjectKind` regardless of feature
+            // (gating an enum variant requires `cfg_attr` on the
+            // enum, which fragments downstream matching).  Tracing
+            // it as a no-op leak is correct because the
+            // `abort_signal_states` HashMap doesn't exist either —
+            // there's nothing to trace through.
+            #[cfg(not(feature = "engine"))]
+            ObjectKind::AbortSignal => {}
         }
     }
 }
@@ -571,6 +621,10 @@ impl VmInner {
                 self.element_prototype,
                 self.window_prototype,
                 self.event_methods_prototype,
+                #[cfg(feature = "engine")]
+                self.abort_signal_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
@@ -583,6 +637,8 @@ impl VmInner {
             current_timer: self.current_timer.as_ref(),
             #[cfg(feature = "engine")]
             navigation: &self.navigation,
+            #[cfg(feature = "engine")]
+            abort_signal_states: &self.abort_signal_states,
         };
 
         self.gc_work_list.clear();
@@ -597,6 +653,8 @@ impl VmInner {
         trace_work_list(
             roots.objects,
             roots.upvalues,
+            #[cfg(feature = "engine")]
+            roots.abort_signal_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -614,10 +672,21 @@ impl VmInner {
             &self.gc_upvalue_marks,
         );
 
-        // 4. IC invalidation.
+        // 4. AbortSignal out-of-band state cleanup.  Drop entries
+        // whose key `ObjectId` was collected — otherwise a recycled
+        // slot allocated for a different `ObjectKind` would inherit
+        // stale `aborted` / `reason` / listener data.
+        #[cfg(feature = "engine")]
+        {
+            let marks = &self.gc_object_marks;
+            self.abort_signal_states
+                .retain(|id, _| bit_get(marks, id.0));
+        }
+
+        // 5. IC invalidation.
         invalidate_ics(&mut self.compiled_functions, &self.gc_object_marks);
 
-        // 5. Reset allocation counter and adjust threshold.
+        // 6. Reset allocation counter and adjust threshold.
         self.gc_bytes_since_last = 0;
         self.gc_threshold = (live_count * 128).max(32768);
     }
