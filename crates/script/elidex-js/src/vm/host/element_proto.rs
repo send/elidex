@@ -1,0 +1,697 @@
+//! `Element.prototype` intrinsic (WHATWG DOM §4.9).
+//!
+//! Holds **Element-only** members — element-scoped tree navigation
+//! (`firstElementChild`, `children`, `childElementCount`, …),
+//! attribute manipulation (`getAttribute`, `setAttribute`, …),
+//! selector helpers (`matches`, `closest`), `tagName` / `id` /
+//! `className`, and the `ChildNode` mixin method `remove()`.
+//!
+//! Node-common members — `parentNode`, `parentElement`,
+//! `firstChild`, `nodeType`, `textContent`, `appendChild`,
+//! `removeChild`, etc. — live on `Node.prototype` and so apply to
+//! Text / Comment / Document / DocumentFragment wrappers too.
+//!
+//! ## Prototype chain
+//!
+//! ```text
+//! element wrapper (HostObject)
+//!   → Element.prototype        (this intrinsic)
+//!     → Node.prototype         (Node-common accessors + mutation)
+//!       → EventTarget.prototype
+//!         → Object.prototype   (bootstrap)
+//! ```
+//!
+//! Text and Comment wrappers skip `Element.prototype` and chain
+//! directly to `Node.prototype` → `EventTarget.prototype`.  This
+//! keeps Element-specific names off Text instances
+//! (`textNode.getAttribute` is `undefined`, matching browsers)
+//! while still exposing Node-common members on them.
+//!
+//! ## Why a shared prototype?
+//!
+//! The alternative — installing methods directly on each element
+//! wrapper — would allocate one native-function per method per
+//! element (tens of methods × thousands of elements).  A single
+//! shared prototype matches browser engines (V8's `HTMLElement`
+//! prototype chain, SpiderMonkey's `ElementProto`) and aligns with
+//! how other intrinsics (`Array.prototype`, `Window.prototype`) are
+//! structured elsewhere in the VM.
+
+#![cfg(feature = "engine")]
+
+use super::super::shape;
+use super::super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
+    PropertyValue, VmError,
+};
+use super::super::{NativeFn, VmInner};
+use super::dom_bridge::{
+    coerce_first_arg_to_string, parse_dom_selector, tree_nav_getter, wrap_entity_or_null,
+};
+use super::event_target::entity_from_this;
+
+use elidex_ecs::{Entity, TagType};
+
+impl VmInner {
+    /// Allocate `Element.prototype` whose parent is
+    /// `Node.prototype`.
+    ///
+    /// Called from `register_globals()` **after**
+    /// `register_node_prototype` so the chain can climb through
+    /// `Node.prototype` → `EventTarget.prototype` → `Object.prototype`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `node_prototype` has not been populated (would mean
+    /// `register_node_prototype` was skipped or called in the wrong
+    /// order).
+    pub(in crate::vm) fn register_element_prototype(&mut self) {
+        let node_proto = self
+            .node_prototype
+            .expect("register_element_prototype called before register_node_prototype");
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(node_proto),
+            extensible: true,
+        });
+        self.element_prototype = Some(proto_id);
+        self.install_element_tree_nav(proto_id);
+        self.install_element_attributes(proto_id);
+        self.install_element_child_node(proto_id);
+        self.install_element_matches(proto_id);
+    }
+
+    /// Install Element-only tree-navigation accessors from the
+    /// ParentNode / NonDocumentTypeChildNode mixins defined on
+    /// `Element.prototype` (WHATWG DOM §4.4 / §4.9).  Node-level
+    /// accessors (`parentNode`, `parentElement`, `firstChild`,
+    /// `childNodes`, …) live on `Node.prototype`.
+    fn install_element_tree_nav(&mut self, proto_id: ObjectId) {
+        for (name_sid, getter) in [
+            (
+                self.well_known.first_element_child,
+                native_element_get_first_element_child as NativeFn,
+            ),
+            (
+                self.well_known.last_element_child,
+                native_element_get_last_element_child,
+            ),
+            (
+                self.well_known.next_element_sibling,
+                native_element_get_next_element_sibling,
+            ),
+            (
+                self.well_known.previous_element_sibling,
+                native_element_get_previous_element_sibling,
+            ),
+            (self.well_known.children, native_element_get_children),
+            (
+                self.well_known.child_element_count,
+                native_element_get_child_element_count,
+            ),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: None,
+                },
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+    }
+
+    /// Install Element attribute-manipulation methods + `id` /
+    /// `className` / `tagName` accessors on `proto_id`.
+    fn install_element_attributes(&mut self, proto_id: ObjectId) {
+        // `tagName` — read-only accessor (WHATWG §4.9, uppercase for
+        // HTML).
+        let tag_name_sid = self.well_known.tag_name;
+        let tag_name_name = self.strings.get_utf8(tag_name_sid);
+        let tag_gid = self
+            .create_native_function(&format!("get {tag_name_name}"), native_element_get_tag_name);
+        self.define_shaped_property(
+            proto_id,
+            PropertyKey::String(tag_name_sid),
+            PropertyValue::Accessor {
+                getter: Some(tag_gid),
+                setter: None,
+            },
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+
+        // `id` / `className` — read/write accessors (WHATWG §3.5).
+        // `WEBIDL_RO_ACCESSOR`'s `writable` bit is meaningless for
+        // accessors; the RW-ness comes from the setter slot below.
+        let rw_attrs = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
+        for (name_sid, getter, setter) in [
+            (
+                self.well_known.id,
+                native_element_get_id as NativeFn,
+                native_element_set_id as NativeFn,
+            ),
+            (
+                self.well_known.class_name,
+                native_element_get_class_name,
+                native_element_set_class_name,
+            ),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            let sid = self.create_native_function(&format!("set {name}"), setter);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: Some(sid),
+                },
+                rw_attrs,
+            );
+        }
+
+        // Attribute methods.
+        for (name_sid, func) in [
+            (
+                self.well_known.get_attribute,
+                native_element_get_attribute as NativeFn,
+            ),
+            (self.well_known.set_attribute, native_element_set_attribute),
+            (
+                self.well_known.remove_attribute,
+                native_element_remove_attribute,
+            ),
+            (self.well_known.has_attribute, native_element_has_attribute),
+            (
+                self.well_known.get_attribute_names,
+                native_element_get_attribute_names,
+            ),
+            (
+                self.well_known.toggle_attribute,
+                native_element_toggle_attribute,
+            ),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let fn_id = self.create_native_function(&name, func);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                shape::PropertyAttrs::METHOD,
+            );
+        }
+    }
+
+    /// Install `matches(selector)` / `closest(selector)` on `proto_id`.
+    fn install_element_matches(&mut self, proto_id: ObjectId) {
+        for (name_sid, func) in [
+            (self.well_known.matches, native_element_matches as NativeFn),
+            (self.well_known.closest, native_element_closest),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let fn_id = self.create_native_function(&name, func);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                shape::PropertyAttrs::METHOD,
+            );
+        }
+    }
+
+    /// Install ChildNode-mixin methods on `proto_id`.  WHATWG DOM
+    /// §5.2.2: ChildNode is implemented by Element / CharacterData /
+    /// DocumentType.  We expose only `remove()` on Element.prototype
+    /// here; a future PR that adds a `CharacterData.prototype` will
+    /// install the same member there (Text nodes currently cannot
+    /// call `remove()` — deferred).
+    ///
+    /// The tree-editing methods (`appendChild`, `removeChild`,
+    /// `insertBefore`, `replaceChild`) are **Node** members, not
+    /// ChildNode — they live on `Node.prototype`.
+    fn install_element_child_node(&mut self, proto_id: ObjectId) {
+        let name_sid = self.well_known.remove;
+        let name = self.strings.get_utf8(name_sid);
+        let fn_id = self.create_native_function(&name, native_element_remove);
+        self.define_shaped_property(
+            proto_id,
+            PropertyKey::String(name_sid),
+            PropertyValue::Data(JsValue::Object(fn_id)),
+            shape::PropertyAttrs::METHOD,
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Accessor helpers
+// ---------------------------------------------------------------------------
+
+/// Collect direct children into a `Vec<Entity>`, optionally filtering
+/// to elements only.  Returns a snapshot — mutations to the tree after
+/// the call do not affect the returned vec.
+fn collect_children(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    elements_only: bool,
+) -> Vec<Entity> {
+    let dom = ctx.host().dom();
+    let mut out = Vec::new();
+    for c in dom.children_iter(entity) {
+        if elements_only && dom.world().get::<&TagType>(c).is_err() {
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Natives: tree-navigation accessors
+// ---------------------------------------------------------------------------
+
+fn native_element_get_first_element_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.first_element_child(e))
+}
+
+fn native_element_get_last_element_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.last_element_child(e))
+}
+
+fn native_element_get_next_element_sibling(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.next_element_sibling(e))
+}
+
+fn native_element_get_previous_element_sibling(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.prev_element_sibling(e))
+}
+
+fn native_element_get_children(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let children = collect_children(ctx, entity, /*elements_only=*/ true);
+    let elements: Vec<JsValue> = children
+        .into_iter()
+        .map(|e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
+        .collect();
+    Ok(JsValue::Object(ctx.vm.create_array_object(elements)))
+}
+
+fn native_element_get_child_element_count(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Number(0.0));
+    };
+    let dom = ctx.host().dom();
+    let count = dom
+        .children_iter(entity)
+        .filter(|c| dom.world().get::<&TagType>(*c).is_ok())
+        .count();
+    Ok(JsValue::Number(count as f64))
+}
+
+// ---------------------------------------------------------------------------
+// Natives: attribute manipulation + id / className / tagName
+// ---------------------------------------------------------------------------
+
+fn native_element_get_tag_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    // WHATWG DOM §4.9 tagName: HTML elements are uppercase.  Every
+    // document we bind is treated as HTML in Phase 2.
+    let tag = ctx.host().dom().get_tag_name(entity);
+    match tag {
+        Some(t) => {
+            let upper = t.to_ascii_uppercase();
+            let sid = ctx.vm.strings.intern(&upper);
+            Ok(JsValue::String(sid))
+        }
+        None => Ok(JsValue::String(ctx.vm.well_known.empty)),
+    }
+}
+
+/// Read attribute `name` on `entity` as a String, or `None` if absent.
+fn attr_get(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) -> Option<String> {
+    let dom = ctx.host().dom();
+    dom.world()
+        .get::<&elidex_ecs::Attributes>(entity)
+        .ok()
+        .and_then(|attrs| attrs.get(name).map(str::to_owned))
+}
+
+/// Set attribute `name` = `value` on `entity`, inserting an
+/// `Attributes` component if one does not exist.  Returns `false`
+/// when the entity has been destroyed.
+fn attr_set(ctx: &mut NativeContext<'_>, entity: Entity, name: &str, value: String) -> bool {
+    let dom = ctx.host().dom();
+    let has_component = dom.world().get::<&elidex_ecs::Attributes>(entity).is_ok();
+    if has_component {
+        if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
+            attrs.set(name, value);
+            return true;
+        }
+        return false;
+    }
+    let mut attrs = elidex_ecs::Attributes::default();
+    attrs.set(name, value);
+    dom.world_mut().insert_one(entity, attrs).is_ok()
+}
+
+fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
+    let dom = ctx.host().dom();
+    if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
+        attrs.remove(name);
+    }
+}
+
+fn native_element_get_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let name = coerce_first_arg_to_string(ctx, args)?;
+    match attr_get(ctx, entity, &name) {
+        Some(v) => {
+            let sid = ctx.vm.strings.intern(&v);
+            Ok(JsValue::String(sid))
+        }
+        None => Ok(JsValue::Null),
+    }
+}
+
+fn native_element_set_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    // Coerce BOTH args (name then value) per WebIDL even though the
+    // spec name-validation step runs on a qualified name; we accept
+    // any string here and defer validation to a future HTML5 parser
+    // upgrade.
+    let name = coerce_first_arg_to_string(ctx, args)?;
+    let value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let value_sid = super::super::coerce::to_string(ctx.vm, value_arg)?;
+    let value = ctx.vm.strings.get_utf8(value_sid);
+    attr_set(ctx, entity, &name, value);
+    Ok(JsValue::Undefined)
+}
+
+fn native_element_remove_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let name = coerce_first_arg_to_string(ctx, args)?;
+    attr_remove(ctx, entity, &name);
+    Ok(JsValue::Undefined)
+}
+
+fn native_element_has_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let name = coerce_first_arg_to_string(ctx, args)?;
+    let has = {
+        let dom = ctx.host().dom();
+        dom.world()
+            .get::<&elidex_ecs::Attributes>(entity)
+            .ok()
+            .is_some_and(|attrs| attrs.contains(&name))
+    };
+    Ok(JsValue::Boolean(has))
+}
+
+fn native_element_get_attribute_names(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        // WHATWG §4.9.2 getAttributeNames — returns a list; we return
+        // an empty Array for unbound / non-HostObject receivers.
+        return Ok(JsValue::Object(ctx.vm.create_array_object(Vec::new())));
+    };
+    let names: Vec<String> = {
+        let dom = ctx.host().dom();
+        dom.world()
+            .get::<&elidex_ecs::Attributes>(entity)
+            .ok()
+            .map(|attrs| attrs.iter().map(|(k, _)| k.to_owned()).collect())
+            .unwrap_or_default()
+    };
+    let values: Vec<JsValue> = names
+        .into_iter()
+        .map(|n| {
+            let sid = ctx.vm.strings.intern(&n);
+            JsValue::String(sid)
+        })
+        .collect();
+    Ok(JsValue::Object(ctx.vm.create_array_object(values)))
+}
+
+fn native_element_toggle_attribute(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let name = coerce_first_arg_to_string(ctx, args)?;
+
+    // `force` (second arg): undefined = toggle, true = ensure present,
+    // false = ensure absent.  WHATWG §4.9.2 toggleAttribute.
+    let force: Option<bool> = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => None,
+        v => Some(super::super::coerce::to_boolean(ctx.vm, v)),
+    };
+
+    let currently_present = {
+        let dom = ctx.host().dom();
+        dom.world()
+            .get::<&elidex_ecs::Attributes>(entity)
+            .ok()
+            .is_some_and(|attrs| attrs.contains(&name))
+    };
+
+    let final_present = match force {
+        Some(true) => {
+            if !currently_present {
+                // WHATWG §4.9.2: when force=true and absent, set value to
+                // empty string.
+                attr_set(ctx, entity, &name, String::new());
+            }
+            true
+        }
+        Some(false) => {
+            if currently_present {
+                attr_remove(ctx, entity, &name);
+            }
+            false
+        }
+        None => {
+            if currently_present {
+                attr_remove(ctx, entity, &name);
+                false
+            } else {
+                attr_set(ctx, entity, &name, String::new());
+                true
+            }
+        }
+    };
+    Ok(JsValue::Boolean(final_present))
+}
+
+// ---------------------------------------------------------------------------
+// id / className (reflected as the underlying attribute)
+// ---------------------------------------------------------------------------
+
+/// Shared body for reflected-string-attribute getters (`id`,
+/// `className`).  Missing attribute returns the empty string (not
+/// `null` like `getAttribute`) per WHATWG §4.9.
+fn reflected_string_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    attr_name: &str,
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let val = attr_get(ctx, entity, attr_name).unwrap_or_default();
+    if val.is_empty() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    let sid = ctx.vm.strings.intern(&val);
+    Ok(JsValue::String(sid))
+}
+
+/// Shared body for reflected-string-attribute setters.
+fn reflected_string_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    attr_name: &str,
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let value = coerce_first_arg_to_string(ctx, args)?;
+    attr_set(ctx, entity, attr_name, value);
+    Ok(JsValue::Undefined)
+}
+
+fn native_element_get_id(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    reflected_string_get(ctx, this, "id")
+}
+
+fn native_element_set_id(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    reflected_string_set(ctx, this, args, "id")
+}
+
+fn native_element_get_class_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    reflected_string_get(ctx, this, "class")
+}
+
+fn native_element_set_class_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    reflected_string_set(ctx, this, args, "class")
+}
+
+// ---------------------------------------------------------------------------
+// Natives: ChildNode mixin — `remove()`
+// ---------------------------------------------------------------------------
+
+fn native_element_remove(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    // WHATWG ChildNode §5.2.2 `remove()`: if the node has no parent,
+    // do nothing.
+    let dom = ctx.host().dom();
+    if let Some(parent) = dom.get_parent(entity) {
+        let _ = dom.remove_child(parent, entity);
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// Natives: matches / closest
+// ---------------------------------------------------------------------------
+
+fn native_element_matches(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "matches/closest")?;
+    let dom = ctx.host().dom();
+    let matched = selectors.iter().any(|s| s.matches(entity, dom));
+    Ok(JsValue::Boolean(matched))
+}
+
+fn native_element_closest(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "matches/closest")?;
+
+    // Walk self → parent ancestors, returning the first matching
+    // Element.  WHATWG §4.9 closest() is inclusive and stops at the
+    // first non-Element parent (or at the root).
+    let matched: Option<Entity> = {
+        let dom = ctx.host().dom();
+        let mut current = Some(entity);
+        let mut out = None;
+        while let Some(e) = current {
+            if dom.world().get::<&TagType>(e).is_ok() && selectors.iter().any(|s| s.matches(e, dom))
+            {
+                out = Some(e);
+                break;
+            }
+            // Walk only to Element ancestors, matching
+            // `parentElement` semantics — this naturally stops at
+            // the `ShadowRoot` (no TagType) so closest() does not
+            // cross the shadow boundary to the host.  Document root
+            // also has no TagType, so the walk stops there in the
+            // normal case too.
+            current = dom
+                .get_parent(e)
+                .filter(|p| dom.world().get::<&TagType>(*p).is_ok());
+        }
+        out
+    };
+    Ok(wrap_entity_or_null(ctx.vm, matched))
+}

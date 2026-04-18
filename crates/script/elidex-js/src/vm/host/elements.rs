@@ -8,16 +8,22 @@
 //!    wrapper `ObjectId` is cached in `HostData::wrapper_cache`, keyed
 //!    by `Entity::to_bits().get()`.  A cache hit returns the existing
 //!    ObjectId without allocating.
-//! 2. **EventTarget inheritance** — the wrapper's prototype is
-//!    `EventTarget.prototype` (PR3 C0), so
-//!    `addEventListener` / `removeEventListener` / `dispatchEvent`
-//!    resolve via the prototype chain instead of requiring per-wrapper
-//!    method registration.
+//! 2. **Prototype chain dispatched by node kind** — entities carrying
+//!    a `TagType` component receive `Element.prototype`; other Node
+//!    entities (Text / Comment / Document / DocumentFragment) fall
+//!    through to `Node.prototype` directly.  Both chains terminate
+//!    at `Object.prototype` via `Node.prototype → EventTarget.prototype`,
+//!    so Node-level members (`parentNode`, `nodeType`, `textContent`,
+//!    …) are visible on every DOM wrapper.  Window is wrapped
+//!    independently (see `vm/globals.rs`) and does *not* chain
+//!    through `Node.prototype` — Window is an EventTarget but not
+//!    a Node per WHATWG.
 //!
 //! The wrapper carries only `ObjectKind::HostObject { entity_bits }`
 //! and its prototype slot — no properties are installed at creation.
-//! Per-interface methods (e.g. `getAttribute`, `textContent`) arrive
-//! in **PR4** when the full DOM method suite lands.
+//! Per-interface methods (e.g. `getAttribute`, `textContent`) are
+//! installed on the shared prototypes rather than duplicated onto
+//! each wrapper.
 
 #[cfg(feature = "engine")]
 use super::super::shape;
@@ -69,14 +75,39 @@ impl VmInner {
             return existing;
         }
 
-        // `event_target_prototype` is set by `register_globals` during
-        // `Vm::new` — it should never be None here.  Use `expect` so a
-        // future refactor that reorders init fails loudly in release
-        // too, instead of silently creating a wrapper without
-        // EventTarget.prototype (breaking method lookup via the chain).
-        let proto = self
-            .event_target_prototype
-            .expect("create_element_wrapper called before register_event_target_prototype");
+        // Pick the prototype based on whether the entity is an
+        // Element (TagType present) or a non-Element Node (Text,
+        // Comment, Document, DocumentFragment, …):
+        //
+        // - Element  → `Element.prototype` (chains through
+        //              Node.prototype → EventTarget.prototype).
+        // - Non-elem → `Node.prototype` directly (chains through
+        //              EventTarget.prototype).
+        //
+        // Both prototypes are populated during `register_globals`;
+        // missing them would mean the VM skipped initialisation
+        // entirely (a bug worth panicking on).  When `HostData` is
+        // not yet bound (pre-bind wrapper allocation) we fall back
+        // to the non-Element path; method calls on that wrapper
+        // still go through `entity_from_this`, which short-circuits
+        // to a no-op while unbound.
+        //
+        // `Window` is NOT wrapped via this path — it gets an
+        // independent `HostObject` allocated in `register_globals`
+        // whose prototype chain skips `Node.prototype` so Node
+        // members do not appear on `window` (WHATWG: Window is an
+        // EventTarget but not a Node).
+        let is_element = self
+            .host_data
+            .as_deref()
+            .is_some_and(|hd| hd.is_element_entity(entity));
+        let proto = if is_element {
+            self.element_prototype
+                .expect("create_element_wrapper called before register_element_prototype")
+        } else {
+            self.node_prototype
+                .expect("create_element_wrapper called before register_node_prototype")
+        };
         let obj = self.alloc_object(Object {
             kind: ObjectKind::HostObject {
                 entity_bits: entity.to_bits().get(),

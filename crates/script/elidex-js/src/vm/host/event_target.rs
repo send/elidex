@@ -56,6 +56,9 @@ impl VmInner {
             ("dispatchEvent", native_event_target_dispatch_event),
         ]);
         self.event_target_prototype = Some(proto_id);
+        // Node-level accessors live on `Node.prototype` (one level
+        // up), installed by `register_node_prototype` during
+        // `register_globals`.
     }
 }
 
@@ -206,7 +209,10 @@ pub(super) fn native_event_target_add_event_listener(
 /// Treating it as a no-op matches browser behaviour for unattached
 /// document references.
 #[cfg(feature = "engine")]
-fn entity_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option<elidex_ecs::Entity> {
+pub(super) fn entity_from_this(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+) -> Option<elidex_ecs::Entity> {
     if !ctx.vm.host_data.as_deref().is_some_and(|h| h.is_bound()) {
         return None;
     }
@@ -440,6 +446,15 @@ pub(super) fn native_event_target_remove_event_listener(
 
     Ok(JsValue::Undefined)
 }
+
+// Node-level accessors / methods live on `Node.prototype`
+// (`vm/host/node_proto.rs`), which chains to `EventTarget.prototype`.
+// Splitting them out keeps non-Node EventTargets like `window`
+// (Window.prototype → EventTarget.prototype) from exposing
+// `parentNode` / `nodeType` / `textContent`, matching the Web
+// platform where Window is an EventTarget but not a Node.
+
+// (Node-level natives moved to vm/host/node_proto.rs)
 
 /// `EventTarget.prototype.dispatchEvent(event)` — stub.
 ///

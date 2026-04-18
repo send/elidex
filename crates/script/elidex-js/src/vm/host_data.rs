@@ -140,6 +140,46 @@ mod engine_feature {
             unsafe { &mut *self.dom_ptr }
         }
 
+        /// Return `true` if this `HostData` is bound AND `entity` is
+        /// an Element (has the `TagType` component) in the bound
+        /// world.  Returns `false` when unbound so pre-bind or
+        /// post-unbind wrapper allocation can still decide a
+        /// reasonable fallback prototype (`Node.prototype`).
+        ///
+        /// Takes `&self` (not `&mut self`) because the lookup is
+        /// read-only — callers holding a shared borrow of `HostData`
+        /// (e.g. `create_element_wrapper`'s prototype branch) cannot
+        /// otherwise reach the world.
+        ///
+        /// # Aliasing contract
+        ///
+        /// Callers must not hold a live `&mut EcsDom` produced via
+        /// [`Self::dom`] when invoking this method.  Creating the
+        /// shared reference while a mutable reference to the same
+        /// `EcsDom` exists would be undefined behaviour under the
+        /// Rust aliasing rules.  In practice this is guaranteed by
+        /// `create_element_wrapper`'s borrow discipline — it calls
+        /// `is_element_entity` through `self.host_data.as_deref()`,
+        /// so no `&mut` borrow of the DOM can be live at that call
+        /// site.  Future callers must preserve the same ordering.
+        #[allow(unsafe_code)]
+        pub fn is_element_entity(&self, entity: Entity) -> bool {
+            if !self.is_bound() {
+                return false;
+            }
+            // SAFETY: `is_bound` implies `dom_ptr` is non-null and
+            // points at the `EcsDom` supplied by the most recent
+            // `bind()`.  The pointer lifetime is tied to that bind
+            // window; callers must not drop or move the `EcsDom`
+            // between bind and unbind (documented on `bind` itself).
+            // The aliasing contract above guarantees no `&mut`
+            // reference to the same `EcsDom` is live at the call
+            // site, so creating a `&` here cannot violate Rust
+            // aliasing rules.
+            let dom = unsafe { &*self.dom_ptr };
+            dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
+        }
+
         pub fn document(&self) -> Entity {
             assert!(self.is_bound(), "HostData accessed while unbound");
             self.document_entity.unwrap()

@@ -1,4 +1,4 @@
-//! PR3 C2: `create_element_wrapper` + wrapper_cache identity tests.
+//! `create_element_wrapper` + wrapper_cache identity tests.
 //!
 //! These exercise the full host-bound path: a real `SessionCore` +
 //! `EcsDom` is constructed, the VM is bound against them, and
@@ -7,7 +7,8 @@
 //!
 //! 1. Identity (`el === el`) — same Entity yields the same ObjectId.
 //! 2. Distinct entities yield distinct ObjectIds.
-//! 3. The wrapper's prototype is `EventTarget.prototype`.
+//! 3. Element wrappers receive `Element.prototype`; Text wrappers
+//!    skip it and receive `Node.prototype`.
 //! 4. The wrapper's `ObjectKind` is `HostObject` with matching
 //!    `entity_bits`.
 //! 5. A wrapper held only by `wrapper_cache` survives a GC cycle
@@ -67,13 +68,17 @@ fn wrapper_is_distinct_per_entity() {
 }
 
 #[test]
-fn wrapper_prototype_is_event_target() {
+fn element_wrapper_prototype_chain_element_node_event_target() {
+    // Full chain assertion:
+    //   wrapper → Element.prototype → Node.prototype → EventTarget.prototype
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let el = dom.create_element("div", Attributes::default());
 
+    let element_proto = vm.inner.element_prototype;
+    let node_proto = vm.inner.node_prototype;
     let event_target_proto = vm.inner.event_target_prototype;
 
     #[allow(unsafe_code)]
@@ -82,11 +87,50 @@ fn wrapper_prototype_is_event_target() {
     }
 
     let wrapper = vm.inner.create_element_wrapper(el);
-    let wrapper_proto = vm.inner.get_object(wrapper).prototype;
     assert_eq!(
-        wrapper_proto, event_target_proto,
-        "wrapper prototype must be EventTarget.prototype so \
-         addEventListener etc. resolve via the prototype chain"
+        vm.inner.get_object(wrapper).prototype,
+        element_proto,
+        "Element wrapper → Element.prototype"
+    );
+    assert_eq!(
+        vm.inner.get_object(element_proto.unwrap()).prototype,
+        node_proto,
+        "Element.prototype → Node.prototype"
+    );
+    assert_eq!(
+        vm.inner.get_object(node_proto.unwrap()).prototype,
+        event_target_proto,
+        "Node.prototype → EventTarget.prototype"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn text_wrapper_prototype_is_node_prototype() {
+    // Text nodes (no `TagType`) skip `Element.prototype` and chain
+    // straight to `Node.prototype` — so Element-only members
+    // (`getAttribute`, `children`, …) are not visible on them, but
+    // Node-common ones (`parentNode`, `textContent`, `appendChild`)
+    // still resolve.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let text = dom.create_text("hello");
+
+    let node_proto = vm.inner.node_prototype;
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let wrapper = vm.inner.create_element_wrapper(text);
+    assert_eq!(
+        vm.inner.get_object(wrapper).prototype,
+        node_proto,
+        "Text wrapper → Node.prototype (bypassing Element.prototype)"
     );
 
     vm.unbind();

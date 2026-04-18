@@ -194,11 +194,29 @@ impl VmInner {
         // users obtain generators by calling `function* g() { ... }` forms.
         self.register_generator_prototype();
 
-        // EventTarget.prototype — shared prototype for every DOM wrapper
-        // (WHATWG DOM §2.7).  No `EventTarget` constructable global is
-        // exposed yet; wrappers obtain the prototype via
-        // `create_element_wrapper` (PR3 C2).
+        // EventTarget.prototype — shared root of the DOM wrapper
+        // prototype chain (WHATWG DOM §2.7).  Carries only the three
+        // EventTarget methods; Node-level members live on
+        // Node.prototype one level up.
         self.register_event_target_prototype();
+
+        // Node.prototype — chained to EventTarget.prototype.  Carries
+        // Node-common accessors (parentNode, nodeType, textContent, …)
+        // and mutation methods (appendChild, …).  Every DOM Node
+        // wrapper reaches this prototype; Window (EventTarget but
+        // not a Node) does not — Window.prototype chains directly to
+        // EventTarget.prototype.
+        #[cfg(feature = "engine")]
+        self.register_node_prototype();
+
+        // Element.prototype — chained to Node.prototype.  Holds
+        // Element-specific members (tree nav, attributes, matches).
+        // Wrappers for entities carrying a `TagType` component pick
+        // it up automatically via `create_element_wrapper`'s
+        // per-entity prototype branch; Text / Comment wrappers skip
+        // this level.
+        #[cfg(feature = "engine")]
+        self.register_element_prototype();
 
         // Window.prototype — prototype for the `globalThis` `HostObject`
         // (WHATWG HTML §7.2).  Must run *after*
