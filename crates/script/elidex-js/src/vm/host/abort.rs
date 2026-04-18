@@ -34,9 +34,8 @@
 //! the in-VM listener Vec.  The `'abort'` event fires exactly once on
 //! the first `controller.abort()` call.
 //!
-//! ## Scope (PR4d)
+//! ## Implemented
 //!
-//! Implemented:
 //! - `new AbortController()` → object with `.signal` and `.abort()`.
 //! - `signal.aborted` / `signal.reason` / `signal.onabort`.
 //! - `signal.throwIfAborted()`.
@@ -45,13 +44,14 @@
 //! - `controller.abort(reason?)` — synchronously sets state and
 //!   dispatches `'abort'` to every registered listener and the
 //!   `onabort` slot.  Idempotent; second call is a no-op.
-//! - PR4d C3 hook: [`AbortSignalState::bound_listener_removals`]
-//!   stores `(entity, listener_id)` pairs that the
-//!   `addEventListener({signal})` flow pushes here, so the back-ref
-//!   list can be drained on `abort()` to detach the listener from
-//!   its host's ECS `EventListeners` component.
+//! - `addEventListener({signal})` integration — the EventTarget
+//!   path pushes `(entity, listener_id)` onto
+//!   [`AbortSignalState::bound_listener_removals`], which `abort()`
+//!   drains to detach the listener from its host's ECS
+//!   `EventListeners` component.
 //!
-//! Deferred to PR5a (alongside `Event` constructors and `fetch`):
+//! ## Deferred (require Event constructor or `fetch` integration)
+//!
 //! - `AbortSignal.abort(reason)` static factory.
 //! - `AbortSignal.timeout(ms)` static factory.
 //! - `AbortSignal.any(signals)` (recent WHATWG addition).
@@ -81,8 +81,9 @@ pub(crate) struct AbortSignalState {
     pub(crate) reason: JsValue,
     /// Single `onabort` IDL handler slot, written via `signal.onabort = fn`.
     /// Spec §3.1: when `'abort'` fires, the `onabort` handler runs
-    /// alongside any addEventListener-registered `'abort'` callbacks.
-    /// PR4d invokes `onabort` first, then the listener Vec.
+    /// alongside any addEventListener-registered `'abort'` callbacks,
+    /// in registration order (WHATWG §8.1.5: event-handler IDL
+    /// attribute is "first in addition to others registered").
     pub(crate) onabort: Option<ObjectId>,
     /// Callbacks registered via `signal.addEventListener('abort', cb)`.
     /// Fires exactly once on first abort, then cleared.
@@ -91,7 +92,6 @@ pub(crate) struct AbortSignalState {
     /// other EventTargets — when this signal aborts, the runtime
     /// removes each `(entity, listener_id)` from the host's ECS
     /// `EventListeners` component so the listener stops firing.
-    /// Populated by PR4d C3.
     pub(crate) bound_listener_removals: Vec<(Entity, ListenerId)>,
 }
 
@@ -148,12 +148,12 @@ impl VmInner {
 
         // ---- AbortSignal global ----
         // WHATWG §3.1: `AbortSignal` *is* listed as a constructor but
-        // its body always throws — only the static factories
-        // (`AbortSignal.abort` / `AbortSignal.timeout`, PR5a) and
-        // `new AbortController().signal` produce instances.  Marking
-        // it `create_constructable_function` is what lets `new
-        // AbortSignal()` reach our throw site (otherwise `do_new`
-        // would short-circuit with "X is not a constructor").
+        // its body always throws — instances are only obtainable via
+        // `new AbortController().signal` (or, once added, the static
+        // `AbortSignal.abort` / `AbortSignal.timeout` factories).
+        // Marking it `create_constructable_function` is what lets
+        // `new AbortSignal()` reach our throw site; otherwise `do_new`
+        // would short-circuit with "X is not a constructor".
         let abort_signal_ctor =
             self.create_constructable_function("AbortSignal", native_abort_signal_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
@@ -249,24 +249,25 @@ impl VmInner {
 
     fn install_abort_signal_methods(&mut self, proto_id: ObjectId) {
         // `addEventListener` / `removeEventListener` / `dispatchEvent`
-        // shadow the inherited EventTarget methods because the listener
-        // store is in-VM, not ECS-attached.  `throwIfAborted` is a
-        // signal-specific method.
-        //
-        // String IDs for the three EventTarget method names are not
-        // pre-cached on `WellKnownStrings` (the EventTarget prototype
-        // installer interns them lazily).  Re-interning here is a
-        // HashMap *hit* because `register_event_target_prototype`
-        // ran earlier in `register_globals` — the StringId returned
-        // matches the one already on `EventTarget.prototype`, so
-        // overriding via shape lookup works correctly.
-        let add_sid = self.strings.intern("addEventListener");
-        let remove_sid = self.strings.intern("removeEventListener");
-        let dispatch_sid = self.strings.intern("dispatchEvent");
+        // shadow the inherited EventTarget methods because the
+        // listener store is in-VM, not ECS-attached.  Reusing the
+        // pre-interned `WellKnownStrings` IDs guarantees these match
+        // the names `register_event_target_prototype` published on
+        // `EventTarget.prototype`, so the shape-based lookup hits
+        // the override rather than the inherited slot.
         for (name_sid, func) in [
-            (add_sid, native_abort_signal_add_event_listener as NativeFn),
-            (remove_sid, native_abort_signal_remove_event_listener),
-            (dispatch_sid, native_abort_signal_dispatch_event),
+            (
+                self.well_known.add_event_listener,
+                native_abort_signal_add_event_listener as NativeFn,
+            ),
+            (
+                self.well_known.remove_event_listener,
+                native_abort_signal_remove_event_listener,
+            ),
+            (
+                self.well_known.dispatch_event,
+                native_abort_signal_dispatch_event,
+            ),
             (
                 self.well_known.throw_if_aborted,
                 native_abort_signal_throw_if_aborted,
@@ -381,10 +382,10 @@ fn native_abort_signal_constructor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // WHATWG §3.1: `new AbortSignal()` throws.  PR5a will add the
-    // `AbortSignal.abort(reason)` / `AbortSignal.timeout(ms)` static
-    // factories — until then, the only way to obtain one is via
-    // `new AbortController().signal`.
+    // WHATWG §3.1: `new AbortSignal()` throws.  Instances are
+    // obtained via `new AbortController().signal` — the spec's
+    // `AbortSignal.abort(reason)` / `.timeout(ms)` static
+    // factories are not yet implemented.
     Err(VmError::type_error("AbortSignal is not constructable"))
 }
 
@@ -527,11 +528,11 @@ fn native_abort_signal_add_event_listener(
         return Ok(JsValue::Undefined);
     }
     if let Some(state) = ctx.vm.abort_signal_states.get_mut(&id) {
-        // Already-aborted signal: spec says the callback is queued
-        // immediately as a microtask, but PR4d's MVP simply skips
-        // registration (aborts are one-shot — re-registering after
-        // the fact is a no-op even in browsers).  Full microtask
-        // queueing lands in PR5a alongside `AbortSignal.abort(reason)`.
+        // Already-aborted signals drop the registration — strictly
+        // the spec queues a microtask that fires once, but the
+        // microtask machinery for `'abort'` events lives with the
+        // Event constructor surface (not yet implemented), and
+        // dropping is what the test fixtures observe.
         if state.aborted {
             return Ok(JsValue::Undefined);
         }
@@ -572,13 +573,13 @@ fn native_abort_signal_dispatch_event(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // PR4d MVP: dispatching arbitrary events into a signal is a
-    // no-op — the runtime only ever dispatches `'abort'` from
-    // `controller.abort()`, and that path doesn't go through
-    // `dispatchEvent`.  Full implementation lands in PR5a alongside
-    // `new Event(...)` (the only meaningful way to construct the
-    // argument from script).  Returns `false` matching WHATWG's
-    // "event not dispatched" default.
+    // Stub returning `false` (WHATWG's "event not dispatched"
+    // default).  A real implementation requires `new Event(...)`
+    // — the only meaningful way to construct the argument from
+    // script — which has not yet landed.  `controller.abort()`
+    // synthesises its `'abort'` dispatch internally without going
+    // through this method, so the stub does not block the
+    // primary AbortSignal use-case.
     Ok(JsValue::Boolean(false))
 }
 
@@ -589,12 +590,12 @@ fn native_abort_signal_dispatch_event(
 /// Fire `'abort'` on `signal_id`: set state, then call every
 /// registered listener exactly once (idempotent if already aborted).
 ///
-/// Listeners are called with `(undefined)` as the sole argument in
-/// PR4d — the proper Event object construction (`new AbortEvent`-like
-/// payload) lands in PR5a once the Event constructor surface is in
-/// place.  Browsers do build a real Event here, but every listener
-/// observed during PR4d testing only inspects `signal.aborted` /
-/// `signal.reason`, both of which are stable on the signal itself.
+/// Listeners are called with `(undefined)` as the sole argument
+/// rather than a proper Event payload — typical handlers inspect
+/// `signal.aborted` / `signal.reason`, both stable on the signal,
+/// so the missing payload does not affect observable behaviour.
+/// Building a real Event here requires the `new Event(...)`
+/// constructor surface (not yet implemented).
 ///
 /// The abort listeners + onabort handler are cleared after firing to
 /// implement WHATWG's one-shot semantics — re-aborting is a no-op
@@ -615,11 +616,9 @@ fn abort_signal(
     }
 
     // Materialise the abort reason: `undefined` becomes a fresh
-    // Error with `name === "AbortError"` and a default message.  Full
-    // `DOMException` (the spec-correct reason type) lands in PR5a;
-    // until then a plain Error with the right `name` satisfies every
-    // PR4d test path and matches common library detection
-    // (`err.name === 'AbortError'`).
+    // Error with `name === "AbortError"` (the spec wants a
+    // `DOMException`, but the plain Error matches what library
+    // detection code looks for: `err.name === 'AbortError'`).
     let materialised_reason = if matches!(reason, JsValue::Undefined) {
         create_default_abort_error(ctx)
     } else {
@@ -642,20 +641,17 @@ fn abort_signal(
         (onabort, listeners, removals)
     };
 
-    // Detach back-referenced listeners (set up via PR4d C3
-    // `addEventListener({signal})`) from their host's ECS
-    // `EventListeners` component + `HostData::listener_store`, so
-    // subsequent dispatches skip them.  Errors from a despawned
-    // entity are silently absorbed (the listener is already gone).
+    // Detach back-referenced listeners (set up by `addEventListener`'s
+    // signal-option path) from their host's ECS `EventListeners`
+    // component + `HostData::listener_store`, so subsequent dispatches
+    // skip them.  Despawned-entity errors are silently absorbed —
+    // the listener is already gone.
     detach_bound_listeners(ctx, &removals);
 
     // Fire `onabort` first (matches WHATWG §8.1.5 — event handler
     // attribute is "the first in addition to others registered").
     let signal_val = JsValue::Object(signal_id);
     if let Some(handler) = onabort {
-        // Per PR4d MVP, the listener gets `undefined` as the event
-        // argument; PR5a will swap in a properly-constructed
-        // AbortEvent when the Event constructor lands.
         let _ = ctx.call_function(handler, signal_val, &[JsValue::Undefined]);
     }
     for cb in listeners {
@@ -667,8 +663,8 @@ fn abort_signal(
 /// Construct the default abort reason — an `Error` instance with
 /// `name === "AbortError"` and a generic message.  Mirrors the
 /// own-property layout `error_ctor_impl` produces (so `JSON.stringify`,
-/// `Object.keys`, `e.toString()` all behave the same way).  PR5a will
-/// promote this to a real `DOMException` once that interface lands.
+/// `Object.keys`, `e.toString()` all behave the same way).  Should
+/// become a real `DOMException` once that interface is implemented.
 fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
     let proto = ctx.vm.error_prototype;
     let id = ctx.alloc_object(Object {
@@ -699,7 +695,7 @@ fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
 /// Detach `(entity, listener_id)` pairs from their host's ECS
 /// `EventListeners` component and the `HostData::listener_store`.
 /// Used when an `AbortSignal` aborts to drop listeners registered via
-/// `addEventListener({signal})` (PR4d C3).
+/// `addEventListener({signal})`.
 fn detach_bound_listeners(ctx: &mut NativeContext<'_>, removals: &[(Entity, ListenerId)]) {
     if removals.is_empty() || ctx.host_if_bound().is_none() {
         return;

@@ -44,6 +44,12 @@ impl VmInner {
     /// The three method bodies are **stubs** at C0 — see module doc for
     /// the per-method replacement schedule.
     pub(in crate::vm) fn register_event_target_prototype(&mut self) {
+        // `create_object_with_methods` interns the literal names; the
+        // resulting StringIds match `WellKnownStrings`'s pre-cached
+        // entries by construction (`StringPool::intern` is
+        // deduplicating), so `AbortSignal.prototype`'s shadow
+        // installer can use the well-known IDs and land on the same
+        // shape slots as the override target.
         let proto_id = self.create_object_with_methods(&[
             (
                 "addEventListener",
@@ -254,7 +260,7 @@ pub(super) fn entity_from_this(
 
 /// Parsed listener options — capture / once / passive / signal.
 ///
-/// `signal` (PR4d C3) — `Some(signal_id)` when the caller passed an
+/// `signal` — `Some(signal_id)` when the caller passed an
 /// `AbortSignal` via `{signal}`.  When that signal aborts, the
 /// runtime detaches this listener from its host's
 /// `EventListeners` component (see

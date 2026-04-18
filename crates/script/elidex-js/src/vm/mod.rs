@@ -311,8 +311,8 @@ pub(crate) struct VmInner {
     /// observed inside the same listener are directly comparable
     /// (spec requirement — the time origin is the same).
     ///
-    /// Consumed by `performance.now()` (PR4b C5) and
-    /// `Event.timeStamp` (PR4d C1).
+    /// Consumed by `performance.now()` and `Event.timeStamp` —
+    /// HR-Time §5 requires the two to share a time origin.
     ///
     /// Engine-only: both consumers (`performance.now`, `Event.timeStamp`)
     /// live behind `#[cfg(feature = "engine")]`, so gating the field

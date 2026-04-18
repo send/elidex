@@ -212,6 +212,14 @@ pub(crate) struct WellKnownStrings {
     pub(crate) onabort: StringId,
     pub(crate) throw_if_aborted: StringId,
     pub(crate) abort_error: StringId,
+
+    // EventTarget method names — referenced by both the
+    // EventTarget.prototype installer and AbortSignal.prototype's
+    // shadowing installer.  Pre-interning here means each prototype
+    // installer hits an existing pool entry instead of allocating.
+    pub(crate) add_event_listener: StringId,
+    pub(crate) remove_event_listener: StringId,
+    pub(crate) dispatch_event: StringId,
 }
 
 impl WellKnownStrings {
@@ -386,6 +394,9 @@ impl WellKnownStrings {
             onabort: strings.intern("onabort"),
             throw_if_aborted: strings.intern("throwIfAborted"),
             abort_error: strings.intern("AbortError"),
+            add_event_listener: strings.intern("addEventListener"),
+            remove_event_listener: strings.intern("removeEventListener"),
+            dispatch_event: strings.intern("dispatchEvent"),
         }
     }
 }
