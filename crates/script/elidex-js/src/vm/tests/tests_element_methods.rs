@@ -405,6 +405,42 @@ fn text_content_setter_replaces_children_with_single_text_node() {
 }
 
 #[test]
+fn text_content_on_document_is_null_and_setter_is_noop() {
+    // WHATWG §4.4: `document.textContent` returns `null` (not the
+    // concatenated descendant text), and `document.textContent = x`
+    // is a no-op — the document tree must not be rewritten.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval("document.textContent;").unwrap(),
+        JsValue::Null
+    ));
+    // Setter is a no-op: children and descendants unchanged.
+    vm.eval("document.textContent = 'ignored';").unwrap();
+    assert!(matches!(
+        vm.eval("document.textContent;").unwrap(),
+        JsValue::Null
+    ));
+    // body / #root still exists (would be gone if the setter wiped
+    // the document tree).
+    assert!(matches!(
+        vm.eval("document.getElementById('root') !== null;")
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+
+    vm.unbind();
+}
+
+#[test]
 fn text_content_setter_null_becomes_empty() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

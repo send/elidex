@@ -457,13 +457,14 @@ fn native_node_get_text_content(
         } else if let Ok(c) = dom.world().get::<&elidex_ecs::CommentData>(entity) {
             Some(c.0.clone())
         } else {
-            // Element / DocumentFragment / Document: concatenate
-            // descendant Text data.  Null for every other node kind
-            // (Attribute, DocumentType) — none currently reachable
-            // via a wrapper but the spec requires Null.
+            // WHATWG §4.4: only Element and DocumentFragment
+            // concatenate descendant Text data.  Document,
+            // DocumentType, and everything else return `null` — in
+            // particular `document.textContent === null` in every
+            // major browser.
             let kind = dom.node_kind(entity);
             match kind {
-                Some(NodeKind::Element | NodeKind::DocumentFragment | NodeKind::Document) => {
+                Some(NodeKind::Element | NodeKind::DocumentFragment) => {
                     let mut buf = String::new();
                     dom.traverse_descendants(entity, |e| {
                         if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(e) {
@@ -527,12 +528,11 @@ fn native_node_set_text_content(
             }
             return Ok(JsValue::Undefined);
         }
-        // Only Element / Fragment / Document replace children.
+        // WHATWG §4.4: only Element and DocumentFragment replace
+        // children.  Document.textContent = …  is a no-op — every
+        // other node kind (including Document) falls through here.
         let kind = dom.node_kind(entity);
-        if !matches!(
-            kind,
-            Some(NodeKind::Element | NodeKind::DocumentFragment | NodeKind::Document)
-        ) {
+        if !matches!(kind, Some(NodeKind::Element | NodeKind::DocumentFragment)) {
             return Ok(JsValue::Undefined);
         }
         // Remove every existing child.  Collect first to avoid
@@ -616,7 +616,7 @@ fn native_node_append_child(
         // surfaces them as TypeError with a descriptive message;
         // DOMException integration lands with the shell in a later PR.
         return Err(VmError::type_error(
-            "Failed to execute 'appendChild' on 'Node': the new child element cannot be inserted.",
+            "Failed to execute 'appendChild' on 'Node': the new child node cannot be inserted.",
         ));
     }
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(child)))
@@ -661,7 +661,7 @@ fn native_node_insert_before(
             if !ctx.host().dom().append_child(parent, new_node) {
                 return Err(VmError::type_error(
                     "Failed to execute 'insertBefore' on 'Node': \
-                     the new child element cannot be inserted.",
+                     the new child node cannot be inserted.",
                 ));
             }
         }
