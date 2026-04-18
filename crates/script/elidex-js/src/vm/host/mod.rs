@@ -11,6 +11,18 @@
 //! - [`event_target`] — `EventTarget.prototype` intrinsic + native
 //!   `addEventListener` / `removeEventListener` / `dispatchEvent`
 //!   inherited by every DOM wrapper.
+//! - [`node_proto`] — `Node.prototype` intrinsic, carrying the
+//!   Node-common accessors (`parentNode`, `textContent`, …) and
+//!   tree-mutation methods (`appendChild`, …).  Chains to
+//!   `EventTarget.prototype`.
+//! - [`element_proto`] — `Element.prototype` intrinsic, carrying
+//!   Element-only members (`getAttribute`, `children`, `matches`, …).
+//!   Chains to `Node.prototype`.
+//! - [`elements`] — `create_element_wrapper` (entity → wrapper
+//!   ObjectId, with per-entity prototype branching: Element vs
+//!   non-Element Nodes).
+//! - [`dom_bridge`] — shared selector-parse and wrapper-lift helpers
+//!   used by both `document.rs` and Element / Node prototype natives.
 
 pub(super) mod document;
 pub(super) mod dom_bridge;

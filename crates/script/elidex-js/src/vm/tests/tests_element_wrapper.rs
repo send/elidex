@@ -1,4 +1,4 @@
-//! PR3 C2: `create_element_wrapper` + wrapper_cache identity tests.
+//! `create_element_wrapper` + wrapper_cache identity tests.
 //!
 //! These exercise the full host-bound path: a real `SessionCore` +
 //! `EcsDom` is constructed, the VM is bound against them, and
@@ -8,7 +8,7 @@
 //! 1. Identity (`el === el`) — same Entity yields the same ObjectId.
 //! 2. Distinct entities yield distinct ObjectIds.
 //! 3. Element wrappers receive `Element.prototype`; Text wrappers
-//!    skip it and receive `EventTarget.prototype` directly.
+//!    skip it and receive `Node.prototype`.
 //! 4. The wrapper's `ObjectKind` is `HostObject` with matching
 //!    `entity_bits`.
 //! 5. A wrapper held only by `wrapper_cache` survives a GC cycle

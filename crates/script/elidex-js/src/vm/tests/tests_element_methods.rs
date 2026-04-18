@@ -1409,6 +1409,39 @@ fn text_wrapper_sees_node_members() {
 }
 
 #[test]
+fn append_child_rejects_window_argument() {
+    // Window is an EventTarget but not a Node in WHATWG — passing
+    // it as the child argument to a mutation method must throw the
+    // same "parameter is not of type 'Node'" TypeError as any other
+    // non-Node.  Covers appendChild / removeChild / insertBefore /
+    // replaceChild (they share `require_node_arg`).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    for expr in [
+        "document.getElementById('root').appendChild(window);",
+        "document.getElementById('root').removeChild(window);",
+        "document.getElementById('root').insertBefore(window, null);",
+        "document.getElementById('root').replaceChild(window, \
+             document.getElementById('root').firstChild);",
+    ] {
+        assert!(
+            vm.eval(expr).is_err(),
+            "{expr} must throw TypeError when passed Window"
+        );
+    }
+
+    vm.unbind();
+}
+
+#[test]
 fn closest_stops_at_shadow_boundary() {
     // When walking ancestors from inside a shadow tree, `closest`
     // must stop at the shadow root (approximated by "non-Element

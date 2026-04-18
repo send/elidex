@@ -188,31 +188,45 @@ fn tree_nav_getter(
     Ok(wrap_entity_or_null(ctx.vm, target))
 }
 
-/// Extract an entity from a `JsValue` expected to be a Node HostObject.
-/// Used by the four two-argument mutation methods — shared so error
-/// messages stay aligned across `appendChild`/`removeChild`/…
+/// Extract an entity from a `JsValue` expected to be a Node
+/// HostObject.  Used by the four two-argument mutation methods —
+/// shared so error messages stay aligned across
+/// `appendChild`/`removeChild`/…
+///
+/// Rejects:
+/// - values that are not `HostObject` wrappers,
+/// - `HostObject`s whose `entity_bits` do not reconstruct a valid
+///   `Entity` (truly corrupt / recycled),
+/// - `HostObject`s whose entity is `NodeKind::Window` or has no
+///   `NodeKind` component at all (e.g. a raw `HostObject`
+///   placeholder).  Window is an `EventTarget` but not a Node in
+///   WHATWG, so accepting it would let `document.appendChild(window)`
+///   graft a non-Node into the DOM tree.
 fn require_node_arg(
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
 ) -> Result<Entity, VmError> {
+    let not_a_node = || -> VmError {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
+        ))
+    };
     let id = match value {
         JsValue::Object(id) => id,
-        _ => {
-            return Err(VmError::type_error(format!(
-                "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
-            )));
-        }
+        _ => return Err(not_a_node()),
     };
-    match ctx.vm.get_object(id).kind {
-        ObjectKind::HostObject { entity_bits } => Entity::from_bits(entity_bits).ok_or_else(|| {
-            VmError::type_error(format!(
-                "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
-            ))
-        }),
-        _ => Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
-        ))),
+    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
+        return Err(not_a_node());
+    };
+    let entity = Entity::from_bits(entity_bits).ok_or_else(|| {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
+        ))
+    })?;
+    match ctx.host().dom().node_kind(entity) {
+        None | Some(NodeKind::Window) => Err(not_a_node()),
+        Some(_) => Ok(entity),
     }
 }
 

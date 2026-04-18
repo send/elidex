@@ -1,10 +1,15 @@
 //! `Element.prototype` intrinsic (WHATWG DOM §4.9).
 //!
-//! Holds Element-only members — tree navigation
-//! (`parentElement`, `children`, `firstElementChild`, …), attribute
-//! manipulation (`getAttribute`, `setAttribute`, …), and mutation
-//! (`appendChild`, `removeChild`, …) that do not apply to Text or
-//! Comment nodes.
+//! Holds **Element-only** members — element-scoped tree navigation
+//! (`firstElementChild`, `children`, `childElementCount`, …),
+//! attribute manipulation (`getAttribute`, `setAttribute`, …),
+//! selector helpers (`matches`, `closest`), `tagName` / `id` /
+//! `className`, and the `ChildNode` mixin method `remove()`.
+//!
+//! Node-common members — `parentNode`, `parentElement`,
+//! `firstChild`, `nodeType`, `textContent`, `appendChild`,
+//! `removeChild`, etc. — live on `Node.prototype` and so apply to
+//! Text / Comment / Document / DocumentFragment wrappers too.
 //!
 //! ## Prototype chain
 //!
@@ -16,10 +21,11 @@
 //!         → Object.prototype   (bootstrap)
 //! ```
 //!
-//! Text and Comment wrappers skip `Element.prototype` — they chain
-//! straight to `EventTarget.prototype`.  This keeps Element-specific
-//! names off Text instances (`textNode.getAttribute` is `undefined`,
-//! matching browsers).
+//! Text and Comment wrappers skip `Element.prototype` and chain
+//! directly to `Node.prototype` → `EventTarget.prototype`.  This
+//! keeps Element-specific names off Text instances
+//! (`textNode.getAttribute` is `undefined`, matching browsers)
+//! while still exposing Node-common members on them.
 //!
 //! ## Why a shared prototype?
 //!
@@ -46,17 +52,17 @@ use elidex_ecs::{Entity, TagType};
 
 impl VmInner {
     /// Allocate `Element.prototype` whose parent is
-    /// `EventTarget.prototype`.
+    /// `Node.prototype`.
     ///
-    /// Called from `register_globals()` after
-    /// `register_event_target_prototype` — the latter's result is
-    /// what the chain climbs to.
+    /// Called from `register_globals()` **after**
+    /// `register_node_prototype` so the chain can climb through
+    /// `Node.prototype` → `EventTarget.prototype` → `Object.prototype`.
     ///
     /// # Panics
     ///
-    /// Panics if `event_target_prototype` has not been populated
-    /// (would mean `register_event_target_prototype` was skipped or
-    /// called in the wrong order).
+    /// Panics if `node_prototype` has not been populated (would mean
+    /// `register_node_prototype` was skipped or called in the wrong
+    /// order).
     pub(in crate::vm) fn register_element_prototype(&mut self) {
         let node_proto = self
             .node_prototype
