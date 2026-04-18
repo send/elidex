@@ -143,6 +143,22 @@ pub(super) fn native_event_target_add_event_listener(
     // Argument 2: options — boolean (capture only) or object form.
     let options = parse_listener_options(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
 
+    // WHATWG §2.6.3 step 3: an already-aborted signal short-circuits
+    // registration entirely — listener is never added.  Subsequent
+    // `controller.abort()` is a no-op for one-shot semantics, so the
+    // listener would have nothing to detach anyway.  Read-only borrow
+    // keeps this off the hot path for the common `signal === None` case.
+    if let Some(signal_id) = options.signal {
+        if ctx
+            .vm
+            .abort_signal_states
+            .get(&signal_id)
+            .is_some_and(|s| s.aborted)
+        {
+            return Ok(JsValue::Undefined);
+        }
+    }
+
     // Duplicate check: WHATWG §2.6 step 4 excludes `once` / `passive`
     // from identity, so we look up by (type, capture, callback).
     if find_listener_id(ctx, entity, &event_type, options.capture, listener_obj_id).is_some() {
@@ -193,6 +209,17 @@ pub(super) fn native_event_target_add_event_listener(
     // Stash the JS function ObjectId so dispatch can look it up.
     ctx.host().store_listener(listener_id, listener_obj_id);
 
+    // Tie this listener to the AbortSignal back-ref list so
+    // `controller.abort()` can detach it from the host's
+    // `EventListeners` component.  Done after `store_listener` so
+    // `detach_bound_listeners` (in `host::abort`) can clean up both
+    // the ECS slot and the JS function root in lockstep.
+    if let Some(signal_id) = options.signal {
+        if let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) {
+            state.bound_listener_removals.push((entity, listener_id));
+        }
+    }
+
     Ok(JsValue::Undefined)
 }
 
@@ -225,14 +252,20 @@ pub(super) fn entity_from_this(
     elidex_ecs::Entity::from_bits(entity_bits)
 }
 
-/// Parsed listener options — capture / once / passive.  AbortSignal is
-/// not represented yet (PR4).
+/// Parsed listener options — capture / once / passive / signal.
+///
+/// `signal` (PR4d C3) — `Some(signal_id)` when the caller passed an
+/// `AbortSignal` via `{signal}`.  When that signal aborts, the
+/// runtime detaches this listener from its host's
+/// `EventListeners` component (see
+/// [`super::abort::AbortSignalState::bound_listener_removals`]).
 #[cfg(feature = "engine")]
 #[derive(Default)]
 pub(super) struct ListenerOptions {
     pub(super) capture: bool,
     pub(super) once: bool,
     pub(super) passive: bool,
+    pub(super) signal: Option<ObjectId>,
 }
 
 /// WHATWG DOM §2.6 step 1 — extract listener flags from the third
@@ -267,6 +300,27 @@ fn parse_listener_options(
                     .get_property_value(opts_id, PropertyKey::String(key_sid))?;
                 *slot = super::super::coerce::to_boolean(ctx.vm, v);
             }
+            // `signal` (WebIDL `AbortSignal? signal`): `null` /
+            // `undefined` / missing key all mean "no signal"; any
+            // other non-AbortSignal value is a WebIDL conversion
+            // failure that throws TypeError, matching browsers.
+            let signal_val = ctx
+                .vm
+                .get_property_value(opts_id, PropertyKey::String(ctx.vm.well_known.signal))?;
+            out.signal = match signal_val {
+                JsValue::Undefined | JsValue::Null => None,
+                JsValue::Object(id)
+                    if matches!(ctx.vm.get_object(id).kind, ObjectKind::AbortSignal) =>
+                {
+                    Some(id)
+                }
+                _ => {
+                    return Err(VmError::type_error(
+                        "Failed to execute 'addEventListener' on 'EventTarget': \
+                         member signal is not of type 'AbortSignal'.",
+                    ));
+                }
+            };
             Ok(out)
         }
         // Other types coerce via ToBoolean per WHATWG (treated as

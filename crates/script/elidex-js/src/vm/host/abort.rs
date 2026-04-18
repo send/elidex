@@ -319,9 +319,8 @@ fn native_abort_controller_constructor(
     // `do_new` already pre-allocated an Ordinary instance whose
     // prototype is `AbortController.prototype` — repurpose it so the
     // chain is correct without a second alloc.
-    let ctrl_id = match this {
-        JsValue::Object(id) => id,
-        _ => unreachable!("constructor `this` is always an Object after `do_new`"),
+    let JsValue::Object(ctrl_id) = this else {
+        unreachable!("constructor `this` is always an Object after `do_new`");
     };
     let signal_id = ctx.vm.create_abort_signal();
     let signal_key = PropertyKey::String(ctx.vm.well_known.signal);
@@ -426,7 +425,7 @@ fn native_abort_signal_get_aborted(
         .vm
         .abort_signal_states
         .get(&id)
-        .map_or(false, |s| s.aborted);
+        .is_some_and(|s| s.aborted);
     Ok(JsValue::Boolean(aborted))
 }
 

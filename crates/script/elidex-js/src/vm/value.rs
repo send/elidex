@@ -570,7 +570,7 @@ pub enum ObjectKind {
     /// The mutable signal state (`aborted` flag, `reason` value,
     /// registered `'abort'` callbacks, and back-references for
     /// `addEventListener({signal})` auto-removal) lives **out-of-band**
-    /// in [`VmInner::abort_signal_states`], keyed by this object's
+    /// in `VmInner::abort_signal_states`, keyed by this object's
     /// `ObjectId`.  Keeping the variant payload-free preserves
     /// per-variant size discipline (every other DOM-side wrapper is
     /// also payload-free or holds at most a small `Copy` field) and
