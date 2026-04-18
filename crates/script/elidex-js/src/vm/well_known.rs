@@ -149,7 +149,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) new_value: StringId,
     pub(crate) url: StringId,
 
-    // -- Node / Element accessors (PR4c) --
+    // -- Node / Element accessors --
     // Pre-interned here because every DOM access touches one of
     // them.  Keeping the `StringId`s in `WellKnownStrings` lets the
     // native getters reach them with a field read rather than a
@@ -190,6 +190,13 @@ pub(crate) struct WellKnownStrings {
     pub(crate) remove: StringId,
     pub(crate) matches: StringId,
     pub(crate) closest: StringId,
+    // `Node.prototype.nodeName` constants for non-Element nodes.
+    // Pre-interned so `native_node_get_node_name` returns a cached
+    // `StringId` without per-call allocation.
+    pub(crate) hash_text: StringId,
+    pub(crate) hash_comment: StringId,
+    pub(crate) hash_document: StringId,
+    pub(crate) hash_document_fragment: StringId,
 }
 
 impl WellKnownStrings {
@@ -313,7 +320,7 @@ impl WellKnownStrings {
             new_value: strings.intern("newValue"),
             url: strings.intern("url"),
 
-            // Node / Element accessors (PR4c).
+            // Node / Element accessors.
             parent_node: strings.intern("parentNode"),
             parent_element: strings.intern("parentElement"),
             first_child: strings.intern("firstChild"),
@@ -350,6 +357,10 @@ impl WellKnownStrings {
             remove: strings.intern("remove"),
             matches: strings.intern("matches"),
             closest: strings.intern("closest"),
+            hash_text: strings.intern("#text"),
+            hash_comment: strings.intern("#comment"),
+            hash_document: strings.intern("#document"),
+            hash_document_fragment: strings.intern("#document-fragment"),
         }
     }
 }

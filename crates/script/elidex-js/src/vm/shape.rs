@@ -94,6 +94,13 @@ impl PropertyAttrs {
     };
 
     /// `WEBIDL_RO` for accessor (getter/setter) properties.
+    ///
+    /// `writable` is meaningless on accessor properties (§6.1.7.1
+    /// Attributes of an Accessor Property) — the RW-ness of an
+    /// accessor is determined by whether a setter is present — so
+    /// the same constant is reused for WebIDL read/write accessors.
+    /// Only the `is_accessor` / `enumerable` / `configurable` bits
+    /// are load-bearing here.
     pub const WEBIDL_RO_ACCESSOR: Self = Self {
         writable: false,
         enumerable: true,

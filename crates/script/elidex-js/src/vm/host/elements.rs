@@ -9,7 +9,7 @@
 //!    by `Entity::to_bits().get()`.  A cache hit returns the existing
 //!    ObjectId without allocating.
 //! 2. **Prototype chain dispatched by node kind** — entities carrying
-//!    a `TagType` component receive `Element.prototype` (PR4c) as
+//!    a `TagType` component receive `Element.prototype` as
 //!    their prototype; Text / Comment nodes and the document /
 //!    window roots fall through to `EventTarget.prototype` directly.
 //!    Both chains terminate at `Object.prototype`, so Node-level

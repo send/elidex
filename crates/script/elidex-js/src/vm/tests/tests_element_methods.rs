@@ -1,4 +1,4 @@
-//! PR4c: tests for the Element.prototype method suite and the
+//! Tests for the Element.prototype method suite and the
 //! Node-common accessors installed on `EventTarget.prototype`.
 //!
 //! The natives live across `vm/host/element_proto.rs` and
@@ -427,7 +427,7 @@ fn text_content_setter_null_becomes_empty() {
 }
 
 // ---------------------------------------------------------------------------
-// Element-only tree navigation (C3)
+// Element-only tree navigation
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -629,7 +629,7 @@ fn element_contains_self_and_descendants_and_rejects_null() {
 }
 
 // ---------------------------------------------------------------------------
-// Attributes (C4): tagName / getAttribute / setAttribute / …
+// Attributes: tagName / getAttribute / setAttribute / …
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -931,7 +931,7 @@ fn element_id_on_text_node_is_undefined() {
 }
 
 // ---------------------------------------------------------------------------
-// DOM mutation (C5)
+// DOM mutation
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1151,7 +1151,7 @@ fn element_remove_on_detached_node_is_no_op() {
 }
 
 // ---------------------------------------------------------------------------
-// matches / closest (C6)
+// matches / closest
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1293,21 +1293,16 @@ fn element_closest_returns_null_when_no_match() {
 }
 
 // ---------------------------------------------------------------------------
-// Element-only members should NOT surface on Text nodes (C2 guard)
+// Element-only members should NOT surface on Text nodes
 // ---------------------------------------------------------------------------
 
 #[test]
 fn text_wrapper_does_not_expose_element_placeholder_marker() {
-    // At C2 Element.prototype is empty; at later commits it grows
-    // tree-nav / attr / mutation members.  This test documents the
-    // invariant: anything installed on Element.prototype must be
-    // `undefined` on Text nodes.  Until C3 installs the actual
-    // accessors the check uses a stable (post-C3) name —
-    // `firstElementChild` — that will be absent on Text.
-    //
-    // Intentionally tolerant pre-C3: assertion fires only if the
-    // accessor has been installed on Element.prototype but is
-    // incorrectly visible on Text wrappers.
+    // Invariant: members installed on `Element.prototype` must be
+    // `undefined` on Text wrappers — the Text branch chains straight
+    // to `EventTarget.prototype`, skipping Element.prototype.
+    // `firstElementChild` is an Element-only accessor, so `typeof`
+    // must be `undefined` on a Text node.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

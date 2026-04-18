@@ -27,24 +27,12 @@
 #![cfg(feature = "engine")]
 
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
-use super::super::VmInner;
-use super::super::{coerce, Vm};
+use super::super::Vm;
+use super::dom_bridge::{
+    coerce_first_arg_to_string, parse_dom_selector, wrap_entities_as_array, wrap_entity_or_null,
+};
 
-use elidex_css::parse_selector_from_str;
 use elidex_ecs::{Attributes, Entity, TagType};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Wrap a list of entities as a JS Array of element wrappers.
-fn wrap_entities_as_array(vm: &mut VmInner, entities: &[Entity]) -> JsValue {
-    let elements: Vec<JsValue> = entities
-        .iter()
-        .map(|&e| JsValue::Object(vm.create_element_wrapper(e)))
-        .collect();
-    JsValue::Object(vm.create_array_object(elements))
-}
 
 // ---------------------------------------------------------------------------
 // Tree walk from the document root.
@@ -72,9 +60,7 @@ pub(super) fn native_document_get_element_by_id(
         return Ok(JsValue::Null);
     }
 
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let target = ctx.vm.strings.get_utf8(sid);
+    let target = coerce_first_arg_to_string(ctx, args)?;
 
     let matched: Option<Entity> = {
         let doc = ctx
@@ -85,10 +71,7 @@ pub(super) fn native_document_get_element_by_id(
         let dom = ctx.host().dom();
         doc.and_then(|d| dom.find_by_id(d, &target))
     };
-    match matched {
-        Some(e) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(e))),
-        None => Ok(JsValue::Null),
-    }
+    Ok(wrap_entity_or_null(ctx.vm, matched))
 }
 
 // ---------------------------------------------------------------------------
@@ -104,17 +87,8 @@ pub(super) fn native_document_query_selector(
         return Ok(JsValue::Null);
     }
 
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let selector_str = ctx.vm.strings.get_utf8(sid);
-
-    let selectors = parse_selector_from_str(&selector_str)
-        .map_err(|()| VmError::syntax_error(format!("Invalid selector: {selector_str}")))?;
-    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
-        return Err(VmError::syntax_error(
-            ":host and ::slotted() are not valid in querySelector",
-        ));
-    }
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
 
     let matched: Option<Entity> = {
         let doc = ctx
@@ -138,10 +112,7 @@ pub(super) fn native_document_query_selector(
             result
         })
     };
-    match matched {
-        Some(e) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(e))),
-        None => Ok(JsValue::Null),
-    }
+    Ok(wrap_entity_or_null(ctx.vm, matched))
 }
 
 pub(super) fn native_document_query_selector_all(
@@ -153,17 +124,8 @@ pub(super) fn native_document_query_selector_all(
         return Ok(JsValue::Null);
     }
 
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let selector_str = ctx.vm.strings.get_utf8(sid);
-
-    let selectors = parse_selector_from_str(&selector_str)
-        .map_err(|()| VmError::syntax_error(format!("Invalid selector: {selector_str}")))?;
-    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
-        return Err(VmError::syntax_error(
-            ":host and ::slotted() are not valid in querySelectorAll",
-        ));
-    }
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
 
     // Phase 1: collect entities while DOM is borrowed.
     let entities: Vec<Entity> = {
@@ -206,10 +168,7 @@ pub(super) fn native_document_get_elements_by_tag_name(
         return Ok(JsValue::Null);
     }
 
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let tag = ctx.vm.strings.get_utf8(sid);
-
+    let tag = coerce_first_arg_to_string(ctx, args)?;
     let match_all = tag == "*";
     let entities: Vec<Entity> = {
         let doc = ctx
@@ -247,13 +206,11 @@ pub(super) fn native_document_get_elements_by_class_name(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let class_str = ctx.vm.strings.get_utf8(sid);
-
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
+
+    let class_str = coerce_first_arg_to_string(ctx, args)?;
 
     let target_classes: Vec<&str> = class_str.split_whitespace().collect();
     if target_classes.is_empty() {
@@ -312,13 +269,9 @@ pub(super) fn native_document_create_element(
         return Ok(JsValue::Null);
     }
 
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let raw_tag = ctx.vm.strings.get_utf8(sid);
-
     // WHATWG DOM §4.5 createElement normalises to lowercase in the
     // "HTML document" branch.  We treat every bind as HTML.
-    let tag = raw_tag.to_ascii_lowercase();
+    let tag = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
 
     let new_entity = {
         let dom = ctx.host().dom();
@@ -336,9 +289,7 @@ pub(super) fn native_document_create_text_node(
         return Ok(JsValue::Null);
     }
 
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, arg)?;
-    let data = ctx.vm.strings.get_utf8(sid);
+    let data = coerce_first_arg_to_string(ctx, args)?;
 
     let new_entity = {
         let dom = ctx.host().dom();
@@ -356,13 +307,6 @@ pub(super) fn native_document_create_text_node(
 // ---------------------------------------------------------------------------
 // Getters: documentElement / head / body / title / URL / readyState
 // ---------------------------------------------------------------------------
-
-fn wrap_entity_or_null(vm: &mut VmInner, entity: Option<Entity>) -> JsValue {
-    match entity {
-        Some(e) => JsValue::Object(vm.create_element_wrapper(e)),
-        None => JsValue::Null,
-    }
-}
 
 pub(super) fn native_document_get_document_element(
     ctx: &mut NativeContext<'_>,

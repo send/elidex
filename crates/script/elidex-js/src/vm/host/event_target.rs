@@ -32,7 +32,7 @@
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, VmError};
 #[cfg(feature = "engine")]
-use super::super::value::{ObjectId, ObjectKind, PropertyKey, PropertyValue};
+use super::super::value::{ObjectId, ObjectKind, PropertyKey, PropertyValue, StringId};
 use super::super::{NativeFn, VmInner};
 
 impl VmInner {
@@ -468,20 +468,29 @@ pub(super) fn native_event_target_remove_event_listener(
 // which chains to `EventTarget.prototype`; Text / Comment wrappers
 // therefore do NOT see those members.
 
+/// Shared body for `parentNode` / `nextSibling` / `previousSibling`.
+/// Each looks up a single entity via an `EcsDom` method and wraps
+/// the result (or `null`).
+#[cfg(feature = "engine")]
+fn node_sibling_getter(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    lookup: impl FnOnce(&elidex_ecs::EcsDom, elidex_ecs::Entity) -> Option<elidex_ecs::Entity>,
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let target = lookup(ctx.host().dom(), entity);
+    Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, target))
+}
+
 #[cfg(feature = "engine")]
 pub(super) fn native_node_get_parent_node(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let parent = ctx.host().dom().get_parent(entity);
-    Ok(match parent {
-        Some(p) => JsValue::Object(ctx.vm.create_element_wrapper(p)),
-        None => JsValue::Null,
-    })
+    node_sibling_getter(ctx, this, |dom, e| dom.get_parent(e))
 }
 
 #[cfg(feature = "engine")]
@@ -490,14 +499,7 @@ pub(super) fn native_node_get_next_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let sib = ctx.host().dom().get_next_sibling(entity);
-    Ok(match sib {
-        Some(s) => JsValue::Object(ctx.vm.create_element_wrapper(s)),
-        None => JsValue::Null,
-    })
+    node_sibling_getter(ctx, this, |dom, e| dom.get_next_sibling(e))
 }
 
 #[cfg(feature = "engine")]
@@ -506,14 +508,7 @@ pub(super) fn native_node_get_previous_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let sib = ctx.host().dom().get_prev_sibling(entity);
-    Ok(match sib {
-        Some(s) => JsValue::Object(ctx.vm.create_element_wrapper(s)),
-        None => JsValue::Null,
-    })
+    node_sibling_getter(ctx, this, |dom, e| dom.get_prev_sibling(e))
 }
 
 /// `Node.prototype.nodeType` — WHATWG DOM §4.4.
@@ -552,25 +547,40 @@ pub(super) fn native_node_get_node_name(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let name: String = {
+    enum NodeNameKind {
+        Tag(String),
+        Hash(StringId),
+        Empty,
+    }
+    let kind = {
         let dom = ctx.host().dom();
         if let Some(tag) = dom.get_tag_name(entity) {
-            tag.to_ascii_uppercase()
+            NodeNameKind::Tag(tag)
         } else {
             match dom.node_kind(entity) {
-                Some(elidex_ecs::NodeKind::Text) => "#text".to_string(),
-                Some(elidex_ecs::NodeKind::Comment) => "#comment".to_string(),
-                Some(elidex_ecs::NodeKind::Document) => "#document".to_string(),
-                Some(elidex_ecs::NodeKind::DocumentFragment) => "#document-fragment".to_string(),
-                _ => String::new(),
+                Some(elidex_ecs::NodeKind::Text) => NodeNameKind::Hash(ctx.vm.well_known.hash_text),
+                Some(elidex_ecs::NodeKind::Comment) => {
+                    NodeNameKind::Hash(ctx.vm.well_known.hash_comment)
+                }
+                Some(elidex_ecs::NodeKind::Document) => {
+                    NodeNameKind::Hash(ctx.vm.well_known.hash_document)
+                }
+                Some(elidex_ecs::NodeKind::DocumentFragment) => {
+                    NodeNameKind::Hash(ctx.vm.well_known.hash_document_fragment)
+                }
+                _ => NodeNameKind::Empty,
             }
         }
     };
-    if name.is_empty() {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    match kind {
+        NodeNameKind::Hash(sid) => Ok(JsValue::String(sid)),
+        NodeNameKind::Empty => Ok(JsValue::String(ctx.vm.well_known.empty)),
+        NodeNameKind::Tag(tag) => {
+            let upper = tag.to_ascii_uppercase();
+            let sid = ctx.vm.strings.intern(&upper);
+            Ok(JsValue::String(sid))
+        }
     }
-    let sid = ctx.vm.strings.intern(&name);
-    Ok(JsValue::String(sid))
 }
 
 /// `Node.prototype.nodeValue` — WHATWG DOM §4.4.
@@ -815,12 +825,9 @@ impl VmInner {
             );
         }
         // Read/write accessors (nodeValue, textContent).
-        let rw_attrs = shape::PropertyAttrs {
-            writable: false,
-            enumerable: true,
-            configurable: true,
-            is_accessor: true,
-        };
+        // `WEBIDL_RO_ACCESSOR`'s `writable` bit is meaningless for
+        // accessors — the setter slot below is what makes them RW.
+        let rw_attrs = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
         for (name_sid, getter, setter) in [
             (
                 self.well_known.node_value,

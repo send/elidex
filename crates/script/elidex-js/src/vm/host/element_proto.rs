@@ -11,7 +11,7 @@
 //! ```text
 //! element wrapper (HostObject)
 //!   → Element.prototype        (this intrinsic)
-//!     → EventTarget.prototype  (PR3 C0 — includes Node-common accessors)
+//!     → EventTarget.prototype  (includes Node-common accessors)
 //!       → Object.prototype     (bootstrap)
 //! ```
 //!
@@ -19,10 +19,6 @@
 //! straight to `EventTarget.prototype`.  This keeps Element-specific
 //! names off Text instances (`textNode.getAttribute` is `undefined`,
 //! matching browsers).
-//!
-//! At C2 the prototype is allocated empty; per-feature methods are
-//! installed by later PR4c commits (C3 tree nav, C4 attributes,
-//! C5 mutation, C6 matches/closest).
 //!
 //! ## Why a shared prototype?
 //!
@@ -42,6 +38,7 @@ use super::super::value::{
     PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
+use super::dom_bridge::{coerce_first_arg_to_string, parse_dom_selector, wrap_entity_or_null};
 use super::event_target::entity_from_this;
 
 use elidex_ecs::{Entity, TagType};
@@ -166,12 +163,9 @@ impl VmInner {
         );
 
         // `id` / `className` — read/write accessors (WHATWG §3.5).
-        let rw_attrs = shape::PropertyAttrs {
-            writable: false,
-            enumerable: true,
-            configurable: true,
-            is_accessor: true,
-        };
+        // `WEBIDL_RO_ACCESSOR`'s `writable` bit is meaningless for
+        // accessors; the RW-ness comes from the setter slot below.
+        let rw_attrs = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
         for (name_sid, getter, setter) in [
             (
                 self.well_known.id,
@@ -276,14 +270,6 @@ impl VmInner {
 // Accessor helpers
 // ---------------------------------------------------------------------------
 
-/// Wrap `Option<Entity>` as a wrapper JsValue, or Null.
-fn wrap_or_null(ctx: &mut NativeContext<'_>, entity: Option<Entity>) -> JsValue {
-    match entity {
-        Some(e) => JsValue::Object(ctx.vm.create_element_wrapper(e)),
-        None => JsValue::Null,
-    }
-}
-
 /// Collect direct children into a `Vec<Entity>`, optionally filtering
 /// to elements only.  Returns a snapshot — mutations to the tree after
 /// the call do not affect the returned vec.
@@ -312,18 +298,29 @@ fn native_element_get_parent_element(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // parentElement returns the parent only if it is itself an
+    // Element (per WHATWG §4.4) — the document root would otherwise
+    // leak as a parent of `<html>`.
+    tree_nav_getter(ctx, this, |dom, e| match dom.get_parent(e) {
+        Some(p) if dom.world().get::<&TagType>(p).is_ok() => Some(p),
+        _ => None,
+    })
+}
+
+/// Shared body for every "map `this` through one `EcsDom` tree-nav
+/// accessor and wrap-or-null" native.  Accessors that need to
+/// additionally filter the parent (e.g. `parentElement`) do not fit
+/// — those pass a custom closure via `tree_nav_getter_filtered`.
+fn tree_nav_getter(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    lookup: impl FnOnce(&elidex_ecs::EcsDom, Entity) -> Option<Entity>,
+) -> Result<JsValue, VmError> {
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let parent = {
-        let dom = ctx.host().dom();
-        match dom.get_parent(entity) {
-            // parentElement returns parent only if it is itself an Element.
-            Some(p) if dom.world().get::<&TagType>(p).is_ok() => Some(p),
-            _ => None,
-        }
-    };
-    Ok(wrap_or_null(ctx, parent))
+    let target = lookup(ctx.host().dom(), entity);
+    Ok(wrap_entity_or_null(ctx.vm, target))
 }
 
 fn native_element_get_first_child(
@@ -331,11 +328,7 @@ fn native_element_get_first_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let child = ctx.host().dom().get_first_child(entity);
-    Ok(wrap_or_null(ctx, child))
+    tree_nav_getter(ctx, this, |dom, e| dom.get_first_child(e))
 }
 
 fn native_element_get_last_child(
@@ -343,11 +336,7 @@ fn native_element_get_last_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let child = ctx.host().dom().get_last_child(entity);
-    Ok(wrap_or_null(ctx, child))
+    tree_nav_getter(ctx, this, |dom, e| dom.get_last_child(e))
 }
 
 fn native_element_get_first_element_child(
@@ -355,11 +344,7 @@ fn native_element_get_first_element_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let child = ctx.host().dom().first_element_child(entity);
-    Ok(wrap_or_null(ctx, child))
+    tree_nav_getter(ctx, this, |dom, e| dom.first_element_child(e))
 }
 
 fn native_element_get_last_element_child(
@@ -367,11 +352,7 @@ fn native_element_get_last_element_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let child = ctx.host().dom().last_element_child(entity);
-    Ok(wrap_or_null(ctx, child))
+    tree_nav_getter(ctx, this, |dom, e| dom.last_element_child(e))
 }
 
 fn native_element_get_next_element_sibling(
@@ -379,11 +360,7 @@ fn native_element_get_next_element_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let sib = ctx.host().dom().next_element_sibling(entity);
-    Ok(wrap_or_null(ctx, sib))
+    tree_nav_getter(ctx, this, |dom, e| dom.next_element_sibling(e))
 }
 
 fn native_element_get_previous_element_sibling(
@@ -391,11 +368,7 @@ fn native_element_get_previous_element_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    let sib = ctx.host().dom().prev_element_sibling(entity);
-    Ok(wrap_or_null(ctx, sib))
+    tree_nav_getter(ctx, this, |dom, e| dom.prev_element_sibling(e))
 }
 
 fn native_element_get_child_nodes(
@@ -590,9 +563,7 @@ fn native_element_get_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let name = ctx.vm.strings.get_utf8(sid);
+    let name = coerce_first_arg_to_string(ctx, args)?;
     match attr_get(ctx, entity, &name) {
         Some(v) => {
             let sid = ctx.vm.strings.intern(&v);
@@ -614,11 +585,9 @@ fn native_element_set_attribute(
     // spec name-validation step runs on a qualified name; we accept
     // any string here and defer validation to a future HTML5 parser
     // upgrade.
-    let name_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let name = coerce_first_arg_to_string(ctx, args)?;
     let value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let name_sid = super::super::coerce::to_string(ctx.vm, name_arg)?;
     let value_sid = super::super::coerce::to_string(ctx.vm, value_arg)?;
-    let name = ctx.vm.strings.get_utf8(name_sid);
     let value = ctx.vm.strings.get_utf8(value_sid);
     attr_set(ctx, entity, &name, value);
     Ok(JsValue::Undefined)
@@ -632,9 +601,7 @@ fn native_element_remove_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let name = ctx.vm.strings.get_utf8(sid);
+    let name = coerce_first_arg_to_string(ctx, args)?;
     attr_remove(ctx, entity, &name);
     Ok(JsValue::Undefined)
 }
@@ -647,9 +614,7 @@ fn native_element_has_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let name = ctx.vm.strings.get_utf8(sid);
+    let name = coerce_first_arg_to_string(ctx, args)?;
     let has = {
         let dom = ctx.host().dom();
         dom.world()
@@ -696,9 +661,7 @@ fn native_element_toggle_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    let name_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let name_sid = super::super::coerce::to_string(ctx.vm, name_arg)?;
-    let name = ctx.vm.strings.get_utf8(name_sid);
+    let name = coerce_first_arg_to_string(ctx, args)?;
 
     // `force` (second arg): undefined = toggle, true = ensure present,
     // false = ensure absent.  WHATWG §4.9.2 toggleAttribute.
@@ -747,22 +710,46 @@ fn native_element_toggle_attribute(
 // id / className (reflected as the underlying attribute)
 // ---------------------------------------------------------------------------
 
-fn native_element_get_id(
+/// Shared body for reflected-string-attribute getters (`id`,
+/// `className`).  Missing attribute returns the empty string (not
+/// `null` like `getAttribute`) per WHATWG §4.9.
+fn reflected_string_get(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    attr_name: &str,
 ) -> Result<JsValue, VmError> {
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    // WHATWG §4.9 reflected `id` / `className`: missing attribute
-    // returns the empty string (not `null` like `getAttribute`).
-    let val = attr_get(ctx, entity, "id").unwrap_or_default();
+    let val = attr_get(ctx, entity, attr_name).unwrap_or_default();
     if val.is_empty() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
     let sid = ctx.vm.strings.intern(&val);
     Ok(JsValue::String(sid))
+}
+
+/// Shared body for reflected-string-attribute setters.
+fn reflected_string_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    attr_name: &str,
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let value = coerce_first_arg_to_string(ctx, args)?;
+    attr_set(ctx, entity, attr_name, value);
+    Ok(JsValue::Undefined)
+}
+
+fn native_element_get_id(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    reflected_string_get(ctx, this, "id")
 }
 
 fn native_element_set_id(
@@ -770,14 +757,7 @@ fn native_element_set_id(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Undefined);
-    };
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let value = ctx.vm.strings.get_utf8(sid);
-    attr_set(ctx, entity, "id", value);
-    Ok(JsValue::Undefined)
+    reflected_string_set(ctx, this, args, "id")
 }
 
 fn native_element_get_class_name(
@@ -785,15 +765,7 @@ fn native_element_get_class_name(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
-    let val = attr_get(ctx, entity, "class").unwrap_or_default();
-    if val.is_empty() {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    }
-    let sid = ctx.vm.strings.intern(&val);
-    Ok(JsValue::String(sid))
+    reflected_string_get(ctx, this, "class")
 }
 
 fn native_element_set_class_name(
@@ -801,18 +773,11 @@ fn native_element_set_class_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Undefined);
-    };
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let value = ctx.vm.strings.get_utf8(sid);
-    attr_set(ctx, entity, "class", value);
-    Ok(JsValue::Undefined)
+    reflected_string_set(ctx, this, args, "class")
 }
 
 // ---------------------------------------------------------------------------
-// Natives: DOM mutation (C5)
+// Natives: DOM mutation
 // ---------------------------------------------------------------------------
 
 /// Extract an entity from a `JsValue` that is expected to be a DOM
@@ -967,22 +932,8 @@ fn native_element_remove(
 }
 
 // ---------------------------------------------------------------------------
-// Natives: matches / closest (C6)
+// Natives: matches / closest
 // ---------------------------------------------------------------------------
-
-/// Parse `selector_str` and reject shadow-scoped pseudos, matching
-/// `document.querySelector`'s pattern.  Returns the parsed selectors
-/// or a `SyntaxError` VmError.
-fn parse_element_selector(selector_str: &str) -> Result<Vec<elidex_css::Selector>, VmError> {
-    let selectors = elidex_css::parse_selector_from_str(selector_str)
-        .map_err(|()| VmError::syntax_error(format!("Invalid selector: {selector_str}")))?;
-    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
-        return Err(VmError::syntax_error(
-            ":host and ::slotted() are not valid in matches/closest",
-        ));
-    }
-    Ok(selectors)
-}
 
 fn native_element_matches(
     ctx: &mut NativeContext<'_>,
@@ -992,10 +943,8 @@ fn native_element_matches(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let selector_str = ctx.vm.strings.get_utf8(sid);
-    let selectors = parse_element_selector(&selector_str)?;
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "matches/closest")?;
     let dom = ctx.host().dom();
     let matched = selectors.iter().any(|s| s.matches(entity, dom));
     Ok(JsValue::Boolean(matched))
@@ -1009,10 +958,8 @@ fn native_element_closest(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let selector_str = ctx.vm.strings.get_utf8(sid);
-    let selectors = parse_element_selector(&selector_str)?;
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "matches/closest")?;
 
     // Walk self → parent ancestors, returning the first matching
     // Element.  WHATWG §4.9 closest() is inclusive and stops at the
@@ -1031,5 +978,5 @@ fn native_element_closest(
         }
         out
     };
-    Ok(wrap_or_null(ctx, matched))
+    Ok(wrap_entity_or_null(ctx.vm, matched))
 }

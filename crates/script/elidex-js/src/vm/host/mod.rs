@@ -13,6 +13,7 @@
 //!   inherited by every DOM wrapper.
 
 pub(super) mod document;
+pub(super) mod dom_bridge;
 pub(super) mod element_proto;
 pub(super) mod elements;
 pub(super) mod event_shapes;

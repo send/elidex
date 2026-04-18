@@ -150,6 +150,18 @@ mod engine_feature {
         /// read-only — callers holding a shared borrow of `HostData`
         /// (e.g. `create_element_wrapper`'s prototype branch) cannot
         /// otherwise reach the world.
+        ///
+        /// # Aliasing contract
+        ///
+        /// Callers must not hold a live `&mut EcsDom` produced via
+        /// [`Self::dom`] when invoking this method.  Creating the
+        /// shared reference while a mutable reference to the same
+        /// `EcsDom` exists would be undefined behaviour under the
+        /// Rust aliasing rules.  In practice this is guaranteed by
+        /// `create_element_wrapper`'s borrow discipline — it calls
+        /// `is_element_entity` through `self.host_data.as_deref()`,
+        /// so no `&mut` borrow of the DOM can be live at that call
+        /// site.  Future callers must preserve the same ordering.
         #[allow(unsafe_code)]
         pub fn is_element_entity(&self, entity: Entity) -> bool {
             if !self.is_bound() {
@@ -160,10 +172,10 @@ mod engine_feature {
             // `bind()`.  The pointer lifetime is tied to that bind
             // window; callers must not drop or move the `EcsDom`
             // between bind and unbind (documented on `bind` itself).
-            // A shared reference to the world is sound while no
-            // `&mut` reference exists — this helper never produces
-            // one, and the only mutating users of the world hold a
-            // fresh `&mut` via `dom()`.
+            // The aliasing contract above guarantees no `&mut`
+            // reference to the same `EcsDom` is live at the call
+            // site, so creating a `&` here cannot violate Rust
+            // aliasing rules.
             let dom = unsafe { &*self.dom_ptr };
             dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
         }
