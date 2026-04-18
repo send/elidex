@@ -1,0 +1,685 @@
+//! `Node.prototype` intrinsic (WHATWG DOM §4.4).
+//!
+//! Sits between `EventTarget.prototype` and `Element.prototype` in
+//! the DOM wrapper chain:
+//!
+//! ```text
+//! element wrapper (HostObject)
+//!   → Element.prototype        (Element-only members)
+//!     → Node.prototype         (this intrinsic)
+//!       → EventTarget.prototype
+//!         → Object.prototype
+//!
+//! text / comment / document wrapper (HostObject)
+//!   → Node.prototype           (skip Element.prototype)
+//!     → EventTarget.prototype
+//!       → Object.prototype
+//!
+//! window (HostObject)
+//!   → Window.prototype         (Window-only members)
+//!     → EventTarget.prototype  (no Node members — Window is not a Node)
+//!       → Object.prototype
+//! ```
+//!
+//! Every DOM **Node** (Element, Text, Comment, Document,
+//! DocumentFragment, …) reaches this prototype; Window and any
+//! future `EventTarget`-but-not-`Node` host object (e.g. XHR,
+//! AbortSignal) do not — so `typeof window.nodeType` remains
+//! `"undefined"` the way the Web platform demands.
+//!
+//! Members installed here:
+//!
+//! - Accessors: `parentNode`, `firstChild`, `lastChild`,
+//!   `nextSibling`, `previousSibling`, `childNodes`, `nodeType`,
+//!   `nodeName`, `nodeValue`, `textContent`, `isConnected`.
+//! - Methods:   `hasChildNodes`, `contains`, `appendChild`,
+//!   `removeChild`, `insertBefore`, `replaceChild`.
+//!
+//! Element-only members (`getAttribute`, `children`, `matches`, …)
+//! live on `Element.prototype` which chains here.
+
+#![cfg(feature = "engine")]
+
+use super::super::shape;
+use super::super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
+    PropertyValue, StringId, VmError,
+};
+use super::super::{NativeFn, VmInner};
+use super::dom_bridge::wrap_entity_or_null;
+use super::event_target::entity_from_this;
+
+use elidex_ecs::{Entity, NodeKind};
+
+impl VmInner {
+    /// Allocate `Node.prototype` and populate it with the Node-level
+    /// accessors and methods.  Its parent is `EventTarget.prototype`.
+    ///
+    /// Called from `register_globals()` after
+    /// `register_event_target_prototype` and **before**
+    /// `register_element_prototype` (Element.prototype chains here).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `event_target_prototype` has not been populated.
+    pub(in crate::vm) fn register_node_prototype(&mut self) {
+        let event_target_proto = self
+            .event_target_prototype
+            .expect("register_node_prototype called before register_event_target_prototype");
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(event_target_proto),
+            extensible: true,
+        });
+        self.node_prototype = Some(proto_id);
+        self.install_node_ro_accessors(proto_id);
+        self.install_node_rw_accessors(proto_id);
+        self.install_node_methods(proto_id);
+    }
+
+    fn install_node_ro_accessors(&mut self, proto_id: ObjectId) {
+        for (name_sid, getter) in [
+            (
+                self.well_known.parent_node,
+                native_node_get_parent_node as NativeFn,
+            ),
+            (self.well_known.first_child, native_node_get_first_child),
+            (self.well_known.last_child, native_node_get_last_child),
+            (self.well_known.next_sibling, native_node_get_next_sibling),
+            (
+                self.well_known.previous_sibling,
+                native_node_get_previous_sibling,
+            ),
+            (self.well_known.child_nodes, native_node_get_child_nodes),
+            (self.well_known.node_type, native_node_get_node_type),
+            (self.well_known.node_name, native_node_get_node_name),
+            (self.well_known.is_connected, native_node_get_is_connected),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: None,
+                },
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+    }
+
+    fn install_node_rw_accessors(&mut self, proto_id: ObjectId) {
+        // `WEBIDL_RO_ACCESSOR`'s `writable` bit is meaningless for
+        // accessors — the setter slot is what makes these RW.
+        let rw_attrs = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
+        for (name_sid, getter, setter) in [
+            (
+                self.well_known.node_value,
+                native_node_get_node_value as NativeFn,
+                native_node_set_node_value as NativeFn,
+            ),
+            (
+                self.well_known.text_content,
+                native_node_get_text_content,
+                native_node_set_text_content,
+            ),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            let sid = self.create_native_function(&format!("set {name}"), setter);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: Some(sid),
+                },
+                rw_attrs,
+            );
+        }
+    }
+
+    fn install_node_methods(&mut self, proto_id: ObjectId) {
+        for (name_sid, func) in [
+            (
+                self.well_known.has_child_nodes,
+                native_node_has_child_nodes as NativeFn,
+            ),
+            (self.well_known.contains, native_node_contains),
+            (self.well_known.append_child, native_node_append_child),
+            (self.well_known.remove_child, native_node_remove_child),
+            (self.well_known.insert_before, native_node_insert_before),
+            (self.well_known.replace_child, native_node_replace_child),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let fn_id = self.create_native_function(&name, func);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                shape::PropertyAttrs::METHOD,
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/// Shared body for every "map `this` through one `EcsDom` tree-nav
+/// accessor and wrap-or-null" native.  Handles both the bound-check
+/// and the wrapper lift.
+fn tree_nav_getter(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    lookup: impl FnOnce(&elidex_ecs::EcsDom, Entity) -> Option<Entity>,
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let target = lookup(ctx.host().dom(), entity);
+    Ok(wrap_entity_or_null(ctx.vm, target))
+}
+
+/// Extract an entity from a `JsValue` expected to be a Node HostObject.
+/// Used by the four two-argument mutation methods — shared so error
+/// messages stay aligned across `appendChild`/`removeChild`/…
+fn require_node_arg(
+    ctx: &NativeContext<'_>,
+    value: JsValue,
+    method: &str,
+) -> Result<Entity, VmError> {
+    let id = match value {
+        JsValue::Object(id) => id,
+        _ => {
+            return Err(VmError::type_error(format!(
+                "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
+            )));
+        }
+    };
+    match ctx.vm.get_object(id).kind {
+        ObjectKind::HostObject { entity_bits } => Entity::from_bits(entity_bits).ok_or_else(|| {
+            VmError::type_error(format!(
+                "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
+            ))
+        }),
+        _ => Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
+        ))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tree-navigation accessors
+// ---------------------------------------------------------------------------
+
+fn native_node_get_parent_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.get_parent(e))
+}
+
+fn native_node_get_first_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.get_first_child(e))
+}
+
+fn native_node_get_last_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.get_last_child(e))
+}
+
+fn native_node_get_next_sibling(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.get_next_sibling(e))
+}
+
+fn native_node_get_previous_sibling(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, |dom, e| dom.get_prev_sibling(e))
+}
+
+fn native_node_get_child_nodes(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    // Phase 2: return a plain JS array (static snapshot) rather than
+    // a live NodeList.  Full NodeList semantics land with Observers /
+    // CE lifecycle in a later PR.
+    let children: Vec<Entity> = ctx.host().dom().children_iter(entity).collect();
+    let elements: Vec<JsValue> = children
+        .into_iter()
+        .map(|e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
+        .collect();
+    Ok(JsValue::Object(ctx.vm.create_array_object(elements)))
+}
+
+fn native_node_get_is_connected(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    // WHATWG §4.4: connected iff shadow-including root is the
+    // document.  We approximate with the composed tree root; full
+    // shadow-aware semantics follow in PR5b alongside Custom Elements.
+    let dom = ctx.host().dom();
+    let root = dom.find_tree_root_composed(entity);
+    let connected = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .and_then(|hd| hd.document_entity_opt())
+        .is_some_and(|doc| root == doc);
+    Ok(JsValue::Boolean(connected))
+}
+
+// ---------------------------------------------------------------------------
+// Node info — nodeType / nodeName / nodeValue
+// ---------------------------------------------------------------------------
+
+fn native_node_get_node_type(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Number(0.0));
+    };
+    let kind = ctx.host().dom().node_kind(entity);
+    let n = kind.map_or(0, NodeKind::node_type);
+    Ok(JsValue::Number(f64::from(n)))
+}
+
+fn native_node_get_node_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    enum NodeNameKind {
+        Tag(String),
+        Hash(StringId),
+        Empty,
+    }
+    let kind = {
+        let dom = ctx.host().dom();
+        if let Some(tag) = dom.get_tag_name(entity) {
+            NodeNameKind::Tag(tag)
+        } else {
+            match dom.node_kind(entity) {
+                Some(NodeKind::Text) => NodeNameKind::Hash(ctx.vm.well_known.hash_text),
+                Some(NodeKind::Comment) => NodeNameKind::Hash(ctx.vm.well_known.hash_comment),
+                Some(NodeKind::Document) => NodeNameKind::Hash(ctx.vm.well_known.hash_document),
+                Some(NodeKind::DocumentFragment) => {
+                    NodeNameKind::Hash(ctx.vm.well_known.hash_document_fragment)
+                }
+                _ => NodeNameKind::Empty,
+            }
+        }
+    };
+    match kind {
+        NodeNameKind::Hash(sid) => Ok(JsValue::String(sid)),
+        NodeNameKind::Empty => Ok(JsValue::String(ctx.vm.well_known.empty)),
+        NodeNameKind::Tag(tag) => {
+            let upper = tag.to_ascii_uppercase();
+            let sid = ctx.vm.strings.intern(&upper);
+            Ok(JsValue::String(sid))
+        }
+    }
+}
+
+fn native_node_get_node_value(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let data: Option<String> = {
+        let dom = ctx.host().dom();
+        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(entity) {
+            Some(text.0.clone())
+        } else if let Ok(c) = dom.world().get::<&elidex_ecs::CommentData>(entity) {
+            Some(c.0.clone())
+        } else {
+            None
+        }
+    };
+    match data {
+        Some(s) => {
+            let sid = ctx.vm.strings.intern(&s);
+            Ok(JsValue::String(sid))
+        }
+        None => Ok(JsValue::Null),
+    }
+}
+
+/// `nodeValue` setter — spec-defined only for character-data (Text
+/// / Comment) nodes; no-op otherwise.
+fn native_node_set_node_value(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    // WHATWG §4.4: nodeValue setter treats null as empty string; every
+    // other value is coerced via ToString.
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let data: String = match arg {
+        JsValue::Null => String::new(),
+        other => {
+            let sid = super::super::coerce::to_string(ctx.vm, other)?;
+            ctx.vm.strings.get_utf8(sid)
+        }
+    };
+    {
+        let dom = ctx.host().dom();
+        let is_text = dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok();
+        if is_text {
+            if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
+                text.0 = data;
+            }
+        } else if dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok() {
+            if let Ok(mut c) = dom.world_mut().get::<&mut elidex_ecs::CommentData>(entity) {
+                c.0 = data;
+            }
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// textContent getter / setter
+// ---------------------------------------------------------------------------
+
+fn native_node_get_text_content(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let result: Option<String> = {
+        let dom = ctx.host().dom();
+        // Character-data nodes return their own data directly.
+        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(entity) {
+            Some(text.0.clone())
+        } else if let Ok(c) = dom.world().get::<&elidex_ecs::CommentData>(entity) {
+            Some(c.0.clone())
+        } else {
+            // Element / DocumentFragment / Document: concatenate
+            // descendant Text data.  Null for every other node kind
+            // (Attribute, DocumentType) — none currently reachable
+            // via a wrapper but the spec requires Null.
+            let kind = dom.node_kind(entity);
+            match kind {
+                Some(NodeKind::Element | NodeKind::DocumentFragment | NodeKind::Document) => {
+                    let mut buf = String::new();
+                    dom.traverse_descendants(entity, |e| {
+                        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(e) {
+                            buf.push_str(&text.0);
+                        }
+                        true
+                    });
+                    Some(buf)
+                }
+                _ => None,
+            }
+        }
+    };
+    match result {
+        Some(s) => {
+            if s.is_empty() {
+                Ok(JsValue::String(ctx.vm.well_known.empty))
+            } else {
+                let sid = ctx.vm.strings.intern(&s);
+                Ok(JsValue::String(sid))
+            }
+        }
+        None => Ok(JsValue::Null),
+    }
+}
+
+fn native_node_set_text_content(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let data: String = match arg {
+        JsValue::Null => String::new(),
+        other => {
+            let sid = super::super::coerce::to_string(ctx.vm, other)?;
+            ctx.vm.strings.get_utf8(sid)
+        }
+    };
+    {
+        let dom = ctx.host().dom();
+        // Character-data fast path.  Perform the type check with a
+        // shared borrow, then upgrade to a mutable one for the
+        // actual mutation — hecs's `RefMut` destructor re-enters the
+        // world, so two back-to-back `get::<&mut _>` calls in the
+        // same scope would clash even with ok/err short-circuits.
+        let is_text = dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok();
+        if is_text {
+            if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
+                text.0 = data;
+            }
+            return Ok(JsValue::Undefined);
+        }
+        let is_comment = dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok();
+        if is_comment {
+            if let Ok(mut c) = dom.world_mut().get::<&mut elidex_ecs::CommentData>(entity) {
+                c.0 = data;
+            }
+            return Ok(JsValue::Undefined);
+        }
+        // Only Element / Fragment / Document replace children.
+        let kind = dom.node_kind(entity);
+        if !matches!(
+            kind,
+            Some(NodeKind::Element | NodeKind::DocumentFragment | NodeKind::Document)
+        ) {
+            return Ok(JsValue::Undefined);
+        }
+        // Remove every existing child.  Collect first to avoid
+        // mutating the sibling chain mid-iteration.
+        let existing: Vec<Entity> = dom.children_iter(entity).collect();
+        for child in existing {
+            let _ = dom.remove_child(entity, child);
+        }
+        if !data.is_empty() {
+            let text_entity = dom.create_text(data);
+            let _ = dom.append_child(entity, text_entity);
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// hasChildNodes / contains
+// ---------------------------------------------------------------------------
+
+fn native_node_has_child_nodes(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    Ok(JsValue::Boolean(
+        ctx.host().dom().get_first_child(entity).is_some(),
+    ))
+}
+
+fn native_node_contains(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(self_entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    // WHATWG §4.4.2 contains(other):
+    //   "returns true if other is an inclusive descendant of this,
+    //    and false otherwise (including when other is null)."
+    let other_entity = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Null | JsValue::Undefined => return Ok(JsValue::Boolean(false)),
+        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
+            ObjectKind::HostObject { entity_bits } => match Entity::from_bits(entity_bits) {
+                Some(e) => e,
+                None => return Ok(JsValue::Boolean(false)),
+            },
+            _ => return Ok(JsValue::Boolean(false)),
+        },
+        _ => return Ok(JsValue::Boolean(false)),
+    };
+    if self_entity == other_entity {
+        return Ok(JsValue::Boolean(true));
+    }
+    Ok(JsValue::Boolean(
+        ctx.host()
+            .dom()
+            .is_ancestor_or_self(self_entity, other_entity),
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// DOM mutation — appendChild / removeChild / insertBefore / replaceChild
+// ---------------------------------------------------------------------------
+
+fn native_node_append_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(parent) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let child = require_node_arg(ctx, child_arg, "appendChild")?;
+    let ok = ctx.host().dom().append_child(parent, child);
+    if !ok {
+        // WHATWG §4.5 pre-insertion validity — the lifecycle
+        // violations EcsDom rejects (self-append, cycle, destroyed
+        // entity) are spec'd as HierarchyRequestError.  Phase 2
+        // surfaces them as TypeError with a descriptive message;
+        // DOMException integration lands with the shell in a later PR.
+        return Err(VmError::type_error(
+            "Failed to execute 'appendChild' on 'Node': the new child element cannot be inserted.",
+        ));
+    }
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(child)))
+}
+
+fn native_node_remove_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(parent) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let child = require_node_arg(ctx, child_arg, "removeChild")?;
+    let ok = ctx.host().dom().remove_child(parent, child);
+    if !ok {
+        // `NotFoundError` in the spec — surfaced as TypeError per the
+        // DOMException deferral documented on `appendChild`.
+        return Err(VmError::type_error(
+            "Failed to execute 'removeChild' on 'Node': \
+             The node to be removed is not a child of this node.",
+        ));
+    }
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(child)))
+}
+
+fn native_node_insert_before(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(parent) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let new_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let new_node = require_node_arg(ctx, new_arg, "insertBefore")?;
+    // `ref_node` may be `null` → append at end.
+    let ref_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    match ref_arg {
+        JsValue::Null | JsValue::Undefined => {
+            if !ctx.host().dom().append_child(parent, new_node) {
+                return Err(VmError::type_error(
+                    "Failed to execute 'insertBefore' on 'Node': \
+                     the new child element cannot be inserted.",
+                ));
+            }
+        }
+        _ => {
+            let ref_node = require_node_arg(ctx, ref_arg, "insertBefore")?;
+            if !ctx.host().dom().insert_before(parent, new_node, ref_node) {
+                return Err(VmError::type_error(
+                    "Failed to execute 'insertBefore' on 'Node': \
+                     the reference node is not a child of this node.",
+                ));
+            }
+        }
+    }
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_node)))
+}
+
+fn native_node_replace_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(parent) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let new_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let new_node = require_node_arg(ctx, new_arg, "replaceChild")?;
+    let old_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let old_node = require_node_arg(ctx, old_arg, "replaceChild")?;
+    if !ctx.host().dom().replace_child(parent, new_node, old_node) {
+        return Err(VmError::type_error(
+            "Failed to execute 'replaceChild' on 'Node': \
+             the node to be replaced is not a child of this node.",
+        ));
+    }
+    // Spec: returns the *replaced* (old) node.
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(old_node)))
+}

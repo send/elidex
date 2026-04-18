@@ -1,8 +1,8 @@
 //! Tests for the Element.prototype method suite and the
-//! Node-common accessors installed on `EventTarget.prototype`.
+//! Node-common members installed on `Node.prototype`.
 //!
 //! The natives live across `vm/host/element_proto.rs` and
-//! `vm/host/event_target.rs`, but they share a small fixture and
+//! `vm/host/node_proto.rs`, but they share a small fixture and
 //! common assertions — the tests are grouped here so one file holds
 //! the full Element / Node surface verification.
 //!
@@ -92,7 +92,8 @@ fn element_prototype_chain_reaches_event_target() {
     }
 
     // Element wrapper's addEventListener resolves through the
-    // chain: wrapper → Element.prototype → EventTarget.prototype.
+    // chain: wrapper → Element.prototype → Node.prototype →
+    // EventTarget.prototype.
     let t = vm
         .eval("typeof document.getElementById('root').addEventListener;")
         .unwrap();
@@ -1288,6 +1289,138 @@ fn element_closest_returns_null_when_no_match() {
             .unwrap(),
         JsValue::Null
     ));
+
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Node / Window prototype separation (addresses Copilot #1 / #2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn window_does_not_expose_node_members() {
+    // WHATWG: Window is an EventTarget but NOT a Node.
+    // `window.nodeType` / `window.parentNode` / `window.textContent`
+    // must all be `undefined` — they live on `Node.prototype` which
+    // is NOT in Window's prototype chain.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    for expr in [
+        "typeof window.nodeType",
+        "typeof window.parentNode",
+        "typeof window.textContent",
+        "typeof window.firstChild",
+        "typeof window.appendChild",
+    ] {
+        let v = vm.eval(&format!("{expr};")).unwrap();
+        let JsValue::String(sid) = v else {
+            panic!("{expr}: unexpected {v:?}");
+        };
+        assert_eq!(
+            vm.get_string(sid),
+            "undefined",
+            "{expr} must be undefined on Window"
+        );
+    }
+    // But window.addEventListener — an EventTarget method — is still present.
+    let v = vm.eval("typeof window.addEventListener;").unwrap();
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "function");
+
+    vm.unbind();
+}
+
+#[test]
+fn text_wrapper_sees_node_members() {
+    // Text nodes chain through `Node.prototype`, so Node-level
+    // accessors and methods must all resolve — `firstChild` returns
+    // null, `appendChild` exists, `textContent` returns own data.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let raw_wrapper = vm.inner.create_element_wrapper(raw);
+    vm.set_global("_raw", JsValue::Object(raw_wrapper));
+
+    // firstChild / lastChild / childNodes on Text — exist, return
+    // null / empty.
+    assert!(matches!(
+        vm.eval("_raw.firstChild;").unwrap(),
+        JsValue::Null
+    ));
+    assert!(matches!(vm.eval("_raw.lastChild;").unwrap(), JsValue::Null));
+    assert!(matches!(
+        vm.eval("_raw.childNodes.length;").unwrap(),
+        JsValue::Number(n) if n.abs() < f64::EPSILON
+    ));
+    // hasChildNodes → false on a text node.
+    assert!(matches!(
+        vm.eval("_raw.hasChildNodes();").unwrap(),
+        JsValue::Boolean(false)
+    ));
+    // appendChild exists as a function.
+    let v = vm.eval("typeof _raw.appendChild;").unwrap();
+    let JsValue::String(sid) = v else { panic!() };
+    assert_eq!(vm.get_string(sid), "function");
+
+    vm.unbind();
+}
+
+#[test]
+fn closest_stops_at_shadow_boundary() {
+    // When walking ancestors from inside a shadow tree, `closest`
+    // must stop at the shadow root (approximated by "non-Element
+    // parent") and not return a match on the shadow host.
+    use elidex_ecs::ShadowRootMode;
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    // Give div a shadow root, put a child inside the shadow tree.
+    let shadow_root = dom
+        .attach_shadow(div, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let inner = dom.create_element("article", Attributes::default());
+    assert!(dom.append_child(shadow_root, inner));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Set div.id = "host" so it would be matched by `#host` — if the
+    // walk crossed the shadow boundary, `inner.closest('#host')`
+    // would return `div`.  Correct behaviour: return null.
+    let div_wrapper = vm.inner.create_element_wrapper(div);
+    vm.set_global("_div", JsValue::Object(div_wrapper));
+    vm.eval("_div.setAttribute('id', 'host');").unwrap();
+    let inner_wrapper = vm.inner.create_element_wrapper(inner);
+    vm.set_global("_inner", JsValue::Object(inner_wrapper));
+
+    // Matching its own tag succeeds (self-match).
+    let v = vm.eval("_inner.closest('article') === _inner;").unwrap();
+    assert!(matches!(v, JsValue::Boolean(true)));
+    // But walking to the host is blocked.
+    let v = vm.eval("_inner.closest('#host');").unwrap();
+    assert!(
+        matches!(v, JsValue::Null),
+        "closest() must not cross the shadow boundary; got {v:?}"
+    );
 
     vm.unbind();
 }

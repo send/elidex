@@ -24,5 +24,6 @@ pub(super) mod history;
 pub(super) mod location;
 pub(super) mod navigation;
 pub(super) mod navigator;
+pub(super) mod node_proto;
 pub(super) mod performance;
 pub(super) mod window;
