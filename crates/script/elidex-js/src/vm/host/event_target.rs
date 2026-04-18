@@ -219,10 +219,17 @@ pub(super) fn native_event_target_add_event_listener(
     // `controller.abort()` can detach it from the host's
     // `EventListeners` component.  Done after `store_listener` so
     // `detach_bound_listeners` (in `host::abort`) can clean up both
-    // the ECS slot and the JS function root in lockstep.
+    // the ECS slot and the JS function root in lockstep.  Also write
+    // a reverse index entry so `removeEventListener` can prune the
+    // back-ref in O(1) when the listener is dropped before abort —
+    // without that prune, a long-lived signal would accumulate stale
+    // entries across add/remove cycles (Copilot R2 finding).
     if let Some(signal_id) = options.signal {
         if let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) {
-            state.bound_listener_removals.push((entity, listener_id));
+            state.bound_listener_removals.insert(listener_id, entity);
+            ctx.vm
+                .abort_listener_back_refs
+                .insert(listener_id, signal_id);
         }
     }
 
@@ -503,6 +510,17 @@ pub(super) fn native_event_target_remove_event_listener(
         }
     }
     ctx.host().remove_listener(listener_id);
+
+    // Prune the AbortSignal back-ref entry if this listener was
+    // registered with `{signal}` — without this, a long-lived signal
+    // accumulates stale `(listener_id → entity)` entries across
+    // add/remove cycles and `controller.abort()` then iterates dead
+    // pairs.  Reverse-index lookup is O(1).
+    if let Some(signal_id) = ctx.vm.abort_listener_back_refs.remove(&listener_id) {
+        if let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) {
+            state.bound_listener_removals.remove(&listener_id);
+        }
+    }
 
     Ok(JsValue::Undefined)
 }

@@ -377,6 +377,13 @@ fn timestamp_is_monotonic_and_shares_origin_with_performance_now() {
     // comparable).  Two back-to-back events read non-decreasing
     // values, and a `performance.now()` reading sandwiched between
     // them lies in the same range.
+    //
+    // The interleaved `performance.now()` reading goes through
+    // `vm.eval("performance.now()")` rather than reading
+    // `start_instant` in Rust directly — calling the JS-visible
+    // surface is what actually verifies the two clocks share an
+    // origin.  Reading `start_instant` would pass even if a future
+    // refactor wired `performance.now()` to a different `Instant`.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -392,7 +399,10 @@ fn timestamp_is_monotonic_and_shares_origin_with_performance_now() {
     let ev = make_event("click", true, EventPayload::None, el);
 
     let obj1 = vm.inner.create_event_object(&ev, target, target, false);
-    let now_ms = vm.inner.start_instant.elapsed().as_secs_f64() * 1000.0;
+    let now_ms = match vm.eval("performance.now();").unwrap() {
+        JsValue::Number(n) => n,
+        other => panic!("performance.now() returned {other:?}"),
+    };
     let obj2 = vm.inner.create_event_object(&ev, target, target, false);
 
     let JsValue::Number(ts1) = expect_data(&vm, obj1, "timeStamp") else {
@@ -403,8 +413,9 @@ fn timestamp_is_monotonic_and_shares_origin_with_performance_now() {
     };
     assert!(ts1 >= 0.0 && ts1.is_finite(), "ts1 = {ts1}");
     assert!(ts2 >= ts1, "non-monotonic: ts1={ts1} ts2={ts2}");
-    // The interleaved performance.now() reading must fall inside the
-    // event timestamps' span (identical clock, same origin).
+    // The JS-side performance.now() reading must fall inside the
+    // event timestamps' span — proves both surfaces consult the
+    // same monotonic clock origin.
     assert!(
         now_ms >= ts1 && now_ms <= ts2 + 1e-3,
         "performance.now()={now_ms} not within [ts1={ts1}, ts2={ts2}]"

@@ -45,10 +45,13 @@
 //!   dispatches `'abort'` to every registered listener and the
 //!   `onabort` slot.  Idempotent; second call is a no-op.
 //! - `addEventListener({signal})` integration — the EventTarget
-//!   path pushes `(entity, listener_id)` onto
-//!   [`AbortSignalState::bound_listener_removals`], which `abort()`
-//!   drains to detach the listener from its host's ECS
-//!   `EventListeners` component.
+//!   path inserts `listener_id → entity` into
+//!   [`AbortSignalState::bound_listener_removals`] and writes a
+//!   reverse `listener_id → signal_id` index entry on
+//!   [`super::super::VmInner::abort_listener_back_refs`].
+//!   `removeEventListener` consults the reverse index to prune the
+//!   entry in O(1); `abort()` drains the map to detach each
+//!   listener from its host's ECS `EventListeners` component.
 //!
 //! ## Deferred (require Event constructor or `fetch` integration)
 //!
@@ -57,6 +60,8 @@
 //! - `AbortSignal.any(signals)` (recent WHATWG addition).
 
 #![cfg(feature = "engine")]
+
+use std::collections::HashMap;
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -90,9 +95,17 @@ pub(crate) struct AbortSignalState {
     pub(crate) abort_listeners: Vec<ObjectId>,
     /// Back-references for `addEventListener(type, cb, {signal})` on
     /// other EventTargets — when this signal aborts, the runtime
-    /// removes each `(entity, listener_id)` from the host's ECS
+    /// removes each `(listener_id → entity)` from the host's ECS
     /// `EventListeners` component so the listener stops firing.
-    pub(crate) bound_listener_removals: Vec<(Entity, ListenerId)>,
+    ///
+    /// Stored as a `HashMap` (not `Vec`) so `removeEventListener`'s
+    /// scrub path is O(1).  Pruning on plain removal is essential —
+    /// without it a long-lived signal that sees N add/remove cycles
+    /// accumulates N stale entries and `abort()` does N redundant
+    /// no-op detach attempts (Copilot R2 finding).  The reverse
+    /// `ListenerId → ObjectId(signal)` index for the lookup itself
+    /// lives on [`super::super::VmInner::abort_listener_back_refs`].
+    pub(crate) bound_listener_removals: HashMap<ListenerId, Entity>,
 }
 
 impl AbortSignalState {
@@ -107,7 +120,7 @@ impl AbortSignalState {
             reason: JsValue::Undefined,
             onabort: None,
             abort_listeners: Vec::new(),
-            bound_listener_removals: Vec::new(),
+            bound_listener_removals: HashMap::new(),
         }
     }
 }
@@ -569,10 +582,17 @@ fn native_abort_signal_remove_event_listener(
 }
 
 fn native_abort_signal_dispatch_event(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // `this` is validated even though the body is a stub — calling
+    // the method with a non-AbortSignal receiver
+    // (e.g. `AbortSignal.prototype.dispatchEvent.call({})`) is a
+    // WebIDL conversion failure that should throw, matching the
+    // other AbortSignal accessors / methods.  Without this guard
+    // the stub silently returns `false`, masking the misuse.
+    let _ = require_abort_signal_this(ctx, this, "dispatchEvent")?;
     // Stub returning `false` (WHATWG's "event not dispatched"
     // default).  A real implementation requires `new Event(...)`
     // — the only meaningful way to construct the argument from
@@ -647,7 +667,7 @@ fn abort_signal(
     // run — see the # GC safety section above.
     //
     // `bound_listener_removals` is drained because its content is
-    // `(Entity, ListenerId)` pairs (no `ObjectId`s), so the GC has
+    // `(ListenerId → Entity)` pairs (no `ObjectId`s), so the GC has
     // nothing to lose by moving them out.
     let (onabort, listeners, removals) = {
         let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) else {
@@ -660,6 +680,16 @@ fn abort_signal(
         let removals = std::mem::take(&mut state.bound_listener_removals);
         (onabort, listeners, removals)
     };
+
+    // The reverse-index entries for these listener IDs are no longer
+    // load-bearing (the back-refs themselves are about to be drained),
+    // so prune them up front to keep `abort_listener_back_refs`
+    // bounded.  A subsequent `removeEventListener` on one of these
+    // listeners (e.g. inside an abort callback) will then short-circuit
+    // its own scrub path on the missing entry, which is harmless.
+    for listener_id in removals.keys() {
+        ctx.vm.abort_listener_back_refs.remove(listener_id);
+    }
 
     // Detach back-referenced listeners (set up by `addEventListener`'s
     // signal-option path) from their host's ECS `EventListeners`
@@ -742,12 +772,12 @@ fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
 /// and the shell unbound the VM between the registration and the
 /// abort.  Splitting the prerequisites keeps both stores in sync
 /// regardless of bind state.
-fn detach_bound_listeners(ctx: &mut NativeContext<'_>, removals: &[(Entity, ListenerId)]) {
+fn detach_bound_listeners(ctx: &mut NativeContext<'_>, removals: &HashMap<ListenerId, Entity>) {
     if removals.is_empty() {
         return;
     }
     let bound = ctx.host_if_bound().is_some();
-    for &(entity, listener_id) in removals {
+    for (&listener_id, &entity) in removals {
         if bound {
             // Drop from ECS first (scoped block so the world borrow
             // releases before we re-grab `host` for listener_store).

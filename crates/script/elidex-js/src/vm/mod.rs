@@ -248,6 +248,20 @@ pub(crate) struct VmInner {
     ///   stale state.
     #[cfg(feature = "engine")]
     pub(crate) abort_signal_states: HashMap<ObjectId, host::abort::AbortSignalState>,
+    /// Reverse index from a `ListenerId` (registered via
+    /// `addEventListener(type, cb, {signal})`) back to the
+    /// `AbortSignal` `ObjectId` that owns it.  Lets
+    /// `removeEventListener` prune the corresponding back-ref entry
+    /// in `abort_signal_states[signal_id].bound_listener_removals`
+    /// in O(1) — without this lookup, the back-ref list would grow
+    /// unbounded across add/remove cycles for a long-lived signal.
+    ///
+    /// GC contract: cleaned alongside `abort_signal_states` in the
+    /// post-sweep pass — entries whose value `ObjectId` was
+    /// collected are dropped, since the owning signal no longer
+    /// exists.
+    #[cfg(feature = "engine")]
+    pub(crate) abort_listener_back_refs: HashMap<elidex_script_session::ListenerId, ObjectId>,
     /// Internal prototype for `ObjectKind::Event` instances.  Holds the
     /// four event methods (`preventDefault`, `stopPropagation`,
     /// `stopImmediatePropagation`, `composedPath`) and the

@@ -675,12 +675,18 @@ impl VmInner {
         // 4. AbortSignal out-of-band state cleanup.  Drop entries
         // whose key `ObjectId` was collected — otherwise a recycled
         // slot allocated for a different `ObjectKind` would inherit
-        // stale `aborted` / `reason` / listener data.
+        // stale `aborted` / `reason` / listener data.  The reverse
+        // index (`abort_listener_back_refs`) is keyed by
+        // `ListenerId` and valued by signal `ObjectId`; prune entries
+        // whose value points at a now-dead signal so the index stays
+        // bounded.
         #[cfg(feature = "engine")]
         {
             let marks = &self.gc_object_marks;
             self.abort_signal_states
                 .retain(|id, _| bit_get(marks, id.0));
+            self.abort_listener_back_refs
+                .retain(|_, signal_id| bit_get(marks, signal_id.0));
         }
 
         // 5. IC invalidation.

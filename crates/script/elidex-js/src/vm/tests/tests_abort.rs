@@ -719,3 +719,157 @@ fn second_abort_with_modified_state_does_nothing() {
         "second abort must not refire listeners or pick up post-abort registrations"
     );
 }
+
+#[test]
+fn dispatch_event_validates_abort_signal_receiver() {
+    // Regression: prior to this guard, the `dispatchEvent` stub
+    // ignored its receiver and silently returned `false`, allowing
+    // `AbortSignal.prototype.dispatchEvent.call({})` to succeed —
+    // inconsistent with the other AbortSignal methods which throw
+    // TypeError on cross-call.
+    let mut vm = Vm::new();
+    let result = vm
+        .eval(
+            "var caught = '';
+             try {
+               AbortSignal.prototype.dispatchEvent.call({}, null);
+               caught = 'no-throw';
+             } catch(e) { caught = String(e); }
+             caught;",
+        )
+        .unwrap();
+    let s = match result {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert!(
+        s.contains("TypeError") && s.contains("AbortSignal"),
+        "expected TypeError mentioning AbortSignal, got {s}"
+    );
+}
+
+#[test]
+fn dispatch_event_on_real_signal_returns_false_stub() {
+    // The stub still returns `false` for legitimate AbortSignal
+    // receivers — only the cross-call case throws.
+    let mut vm = Vm::new();
+    assert_eq!(
+        vm.eval(
+            "var c = new AbortController();
+             c.signal.dispatchEvent({type: 'abort'});"
+        )
+        .unwrap(),
+        JsValue::Boolean(false),
+        "dispatchEvent stub should return false for valid receiver"
+    );
+}
+
+mod bound_listener_pruning {
+    //! Regression for Copilot R2: `bound_listener_removals` must be
+    //! pruned when the underlying listener is removed (via
+    //! `removeEventListener`) — otherwise the back-ref grows
+    //! unbounded across add/remove cycles for a long-lived signal.
+
+    use super::*;
+    use elidex_ecs::{Attributes, EcsDom};
+    use elidex_script_session::SessionCore;
+
+    use super::super::super::test_helpers::bind_vm;
+    use super::super::super::Vm;
+
+    fn bind_with_div(
+        vm: &mut Vm,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> elidex_ecs::Entity {
+        let doc = dom.create_document_root();
+        let el = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, el);
+        #[allow(unsafe_code)]
+        unsafe {
+            bind_vm(vm, session, dom, doc);
+        }
+        let wrapper = vm.inner.create_element_wrapper(el);
+        let key = vm.inner.strings.intern("target");
+        vm.inner.globals.insert(key, JsValue::Object(wrapper));
+        el
+    }
+
+    #[test]
+    fn remove_event_listener_prunes_signal_back_ref() {
+        let mut vm = Vm::new();
+        let mut session = SessionCore::new();
+        let mut dom = EcsDom::new();
+        let _ = bind_with_div(&mut vm, &mut session, &mut dom);
+
+        // Five add/remove cycles.  Without pruning, the signal's
+        // `bound_listener_removals` would grow to 5 stale entries.
+        vm.eval(
+            "globalThis.c = new AbortController();
+             for (var i = 0; i < 5; i++) {
+               function cb() {}
+               target.addEventListener('click', cb, {signal: c.signal});
+               target.removeEventListener('click', cb);
+             }",
+        )
+        .unwrap();
+
+        // Reach into VM state directly — no JS-visible API exposes
+        // the back-ref Vec count.
+        //
+        // SAFETY-of-test: we never escape the borrow; just reading
+        // the size of internal state for the assertion.
+        let signal_id = match vm.eval("c.signal;").unwrap() {
+            JsValue::Object(id) => id,
+            other => panic!("c.signal is not an object: {other:?}"),
+        };
+        let removals_count = vm
+            .inner
+            .abort_signal_states
+            .get(&signal_id)
+            .map_or(usize::MAX, |s| s.bound_listener_removals.len());
+        assert_eq!(
+            removals_count, 0,
+            "back-ref must be pruned by removeEventListener; found {removals_count} stale entries"
+        );
+
+        let back_refs_count = vm.inner.abort_listener_back_refs.len();
+        assert_eq!(
+            back_refs_count, 0,
+            "reverse-index entries must drop in lockstep with removals"
+        );
+        vm.unbind();
+    }
+
+    #[test]
+    fn back_ref_survives_abort_after_unbind_then_rebind() {
+        // Defence-in-depth check: the GC sweep cleanup walks
+        // `abort_listener_back_refs` and prunes entries whose
+        // signal_id was collected.  Verify a live signal's entries
+        // survive a GC pass.
+        let mut vm = Vm::new();
+        let mut session = SessionCore::new();
+        let mut dom = EcsDom::new();
+        let _ = bind_with_div(&mut vm, &mut session, &mut dom);
+
+        vm.eval(
+            "globalThis.c = new AbortController();
+             target.addEventListener('click', function() {}, {signal: c.signal});",
+        )
+        .unwrap();
+
+        let before = vm.inner.abort_listener_back_refs.len();
+        assert_eq!(before, 1, "expected one back-ref entry pre-GC");
+
+        // Force a GC pass while the signal is still rooted via
+        // `globalThis.c` — entries must survive.
+        vm.inner.collect_garbage();
+
+        let after = vm.inner.abort_listener_back_refs.len();
+        assert_eq!(
+            after, 1,
+            "back-ref entry must survive GC while signal is rooted"
+        );
+        vm.unbind();
+    }
+}

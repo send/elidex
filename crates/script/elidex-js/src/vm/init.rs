@@ -98,6 +98,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                abort_listener_back_refs: HashMap::new(),
+                #[cfg(feature = "engine")]
                 precomputed_event_shapes: None,
                 generator_yielded: None,
                 current_microtask: None,
