@@ -26,6 +26,7 @@ mod tests_m4_10_2;
 mod tests_m4_11;
 mod tests_math;
 mod tests_navigator;
+mod tests_node_common;
 mod tests_number;
 mod tests_object_complement;
 mod tests_performance;

@@ -32,9 +32,10 @@
 //! - Accessors: `parentNode`, `parentElement`, `firstChild`,
 //!   `lastChild`, `nextSibling`, `previousSibling`, `childNodes`,
 //!   `nodeType`, `nodeName`, `nodeValue`, `textContent`,
-//!   `isConnected`.
+//!   `isConnected`, `ownerDocument`.
 //! - Methods:   `hasChildNodes`, `contains`, `appendChild`,
-//!   `removeChild`, `insertBefore`, `replaceChild`, `cloneNode`.
+//!   `removeChild`, `insertBefore`, `replaceChild`, `cloneNode`,
+//!   `isSameNode`, `getRootNode`.
 //!
 //! Element-only members (`getAttribute`, `children`, `matches`, …)
 //! live on `Element.prototype` which chains here.
@@ -100,6 +101,10 @@ impl VmInner {
             (self.well_known.node_type, native_node_get_node_type),
             (self.well_known.node_name, native_node_get_node_name),
             (self.well_known.is_connected, native_node_get_is_connected),
+            (
+                self.well_known.owner_document,
+                native_node_get_owner_document,
+            ),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let gid = self.create_native_function(&format!("get {name}"), getter);
@@ -158,6 +163,8 @@ impl VmInner {
             (self.well_known.insert_before, native_node_insert_before),
             (self.well_known.replace_child, native_node_replace_child),
             (self.well_known.clone_node, native_node_clone_node),
+            (self.well_known.is_same_node, native_node_is_same_node),
+            (self.well_known.get_root_node, native_node_get_root_node),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -711,6 +718,90 @@ fn native_node_replace_child(
     }
     // Spec: returns the *replaced* (old) node.
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(old_node)))
+}
+
+// ---------------------------------------------------------------------------
+// ownerDocument / isSameNode / getRootNode (WHATWG DOM §4.4)
+// ---------------------------------------------------------------------------
+
+/// `Node.prototype.ownerDocument` — WHATWG §4.4.  Returns `null` for
+/// the document itself (including detached/unbound wrappers); for any
+/// other Node we return the bound `document` entity, consistent with
+/// elidex's single-document model.  Multi-document (iframe, fragments
+/// created via `DOMImplementation`) support lands with Workers.
+fn native_node_get_owner_document(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    // Document itself: ownerDocument is null.
+    if matches!(ctx.host().dom().node_kind(entity), Some(NodeKind::Document)) {
+        return Ok(JsValue::Null);
+    }
+    let doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .and_then(|hd| hd.document_entity_opt());
+    Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, doc))
+}
+
+/// `Node.prototype.isSameNode(other)` — WHATWG §4.4.  Legacy alias of
+/// `===`: returns true iff `this` and `other` are the same wrapper.
+fn native_node_is_same_node(
+    _ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let other = args.first().copied().unwrap_or(JsValue::Undefined);
+    // WebIDL `Node? other`: null / undefined short-circuit to false.
+    if matches!(other, JsValue::Null | JsValue::Undefined) {
+        return Ok(JsValue::Boolean(false));
+    }
+    // WHATWG legacy alias — strict equality on the `Object` wrapper.
+    let same = matches!(
+        (this, other),
+        (JsValue::Object(a), JsValue::Object(b)) if a == b
+    );
+    Ok(JsValue::Boolean(same))
+}
+
+/// `Node.prototype.getRootNode(options?)` — WHATWG §4.4.  Returns the
+/// root of the composed tree if `{composed: true}`, otherwise the
+/// light-tree root (shadow boundary respected).
+fn native_node_get_root_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    // Read `composed` from the options argument.  WebIDL treats a
+    // non-object argument as a zero-filled dictionary — per spec, a
+    // primitive / null / undefined all yield the defaults.
+    let composed = match args.first().copied() {
+        Some(JsValue::Object(opts_id)) => {
+            let v = ctx.vm.get_property_value(
+                opts_id,
+                super::super::value::PropertyKey::String(ctx.vm.well_known.composed),
+            )?;
+            super::super::coerce::to_boolean(ctx.vm, v)
+        }
+        _ => false,
+    };
+    let root = {
+        let dom = ctx.host().dom();
+        if composed {
+            dom.find_tree_root_composed(entity)
+        } else {
+            dom.find_tree_root(entity)
+        }
+    };
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(root)))
 }
 
 // ---------------------------------------------------------------------------
