@@ -73,9 +73,7 @@ impl VmInner {
 ///
 /// Errors:
 /// - `RangeError` when `offset > length`.
-/// - `RangeError` when the receiver is not a Text node (matches how
-///   browsers surface the WebIDL `[[Throws]]` annotation on
-///   non-Text `this`).
+/// - `TypeError` when the receiver is not a Text node.
 fn native_text_split_text(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

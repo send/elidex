@@ -40,6 +40,25 @@ fn text_data_get_and_set() {
 }
 
 #[test]
+fn text_data_set_null_coerces_to_string_null() {
+    // WebIDL `CharacterData.data` is a non-nullable DOMString, so
+    // `null` goes through ToString → the literal "null" (not empty).
+    // This contrasts with Node.nodeValue / textContent setters.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.t = document.createTextNode('x');\n\
+         t.data = null;",
+    )
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, "t.data;"), "null");
+    vm.unbind();
+}
+
+#[test]
 fn comment_data_get_and_set() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

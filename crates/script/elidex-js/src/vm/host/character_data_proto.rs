@@ -241,14 +241,14 @@ fn native_char_data_set_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
+    // WebIDL `CharacterData.data` is a non-nullable `DOMString`: every
+    // value (including `null`) goes through `ToString`, so `null`
+    // becomes the literal string `"null"`.  This differs from
+    // `Node.nodeValue` / `textContent`, whose nullable setters treat
+    // `null` as the empty string.
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let data: String = match arg {
-        JsValue::Null => String::new(),
-        other => {
-            let sid = super::super::coerce::to_string(ctx.vm, other)?;
-            ctx.vm.strings.get_utf8(sid)
-        }
-    };
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let data = ctx.vm.strings.get_utf8(sid);
     char_data_set(ctx, entity, data);
     Ok(JsValue::Undefined)
 }

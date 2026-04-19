@@ -103,19 +103,21 @@ fn native_parent_node_replace_children(
     let Some(parent) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    // Remove every existing child first (snapshot to avoid iterator
-    // invalidation under the mutation).
+    // WHATWG §4.2.3: convert the variadic arguments BEFORE clearing
+    // the parent so a ToString / HierarchyRequestError throw leaves
+    // the tree untouched.  Mirror `replaceChildren` step 3 of the
+    // "replace all" algorithm.
+    let pair = convert_nodes_to_single_node_or_fragment(ctx, args)?;
     let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
     for child in existing {
         let _ = ctx.host().dom().remove_child(parent, child);
     }
-    let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let children = nodes_to_insert(ctx, pair.0);
-    for child in children {
-        let _ = ctx.host().dom().append_child(parent, child);
+    if let Some(p) = pair {
+        let children = nodes_to_insert(ctx, p.0);
+        for child in children {
+            let _ = ctx.host().dom().append_child(parent, child);
+        }
+        destroy_wrapper_fragment_if_any(ctx, p);
     }
-    destroy_wrapper_fragment_if_any(ctx, pair);
     Ok(JsValue::Undefined)
 }

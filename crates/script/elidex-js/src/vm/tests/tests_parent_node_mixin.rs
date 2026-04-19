@@ -146,6 +146,29 @@ fn element_replace_children_with_args_substitutes() {
 }
 
 #[test]
+fn element_replace_children_preserves_tree_when_conversion_throws() {
+    // Arg normalization runs BEFORE clearing the parent, so a
+    // ToString throw on a Symbol leaves the existing children intact.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    let threw = vm
+        .eval(
+            "var err = null;\n\
+             try { p.replaceChildren(Symbol()); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    // Original children still present.
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 2.0);
+    vm.unbind();
+}
+
+#[test]
 fn element_append_document_fragment_flattens() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
