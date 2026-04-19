@@ -208,6 +208,8 @@ pub(crate) struct WellKnownStrings {
     pub(crate) afterend: StringId,
     pub(crate) get_elements_by_tag_name: StringId,
     pub(crate) get_elements_by_class_name: StringId,
+    // Document RO / RW accessors (PR4f C6 / C7).
+    pub(crate) css1_compat: StringId,
     // CharacterData (PR4e C5) method names.  `data` / `length` live
     // elsewhere (`data` under event-payload keys above, `length`
     // under core).
@@ -432,6 +434,7 @@ impl WellKnownStrings {
             afterend: strings.intern("afterend"),
             get_elements_by_tag_name: strings.intern("getElementsByTagName"),
             get_elements_by_class_name: strings.intern("getElementsByClassName"),
+            css1_compat: strings.intern("CSS1Compat"),
             append_data: strings.intern("appendData"),
             insert_data: strings.intern("insertData"),
             delete_data: strings.intern("deleteData"),

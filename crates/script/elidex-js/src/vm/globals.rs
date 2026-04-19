@@ -367,6 +367,32 @@ impl VmInner {
         }
     }
 
+    /// Install each `(name, getter, setter)` as an RW accessor pair
+    /// with WebIDL-default attrs.  The underlying flags mirror
+    /// `install_ro_accessors`; the `setter` slot is what makes the
+    /// accessor writable.
+    #[cfg(feature = "engine")]
+    pub(crate) fn install_rw_accessors(
+        &mut self,
+        obj_id: super::value::ObjectId,
+        accessors: &[(&str, NativeFn, NativeFn)],
+    ) {
+        for &(name, getter, setter) in accessors {
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            let sid = self.create_native_function(&format!("set {name}"), setter);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                obj_id,
+                key,
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: Some(sid),
+                },
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     fn register_prototypes(&mut self) {
         // Object.prototype — root of the prototype chain.

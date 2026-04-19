@@ -369,6 +369,137 @@ pub(super) fn native_document_get_ready_state(
 }
 
 // ---------------------------------------------------------------------------
+// title setter / compatMode / defaultView / doctype (PR4f C6)
+// ---------------------------------------------------------------------------
+
+/// `document.title = x` — WHATWG §4.5.  For HTML documents:
+/// 1. Find the `<title>` inside `<head>` if any.
+/// 2. If none exists but `<head>` does, create a new `<title>` and
+///    append it to `<head>`.
+/// 3. If no `<head>` exists, the setter is a **no-op** per spec.
+/// 4. Replace the title element's children with a single Text node
+///    containing the coerced string.
+pub(super) fn native_document_set_title(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "title")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let value = args.first().copied().unwrap_or(JsValue::Undefined);
+    let value_sid = super::super::coerce::to_string(ctx.vm, value)?;
+    let new_text = ctx.vm.strings.get_utf8(value_sid);
+
+    // Locate <head> under <html> for the receiver document.  Spec
+    // uses "html root" → "first head child"; legacy html5ever-shaped
+    // trees hand us exactly that shape already.
+    let Some(html) = find_html_root_of(ctx, doc) else {
+        return Ok(JsValue::Undefined);
+    };
+    let head_opt = ctx.host().dom().first_child_with_tag(html, "head");
+    let Some(head) = head_opt else {
+        // No <head> — spec is explicit: return without mutating.
+        return Ok(JsValue::Undefined);
+    };
+
+    // find_or_create_title.  We want a single <title> in <head>; if
+    // absent, allocate one and append (with the correct owner
+    // document).
+    let title = match ctx.host().dom().first_child_with_tag(head, "title") {
+        Some(t) => t,
+        None => {
+            let new_title = ctx.host().dom().create_element_with_owner(
+                "title",
+                elidex_ecs::Attributes::default(),
+                Some(doc),
+            );
+            let _ = ctx.host().dom().append_child(head, new_title);
+            new_title
+        }
+    };
+
+    // Clear existing text-node children; legal <title> content per
+    // WHATWG is text-only but we defensively include Element children
+    // too in case a bad parse left some in there.
+    let existing: Vec<elidex_ecs::Entity> = ctx.host().dom().children_iter(title).collect();
+    for child in existing {
+        let _ = ctx.host().dom().remove_child(title, child);
+    }
+    let text_entity = ctx.host().dom().create_text_with_owner(new_text, Some(doc));
+    let _ = ctx.host().dom().append_child(title, text_entity);
+    Ok(JsValue::Undefined)
+}
+
+/// `document.compatMode` — WHATWG §4.5 accessor.
+/// Fixed `"CSS1Compat"` (standards mode); `BackCompat` (quirks mode)
+/// requires a quirks-aware parser pass that elidex does not yet have.
+pub(super) fn native_document_get_compat_mode(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Brand-check even though the returned value is the same for
+    // every valid Document — matches the other document accessors
+    // so `compatMode.call({})` fails instead of silently returning a
+    // plausible string.
+    let _ = document_receiver(ctx, this, "compatMode")?;
+    Ok(JsValue::String(ctx.vm.well_known.css1_compat))
+}
+
+/// `document.defaultView` — WHATWG §4.5.  Returns the Window
+/// (`globalThis`) wrapper for the bound VM; a Document that is not
+/// currently the bound document (e.g. a detached clone) has no
+/// associated `Window` and therefore returns `null` per spec.
+///
+/// The bound `globalThis` is an independently-allocated `HostObject`
+/// (`VmInner::global_object`), not an entry in the element
+/// `wrapper_cache`.  Returning `global_object` directly preserves
+/// WHATWG's `document.defaultView === globalThis` invariant; calling
+/// `create_element_wrapper(window_entity)` here would allocate a
+/// parallel wrapper that does not compare equal.
+pub(super) fn native_document_get_default_view(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "defaultView")? else {
+        return Ok(JsValue::Null);
+    };
+    // Only the bound document has a Window.  Non-bound (cloned)
+    // documents are detached from any browsing context.
+    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    if bound_doc != Some(doc) {
+        return Ok(JsValue::Null);
+    }
+    Ok(JsValue::Object(ctx.vm.global_object))
+}
+
+/// `document.doctype` — WHATWG §4.5.  The first child whose
+/// `NodeKind` is `DocumentType`, or `null`.
+pub(super) fn native_document_get_doctype(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "doctype")? else {
+        return Ok(JsValue::Null);
+    };
+    let doctype = {
+        let dom = ctx.host().dom();
+        let mut found = None;
+        for child in dom.children_iter(doc) {
+            if matches!(dom.node_kind(child), Some(NodeKind::DocumentType)) {
+                found = Some(child);
+                break;
+            }
+        }
+        found
+    };
+    Ok(wrap_entity_or_null(ctx.vm, doctype))
+}
+
+// ---------------------------------------------------------------------------
 // Installation — add the own-properties to the document wrapper at bind time.
 // ---------------------------------------------------------------------------
 
@@ -425,6 +556,7 @@ impl super::super::VmInner {
         }
         self.install_methods(doc_wrapper, DOCUMENT_METHODS);
         self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
+        self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
         // ParentNode mixin (WHATWG §5.2.4) shared with
         // `Element.prototype`.
         self.install_parent_node_mixin(doc_wrapper);
@@ -462,8 +594,19 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("documentElement", native_document_get_document_element),
     ("head", native_document_get_head),
     ("body", native_document_get_body),
-    ("title", native_document_get_title),
     ("URL", native_document_get_url),
     ("documentURI", native_document_get_url),
     ("readyState", native_document_get_ready_state),
+    ("compatMode", native_document_get_compat_mode),
+    ("defaultView", native_document_get_default_view),
+    ("doctype", native_document_get_doctype),
 ];
+
+/// Read/write Document accessors.  `title` is the only PR4f RW member;
+/// future additions (e.g. `cookie` once a real jar integration lands
+/// in PR6) go here too.
+const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
+    "title",
+    native_document_get_title,
+    native_document_set_title,
+)];
