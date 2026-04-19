@@ -154,6 +154,28 @@ fn element_replace_with_no_args_detaches() {
     vm.unbind();
 }
 
+#[test]
+fn element_replace_with_self_is_noop() {
+    // WHATWG §5.2.2 `replaceWith`: if an arg equals `this`, the
+    // viable-next-sibling walk skips over it and the remove/insert
+    // cycle restores the node at its original position — effectively
+    // a no-op.  Must not throw (the old impl tripped
+    // `insert_before(parent, this, this)` and raised
+    // HierarchyRequestError).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval("a.replaceWith(a);").unwrap();
+    // Tree unchanged: p > (a, b) in original order.
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 2.0);
+    assert_eq!(eval_str(&mut vm, "p.childNodes[0].tagName;"), "A");
+    assert_eq!(eval_str(&mut vm, "p.childNodes[1].tagName;"), "B");
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // remove (on CharacterData prototype)
 // ---------------------------------------------------------------------------

@@ -826,11 +826,12 @@ impl EcsDom {
             return None;
         }
         let root = self.clone_node_shallow(src);
-        // Walk original children and append clones in order.  Recursing
-        // here is simpler than maintaining a parallel stack of
-        // (src, dst) pairs — depth is bounded by
-        // `MAX_ANCESTOR_DEPTH` transitively because DOM trees are
-        // bounded.
+        // Walk original children and append clones in order.  The
+        // helper performs this as an iterative traversal with an
+        // explicit stack of `(src, dst)` pairs, so this does not
+        // rely on call-stack recursion or inherit recursion-depth
+        // behaviour — deep DOM trees are bounded by available heap,
+        // not by Rust's stack size.
         self.clone_children_recursive(src, root);
         Some(root)
     }

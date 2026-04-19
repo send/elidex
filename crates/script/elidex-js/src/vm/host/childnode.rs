@@ -281,26 +281,51 @@ fn native_child_node_replace_with(
     let Some(parent) = ctx.host().dom().get_parent(entity) else {
         return Ok(JsValue::Undefined);
     };
-    // Insert new nodes before `entity`, then remove `entity`.  This
-    // is the simplest implementation of replaceWith that handles the
-    // empty-args case (→ detach) correctly.
+    // WHATWG DOM §5.2.2 `replaceWith`:
+    // 1. viableNextSibling = first following sibling of `this` not
+    //    in `nodes`; otherwise null.
+    // 2. Let node = "convert nodes into a node".
+    // 3. Remove `this`.
+    // 4. Insert node into parent before viableNextSibling.
+    //
+    // The spec's remove-then-insert order is what makes
+    // `node.replaceWith(node)` a no-op: `node` is detached by step 3
+    // then re-inserted at its original position (viableNextSibling)
+    // in step 4.  Inserting first would trip
+    // `EcsDom::insert_before`'s `new_child == ref_child` rejection
+    // and throw.
     let pair = convert_nodes_to_single_node_or_fragment(ctx, args)?;
-    let mut err = None;
-    if let Some(p) = pair {
-        let children = nodes_to_insert(ctx, p.0);
-        for child in children {
-            if !ctx.host().dom().insert_before(parent, child, entity) {
-                err = Some(hierarchy_request_error("replaceWith"));
-                break;
-            }
+    let Some(p) = pair else {
+        // Zero args: detach only.
+        let _ = ctx.host().dom().remove_child(parent, entity);
+        return Ok(JsValue::Undefined);
+    };
+    let children = nodes_to_insert(ctx, p.0);
+    // Viable-next-sibling search: skip over any following sibling
+    // that appears in the args list (those will be moved into place
+    // by the insertion loop, so they're not a stable anchor).
+    let mut viable_next = ctx.host().dom().get_next_sibling(entity);
+    while let Some(cand) = viable_next {
+        if children.iter().any(|&c| c == cand) {
+            viable_next = ctx.host().dom().get_next_sibling(cand);
+        } else {
+            break;
         }
-        destroy_wrapper_fragment_if_any(ctx, p);
-    }
-    if let Some(e) = err {
-        return Err(e);
     }
     let _ = ctx.host().dom().remove_child(parent, entity);
-    Ok(JsValue::Undefined)
+    let mut err = None;
+    for child in children {
+        let ok = match viable_next {
+            Some(r) => ctx.host().dom().insert_before(parent, child, r),
+            None => ctx.host().dom().append_child(parent, child),
+        };
+        if !ok {
+            err = Some(hierarchy_request_error("replaceWith"));
+            break;
+        }
+    }
+    destroy_wrapper_fragment_if_any(ctx, p);
+    err.map_or(Ok(JsValue::Undefined), Err)
 }
 
 fn native_child_node_remove(

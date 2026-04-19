@@ -203,7 +203,13 @@ fn edit_data_utf16(
         )));
     }
     let end = offset.saturating_add(count).min(len);
-    let mut out: Vec<u16> = Vec::with_capacity(len + replacement.map_or(0, str::len));
+    // Capacity is measured in `u16` code units, not bytes — use
+    // `encode_utf16().count()` rather than `str::len` so non-ASCII
+    // replacements don't silently under-allocate (`str::len`
+    // returns UTF-8 bytes, which can exceed or undershoot the
+    // corresponding UTF-16 length).
+    let replacement_units = replacement.map_or(0, |r| r.encode_utf16().count());
+    let mut out: Vec<u16> = Vec::with_capacity(len.saturating_sub(count) + replacement_units);
     out.extend_from_slice(&units[..offset]);
     if let Some(rep) = replacement {
         out.extend(rep.encode_utf16());

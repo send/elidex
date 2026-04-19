@@ -167,11 +167,24 @@ fn native_parent_node_replace_children(
         for child in existing {
             let _ = ctx.host().dom().remove_child(parent, child);
         }
+        let mut err = None;
         for child in to_insert {
-            // Pre-validation guarantees this cannot fail.
-            let _ = ctx.host().dom().append_child(parent, child);
+            // Pre-validation covers `EcsDom::append_child`'s documented
+            // rejection modes (self-insert, ancestor cycle), so this
+            // branch is unreachable under the current invariants.
+            // Surface an error anyway as defence-in-depth: silently
+            // dropping a child would hide any future ECS invariant
+            // regression and still leave the parent half-populated,
+            // which is worse than an explicit throw.
+            if !ctx.host().dom().append_child(parent, child) {
+                err = Some(hierarchy_request_error("replaceChildren"));
+                break;
+            }
         }
         destroy_wrapper_fragment_if_any(ctx, p);
+        if let Some(e) = err {
+            return Err(e);
+        }
     } else {
         // No args — clear the parent.
         let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
