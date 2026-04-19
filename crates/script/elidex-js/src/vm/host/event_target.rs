@@ -304,7 +304,18 @@ pub(super) fn require_receiver(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(None);
     };
-    let Some(kind) = ctx.host().dom().node_kind_inferred(entity) else {
+    let dom = ctx.host().dom();
+    // Differentiate a destroyed/invalid entity from a wrong-
+    // interface receiver so the error message matches the actual
+    // failure mode (`require_node_arg` makes the same split for
+    // argument brand checks).
+    if !dom.contains(entity) {
+        return Err(super::super::value::VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': \
+             the node is detached (invalid entity)."
+        )));
+    }
+    let Some(kind) = dom.node_kind_inferred(entity) else {
         return Err(super::super::value::VmError::type_error(format!(
             "Failed to execute '{method}' on '{interface}': Illegal invocation"
         )));
