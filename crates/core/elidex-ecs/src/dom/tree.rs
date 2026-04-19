@@ -745,42 +745,59 @@ impl EcsDom {
         }
     }
 
-    /// Copy [`TextContent`] or [`CommentData`] from `src` to `dst`.
-    /// No-op if `src` carries neither, or if either entity has been
-    /// destroyed.  Used by [`Self::clone_subtree`] for character-data
-    /// nodes.
+    /// Copy character data from `src` to `dst`.  Only acts when both
+    /// entities share the same character-data [`NodeKind`] —
+    /// `Text` → `Text` copies [`TextContent`], `Comment` → `Comment`
+    /// copies [`CommentData`].  Mismatched kinds (and non-character-data
+    /// entities) are no-ops so the destination never ends up with
+    /// both a `TextContent` and a `CommentData` component.
+    ///
+    /// Currently unused by [`Self::clone_subtree`] — which handles
+    /// character data internally when allocating the cloned root —
+    /// but kept as a public helper for ad-hoc cross-entity payload
+    /// copies.
     pub fn clone_character_data(&mut self, src: Entity, dst: Entity) {
         if !self.all_exist(&[src, dst]) {
             return;
         }
-        if let Some(text) = self
-            .world
-            .get::<&TextContent>(src)
-            .ok()
-            .map(|t| t.0.clone())
-        {
-            if self.world.get::<&TextContent>(dst).is_ok() {
-                if let Ok(mut existing) = self.world.get::<&mut TextContent>(dst) {
-                    existing.0 = text;
+        let src_kind = self.node_kind(src);
+        let dst_kind = self.node_kind(dst);
+        match (src_kind, dst_kind) {
+            (Some(NodeKind::Text), Some(NodeKind::Text)) => {
+                let Some(text) = self
+                    .world
+                    .get::<&TextContent>(src)
+                    .ok()
+                    .map(|t| t.0.clone())
+                else {
+                    return;
+                };
+                if self.world.get::<&TextContent>(dst).is_ok() {
+                    if let Ok(mut existing) = self.world.get::<&mut TextContent>(dst) {
+                        existing.0 = text;
+                    }
+                } else {
+                    let _ = self.world.insert_one(dst, TextContent(text));
                 }
-            } else {
-                let _ = self.world.insert_one(dst, TextContent(text));
             }
-            return;
-        }
-        if let Some(data) = self
-            .world
-            .get::<&CommentData>(src)
-            .ok()
-            .map(|c| c.0.clone())
-        {
-            if self.world.get::<&CommentData>(dst).is_ok() {
-                if let Ok(mut existing) = self.world.get::<&mut CommentData>(dst) {
-                    existing.0 = data;
+            (Some(NodeKind::Comment), Some(NodeKind::Comment)) => {
+                let Some(data) = self
+                    .world
+                    .get::<&CommentData>(src)
+                    .ok()
+                    .map(|c| c.0.clone())
+                else {
+                    return;
+                };
+                if self.world.get::<&CommentData>(dst).is_ok() {
+                    if let Ok(mut existing) = self.world.get::<&mut CommentData>(dst) {
+                        existing.0 = data;
+                    }
+                } else {
+                    let _ = self.world.insert_one(dst, CommentData(data));
                 }
-            } else {
-                let _ = self.world.insert_one(dst, CommentData(data));
             }
+            _ => {}
         }
     }
 

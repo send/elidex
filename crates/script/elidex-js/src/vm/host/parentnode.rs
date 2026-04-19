@@ -51,10 +51,13 @@ impl VmInner {
 
 /// TypeError-surfaced HierarchyRequestError for the ParentNode
 /// mixin — mirrors the pattern `Node.appendChild` / `insertBefore`
-/// use (DOMException integration is deferred).
+/// use (DOMException integration is deferred).  Uses `'ParentNode'`
+/// as the interface label because this mixin is installed on both
+/// `Element.prototype` and the document wrapper (so the method can
+/// throw for `document.append(...)` too).
 fn hierarchy_request_error(method: &str) -> VmError {
     VmError::type_error(format!(
-        "Failed to execute '{method}' on 'Element': \
+        "Failed to execute '{method}' on 'ParentNode': \
          the new child node cannot be inserted."
     ))
 }

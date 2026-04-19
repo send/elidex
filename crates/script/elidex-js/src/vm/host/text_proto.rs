@@ -97,47 +97,50 @@ fn native_text_split_text(
     }
     let offset = offset_num.floor() as usize;
 
-    let new_entity = {
-        let dom = ctx.host().dom();
-        let current = dom
-            .world()
-            .get::<&elidex_ecs::TextContent>(entity)
-            .map(|t| t.0.clone())
-            .unwrap_or_default();
-        let units: Vec<u16> = current.encode_utf16().collect();
-        let len = units.len();
-        if offset > len {
-            return Err(VmError::range_error(format!(
+    let dom = ctx.host().dom();
+    let current = dom
+        .world()
+        .get::<&elidex_ecs::TextContent>(entity)
+        .map(|t| t.0.clone())
+        .unwrap_or_default();
+    let units: Vec<u16> = current.encode_utf16().collect();
+    let len = units.len();
+    if offset > len {
+        return Err(VmError::range_error(format!(
+            "Failed to execute 'splitText' on 'Text': \
+             offset {offset} exceeds data length {len}."
+        )));
+    }
+    let (left_units, right_units) = units.split_at(offset);
+    // WHATWG §4.11 splitText offsets are UTF-16 code units, so the
+    // split can land between a surrogate pair per spec.  Our Rust
+    // `String` storage cannot represent lone surrogates; the lossy
+    // coercion here maps them to U+FFFD — a known Phase 2 limitation
+    // tied to the CharacterData WTF-16 buffer work (see
+    // `character_data_proto` module doc).
+    let left = String::from_utf16_lossy(left_units);
+    let right = String::from_utf16_lossy(right_units);
+
+    // Allocate the trailing Text node and thread it into place
+    // BEFORE mutating the original, so a rejected insertion leaves
+    // the tree unchanged and the original node's data intact.
+    let new_entity = dom.create_text(right);
+    if let Some(parent) = dom.get_parent(entity) {
+        let inserted = if let Some(next) = dom.get_next_sibling(entity) {
+            dom.insert_before(parent, new_entity, next)
+        } else {
+            dom.append_child(parent, new_entity)
+        };
+        if !inserted {
+            let _ = dom.destroy_entity(new_entity);
+            return Err(VmError::type_error(
                 "Failed to execute 'splitText' on 'Text': \
-                 offset {offset} exceeds data length {len}."
-            )));
+                 could not insert the trailing Text node.",
+            ));
         }
-        let (left_units, right_units) = units.split_at(offset);
-        let has_lone_surrogate = (left_units.iter().chain(right_units.iter()))
-            .any(|&u| (0xD800..=0xDFFF).contains(&u))
-            && (String::from_utf16(left_units).is_err()
-                || String::from_utf16(right_units).is_err());
-        debug_assert!(
-            !has_lone_surrogate,
-            "Text.splitText produced a lone UTF-16 surrogate — spec-correct \
-             handling requires a WTF-16 text buffer."
-        );
-        let left = String::from_utf16_lossy(left_units);
-        let right = String::from_utf16_lossy(right_units);
-        // Overwrite the original node with the left half.
-        if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
-            text.0 = left;
-        }
-        // Allocate the trailing Text node and thread it into place.
-        let new_entity: Entity = dom.create_text(right);
-        if let Some(parent) = dom.get_parent(entity) {
-            if let Some(next) = dom.get_next_sibling(entity) {
-                let _ = dom.insert_before(parent, new_entity, next);
-            } else {
-                let _ = dom.append_child(parent, new_entity);
-            }
-        }
-        new_entity
-    };
+    }
+    if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
+        text.0 = left;
+    }
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }

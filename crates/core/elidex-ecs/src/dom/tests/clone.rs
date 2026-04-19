@@ -17,17 +17,47 @@ fn clone_attributes_copies_all_keys() {
 }
 
 #[test]
-fn clone_character_data_copies_text() {
+fn clone_character_data_text_to_text() {
     let mut dom = EcsDom::new();
     let src = dom.create_text("hello");
-    // Pre-allocate dst without text so we exercise the insert path.
-    let dst = dom.create_comment("ignored");
+    // Pre-allocate dst with blank text to exercise the overwrite path.
+    let dst = dom.create_text("");
     dom.clone_character_data(src, dst);
     let text = dom
         .world()
         .get::<&TextContent>(dst)
-        .expect("clone should insert TextContent");
+        .expect("clone should populate TextContent");
     assert_eq!(text.0, "hello");
+}
+
+#[test]
+fn clone_character_data_comment_to_comment() {
+    let mut dom = EcsDom::new();
+    let src = dom.create_comment("note");
+    let dst = dom.create_comment("");
+    dom.clone_character_data(src, dst);
+    let c = dom
+        .world()
+        .get::<&CommentData>(dst)
+        .expect("clone should populate CommentData");
+    assert_eq!(c.0, "note");
+}
+
+#[test]
+fn clone_character_data_mismatched_kinds_noop() {
+    // Mismatched kinds must not pollute the destination with the
+    // wrong component — e.g., Text → Comment would otherwise leave
+    // the Comment entity with both CommentData and TextContent.
+    let mut dom = EcsDom::new();
+    let src = dom.create_text("hello");
+    let dst = dom.create_comment("original");
+    dom.clone_character_data(src, dst);
+    // Destination still has its original CommentData.
+    let c = dom.world().get::<&CommentData>(dst).unwrap();
+    assert_eq!(c.0, "original");
+    // And no TextContent was smuggled in.
+    drop(c);
+    assert!(dom.world().get::<&TextContent>(dst).is_err());
 }
 
 #[test]

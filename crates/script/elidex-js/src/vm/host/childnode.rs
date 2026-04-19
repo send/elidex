@@ -115,15 +115,25 @@ pub(super) fn convert_nodes_to_single_node_or_fragment(
 
 /// Consume the `(entity, was_wrapped)` pair after a ChildNode /
 /// ParentNode mutation completes — destroys the wrapper fragment if
-/// we allocated one.
+/// we allocated one AND it has no remaining children.
+///
+/// On the success path every child was detached from the wrapper by
+/// the `append_child` / `insert_before` that moved it into the real
+/// parent, so the fragment is empty and gets destroyed.  On error
+/// paths (mutation loop aborted mid-way) the fragment may still hold
+/// unmoved children; destroying it then would orphan those children
+/// and leak them in the ECS world.  Leave the fragment intact in
+/// that case — it becomes GC-unreachable from JS since the wrapper
+/// cache never saw it.
 pub(super) fn destroy_wrapper_fragment_if_any(ctx: &mut NativeContext<'_>, pair: (Entity, bool)) {
     let (entity, was_wrapped) = pair;
     if !was_wrapped {
         return;
     }
-    // `append_child` / `insert_before` already detached each child from
-    // the wrapper when they moved into the real parent, so the fragment
-    // is empty by the time we despawn it.
+    let has_children = ctx.host().dom().children_iter(entity).next().is_some();
+    if has_children {
+        return;
+    }
     let _ = ctx.host().dom().destroy_entity(entity);
 }
 
@@ -135,10 +145,12 @@ pub(super) fn destroy_wrapper_fragment_if_any(ctx: &mut NativeContext<'_>, pair:
 /// `EcsDom` rejects an insertion (self-insert, ancestor cycle,
 /// destroyed entity).  Matches the TypeError-surfaced pattern
 /// established by `Node.appendChild` / `insertBefore` (DOMException
-/// integration is deferred).
+/// integration is deferred).  Uses `'ChildNode'` as the interface
+/// label because this mixin is installed on both Element and
+/// CharacterData wrappers.
 fn hierarchy_request_error(method: &str) -> VmError {
     VmError::type_error(format!(
-        "Failed to execute '{method}' on 'Element': \
+        "Failed to execute '{method}' on 'ChildNode': \
          the new child node cannot be inserted."
     ))
 }

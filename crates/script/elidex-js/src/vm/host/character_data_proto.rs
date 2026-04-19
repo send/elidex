@@ -29,12 +29,12 @@
 //! WHATWG `data` / offsets are defined in **UTF-16 code units**.  JS
 //! strings inside the VM are Rust `String`s (UTF-8) — the methods
 //! below round-trip via `encode_utf16().collect::<Vec<u16>>()` so
-//! surrogate pairs are honoured.  The current round-trip uses
-//! [`String::from_utf16_lossy`] on write-back, which converts *lone*
-//! surrogates to `U+FFFD` — a spec deviation that needs a WTF-16
-//! text buffer in ECS to fix properly.  `debug_assert!` panics in
-//! debug builds when a lone surrogate is produced so regressions do
-//! not slip in silently.
+//! surrogate pairs are honoured.  Spec-valid operations can split a
+//! surrogate pair (offsets are per-code-unit), producing a lone
+//! surrogate in the intermediate `Vec<u16>`; `String::from_utf16_lossy`
+//! maps that to `U+FFFD` on write-back.  That is a lossy divergence
+//! from the spec, but not a panic — a fully correct fix requires a
+//! WTF-16 ECS text buffer.
 
 #![cfg(feature = "engine")]
 
@@ -198,18 +198,14 @@ fn edit_data_utf16(
         out.extend(rep.encode_utf16());
     }
     out.extend_from_slice(&units[end..]);
-    // WTF-16 → UTF-8 round trip: lone surrogates (unpaired high/low
-    // units) corrupt to U+FFFD under `from_utf16_lossy`.  A
-    // spec-correct fix needs a WTF-16 ECS text buffer; panic in
-    // debug so regressions surface early, lossy in release so we do
-    // not crash a page on pathological input.
-    let has_lone_surrogate =
-        out.iter().any(|&u| (0xD800..=0xDFFF).contains(&u)) && String::from_utf16(&out).is_err();
-    debug_assert!(
-        !has_lone_surrogate,
-        "CharacterData edit produced a lone UTF-16 surrogate — spec-correct handling \
-         requires a WTF-16 text buffer."
-    );
+    // WHATWG §4.10.1 offsets are UTF-16 code units, so a spec-valid
+    // edit can split a surrogate pair and leave `out` with a lone
+    // surrogate.  `String::from_utf16_lossy` maps that to U+FFFD;
+    // the divergence from spec only matters when user JS round-trips
+    // such data through `data` / `appendData` / etc. and is
+    // accepted as a known limitation until CharacterData moves to a
+    // WTF-16 buffer.  Do NOT panic here — lossy coercion is the
+    // correct Phase 2 behaviour.
     Ok(String::from_utf16_lossy(&out))
 }
 
@@ -393,13 +389,9 @@ fn native_char_data_substring_data(
     }
     let end = offset.saturating_add(count).min(len);
     let slice = &units[offset..end];
-    let has_lone_surrogate =
-        slice.iter().any(|&u| (0xD800..=0xDFFF).contains(&u)) && String::from_utf16(slice).is_err();
-    debug_assert!(
-        !has_lone_surrogate,
-        "CharacterData.substringData produced a lone UTF-16 surrogate — \
-         spec-correct handling requires a WTF-16 text buffer."
-    );
+    // UTF-16 code-unit slicing can split a surrogate pair per spec;
+    // `from_utf16_lossy` coerces the resulting lone surrogate to
+    // U+FFFD.  See module-level WTF-16 caveat.
     let s = String::from_utf16_lossy(slice);
     if s.is_empty() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));

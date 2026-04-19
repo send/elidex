@@ -208,6 +208,29 @@ fn text_insert_data_at_length_is_append() {
 }
 
 #[test]
+fn text_substring_data_split_surrogate_pair_is_lossy_not_panic() {
+    // UTF-16 offsets can land between a surrogate pair (🎉 = two
+    // UTF-16 units).  Spec-valid; Rust `String` storage cannot
+    // represent lone surrogates, so they degrade to U+FFFD (the
+    // Unicode replacement character).  Critically: this must NOT
+    // panic — there is no `debug_assert!` on the path.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("globalThis.t = document.createTextNode('\\uD83C\\uDF89');")
+        .unwrap();
+    // substringData(0, 1) splits through the surrogate pair.
+    let out = eval_str(&mut vm, "t.substringData(0, 1);");
+    // Result is a single replacement character (U+FFFD), length 1
+    // in UTF-16 and encoded as 3 bytes in UTF-8 ("\u{FFFD}").
+    assert_eq!(out.chars().count(), 1);
+    assert_eq!(out.chars().next().unwrap(), '\u{FFFD}');
+    vm.unbind();
+}
+
+#[test]
 fn text_delete_data_offset_exceeds_length_throws() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
@@ -305,6 +328,28 @@ fn text_split_text_at_length_returns_empty() {
     vm.eval("globalThis.r = t.splitText(3);").unwrap();
     assert_eq!(eval_str(&mut vm, "t.data;"), "abc");
     assert_eq!(eval_str(&mut vm, "r.data;"), "");
+    vm.unbind();
+}
+
+#[test]
+fn text_split_text_at_surrogate_pair_is_lossy_not_panic() {
+    // Splitting a Text node at a UTF-16 offset that bisects a
+    // surrogate pair is spec-valid and must not panic in debug.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.p = document.createElement('p');\n\
+         globalThis.t = document.createTextNode('\\uD83C\\uDF89');\n\
+         p.appendChild(t);\n\
+         globalThis.r = t.splitText(1);",
+    )
+    .unwrap();
+    // Both halves are one U+FFFD each after lossy decode.
+    assert_eq!(eval_str(&mut vm, "t.data;").chars().count(), 1);
+    assert_eq!(eval_str(&mut vm, "r.data;").chars().count(), 1);
     vm.unbind();
 }
 
