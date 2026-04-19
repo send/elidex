@@ -301,6 +301,23 @@ fn native_child_node_replace_with(
         return Ok(JsValue::Undefined);
     };
     let children = nodes_to_insert(ctx, p.0);
+    // Pre-insertion validity BEFORE detaching `entity`: reject
+    // ancestor cycles / self-insert so the throw path leaves the
+    // tree untouched (WHATWG §5.2.2 step 3 runs "ensure pre-
+    // insertion validity" before the remove+insert in step 5).
+    // Same pattern as `replaceChildren` after R12 F3+F4 —
+    // inserting first and rolling back loses nodes that argument
+    // normalisation already detached.
+    for &child in &children {
+        if ctx
+            .host()
+            .dom()
+            .is_light_tree_ancestor_or_self(child, parent)
+        {
+            destroy_wrapper_fragment_if_any(ctx, p);
+            return Err(hierarchy_request_error("replaceWith"));
+        }
+    }
     // Viable-next-sibling search: skip over any following sibling
     // that appears in the args list (those will be moved into place
     // by the insertion loop, so they're not a stable anchor).

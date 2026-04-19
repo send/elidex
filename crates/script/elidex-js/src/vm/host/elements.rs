@@ -76,8 +76,8 @@ impl VmInner {
         }
 
         // Pick the prototype based on the entity's DOM node kind.
-        // `prototype_kind_for` folds the Element / Text / Comment /
-        // other-Node check into a single ECS lookup:
+        // `prototype_kind_for` centralises the Element / Text /
+        // Comment / other-Node dispatch for wrapper creation:
         //
         // - Element             → `Element.prototype`
         //                         (→ Node.prototype → EventTarget.prototype).

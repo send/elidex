@@ -176,6 +176,47 @@ fn element_replace_with_self_is_noop() {
     vm.unbind();
 }
 
+#[test]
+fn element_replace_with_ancestor_cycle_preserves_tree() {
+    // Pre-insertion validity (WHATWG §5.2.2 step 3): if an arg is
+    // an ancestor of the receiver's parent (which would create a
+    // cycle on insert), the method must throw BEFORE removing
+    // the receiver.  Before this fix `replaceWith` detached
+    // `entity` first and threw after the failed insert, leaving
+    // the tree partially mutated.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    // Build: grandparent > p > (a, b).  `a.replaceWith(grandparent)`
+    // — grandparent is p's ancestor, so insert would cycle.
+    vm.eval(
+        "globalThis.grandparent = document.createElement('gp');\n\
+         grandparent.appendChild(p);",
+    )
+    .unwrap();
+    let threw = vm
+        .eval(
+            "var err = null;\n\
+             try { a.replaceWith(grandparent); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    // `a` must still be p's child: the throw happened before the
+    // detach step, so the tree is unchanged.
+    let JsValue::Boolean(a_still_child) = vm
+        .eval("Array.prototype.slice.call(p.childNodes).indexOf(a) !== -1;")
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(a_still_child);
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // remove (on CharacterData prototype)
 // ---------------------------------------------------------------------------
