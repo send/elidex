@@ -1,11 +1,16 @@
 //! ParentNode mixin — `prepend` / `append` / `replaceChildren`
 //! (WHATWG DOM §5.2.4).
 //!
-//! Implemented by Element, Document, and DocumentFragment.  We install
-//! the same native fns on `Element.prototype` and on the document
-//! wrapper at bind time (Document has no shared prototype the way
-//! Element does — its wrapper is patched per-bind by
+//! In the DOM spec, ParentNode is mixed into Element, Document, and
+//! DocumentFragment.  In this implementation, these native fns are
+//! currently installed only on `Element.prototype` and on the
+//! document wrapper at bind time (Document has no shared prototype
+//! the way Element does — its wrapper is patched per-bind by
 //! [`install_document_methods_if_needed`](super::document)).
+//! DocumentFragment wrappers still chain via `Node.prototype` and
+//! therefore do not expose `prepend`/`append`/`replaceChildren`
+//! yet; that gap lands together with the `DocumentFragment.prototype`
+//! work in a later PR.
 //!
 //! Argument normalisation reuses
 //! [`super::childnode::convert_nodes_to_single_node_or_fragment`] so
