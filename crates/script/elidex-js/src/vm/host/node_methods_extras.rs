@@ -226,59 +226,69 @@ pub(super) fn native_node_is_equal_node(
 /// Structural deep-equality for two Node entities.  Walks children
 /// via `children_iter` (shadow-root entities are skipped in both
 /// subtrees, matching WHATWG light-tree semantics).
+///
+/// Iterative DFS over `(a, b)` pairs — deep DOM trees must not
+/// overflow the Rust call stack (matches the explicit-stack pattern
+/// used by `despawn_subtree` and `clone_children_recursive`).
 fn nodes_equal(dom: &elidex_ecs::EcsDom, a: Entity, b: Entity) -> bool {
-    let kind = dom.node_kind(a);
-    if kind != dom.node_kind(b) {
-        return false;
-    }
-    if dom.get_tag_name(a) != dom.get_tag_name(b) {
-        return false;
-    }
-    // Character-data equality is dispatched by kind — Text compares
-    // TextContent, Comment compares CommentData, everything else has
-    // neither component and skips the lookup entirely.
-    match kind {
-        Some(NodeKind::Text) => {
-            let ta = dom.world().get::<&elidex_ecs::TextContent>(a).ok();
-            let tb = dom.world().get::<&elidex_ecs::TextContent>(b).ok();
-            if ta.as_deref().map(|t| &t.0) != tb.as_deref().map(|t| &t.0) {
-                return false;
-            }
-        }
-        Some(NodeKind::Comment) => {
-            let ca = dom.world().get::<&elidex_ecs::CommentData>(a).ok();
-            let cb = dom.world().get::<&elidex_ecs::CommentData>(b).ok();
-            if ca.as_deref().map(|c| &c.0) != cb.as_deref().map(|c| &c.0) {
-                return false;
-            }
-        }
-        Some(NodeKind::DocumentType) => {
-            let da = dom.world().get::<&elidex_ecs::DocTypeData>(a).ok();
-            let db = dom.world().get::<&elidex_ecs::DocTypeData>(b).ok();
-            match (da.as_deref(), db.as_deref()) {
-                (Some(x), Some(y)) => {
-                    if x.name != y.name || x.public_id != y.public_id || x.system_id != y.system_id
-                    {
-                        return false;
-                    }
-                }
-                (Some(_), None) | (None, Some(_)) => return false,
-                (None, None) => {}
-            }
-        }
-        _ => {}
-    }
-    if !attributes_equal(dom, a, b) {
-        return false;
-    }
-    let kids_a: Vec<Entity> = dom.children_iter(a).collect();
-    let kids_b: Vec<Entity> = dom.children_iter(b).collect();
-    if kids_a.len() != kids_b.len() {
-        return false;
-    }
-    for (ca, cb) in kids_a.iter().zip(kids_b.iter()) {
-        if !nodes_equal(dom, *ca, *cb) {
+    let mut stack: Vec<(Entity, Entity)> = vec![(a, b)];
+    while let Some((a, b)) = stack.pop() {
+        let kind = dom.node_kind(a);
+        if kind != dom.node_kind(b) {
             return false;
+        }
+        if dom.get_tag_name(a) != dom.get_tag_name(b) {
+            return false;
+        }
+        // Character-data equality is dispatched by kind — Text compares
+        // TextContent, Comment compares CommentData, everything else has
+        // neither component and skips the lookup entirely.
+        match kind {
+            Some(NodeKind::Text) => {
+                let ta = dom.world().get::<&elidex_ecs::TextContent>(a).ok();
+                let tb = dom.world().get::<&elidex_ecs::TextContent>(b).ok();
+                if ta.as_deref().map(|t| &t.0) != tb.as_deref().map(|t| &t.0) {
+                    return false;
+                }
+            }
+            Some(NodeKind::Comment) => {
+                let ca = dom.world().get::<&elidex_ecs::CommentData>(a).ok();
+                let cb = dom.world().get::<&elidex_ecs::CommentData>(b).ok();
+                if ca.as_deref().map(|c| &c.0) != cb.as_deref().map(|c| &c.0) {
+                    return false;
+                }
+            }
+            Some(NodeKind::DocumentType) => {
+                let da = dom.world().get::<&elidex_ecs::DocTypeData>(a).ok();
+                let db = dom.world().get::<&elidex_ecs::DocTypeData>(b).ok();
+                match (da.as_deref(), db.as_deref()) {
+                    (Some(x), Some(y)) => {
+                        if x.name != y.name
+                            || x.public_id != y.public_id
+                            || x.system_id != y.system_id
+                        {
+                            return false;
+                        }
+                    }
+                    (Some(_), None) | (None, Some(_)) => return false,
+                    (None, None) => {}
+                }
+            }
+            _ => {}
+        }
+        if !attributes_equal(dom, a, b) {
+            return false;
+        }
+        let kids_a: Vec<Entity> = dom.children_iter(a).collect();
+        let kids_b: Vec<Entity> = dom.children_iter(b).collect();
+        if kids_a.len() != kids_b.len() {
+            return false;
+        }
+        // Push in reverse so pre-order pops match recursive walk order
+        // (not functionally required for equality, but keeps early-exit
+        // behaviour predictable and easier to reason about in logs).
+        for (ca, cb) in kids_a.iter().zip(kids_b.iter()).rev() {
+            stack.push((*ca, *cb));
         }
     }
     true

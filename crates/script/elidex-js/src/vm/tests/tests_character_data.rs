@@ -273,6 +273,72 @@ fn character_data_method_on_non_character_data_receiver_throws() {
     vm.unbind();
 }
 
+#[test]
+fn character_data_data_getter_on_wrong_receiver_throws() {
+    // WebIDL brand check: invoking the `data` getter on an Element
+    // wrapper (via Function.call) must throw TypeError, not return
+    // the empty string silently.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var el = document.createElement('p');\n\
+             var desc = Object.getOwnPropertyDescriptor(\n\
+                 Object.getPrototypeOf(Object.getPrototypeOf(document.createTextNode('x'))), 'data');\n\
+             var err = null;\n\
+             try { desc.get.call(el); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
+#[test]
+fn character_data_data_setter_on_wrong_receiver_throws() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var el = document.createElement('p');\n\
+             var desc = Object.getOwnPropertyDescriptor(\n\
+                 Object.getPrototypeOf(Object.getPrototypeOf(document.createTextNode('x'))), 'data');\n\
+             var err = null;\n\
+             try { desc.set.call(el, 'oops'); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
+#[test]
+fn character_data_length_getter_on_wrong_receiver_throws() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var el = document.createElement('p');\n\
+             var desc = Object.getOwnPropertyDescriptor(\n\
+                 Object.getPrototypeOf(Object.getPrototypeOf(document.createTextNode('x'))), 'length');\n\
+             var err = null;\n\
+             try { desc.get.call(el); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // Prototype chain
 // ---------------------------------------------------------------------------

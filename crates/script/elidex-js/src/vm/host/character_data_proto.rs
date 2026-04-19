@@ -232,7 +232,16 @@ fn native_char_data_get_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let s = char_data_get(ctx, entity).unwrap_or_default();
+    // WebIDL branding: any HostObject receiver that is not a Text /
+    // Comment node raises TypeError, matching every CharacterData
+    // method on this prototype.  `entity_from_this` already returns
+    // `None` for non-HostObject / post-unbind receivers (silent
+    // no-op), so reaching here with a `None` from `char_data_get`
+    // means the wrapper is an Element / Window / DocumentFragment /
+    // etc.
+    let Some(s) = char_data_get(ctx, entity) else {
+        return Err(wrong_receiver_error("data"));
+    };
     if s.is_empty() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
@@ -256,7 +265,9 @@ fn native_char_data_set_data(
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, arg)?;
     let data = ctx.vm.strings.get_utf8(sid);
-    char_data_set(ctx, entity, data);
+    if !char_data_set(ctx, entity, data) {
+        return Err(wrong_receiver_error("data"));
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -268,7 +279,9 @@ fn native_char_data_get_length(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Number(0.0));
     };
-    let s = char_data_get(ctx, entity).unwrap_or_default();
+    let Some(s) = char_data_get(ctx, entity) else {
+        return Err(wrong_receiver_error("length"));
+    };
     // WHATWG §4.10: length is UTF-16 code unit count.  `chars().count()`
     // would undercount surrogate pairs — must use `encode_utf16`.
     #[allow(clippy::cast_precision_loss)]

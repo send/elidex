@@ -21,10 +21,10 @@ mod engine_feature {
     use std::collections::{HashMap, HashSet};
 
     /// Four-way partition of DOM wrapper prototype chains used by
-    /// [`super::super::VmInner::create_element_wrapper`].  A single
-    /// ECS component lookup yields the [`PrototypeKind`] so the
-    /// caller does not need to run independent `is_element_entity`
-    /// / `is_character_data_entity` checks.
+    /// [`super::super::VmInner::create_element_wrapper`].  The
+    /// [`PrototypeKind`] is derived from the entity's ECS components
+    /// so the caller does not need to run independent
+    /// `is_element_entity` / `is_character_data_entity` checks.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum PrototypeKind {
         /// Entity carries a `TagType` — Element wrapper chain:
