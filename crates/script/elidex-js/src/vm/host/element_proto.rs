@@ -1021,7 +1021,11 @@ pub(super) fn native_element_get_elements_by_tag_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let tag = coerce_first_arg_to_string(ctx, args)?;
+    // WebIDL brand check runs BEFORE argument conversion — otherwise
+    // `Element.prototype.getElementsByTagName.call({}, {toString(){ ... }})`
+    // would trigger user code via ToString even though the invalid
+    // receiver should be a silent no-op.  Order matches
+    // `querySelector*` / `matches` / `closest` in this same file.
     let Some(root) =
         super::event_target::require_receiver(ctx, this, "Element", "getElementsByTagName", |k| {
             k == NodeKind::Element
@@ -1029,6 +1033,7 @@ pub(super) fn native_element_get_elements_by_tag_name(
     else {
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
+    let tag = coerce_first_arg_to_string(ctx, args)?;
     let entities = collect_descendants_by_tag_name(ctx.host().dom(), root, &tag);
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
@@ -1042,8 +1047,8 @@ pub(super) fn native_element_get_elements_by_class_name(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let class_str = coerce_first_arg_to_string(ctx, args)?;
-    let target_classes: Vec<&str> = class_str.split_whitespace().collect();
+    // Brand check before argument conversion — same WebIDL precedence
+    // rule as `getElementsByTagName` above.
     let Some(root) = super::event_target::require_receiver(
         ctx,
         this,
@@ -1054,6 +1059,8 @@ pub(super) fn native_element_get_elements_by_class_name(
     else {
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
+    let class_str = coerce_first_arg_to_string(ctx, args)?;
+    let target_classes: Vec<&str> = class_str.split_whitespace().collect();
     let entities = collect_descendants_by_class_name(ctx.host().dom(), root, &target_classes);
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }

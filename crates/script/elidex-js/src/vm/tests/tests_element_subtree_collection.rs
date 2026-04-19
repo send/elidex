@@ -170,6 +170,72 @@ fn element_get_elements_by_class_name_single_token() {
 }
 
 #[test]
+fn element_get_elements_by_tag_name_brand_check_precedes_tostring() {
+    // Copilot R3 F8 lock-in: WebIDL brand-check runs BEFORE argument
+    // ToString.  Calling the native on a plain object via
+    // `Function.prototype.call` must NOT trigger the user-supplied
+    // toString on the argument — the silent-no-op-for-invalid-receiver
+    // policy means no user code can observe that we even got here.
+    //
+    // elidex does not expose a global `Element` constructor yet
+    // (PR5b), so we reach the method via `Object.getPrototypeOf` on
+    // an actual element wrapper.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm
+        .eval(
+            "var called = false; \
+             var spy = { toString: function() { called = true; return '*'; } }; \
+             var proto = Object.getPrototypeOf(document.createElement('div')); \
+             var getByTag = proto.getElementsByTagName; \
+             var r = getByTag.call({}, spy); \
+             (r.length === 0) + '|' + called;",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "true|false");
+    vm.unbind();
+}
+
+#[test]
+fn element_get_elements_by_class_name_brand_check_precedes_tostring() {
+    // Copilot R3 F9 lock-in: same as above for getElementsByClassName.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm
+        .eval(
+            "var called = false; \
+             var spy = { toString: function() { called = true; return 'x'; } }; \
+             var proto = Object.getPrototypeOf(document.createElement('div')); \
+             var getByClass = proto.getElementsByClassName; \
+             var r = getByClass.call({}, spy); \
+             (r.length === 0) + '|' + called;",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "true|false");
+    vm.unbind();
+}
+
+#[test]
 fn element_subtree_query_does_not_include_receiver() {
     // `#inner` has class "y x z"; `#inner.getElementsByClassName('y')`
     // must NOT include `#inner` itself — per spec "every descendant".

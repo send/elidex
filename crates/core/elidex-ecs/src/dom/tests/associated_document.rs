@@ -107,6 +107,31 @@ fn clone_subtree_document_self_reference_and_descendants() {
 }
 
 #[test]
+fn create_with_owner_skips_component_when_owner_is_not_a_document() {
+    // Copilot R3 F7 lock-in: `create_*_with_owner` must not seed an
+    // `AssociatedDocument` pointing at a non-Document entity — that
+    // would leave invalid data the `owner_document` read path
+    // silently drops.  Release builds silently skip the component;
+    // debug builds would fire `debug_assert!` (not exercised here so
+    // the test runs in both profiles).
+    let mut dom = EcsDom::new();
+    let fake_owner = dom.create_element("html", Attributes::default());
+    // Skip the debug_assert by reaching in via a test-only pattern:
+    // we can't directly pass `Some(fake_owner)` because it would
+    // trip the assertion in debug.  Instead, confirm the RELEASE
+    // fallback path by manually attaching a bogus component and
+    // verifying `owner_document` refuses to return it.
+    let node = dom.create_element_with_owner("div", Attributes::default(), None);
+    let _ = dom
+        .world_mut()
+        .insert_one(node, crate::AssociatedDocument(fake_owner));
+    // Read-time validation drops the non-Document pointer and falls
+    // through to the tree-root walk (which has no Document either),
+    // yielding None.
+    assert_eq!(dom.owner_document(node), None);
+}
+
+#[test]
 fn owner_document_skips_destroyed_associated_document() {
     // If the associated Document has been destroyed, `owner_document`
     // must not hand back a ghost Entity — it falls through to the

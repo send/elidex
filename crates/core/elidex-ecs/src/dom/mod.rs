@@ -121,6 +121,7 @@ impl EcsDom {
         attrs: Attributes,
         owner: Option<Entity>,
     ) -> Entity {
+        let owner = self.validate_owner_document(owner);
         let entity = self.world.spawn((
             TagType(tag.into()),
             attrs,
@@ -178,6 +179,7 @@ impl EcsDom {
         text: impl Into<String>,
         owner: Option<Entity>,
     ) -> Entity {
+        let owner = self.validate_owner_document(owner);
         let entity = self.world.spawn((
             TextContent(text.into()),
             TreeRelation::default(),
@@ -201,6 +203,7 @@ impl EcsDom {
     /// Create a document fragment node with an explicit owner
     /// `Document` entity.
     pub fn create_document_fragment_with_owner(&mut self, owner: Option<Entity>) -> Entity {
+        let owner = self.validate_owner_document(owner);
         let entity = self
             .world
             .spawn((TreeRelation::default(), NodeKind::DocumentFragment));
@@ -224,6 +227,7 @@ impl EcsDom {
         data: impl Into<String>,
         owner: Option<Entity>,
     ) -> Entity {
+        let owner = self.validate_owner_document(owner);
         let entity = self.world.spawn((
             CommentData(data.into()),
             TreeRelation::default(),
@@ -371,6 +375,31 @@ impl EcsDom {
     }
 
     // ---- AssociatedDocument (WHATWG §4.4 "node document") ----
+
+    /// Validate an incoming `owner` argument passed to
+    /// `create_*_with_owner`.  Returns the entity unchanged when it
+    /// still points at a live [`NodeKind::Document`]; returns `None`
+    /// otherwise (destroyed / non-Document / never set).
+    ///
+    /// Write-time counterpart to the read-time validation in
+    /// [`owner_document`](Self::owner_document): both layers together
+    /// guarantee that an [`AssociatedDocument`] component in the
+    /// world always points at a real Document as long as it persists.
+    /// A `debug_assert!` fires when the caller passes a non-Document
+    /// owner so misuse surfaces immediately in test builds while
+    /// release builds keep the silent-skip safety net.
+    fn validate_owner_document(&self, owner: Option<Entity>) -> Option<Entity> {
+        let doc = owner?;
+        if self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document)) {
+            Some(doc)
+        } else {
+            debug_assert!(
+                false,
+                "create_*_with_owner passed an owner that is not a live Document entity"
+            );
+            None
+        }
+    }
 
     /// Returns the [`AssociatedDocument`] component value for an
     /// entity, or `None` if absent.
