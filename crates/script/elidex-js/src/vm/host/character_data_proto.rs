@@ -216,7 +216,12 @@ fn edit_data_utf16(
     // returns UTF-8 bytes, which can exceed or undershoot the
     // corresponding UTF-16 length).
     let replacement_units = replacement.map_or(0, |r| r.encode_utf16().count());
-    let mut out: Vec<u16> = Vec::with_capacity(len.saturating_sub(count) + replacement_units);
+    // Final size = prefix + replacement + suffix.  Using the
+    // clamped removal (`end - offset`) instead of the raw `count`
+    // avoids under-allocating when `count` overshoots the data's
+    // trailing bytes (spec clamps silently; we'd otherwise reserve
+    // for a larger removal than actually happens).
+    let mut out: Vec<u16> = Vec::with_capacity(len - (end - offset) + replacement_units);
     out.extend_from_slice(&units[..offset]);
     if let Some(rep) = replacement {
         out.extend(rep.encode_utf16());
@@ -315,8 +320,6 @@ fn coerce_offset(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
     idx: usize,
-    _label: &str,
-    _method: &str,
 ) -> Result<usize, VmError> {
     let arg = args.get(idx).copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_uint32(ctx.vm, arg)?;
@@ -354,7 +357,7 @@ fn native_char_data_insert_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0, "offset", "insertData")?;
+    let offset = coerce_offset(ctx, args, 0)?;
     let data = {
         let arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
         let sid = super::super::coerce::to_string(ctx.vm, arg)?;
@@ -376,8 +379,8 @@ fn native_char_data_delete_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0, "offset", "deleteData")?;
-    let count = coerce_offset(ctx, args, 1, "count", "deleteData")?;
+    let offset = coerce_offset(ctx, args, 0)?;
+    let count = coerce_offset(ctx, args, 1)?;
     let current = char_data_get(ctx, entity).unwrap_or_default();
     let new = edit_data_utf16(&current, offset, count, None, "deleteData")?;
     if !char_data_set(ctx, entity, new) {
@@ -394,8 +397,8 @@ fn native_char_data_replace_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0, "offset", "replaceData")?;
-    let count = coerce_offset(ctx, args, 1, "count", "replaceData")?;
+    let offset = coerce_offset(ctx, args, 0)?;
+    let count = coerce_offset(ctx, args, 1)?;
     let data = {
         let arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
         let sid = super::super::coerce::to_string(ctx.vm, arg)?;
@@ -417,8 +420,8 @@ fn native_char_data_substring_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let offset = coerce_offset(ctx, args, 0, "offset", "substringData")?;
-    let count = coerce_offset(ctx, args, 1, "count", "substringData")?;
+    let offset = coerce_offset(ctx, args, 0)?;
+    let count = coerce_offset(ctx, args, 1)?;
     let current = char_data_get(ctx, entity).unwrap_or_default();
     let units: Vec<u16> = current.encode_utf16().collect();
     let len = units.len();
