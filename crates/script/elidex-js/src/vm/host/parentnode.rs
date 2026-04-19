@@ -17,9 +17,10 @@ use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, PropertyKey, PropertyValue, VmError};
 use super::super::{NativeFn, VmInner};
 use super::childnode::{convert_nodes_to_single_node_or_fragment, destroy_wrapper_fragment_if_any};
+use super::dom_bridge::nodes_to_insert;
 use super::event_target::entity_from_this;
 
-use elidex_ecs::{Entity, NodeKind};
+use elidex_ecs::Entity;
 
 impl VmInner {
     /// Install `prepend` / `append` / `replaceChildren` on
@@ -45,19 +46,6 @@ impl VmInner {
                 shape::PropertyAttrs::METHOD,
             );
         }
-    }
-}
-
-/// Flatten a DocumentFragment entity (whether caller-supplied or
-/// internally wrapped) into its children, otherwise return `[node]`.
-fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<Entity> {
-    if matches!(
-        ctx.host().dom().node_kind(node),
-        Some(NodeKind::DocumentFragment)
-    ) {
-        ctx.host().dom().children_iter(node).collect()
-    } else {
-        vec![node]
     }
 }
 

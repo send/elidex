@@ -1,4 +1,4 @@
-//! PR4e C3: `Node.prototype.cloneNode(deep?)` — shallow/deep clone,
+//! `Node.prototype.cloneNode(deep?)` tests — shallow/deep clone,
 //! attribute copy, parent isolation, listener non-duplication.
 
 #![cfg(feature = "engine")]

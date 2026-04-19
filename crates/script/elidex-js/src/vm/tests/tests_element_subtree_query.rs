@@ -1,13 +1,13 @@
-//! PR4e C8: `Element.prototype.querySelector` /
-//! `querySelectorAll` — subtree-scoped (WHATWG §4.2.6).  `this` is
-//! not a match candidate, only its descendants.
+//! `Element.prototype.querySelector` / `querySelectorAll` tests —
+//! subtree-scoped (WHATWG §4.2.6).  `this` is not a match candidate,
+//! only its descendants.
 
 #![cfg(feature = "engine")]
 
 use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;
 
-use super::super::test_helpers::bind_vm;
+use super::super::test_helpers::{bind_vm, eval_num, eval_str};
 use super::super::value::JsValue;
 use super::super::Vm;
 
@@ -17,20 +17,6 @@ fn setup() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     (vm, session, dom, doc)
-}
-
-fn eval_str(vm: &mut Vm, src: &str) -> String {
-    match vm.eval(src).unwrap() {
-        JsValue::String(sid) => vm.get_string(sid),
-        other => panic!("expected string, got {other:?}"),
-    }
-}
-
-fn eval_num(vm: &mut Vm, src: &str) -> f64 {
-    match vm.eval(src).unwrap() {
-        JsValue::Number(n) => n,
-        other => panic!("expected number, got {other:?}"),
-    }
 }
 
 /// Build: `<section><div class="target"><span/></div><p class="target"/></section>`

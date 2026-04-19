@@ -925,37 +925,36 @@ fn native_node_is_equal_node(
 /// via `children_iter` (shadow-root entities are skipped in both
 /// subtrees, matching WHATWG light-tree semantics).
 fn nodes_equal(dom: &elidex_ecs::EcsDom, a: elidex_ecs::Entity, b: elidex_ecs::Entity) -> bool {
-    if dom.node_kind(a) != dom.node_kind(b) {
+    let kind = dom.node_kind(a);
+    if kind != dom.node_kind(b) {
         return false;
     }
-    // Tag comparison (Element only).
-    let tag_a = dom.get_tag_name(a);
-    let tag_b = dom.get_tag_name(b);
-    if tag_a != tag_b {
+    if dom.get_tag_name(a) != dom.get_tag_name(b) {
         return false;
     }
-    // Attribute sets — order-independent (WHATWG §4.4 "equals").
+    // Character-data equality is dispatched by kind — Text compares
+    // TextContent, Comment compares CommentData, everything else has
+    // neither component and skips the lookup entirely.
+    match kind {
+        Some(NodeKind::Text) => {
+            let ta = dom.world().get::<&elidex_ecs::TextContent>(a).ok();
+            let tb = dom.world().get::<&elidex_ecs::TextContent>(b).ok();
+            if ta.as_deref().map(|t| &t.0) != tb.as_deref().map(|t| &t.0) {
+                return false;
+            }
+        }
+        Some(NodeKind::Comment) => {
+            let ca = dom.world().get::<&elidex_ecs::CommentData>(a).ok();
+            let cb = dom.world().get::<&elidex_ecs::CommentData>(b).ok();
+            if ca.as_deref().map(|c| &c.0) != cb.as_deref().map(|c| &c.0) {
+                return false;
+            }
+        }
+        _ => {}
+    }
     if !attributes_equal(dom, a, b) {
         return false;
     }
-    // Character data.
-    let text_a = dom.world().get::<&elidex_ecs::TextContent>(a).ok();
-    let text_b = dom.world().get::<&elidex_ecs::TextContent>(b).ok();
-    match (text_a.as_deref(), text_b.as_deref()) {
-        (Some(x), Some(y)) if x.0 != y.0 => return false,
-        (Some(_), None) | (None, Some(_)) => return false,
-        _ => {}
-    }
-    drop((text_a, text_b));
-    let comment_a = dom.world().get::<&elidex_ecs::CommentData>(a).ok();
-    let comment_b = dom.world().get::<&elidex_ecs::CommentData>(b).ok();
-    match (comment_a.as_deref(), comment_b.as_deref()) {
-        (Some(x), Some(y)) if x.0 != y.0 => return false,
-        (Some(_), None) | (None, Some(_)) => return false,
-        _ => {}
-    }
-    drop((comment_a, comment_b));
-    // Children pairwise.
     let kids_a: Vec<elidex_ecs::Entity> = dom.children_iter(a).collect();
     let kids_b: Vec<elidex_ecs::Entity> = dom.children_iter(b).collect();
     if kids_a.len() != kids_b.len() {

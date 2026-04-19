@@ -109,12 +109,11 @@ impl VmInner {
                 .element_prototype
                 .expect("create_element_wrapper called before register_element_prototype"),
             super::super::host_data::PrototypeKind::Text => {
-                // In PR4e C5 the Text prototype chain stops at
-                // CharacterData.prototype; the intermediate
-                // `Text.prototype` layer (holding `splitText`) is
-                // introduced in C5.5.  Once `text_prototype` is
-                // registered, prefer it; otherwise fall back to
-                // CharacterData.
+                // Text wrappers chain `Text.prototype →
+                // CharacterData.prototype`; fall back to
+                // `CharacterData.prototype` during the narrow
+                // bootstrap window after CharacterData is registered
+                // but before `register_text_prototype` runs.
                 self.text_prototype
                     .or(self.character_data_prototype)
                     .expect(

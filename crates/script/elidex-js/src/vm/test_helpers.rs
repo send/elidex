@@ -140,3 +140,23 @@ pub fn listeners_on(vm: &mut Vm, entity: Entity) -> EventListeners {
         Err(_) => EventListeners::default(),
     }
 }
+
+/// Evaluate `src` against `vm` and expect a string result, returning
+/// the UTF-8 decode of the interned string.  Panics on any other value
+/// kind or on evaluation errors.  Shared across DOM-test modules that
+/// would otherwise each carry their own copy.
+pub fn eval_str(vm: &mut Vm, src: &str) -> String {
+    match vm.eval(src).unwrap() {
+        JsValue::String(sid) => vm.get_string(sid),
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+/// Evaluate `src` against `vm` and expect a number result.  Panics on
+/// any other value kind or on evaluation errors.
+pub fn eval_num(vm: &mut Vm, src: &str) -> f64 {
+    match vm.eval(src).unwrap() {
+        JsValue::Number(n) => n,
+        other => panic!("expected number, got {other:?}"),
+    }
+}

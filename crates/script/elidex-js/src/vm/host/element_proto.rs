@@ -87,10 +87,9 @@ impl VmInner {
         self.install_child_node_mixin(proto_id);
         // ParentNode mixin (WHATWG §5.2.4) — `prepend` / `append` /
         // `replaceChildren`.  The document wrapper gets its own copy
-        // patched per-bind in `install_document_methods_if_needed`
-        // (DocumentFragment wrappers currently use the same Node
-        // prototype chain; `prepend` / `append` on them lands with
-        // PR4f alongside `normalize`).
+        // patched per-bind in `install_document_methods_if_needed`.
+        // DocumentFragment wrappers currently chain via Node.prototype
+        // and so do not see these members yet.
         self.install_parent_node_mixin(proto_id);
         self.install_element_matches(proto_id);
     }

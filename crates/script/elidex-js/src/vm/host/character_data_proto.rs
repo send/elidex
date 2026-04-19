@@ -24,12 +24,6 @@
 //! - Methods:   `appendData`, `insertData`, `deleteData`,
 //!   `replaceData`, `substringData`.
 //!
-//! Deferred (PR4e defer list):
-//!
-//! - `wholeText` (Text-only, §4.11) — separate enough to belong on
-//!   `Text.prototype` alongside `splitText` once the spec-correct
-//!   WTF-16 text buffer lands.
-//!
 //! ## UTF-16 / WTF-16 caveat
 //!
 //! WHATWG `data` / offsets are defined in **UTF-16 code units**.  JS
@@ -37,10 +31,10 @@
 //! below round-trip via `encode_utf16().collect::<Vec<u16>>()` so
 //! surrogate pairs are honoured.  The current round-trip uses
 //! [`String::from_utf16_lossy`] on write-back, which converts *lone*
-//! surrogates to `U+FFFD`.  A spec-correct fix needs a WTF-16 text
-//! buffer in ECS — tracked on the PR4e plan as a post-merge task.
-//! `debug_assert!` panics in debug builds when a lone surrogate is
-//! detected so regressions do not slip in silently.
+//! surrogates to `U+FFFD` — a spec deviation that needs a WTF-16
+//! text buffer in ECS to fix properly.  `debug_assert!` panics in
+//! debug builds when a lone surrogate is produced so regressions do
+//! not slip in silently.
 
 #![cfg(feature = "engine")]
 
@@ -187,12 +181,14 @@ fn edit_data_utf16(
     offset: usize,
     count: usize,
     replacement: Option<&str>,
+    method: &str,
 ) -> Result<String, VmError> {
     let units: Vec<u16> = original.encode_utf16().collect();
     let len = units.len();
     if offset > len {
         return Err(VmError::range_error(format!(
-            "Failed to execute CharacterData method: offset {offset} exceeds data length {len}."
+            "Failed to execute '{method}' on 'CharacterData': \
+             offset {offset} exceeds data length {len}."
         )));
     }
     let end = offset.saturating_add(count).min(len);
@@ -204,15 +200,15 @@ fn edit_data_utf16(
     out.extend_from_slice(&units[end..]);
     // WTF-16 → UTF-8 round trip: lone surrogates (unpaired high/low
     // units) corrupt to U+FFFD under `from_utf16_lossy`.  A
-    // spec-correct fix needs a WTF-16 ECS text buffer (post-PR4e
-    // deferral); panic in debug so regressions surface early, lossy
-    // in release so we do not crash a page on pathological input.
+    // spec-correct fix needs a WTF-16 ECS text buffer; panic in
+    // debug so regressions surface early, lossy in release so we do
+    // not crash a page on pathological input.
     let has_lone_surrogate =
         out.iter().any(|&u| (0xD800..=0xDFFF).contains(&u)) && String::from_utf16(&out).is_err();
     debug_assert!(
         !has_lone_surrogate,
         "CharacterData edit produced a lone UTF-16 surrogate — spec-correct handling \
-         requires a WTF-16 text buffer (PR4e deferred task)."
+         requires a WTF-16 text buffer."
     );
     Ok(String::from_utf16_lossy(&out))
 }
@@ -284,12 +280,14 @@ fn coerce_offset(
     args: &[JsValue],
     idx: usize,
     label: &str,
+    method: &str,
 ) -> Result<usize, VmError> {
     let arg = args.get(idx).copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_number(ctx.vm, arg)?;
     if !n.is_finite() || n < 0.0 {
         return Err(VmError::range_error(format!(
-            "Failed to execute CharacterData method: {label} must be a non-negative integer."
+            "Failed to execute '{method}' on 'CharacterData': \
+             {label} must be a non-negative integer."
         )));
     }
     // Floor matches ToUint32 semantics for non-integer inputs.
@@ -325,14 +323,14 @@ fn native_char_data_insert_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0, "offset")?;
+    let offset = coerce_offset(ctx, args, 0, "offset", "insertData")?;
     let data = {
         let arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
         let sid = super::super::coerce::to_string(ctx.vm, arg)?;
         ctx.vm.strings.get_utf8(sid)
     };
     let current = char_data_get(ctx, entity).unwrap_or_default();
-    let new = edit_data_utf16(&current, offset, 0, Some(&data))?;
+    let new = edit_data_utf16(&current, offset, 0, Some(&data), "insertData")?;
     char_data_set(ctx, entity, new);
     Ok(JsValue::Undefined)
 }
@@ -345,10 +343,10 @@ fn native_char_data_delete_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0, "offset")?;
-    let count = coerce_offset(ctx, args, 1, "count")?;
+    let offset = coerce_offset(ctx, args, 0, "offset", "deleteData")?;
+    let count = coerce_offset(ctx, args, 1, "count", "deleteData")?;
     let current = char_data_get(ctx, entity).unwrap_or_default();
-    let new = edit_data_utf16(&current, offset, count, None)?;
+    let new = edit_data_utf16(&current, offset, count, None, "deleteData")?;
     char_data_set(ctx, entity, new);
     Ok(JsValue::Undefined)
 }
@@ -361,15 +359,15 @@ fn native_char_data_replace_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0, "offset")?;
-    let count = coerce_offset(ctx, args, 1, "count")?;
+    let offset = coerce_offset(ctx, args, 0, "offset", "replaceData")?;
+    let count = coerce_offset(ctx, args, 1, "count", "replaceData")?;
     let data = {
         let arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
         let sid = super::super::coerce::to_string(ctx.vm, arg)?;
         ctx.vm.strings.get_utf8(sid)
     };
     let current = char_data_get(ctx, entity).unwrap_or_default();
-    let new = edit_data_utf16(&current, offset, count, Some(&data))?;
+    let new = edit_data_utf16(&current, offset, count, Some(&data), "replaceData")?;
     char_data_set(ctx, entity, new);
     Ok(JsValue::Undefined)
 }
@@ -382,8 +380,8 @@ fn native_char_data_substring_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let offset = coerce_offset(ctx, args, 0, "offset")?;
-    let count = coerce_offset(ctx, args, 1, "count")?;
+    let offset = coerce_offset(ctx, args, 0, "offset", "substringData")?;
+    let count = coerce_offset(ctx, args, 1, "count", "substringData")?;
     let current = char_data_get(ctx, entity).unwrap_or_default();
     let units: Vec<u16> = current.encode_utf16().collect();
     let len = units.len();

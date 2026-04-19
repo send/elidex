@@ -13,7 +13,7 @@ use super::super::VmInner;
 use super::event_target::entity_from_this;
 
 use elidex_css::{parse_selector_from_str, Selector};
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, NodeKind};
 
 /// Return `Option<Entity>` as a JS wrapper or `null` — no intermediate
 /// `ObjectId`, so callers can chain it straight into a `Result::Ok`.
@@ -114,6 +114,24 @@ pub(super) fn query_selector_in_subtree_first(
         }
     });
     result
+}
+
+/// Flatten a `DocumentFragment` entity into its light-tree children
+/// (so variadic insertion methods never leave a fragment in the
+/// tree); non-fragment entities return a single-element `vec![node]`.
+///
+/// WHATWG §4.2.3 step 6 mandates the flattening whether the fragment
+/// was created implicitly by the `convert-nodes-into-a-node` helper
+/// or supplied directly by JS.
+pub(super) fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<Entity> {
+    if matches!(
+        ctx.host().dom().node_kind(node),
+        Some(NodeKind::DocumentFragment)
+    ) {
+        ctx.host().dom().children_iter(node).collect()
+    } else {
+        vec![node]
+    }
 }
 
 /// Pre-order DFS collecting every descendant of `root` matching any

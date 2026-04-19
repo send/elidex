@@ -1,6 +1,5 @@
-//! PR4e C3.5 / C3.6 / C4: Node common members —
-//! `ownerDocument`, `isSameNode`, `getRootNode`, `isEqualNode`,
-//! `compareDocumentPosition`.
+//! Node common-member tests — `ownerDocument`, `isSameNode`,
+//! `getRootNode`, `isEqualNode`, `compareDocumentPosition`.
 
 #![cfg(feature = "engine")]
 

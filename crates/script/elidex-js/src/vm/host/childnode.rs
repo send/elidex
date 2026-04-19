@@ -26,6 +26,7 @@ use super::super::value::{
     JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
+use super::dom_bridge::nodes_to_insert;
 use super::event_target::entity_from_this;
 
 use elidex_ecs::{Entity, NodeKind};
@@ -129,22 +130,6 @@ pub(super) fn destroy_wrapper_fragment_if_any(ctx: &mut NativeContext<'_>, pair:
 // ---------------------------------------------------------------------------
 // Natives
 // ---------------------------------------------------------------------------
-
-/// Resolve the `(entity, was_wrapped)` pair into the list of actual
-/// nodes to insert.  DocumentFragment inputs — whether created by us
-/// (`was_wrapped == true`) or handed to us by JS (`was_wrapped ==
-/// false` with a single fragment arg) — are flattened into their
-/// children so the tree never sees a nested fragment.
-fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<Entity> {
-    if matches!(
-        ctx.host().dom().node_kind(node),
-        Some(NodeKind::DocumentFragment)
-    ) {
-        ctx.host().dom().children_iter(node).collect()
-    } else {
-        vec![node]
-    }
-}
 
 fn native_child_node_before(
     ctx: &mut NativeContext<'_>,

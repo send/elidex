@@ -17,13 +17,9 @@
 //! - `splitText(offset)` — splits this Text at `offset` and returns
 //!   the new Text node covering the trailing portion.
 //!
-//! Deferred (post-PR4e):
-//!
-//! - `wholeText` — contiguous sibling Text merge.  Plumbing
-//!   (tree-walk + WTF-16 buffer) is significant enough to belong in
-//!   PR4f rather than fitting alongside `splitText`.
-//! - `assignedSlot` — slot-distribution tracking (PR5b, alongside
-//!   Custom Elements).
+//! `wholeText` (contiguous sibling Text merge) and `assignedSlot`
+//! (slot-distribution tracking — arrives with Custom Elements) are
+//! not yet implemented.
 
 #![cfg(feature = "engine")]
 
