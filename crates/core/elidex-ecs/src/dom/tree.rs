@@ -894,25 +894,32 @@ impl EcsDom {
         dst
     }
 
-    /// Recursively clone each child of `src` and append to `dst`.
-    /// [`ShadowRoot`] children are skipped (matches `children_iter`
-    /// semantics — the shadow root is not part of the light tree).
+    /// Clone each child of `src` under `dst`, then every descendant
+    /// depth-first.  Uses an explicit `(src_parent, dst_parent)` stack
+    /// rather than Rust recursion so trees up to `MAX_ANCESTOR_DEPTH`
+    /// (10 000) deep can be cloned without risk of a thread-stack
+    /// overflow.  [`ShadowRoot`] children are skipped (matches
+    /// `children_iter` semantics — the shadow root is not part of
+    /// the light tree).
     fn clone_children_recursive(&mut self, src: Entity, dst: Entity) {
-        // Snapshot children first so we can freely spawn new entities
-        // during iteration without invalidating the sibling chain we
-        // are walking.  `children` (not `children_iter`) allocates a
-        // Vec, which is the right trade-off here — tree mutations
-        // during clone would break `children_iter`'s `next_sibling`
-        // reads.
-        let kids: Vec<Entity> = self.children(src);
-        for child_src in kids {
-            let child_dst = self.clone_node_shallow(child_src);
-            // `append_child` bumps the version on `dst`; for a fresh
-            // clone tree nobody is watching that version, but the
-            // invariant (parent is an ancestor of new child) is still
-            // satisfied.
-            let _ = self.append_child(dst, child_dst);
-            self.clone_children_recursive(child_src, child_dst);
+        let mut stack: Vec<(Entity, Entity)> = vec![(src, dst)];
+        while let Some((src_parent, dst_parent)) = stack.pop() {
+            // Snapshot children before spawning new entities — tree
+            // mutations during clone would invalidate
+            // `children_iter`'s `next_sibling` reads.
+            let kids: Vec<Entity> = self.children(src_parent);
+            // Clone each child into the destination, recording the
+            // `(src, dst)` pair for the descendant walk.  Push in
+            // reverse so the explicit-stack traversal preserves the
+            // same left-to-right depth-first ordering the recursive
+            // version produced.
+            let mut pending: Vec<(Entity, Entity)> = Vec::with_capacity(kids.len());
+            for child_src in kids {
+                let child_dst = self.clone_node_shallow(child_src);
+                let _ = self.append_child(dst_parent, child_dst);
+                pending.push((child_src, child_dst));
+            }
+            stack.extend(pending.into_iter().rev());
         }
     }
 

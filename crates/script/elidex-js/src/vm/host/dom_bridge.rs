@@ -120,14 +120,16 @@ pub(super) fn query_selector_in_subtree_first(
 /// Any `DocumentFragment` — at any depth — expands to its light-tree
 /// children.
 ///
-/// Only **nested fragment entities** are detached from their parent
-/// during the walk; leaf (non-fragment) children are left linked to
-/// their current parent so that the insertion loop's built-in
-/// `detach`-on-move can naturally empty the wrapper.  If an
-/// insertion aborts mid-loop, the wrapper therefore still owns every
-/// leaf that hasn't been moved yet, and
-/// [`super::childnode::destroy_wrapper_fragment_if_any`] correctly
-/// skips destroying a non-empty wrapper (preventing orphan leaks).
+/// **Side-effect free**: the walk collects leaf entities without
+/// mutating the source tree.  `EcsDom::append_child` / `insert_before`
+/// at insertion time perform their own `detach` on the leaf, which
+/// naturally empties both our internally-allocated wrapper and any
+/// user-supplied nested fragments as each leaf moves.  If an
+/// insertion aborts mid-loop, the wrapper retains its unmoved leaves
+/// and user fragments stay unchanged — see
+/// [`super::childnode::destroy_wrapper_fragment_if_any`] for the
+/// matching cleanup discipline (detach-then-destroy on happy path,
+/// skip destroy on error).
 ///
 /// WHATWG §4.2.3 step 6 mandates fragment flattening; our
 /// `EcsDom::append_child` is intentionally unaware of the spec-level
@@ -145,18 +147,6 @@ fn flatten_into(ctx: &mut NativeContext<'_>, node: Entity, out: &mut Vec<Entity>
     ) {
         let children: Vec<Entity> = ctx.host().dom().children_iter(node).collect();
         for child in children {
-            let is_fragment = matches!(
-                ctx.host().dom().node_kind(child),
-                Some(NodeKind::DocumentFragment)
-            );
-            if is_fragment {
-                // Detach only nested fragment entities — this lets
-                // the outer wrapper end up empty on the happy path
-                // (after its leaf children move to the real parent)
-                // without sacrificing the error-path safeguard that
-                // keeps unmoved leaves parented to the wrapper.
-                let _ = ctx.host().dom().remove_child(node, child);
-            }
             flatten_into(ctx, child, out);
         }
     } else {

@@ -70,6 +70,38 @@ fn owner_document_of_document_is_null() {
 }
 
 #[test]
+fn owner_document_of_node_in_cloned_document_is_that_clone() {
+    // `ownerDocument` must report the tree root it actually lives
+    // under — for nodes inside a cloned Document, that's the clone,
+    // not the bound global document.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var cloned = document.cloneNode(true);\n\
+             var clonedBody = cloned.body;\n\
+             clonedBody.ownerDocument === cloned;",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(
+        b,
+        "node inside a cloned Document must report the clone as its ownerDocument"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn owner_document_of_cloned_node_is_document() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

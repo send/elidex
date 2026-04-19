@@ -135,23 +135,41 @@ pub(super) fn convert_nodes_to_single_node_or_fragment(
 
 /// Consume the `(entity, was_wrapped)` pair after a ChildNode /
 /// ParentNode mutation completes — destroys the wrapper fragment if
-/// we allocated one AND it has no remaining children.
+/// we allocated one AND it has no remaining leaf children.
 ///
-/// On the success path every child was detached from the wrapper by
+/// On the success path every leaf was detached from its original
+/// parent (the wrapper itself or a user-supplied nested fragment) by
 /// the `append_child` / `insert_before` that moved it into the real
-/// parent, so the fragment is empty and gets destroyed.  On error
-/// paths (mutation loop aborted mid-way) the fragment may still hold
-/// unmoved children; destroying it then would orphan those children
-/// and leak them in the ECS world.  Leave the fragment intact in
-/// that case — it becomes GC-unreachable from JS since the wrapper
-/// cache never saw it.
+/// parent.  User-supplied nested fragments that we linked to the
+/// wrapper during argument normalization end up empty but are still
+/// children of the wrapper — detach them here so the wrapper
+/// actually becomes empty and can be destroyed.  The user fragments
+/// themselves are **not** destroyed (JS may still hold a reference;
+/// they become empty, parentless fragments per WHATWG's post-insert
+/// state).
+///
+/// On error paths (mutation loop aborted mid-way) the wrapper may
+/// still own unmoved leaves.  Skip destroy in that case so those
+/// leaves stay parented to the wrapper; letting them orphan would
+/// leak them in the ECS world.
 pub(super) fn destroy_wrapper_fragment_if_any(ctx: &mut NativeContext<'_>, pair: (Entity, bool)) {
     let (entity, was_wrapped) = pair;
     if !was_wrapped {
         return;
     }
-    let has_children = ctx.host().dom().children_iter(entity).next().is_some();
-    if has_children {
+    // Detach any user-supplied DocumentFragment children that
+    // remain on the wrapper — they're now empty but still linked.
+    // Snapshot first (can't borrow the DOM twice inside a closure).
+    let children: Vec<Entity> = ctx.host().dom().children_iter(entity).collect();
+    for child in children {
+        if matches!(
+            ctx.host().dom().node_kind(child),
+            Some(NodeKind::DocumentFragment)
+        ) {
+            let _ = ctx.host().dom().remove_child(entity, child);
+        }
+    }
+    if ctx.host().dom().children_iter(entity).next().is_some() {
         return;
     }
     let _ = ctx.host().dom().destroy_entity(entity);

@@ -25,11 +25,17 @@ use elidex_ecs::{Entity, NodeKind};
 // ownerDocument / isSameNode / getRootNode (WHATWG DOM §4.4)
 // ---------------------------------------------------------------------------
 
-/// `Node.prototype.ownerDocument` — WHATWG §4.4.  Returns `null` for
-/// the document itself (including detached/unbound wrappers); for any
-/// other Node we return the bound `document` entity, consistent with
-/// elidex's single-document model.  Multi-document (iframe, fragments
-/// created via `DOMImplementation`) support lands with Workers.
+/// `Node.prototype.ownerDocument` — WHATWG §4.4.
+///
+/// Returns `null` when `this` is itself a Document.  Otherwise the
+/// light-tree root is consulted: if the root is a Document entity
+/// (the receiver lives inside a Document subtree) return it; this
+/// lets nodes inside a cloned Document report the *clone* as their
+/// owner rather than the bound global document.  For orphan nodes
+/// and free-floating fragments whose root is not a Document, fall
+/// back to the bound document (single-document model) — WHATWG
+/// associates freshly-created nodes with the owning document and
+/// elidex currently has only one global document.
 pub(super) fn native_node_get_owner_document(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -38,9 +44,15 @@ pub(super) fn native_node_get_owner_document(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    if matches!(ctx.host().dom().node_kind(entity), Some(NodeKind::Document)) {
+    let dom = ctx.host().dom();
+    if matches!(dom.node_kind(entity), Some(NodeKind::Document)) {
         return Ok(JsValue::Null);
     }
+    let root = dom.find_tree_root(entity);
+    if matches!(dom.node_kind(root), Some(NodeKind::Document)) {
+        return Ok(JsValue::Object(ctx.vm.create_element_wrapper(root)));
+    }
+    // Orphan / fragment root — fall back to the bound document.
     let doc = ctx
         .vm
         .host_data
@@ -350,14 +362,25 @@ pub(super) fn native_node_clone_node(
     Ok(JsValue::Object(wrapper))
 }
 
-/// Recursively despawn `entity` and everything underneath it, used
-/// to pare a clone subtree back to its root for the shallow path.
+/// Despawn `entity` and everything underneath it, using an explicit
+/// stack so deep trees can't blow the Rust call stack.
 /// [`elidex_ecs::EcsDom::destroy_entity`] only removes one node, so
-/// children would otherwise leak.
+/// we have to walk first and destroy bottom-up.
 fn despawn_subtree(dom: &mut elidex_ecs::EcsDom, entity: Entity) {
-    let kids: Vec<Entity> = dom.children_iter(entity).collect();
-    for c in kids {
-        despawn_subtree(dom, c);
+    // Two-pass: (1) collect every descendant in pre-order so we
+    // know the full set of entities to destroy, then (2) destroy
+    // in reverse so children always go before their parents
+    // (destroy_entity orphans a node's remaining children if
+    // called on a non-leaf, which we don't want to rely on).
+    let mut order: Vec<Entity> = Vec::new();
+    let mut stack: Vec<Entity> = vec![entity];
+    while let Some(e) = stack.pop() {
+        order.push(e);
+        for c in dom.children_iter(e) {
+            stack.push(c);
+        }
     }
-    let _ = dom.destroy_entity(entity);
+    for e in order.into_iter().rev() {
+        let _ = dom.destroy_entity(e);
+    }
 }
