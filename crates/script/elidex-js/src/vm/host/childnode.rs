@@ -75,11 +75,24 @@ fn normalize_single_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Ent
             if let Some(entity) = Entity::from_bits(entity_bits) {
                 // Window and other non-Node EventTargets must not be
                 // accepted here — treat them as text coercion below
-                // via the fallthrough path.
-                if !matches!(
-                    ctx.host().dom().node_kind(entity),
-                    None | Some(NodeKind::Window)
-                ) {
+                // via the fallthrough path.  Entities without an
+                // explicit `NodeKind` but carrying DOM payload
+                // (legacy pre-`NodeKind` spawns, exercised by the
+                // `EcsDom::clone_node_shallow` tests) are still
+                // treated as Nodes, matching the defensive fallback
+                // in `HostData::prototype_kind_for`.
+                let dom = ctx.host().dom();
+                let accept = match dom.node_kind(entity) {
+                    Some(NodeKind::Window) => false,
+                    Some(_) => true,
+                    None => {
+                        dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
+                            || dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok()
+                            || dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok()
+                            || dom.world().get::<&elidex_ecs::DocTypeData>(entity).is_ok()
+                    }
+                };
+                if accept {
                     return Ok(entity);
                 }
             }

@@ -72,8 +72,13 @@ pub(super) fn native_node_get_owner_document(
 
 /// `Node.prototype.isSameNode(other)` — WHATWG §4.4.  Legacy alias of
 /// `===`: returns true iff `this` and `other` are the same wrapper.
+///
+/// WebIDL signature is `boolean isSameNode(Node? otherNode)`:
+/// `null` / `undefined` ⇒ `false`, non-Node object ⇒ `TypeError`
+/// (matches `contains` / `isEqualNode` / `compareDocumentPosition`
+/// which all delegate to [`require_node_arg`]).
 pub(super) fn native_node_is_same_node(
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
@@ -81,6 +86,10 @@ pub(super) fn native_node_is_same_node(
     if matches!(other, JsValue::Null | JsValue::Undefined) {
         return Ok(JsValue::Boolean(false));
     }
+    // Brand check — throw TypeError for non-Node arguments before
+    // the identity comparison, so `node.isSameNode({})` matches
+    // browser behaviour instead of silently returning `false`.
+    let _other_entity = require_node_arg(ctx, other, "isSameNode")?;
     let same = matches!(
         (this, other),
         (JsValue::Object(a), JsValue::Object(b)) if a == b

@@ -187,6 +187,29 @@ fn is_same_node_null_arg_false() {
     vm.unbind();
 }
 
+#[test]
+fn is_same_node_non_node_arg_throws() {
+    // WebIDL `boolean isSameNode(Node? otherNode)`: a non-Node
+    // object (e.g. plain `{}`) is a conversion failure and must
+    // throw TypeError, matching `contains` / `isEqualNode` /
+    // `compareDocumentPosition`.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var p = document.createElement('p');\n\
+             var err = null;\n\
+             try { p.isSameNode({}); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // getRootNode
 // ---------------------------------------------------------------------------
