@@ -228,7 +228,12 @@ pub(super) fn require_node_arg(
             "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
         ))
     })?;
-    match ctx.host().dom().node_kind(entity) {
+    // Use the inferred kind so legacy DOM entities (payload present
+    // but no explicit `NodeKind` component) are accepted as Nodes —
+    // matches `normalize_single_arg`, `nodes_equal`, and
+    // `HostData::prototype_kind_for`.  Window is an `EventTarget`
+    // but not a Node, so it's rejected explicitly.
+    match ctx.host().dom().node_kind_inferred(entity) {
         None | Some(NodeKind::Window) => Err(not_a_node()),
         Some(_) => Ok(entity),
     }

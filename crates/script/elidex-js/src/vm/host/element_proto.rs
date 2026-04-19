@@ -651,7 +651,12 @@ fn native_element_query_selector_all(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+        // Unbound / non-HostObject receivers return `null`, matching
+        // the rest of the object-returning DOM surface (`childNodes`,
+        // `document.querySelectorAll`, `querySelector`, `closest`).
+        // Returning an empty array would falsely imply a real "no
+        // matches" result.
+        return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
