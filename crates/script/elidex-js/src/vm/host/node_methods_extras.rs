@@ -33,9 +33,18 @@ use elidex_ecs::{Entity, NodeKind};
 /// lets nodes inside a cloned Document report the *clone* as their
 /// owner rather than the bound global document.  For orphan nodes
 /// and free-floating fragments whose root is not a Document, fall
-/// back to the bound document (single-document model) — WHATWG
-/// associates freshly-created nodes with the owning document and
-/// elidex currently has only one global document.
+/// back to the bound document.
+///
+/// ## Known limitation — cloned documents and detached nodes
+///
+/// WHATWG stores each node's "node document" at creation time, so
+/// `clone.createElement(...)` reports the *clone* as its
+/// `ownerDocument` even before insertion.  elidex currently has no
+/// per-node "associated document" component; detached nodes created
+/// by `clone.createElement(...)` therefore fall back to the bound
+/// global document here, not the clone.  A proper fix requires an
+/// `AssociatedDocument` ECS component set at node-creation time and
+/// is deferred to the multi-document / Worker work (PR5b).
 pub(super) fn native_node_get_owner_document(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -168,11 +177,19 @@ pub(super) fn native_node_compare_document_position(
     if dom.find_tree_root(self_entity) != dom.find_tree_root(other_entity) {
         // WHATWG §4.4: when DISCONNECTED is set the result must also
         // include IMPLEMENTATION_SPECIFIC and one of PRECEDING /
-        // FOLLOWING, with a "consistent" relative ordering.  Any
-        // stable comparator satisfies "consistent"; we always return
-        // PRECEDING for a deterministic choice.
+        // FOLLOWING, with a *consistent* relative ordering.  The
+        // ordering must be antisymmetric: swapping the operands must
+        // flip PRECEDING ↔ FOLLOWING.  Compare by entity bits (a
+        // stable, total order independent of tree structure) so
+        // `a.compareDocumentPosition(b) ^ b.compareDocumentPosition(a)`
+        // is always `(PRECEDING | FOLLOWING)` for disconnected nodes.
+        let order = if self_entity.to_bits().get() < other_entity.to_bits().get() {
+            FOLLOWING
+        } else {
+            PRECEDING
+        };
         return Ok(JsValue::Number(f64::from(
-            DISCONNECTED | IMPLEMENTATION_SPECIFIC | PRECEDING,
+            DISCONNECTED | IMPLEMENTATION_SPECIFIC | order,
         )));
     }
     match dom.tree_order_cmp(self_entity, other_entity) {

@@ -560,9 +560,12 @@ fn compare_document_position_disconnected() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    // Two detached nodes → DISCONNECTED (0x01) |
-    // IMPLEMENTATION_SPECIFIC (0x20) | PRECEDING (0x02) = 0x23 = 35
-    // (WHATWG §4.4: the disconnected branch must set all three).
+    // WHATWG §4.4: for disconnected nodes the result must include
+    // DISCONNECTED (0x01) | IMPLEMENTATION_SPECIFIC (0x20) | one of
+    // PRECEDING (0x02) / FOLLOWING (0x04), with a *consistent* order.
+    // elidex uses `Entity::to_bits()` as the tiebreaker — `b` is
+    // allocated after `a`, so `a.compareDocumentPosition(b)` returns
+    // FOLLOWING (0x20 | 0x01 | 0x04 = 0x25 = 37).
     let JsValue::Number(n) = vm
         .eval(
             "var a = document.createElement('a');\n\
@@ -573,7 +576,32 @@ fn compare_document_position_disconnected() {
     else {
         panic!()
     };
-    assert_eq!(n, 35.0);
+    assert_eq!(n, 37.0);
+    vm.unbind();
+}
+
+#[test]
+fn compare_document_position_disconnected_is_antisymmetric() {
+    // WHATWG §4.4: swapping the operands must flip PRECEDING ↔
+    // FOLLOWING.  DISCONNECTED and IMPLEMENTATION_SPECIFIC stay set
+    // on both sides; XOR of the two results must equal
+    // (PRECEDING | FOLLOWING) = 0x06.
+    let (mut vm, mut session, mut dom, doc) = setup_fixture();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Number(xored) = vm
+        .eval(
+            "var a = document.createElement('a');\n\
+             var b = document.createElement('b');\n\
+             (a.compareDocumentPosition(b) ^ b.compareDocumentPosition(a));",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(xored, 6.0);
     vm.unbind();
 }
 

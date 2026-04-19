@@ -169,6 +169,51 @@ fn element_replace_children_preserves_tree_when_conversion_throws() {
 }
 
 #[test]
+fn element_replace_children_does_not_clear_parent_on_ancestor_cycle() {
+    // Pre-insertion validity (WHATWG §4.2.3): if the flattened child
+    // list contains a node that is an ancestor of (or equal to) the
+    // receiver, `replaceChildren` must throw BEFORE the "replace all"
+    // step clears the parent.  Before the fix, the parent was cleared
+    // first and we attempted a rollback; nodes that normalization had
+    // already moved into the wrapper fragment were lost.
+    //
+    // We validate the user-observable invariant: children that were
+    // *not* passed as args (here `b`) are still children of `p` after
+    // the throw — they were never removed because the clear step is
+    // gated behind pre-validation.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval(
+        "globalThis.grandparent = document.createElement('gp');\n\
+         grandparent.appendChild(p);",
+    )
+    .unwrap();
+    let threw = vm
+        .eval(
+            "var err = null;\n\
+             try { p.replaceChildren(a, grandparent); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    // `b` was never an argument and must still be p's child.  (Spec
+    // allows `a` to be moved into the ephemeral wrapper fragment as
+    // a side effect of "convert nodes into a node".)
+    let JsValue::Boolean(b_in_p) = vm
+        .eval("Array.prototype.slice.call(p.childNodes).indexOf(b) !== -1;")
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(b_in_p);
+    vm.unbind();
+}
+
+#[test]
 fn element_prepend_own_first_child_is_noop() {
     // WHATWG pre-insert: `parent.prepend(parent.firstChild)` is a
     // no-op (the child is already at the position it would be

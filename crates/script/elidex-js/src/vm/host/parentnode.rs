@@ -131,38 +131,48 @@ fn native_parent_node_replace_children(
     let Some(parent) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    // WHATWG §4.2.3: convert the variadic arguments BEFORE clearing
-    // the parent so a ToString / HierarchyRequestError throw leaves
-    // the tree untouched.  If a subsequent append fails the spec
-    // behaviour is trickier — a fully spec-accurate implementation
-    // would pre-validate insertion before touching the tree.  We
-    // approximate by rolling the existing children back on append
-    // failure so user JS never observes a partially-cleared parent.
+    // WHATWG §4.2.3 order: "convert nodes into a node" → "ensure
+    // pre-insertion validity" → "replace all".  If validity fails,
+    // the replace-all step never runs, so the tree is unchanged.
+    // Our earlier implementation inverted the validity check (tried
+    // the insertion and rolled back on failure), which broke when an
+    // argument was one of `parent`'s own children: normalisation
+    // already reparented it into the wrapper fragment, so the
+    // rollback snapshot was incomplete and the original tree could
+    // not be restored.  We now validate up-front and only mutate
+    // after we know every child is insertable.
     let pair = convert_nodes_to_single_node_or_fragment(ctx, args)?;
-    let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
-    for &child in &existing {
-        let _ = ctx.host().dom().remove_child(parent, child);
-    }
-    let mut err = None;
-    let mut inserted: Vec<Entity> = Vec::new();
     if let Some(p) = pair {
-        let children = nodes_to_insert(ctx, p.0);
-        for child in children {
-            if !ctx.host().dom().append_child(parent, child) {
-                err = Some(hierarchy_request_error("replaceChildren"));
-                break;
+        let to_insert = nodes_to_insert(ctx, p.0);
+        // Pre-validate every leaf — `EcsDom::append_child` rejects
+        // self-insert (`child == parent`) and ancestor cycles
+        // (`child` is an ancestor of `parent`).  Checking with
+        // `is_light_tree_ancestor_or_self` covers both in one call.
+        for &child in &to_insert {
+            if ctx
+                .host()
+                .dom()
+                .is_light_tree_ancestor_or_self(child, parent)
+            {
+                destroy_wrapper_fragment_if_any(ctx, p);
+                return Err(hierarchy_request_error("replaceChildren"));
             }
-            inserted.push(child);
         }
-        destroy_wrapper_fragment_if_any(ctx, p);
-    }
-    if err.is_some() {
-        for child in inserted {
+        let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
+        for child in existing {
             let _ = ctx.host().dom().remove_child(parent, child);
         }
-        for child in existing {
+        for child in to_insert {
+            // Pre-validation guarantees this cannot fail.
             let _ = ctx.host().dom().append_child(parent, child);
         }
+        destroy_wrapper_fragment_if_any(ctx, p);
+    } else {
+        // No args — clear the parent.
+        let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
+        for child in existing {
+            let _ = ctx.host().dom().remove_child(parent, child);
+        }
     }
-    err.map_or(Ok(JsValue::Undefined), Err)
+    Ok(JsValue::Undefined)
 }
