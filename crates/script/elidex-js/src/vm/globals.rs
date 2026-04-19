@@ -191,10 +191,15 @@ impl VmInner {
         // `appendData` / `insertData` / ...).  Wrappers for Text and
         // Comment entities route through here via
         // `create_element_wrapper`'s `PrototypeKind` branch; Text
-        // wrappers further chain through `Text.prototype` (see
-        // [`register_text_prototype`]).
+        // wrappers further chain through `Text.prototype`.
         #[cfg(feature = "engine")]
         self.register_character_data_prototype();
+
+        // Text.prototype — chained to CharacterData.prototype.  Carries
+        // Text-only members (`splitText` today; `wholeText` /
+        // `assignedSlot` land in PR4f / PR5b).
+        #[cfg(feature = "engine")]
+        self.register_text_prototype();
 
         // Element.prototype — chained to Node.prototype.  Holds
         // Element-specific members (tree nav, attributes, matches).

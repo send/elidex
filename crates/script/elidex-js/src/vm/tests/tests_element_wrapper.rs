@@ -107,19 +107,17 @@ fn element_wrapper_prototype_chain_element_node_event_target() {
 }
 
 #[test]
-fn text_wrapper_prototype_is_character_data_prototype() {
-    // PR4e C5: Text nodes (no `TagType`) chain via
-    // `CharacterData.prototype → Node.prototype`.  After C5.5 adds
-    // `Text.prototype`, the direct parent becomes Text.prototype and
-    // the full chain is `Text.prototype → CharacterData.prototype
-    // → Node.prototype`.  Until then, Text wrappers pick
-    // `CharacterData.prototype` as their immediate prototype.
+fn text_wrapper_prototype_is_text_prototype() {
+    // PR4e C5.5: Text wrappers' immediate prototype is
+    // `Text.prototype` which in turn chains to
+    // `CharacterData.prototype → Node.prototype → EventTarget.prototype`.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let text = dom.create_text("hello");
 
+    let text_proto = vm.inner.text_prototype;
     let char_data_proto = vm.inner.character_data_prototype;
 
     #[allow(unsafe_code)]
@@ -130,8 +128,14 @@ fn text_wrapper_prototype_is_character_data_prototype() {
     let wrapper = vm.inner.create_element_wrapper(text);
     assert_eq!(
         vm.inner.get_object(wrapper).prototype,
+        text_proto,
+        "Text wrapper → Text.prototype"
+    );
+    // Chain check: Text.prototype → CharacterData.prototype.
+    assert_eq!(
+        vm.inner.get_object(text_proto.unwrap()).prototype,
         char_data_proto,
-        "Text wrapper → CharacterData.prototype (C5.5 will insert Text.prototype)"
+        "Text.prototype → CharacterData.prototype"
     );
 
     vm.unbind();

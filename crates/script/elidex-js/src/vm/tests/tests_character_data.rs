@@ -249,6 +249,79 @@ fn text_is_instance_of_character_data_prototype() {
     vm.unbind();
 }
 
+// ---------------------------------------------------------------------------
+// Text.prototype.splitText (PR4e C5.5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn text_split_text_mid_offset_returns_tail() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("globalThis.p = document.createElement('p');")
+        .unwrap();
+    vm.eval("globalThis.t = document.createTextNode('hello world');")
+        .unwrap();
+    vm.eval("p.appendChild(t);").unwrap();
+    vm.eval("globalThis.rest = t.splitText(5);").unwrap();
+    assert_eq!(eval_str(&mut vm, "t.data;"), "hello");
+    assert_eq!(eval_str(&mut vm, "rest.data;"), " world");
+    // New text inserted as next sibling of original.
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 2.0);
+    vm.unbind();
+}
+
+#[test]
+fn text_split_text_at_zero_leaves_original_empty() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("globalThis.t = document.createTextNode('abc');")
+        .unwrap();
+    vm.eval("globalThis.r = t.splitText(0);").unwrap();
+    assert_eq!(eval_str(&mut vm, "t.data;"), "");
+    assert_eq!(eval_str(&mut vm, "r.data;"), "abc");
+    vm.unbind();
+}
+
+#[test]
+fn text_split_text_at_length_returns_empty() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("globalThis.t = document.createTextNode('abc');")
+        .unwrap();
+    vm.eval("globalThis.r = t.splitText(3);").unwrap();
+    assert_eq!(eval_str(&mut vm, "t.data;"), "abc");
+    assert_eq!(eval_str(&mut vm, "r.data;"), "");
+    vm.unbind();
+}
+
+#[test]
+fn text_split_text_beyond_length_throws() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var t = document.createTextNode('abc');\n\
+             var err = null;\n\
+             try { t.splitText(100); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
 #[test]
 fn comment_inherits_character_data_members() {
     let (mut vm, mut session, mut dom, doc) = setup();
