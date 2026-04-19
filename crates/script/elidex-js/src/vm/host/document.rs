@@ -32,7 +32,6 @@ use super::dom_bridge::{
     coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
     query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
 };
-use super::event_target::entity_from_this;
 
 use elidex_ecs::{Attributes, Entity, NodeKind, TagType};
 
@@ -40,22 +39,27 @@ use elidex_ecs::{Attributes, Entity, NodeKind, TagType};
 // Tree walk from the receiver document.
 // ---------------------------------------------------------------------------
 
-/// Resolve the target Document entity for a document-method call.
+/// Resolve the target Document entity for a document-method call,
+/// with WebIDL branding.
 ///
-/// When invoked on the bound `document` global, `this` resolves to
-/// that entity.  When invoked on a cloned Document wrapper (produced
-/// by `document.cloneNode(true)`), `this` points at the clone — so
-/// `cloned.querySelector(...)` correctly searches the clone's
-/// subtree rather than the globally-bound document.
-///
-/// Returns `None` for unbound receivers or when `this` is not a
-/// Document; callers fall back to `null` / empty-array in that case.
-fn document_receiver(ctx: &mut NativeContext<'_>, this: JsValue) -> Option<Entity> {
-    let entity = entity_from_this(ctx, this)?;
-    match ctx.host().dom().node_kind(entity) {
-        Some(NodeKind::Document) => Some(entity),
-        _ => None,
-    }
+/// - `Ok(Some(entity))`: bound HostObject receiver whose kind is
+///   `Document` — returned for the bound global and for cloned
+///   Document wrappers (so `cloned.querySelector(...)` searches
+///   the clone's subtree).
+/// - `Ok(None)`: unbound VM or non-HostObject `this` — silent
+///   no-op, matching the rest of elidex's unbound-receiver
+///   policy (post-unbind retained references must not panic).
+/// - `Err(TypeError)`: HostObject `this` whose kind is NOT
+///   `Document` (e.g. `docMethod.call(element)`).  WebIDL
+///   "Illegal invocation" brand check.
+fn document_receiver(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<Option<Entity>, VmError> {
+    super::event_target::require_receiver(ctx, this, "Document", method, |k| {
+        k == NodeKind::Document
+    })
 }
 
 /// Locate the `<html>` root child of `doc_entity`.  Returns `None`
@@ -78,7 +82,7 @@ pub(super) fn native_document_get_element_by_id(
         return Ok(JsValue::Null);
     }
     let target = coerce_first_arg_to_string(ctx, args)?;
-    let Some(doc) = document_receiver(ctx, this) else {
+    let Some(doc) = document_receiver(ctx, this, "getElementById")? else {
         return Ok(JsValue::Null);
     };
     let matched = ctx.host().dom().find_by_id(doc, &target);
@@ -99,7 +103,7 @@ pub(super) fn native_document_query_selector(
     }
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelector")?;
-    let Some(doc) = document_receiver(ctx, this) else {
+    let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
         return Ok(JsValue::Null);
     };
     let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
@@ -116,10 +120,10 @@ pub(super) fn native_document_query_selector_all(
     }
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
-    let entities: Vec<Entity> = match document_receiver(ctx, this) {
-        Some(d) => query_selector_in_subtree_all(ctx.host().dom(), d, &selectors),
-        None => Vec::new(),
+    let Some(doc) = document_receiver(ctx, this, "querySelectorAll")? else {
+        return Ok(JsValue::Null);
     };
+    let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
@@ -138,10 +142,10 @@ pub(super) fn native_document_get_elements_by_tag_name(
 
     let tag = coerce_first_arg_to_string(ctx, args)?;
     let match_all = tag == "*";
+    let doc_opt = document_receiver(ctx, this, "getElementsByTagName")?;
     let entities: Vec<Entity> = {
-        let doc = document_receiver(ctx, this);
         let dom = ctx.host().dom();
-        match doc {
+        match doc_opt {
             Some(d) => {
                 let mut result = Vec::new();
                 dom.traverse_descendants(d, |entity| {
@@ -181,10 +185,10 @@ pub(super) fn native_document_get_elements_by_class_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     }
 
+    let doc_opt = document_receiver(ctx, this, "getElementsByClassName")?;
     let entities: Vec<Entity> = {
-        let doc = document_receiver(ctx, this);
         let dom = ctx.host().dom();
-        match doc {
+        match doc_opt {
             Some(d) => {
                 let mut result = Vec::new();
                 dom.traverse_descendants(d, |entity| {
@@ -225,7 +229,10 @@ pub(super) fn native_document_create_element(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() || document_receiver(ctx, this).is_none() {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    if document_receiver(ctx, this, "createElement")?.is_none() {
         return Ok(JsValue::Null);
     }
 
@@ -242,7 +249,10 @@ pub(super) fn native_document_create_text_node(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() || document_receiver(ctx, this).is_none() {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    if document_receiver(ctx, this, "createTextNode")?.is_none() {
         return Ok(JsValue::Null);
     }
     let data = coerce_first_arg_to_string(ctx, args)?;
@@ -262,7 +272,10 @@ pub(super) fn native_document_create_comment(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() || document_receiver(ctx, this).is_none() {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    if document_receiver(ctx, this, "createComment")?.is_none() {
         return Ok(JsValue::Null);
     }
     let data = coerce_first_arg_to_string(ctx, args)?;
@@ -278,7 +291,10 @@ pub(super) fn native_document_create_document_fragment(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() || document_receiver(ctx, this).is_none() {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    if document_receiver(ctx, this, "createDocumentFragment")?.is_none() {
         return Ok(JsValue::Null);
     }
     let new_entity = ctx.host().dom().create_document_fragment();
@@ -294,7 +310,8 @@ pub(super) fn native_document_get_document_element(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let html = document_receiver(ctx, this).and_then(|doc| find_html_root_of(ctx, doc));
+    let html = document_receiver(ctx, this, "documentElement")?
+        .and_then(|doc| find_html_root_of(ctx, doc));
     Ok(wrap_entity_or_null(ctx.vm, html))
 }
 
@@ -303,7 +320,7 @@ pub(super) fn native_document_get_head(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let head = document_receiver(ctx, this)
+    let head = document_receiver(ctx, this, "head")?
         .and_then(|doc| find_html_root_of(ctx, doc))
         .and_then(|html| ctx.host().dom().first_child_with_tag(html, "head"));
     Ok(wrap_entity_or_null(ctx.vm, head))
@@ -314,7 +331,7 @@ pub(super) fn native_document_get_body(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let body = document_receiver(ctx, this)
+    let body = document_receiver(ctx, this, "body")?
         .and_then(|doc| find_html_root_of(ctx, doc))
         .and_then(|html| ctx.host().dom().first_child_with_tag(html, "body"));
     Ok(wrap_entity_or_null(ctx.vm, body))
@@ -326,7 +343,7 @@ pub(super) fn native_document_get_title(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let title_text: String = {
-        let Some(doc) = document_receiver(ctx, this) else {
+        let Some(doc) = document_receiver(ctx, this, "title")? else {
             return Ok(JsValue::String(ctx.vm.well_known.empty));
         };
         let Some(html) = find_html_root_of(ctx, doc) else {

@@ -29,7 +29,6 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::nodes_to_insert;
-use super::event_target::entity_from_this;
 
 use elidex_ecs::{Entity, NodeKind};
 
@@ -179,12 +178,33 @@ fn hierarchy_request_error(method: &str) -> VmError {
     ))
 }
 
+/// ChildNode mixin receivers must be Element, Text, Comment, or
+/// other CharacterData kinds (DocumentType is also valid per spec
+/// but its prototype wrapper isn't installed yet — see module doc).
+fn is_child_node_kind(k: NodeKind) -> bool {
+    matches!(
+        k,
+        NodeKind::Element
+            | NodeKind::Text
+            | NodeKind::Comment
+            | NodeKind::CdataSection
+            | NodeKind::ProcessingInstruction
+    )
+}
+
 fn native_child_node_before(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "ChildNode",
+        "before",
+        is_child_node_kind,
+    )?
+    else {
         return Ok(JsValue::Undefined);
     };
     // Parent-less receiver is a no-op (spec).
@@ -219,7 +239,9 @@ fn native_child_node_after(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "ChildNode", "after", is_child_node_kind)?
+    else {
         return Ok(JsValue::Undefined);
     };
     let Some(parent) = ctx.host().dom().get_parent(entity) else {
@@ -261,7 +283,14 @@ fn native_child_node_replace_with(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "ChildNode",
+        "replaceWith",
+        is_child_node_kind,
+    )?
+    else {
         return Ok(JsValue::Undefined);
     };
     let Some(parent) = ctx.host().dom().get_parent(entity) else {
@@ -336,7 +365,14 @@ fn native_child_node_remove(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "ChildNode",
+        "remove",
+        is_child_node_kind,
+    )?
+    else {
         return Ok(JsValue::Undefined);
     };
     let dom = ctx.host().dom();

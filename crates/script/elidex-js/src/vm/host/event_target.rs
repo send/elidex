@@ -275,6 +275,49 @@ pub(super) fn entity_from_this(
     elidex_ecs::Entity::from_bits(entity_bits)
 }
 
+/// WebIDL branded receiver extraction.  Returns:
+/// - `Ok(Some(entity))` when `this` is a bound HostObject wrapping
+///   an entity whose inferred `NodeKind` matches `kind_matches`.
+/// - `Ok(None)` when `this` is not a HostObject or the VM is
+///   unbound — silent no-op, matches elidex's unbound-receiver
+///   policy (post-unbind retained references must not panic).
+/// - `Err(TypeError)` when `this` IS a HostObject but its kind
+///   does NOT match — the WebIDL "Illegal invocation" brand
+///   check that distinguishes `Function.prototype.call`-style
+///   misuse from a silently invalid receiver.
+///
+/// `interface` / `method` are embedded in the error message
+/// ("Failed to execute `<method>` on `<interface>`: Illegal
+/// invocation"), mirroring browser DOMException text.
+///
+/// Uses `node_kind_inferred`, so legacy entities that carry DOM
+/// payload without an explicit `NodeKind` are accepted when their
+/// payload-derived kind matches.
+#[cfg(feature = "engine")]
+pub(super) fn require_receiver(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    interface: &str,
+    method: &str,
+    kind_matches: impl FnOnce(elidex_ecs::NodeKind) -> bool,
+) -> Result<Option<elidex_ecs::Entity>, super::super::value::VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(None);
+    };
+    let Some(kind) = ctx.host().dom().node_kind_inferred(entity) else {
+        return Err(super::super::value::VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': Illegal invocation"
+        )));
+    };
+    if kind_matches(kind) {
+        Ok(Some(entity))
+    } else {
+        Err(super::super::value::VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': Illegal invocation"
+        )))
+    }
+}
+
 /// Parsed listener options — capture / once / passive / signal.
 ///
 /// `signal` — `Some(signal_id)` when the caller passed an

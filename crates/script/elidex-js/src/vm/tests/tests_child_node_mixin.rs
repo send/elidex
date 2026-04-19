@@ -217,6 +217,30 @@ fn element_replace_with_ancestor_cycle_preserves_tree() {
     vm.unbind();
 }
 
+#[test]
+fn child_node_brand_check_rejects_document_fragment_receiver() {
+    // WebIDL branding: ChildNode mixin methods installed on
+    // `Element.prototype` / `CharacterData.prototype` must throw
+    // TypeError when `.call`'d with a DocumentFragment receiver
+    // (which doesn't implement ChildNode).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var el = document.createElement('p');\n\
+             var f = document.createDocumentFragment();\n\
+             var err = null;\n\
+             try { el.before.call(f); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // remove (on CharacterData prototype)
 // ---------------------------------------------------------------------------

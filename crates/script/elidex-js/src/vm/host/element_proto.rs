@@ -51,7 +51,7 @@ use super::dom_bridge::{
 };
 use super::event_target::entity_from_this;
 
-use elidex_ecs::{Entity, TagType};
+use elidex_ecs::{Entity, NodeKind, TagType};
 
 impl VmInner {
     /// Allocate `Element.prototype` whose parent is
@@ -616,7 +616,11 @@ fn native_element_matches(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "Element", "matches", |k| {
+            k == NodeKind::Element
+        })?
+    else {
         return Ok(JsValue::Boolean(false));
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
@@ -634,7 +638,11 @@ fn native_element_query_selector(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "Element", "querySelector", |k| {
+            k == NodeKind::Element
+        })?
+    else {
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
@@ -650,16 +658,17 @@ fn native_element_query_selector_all(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "Element", "querySelectorAll", |k| {
+            k == NodeKind::Element
+        })?
+    else {
         // Unbound / non-HostObject receivers return `null`, matching
         // the other Element-side object-returning helpers
-        // (`querySelector`, `closest`, `childNodes`).  Returning an
-        // empty array is reserved for a real Element receiver with
-        // zero selector matches.  `document.querySelectorAll` uses
-        // the same unbound-returns-null policy at
-        // `document.rs:115`; only its non-Document-receiver branch
-        // returns an empty array (falling back to an empty subtree
-        // walk rather than rejecting), which is a separate case.
+        // (`querySelector`, `closest`, `childNodes`).  HostObject
+        // receivers of the wrong kind (e.g. a Text or Document
+        // wrapper used via `Function.call`) throw TypeError via
+        // `require_receiver` above.
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
@@ -673,7 +682,11 @@ fn native_element_closest(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "Element", "closest", |k| {
+            k == NodeKind::Element
+        })?
+    else {
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
