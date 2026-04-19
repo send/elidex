@@ -234,6 +234,14 @@ pub(crate) struct VmInner {
     /// `register_globals()` (right after the CharacterData prototype).
     #[cfg(feature = "engine")]
     pub(crate) text_prototype: Option<ObjectId>,
+    /// `DocumentType.prototype` — intermediate prototype layer for
+    /// DocumentType wrappers, carrying `name` / `publicId` /
+    /// `systemId`.  Chains to `Node.prototype`.
+    ///
+    /// `None` until `register_document_type_prototype()` runs during
+    /// `register_globals()` (after `register_node_prototype`).
+    #[cfg(feature = "engine")]
+    pub(crate) document_type_prototype: Option<ObjectId>,
     /// `Window.prototype` — prototype for the `globalThis` / `window`
     /// `HostObject` (WHATWG HTML §7.2).  Inherits from
     /// `EventTarget.prototype` so `window.addEventListener` resolves

@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 23],
+    proto_roots: [Option<ObjectId>; 24],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -639,6 +639,11 @@ impl VmInner {
                 None,
                 #[cfg(feature = "engine")]
                 self.text_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 23 (PR4e post-CharacterData/Text) + 1 (DocumentType) = 24.
+                #[cfg(feature = "engine")]
+                self.document_type_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],

@@ -210,6 +210,15 @@ pub(crate) struct WellKnownStrings {
     pub(crate) get_elements_by_class_name: StringId,
     // Document RO / RW accessors (PR4f C6 / C7).
     pub(crate) css1_compat: StringId,
+    // DocumentType.prototype attrs (PR4f C7).
+    pub(crate) public_id: StringId,
+    pub(crate) system_id: StringId,
+    // Document collections + stubs (PR4f C7).
+    pub(crate) cookie: StringId,
+    pub(crate) referrer: StringId,
+    pub(crate) forms: StringId,
+    pub(crate) images: StringId,
+    pub(crate) links: StringId,
     // CharacterData (PR4e C5) method names.  `data` / `length` live
     // elsewhere (`data` under event-payload keys above, `length`
     // under core).
@@ -435,6 +444,13 @@ impl WellKnownStrings {
             get_elements_by_tag_name: strings.intern("getElementsByTagName"),
             get_elements_by_class_name: strings.intern("getElementsByClassName"),
             css1_compat: strings.intern("CSS1Compat"),
+            public_id: strings.intern("publicId"),
+            system_id: strings.intern("systemId"),
+            cookie: strings.intern("cookie"),
+            referrer: strings.intern("referrer"),
+            forms: strings.intern("forms"),
+            images: strings.intern("images"),
+            links: strings.intern("links"),
             append_data: strings.intern("appendData"),
             insert_data: strings.intern("insertData"),
             delete_data: strings.intern("deleteData"),

@@ -15,6 +15,7 @@ mod tests_create_event_object;
 mod tests_document_global;
 mod tests_document_members;
 mod tests_document_methods;
+mod tests_document_type;
 mod tests_element_methods;
 mod tests_element_subtree_collection;
 mod tests_element_subtree_query;

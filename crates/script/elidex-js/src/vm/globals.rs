@@ -201,6 +201,13 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_text_prototype();
 
+        // DocumentType.prototype — chained to Node.prototype.  Carries
+        // `name` / `publicId` / `systemId` (WHATWG §4.7).  Does not
+        // participate in the CharacterData / Text chain; DocumentType
+        // has no character data of its own.
+        #[cfg(feature = "engine")]
+        self.register_document_type_prototype();
+
         // Element.prototype — chained to Node.prototype.  Holds
         // Element-specific members (tree nav, attributes, matches).
         // Wrappers for entities carrying a `TagType` component pick

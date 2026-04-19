@@ -500,6 +500,124 @@ pub(super) fn native_document_get_doctype(
 }
 
 // ---------------------------------------------------------------------------
+// cookie / referrer (stubs) + forms / images / links (snapshot arrays)
+// ---------------------------------------------------------------------------
+
+/// `document.cookie` getter — **stub** (empty string).
+///
+/// WHATWG §6.5.2 explicitly permits returning `""` for a cookie-averse
+/// Document; elidex treats every Document as cookie-averse until the
+/// real cookie jar integration lands in PR6 / PR-Cookie-Store.  Scripts
+/// that read `document.cookie` therefore observe an empty string
+/// rather than a misleading partial implementation.
+pub(super) fn native_document_get_cookie(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = document_receiver(ctx, this, "cookie")?;
+    Ok(JsValue::String(ctx.vm.well_known.empty))
+}
+
+/// `document.cookie = x` — **stub** (no-op).  Real storage arrives
+/// with PR6 / PR-Cookie-Store.
+pub(super) fn native_document_set_cookie(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = document_receiver(ctx, this, "cookie")?;
+    // Silently drop the write — spec allows no-op on cookie-averse
+    // Documents.  See `native_document_get_cookie` docstring.
+    Ok(JsValue::Undefined)
+}
+
+/// `document.referrer` — **stub** (empty string).  Surfacing the real
+/// navigation referrer requires `NavigationState::referrer`, which is
+/// added in PR6 / PR-Navigation.
+pub(super) fn native_document_get_referrer(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = document_receiver(ctx, this, "referrer")?;
+    Ok(JsValue::String(ctx.vm.well_known.empty))
+}
+
+/// Shared implementation of `forms` / `images` / `links` — a **snapshot
+/// Array** (not a live HTMLCollection) containing every descendant
+/// Element matching the supplied predicate.
+///
+/// Live HTMLCollection semantics (index names, DOM-mutation tracking)
+/// land with the `HTMLCollection` interface itself in PR5b.  Until
+/// then, `forms.length` is guaranteed to reflect the DOM state *at
+/// call time*; WPT tests asserting liveness over this API are
+/// therefore expected to fail.
+fn snapshot_descendants_matching(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+    mut matches: impl FnMut(&elidex_ecs::EcsDom, Entity) -> bool,
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, method)? else {
+        return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let entities: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut out = Vec::new();
+        dom.traverse_descendants(doc, |entity| {
+            if matches(dom, entity) {
+                out.push(entity);
+            }
+            true
+        });
+        out
+    };
+    Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &entities))
+}
+
+/// `document.forms` — snapshot of every `<form>` descendant.  See
+/// [`snapshot_descendants_matching`] for the liveness caveat.
+pub(super) fn native_document_get_forms(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    snapshot_descendants_matching(ctx, this, "forms", |dom, e| {
+        dom.get_tag_name(e)
+            .is_some_and(|t| t.eq_ignore_ascii_case("form"))
+    })
+}
+
+/// `document.images` — snapshot of every `<img>` descendant.
+pub(super) fn native_document_get_images(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    snapshot_descendants_matching(ctx, this, "images", |dom, e| {
+        dom.get_tag_name(e)
+            .is_some_and(|t| t.eq_ignore_ascii_case("img"))
+    })
+}
+
+/// `document.links` — snapshot of every `<a>` / `<area>` descendant
+/// carrying an `href` attribute (WHATWG §4.5: anchors without `href`
+/// are **excluded**).
+pub(super) fn native_document_get_links(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    snapshot_descendants_matching(ctx, this, "links", |dom, e| {
+        let tag_ok = dom
+            .get_tag_name(e)
+            .is_some_and(|t| t.eq_ignore_ascii_case("a") || t.eq_ignore_ascii_case("area"));
+        tag_ok && dom.get_attribute(e, "href").is_some()
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Installation — add the own-properties to the document wrapper at bind time.
 // ---------------------------------------------------------------------------
 
@@ -600,13 +718,26 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("compatMode", native_document_get_compat_mode),
     ("defaultView", native_document_get_default_view),
     ("doctype", native_document_get_doctype),
+    // PR4f C7 stubs / snapshots — see native-fn docstrings for defer
+    // targets (PR6 / PR5b).
+    ("referrer", native_document_get_referrer),
+    ("forms", native_document_get_forms),
+    ("images", native_document_get_images),
+    ("links", native_document_get_links),
 ];
 
-/// Read/write Document accessors.  `title` is the only PR4f RW member;
-/// future additions (e.g. `cookie` once a real jar integration lands
-/// in PR6) go here too.
-const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
-    "title",
-    native_document_get_title,
-    native_document_set_title,
-)];
+/// Read/write Document accessors.  `title` is WHATWG-backed; `cookie`
+/// is currently a stub whose setter silently drops writes (see the
+/// setter docstring for the PR6 integration path).
+const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[
+    (
+        "title",
+        native_document_get_title,
+        native_document_set_title,
+    ),
+    (
+        "cookie",
+        native_document_get_cookie,
+        native_document_set_cookie,
+    ),
+];

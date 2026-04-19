@@ -131,6 +131,10 @@ impl VmInner {
             super::super::host_data::PrototypeKind::OtherCharacterData => self
                 .character_data_prototype
                 .expect("create_element_wrapper called before register_character_data_prototype"),
+            super::super::host_data::PrototypeKind::DocumentType => self
+                .document_type_prototype
+                .or(self.node_prototype)
+                .expect("create_element_wrapper called before register_node_prototype"),
             super::super::host_data::PrototypeKind::OtherNode => self
                 .node_prototype
                 .expect("create_element_wrapper called before register_node_prototype"),

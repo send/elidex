@@ -37,9 +37,13 @@ mod engine_feature {
         /// `ProcessingInstruction` / `CdataSection`) — chains via
         /// `CharacterData.prototype → Node.prototype → …`.
         OtherCharacterData,
-        /// Document, DocumentFragment, DocumentType, ShadowRoot, or
-        /// anything without a recognised `NodeKind`.  Chains directly
-        /// to `Node.prototype`.
+        /// `NodeKind::DocumentType` — chains via
+        /// `DocumentType.prototype → Node.prototype → …`.  Carries
+        /// `name` / `publicId` / `systemId`.
+        DocumentType,
+        /// Document, DocumentFragment, ShadowRoot, or anything
+        /// without a recognised `NodeKind`.  Chains directly to
+        /// `Node.prototype`.
         OtherNode,
     }
 
@@ -234,15 +238,20 @@ mod engine_feature {
                 Some(NodeKind::CdataSection | NodeKind::ProcessingInstruction) => {
                     PrototypeKind::OtherCharacterData
                 }
+                Some(NodeKind::DocumentType) => PrototypeKind::DocumentType,
                 None => {
                     // Defensive inference for legacy entities that
                     // carry CharacterData payload without an explicit
                     // `NodeKind` component.  Mirrors the same
                     // fallback in `EcsDom::clone_node_shallow`.
-                    if dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok() {
+                    if dom.world().get::<&elidex_ecs::TagType>(entity).is_ok() {
+                        PrototypeKind::Element
+                    } else if dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok() {
                         PrototypeKind::Text
                     } else if dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok() {
                         PrototypeKind::OtherCharacterData
+                    } else if dom.world().get::<&elidex_ecs::DocTypeData>(entity).is_ok() {
+                        PrototypeKind::DocumentType
                     } else {
                         PrototypeKind::OtherNode
                     }
