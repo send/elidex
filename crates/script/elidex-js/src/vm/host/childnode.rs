@@ -1,10 +1,12 @@
 //! ChildNode mixin — `before` / `after` / `replaceWith` / `remove`
 //! (WHATWG DOM §5.2.2).
 //!
-//! Implemented by Element, CharacterData, and DocumentType — both
-//! `Element.prototype` and `CharacterData.prototype` install these
-//! same natives so the members land on Element, Text, Comment
-//! wrappers simultaneously.
+//! The mixin is installed on `Element.prototype` and
+//! `CharacterData.prototype`, so Element, Text, and Comment wrappers
+//! share these natives.  WHATWG also defines the mixin on
+//! `DocumentType`, but elidex has no JS surface for creating
+//! DocumentType wrappers yet — install on `DocumentType.prototype`
+//! lands alongside `document.doctype` / `DOMImplementation`.
 //!
 //! # "Convert nodes into a node"
 //!

@@ -801,13 +801,13 @@ impl EcsDom {
         }
     }
 
-    /// Recursively clone `src` and its descendants, returning the new
-    /// root entity (WHATWG DOM §4.5 "clone a node").
+    /// Recursively clone `src` and its descendants, returning the
+    /// new root entity (WHATWG DOM §4.5 "clone a node").
     ///
     /// Invariants:
     /// - The returned root has default tree links
-    ///   (`parent: None`, `prev_sibling: None`, `next_sibling: None`) —
-    ///   i.e. the clone is a fresh orphan.
+    ///   (`parent: None`, `prev_sibling: None`, `next_sibling: None`)
+    ///   — i.e. the clone is a fresh orphan.
     /// - Descendant tree links mirror the source structure between
     ///   the newly-allocated entities (parent and sibling pointers
     ///   point inside the clone, never into the source subtree).
@@ -818,11 +818,12 @@ impl EcsDom {
     ///   in `SessionCore`, which is outside this crate, and WHATWG
     ///   §4.5 specifies listeners are not cloned.
     ///
-    /// Returns `src` unchanged if `src` does not exist.
-    #[must_use = "the returned entity is the freshly-cloned root"]
-    pub fn clone_subtree(&mut self, src: Entity) -> Entity {
+    /// Returns `None` when `src` does not exist, so a missing source
+    /// can never alias the original via the returned handle.
+    #[must_use = "returns None when src does not exist"]
+    pub fn clone_subtree(&mut self, src: Entity) -> Option<Entity> {
         if !self.contains(src) {
-            return src;
+            return None;
         }
         let root = self.clone_node_shallow(src);
         // Walk original children and append clones in order.  Recursing
@@ -831,7 +832,7 @@ impl EcsDom {
         // `MAX_ANCESTOR_DEPTH` transitively because DOM trees are
         // bounded.
         self.clone_children_recursive(src, root);
-        root
+        Some(root)
     }
 
     /// Allocate a new entity carrying the same [`NodeKind`] and core

@@ -31,7 +31,7 @@ use super::super::value::{
 use super::super::VmInner;
 use super::event_target::entity_from_this;
 
-use elidex_ecs::{Entity, NodeKind};
+use elidex_ecs::NodeKind;
 
 impl VmInner {
     /// Allocate `Text.prototype` with `CharacterData.prototype` as

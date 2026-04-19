@@ -118,12 +118,16 @@ pub(super) fn query_selector_in_subtree_first(
 
 /// Recursively flatten `node` into the list of real nodes to insert.
 /// Any `DocumentFragment` — at any depth — expands to its light-tree
-/// children and every visited fragment is drained of its children
-/// (detached from the fragment) so the hand-back ends up holding
-/// ordered non-fragment entities AND every wrapper fragment in the
-/// input chain is now empty and parentless.  Empty wrappers let
-/// [`super::childnode::destroy_wrapper_fragment_if_any`] safely
-/// despawn our internally-allocated wrapper on the happy path.
+/// children.
+///
+/// Only **nested fragment entities** are detached from their parent
+/// during the walk; leaf (non-fragment) children are left linked to
+/// their current parent so that the insertion loop's built-in
+/// `detach`-on-move can naturally empty the wrapper.  If an
+/// insertion aborts mid-loop, the wrapper therefore still owns every
+/// leaf that hasn't been moved yet, and
+/// [`super::childnode::destroy_wrapper_fragment_if_any`] correctly
+/// skips destroying a non-empty wrapper (preventing orphan leaks).
 ///
 /// WHATWG §4.2.3 step 6 mandates fragment flattening; our
 /// `EcsDom::append_child` is intentionally unaware of the spec-level
@@ -141,14 +145,18 @@ fn flatten_into(ctx: &mut NativeContext<'_>, node: Entity, out: &mut Vec<Entity>
     ) {
         let children: Vec<Entity> = ctx.host().dom().children_iter(node).collect();
         for child in children {
-            // Detach each child from the fragment BEFORE recursing
-            // so nested fragments end up empty too — otherwise the
-            // outer wrapper would still own the inner fragment as a
-            // child after flattening, leaving it non-empty and
-            // blocking cleanup.  `remove_child` is a no-op when the
-            // link has already been severed, so recursive re-entry
-            // is safe.
-            let _ = ctx.host().dom().remove_child(node, child);
+            let is_fragment = matches!(
+                ctx.host().dom().node_kind(child),
+                Some(NodeKind::DocumentFragment)
+            );
+            if is_fragment {
+                // Detach only nested fragment entities — this lets
+                // the outer wrapper end up empty on the happy path
+                // (after its leaf children move to the real parent)
+                // without sacrificing the error-path safeguard that
+                // keeps unmoved leaves parented to the wrapper.
+                let _ = ctx.host().dom().remove_child(node, child);
+            }
             flatten_into(ctx, child, out);
         }
     } else {

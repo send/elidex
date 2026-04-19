@@ -66,7 +66,7 @@ fn clone_subtree_shallow_root_has_no_parent() {
     let parent = elem(&mut dom, "section");
     let src = elem(&mut dom, "div");
     assert!(dom.append_child(parent, src));
-    let clone = dom.clone_subtree(src);
+    let clone = dom.clone_subtree(src).expect("clone_subtree");
     assert!(dom.get_parent(clone).is_none());
     assert!(dom.get_next_sibling(clone).is_none());
     assert!(dom.get_prev_sibling(clone).is_none());
@@ -86,7 +86,7 @@ fn clone_subtree_deep_copies_children_order() {
     assert!(dom.append_child(root, b));
     assert!(dom.append_child(root, c));
 
-    let clone = dom.clone_subtree(root);
+    let clone = dom.clone_subtree(root).expect("clone_subtree");
     let kids = dom.children(clone);
     assert_eq!(kids.len(), 3);
     let values: Vec<String> = kids
@@ -96,6 +96,18 @@ fn clone_subtree_deep_copies_children_order() {
     assert_eq!(values, vec!["1", "2", "3"]);
     // Clone children are distinct entities from originals.
     assert!(!kids.iter().any(|&e| e == a || e == b || e == c));
+}
+
+#[test]
+fn clone_subtree_on_destroyed_src_returns_none() {
+    // The returned handle must never alias the original.  Prior to
+    // the Option return type, a destroyed `src` echoed back as the
+    // "clone", which let JS callers observe a node that was already
+    // despawned.
+    let mut dom = EcsDom::new();
+    let src = elem(&mut dom, "div");
+    dom.destroy_entity(src);
+    assert_eq!(dom.clone_subtree(src), None);
 }
 
 #[test]
@@ -109,7 +121,7 @@ fn clone_subtree_skips_shadow_root() {
     let light = elem(&mut dom, "span");
     assert!(dom.append_child(host, light));
 
-    let clone = dom.clone_subtree(host);
+    let clone = dom.clone_subtree(host).expect("clone_subtree");
     // The clone has no shadow root component itself.
     assert!(dom.get_shadow_root(clone).is_none());
     // Light child was cloned.

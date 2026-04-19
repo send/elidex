@@ -1038,7 +1038,11 @@ fn native_node_clone_node(
 
     let new_entity = {
         let dom = ctx.host().dom();
-        let new_root = dom.clone_subtree(src);
+        let Some(new_root) = dom.clone_subtree(src) else {
+            // Source entity already despawned — surface `null`
+            // rather than aliasing the original.
+            return Ok(JsValue::Null);
+        };
         if !deep {
             // Shallow: drop the cloned children so only the root
             // survives.  `clone_subtree` is the only ECS entry
