@@ -820,16 +820,65 @@ impl EcsDom {
     ///
     /// Returns `None` when `src` does not exist, so a missing source
     /// can never alias the original via the returned handle.
+    ///
+    /// # WHATWG §4.5 "clone a node" — AssociatedDocument propagation
+    ///
+    /// Per the spec the `document` threaded through the recursion is
+    /// the clone's *node document* and differs between branches:
+    ///
+    /// - **`src` is a Document** — allocate the copy, then replace
+    ///   `document` with `copy` (a Document's node document is itself).
+    ///   Descendants therefore report the *clone* as their
+    ///   `ownerDocument`, not the source document.
+    /// - **`src` is not a Document** — keep `document` at the caller's
+    ///   initial value (the src node's own `ownerDocument`), so the
+    ///   copy and its descendants inherit the src subtree's associated
+    ///   document.
+    ///
+    /// Orphan nodes whose `ownerDocument` is `None` intentionally
+    /// produce a clone with no [`AssociatedDocument`] component —
+    /// callers relying on the tree-root fallback behaviour remain
+    /// unchanged.
     #[must_use = "returns None when src does not exist"]
     pub fn clone_subtree(&mut self, src: Entity) -> Option<Entity> {
-        let root = self.clone_node_shallow(src)?;
-        // Walk original children and append clones in order.  The
-        // helper performs this as an iterative traversal with an
-        // explicit stack of `(src, dst)` pairs, so this does not
-        // rely on call-stack recursion or inherit recursion-depth
-        // behaviour — deep DOM trees are bounded by available heap,
-        // not by Rust's stack size.
-        self.clone_children_recursive(src, root);
+        if !self.contains(src) {
+            return None;
+        }
+        let src_kind = self.node_kind(src);
+        // Pick the "document" that gets threaded through the spec's
+        // recursion.  For Document clones we defer until after the
+        // root has been allocated (it becomes self-referential); for
+        // everything else we read the src node document up front.
+        let document_for_children: Option<Entity> = if matches!(src_kind, Some(NodeKind::Document))
+        {
+            None
+        } else {
+            self.owner_document(src)
+        };
+        // Shallow-clone the root.  The root's own AssociatedDocument is
+        // set below so we can handle the Document self-ref and the
+        // non-Document propagation uniformly.
+        let root = self.clone_node_shallow_unchecked(src);
+        let root_document = if matches!(src_kind, Some(NodeKind::Document)) {
+            root
+        } else {
+            match document_for_children {
+                Some(doc) => {
+                    self.set_associated_document(root, doc);
+                    doc
+                }
+                None => {
+                    // Orphan clone — no AssociatedDocument anywhere in
+                    // the new subtree.  Skip the descendant propagation.
+                    self.clone_children_recursive(src, root, None);
+                    return Some(root);
+                }
+            }
+        };
+        if matches!(src_kind, Some(NodeKind::Document)) {
+            self.set_associated_document(root, root_document);
+        }
+        self.clone_children_recursive(src, root, Some(root_document));
         Some(root)
     }
 
@@ -938,7 +987,12 @@ impl EcsDom {
     /// overflow.  [`ShadowRoot`] children are skipped (matches
     /// `children_iter` semantics — the shadow root is not part of
     /// the light tree).
-    fn clone_children_recursive(&mut self, src: Entity, dst: Entity) {
+    fn clone_children_recursive(
+        &mut self,
+        src: Entity,
+        dst: Entity,
+        propagate_doc: Option<Entity>,
+    ) {
         let mut stack: Vec<(Entity, Entity)> = vec![(src, dst)];
         while let Some((src_parent, dst_parent)) = stack.pop() {
             // Snapshot children before spawning new entities — tree
@@ -956,6 +1010,9 @@ impl EcsDom {
                 // entry is guaranteed to exist; the unchecked variant
                 // skips the redundant `contains` lookup.
                 let child_dst = self.clone_node_shallow_unchecked(child_src);
+                if let Some(doc) = propagate_doc {
+                    self.set_associated_document(child_dst, doc);
+                }
                 let _ = self.append_child(dst_parent, child_dst);
                 pending.push((child_src, child_dst));
             }
