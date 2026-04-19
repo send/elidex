@@ -14,6 +14,7 @@ mod tests_create_event_object;
 mod tests_document_global;
 mod tests_document_methods;
 mod tests_element_methods;
+mod tests_element_subtree_query;
 mod tests_element_wrapper;
 mod tests_event_object;
 mod tests_event_target;

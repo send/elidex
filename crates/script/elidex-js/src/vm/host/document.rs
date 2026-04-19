@@ -29,7 +29,8 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
+    query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
 };
 
 use elidex_ecs::{Attributes, Entity, TagType};
@@ -97,20 +98,7 @@ pub(super) fn native_document_query_selector(
             .as_deref()
             .and_then(|hd| hd.document_entity_opt());
         let dom = ctx.host().dom();
-        doc.and_then(|d| {
-            let mut result = None;
-            dom.traverse_descendants(d, |entity| {
-                if dom.world().get::<&TagType>(entity).is_ok()
-                    && selectors.iter().any(|s| s.matches(entity, dom))
-                {
-                    result = Some(entity);
-                    false
-                } else {
-                    true
-                }
-            });
-            result
-        })
+        doc.and_then(|d| query_selector_in_subtree_first(dom, d, &selectors))
     };
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
@@ -136,18 +124,7 @@ pub(super) fn native_document_query_selector_all(
             .and_then(|hd| hd.document_entity_opt());
         let dom = ctx.host().dom();
         match doc {
-            Some(d) => {
-                let mut result = Vec::new();
-                dom.traverse_descendants(d, |entity| {
-                    if dom.world().get::<&TagType>(entity).is_ok()
-                        && selectors.iter().any(|s| s.matches(entity, dom))
-                    {
-                        result.push(entity);
-                    }
-                    true
-                });
-                result
-            }
+            Some(d) => query_selector_in_subtree_all(dom, d, &selectors),
             None => Vec::new(),
         }
     };

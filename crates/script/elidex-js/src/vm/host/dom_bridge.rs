@@ -88,3 +88,50 @@ pub(super) fn tree_nav_getter(
     let target = lookup(ctx.host().dom(), entity);
     Ok(wrap_entity_or_null(ctx.vm, target))
 }
+
+/// Pre-order DFS over descendants of `root` looking for the first
+/// element that matches any selector in `selectors`.  `root` itself is
+/// **not** a match candidate — WHATWG §4.2.6 step 3.  Returns the
+/// matched entity, or `None` if none found.
+///
+/// Shared by both `document.querySelector` and
+/// `Element.prototype.querySelector`.
+pub(super) fn query_selector_in_subtree_first(
+    dom: &EcsDom,
+    root: Entity,
+    selectors: &[elidex_css::Selector],
+) -> Option<Entity> {
+    use elidex_ecs::TagType;
+    let mut result = None;
+    dom.traverse_descendants(root, |entity| {
+        if dom.world().get::<&TagType>(entity).is_ok()
+            && selectors.iter().any(|s| s.matches(entity, dom))
+        {
+            result = Some(entity);
+            false
+        } else {
+            true
+        }
+    });
+    result
+}
+
+/// Pre-order DFS collecting every descendant of `root` matching any
+/// selector in `selectors`.  `root` itself is not a match candidate.
+pub(super) fn query_selector_in_subtree_all(
+    dom: &EcsDom,
+    root: Entity,
+    selectors: &[elidex_css::Selector],
+) -> Vec<Entity> {
+    use elidex_ecs::TagType;
+    let mut out = Vec::new();
+    dom.traverse_descendants(root, |entity| {
+        if dom.world().get::<&TagType>(entity).is_ok()
+            && selectors.iter().any(|s| s.matches(entity, dom))
+        {
+            out.push(entity);
+        }
+        true
+    });
+    out
+}

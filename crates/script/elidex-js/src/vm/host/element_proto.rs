@@ -46,7 +46,8 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, tree_nav_getter, wrap_entity_or_null,
+    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
+    query_selector_in_subtree_first, tree_nav_getter, wrap_entities_as_array, wrap_entity_or_null,
 };
 use super::event_target::entity_from_this;
 
@@ -218,11 +219,23 @@ impl VmInner {
         }
     }
 
-    /// Install `matches(selector)` / `closest(selector)` on `proto_id`.
+    /// Install `matches(selector)` / `closest(selector)` +
+    /// `querySelector(selector)` / `querySelectorAll(selector)` on
+    /// `proto_id`.  The querySelector family is subtree-scoped
+    /// (WHATWG §4.2.6) — `this` itself is not a match candidate,
+    /// only its light-tree descendants.
     fn install_element_matches(&mut self, proto_id: ObjectId) {
         for (name_sid, func) in [
             (self.well_known.matches, native_element_matches as NativeFn),
             (self.well_known.closest, native_element_closest),
+            (
+                self.well_known.query_selector,
+                native_element_query_selector,
+            ),
+            (
+                self.well_known.query_selector_all,
+                native_element_query_selector_all,
+            ),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -612,6 +625,39 @@ fn native_element_matches(
     let dom = ctx.host().dom();
     let matched = selectors.iter().any(|s| s.matches(entity, dom));
     Ok(JsValue::Boolean(matched))
+}
+
+/// `Element.prototype.querySelector(selector)` (WHATWG §4.2.6).
+/// Subtree-scoped — `this` itself is never a match candidate, only
+/// its descendants.
+fn native_element_query_selector(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
+    let matched = query_selector_in_subtree_first(ctx.host().dom(), entity, &selectors);
+    Ok(wrap_entity_or_null(ctx.vm, matched))
+}
+
+/// `Element.prototype.querySelectorAll(selector)` — subtree-scoped,
+/// returns a snapshot Array (live NodeList lands with Observers).
+fn native_element_query_selector_all(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
+    let matched = query_selector_in_subtree_all(ctx.host().dom(), entity, &selectors);
+    Ok(wrap_entities_as_array(ctx.vm, &matched))
 }
 
 fn native_element_closest(
