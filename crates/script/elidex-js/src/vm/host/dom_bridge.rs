@@ -116,27 +116,16 @@ pub(super) fn query_selector_in_subtree_first(
     result
 }
 
-/// Recursively flatten `node` into the list of real nodes to insert,
-/// draining every `DocumentFragment` encountered so that every
-/// traversed fragment ends up empty.  Non-fragment nodes are kept
-/// attached to their current parent — `EcsDom::append_child` /
-/// `insert_before` at insertion time reparents them.
+/// Recursively flatten `node` into the list of real nodes to insert.
+/// `DocumentFragment` at any depth expands to its light-tree
+/// descendants; every other `NodeKind` becomes a single leaf entry.
 ///
-/// **Not side-effect free**: fragment-to-child links are severed
-/// during the walk.  This matches WHATWG §4.2.3 step 6 — after a
-/// successful pre-insert, the fragment argument (and every nested
-/// fragment reachable from it) becomes empty.  A purely lazy flatten
-/// would leave an intermediate fragment parented to its outer
-/// fragment even after its leaves moved, producing non-empty
-/// `outer.childNodes` for a nested argument — a spec-visible
-/// regression.
-///
-/// Failure mode: if a later `append_child` / `insert_before` call
-/// fails, the leaves already drained are now orphan nodes (detached
-/// but still reachable from user JS).  This matches the WHATWG
-/// "insert" algorithm, which empties the fragment at step 4.1 before
-/// the per-node append at step 6 — a partial failure there leaves
-/// the fragment empty and some leaves detached.
+/// **Side-effect free**: the walk reads children without mutating
+/// the source tree.  Fragment emptying happens separately in
+/// [`finalize_pair`] AFTER the insertion loop succeeds — draining
+/// during the walk would orphan leaves whenever a pre-insertion
+/// validity check (`replaceChildren` / `replaceWith`) later throws,
+/// because the detach would already have happened.
 pub(super) fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<Entity> {
     let mut out = Vec::new();
     flatten_into(ctx, node, &mut out);
@@ -151,14 +140,43 @@ fn flatten_into(ctx: &mut NativeContext<'_>, node: Entity, out: &mut Vec<Entity>
         out.push(node);
         return;
     }
-    // Drain the fragment: snapshot children, detach each from
-    // `node`, then recurse.  By the time we return, `node` is empty
-    // (including any nested fragment `node` contained, because
-    // each nested fragment recurses into the same drain path).
     let children: Vec<Entity> = ctx.host().dom().children_iter(node).collect();
     for child in children {
-        let _ = ctx.host().dom().remove_child(node, child);
         flatten_into(ctx, child, out);
+    }
+}
+
+/// Recursively detach every `DocumentFragment` descendant of `root`
+/// from its fragment parent.  Called on the **success path** of an
+/// insertion to finalise WHATWG §4.2.3's "fragment becomes empty
+/// after pre-insert" contract — leaves already moved during the
+/// insert loop, this pass empties the intermediate fragment
+/// scaffolding that the leaves were originally parented to.
+///
+/// Must NOT be called on an error path: some leaves may still be
+/// linked to the fragment tree, and detaching their fragment
+/// parents would leave them stranded in orphan fragments.
+pub(super) fn drain_fragment_descendants(ctx: &mut NativeContext<'_>, root: Entity) {
+    if !matches!(
+        ctx.host().dom().node_kind(root),
+        Some(NodeKind::DocumentFragment)
+    ) {
+        return;
+    }
+    let children: Vec<Entity> = ctx.host().dom().children_iter(root).collect();
+    for child in children {
+        if matches!(
+            ctx.host().dom().node_kind(child),
+            Some(NodeKind::DocumentFragment)
+        ) {
+            drain_fragment_descendants(ctx, child);
+            let _ = ctx.host().dom().remove_child(root, child);
+        }
+        // Non-fragment (leaf) children shouldn't linger on the
+        // success path — leaves already moved during the insert
+        // loop.  If one does stay (e.g. the caller skipped a
+        // leaf), leaving it attached is safer than an aggressive
+        // detach.
     }
 }
 

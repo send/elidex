@@ -134,40 +134,26 @@ pub(super) fn convert_nodes_to_single_node_or_fragment(
 }
 
 /// Consume the `(entity, was_wrapped)` pair after a ChildNode /
-/// ParentNode mutation completes — destroys the wrapper fragment if
-/// we allocated one AND it has no remaining leaf children.
+/// ParentNode mutation completes.
 ///
-/// On the success path every leaf was detached from its original
-/// parent (the wrapper itself or a user-supplied nested fragment) by
-/// the `append_child` / `insert_before` that moved it into the real
-/// parent.  User-supplied nested fragments that we linked to the
-/// wrapper during argument normalization end up empty but are still
-/// children of the wrapper — detach them here so the wrapper
-/// actually becomes empty and can be destroyed.  The user fragments
-/// themselves are **not** destroyed (JS may still hold a reference;
-/// they become empty, parentless fragments per WHATWG's post-insert
-/// state).
+/// `succeeded = true` (every insertion landed): drain every
+/// `DocumentFragment` descendant from `entity` (finalising WHATWG
+/// §4.2.3 "fragment becomes empty after pre-insert" for both the
+/// wrapper and any user-supplied nested fragments), then destroy
+/// the wrapper if we allocated it.
 ///
-/// On error paths (mutation loop aborted mid-way) the wrapper may
-/// still own unmoved leaves.  Skip destroy in that case so those
-/// leaves stay parented to the wrapper; letting them orphan would
-/// leak them in the ECS world.
-pub(super) fn destroy_wrapper_fragment_if_any(ctx: &mut NativeContext<'_>, pair: (Entity, bool)) {
+/// `succeeded = false` (an insert aborted mid-loop): skip the drain
+/// — unmoved leaves may still be parented to fragments and
+/// detaching those fragments would strand the leaves in an orphan
+/// fragment.  We still destroy the wrapper if it happens to be
+/// empty (best-effort cleanup that can't strand anything).
+pub(super) fn finalize_pair(ctx: &mut NativeContext<'_>, pair: (Entity, bool), succeeded: bool) {
     let (entity, was_wrapped) = pair;
+    if succeeded {
+        super::dom_bridge::drain_fragment_descendants(ctx, entity);
+    }
     if !was_wrapped {
         return;
-    }
-    // Detach any user-supplied DocumentFragment children that
-    // remain on the wrapper — they're now empty but still linked.
-    // Snapshot first (can't borrow the DOM twice inside a closure).
-    let children: Vec<Entity> = ctx.host().dom().children_iter(entity).collect();
-    for child in children {
-        if matches!(
-            ctx.host().dom().node_kind(child),
-            Some(NodeKind::DocumentFragment)
-        ) {
-            let _ = ctx.host().dom().remove_child(entity, child);
-        }
     }
     if ctx.host().dom().children_iter(entity).next().is_some() {
         return;
@@ -224,7 +210,7 @@ fn native_child_node_before(
             break;
         }
     }
-    destroy_wrapper_fragment_if_any(ctx, pair);
+    finalize_pair(ctx, pair, err.is_none());
     err.map_or(Ok(JsValue::Undefined), Err)
 }
 
@@ -266,7 +252,7 @@ fn native_child_node_after(
             break;
         }
     }
-    destroy_wrapper_fragment_if_any(ctx, pair);
+    finalize_pair(ctx, pair, err.is_none());
     err.map_or(Ok(JsValue::Undefined), Err)
 }
 
@@ -314,7 +300,7 @@ fn native_child_node_replace_with(
             .dom()
             .is_light_tree_ancestor_or_self(child, parent)
         {
-            destroy_wrapper_fragment_if_any(ctx, p);
+            finalize_pair(ctx, p, false);
             return Err(hierarchy_request_error("replaceWith"));
         }
     }
@@ -341,7 +327,7 @@ fn native_child_node_replace_with(
             break;
         }
     }
-    destroy_wrapper_fragment_if_any(ctx, p);
+    finalize_pair(ctx, p, err.is_none());
     err.map_or(Ok(JsValue::Undefined), Err)
 }
 

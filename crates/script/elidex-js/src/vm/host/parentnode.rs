@@ -21,7 +21,7 @@
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, PropertyKey, PropertyValue, VmError};
 use super::super::{NativeFn, VmInner};
-use super::childnode::{convert_nodes_to_single_node_or_fragment, destroy_wrapper_fragment_if_any};
+use super::childnode::{convert_nodes_to_single_node_or_fragment, finalize_pair};
 use super::dom_bridge::nodes_to_insert;
 use super::event_target::entity_from_this;
 
@@ -101,7 +101,7 @@ fn native_parent_node_prepend(
             break;
         }
     }
-    destroy_wrapper_fragment_if_any(ctx, pair);
+    finalize_pair(ctx, pair, err.is_none());
     err.map_or(Ok(JsValue::Undefined), Err)
 }
 
@@ -124,7 +124,7 @@ fn native_parent_node_append(
             break;
         }
     }
-    destroy_wrapper_fragment_if_any(ctx, pair);
+    finalize_pair(ctx, pair, err.is_none());
     err.map_or(Ok(JsValue::Undefined), Err)
 }
 
@@ -159,7 +159,7 @@ fn native_parent_node_replace_children(
                 .dom()
                 .is_light_tree_ancestor_or_self(child, parent)
             {
-                destroy_wrapper_fragment_if_any(ctx, p);
+                finalize_pair(ctx, p, false);
                 return Err(hierarchy_request_error("replaceChildren"));
             }
         }
@@ -181,7 +181,7 @@ fn native_parent_node_replace_children(
                 break;
             }
         }
-        destroy_wrapper_fragment_if_any(ctx, p);
+        finalize_pair(ctx, p, err.is_none());
         if let Some(e) = err {
             return Err(e);
         }
