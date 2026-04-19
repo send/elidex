@@ -259,8 +259,15 @@ pub(super) fn native_node_is_equal_node(
 fn nodes_equal(dom: &elidex_ecs::EcsDom, a: Entity, b: Entity) -> bool {
     let mut stack: Vec<(Entity, Entity)> = vec![(a, b)];
     while let Some((a, b)) = stack.pop() {
-        let kind = dom.node_kind(a);
-        if kind != dom.node_kind(b) {
+        // `node_kind_inferred` falls back to payload-based inference
+        // for legacy entities missing the `NodeKind` component.
+        // Comparing raw `node_kind` would treat two legacy entities
+        // of different payload kinds (e.g. a legacy Text and a
+        // legacy Comment, both reporting `kind == None`) as equal
+        // because the character-data match arms below would both
+        // be skipped.
+        let kind = dom.node_kind_inferred(a);
+        if kind != dom.node_kind_inferred(b) {
             return false;
         }
         if dom.get_tag_name(a) != dom.get_tag_name(b) {

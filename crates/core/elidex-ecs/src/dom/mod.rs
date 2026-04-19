@@ -266,6 +266,38 @@ impl EcsDom {
         self.world.get::<&NodeKind>(entity).ok().map(|k| *k)
     }
 
+    /// Effective `NodeKind` — returns the explicit component when
+    /// present, otherwise infers from payload components for legacy
+    /// entities that predate the `NodeKind` component (same rules as
+    /// [`clone_node_shallow`](Self::clone_node_shallow) and
+    /// `HostData::prototype_kind_for`): `TagType` ⇒ `Element`,
+    /// `TextContent` ⇒ `Text`, `CommentData` ⇒ `Comment`,
+    /// `DocTypeData` ⇒ `DocumentType`.  Returns `None` only when no
+    /// kind component and no DOM payload is present.
+    ///
+    /// Use this in any code path that has to treat legacy entities
+    /// as real DOM nodes — e.g. `splitText` brand checks,
+    /// `isEqualNode` equality, variadic argument normalisation.
+    #[must_use]
+    pub fn node_kind_inferred(&self, entity: Entity) -> Option<NodeKind> {
+        if let Some(kind) = self.node_kind(entity) {
+            return Some(kind);
+        }
+        if self.world.get::<&TagType>(entity).is_ok() {
+            return Some(NodeKind::Element);
+        }
+        if self.world.get::<&TextContent>(entity).is_ok() {
+            return Some(NodeKind::Text);
+        }
+        if self.world.get::<&CommentData>(entity).is_ok() {
+            return Some(NodeKind::Comment);
+        }
+        if self.world.get::<&DocTypeData>(entity).is_ok() {
+            return Some(NodeKind::DocumentType);
+        }
+        None
+    }
+
     // ---- Attribute accessors ----
 
     /// Read attribute `name` on `entity`, returning `None` if the

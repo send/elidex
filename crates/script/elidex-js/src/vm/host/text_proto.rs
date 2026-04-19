@@ -82,8 +82,12 @@ fn native_text_split_text(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    // Receiver must be a Text node.
-    if ctx.host().dom().node_kind(entity) != Some(NodeKind::Text) {
+    // Receiver must be a Text node.  Use the inferred NodeKind so
+    // legacy entities (missing `NodeKind` but carrying
+    // `TextContent`) are accepted — matching the
+    // `HostData::prototype_kind_for` routing that placed this
+    // entity on `Text.prototype` in the first place.
+    if ctx.host().dom().node_kind_inferred(entity) != Some(NodeKind::Text) {
         return Err(VmError::type_error(
             "Failed to execute 'splitText' on 'Text': this is not a Text node.",
         ));
