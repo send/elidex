@@ -775,12 +775,26 @@ fn parse_adjacent_position(raw: &str) -> Option<InsertAdjacentWhere> {
 /// TODO(PR5a): upgrade `TypeError` → `DOMException("SyntaxError")`
 /// when DOMException lands.  All callers embed the method name so the
 /// message stays aligned with WHATWG `insertAdjacent*` step 1.
-fn adjacent_syntax_error(method: &str) -> VmError {
+///
+/// `where_value` is echoed into the message (matching Blink / Gecko)
+/// so script debuggers see the exact literal the caller supplied.
+fn adjacent_syntax_error(method: &str, where_value: &str) -> VmError {
     VmError::type_error(format!(
         "Failed to execute '{method}' on 'Element': \
-         the value provided ('where') is not one of \
+         the value provided ('{where_value}') is not one of \
          'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'."
     ))
+}
+
+/// True when `pos` is one of the two positions that require the
+/// receiver to have a parent.  Used by `insertAdjacentText` to
+/// pre-check before allocating a Text entity that would otherwise
+/// leak into the ECS on early return.
+fn position_requires_parent(pos: InsertAdjacentWhere) -> bool {
+    matches!(
+        pos,
+        InsertAdjacentWhere::BeforeBegin | InsertAdjacentWhere::AfterEnd
+    )
 }
 
 /// TypeError thrown when the second argument of `insertAdjacentElement`
@@ -905,10 +919,13 @@ pub(super) fn native_element_insert_adjacent_element(
     let where_raw = super::super::coerce::to_string(ctx.vm, where_arg)?;
     let where_str = ctx.vm.strings.get_utf8(where_raw);
     let pos = parse_adjacent_position(&where_str)
-        .ok_or_else(|| adjacent_syntax_error("insertAdjacentElement"))?;
+        .ok_or_else(|| adjacent_syntax_error("insertAdjacentElement", &where_str))?;
 
     let element_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let node = require_element_arg(ctx, element_arg)?;
+    // `node` is user-supplied — on `perform_adjacent_insert` failure
+    // the caller still holds a JS handle to it, so we must NOT
+    // destroy the entity here (that would invalidate live wrappers).
     match perform_adjacent_insert(ctx, target, node, pos, "insertAdjacentElement")? {
         Some(entity) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(entity))),
         None => Ok(JsValue::Null),
@@ -933,25 +950,38 @@ pub(super) fn native_element_insert_adjacent_text(
     let where_raw = super::super::coerce::to_string(ctx.vm, where_arg)?;
     let where_str = ctx.vm.strings.get_utf8(where_raw);
     let pos = parse_adjacent_position(&where_str)
-        .ok_or_else(|| adjacent_syntax_error("insertAdjacentText"))?;
+        .ok_or_else(|| adjacent_syntax_error("insertAdjacentText", &where_str))?;
 
-    // `where` validity is checked BEFORE we allocate the Text — avoids
-    // leaving an orphan Text in `EcsDom` when the position is bogus.
+    // Parent-less short-circuit: `beforebegin` / `afterend` require
+    // the receiver to have a parent, and the spec treats the missing-
+    // parent case as a silent no-op.  Check BEFORE allocating a Text
+    // entity — otherwise the allocation leaks into the ECS because
+    // no JS handle is returned and the entity never reaches GC.
+    if position_requires_parent(pos) && ctx.host().dom().get_parent(target).is_none() {
+        return Ok(JsValue::Undefined);
+    }
+
+    // `where` + parent-existence validity are already checked; allocate
+    // the Text now.  WHATWG §4.9 step 2: the Text's node document is
+    // *target's* node document, so thread the receiver's owner
+    // document through the owner-aware creator (PR4f C2).
     let data_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let data_sid = super::super::coerce::to_string(ctx.vm, data_arg)?;
     let data = ctx.vm.strings.get_utf8(data_sid);
-    // WHATWG §4.9 step 2: the Text's node document is *target's* node
-    // document, so thread the receiver's owner document through the
-    // owner-aware creator (PR4f C2).
     let owner_doc = ctx.host().dom().owner_document(target);
     let text_entity = ctx.host().dom().create_text_with_owner(data, owner_doc);
-    // Parent-less receiver with beforebegin/afterend yields null per
-    // spec for insertAdjacentElement; insertAdjacentText spec says to
-    // still call insertAdjacentElement but discard its result — a
-    // successful no-op.  We mirror Blink: no-op return when the
-    // element cannot be inserted due to missing parent.
-    let _ = perform_adjacent_insert(ctx, target, text_entity, pos, "insertAdjacentText")?;
-    Ok(JsValue::Undefined)
+    // Cycle / destroyed-receiver paths still fail inside
+    // `perform_adjacent_insert` (parent exists but insertion is
+    // otherwise invalid).  Destroy the unreferenced Text so the
+    // error path does not leak an ECS entity — nothing outside this
+    // function holds a handle to it.
+    match perform_adjacent_insert(ctx, target, text_entity, pos, "insertAdjacentText") {
+        Ok(_) => Ok(JsValue::Undefined),
+        Err(e) => {
+            let _ = ctx.host().dom().destroy_entity(text_entity);
+            Err(e)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

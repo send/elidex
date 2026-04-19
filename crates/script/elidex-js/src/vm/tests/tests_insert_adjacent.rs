@@ -220,3 +220,37 @@ fn insert_adjacent_text_rejects_bogus_where_before_allocating_text() {
     );
     assert_eq!(out, "threw");
 }
+
+#[test]
+fn insert_adjacent_text_parent_less_short_circuit_does_not_leak_text() {
+    // Copilot R1 F2 lock-in — `beforebegin` / `afterend` on a
+    // parent-less receiver used to allocate a Text entity before
+    // realising the insertion was a no-op, leaking an orphan into
+    // ECS.  Count Text entities before and after to confirm no new
+    // Text survives.
+    use elidex_ecs::TextContent;
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let script = "var t = document.createElement('div'); \
+                  t.insertAdjacentText('beforebegin', 'ghost'); \
+                  t.insertAdjacentText('afterend', 'ghost2'); \
+                  t.childNodes.length;";
+    let result = vm.eval(script).unwrap();
+    assert!(matches!(result, JsValue::Number(n) if n == 0.0));
+    vm.unbind();
+
+    // No Text entity should exist in the ECS — the receiver had no
+    // parent, so both insertAdjacentText calls are silent no-ops.
+    let text_count = dom.world().query::<&TextContent>().iter().count();
+    assert_eq!(
+        text_count, 0,
+        "insertAdjacentText on parent-less receiver leaked Text entities into ECS"
+    );
+}

@@ -428,10 +428,13 @@ impl EcsDom {
             return None;
         }
         if let Some(doc) = self.get_associated_document(entity) {
-            // Guard against a dangling pointer — if the recorded
-            // Document has been destroyed, fall through to the
-            // tree-root walk so callers never observe a ghost entity.
-            if self.contains(doc) {
+            // Guard against a dangling pointer OR a wrongly-typed
+            // component — callers expect an actual Document back.
+            // A stale entity (destroyed / recycled as a non-Document)
+            // must not leak through; fall through to the tree-root
+            // walk in that case so `ownerDocument` never hands out a
+            // ghost or off-kind receiver.
+            if self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document)) {
                 return Some(doc);
             }
         }
