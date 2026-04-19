@@ -150,21 +150,21 @@ fn element_query_selector_relative_combinator_syntax() {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
     build_fixture(&mut vm);
-    // Either `section.querySelector('> .target')` returns a value
-    // (null or an element) without throwing, OR it throws — both
-    // paths are informative.  We just assert that whichever it is
-    // terminates the evaluation deterministically.
+    // The relative `>` combinator is valid for `:scope`-rooted
+    // queries but ambiguous without a `:scope` prefix — the two
+    // outcomes the selector engine is allowed to produce are
+    // `null` (parsed, zero matches) or a SyntaxError.  Any other
+    // successful return (e.g. a non-null Element) or error kind
+    // would be a regression.
     let result = vm.eval("section.querySelector('> .target');");
     match result {
-        Ok(_) => {}
+        Ok(JsValue::Null) => {}
+        Err(e) if matches!(e.kind, super::super::value::VmErrorKind::SyntaxError) => {}
+        Ok(other) => {
+            panic!("expected null or SyntaxError, got Ok({other:?})");
+        }
         Err(e) => {
-            // If a SyntaxError is raised, the message should mention
-            // the invalid selector.  Avoid tying to exact wording —
-            // assert only that we got a SyntaxError, not a panic.
-            assert!(
-                matches!(e.kind, super::super::value::VmErrorKind::SyntaxError),
-                "expected SyntaxError or Ok, got {e:?}"
-            );
+            panic!("expected null or SyntaxError, got {e:?}");
         }
     }
     vm.unbind();
