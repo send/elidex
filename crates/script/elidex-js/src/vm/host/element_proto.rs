@@ -46,8 +46,9 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
-    query_selector_in_subtree_first, tree_nav_getter, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, collect_descendants_by_class_name, collect_descendants_by_tag_name,
+    parse_dom_selector, query_selector_in_subtree_all, query_selector_in_subtree_first,
+    tree_nav_getter, wrap_entities_as_array, wrap_entity_or_null,
 };
 use super::event_target::entity_from_this;
 
@@ -243,6 +244,14 @@ impl VmInner {
             (
                 self.well_known.insert_adjacent_text,
                 native_element_insert_adjacent_text,
+            ),
+            (
+                self.well_known.get_elements_by_tag_name,
+                native_element_get_elements_by_tag_name,
+            ),
+            (
+                self.well_known.get_elements_by_class_name,
+                native_element_get_elements_by_class_name,
             ),
         ] {
             let name = self.strings.get_utf8(name_sid);
@@ -943,4 +952,56 @@ pub(super) fn native_element_insert_adjacent_text(
     // element cannot be inserted due to missing parent.
     let _ = perform_adjacent_insert(ctx, target, text_entity, pos, "insertAdjacentText")?;
     Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// Element.prototype.getElementsByTagName / getElementsByClassName — WHATWG §4.2.6
+// ---------------------------------------------------------------------------
+
+/// `Element.prototype.getElementsByTagName(qualifiedName)` — WHATWG §4.2.6.2.
+///
+/// Scope is **descendants of the receiver only**; the receiver is
+/// never a match candidate.  Shares
+/// [`collect_descendants_by_tag_name`] with the Document-level form
+/// so `*` handling and ASCII case-folding cannot drift.
+pub(super) fn native_element_get_elements_by_tag_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let tag = coerce_first_arg_to_string(ctx, args)?;
+    let Some(root) =
+        super::event_target::require_receiver(ctx, this, "Element", "getElementsByTagName", |k| {
+            k == NodeKind::Element
+        })?
+    else {
+        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let entities = collect_descendants_by_tag_name(ctx.host().dom(), root, &tag);
+    Ok(wrap_entities_as_array(ctx.vm, &entities))
+}
+
+/// `Element.prototype.getElementsByClassName(classNames)` —
+/// WHATWG §4.2.6.2.  Descendant-only; empty-token-set yields an empty
+/// array, and every class token must appear in the element's `class`
+/// attribute (WHATWG "all classes in classes" AND semantics).
+pub(super) fn native_element_get_elements_by_class_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let class_str = coerce_first_arg_to_string(ctx, args)?;
+    let target_classes: Vec<&str> = class_str.split_whitespace().collect();
+    let Some(root) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "Element",
+        "getElementsByClassName",
+        |k| k == NodeKind::Element,
+    )?
+    else {
+        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let entities = collect_descendants_by_class_name(ctx.host().dom(), root, &target_classes);
+    Ok(wrap_entities_as_array(ctx.vm, &entities))
 }

@@ -206,6 +206,8 @@ pub(crate) struct WellKnownStrings {
     pub(crate) afterbegin: StringId,
     pub(crate) beforeend: StringId,
     pub(crate) afterend: StringId,
+    pub(crate) get_elements_by_tag_name: StringId,
+    pub(crate) get_elements_by_class_name: StringId,
     // CharacterData (PR4e C5) method names.  `data` / `length` live
     // elsewhere (`data` under event-payload keys above, `length`
     // under core).
@@ -428,6 +430,8 @@ impl WellKnownStrings {
             afterbegin: strings.intern("afterbegin"),
             beforeend: strings.intern("beforeend"),
             afterend: strings.intern("afterend"),
+            get_elements_by_tag_name: strings.intern("getElementsByTagName"),
+            get_elements_by_class_name: strings.intern("getElementsByClassName"),
             append_data: strings.intern("appendData"),
             insert_data: strings.intern("insertData"),
             delete_data: strings.intern("deleteData"),

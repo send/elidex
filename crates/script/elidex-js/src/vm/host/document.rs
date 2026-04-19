@@ -32,11 +32,12 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
-    query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, collect_descendants_by_class_name, collect_descendants_by_tag_name,
+    parse_dom_selector, query_selector_in_subtree_all, query_selector_in_subtree_first,
+    wrap_entities_as_array, wrap_entity_or_null,
 };
 
-use elidex_ecs::{Attributes, Entity, NodeKind, TagType};
+use elidex_ecs::{Attributes, Entity, NodeKind};
 
 // ---------------------------------------------------------------------------
 // Tree walk from the receiver document.
@@ -144,31 +145,11 @@ pub(super) fn native_document_get_elements_by_tag_name(
     }
 
     let tag = coerce_first_arg_to_string(ctx, args)?;
-    let match_all = tag == "*";
     let doc_opt = document_receiver(ctx, this, "getElementsByTagName")?;
-    let entities: Vec<Entity> = {
-        let dom = ctx.host().dom();
-        match doc_opt {
-            Some(d) => {
-                let mut result = Vec::new();
-                dom.traverse_descendants(d, |entity| {
-                    if match_all {
-                        if dom.world().get::<&TagType>(entity).is_ok() {
-                            result.push(entity);
-                        }
-                    } else if let Ok(tt) = dom.world().get::<&TagType>(entity) {
-                        if tt.0.eq_ignore_ascii_case(&tag) {
-                            result.push(entity);
-                        }
-                    }
-                    true
-                });
-                result
-            }
-            None => Vec::new(),
-        }
+    let entities: Vec<Entity> = match doc_opt {
+        Some(d) => collect_descendants_by_tag_name(ctx.host().dom(), d, &tag),
+        None => Vec::new(),
     };
-
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
@@ -182,37 +163,12 @@ pub(super) fn native_document_get_elements_by_class_name(
     }
 
     let class_str = coerce_first_arg_to_string(ctx, args)?;
-
     let target_classes: Vec<&str> = class_str.split_whitespace().collect();
-    if target_classes.is_empty() {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
-    }
-
     let doc_opt = document_receiver(ctx, this, "getElementsByClassName")?;
-    let entities: Vec<Entity> = {
-        let dom = ctx.host().dom();
-        match doc_opt {
-            Some(d) => {
-                let mut result = Vec::new();
-                dom.traverse_descendants(d, |entity| {
-                    if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
-                        if let Some(cls) = attrs.get("class") {
-                            if target_classes
-                                .iter()
-                                .all(|tc| cls.split_whitespace().any(|ec| ec == *tc))
-                            {
-                                result.push(entity);
-                            }
-                        }
-                    }
-                    true
-                });
-                result
-            }
-            None => Vec::new(),
-        }
+    let entities: Vec<Entity> = match doc_opt {
+        Some(d) => collect_descendants_by_class_name(ctx.host().dom(), d, &target_classes),
+        None => Vec::new(),
     };
-
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
