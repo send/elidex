@@ -6,6 +6,7 @@ mod tests_array_prototype;
 mod tests_array_prototype_ext;
 mod tests_async;
 mod tests_bigint;
+mod tests_clone_node;
 mod tests_console;
 mod tests_create_event_object;
 mod tests_document_global;

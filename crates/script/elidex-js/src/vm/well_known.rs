@@ -190,6 +190,12 @@ pub(crate) struct WellKnownStrings {
     pub(crate) remove: StringId,
     pub(crate) matches: StringId,
     pub(crate) closest: StringId,
+    pub(crate) clone_node: StringId,
+    pub(crate) compare_document_position: StringId,
+    pub(crate) is_same_node: StringId,
+    pub(crate) is_equal_node: StringId,
+    pub(crate) owner_document: StringId,
+    pub(crate) get_root_node: StringId,
     // `Node.prototype.nodeName` constants for non-Element nodes.
     // Pre-interned so `native_node_get_node_name` returns a cached
     // `StringId` without per-call allocation.
@@ -380,6 +386,12 @@ impl WellKnownStrings {
             remove: strings.intern("remove"),
             matches: strings.intern("matches"),
             closest: strings.intern("closest"),
+            clone_node: strings.intern("cloneNode"),
+            compare_document_position: strings.intern("compareDocumentPosition"),
+            is_same_node: strings.intern("isSameNode"),
+            is_equal_node: strings.intern("isEqualNode"),
+            owner_document: strings.intern("ownerDocument"),
+            get_root_node: strings.intern("getRootNode"),
             hash_text: strings.intern("#text"),
             hash_comment: strings.intern("#comment"),
             hash_document: strings.intern("#document"),

@@ -34,7 +34,7 @@
 //!   `nodeType`, `nodeName`, `nodeValue`, `textContent`,
 //!   `isConnected`.
 //! - Methods:   `hasChildNodes`, `contains`, `appendChild`,
-//!   `removeChild`, `insertBefore`, `replaceChild`.
+//!   `removeChild`, `insertBefore`, `replaceChild`, `cloneNode`.
 //!
 //! Element-only members (`getAttribute`, `children`, `matches`, …)
 //! live on `Element.prototype` which chains here.
@@ -157,6 +157,7 @@ impl VmInner {
             (self.well_known.remove_child, native_node_remove_child),
             (self.well_known.insert_before, native_node_insert_before),
             (self.well_known.replace_child, native_node_replace_child),
+            (self.well_known.clone_node, native_node_clone_node),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -710,4 +711,68 @@ fn native_node_replace_child(
     }
     // Spec: returns the *replaced* (old) node.
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(old_node)))
+}
+
+// ---------------------------------------------------------------------------
+// cloneNode (WHATWG DOM §4.5)
+// ---------------------------------------------------------------------------
+
+/// `Node.prototype.cloneNode(deep?)` — allocate a new entity carrying
+/// the same `NodeKind` and payload as `this`.
+///
+/// Behaviour:
+/// - `deep` is coerced via `ToBoolean`; default is `false` (shallow).
+/// - Shallow clone copies attributes (Element) or character data
+///   (Text / Comment) only.
+/// - Deep clone additionally recurses through all light-tree
+///   descendants via [`elidex_ecs::EcsDom::clone_subtree`].
+/// - The returned wrapper's entity has no parent or siblings
+///   (WHATWG §4.5 "cloning steps" — the clone is an orphan).
+/// - Event listeners and shadow roots are **not** cloned.  WHATWG
+///   §4.5 explicitly excludes both; [`elidex_ecs::EcsDom::clone_subtree`]
+///   enforces it.
+fn native_node_clone_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(src) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let deep_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let deep = super::super::coerce::to_boolean(ctx.vm, deep_arg);
+
+    let new_entity = {
+        let dom = ctx.host().dom();
+        let new_root = dom.clone_subtree(src);
+        if !deep {
+            // Shallow: drop the cloned children so only the root
+            // survives.  `clone_subtree` is the only ECS entry
+            // point for cloning today — destroying the freshly
+            // linked children here keeps the public ECS surface
+            // narrow (no dedicated `clone_node_shallow`), at the
+            // cost of one extra allocation + despawn for shallow
+            // deep-tree cases.  Profile-driven optimisation (e.g.
+            // a native `EcsDom::clone_node_shallow`) is a straight
+            // swap if profiles demand it.
+            let kids: Vec<elidex_ecs::Entity> = dom.children_iter(new_root).collect();
+            for child in kids {
+                despawn_subtree(dom, child);
+            }
+        }
+        new_root
+    };
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+}
+
+/// Recursively despawn `entity` and everything underneath it, used to
+/// pare a clone subtree back to its root for the shallow path.
+/// [`elidex_ecs::EcsDom::destroy_entity`] only removes one node, so
+/// children would otherwise leak.
+fn despawn_subtree(dom: &mut elidex_ecs::EcsDom, entity: elidex_ecs::Entity) {
+    let kids: Vec<elidex_ecs::Entity> = dom.children_iter(entity).collect();
+    for c in kids {
+        despawn_subtree(dom, c);
+    }
+    let _ = dom.destroy_entity(entity);
 }
