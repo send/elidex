@@ -278,13 +278,23 @@ fn native_child_node_after(
     let Some(parent) = ctx.host().dom().get_parent(entity) else {
         return Ok(JsValue::Undefined);
     };
-    // Snapshot the receiver's next sibling BEFORE argument
-    // normalisation.  `convert_nodes_to_single_node_or_fragment`
-    // may detach `entity` if the caller included it in a multi-arg
-    // list (e.g. `a.after(b, a, c)`), which would leave the
-    // post-normalisation `get_next_sibling(entity)` returning a
-    // foreign chain or None and misplacing insertions.
-    let anchor_next = ctx.host().dom().get_next_sibling(entity);
+    // Snapshot ALL of `entity`'s following siblings BEFORE
+    // argument normalisation.  WHATWG §5.2.2 defines
+    // viableNextSibling as "first following sibling of this not in
+    // nodes" — computed against the ORIGINAL sibling chain, not
+    // whatever state `parent`'s children are in after
+    // `convert_nodes_to_single_node_or_fragment` has detached some
+    // of them into a wrapper fragment.
+    let following_siblings: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut out = Vec::new();
+        let mut cur = dom.get_next_sibling(entity);
+        while let Some(sib) = cur {
+            out.push(sib);
+            cur = dom.get_next_sibling(sib);
+        }
+        out
+    };
     let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
         return Ok(JsValue::Undefined);
     };
@@ -304,21 +314,19 @@ fn native_child_node_after(
             return Err(hierarchy_request_error("after"));
         }
     }
-    // Start the viable-next-sibling walk at the snapshotted
-    // anchor, not at a fresh `get_next_sibling(entity)` call
-    // (which would observe any reparenting caused by argument
-    // normalisation — see the snapshot comment above).
-    let mut ref_next = anchor_next;
+    // viableNextSibling = first sibling in the pre-normalisation
+    // snapshot that is NOT one of the nodes being inserted.
+    // Append (viableNextSibling == None) otherwise.
+    let viable_next = following_siblings
+        .iter()
+        .find(|&&sib| !children.iter().any(|&c| c == sib))
+        .copied();
     let mut err = None;
     for child in children {
         if child == entity {
             continue;
         }
-        if ref_next == Some(child) {
-            ref_next = ctx.host().dom().get_next_sibling(child);
-            continue;
-        }
-        let ok = match ref_next {
+        let ok = match viable_next {
             Some(r) => ctx.host().dom().insert_before(parent, child, r),
             None => ctx.host().dom().append_child(parent, child),
         };
@@ -349,11 +357,22 @@ fn native_child_node_replace_with(
     let Some(parent) = ctx.host().dom().get_parent(entity) else {
         return Ok(JsValue::Undefined);
     };
-    // Snapshot the receiver's next sibling BEFORE argument
-    // normalisation so the viable-next-sibling anchor reflects
-    // `entity`'s original position — normalisation may detach
-    // `entity` if the caller included it in the arg list.
-    let initial_next = ctx.host().dom().get_next_sibling(entity);
+    // Snapshot ALL of `entity`'s following siblings BEFORE
+    // argument normalisation — see the `after` rationale for why
+    // we cannot walk `get_next_sibling(cand)` after normalisation
+    // (normalisation detaches Node args into a wrapper fragment
+    // so the chain read off `cand` would follow the fragment's
+    // child list, not `parent`'s original children).
+    let following_siblings: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut out = Vec::new();
+        let mut cur = dom.get_next_sibling(entity);
+        while let Some(sib) = cur {
+            out.push(sib);
+            cur = dom.get_next_sibling(sib);
+        }
+        out
+    };
     // WHATWG DOM §5.2.2 `replaceWith`:
     // 1. viableNextSibling = first following sibling of `this` not
     //    in `nodes`; otherwise null.
@@ -391,19 +410,12 @@ fn native_child_node_replace_with(
             return Err(hierarchy_request_error("replaceWith"));
         }
     }
-    // Viable-next-sibling search: skip over any following sibling
-    // that appears in the args list (those will be moved into place
-    // by the insertion loop, so they're not a stable anchor).
-    // Starts from the pre-normalisation snapshot so an entity that
-    // was reparented during normalisation doesn't confuse the walk.
-    let mut viable_next = initial_next;
-    while let Some(cand) = viable_next {
-        if children.iter().any(|&c| c == cand) {
-            viable_next = ctx.host().dom().get_next_sibling(cand);
-        } else {
-            break;
-        }
-    }
+    // viableNextSibling = first sibling in the pre-normalisation
+    // snapshot that is NOT one of the nodes being inserted.
+    let viable_next = following_siblings
+        .iter()
+        .find(|&&sib| !children.iter().any(|&c| c == sib))
+        .copied();
     let _ = ctx.host().dom().remove_child(parent, entity);
     let mut err = None;
     for child in children {
