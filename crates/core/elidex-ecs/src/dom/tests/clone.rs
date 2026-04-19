@@ -99,6 +99,40 @@ fn clone_subtree_deep_copies_children_order() {
 }
 
 #[test]
+fn clone_subtree_infers_node_kind_from_payload_when_missing() {
+    // Legacy entities lacking `NodeKind` must not be misclassified as
+    // `NodeKind::Element` when they carry only `TextContent` /
+    // `CommentData` / `DocTypeData`.  The clone helper infers the
+    // kind from the payload components for this defensive path.
+    use hecs::World;
+
+    let mut dom = EcsDom::new();
+    // Hand-craft a legacy Text entity: `TextContent` + `TreeRelation`
+    // but no `NodeKind` component, mimicking pre-NodeKind creation.
+    let legacy_text = dom
+        .world_mut()
+        .spawn((TextContent("legacy".to_owned()), TreeRelation::default()));
+    // `NodeKind` is absent — deliberately not inserted.
+    let _ = &dom; // keep the borrow scope explicit
+                  // Sanity: confirm node_kind returns None.
+    assert!(dom.node_kind(legacy_text).is_none());
+
+    let clone = dom.clone_subtree(legacy_text).expect("clone_subtree");
+    // The clone must have inferred `NodeKind::Text` from the payload,
+    // and must carry a `TextContent` component.
+    assert_eq!(dom.node_kind(clone), Some(NodeKind::Text));
+    let text = dom
+        .world()
+        .get::<&TextContent>(clone)
+        .expect("cloned text data");
+    assert_eq!(text.0, "legacy");
+
+    // Suppress unused-import warning from the `World` import used only
+    // for documentation purposes above.
+    let _: &World = dom.world();
+}
+
+#[test]
 fn clone_subtree_on_destroyed_src_returns_none() {
     // The returned handle must never alias the original.  Prior to
     // the Option return type, a destroyed `src` echoed back as the

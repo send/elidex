@@ -843,12 +843,10 @@ impl EcsDom {
     /// clone into place.  Does **not** copy `ShadowRoot` or
     /// `EventListeners`.
     fn clone_node_shallow(&mut self, src: Entity) -> Entity {
-        // Determine node kind and snapshot the payload under a read
-        // borrow, then spawn under a mutable borrow.  Spawning a bare
-        // tuple first, then inserting components one at a time, keeps
-        // the hecs API happy (each component needs its own `insert_one`
-        // call).
-        let kind = self.node_kind(src).unwrap_or(NodeKind::Element);
+        // Snapshot the payload under a read borrow, then spawn under
+        // a mutable borrow.  Spawning a bare tuple first and then
+        // inserting components one at a time keeps the hecs API
+        // happy (each component needs its own `insert_one` call).
         // `.map(|t| (*t).clone())` — `*` dereferences the hecs `Ref`
         // so `clone()` clones the *data* rather than the reference
         // handle (which would keep `self.world` borrowed and block
@@ -874,6 +872,26 @@ impl EcsDom {
             .get::<&Attributes>(src)
             .ok()
             .map(|a| (*a).clone());
+        // Determine the destination `NodeKind`: prefer the source
+        // component if present, otherwise infer from the payload
+        // (defensive for entities that predate the `NodeKind`
+        // component — e.g. anywhere `is_element` would fall back to
+        // `TagType`).  Falling back to `Element` unconditionally
+        // misclassifies Text/Comment entities that lack `NodeKind`
+        // but carry a `TextContent` / `CommentData` payload.
+        let kind = self.node_kind(src).unwrap_or_else(|| {
+            if tag.is_some() {
+                NodeKind::Element
+            } else if text.is_some() {
+                NodeKind::Text
+            } else if comment.is_some() {
+                NodeKind::Comment
+            } else if doc_type.is_some() {
+                NodeKind::DocumentType
+            } else {
+                NodeKind::Element
+            }
+        });
 
         let dst = self.world.spawn((TreeRelation::default(), kind));
         if let Some(tag) = tag {
