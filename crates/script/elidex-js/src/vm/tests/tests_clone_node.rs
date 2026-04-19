@@ -128,6 +128,38 @@ fn clone_node_has_no_parent() {
 }
 
 #[test]
+fn clone_node_document_wrapper_has_document_methods() {
+    // A cloned Document must carry the same own-property suite as
+    // the bound document — `createElement`, `getElementById`,
+    // `body` accessor, etc.  Without the post-clone install these
+    // would silently be `undefined` on the clone.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    // Seed the bound document with a bit of structure so the deep
+    // clone has something to traverse.
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Force the bound document's methods to install by accessing one.
+    vm.eval("document.getElementById('dummy');").unwrap();
+    // Now clone the document and confirm methods survive on the clone.
+    vm.eval("globalThis.cloned = document.cloneNode(true);")
+        .unwrap();
+    let JsValue::String(sid) = vm.eval("typeof cloned.createElement;").unwrap() else {
+        panic!()
+    };
+    assert_eq!(vm.get_string(sid), "function");
+    let JsValue::String(sid2) = vm.eval("typeof cloned.getElementById;").unwrap() else {
+        panic!()
+    };
+    assert_eq!(vm.get_string(sid2), "function");
+    vm.unbind();
+}
+
+#[test]
 fn clone_node_allocates_distinct_entity() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

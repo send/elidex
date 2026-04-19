@@ -1060,7 +1060,21 @@ fn native_node_clone_node(
         }
         new_root
     };
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    // Stash the cloned NodeKind before `create_element_wrapper` so
+    // that we can patch the document-specific method suite onto the
+    // clone's wrapper — otherwise `document.cloneNode(true)` would
+    // surface a wrapper lacking `getElementById` / `createElement` /
+    // `body` / etc.
+    let is_document = matches!(
+        ctx.host().dom().node_kind(new_entity),
+        Some(NodeKind::Document)
+    );
+    let wrapper = ctx.vm.create_element_wrapper(new_entity);
+    if is_document {
+        ctx.vm
+            .install_document_methods_for_entity(new_entity, wrapper);
+    }
+    Ok(JsValue::Object(wrapper))
 }
 
 /// Recursively despawn `entity` and everything underneath it, used to

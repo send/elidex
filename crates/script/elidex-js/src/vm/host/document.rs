@@ -420,33 +420,50 @@ impl Vm {
     /// *must* populate it.  The "already installed" check below
     /// keeps rebind cycles O(1).
     pub(in crate::vm) fn install_document_methods_if_needed(&mut self, doc_wrapper: ObjectId) {
-        // Fast path: skip if this specific document entity already
-        // has its wrapper patched.  A per-entity set (rather than a
-        // VM-wide flag) is load-bearing — a single `Vm` can be bound
-        // to multiple document entities over its lifetime and each
-        // produces a **distinct** wrapper via `wrapper_cache`.  A
-        // global flag would skip install on every document after the
-        // first, leaving `getElementById` etc. missing on later ones.
+        // The bound document is the default target; cloned Document
+        // entities are installed separately via
+        // `VmInner::install_document_methods_for_entity` (invoked from
+        // `native_node_clone_node` after allocating the clone's
+        // wrapper).
         let doc_entity = self
             .host_data()
             .expect("install_document_methods_if_needed requires HostData")
             .document();
+        self.inner
+            .install_document_methods_for_entity(doc_entity, doc_wrapper);
+    }
+}
+
+impl super::super::VmInner {
+    /// Populate the document-specific own-property suite onto
+    /// `doc_wrapper`, keyed by `doc_entity` so repeated bind / clone
+    /// cycles skip the install.  Used by both
+    /// [`Vm::install_document_methods_if_needed`](super::super::Vm::install_document_methods_if_needed)
+    /// (bound document, each bind) and
+    /// `native_node_clone_node` (cloned Document entities).
+    ///
+    /// The per-entity idempotency set is load-bearing: a single VM
+    /// can host multiple Document entities over its lifetime (bound
+    /// document + clones), each with a distinct wrapper ObjectId, and
+    /// every one of them needs the install exactly once.
+    pub(in crate::vm) fn install_document_methods_for_entity(
+        &mut self,
+        doc_entity: elidex_ecs::Entity,
+        doc_wrapper: ObjectId,
+    ) {
         let already_installed = self
-            .host_data()
+            .host_data
+            .as_deref()
             .is_some_and(|hd| hd.document_methods_installed.contains(&doc_entity));
         if already_installed {
             return;
         }
-
-        self.inner.install_methods(doc_wrapper, DOCUMENT_METHODS);
-        self.inner
-            .install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
-        // ParentNode mixin (WHATWG §5.2.4) — `prepend` / `append` /
-        // `replaceChildren`.  Shares the natives with `Element.prototype`
-        // via `install_parent_node_mixin`.
-        self.inner.install_parent_node_mixin(doc_wrapper);
-
-        if let Some(hd) = self.host_data() {
+        self.install_methods(doc_wrapper, DOCUMENT_METHODS);
+        self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
+        // ParentNode mixin (WHATWG §5.2.4) shared with
+        // `Element.prototype`.
+        self.install_parent_node_mixin(doc_wrapper);
+        if let Some(hd) = self.host_data.as_deref_mut() {
             hd.document_methods_installed.insert(doc_entity);
         }
     }
