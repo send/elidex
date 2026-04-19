@@ -169,6 +169,45 @@ fn element_replace_children_preserves_tree_when_conversion_throws() {
 }
 
 #[test]
+fn element_prepend_ancestor_cycle_throws_before_mutation() {
+    // Pre-insertion validity (WHATWG §4.2.3): if a later arg is an
+    // ancestor of the receiver, `prepend(firstArg, ancestor)` must
+    // throw BEFORE firstArg is inserted — no partial mutation.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval(
+        "globalThis.grandparent = document.createElement('gp');\n\
+         grandparent.appendChild(p);\n\
+         globalThis.x = document.createElement('x');",
+    )
+    .unwrap();
+    let threw = vm
+        .eval(
+            "var err = null;\n\
+             try { p.prepend(x, grandparent); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    // `x` must NOT have been inserted — throw happened before
+    // the first insertion.
+    let JsValue::Boolean(x_in_p) = vm
+        .eval("Array.prototype.slice.call(p.childNodes).indexOf(x) !== -1;")
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(!x_in_p);
+    // Original children intact.
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 2.0);
+    vm.unbind();
+}
+
+#[test]
 fn element_replace_children_does_not_clear_parent_on_ancestor_cycle() {
     // Pre-insertion validity (WHATWG §4.2.3): if the flattened child
     // list contains a node that is an ancestor of (or equal to) the

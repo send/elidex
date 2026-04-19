@@ -79,6 +79,20 @@ fn native_parent_node_prepend(
         return Ok(JsValue::Undefined);
     };
     let children = nodes_to_insert(ctx, pair.0);
+    // Pre-insertion validity (WHATWG §4.2.3): reject ancestor
+    // cycles and self-insert BEFORE mutating the tree so a throw
+    // leaves the parent unchanged.  Same pattern as
+    // `replaceChildren` / `replaceWith`.
+    for &child in &children {
+        if ctx
+            .host()
+            .dom()
+            .is_light_tree_ancestor_or_self(child, parent)
+        {
+            finalize_pair(ctx, pair, false);
+            return Err(hierarchy_request_error("prepend"));
+        }
+    }
     // Track the "reference child" we insert before.  Starts as the
     // parent's current first child; if we'd insert a node as its own
     // reference, advance to that node's next sibling (WHATWG
@@ -117,6 +131,19 @@ fn native_parent_node_append(
         return Ok(JsValue::Undefined);
     };
     let children = nodes_to_insert(ctx, pair.0);
+    // Pre-insertion validity (WHATWG §4.2.3): cycle / self-insert
+    // rejection BEFORE any mutation, matching the rest of the
+    // ParentNode / ChildNode mixin.
+    for &child in &children {
+        if ctx
+            .host()
+            .dom()
+            .is_light_tree_ancestor_or_self(child, parent)
+        {
+            finalize_pair(ctx, pair, false);
+            return Err(hierarchy_request_error("append"));
+        }
+    }
     let mut err = None;
     for child in children {
         if !ctx.host().dom().append_child(parent, child) {

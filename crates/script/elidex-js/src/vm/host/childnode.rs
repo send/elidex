@@ -215,6 +215,25 @@ fn native_child_node_before(
         return Ok(JsValue::Undefined);
     };
     let children = nodes_to_insert(ctx, pair.0);
+    // Pre-insertion validity (WHATWG §4.2.3): reject ancestor
+    // cycles / self-insert-into-parent BEFORE any mutation.  The
+    // `child == entity` no-op is allowed — inserting the receiver
+    // before itself leaves the tree unchanged and is NOT an
+    // ancestor-of-parent case (entity is parent's child, not
+    // parent's ancestor).
+    for &child in &children {
+        if child == entity {
+            continue;
+        }
+        if ctx
+            .host()
+            .dom()
+            .is_light_tree_ancestor_or_self(child, parent)
+        {
+            finalize_pair(ctx, pair, false);
+            return Err(hierarchy_request_error("before"));
+        }
+    }
     let mut err = None;
     for child in children {
         // WHATWG ChildNode.before: `el.before(el)` is a no-op per the
@@ -251,6 +270,21 @@ fn native_child_node_after(
         return Ok(JsValue::Undefined);
     };
     let children = nodes_to_insert(ctx, pair.0);
+    // Pre-insertion validity (WHATWG §4.2.3): cycle / self-insert
+    // rejection BEFORE any mutation, mirroring `before` above.
+    for &child in &children {
+        if child == entity {
+            continue;
+        }
+        if ctx
+            .host()
+            .dom()
+            .is_light_tree_ancestor_or_self(child, parent)
+        {
+            finalize_pair(ctx, pair, false);
+            return Err(hierarchy_request_error("after"));
+        }
+    }
     // Track the "viable next sibling" starting at `entity.nextSibling`.
     // Per WHATWG pre-insert: if we'd insert a node as its own
     // reference, advance the reference past it (no-op, preserves the
