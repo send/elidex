@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 24],
+    proto_roots: [Option<ObjectId>; 25],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -644,6 +644,11 @@ impl VmInner {
                 // 23 (PR4e post-CharacterData/Text) + 1 (DocumentType) = 24.
                 #[cfg(feature = "engine")]
                 self.document_type_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 24 + 1 (HTMLIFrameElement, PR4f C8) = 25.
+                #[cfg(feature = "engine")]
+                self.html_iframe_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],

@@ -42,6 +42,7 @@ pub(super) mod event_target;
 pub(super) mod events;
 pub(super) mod globals;
 pub(super) mod history;
+pub(super) mod html_iframe_proto;
 pub(super) mod location;
 pub(super) mod navigation;
 pub(super) mod navigator;

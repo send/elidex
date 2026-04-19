@@ -207,6 +207,24 @@ mod engine_feature {
             dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
         }
 
+        /// ASCII-case-insensitive tag-name match — used by
+        /// `create_element_wrapper`'s per-tag prototype dispatch
+        /// (e.g. `<iframe>` → `HTMLIFrameElement.prototype`).
+        ///
+        /// Aliasing contract mirrors [`Self::is_element_entity`]: no
+        /// `&mut EcsDom` must be live at the call site.
+        #[allow(unsafe_code)]
+        pub fn tag_matches_ascii_case(&self, entity: Entity, tag: &str) -> bool {
+            if !self.is_bound() {
+                return false;
+            }
+            // SAFETY: see `is_element_entity`.
+            let dom = unsafe { &*self.dom_ptr };
+            dom.world()
+                .get::<&elidex_ecs::TagType>(entity)
+                .is_ok_and(|t| t.0.eq_ignore_ascii_case(tag))
+        }
+
         /// Classify `entity` into a [`PrototypeKind`] used by
         /// `create_element_wrapper` to pick the appropriate wrapper
         /// prototype in a single ECS lookup.  Returns

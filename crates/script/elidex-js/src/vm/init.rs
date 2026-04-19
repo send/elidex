@@ -97,6 +97,8 @@ impl Vm {
                 text_prototype: None,
                 #[cfg(feature = "engine")]
                 document_type_prototype: None,
+                #[cfg(feature = "engine")]
+                html_iframe_prototype: None,
                 window_prototype: None,
                 event_methods_prototype: None,
                 #[cfg(feature = "engine")]

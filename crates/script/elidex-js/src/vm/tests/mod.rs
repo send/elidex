@@ -27,6 +27,7 @@ mod tests_gc_audit;
 mod tests_generator;
 mod tests_history;
 mod tests_host_object;
+mod tests_html_iframe;
 mod tests_insert_adjacent;
 mod tests_json;
 mod tests_location;

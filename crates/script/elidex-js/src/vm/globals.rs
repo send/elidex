@@ -217,6 +217,14 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_element_prototype();
 
+        // HTMLIFrameElement.prototype — tag-specific layer for
+        // <iframe> wrappers.  PR5b will splice HTMLElement.prototype
+        // between HTMLIFrameElement.prototype and Element.prototype;
+        // see `html_iframe_proto.rs` "PR5b CHECKLIST" for the
+        // migration invariant that must be honoured at that point.
+        #[cfg(feature = "engine")]
+        self.register_html_iframe_prototype();
+
         // Window.prototype — prototype for the `globalThis` `HostObject`
         // (WHATWG HTML §7.2).  Must run *after*
         // `register_event_target_prototype` because the Window prototype

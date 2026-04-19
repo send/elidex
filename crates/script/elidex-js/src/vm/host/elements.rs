@@ -113,9 +113,24 @@ impl VmInner {
                 hd.prototype_kind_for(entity)
             });
         let proto = match kind {
-            super::super::host_data::PrototypeKind::Element => self
-                .element_prototype
-                .expect("create_element_wrapper called before register_element_prototype"),
+            super::super::host_data::PrototypeKind::Element => {
+                // Tag-specific secondary lookup: <iframe> routes
+                // through `HTMLIFrameElement.prototype`.  Additional
+                // per-tag prototypes will slot in the same way
+                // (PR5b: HTMLElement for click/focus/hidden/…).
+                let is_iframe = self
+                    .host_data
+                    .as_deref()
+                    .is_some_and(|hd| hd.tag_matches_ascii_case(entity, "iframe"));
+                if is_iframe {
+                    self.html_iframe_prototype
+                        .or(self.element_prototype)
+                        .expect("create_element_wrapper called before register_element_prototype")
+                } else {
+                    self.element_prototype
+                        .expect("create_element_wrapper called before register_element_prototype")
+                }
+            }
             super::super::host_data::PrototypeKind::Text => {
                 // Text wrappers chain `Text.prototype →
                 // CharacterData.prototype`; fall back to

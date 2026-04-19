@@ -242,6 +242,16 @@ pub(crate) struct VmInner {
     /// `register_globals()` (after `register_node_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) document_type_prototype: Option<ObjectId>,
+    /// `HTMLIFrameElement.prototype` — tag-specific intermediate
+    /// prototype for `<iframe>` wrappers.  Chains to
+    /// `Element.prototype` today; PR5b will splice in
+    /// `HTMLElement.prototype` between the two as part of the wider
+    /// HTMLElement work (see plan §D2 for the migration invariant).
+    ///
+    /// `None` until `register_html_iframe_prototype()` runs during
+    /// `register_globals()` (after `register_element_prototype`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_iframe_prototype: Option<ObjectId>,
     /// `Window.prototype` — prototype for the `globalThis` / `window`
     /// `HostObject` (WHATWG HTML §7.2).  Inherits from
     /// `EventTarget.prototype` so `window.addEventListener` resolves
