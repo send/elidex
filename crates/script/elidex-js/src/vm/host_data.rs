@@ -16,9 +16,32 @@
 #[cfg(feature = "engine")]
 mod engine_feature {
     use super::super::value::ObjectId;
-    use elidex_ecs::Entity;
+    use elidex_ecs::{Entity, NodeKind};
     use elidex_script_session::ListenerId;
     use std::collections::{HashMap, HashSet};
+
+    /// Four-way partition of DOM wrapper prototype chains used by
+    /// [`super::super::VmInner::create_element_wrapper`].  A single
+    /// ECS component lookup yields the [`PrototypeKind`] so the
+    /// caller does not need to run independent `is_element_entity`
+    /// / `is_character_data_entity` checks.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum PrototypeKind {
+        /// Entity carries a `TagType` — Element wrapper chain:
+        /// `Element.prototype → Node.prototype → …`.
+        Element,
+        /// `NodeKind::Text` — chains via `Text.prototype →
+        /// CharacterData.prototype → Node.prototype → …`.
+        Text,
+        /// Other CharacterData (currently `Comment`; future
+        /// `ProcessingInstruction` / `CdataSection`) — chains via
+        /// `CharacterData.prototype → Node.prototype → …`.
+        OtherCharacterData,
+        /// Document, DocumentFragment, DocumentType, ShadowRoot, or
+        /// anything without a recognised `NodeKind`.  Chains directly
+        /// to `Node.prototype`.
+        OtherNode,
+    }
 
     pub struct HostData {
         session_ptr: *mut elidex_script_session::SessionCore,
@@ -180,6 +203,41 @@ mod engine_feature {
             dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
         }
 
+        /// Classify `entity` into a [`PrototypeKind`] used by
+        /// `create_element_wrapper` to pick the appropriate wrapper
+        /// prototype in a single ECS lookup.  Returns
+        /// [`PrototypeKind::OtherNode`] when the `HostData` is not
+        /// bound (pre-bind wrapper allocation paths).
+        ///
+        /// Aliasing contract mirrors [`Self::is_element_entity`] — the
+        /// caller must not hold a live `&mut EcsDom` produced via
+        /// [`Self::dom`] at the call site.
+        #[allow(unsafe_code)]
+        pub fn prototype_kind_for(&self, entity: Entity) -> PrototypeKind {
+            if !self.is_bound() {
+                return PrototypeKind::OtherNode;
+            }
+            // SAFETY: see `is_element_entity` — same contract.
+            let dom = unsafe { &*self.dom_ptr };
+            // Element has highest priority (matches the pre-PR4e
+            // behaviour of `is_element_entity` short-circuit).
+            if dom.world().get::<&elidex_ecs::TagType>(entity).is_ok() {
+                return PrototypeKind::Element;
+            }
+            match dom.node_kind(entity) {
+                Some(NodeKind::Text) => PrototypeKind::Text,
+                Some(NodeKind::Comment) => PrototypeKind::OtherCharacterData,
+                // CDATA / ProcessingInstruction would also be
+                // CharacterData per WHATWG §4.10; they are not
+                // created by the current parser but are listed here
+                // so future support is a one-line add.
+                Some(NodeKind::CdataSection | NodeKind::ProcessingInstruction) => {
+                    PrototypeKind::OtherCharacterData
+                }
+                _ => PrototypeKind::OtherNode,
+            }
+        }
+
         pub fn document(&self) -> Entity {
             assert!(self.is_bound(), "HostData accessed while unbound");
             self.document_entity.unwrap()
@@ -339,3 +397,5 @@ mod engine_feature {
 }
 
 pub use engine_feature::HostData;
+#[cfg(feature = "engine")]
+pub use engine_feature::PrototypeKind;

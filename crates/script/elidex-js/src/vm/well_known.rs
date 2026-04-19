@@ -196,6 +196,23 @@ pub(crate) struct WellKnownStrings {
     pub(crate) is_equal_node: StringId,
     pub(crate) owner_document: StringId,
     pub(crate) get_root_node: StringId,
+    // CharacterData (PR4e C5) method names.  `data` / `length` live
+    // elsewhere (`data` under event-payload keys above, `length`
+    // under core).
+    pub(crate) append_data: StringId,
+    pub(crate) insert_data: StringId,
+    pub(crate) delete_data: StringId,
+    pub(crate) replace_data: StringId,
+    pub(crate) substring_data: StringId,
+    // Text.prototype (PR4e C5.5)
+    pub(crate) split_text: StringId,
+    // ChildNode / ParentNode mixins (PR4e C6 / C7)
+    pub(crate) before: StringId,
+    pub(crate) after: StringId,
+    pub(crate) replace_with: StringId,
+    pub(crate) prepend: StringId,
+    pub(crate) append: StringId,
+    pub(crate) replace_children: StringId,
     // `Node.prototype.nodeName` constants for non-Element nodes.
     // Pre-interned so `native_node_get_node_name` returns a cached
     // `StringId` without per-call allocation.
@@ -392,6 +409,18 @@ impl WellKnownStrings {
             is_equal_node: strings.intern("isEqualNode"),
             owner_document: strings.intern("ownerDocument"),
             get_root_node: strings.intern("getRootNode"),
+            append_data: strings.intern("appendData"),
+            insert_data: strings.intern("insertData"),
+            delete_data: strings.intern("deleteData"),
+            replace_data: strings.intern("replaceData"),
+            substring_data: strings.intern("substringData"),
+            split_text: strings.intern("splitText"),
+            before: strings.intern("before"),
+            after: strings.intern("after"),
+            replace_with: strings.intern("replaceWith"),
+            prepend: strings.intern("prepend"),
+            append: strings.intern("append"),
+            replace_children: strings.intern("replaceChildren"),
             hash_text: strings.intern("#text"),
             hash_comment: strings.intern("#comment"),
             hash_document: strings.intern("#document"),
