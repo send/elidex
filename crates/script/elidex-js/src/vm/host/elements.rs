@@ -8,16 +8,24 @@
 //!    wrapper `ObjectId` is cached in `HostData::wrapper_cache`, keyed
 //!    by `Entity::to_bits().get()`.  A cache hit returns the existing
 //!    ObjectId without allocating.
-//! 2. **Prototype chain dispatched by node kind** — entities carrying
-//!    a `TagType` component receive `Element.prototype`; other Node
-//!    entities (Text / Comment / Document / DocumentFragment) fall
-//!    through to `Node.prototype` directly.  Both chains terminate
-//!    at `Object.prototype` via `Node.prototype → EventTarget.prototype`,
-//!    so Node-level members (`parentNode`, `nodeType`, `textContent`,
-//!    …) are visible on every DOM wrapper.  Window is wrapped
-//!    independently (see `vm/globals.rs`) and does *not* chain
-//!    through `Node.prototype` — Window is an EventTarget but not
-//!    a Node per WHATWG.
+//! 2. **Prototype chain dispatched by node kind** —
+//!    `HostData::prototype_kind_for` routes each entity to one of
+//!    four prototype chains:
+//!    - Element (`TagType` present) →
+//!      `Element.prototype → Node.prototype → EventTarget.prototype`
+//!    - Text (`NodeKind::Text` or legacy `TextContent`) →
+//!      `Text.prototype → CharacterData.prototype → Node.prototype`
+//!    - Other CharacterData (Comment / CDATA / PI) →
+//!      `CharacterData.prototype → Node.prototype`
+//!    - Other Node (Document / DocumentFragment / DocumentType /
+//!      unclassified) → `Node.prototype` directly.
+//!
+//!    All chains terminate at `Object.prototype` via `Node.prototype
+//!    → EventTarget.prototype`, so Node-level members (`parentNode`,
+//!    `nodeType`, `textContent`, …) are visible on every DOM wrapper.
+//!    Window is wrapped independently (see `vm/globals.rs`) and does
+//!    *not* chain through `Node.prototype` — Window is an
+//!    EventTarget but not a Node per WHATWG.
 //!
 //! The wrapper carries only `ObjectKind::HostObject { entity_bits }`
 //! and its prototype slot — no properties are installed at creation.
