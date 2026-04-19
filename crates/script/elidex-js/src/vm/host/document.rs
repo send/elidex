@@ -85,10 +85,12 @@ pub(super) fn native_document_get_element_by_id(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    let target = coerce_first_arg_to_string(ctx, args)?;
+    // WebIDL brand-check runs BEFORE argument ToString so an invalid
+    // receiver does not trigger user-supplied toString.
     let Some(doc) = document_receiver(ctx, this, "getElementById")? else {
         return Ok(JsValue::Null);
     };
+    let target = coerce_first_arg_to_string(ctx, args)?;
     let matched = ctx.host().dom().find_by_id(doc, &target);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
@@ -105,11 +107,12 @@ pub(super) fn native_document_query_selector(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
+    // Brand-check before argument ToString (WebIDL precedence).
     let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
         return Ok(JsValue::Null);
     };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
     let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
@@ -122,11 +125,12 @@ pub(super) fn native_document_query_selector_all(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
+    // Brand-check before argument ToString (WebIDL precedence).
     let Some(doc) = document_receiver(ctx, this, "querySelectorAll")? else {
         return Ok(JsValue::Null);
     };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
     let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
@@ -144,10 +148,16 @@ pub(super) fn native_document_get_elements_by_tag_name(
         return Ok(JsValue::Null);
     }
 
-    let tag = coerce_first_arg_to_string(ctx, args)?;
+    // Brand-check before argument ToString (WebIDL precedence).
+    // Mirrors the Element.prototype sibling; an invalid / non-
+    // Document receiver returns an empty Array without running the
+    // caller-supplied toString.
     let doc_opt = document_receiver(ctx, this, "getElementsByTagName")?;
     let entities: Vec<Entity> = match doc_opt {
-        Some(d) => collect_descendants_by_tag_name(ctx.host().dom(), d, &tag),
+        Some(d) => {
+            let tag = coerce_first_arg_to_string(ctx, args)?;
+            collect_descendants_by_tag_name(ctx.host().dom(), d, &tag)
+        }
         None => Vec::new(),
     };
     Ok(wrap_entities_as_array(ctx.vm, &entities))
@@ -162,11 +172,14 @@ pub(super) fn native_document_get_elements_by_class_name(
         return Ok(JsValue::Null);
     }
 
-    let class_str = coerce_first_arg_to_string(ctx, args)?;
-    let target_classes: Vec<&str> = class_str.split_whitespace().collect();
+    // Brand-check before argument ToString (WebIDL precedence).
     let doc_opt = document_receiver(ctx, this, "getElementsByClassName")?;
     let entities: Vec<Entity> = match doc_opt {
-        Some(d) => collect_descendants_by_class_name(ctx.host().dom(), d, &target_classes),
+        Some(d) => {
+            let class_str = coerce_first_arg_to_string(ctx, args)?;
+            let target_classes: Vec<&str> = class_str.split_whitespace().collect();
+            collect_descendants_by_class_name(ctx.host().dom(), d, &target_classes)
+        }
         None => Vec::new(),
     };
     Ok(wrap_entities_as_array(ctx.vm, &entities))
