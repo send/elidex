@@ -198,6 +198,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) is_equal_node: StringId,
     pub(crate) owner_document: StringId,
     pub(crate) get_root_node: StringId,
+    pub(crate) normalize: StringId,
     // CharacterData (PR4e C5) method names.  `data` / `length` live
     // elsewhere (`data` under event-payload keys above, `length`
     // under core).
@@ -413,6 +414,7 @@ impl WellKnownStrings {
             is_equal_node: strings.intern("isEqualNode"),
             owner_document: strings.intern("ownerDocument"),
             get_root_node: strings.intern("getRootNode"),
+            normalize: strings.intern("normalize"),
             append_data: strings.intern("appendData"),
             insert_data: strings.intern("insertData"),
             delete_data: strings.intern("deleteData"),

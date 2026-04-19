@@ -414,3 +414,108 @@ pub(super) fn native_node_clone_node(
     }
     Ok(JsValue::Object(wrapper))
 }
+
+// ---------------------------------------------------------------------------
+// Node.prototype.normalize — WHATWG DOM §4.4
+// ---------------------------------------------------------------------------
+
+/// `Node.prototype.normalize()` — WHATWG DOM §4.4.
+///
+/// For each exclusive Text descendant of `this`:
+/// - remove it if its data is empty, otherwise
+/// - absorb every following contiguous Text sibling's data and
+///   remove those siblings.
+///
+/// elidex details:
+/// - Iteration is snapshot-based (pre-order DFS via
+///   [`EcsDom::traverse_descendants`] which skips `ShadowRoot`) so
+///   the walk is safe against the in-loop mutations `remove_child`
+///   performs.
+/// - Text entities that a prior merge has detached from their parent
+///   are silently skipped — the outer pass can otherwise revisit a
+///   swallowed sibling.
+/// - Unbound / non-HostObject receivers are silent no-ops, matching
+///   every other Node method here.  Window wrappers never reach this
+///   native because `Window.prototype` does not chain through
+///   `Node.prototype`.
+/// - Live [`Range`] offset adjustment (spec steps 6.1-6.4) is skipped:
+///   elidex does not yet implement [`Range`], so there are no ranges
+///   to fix up.  `PR-Range` will re-visit this when `Range` lands.
+pub(super) fn native_node_normalize(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(root) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+
+    // --- Pass 1: snapshot every descendant Text entity in pre-order.
+    let dom = ctx.host().dom();
+    if !dom.contains(root) {
+        return Ok(JsValue::Undefined);
+    }
+    let mut text_nodes: Vec<Entity> = Vec::new();
+    dom.traverse_descendants(root, |entity| {
+        if matches!(dom.node_kind_inferred(entity), Some(NodeKind::Text)) {
+            text_nodes.push(entity);
+        }
+        true
+    });
+
+    // --- Pass 2: empty-data removal + contiguous-sibling merge.
+    for text in text_nodes {
+        let dom = ctx.host().dom();
+        if !dom.contains(text) {
+            // Already destroyed (defence — `remove_child` only
+            // detaches in this codebase, but stay resilient).
+            continue;
+        }
+        // A prior iteration may have merged this entry into an
+        // earlier Text and then detached it; detached nodes have no
+        // parent and are no longer descendants of `root`.
+        let Some(parent) = dom.get_parent(text) else {
+            continue;
+        };
+
+        let original = match dom.world().get::<&elidex_ecs::TextContent>(text) {
+            Ok(t) => t.0.clone(),
+            Err(_) => continue,
+        };
+        if original.is_empty() {
+            let _ = dom.remove_child(parent, text);
+            continue;
+        }
+
+        // Walk forward through contiguous Text siblings, collecting
+        // their data.  `get_next_sibling` is re-read each iteration
+        // because removing a sibling rewires the sibling chain.
+        let mut merged = original.clone();
+        loop {
+            let Some(next) = dom.get_next_sibling(text) else {
+                break;
+            };
+            if !matches!(dom.node_kind_inferred(next), Some(NodeKind::Text)) {
+                break;
+            }
+            let next_data = match dom.world().get::<&elidex_ecs::TextContent>(next) {
+                Ok(t) => t.0.clone(),
+                Err(_) => break,
+            };
+            merged.push_str(&next_data);
+            // `next` is a child of the same parent — by construction
+            // `get_next_sibling(text)` returns a sibling under
+            // `parent`.  `remove_child` detaches without destroying.
+            let _ = dom.remove_child(parent, next);
+        }
+
+        if merged != original {
+            if let Ok(mut t) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(text) {
+                t.0 = merged;
+            }
+            dom.rev_version(text);
+        }
+    }
+
+    Ok(JsValue::Undefined)
+}
