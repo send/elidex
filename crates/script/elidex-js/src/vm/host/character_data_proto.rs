@@ -155,9 +155,16 @@ fn wrong_receiver_error(method: &str) -> VmError {
 /// Overwrite the string data on `entity` based on its `NodeKind`.
 /// Returns `false` if the entity is neither a Text nor a Comment (the
 /// CharacterData methods are non-meaningful on other kinds).
+///
+/// Uses `node_kind_inferred` so legacy Text/Comment entities that lack
+/// an explicit `NodeKind` component are still accepted — `char_data_get`
+/// already reads them by component presence, and `HostData::prototype
+/// _kind_for` routes them onto `Text.prototype` / `CharacterData.
+/// prototype`, so every other code path treats them as first-class
+/// nodes.
 pub(super) fn char_data_set(ctx: &mut NativeContext<'_>, entity: Entity, data: String) -> bool {
     let dom = ctx.host().dom();
-    match dom.node_kind(entity) {
+    match dom.node_kind_inferred(entity) {
         Some(NodeKind::Text) => {
             if let Ok(mut text) = dom.world_mut().get::<&mut TextContent>(entity) {
                 text.0 = data;
