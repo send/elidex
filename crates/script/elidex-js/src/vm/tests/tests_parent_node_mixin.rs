@@ -240,7 +240,7 @@ fn element_append_document_fragment_flattens() {
     }
     make_parent_with_children(&mut vm);
     vm.eval(
-        "var f = document.createDocumentFragment();\n\
+        "globalThis.f = document.createDocumentFragment();\n\
          f.appendChild(document.createElement('x'));\n\
          f.appendChild(document.createElement('y'));\n\
          p.append(f);",
@@ -249,6 +249,37 @@ fn element_append_document_fragment_flattens() {
     assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 4.0);
     assert_eq!(eval_str(&mut vm, "p.childNodes[2].tagName;"), "X");
     assert_eq!(eval_str(&mut vm, "p.childNodes[3].tagName;"), "Y");
+    // WHATWG §4.2.3: after pre-insert, the fragment must be empty.
+    assert_eq!(eval_num(&mut vm, "f.childNodes.length;"), 0.0);
+    vm.unbind();
+}
+
+#[test]
+fn element_append_nested_document_fragment_flattens_and_empties_all() {
+    // Nested fragment: outer > inner > text.  After
+    // `parent.append(outer)`, every fragment along the path must
+    // be empty (WHATWG).  Before this fix, `outer.childNodes`
+    // still contained `inner` because only leaves moved.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.p = document.createElement('p');\n\
+         globalThis.outer = document.createDocumentFragment();\n\
+         globalThis.inner = document.createDocumentFragment();\n\
+         outer.appendChild(inner);\n\
+         inner.appendChild(document.createElement('leaf'));\n\
+         p.append(outer);",
+    )
+    .unwrap();
+    // Leaf ended up in parent.
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 1.0);
+    assert_eq!(eval_str(&mut vm, "p.childNodes[0].tagName;"), "LEAF");
+    // Both fragments must be empty after the insert.
+    assert_eq!(eval_num(&mut vm, "outer.childNodes.length;"), 0.0);
+    assert_eq!(eval_num(&mut vm, "inner.childNodes.length;"), 0.0);
     vm.unbind();
 }
 

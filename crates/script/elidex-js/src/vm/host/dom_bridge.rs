@@ -116,24 +116,27 @@ pub(super) fn query_selector_in_subtree_first(
     result
 }
 
-/// Recursively flatten `node` into the list of real nodes to insert.
-/// Any `DocumentFragment` — at any depth — expands to its light-tree
-/// children.
+/// Recursively flatten `node` into the list of real nodes to insert,
+/// draining every `DocumentFragment` encountered so that every
+/// traversed fragment ends up empty.  Non-fragment nodes are kept
+/// attached to their current parent — `EcsDom::append_child` /
+/// `insert_before` at insertion time reparents them.
 ///
-/// **Side-effect free**: the walk collects leaf entities without
-/// mutating the source tree.  `EcsDom::append_child` / `insert_before`
-/// at insertion time perform their own `detach` on the leaf, which
-/// naturally empties both our internally-allocated wrapper and any
-/// user-supplied nested fragments as each leaf moves.  If an
-/// insertion aborts mid-loop, the wrapper retains its unmoved leaves
-/// and user fragments stay unchanged — see
-/// [`super::childnode::destroy_wrapper_fragment_if_any`] for the
-/// matching cleanup discipline (detach-then-destroy on happy path,
-/// skip destroy on error).
+/// **Not side-effect free**: fragment-to-child links are severed
+/// during the walk.  This matches WHATWG §4.2.3 step 6 — after a
+/// successful pre-insert, the fragment argument (and every nested
+/// fragment reachable from it) becomes empty.  A purely lazy flatten
+/// would leave an intermediate fragment parented to its outer
+/// fragment even after its leaves moved, producing non-empty
+/// `outer.childNodes` for a nested argument — a spec-visible
+/// regression.
 ///
-/// WHATWG §4.2.3 step 6 mandates fragment flattening; our
-/// `EcsDom::append_child` is intentionally unaware of the spec-level
-/// rule, so we enforce it here at the call site.
+/// Failure mode: if a later `append_child` / `insert_before` call
+/// fails, the leaves already drained are now orphan nodes (detached
+/// but still reachable from user JS).  This matches the WHATWG
+/// "insert" algorithm, which empties the fragment at step 4.1 before
+/// the per-node append at step 6 — a partial failure there leaves
+/// the fragment empty and some leaves detached.
 pub(super) fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<Entity> {
     let mut out = Vec::new();
     flatten_into(ctx, node, &mut out);
@@ -141,16 +144,21 @@ pub(super) fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<
 }
 
 fn flatten_into(ctx: &mut NativeContext<'_>, node: Entity, out: &mut Vec<Entity>) {
-    if matches!(
+    if !matches!(
         ctx.host().dom().node_kind(node),
         Some(NodeKind::DocumentFragment)
     ) {
-        let children: Vec<Entity> = ctx.host().dom().children_iter(node).collect();
-        for child in children {
-            flatten_into(ctx, child, out);
-        }
-    } else {
         out.push(node);
+        return;
+    }
+    // Drain the fragment: snapshot children, detach each from
+    // `node`, then recurse.  By the time we return, `node` is empty
+    // (including any nested fragment `node` contained, because
+    // each nested fragment recurses into the same drain path).
+    let children: Vec<Entity> = ctx.host().dom().children_iter(node).collect();
+    for child in children {
+        let _ = ctx.host().dom().remove_child(node, child);
+        flatten_into(ctx, child, out);
     }
 }
 
