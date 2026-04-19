@@ -199,6 +199,13 @@ pub(crate) struct WellKnownStrings {
     pub(crate) owner_document: StringId,
     pub(crate) get_root_node: StringId,
     pub(crate) normalize: StringId,
+    // Element.prototype.insertAdjacent* (PR4f C4).
+    pub(crate) insert_adjacent_element: StringId,
+    pub(crate) insert_adjacent_text: StringId,
+    pub(crate) beforebegin: StringId,
+    pub(crate) afterbegin: StringId,
+    pub(crate) beforeend: StringId,
+    pub(crate) afterend: StringId,
     // CharacterData (PR4e C5) method names.  `data` / `length` live
     // elsewhere (`data` under event-payload keys above, `length`
     // under core).
@@ -415,6 +422,12 @@ impl WellKnownStrings {
             owner_document: strings.intern("ownerDocument"),
             get_root_node: strings.intern("getRootNode"),
             normalize: strings.intern("normalize"),
+            insert_adjacent_element: strings.intern("insertAdjacentElement"),
+            insert_adjacent_text: strings.intern("insertAdjacentText"),
+            beforebegin: strings.intern("beforebegin"),
+            afterbegin: strings.intern("afterbegin"),
+            beforeend: strings.intern("beforeend"),
+            afterend: strings.intern("afterend"),
             append_data: strings.intern("appendData"),
             insert_data: strings.intern("insertData"),
             delete_data: strings.intern("deleteData"),

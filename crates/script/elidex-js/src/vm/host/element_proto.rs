@@ -219,7 +219,8 @@ impl VmInner {
     }
 
     /// Install `matches(selector)` / `closest(selector)` +
-    /// `querySelector(selector)` / `querySelectorAll(selector)` on
+    /// `querySelector(selector)` / `querySelectorAll(selector)` +
+    /// `insertAdjacentElement` / `insertAdjacentText` on
     /// `proto_id`.  The querySelector family is subtree-scoped
     /// (WHATWG §4.2.6) — `this` itself is not a match candidate,
     /// only its light-tree descendants.
@@ -234,6 +235,14 @@ impl VmInner {
             (
                 self.well_known.query_selector_all,
                 native_element_query_selector_all,
+            ),
+            (
+                self.well_known.insert_adjacent_element,
+                native_element_insert_adjacent_element,
+            ),
+            (
+                self.well_known.insert_adjacent_text,
+                native_element_insert_adjacent_text,
             ),
         ] {
             let name = self.strings.get_utf8(name_sid);
@@ -718,4 +727,220 @@ fn native_element_closest(
         out
     };
     Ok(wrap_entity_or_null(ctx.vm, matched))
+}
+
+// ---------------------------------------------------------------------------
+// insertAdjacentElement / insertAdjacentText — WHATWG §4.9
+// ---------------------------------------------------------------------------
+
+/// Which of the four WHATWG `where` positions (ASCII case-insensitive)
+/// the caller passed to `insertAdjacent*`.
+#[derive(Clone, Copy)]
+enum InsertAdjacentWhere {
+    BeforeBegin,
+    AfterBegin,
+    BeforeEnd,
+    AfterEnd,
+}
+
+/// Parse the `where` argument into an [`InsertAdjacentWhere`], matching
+/// ASCII case-insensitively against the four WHATWG literals.
+fn parse_adjacent_position(raw: &str) -> Option<InsertAdjacentWhere> {
+    // `eq_ignore_ascii_case` is O(n) on byte length; there are four
+    // six-to-ten-byte literals so no optimisation is worthwhile.
+    if raw.eq_ignore_ascii_case("beforebegin") {
+        Some(InsertAdjacentWhere::BeforeBegin)
+    } else if raw.eq_ignore_ascii_case("afterbegin") {
+        Some(InsertAdjacentWhere::AfterBegin)
+    } else if raw.eq_ignore_ascii_case("beforeend") {
+        Some(InsertAdjacentWhere::BeforeEnd)
+    } else if raw.eq_ignore_ascii_case("afterend") {
+        Some(InsertAdjacentWhere::AfterEnd)
+    } else {
+        None
+    }
+}
+
+/// TypeError thrown when `where` is not one of the four spec literals.
+///
+/// TODO(PR5a): upgrade `TypeError` → `DOMException("SyntaxError")`
+/// when DOMException lands.  All callers embed the method name so the
+/// message stays aligned with WHATWG `insertAdjacent*` step 1.
+fn adjacent_syntax_error(method: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'Element': \
+         the value provided ('where') is not one of \
+         'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'."
+    ))
+}
+
+/// TypeError thrown when the second argument of `insertAdjacentElement`
+/// is not an Element wrapper.  Matches the Blink / Gecko message form.
+fn adjacent_element_arg_error() -> VmError {
+    VmError::type_error(
+        "Failed to execute 'insertAdjacentElement' on 'Element': \
+         parameter 2 is not of type 'Element'."
+            .to_owned(),
+    )
+}
+
+/// TypeError thrown when `insertAdjacent*` fails pre-insertion validity
+/// (cycle / ancestor self-insert / destroyed entity).
+///
+/// TODO(PR5a): upgrade `TypeError` → `DOMException("HierarchyRequestError")`
+/// when DOMException lands.
+fn adjacent_hierarchy_error(method: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'Element': \
+         the new child node cannot be inserted at this position."
+    ))
+}
+
+/// Extract an Element [`Entity`] from a method argument, throwing a
+/// WebIDL-style `TypeError` on any non-Element value (including
+/// `null` / `undefined` / non-HostObject objects / HostObjects that
+/// are not `NodeKind::Element`).
+fn require_element_arg(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<Entity, VmError> {
+    let JsValue::Object(id) = value else {
+        return Err(adjacent_element_arg_error());
+    };
+    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
+        return Err(adjacent_element_arg_error());
+    };
+    let entity = Entity::from_bits(entity_bits).ok_or_else(adjacent_element_arg_error)?;
+    match ctx.host().dom().node_kind_inferred(entity) {
+        Some(NodeKind::Element) => Ok(entity),
+        _ => Err(adjacent_element_arg_error()),
+    }
+}
+
+/// Perform the insertion step of `insertAdjacent*` (WHATWG §4.9).
+/// `target` is the method receiver; `node` is the Element / Text to
+/// insert.  Returns `Ok(Some(node))` when the insert succeeded,
+/// `Ok(None)` when `where` is `beforebegin` / `afterend` but the
+/// receiver has no parent (spec: return `null` without throwing), and
+/// `Err` when `EcsDom` rejects the insertion (cycle / destroyed).
+fn perform_adjacent_insert(
+    ctx: &mut NativeContext<'_>,
+    target: Entity,
+    node: Entity,
+    pos: InsertAdjacentWhere,
+    method: &str,
+) -> Result<Option<Entity>, VmError> {
+    let dom = ctx.host().dom();
+    match pos {
+        InsertAdjacentWhere::BeforeBegin => {
+            let Some(parent) = dom.get_parent(target) else {
+                return Ok(None);
+            };
+            if !dom.insert_before(parent, node, target) {
+                return Err(adjacent_hierarchy_error(method));
+            }
+            Ok(Some(node))
+        }
+        InsertAdjacentWhere::AfterBegin => {
+            if let Some(first) = dom.children_iter(target).next() {
+                if !dom.insert_before(target, node, first) {
+                    return Err(adjacent_hierarchy_error(method));
+                }
+            } else if !dom.append_child(target, node) {
+                return Err(adjacent_hierarchy_error(method));
+            }
+            Ok(Some(node))
+        }
+        InsertAdjacentWhere::BeforeEnd => {
+            if !dom.append_child(target, node) {
+                return Err(adjacent_hierarchy_error(method));
+            }
+            Ok(Some(node))
+        }
+        InsertAdjacentWhere::AfterEnd => {
+            let Some(parent) = dom.get_parent(target) else {
+                return Ok(None);
+            };
+            match dom.get_next_sibling(target) {
+                Some(next) => {
+                    if !dom.insert_before(parent, node, next) {
+                        return Err(adjacent_hierarchy_error(method));
+                    }
+                }
+                None => {
+                    if !dom.append_child(parent, node) {
+                        return Err(adjacent_hierarchy_error(method));
+                    }
+                }
+            }
+            Ok(Some(node))
+        }
+    }
+}
+
+/// `Element.prototype.insertAdjacentElement(where, element)` —
+/// WHATWG DOM §4.9.
+pub(super) fn native_element_insert_adjacent_element(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(target) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "Element",
+        "insertAdjacentElement",
+        |k| k == NodeKind::Element,
+    )?
+    else {
+        return Ok(JsValue::Null);
+    };
+    let where_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let where_raw = super::super::coerce::to_string(ctx.vm, where_arg)?;
+    let where_str = ctx.vm.strings.get_utf8(where_raw);
+    let pos = parse_adjacent_position(&where_str)
+        .ok_or_else(|| adjacent_syntax_error("insertAdjacentElement"))?;
+
+    let element_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let node = require_element_arg(ctx, element_arg)?;
+    match perform_adjacent_insert(ctx, target, node, pos, "insertAdjacentElement")? {
+        Some(entity) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(entity))),
+        None => Ok(JsValue::Null),
+    }
+}
+
+/// `Element.prototype.insertAdjacentText(where, data)` —
+/// WHATWG DOM §4.9.
+pub(super) fn native_element_insert_adjacent_text(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(target) =
+        super::event_target::require_receiver(ctx, this, "Element", "insertAdjacentText", |k| {
+            k == NodeKind::Element
+        })?
+    else {
+        return Ok(JsValue::Undefined);
+    };
+    let where_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let where_raw = super::super::coerce::to_string(ctx.vm, where_arg)?;
+    let where_str = ctx.vm.strings.get_utf8(where_raw);
+    let pos = parse_adjacent_position(&where_str)
+        .ok_or_else(|| adjacent_syntax_error("insertAdjacentText"))?;
+
+    // `where` validity is checked BEFORE we allocate the Text — avoids
+    // leaving an orphan Text in `EcsDom` when the position is bogus.
+    let data_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let data_sid = super::super::coerce::to_string(ctx.vm, data_arg)?;
+    let data = ctx.vm.strings.get_utf8(data_sid);
+    // WHATWG §4.9 step 2: the Text's node document is *target's* node
+    // document, so thread the receiver's owner document through the
+    // owner-aware creator (PR4f C2).
+    let owner_doc = ctx.host().dom().owner_document(target);
+    let text_entity = ctx.host().dom().create_text_with_owner(data, owner_doc);
+    // Parent-less receiver with beforebegin/afterend yields null per
+    // spec for insertAdjacentElement; insertAdjacentText spec says to
+    // still call insertAdjacentElement but discard its result — a
+    // successful no-op.  We mirror Blink: no-op return when the
+    // element cannot be inserted due to missing parent.
+    let _ = perform_adjacent_insert(ctx, target, text_entity, pos, "insertAdjacentText")?;
+    Ok(JsValue::Undefined)
 }
