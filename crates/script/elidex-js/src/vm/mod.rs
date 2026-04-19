@@ -213,6 +213,27 @@ pub(crate) struct VmInner {
     /// straight to `Node.prototype`.  `None` until
     /// `register_element_prototype()` runs during `register_globals()`.
     pub(crate) element_prototype: Option<ObjectId>,
+    /// `CharacterData.prototype` — shared prototype for Text and
+    /// Comment wrappers (WHATWG DOM §4.10).  Chains to `Node.prototype`
+    /// and carries the `data` / `length` accessors plus the
+    /// `appendData` / `insertData` / `deleteData` / `replaceData` /
+    /// `substringData` methods.  Text has a further intermediate
+    /// `Text.prototype` (see [`Self::text_prototype`]) that chains
+    /// here, so `splitText` stays off Comment wrappers.
+    ///
+    /// `None` until `register_character_data_prototype()` runs during
+    /// `register_globals()` (between `register_node_prototype` and
+    /// `register_element_prototype`).
+    #[cfg(feature = "engine")]
+    pub(crate) character_data_prototype: Option<ObjectId>,
+    /// `Text.prototype` — intermediate prototype layer for Text
+    /// wrappers, carrying Text-only members (e.g. `splitText`).
+    /// Chains to `CharacterData.prototype`.
+    ///
+    /// `None` until `register_text_prototype()` runs during
+    /// `register_globals()` (right after the CharacterData prototype).
+    #[cfg(feature = "engine")]
+    pub(crate) text_prototype: Option<ObjectId>,
     /// `Window.prototype` — prototype for the `globalThis` / `window`
     /// `HostObject` (WHATWG HTML §7.2).  Inherits from
     /// `EventTarget.prototype` so `window.addEventListener` resolves

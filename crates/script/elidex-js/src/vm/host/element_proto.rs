@@ -46,11 +46,12 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, tree_nav_getter, wrap_entity_or_null,
+    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
+    query_selector_in_subtree_first, tree_nav_getter, wrap_entities_as_array, wrap_entity_or_null,
 };
 use super::event_target::entity_from_this;
 
-use elidex_ecs::{Entity, TagType};
+use elidex_ecs::{Entity, NodeKind, TagType};
 
 impl VmInner {
     /// Allocate `Element.prototype` whose parent is
@@ -78,7 +79,18 @@ impl VmInner {
         self.element_prototype = Some(proto_id);
         self.install_element_tree_nav(proto_id);
         self.install_element_attributes(proto_id);
-        self.install_element_child_node(proto_id);
+        // ChildNode mixin (WHATWG §5.2.2) — `before` / `after` /
+        // `replaceWith` / `remove`.  The same native fns are installed
+        // on `CharacterData.prototype` from
+        // `register_character_data_prototype`, matching WHATWG's
+        // mixin-on-multiple-interfaces pattern.
+        self.install_child_node_mixin(proto_id);
+        // ParentNode mixin (WHATWG §5.2.4) — `prepend` / `append` /
+        // `replaceChildren`.  The document wrapper gets its own copy
+        // patched per-bind in `install_document_methods_if_needed`.
+        // DocumentFragment wrappers currently chain via Node.prototype
+        // and so do not see these members yet.
+        self.install_parent_node_mixin(proto_id);
         self.install_element_matches(proto_id);
     }
 
@@ -206,11 +218,23 @@ impl VmInner {
         }
     }
 
-    /// Install `matches(selector)` / `closest(selector)` on `proto_id`.
+    /// Install `matches(selector)` / `closest(selector)` +
+    /// `querySelector(selector)` / `querySelectorAll(selector)` on
+    /// `proto_id`.  The querySelector family is subtree-scoped
+    /// (WHATWG §4.2.6) — `this` itself is not a match candidate,
+    /// only its light-tree descendants.
     fn install_element_matches(&mut self, proto_id: ObjectId) {
         for (name_sid, func) in [
             (self.well_known.matches, native_element_matches as NativeFn),
             (self.well_known.closest, native_element_closest),
+            (
+                self.well_known.query_selector,
+                native_element_query_selector,
+            ),
+            (
+                self.well_known.query_selector_all,
+                native_element_query_selector_all,
+            ),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -221,28 +245,6 @@ impl VmInner {
                 shape::PropertyAttrs::METHOD,
             );
         }
-    }
-
-    /// Install ChildNode-mixin methods on `proto_id`.  WHATWG DOM
-    /// §5.2.2: ChildNode is implemented by Element / CharacterData /
-    /// DocumentType.  We expose only `remove()` on Element.prototype
-    /// here; a future PR that adds a `CharacterData.prototype` will
-    /// install the same member there (Text nodes currently cannot
-    /// call `remove()` — deferred).
-    ///
-    /// The tree-editing methods (`appendChild`, `removeChild`,
-    /// `insertBefore`, `replaceChild`) are **Node** members, not
-    /// ChildNode — they live on `Node.prototype`.
-    fn install_element_child_node(&mut self, proto_id: ObjectId) {
-        let name_sid = self.well_known.remove;
-        let name = self.strings.get_utf8(name_sid);
-        let fn_id = self.create_native_function(&name, native_element_remove);
-        self.define_shaped_property(
-            proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Data(JsValue::Object(fn_id)),
-            shape::PropertyAttrs::METHOD,
-        );
     }
 }
 
@@ -363,37 +365,25 @@ fn native_element_get_tag_name(
 }
 
 /// Read attribute `name` on `entity` as a String, or `None` if absent.
+///
+/// Thin shim around [`elidex_ecs::EcsDom::get_attribute`]; retained here
+/// to keep call sites terse and to enforce the `NativeContext` borrow
+/// discipline.
 fn attr_get(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) -> Option<String> {
-    let dom = ctx.host().dom();
-    dom.world()
-        .get::<&elidex_ecs::Attributes>(entity)
-        .ok()
-        .and_then(|attrs| attrs.get(name).map(str::to_owned))
+    ctx.host().dom().get_attribute(entity, name)
 }
 
-/// Set attribute `name` = `value` on `entity`, inserting an
-/// `Attributes` component if one does not exist.  Returns `false`
-/// when the entity has been destroyed.
+/// Set attribute `name` = `value` on `entity`.  Shim around
+/// [`elidex_ecs::EcsDom::set_attribute`].  Returns `false` when the
+/// entity has been destroyed.
 fn attr_set(ctx: &mut NativeContext<'_>, entity: Entity, name: &str, value: String) -> bool {
-    let dom = ctx.host().dom();
-    let has_component = dom.world().get::<&elidex_ecs::Attributes>(entity).is_ok();
-    if has_component {
-        if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
-            attrs.set(name, value);
-            return true;
-        }
-        return false;
-    }
-    let mut attrs = elidex_ecs::Attributes::default();
-    attrs.set(name, value);
-    dom.world_mut().insert_one(entity, attrs).is_ok()
+    ctx.host().dom().set_attribute(entity, name, value)
 }
 
+/// Remove attribute `name` from `entity`.  Shim around
+/// [`elidex_ecs::EcsDom::remove_attribute`].
 fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
-    let dom = ctx.host().dom();
-    if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
-        attrs.remove(name);
-    }
+    ctx.host().dom().remove_attribute(entity, name);
 }
 
 fn native_element_get_attribute(
@@ -618,27 +608,6 @@ fn native_element_set_class_name(
 }
 
 // ---------------------------------------------------------------------------
-// Natives: ChildNode mixin — `remove()`
-// ---------------------------------------------------------------------------
-
-fn native_element_remove(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Undefined);
-    };
-    // WHATWG ChildNode §5.2.2 `remove()`: if the node has no parent,
-    // do nothing.
-    let dom = ctx.host().dom();
-    if let Some(parent) = dom.get_parent(entity) {
-        let _ = dom.remove_child(parent, entity);
-    }
-    Ok(JsValue::Undefined)
-}
-
-// ---------------------------------------------------------------------------
 // Natives: matches / closest
 // ---------------------------------------------------------------------------
 
@@ -647,7 +616,11 @@ fn native_element_matches(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "Element", "matches", |k| {
+            k == NodeKind::Element
+        })?
+    else {
         return Ok(JsValue::Boolean(false));
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
@@ -657,12 +630,63 @@ fn native_element_matches(
     Ok(JsValue::Boolean(matched))
 }
 
+/// `Element.prototype.querySelector(selector)` (WHATWG §4.2.6).
+/// Subtree-scoped — `this` itself is never a match candidate, only
+/// its descendants.
+fn native_element_query_selector(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "Element", "querySelector", |k| {
+            k == NodeKind::Element
+        })?
+    else {
+        return Ok(JsValue::Null);
+    };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
+    let matched = query_selector_in_subtree_first(ctx.host().dom(), entity, &selectors);
+    Ok(wrap_entity_or_null(ctx.vm, matched))
+}
+
+/// `Element.prototype.querySelectorAll(selector)` — subtree-scoped,
+/// returns a snapshot Array (live NodeList lands with Observers).
+fn native_element_query_selector_all(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "Element", "querySelectorAll", |k| {
+            k == NodeKind::Element
+        })?
+    else {
+        // Unbound / non-HostObject receivers return `null`, matching
+        // the other Element-side object-returning helpers
+        // (`querySelector`, `closest`, `childNodes`).  HostObject
+        // receivers of the wrong kind (e.g. a Text or Document
+        // wrapper used via `Function.call`) throw TypeError via
+        // `require_receiver` above.
+        return Ok(JsValue::Null);
+    };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
+    let matched = query_selector_in_subtree_all(ctx.host().dom(), entity, &selectors);
+    Ok(wrap_entities_as_array(ctx.vm, &matched))
+}
+
 fn native_element_closest(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "Element", "closest", |k| {
+            k == NodeKind::Element
+        })?
+    else {
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;

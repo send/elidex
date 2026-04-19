@@ -107,19 +107,18 @@ fn element_wrapper_prototype_chain_element_node_event_target() {
 }
 
 #[test]
-fn text_wrapper_prototype_is_node_prototype() {
-    // Text nodes (no `TagType`) skip `Element.prototype` and chain
-    // straight to `Node.prototype` — so Element-only members
-    // (`getAttribute`, `children`, …) are not visible on them, but
-    // Node-common ones (`parentNode`, `textContent`, `appendChild`)
-    // still resolve.
+fn text_wrapper_prototype_is_text_prototype() {
+    // PR4e C5.5: Text wrappers' immediate prototype is
+    // `Text.prototype` which in turn chains to
+    // `CharacterData.prototype → Node.prototype → EventTarget.prototype`.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let text = dom.create_text("hello");
 
-    let node_proto = vm.inner.node_prototype;
+    let text_proto = vm.inner.text_prototype;
+    let char_data_proto = vm.inner.character_data_prototype;
 
     #[allow(unsafe_code)]
     unsafe {
@@ -129,8 +128,14 @@ fn text_wrapper_prototype_is_node_prototype() {
     let wrapper = vm.inner.create_element_wrapper(text);
     assert_eq!(
         vm.inner.get_object(wrapper).prototype,
-        node_proto,
-        "Text wrapper → Node.prototype (bypassing Element.prototype)"
+        text_proto,
+        "Text wrapper → Text.prototype"
+    );
+    // Chain check: Text.prototype → CharacterData.prototype.
+    assert_eq!(
+        vm.inner.get_object(text_proto.unwrap()).prototype,
+        char_data_proto,
+        "Text.prototype → CharacterData.prototype"
     );
 
     vm.unbind();

@@ -13,7 +13,7 @@ use super::super::VmInner;
 use super::event_target::entity_from_this;
 
 use elidex_css::{parse_selector_from_str, Selector};
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, NodeKind};
 
 /// Return `Option<Entity>` as a JS wrapper or `null` — no intermediate
 /// `ObjectId`, so callers can chain it straight into a `Result::Ok`.
@@ -87,4 +87,115 @@ pub(super) fn tree_nav_getter(
     };
     let target = lookup(ctx.host().dom(), entity);
     Ok(wrap_entity_or_null(ctx.vm, target))
+}
+
+/// Pre-order DFS over descendants of `root` looking for the first
+/// element that matches any selector in `selectors`.  `root` itself is
+/// **not** a match candidate — WHATWG §4.2.6 step 3.  Returns the
+/// matched entity, or `None` if none found.
+///
+/// Shared by both `document.querySelector` and
+/// `Element.prototype.querySelector`.
+pub(super) fn query_selector_in_subtree_first(
+    dom: &EcsDom,
+    root: Entity,
+    selectors: &[elidex_css::Selector],
+) -> Option<Entity> {
+    use elidex_ecs::TagType;
+    let mut result = None;
+    dom.traverse_descendants(root, |entity| {
+        if dom.world().get::<&TagType>(entity).is_ok()
+            && selectors.iter().any(|s| s.matches(entity, dom))
+        {
+            result = Some(entity);
+            false
+        } else {
+            true
+        }
+    });
+    result
+}
+
+/// Recursively flatten `node` into the list of real nodes to insert.
+/// `DocumentFragment` at any depth expands to its light-tree
+/// descendants; every other `NodeKind` becomes a single leaf entry.
+///
+/// **Side-effect free**: the walk reads children without mutating
+/// the source tree.  Fragment emptying happens separately in
+/// [`finalize_pair`] AFTER the insertion loop succeeds — draining
+/// during the walk would orphan leaves whenever a pre-insertion
+/// validity check (`replaceChildren` / `replaceWith`) later throws,
+/// because the detach would already have happened.
+pub(super) fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<Entity> {
+    let mut out = Vec::new();
+    flatten_into(ctx, node, &mut out);
+    out
+}
+
+fn flatten_into(ctx: &mut NativeContext<'_>, node: Entity, out: &mut Vec<Entity>) {
+    if !matches!(
+        ctx.host().dom().node_kind(node),
+        Some(NodeKind::DocumentFragment)
+    ) {
+        out.push(node);
+        return;
+    }
+    let children: Vec<Entity> = ctx.host().dom().children_iter(node).collect();
+    for child in children {
+        flatten_into(ctx, child, out);
+    }
+}
+
+/// Recursively detach every `DocumentFragment` descendant of `root`
+/// from its fragment parent.  Called on the **success path** of an
+/// insertion to finalise WHATWG §4.2.3's "fragment becomes empty
+/// after pre-insert" contract — leaves already moved during the
+/// insert loop, this pass empties the intermediate fragment
+/// scaffolding that the leaves were originally parented to.
+///
+/// Must NOT be called on an error path: some leaves may still be
+/// linked to the fragment tree, and detaching their fragment
+/// parents would leave them stranded in orphan fragments.
+pub(super) fn drain_fragment_descendants(ctx: &mut NativeContext<'_>, root: Entity) {
+    if !matches!(
+        ctx.host().dom().node_kind(root),
+        Some(NodeKind::DocumentFragment)
+    ) {
+        return;
+    }
+    let children: Vec<Entity> = ctx.host().dom().children_iter(root).collect();
+    for child in children {
+        if matches!(
+            ctx.host().dom().node_kind(child),
+            Some(NodeKind::DocumentFragment)
+        ) {
+            drain_fragment_descendants(ctx, child);
+            let _ = ctx.host().dom().remove_child(root, child);
+        }
+        // Non-fragment (leaf) children shouldn't linger on the
+        // success path — leaves already moved during the insert
+        // loop.  If one does stay (e.g. the caller skipped a
+        // leaf), leaving it attached is safer than an aggressive
+        // detach.
+    }
+}
+
+/// Pre-order DFS collecting every descendant of `root` matching any
+/// selector in `selectors`.  `root` itself is not a match candidate.
+pub(super) fn query_selector_in_subtree_all(
+    dom: &EcsDom,
+    root: Entity,
+    selectors: &[elidex_css::Selector],
+) -> Vec<Entity> {
+    use elidex_ecs::TagType;
+    let mut out = Vec::new();
+    dom.traverse_descendants(root, |entity| {
+        if dom.world().get::<&TagType>(entity).is_ok()
+            && selectors.iter().any(|s| s.matches(entity, dom))
+        {
+            out.push(entity);
+        }
+        true
+    });
+    out
 }

@@ -14,7 +14,12 @@
 //! - [`node_proto`] — `Node.prototype` intrinsic, carrying the
 //!   Node-common accessors (`parentNode`, `textContent`, …) and
 //!   tree-mutation methods (`appendChild`, …).  Chains to
-//!   `EventTarget.prototype`.
+//!   `EventTarget.prototype`.  `cloneNode` /
+//!   `compareDocumentPosition` / `isEqualNode` /
+//!   `ownerDocument` / `isSameNode` / `getRootNode` bodies live in
+//!   [`node_methods_extras`] to keep `node_proto.rs` under the
+//!   1000-line convention; the install-time references stay in
+//!   `node_proto`.
 //! - [`element_proto`] — `Element.prototype` intrinsic, carrying
 //!   Element-only members (`getAttribute`, `children`, `matches`, …).
 //!   Chains to `Node.prototype`.
@@ -25,6 +30,8 @@
 //!   used by both `document.rs` and Element / Node prototype natives.
 
 pub(crate) mod abort;
+pub(super) mod character_data_proto;
+pub(super) mod childnode;
 pub(super) mod document;
 pub(super) mod dom_bridge;
 pub(super) mod element_proto;
@@ -37,6 +44,9 @@ pub(super) mod history;
 pub(super) mod location;
 pub(super) mod navigation;
 pub(super) mod navigator;
+pub(super) mod node_methods_extras;
 pub(super) mod node_proto;
+pub(super) mod parentnode;
 pub(super) mod performance;
+pub(super) mod text_proto;
 pub(super) mod window;

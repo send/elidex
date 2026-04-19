@@ -71,6 +71,38 @@ fn attributes_accessors() {
 }
 
 #[test]
+fn ecs_dom_set_get_attribute_roundtrip() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    assert_eq!(dom.get_attribute(el, "id"), None);
+    assert!(dom.set_attribute(el, "id", "main".to_owned()));
+    assert_eq!(dom.get_attribute(el, "id"), Some("main".to_owned()));
+    // Second set overwrites in place.
+    assert!(dom.set_attribute(el, "id", "hero".to_owned()));
+    assert_eq!(dom.get_attribute(el, "id"), Some("hero".to_owned()));
+}
+
+#[test]
+fn ecs_dom_remove_attribute() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    assert!(dom.set_attribute(el, "class", "big".to_owned()));
+    dom.remove_attribute(el, "class");
+    assert_eq!(dom.get_attribute(el, "class"), None);
+    // Removing a missing attribute is a silent no-op.
+    dom.remove_attribute(el, "class");
+    dom.remove_attribute(el, "not-set");
+}
+
+#[test]
+fn ecs_dom_set_attribute_on_destroyed_entity_returns_false() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    dom.destroy_entity(el);
+    assert!(!dom.set_attribute(el, "id", "lost".to_owned()));
+}
+
+#[test]
 fn document_root_none_initially() {
     let dom = EcsDom::new();
     assert!(dom.document_root().is_none());

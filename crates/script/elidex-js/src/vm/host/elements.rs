@@ -8,16 +8,24 @@
 //!    wrapper `ObjectId` is cached in `HostData::wrapper_cache`, keyed
 //!    by `Entity::to_bits().get()`.  A cache hit returns the existing
 //!    ObjectId without allocating.
-//! 2. **Prototype chain dispatched by node kind** — entities carrying
-//!    a `TagType` component receive `Element.prototype`; other Node
-//!    entities (Text / Comment / Document / DocumentFragment) fall
-//!    through to `Node.prototype` directly.  Both chains terminate
-//!    at `Object.prototype` via `Node.prototype → EventTarget.prototype`,
-//!    so Node-level members (`parentNode`, `nodeType`, `textContent`,
-//!    …) are visible on every DOM wrapper.  Window is wrapped
-//!    independently (see `vm/globals.rs`) and does *not* chain
-//!    through `Node.prototype` — Window is an EventTarget but not
-//!    a Node per WHATWG.
+//! 2. **Prototype chain dispatched by node kind** —
+//!    `HostData::prototype_kind_for` routes each entity to one of
+//!    four prototype chains:
+//!    - Element (`TagType` present) →
+//!      `Element.prototype → Node.prototype → EventTarget.prototype`
+//!    - Text (`NodeKind::Text` or legacy `TextContent`) →
+//!      `Text.prototype → CharacterData.prototype → Node.prototype`
+//!    - Other CharacterData (Comment / CDATA / PI) →
+//!      `CharacterData.prototype → Node.prototype`
+//!    - Other Node (Document / DocumentFragment / DocumentType /
+//!      unclassified) → `Node.prototype` directly.
+//!
+//!    All chains terminate at `Object.prototype` via `Node.prototype
+//!    → EventTarget.prototype`, so Node-level members (`parentNode`,
+//!    `nodeType`, `textContent`, …) are visible on every DOM wrapper.
+//!    Window is wrapped independently (see `vm/globals.rs`) and does
+//!    *not* chain through `Node.prototype` — Window is an
+//!    EventTarget but not a Node per WHATWG.
 //!
 //! The wrapper carries only `ObjectKind::HostObject { entity_bits }`
 //! and its prototype slot — no properties are installed at creation.
@@ -75,38 +83,57 @@ impl VmInner {
             return existing;
         }
 
-        // Pick the prototype based on whether the entity is an
-        // Element (TagType present) or a non-Element Node (Text,
-        // Comment, Document, DocumentFragment, …):
+        // Pick the prototype based on the entity's DOM node kind.
+        // `prototype_kind_for` centralises the Element / Text /
+        // Comment / other-Node dispatch for wrapper creation:
         //
-        // - Element  → `Element.prototype` (chains through
-        //              Node.prototype → EventTarget.prototype).
-        // - Non-elem → `Node.prototype` directly (chains through
-        //              EventTarget.prototype).
+        // - Element             → `Element.prototype`
+        //                         (→ Node.prototype → EventTarget.prototype).
+        // - Text                → `Text.prototype`
+        //                         (→ CharacterData.prototype → Node.prototype).
+        // - Comment / PI / CDATA → `CharacterData.prototype`
+        //                         (→ Node.prototype).
+        // - Document / DocumentFragment / DocumentType / unbound
+        //                       → `Node.prototype` directly.
         //
-        // Both prototypes are populated during `register_globals`;
-        // missing them would mean the VM skipped initialisation
-        // entirely (a bug worth panicking on).  When `HostData` is
-        // not yet bound (pre-bind wrapper allocation) we fall back
-        // to the non-Element path; method calls on that wrapper
-        // still go through `entity_from_this`, which short-circuits
-        // to a no-op while unbound.
+        // Pre-bind / unbound wrapper allocation falls through to the
+        // OtherNode branch (Node.prototype); method calls on that
+        // wrapper route through `entity_from_this`, which
+        // short-circuits to a no-op while unbound.
         //
         // `Window` is NOT wrapped via this path — it gets an
         // independent `HostObject` allocated in `register_globals`
         // whose prototype chain skips `Node.prototype` so Node
         // members do not appear on `window` (WHATWG: Window is an
         // EventTarget but not a Node).
-        let is_element = self
+        let kind = self
             .host_data
             .as_deref()
-            .is_some_and(|hd| hd.is_element_entity(entity));
-        let proto = if is_element {
-            self.element_prototype
-                .expect("create_element_wrapper called before register_element_prototype")
-        } else {
-            self.node_prototype
-                .expect("create_element_wrapper called before register_node_prototype")
+            .map_or(super::super::host_data::PrototypeKind::OtherNode, |hd| {
+                hd.prototype_kind_for(entity)
+            });
+        let proto = match kind {
+            super::super::host_data::PrototypeKind::Element => self
+                .element_prototype
+                .expect("create_element_wrapper called before register_element_prototype"),
+            super::super::host_data::PrototypeKind::Text => {
+                // Text wrappers chain `Text.prototype →
+                // CharacterData.prototype`; fall back to
+                // `CharacterData.prototype` during the narrow
+                // bootstrap window after CharacterData is registered
+                // but before `register_text_prototype` runs.
+                self.text_prototype
+                    .or(self.character_data_prototype)
+                    .expect(
+                        "create_element_wrapper called before register_character_data_prototype",
+                    )
+            }
+            super::super::host_data::PrototypeKind::OtherCharacterData => self
+                .character_data_prototype
+                .expect("create_element_wrapper called before register_character_data_prototype"),
+            super::super::host_data::PrototypeKind::OtherNode => self
+                .node_prototype
+                .expect("create_element_wrapper called before register_node_prototype"),
         };
         let obj = self.alloc_object(Object {
             kind: ObjectKind::HostObject {

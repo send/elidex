@@ -265,6 +265,80 @@ impl EcsDom {
     pub fn node_kind(&self, entity: Entity) -> Option<NodeKind> {
         self.world.get::<&NodeKind>(entity).ok().map(|k| *k)
     }
+
+    /// Effective `NodeKind` — returns the explicit component when
+    /// present, otherwise infers from payload components for legacy
+    /// entities that predate the `NodeKind` component (same rules as
+    /// [`clone_node_shallow`](Self::clone_node_shallow) and
+    /// `HostData::prototype_kind_for`): `TagType` ⇒ `Element`,
+    /// `TextContent` ⇒ `Text`, `CommentData` ⇒ `Comment`,
+    /// `DocTypeData` ⇒ `DocumentType`.  Returns `None` only when no
+    /// kind component and no DOM payload is present.
+    ///
+    /// Use this in any code path that has to treat legacy entities
+    /// as real DOM nodes — e.g. `splitText` brand checks,
+    /// `isEqualNode` equality, variadic argument normalisation.
+    #[must_use]
+    pub fn node_kind_inferred(&self, entity: Entity) -> Option<NodeKind> {
+        if let Some(kind) = self.node_kind(entity) {
+            return Some(kind);
+        }
+        if self.world.get::<&TagType>(entity).is_ok() {
+            return Some(NodeKind::Element);
+        }
+        if self.world.get::<&TextContent>(entity).is_ok() {
+            return Some(NodeKind::Text);
+        }
+        if self.world.get::<&CommentData>(entity).is_ok() {
+            return Some(NodeKind::Comment);
+        }
+        if self.world.get::<&DocTypeData>(entity).is_ok() {
+            return Some(NodeKind::DocumentType);
+        }
+        None
+    }
+
+    // ---- Attribute accessors ----
+
+    /// Read attribute `name` on `entity`, returning `None` if the
+    /// `Attributes` component is absent or the key is not present.
+    #[must_use]
+    pub fn get_attribute(&self, entity: Entity, name: &str) -> Option<String> {
+        self.world
+            .get::<&Attributes>(entity)
+            .ok()
+            .and_then(|attrs| attrs.get(name).map(String::from))
+    }
+
+    /// Set attribute `name = value` on `entity`, inserting an
+    /// `Attributes` component if one does not exist.
+    ///
+    /// Returns `false` if the entity has been destroyed.
+    pub fn set_attribute(&mut self, entity: Entity, name: &str, value: String) -> bool {
+        if !self.contains(entity) {
+            return false;
+        }
+        let has_component = self.world.get::<&Attributes>(entity).is_ok();
+        if has_component {
+            if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
+                attrs.set(name, value);
+                return true;
+            }
+            return false;
+        }
+        let mut attrs = Attributes::default();
+        attrs.set(name, value);
+        self.world.insert_one(entity, attrs).is_ok()
+    }
+
+    /// Remove attribute `name` from `entity`.  No-op if the entity is
+    /// destroyed, the `Attributes` component is absent, or the key is
+    /// missing.
+    pub fn remove_attribute(&mut self, entity: Entity, name: &str) {
+        if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
+            attrs.remove(name);
+        }
+    }
 }
 
 /// Zero-allocation iterator over direct children of a DOM node.

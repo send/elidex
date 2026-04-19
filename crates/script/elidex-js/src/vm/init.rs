@@ -91,6 +91,10 @@ impl Vm {
                 event_target_prototype: None,
                 node_prototype: None,
                 element_prototype: None,
+                #[cfg(feature = "engine")]
+                character_data_prototype: None,
+                #[cfg(feature = "engine")]
+                text_prototype: None,
                 window_prototype: None,
                 event_methods_prototype: None,
                 #[cfg(feature = "engine")]

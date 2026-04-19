@@ -32,9 +32,10 @@
 //! - Accessors: `parentNode`, `parentElement`, `firstChild`,
 //!   `lastChild`, `nextSibling`, `previousSibling`, `childNodes`,
 //!   `nodeType`, `nodeName`, `nodeValue`, `textContent`,
-//!   `isConnected`.
+//!   `isConnected`, `ownerDocument`.
 //! - Methods:   `hasChildNodes`, `contains`, `appendChild`,
-//!   `removeChild`, `insertBefore`, `replaceChild`.
+//!   `removeChild`, `insertBefore`, `replaceChild`, `cloneNode`,
+//!   `isSameNode`, `getRootNode`.
 //!
 //! Element-only members (`getAttribute`, `children`, `matches`, …)
 //! live on `Element.prototype` which chains here.
@@ -49,6 +50,10 @@ use super::super::value::{
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::tree_nav_getter;
 use super::event_target::entity_from_this;
+use super::node_methods_extras::{
+    native_node_clone_node, native_node_compare_document_position, native_node_get_owner_document,
+    native_node_get_root_node, native_node_is_equal_node, native_node_is_same_node,
+};
 
 use elidex_ecs::{Entity, NodeKind, TagType};
 
@@ -100,6 +105,10 @@ impl VmInner {
             (self.well_known.node_type, native_node_get_node_type),
             (self.well_known.node_name, native_node_get_node_name),
             (self.well_known.is_connected, native_node_get_is_connected),
+            (
+                self.well_known.owner_document,
+                native_node_get_owner_document,
+            ),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let gid = self.create_native_function(&format!("get {name}"), getter);
@@ -157,6 +166,14 @@ impl VmInner {
             (self.well_known.remove_child, native_node_remove_child),
             (self.well_known.insert_before, native_node_insert_before),
             (self.well_known.replace_child, native_node_replace_child),
+            (self.well_known.clone_node, native_node_clone_node),
+            (self.well_known.is_same_node, native_node_is_same_node),
+            (self.well_known.get_root_node, native_node_get_root_node),
+            (self.well_known.is_equal_node, native_node_is_equal_node),
+            (
+                self.well_known.compare_document_position,
+                native_node_compare_document_position,
+            ),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -189,7 +206,7 @@ impl VmInner {
 ///   placeholder).  Window is an `EventTarget` but not a Node in
 ///   WHATWG, so accepting it would let `document.appendChild(window)`
 ///   graft a non-Node into the DOM tree.
-fn require_node_arg(
+pub(super) fn require_node_arg(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
@@ -211,7 +228,12 @@ fn require_node_arg(
             "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
         ))
     })?;
-    match ctx.host().dom().node_kind(entity) {
+    // Use the inferred kind so legacy DOM entities (payload present
+    // but no explicit `NodeKind` component) are accepted as Nodes —
+    // matches `normalize_single_arg`, `nodes_equal`, and
+    // `HostData::prototype_kind_for`.  Window is an `EventTarget`
+    // but not a Node, so it's rejected explicitly.
+    match ctx.host().dom().node_kind_inferred(entity) {
         None | Some(NodeKind::Window) => Err(not_a_node()),
         Some(_) => Ok(entity),
     }
@@ -711,3 +733,9 @@ fn native_node_replace_child(
     // Spec: returns the *replaced* (old) node.
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(old_node)))
 }
+
+// The `ownerDocument` / `isSameNode` / `getRootNode` /
+// `compareDocumentPosition` / `isEqualNode` / `cloneNode` bodies live
+// in `node_methods_extras.rs` so this file stays under the 1000-line
+// convention.  Install-time references come through the `use` at the
+// top of this file.

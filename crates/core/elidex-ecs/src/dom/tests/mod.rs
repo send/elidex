@@ -9,6 +9,7 @@ fn elem(dom: &mut EcsDom, tag: &'static str) -> Entity {
     dom.create_element(tag, Attributes::default())
 }
 
+mod clone;
 mod creation;
 mod destroy;
 mod node_kind;

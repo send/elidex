@@ -8,18 +8,21 @@
 //! - `getElementById(id)` — pre-order DFS from the document root
 //!   (WHATWG DOM §4.2.4 "document descendants").  Uses
 //!   `EcsDom::find_by_id`.
-//! - `createElement(tag)` / `createTextNode(data)` — allocate ECS
-//!   entities; the Element form returns a freshly-cached wrapper,
-//!   the Text form returns a host object keyed on the text entity
-//!   (no text-specific wrapper methods yet — PR4c lands textContent,
-//!   splitText, etc.).
+//! - `createElement(tag)` / `createTextNode(data)` /
+//!   `createComment(data)` / `createDocumentFragment()` — allocate
+//!   ECS entities and return their wrappers.  Text wrappers chain
+//!   through `Text.prototype → CharacterData.prototype →
+//!   Node.prototype → EventTarget.prototype` so `data`, `length`,
+//!   `splitText`, `appendData` etc. resolve on the returned handle;
+//!   Comment wrappers chain through `CharacterData.prototype`
+//!   directly; Fragment wrappers chain through `Node.prototype`.
 //! - `body` / `head` / `documentElement` — tree walk from the
 //!   document root looking for the first `<html>` child, then within
 //!   that for `<head>` / `<body>`.  Phase 2 returns `null` when the
 //!   structure is missing rather than synthesising fallback nodes.
 //! - `title` (get) — concatenates text children of the first
-//!   `<title>` element descending from `<head>`; setter lands in PR4c
-//!   alongside the rest of the attribute-manipulation surface.
+//!   `<title>` element descending from `<head>`; setter lands with
+//!   the rest of the HTMLDocument polish in PR4f.
 //! - `URL` / `documentURI` — `VmInner::navigation.current_url`.
 //! - `readyState` — stub returning `"complete"` (the VM has no notion
 //!   of document loading state yet; the shell owns that in PR6).
@@ -29,22 +32,44 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
+    query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
 };
 
-use elidex_ecs::{Attributes, Entity, TagType};
+use elidex_ecs::{Attributes, Entity, NodeKind, TagType};
 
 // ---------------------------------------------------------------------------
-// Tree walk from the document root.
+// Tree walk from the receiver document.
 // ---------------------------------------------------------------------------
 
-/// Locate the `<html>` root child of the bound document.  Returns
-/// `None` if there is no document entity or the document has no
-/// `<html>` child (e.g. empty tree).
-fn find_html_root(ctx: &mut NativeContext<'_>) -> Option<Entity> {
-    let doc = ctx.vm.host_data.as_deref()?.document_entity_opt()?;
+/// Resolve the target Document entity for a document-method call,
+/// with WebIDL branding.
+///
+/// - `Ok(Some(entity))`: bound HostObject receiver whose kind is
+///   `Document` — returned for the bound global and for cloned
+///   Document wrappers (so `cloned.querySelector(...)` searches
+///   the clone's subtree).
+/// - `Ok(None)`: unbound VM or non-HostObject `this` — silent
+///   no-op, matching the rest of elidex's unbound-receiver
+///   policy (post-unbind retained references must not panic).
+/// - `Err(TypeError)`: HostObject `this` whose kind is NOT
+///   `Document` (e.g. `docMethod.call(element)`).  WebIDL
+///   "Illegal invocation" brand check.
+fn document_receiver(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<Option<Entity>, VmError> {
+    super::event_target::require_receiver(ctx, this, "Document", method, |k| {
+        k == NodeKind::Document
+    })
+}
+
+/// Locate the `<html>` root child of `doc_entity`.  Returns `None`
+/// if the document has no `<html>` child (e.g. empty tree).
+fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<Entity> {
     let dom = ctx.host().dom();
-    dom.first_child_with_tag(doc, "html")
+    dom.first_child_with_tag(doc_entity, "html")
 }
 
 // ---------------------------------------------------------------------------
@@ -53,24 +78,17 @@ fn find_html_root(ctx: &mut NativeContext<'_>) -> Option<Entity> {
 
 pub(super) fn native_document_get_element_by_id(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
     let target = coerce_first_arg_to_string(ctx, args)?;
-
-    let matched: Option<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
-        let dom = ctx.host().dom();
-        doc.and_then(|d| dom.find_by_id(d, &target))
+    let Some(doc) = document_receiver(ctx, this, "getElementById")? else {
+        return Ok(JsValue::Null);
     };
+    let matched = ctx.host().dom().find_by_id(doc, &target);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
 
@@ -80,78 +98,35 @@ pub(super) fn native_document_get_element_by_id(
 
 pub(super) fn native_document_query_selector(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelector")?;
-
-    let matched: Option<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
-        let dom = ctx.host().dom();
-        doc.and_then(|d| {
-            let mut result = None;
-            dom.traverse_descendants(d, |entity| {
-                if dom.world().get::<&TagType>(entity).is_ok()
-                    && selectors.iter().any(|s| s.matches(entity, dom))
-                {
-                    result = Some(entity);
-                    false
-                } else {
-                    true
-                }
-            });
-            result
-        })
+    let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
+        return Ok(JsValue::Null);
     };
+    let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
 
 pub(super) fn native_document_query_selector_all(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
-
-    // Phase 1: collect entities while DOM is borrowed.
-    let entities: Vec<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
-        let dom = ctx.host().dom();
-        match doc {
-            Some(d) => {
-                let mut result = Vec::new();
-                dom.traverse_descendants(d, |entity| {
-                    if dom.world().get::<&TagType>(entity).is_ok()
-                        && selectors.iter().any(|s| s.matches(entity, dom))
-                    {
-                        result.push(entity);
-                    }
-                    true
-                });
-                result
-            }
-            None => Vec::new(),
-        }
+    let Some(doc) = document_receiver(ctx, this, "querySelectorAll")? else {
+        return Ok(JsValue::Null);
     };
-
+    let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
@@ -161,7 +136,7 @@ pub(super) fn native_document_query_selector_all(
 
 pub(super) fn native_document_get_elements_by_tag_name(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
@@ -170,14 +145,10 @@ pub(super) fn native_document_get_elements_by_tag_name(
 
     let tag = coerce_first_arg_to_string(ctx, args)?;
     let match_all = tag == "*";
+    let doc_opt = document_receiver(ctx, this, "getElementsByTagName")?;
     let entities: Vec<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
         let dom = ctx.host().dom();
-        match doc {
+        match doc_opt {
             Some(d) => {
                 let mut result = Vec::new();
                 dom.traverse_descendants(d, |entity| {
@@ -203,7 +174,7 @@ pub(super) fn native_document_get_elements_by_tag_name(
 
 pub(super) fn native_document_get_elements_by_class_name(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
@@ -217,14 +188,10 @@ pub(super) fn native_document_get_elements_by_class_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     }
 
+    let doc_opt = document_receiver(ctx, this, "getElementsByClassName")?;
     let entities: Vec<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
         let dom = ctx.host().dom();
-        match doc {
+        match doc_opt {
             Some(d) => {
                 let mut result = Vec::new();
                 dom.traverse_descendants(d, |entity| {
@@ -262,10 +229,13 @@ pub(super) fn native_document_get_elements_by_class_name(
 
 pub(super) fn native_document_create_element(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    if document_receiver(ctx, this, "createElement")?.is_none() {
         return Ok(JsValue::Null);
     }
 
@@ -273,34 +243,64 @@ pub(super) fn native_document_create_element(
     // "HTML document" branch.  We treat every bind as HTML.
     let tag = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
 
-    let new_entity = {
-        let dom = ctx.host().dom();
-        dom.create_element(tag, Attributes::default())
-    };
+    let new_entity = ctx.host().dom().create_element(tag, Attributes::default());
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
 pub(super) fn native_document_create_text_node(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
+    if document_receiver(ctx, this, "createTextNode")?.is_none() {
+        return Ok(JsValue::Null);
+    }
     let data = coerce_first_arg_to_string(ctx, args)?;
+    let new_entity = ctx.host().dom().create_text(data);
+    // Text wrappers chain through `Text.prototype →
+    // CharacterData.prototype → Node.prototype → …` so `data` /
+    // `length` / `splitText` resolve on the returned handle.
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+}
 
-    let new_entity = {
-        let dom = ctx.host().dom();
-        dom.create_text(data)
-    };
-    // Text nodes share the same HostObject wrapper surface as
-    // elements — the prototype chain climbs through
-    // `EventTarget.prototype` either way.  PR4c will install
-    // text-specific own-properties (`data`, `length`, `splitText`,
-    // etc.) on a dedicated `Text.prototype`; until then the wrapper
-    // simply identifies the underlying entity.
+/// `document.createComment(data)` — WHATWG DOM §4.5.  Allocates a
+/// Comment entity with the coerced `data` string and returns its
+/// wrapper.  Unbound receiver → `null` (matches the rest of the
+/// document method family).
+pub(super) fn native_document_create_comment(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    if document_receiver(ctx, this, "createComment")?.is_none() {
+        return Ok(JsValue::Null);
+    }
+    let data = coerce_first_arg_to_string(ctx, args)?;
+    let new_entity = ctx.host().dom().create_comment(data);
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+}
+
+/// `document.createDocumentFragment()` — WHATWG DOM §4.5.  Allocates
+/// a `DocumentFragment` entity that is **not** linked into any tree
+/// and returns its wrapper.  Unbound / non-Document receiver → `null`.
+pub(super) fn native_document_create_document_fragment(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    if document_receiver(ctx, this, "createDocumentFragment")?.is_none() {
+        return Ok(JsValue::Null);
+    }
+    let new_entity = ctx.host().dom().create_document_fragment();
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
@@ -310,44 +310,46 @@ pub(super) fn native_document_create_text_node(
 
 pub(super) fn native_document_get_document_element(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let html = find_html_root(ctx);
+    let html = document_receiver(ctx, this, "documentElement")?
+        .and_then(|doc| find_html_root_of(ctx, doc));
     Ok(wrap_entity_or_null(ctx.vm, html))
 }
 
 pub(super) fn native_document_get_head(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let head = find_html_root(ctx).and_then(|html| {
-        let dom = ctx.host().dom();
-        dom.first_child_with_tag(html, "head")
-    });
+    let head = document_receiver(ctx, this, "head")?
+        .and_then(|doc| find_html_root_of(ctx, doc))
+        .and_then(|html| ctx.host().dom().first_child_with_tag(html, "head"));
     Ok(wrap_entity_or_null(ctx.vm, head))
 }
 
 pub(super) fn native_document_get_body(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let body = find_html_root(ctx).and_then(|html| {
-        let dom = ctx.host().dom();
-        dom.first_child_with_tag(html, "body")
-    });
+    let body = document_receiver(ctx, this, "body")?
+        .and_then(|doc| find_html_root_of(ctx, doc))
+        .and_then(|html| ctx.host().dom().first_child_with_tag(html, "body"));
     Ok(wrap_entity_or_null(ctx.vm, body))
 }
 
 pub(super) fn native_document_get_title(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let title_text: String = {
-        let Some(html) = find_html_root(ctx) else {
+        let Some(doc) = document_receiver(ctx, this, "title")? else {
+            return Ok(JsValue::String(ctx.vm.well_known.empty));
+        };
+        let Some(html) = find_html_root_of(ctx, doc) else {
             return Ok(JsValue::String(ctx.vm.well_known.empty));
         };
         let dom = ctx.host().dom();
@@ -411,29 +413,50 @@ impl Vm {
     /// *must* populate it.  The "already installed" check below
     /// keeps rebind cycles O(1).
     pub(in crate::vm) fn install_document_methods_if_needed(&mut self, doc_wrapper: ObjectId) {
-        // Fast path: skip if this specific document entity already
-        // has its wrapper patched.  A per-entity set (rather than a
-        // VM-wide flag) is load-bearing — a single `Vm` can be bound
-        // to multiple document entities over its lifetime and each
-        // produces a **distinct** wrapper via `wrapper_cache`.  A
-        // global flag would skip install on every document after the
-        // first, leaving `getElementById` etc. missing on later ones.
+        // The bound document is the default target; cloned Document
+        // entities are installed separately via
+        // `VmInner::install_document_methods_for_entity` (invoked from
+        // `native_node_clone_node` after allocating the clone's
+        // wrapper).
         let doc_entity = self
             .host_data()
             .expect("install_document_methods_if_needed requires HostData")
             .document();
+        self.inner
+            .install_document_methods_for_entity(doc_entity, doc_wrapper);
+    }
+}
+
+impl super::super::VmInner {
+    /// Populate the document-specific own-property suite onto
+    /// `doc_wrapper`, keyed by `doc_entity` so repeated bind / clone
+    /// cycles skip the install.  Used by both
+    /// [`Vm::install_document_methods_if_needed`](super::super::Vm::install_document_methods_if_needed)
+    /// (bound document, each bind) and
+    /// `native_node_clone_node` (cloned Document entities).
+    ///
+    /// The per-entity idempotency set is load-bearing: a single VM
+    /// can host multiple Document entities over its lifetime (bound
+    /// document + clones), each with a distinct wrapper ObjectId, and
+    /// every one of them needs the install exactly once.
+    pub(in crate::vm) fn install_document_methods_for_entity(
+        &mut self,
+        doc_entity: elidex_ecs::Entity,
+        doc_wrapper: ObjectId,
+    ) {
         let already_installed = self
-            .host_data()
+            .host_data
+            .as_deref()
             .is_some_and(|hd| hd.document_methods_installed.contains(&doc_entity));
         if already_installed {
             return;
         }
-
-        self.inner.install_methods(doc_wrapper, DOCUMENT_METHODS);
-        self.inner
-            .install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
-
-        if let Some(hd) = self.host_data() {
+        self.install_methods(doc_wrapper, DOCUMENT_METHODS);
+        self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
+        // ParentNode mixin (WHATWG §5.2.4) shared with
+        // `Element.prototype`.
+        self.install_parent_node_mixin(doc_wrapper);
+        if let Some(hd) = self.host_data.as_deref_mut() {
             hd.document_methods_installed.insert(doc_entity);
         }
     }
@@ -456,6 +479,11 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
     ),
     ("createElement", native_document_create_element),
     ("createTextNode", native_document_create_text_node),
+    ("createComment", native_document_create_comment),
+    (
+        "createDocumentFragment",
+        native_document_create_document_fragment,
+    ),
 ];
 
 const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
