@@ -317,6 +317,156 @@ fn is_equal_node_self_true() {
     vm.unbind();
 }
 
+// ---------------------------------------------------------------------------
+// compareDocumentPosition
+// ---------------------------------------------------------------------------
+
+fn setup_fixture() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
+    let vm = Vm::new();
+    let session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+    (vm, session, dom, doc)
+}
+
+#[test]
+fn compare_document_position_same_node_zero() {
+    let (mut vm, mut session, mut dom, doc) = setup_fixture();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Number(n) = vm
+        .eval("document.body.compareDocumentPosition(document.body);")
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(n, 0.0);
+    vm.unbind();
+}
+
+#[test]
+fn compare_document_position_sibling_following() {
+    let (mut vm, mut session, mut dom, doc) = setup_fixture();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Add two siblings a, b under body; a.compareDocumentPosition(b)
+    // should set FOLLOWING (0x04).
+    let JsValue::Number(n) = vm
+        .eval(
+            "var a = document.createElement('a');\n\
+             var b = document.createElement('b');\n\
+             document.body.appendChild(a);\n\
+             document.body.appendChild(b);\n\
+             a.compareDocumentPosition(b);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(n, 4.0);
+    vm.unbind();
+}
+
+#[test]
+fn compare_document_position_sibling_preceding() {
+    let (mut vm, mut session, mut dom, doc) = setup_fixture();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // b.compareDocumentPosition(a) → PRECEDING (0x02).
+    let JsValue::Number(n) = vm
+        .eval(
+            "var a = document.createElement('a');\n\
+             var b = document.createElement('b');\n\
+             document.body.appendChild(a);\n\
+             document.body.appendChild(b);\n\
+             b.compareDocumentPosition(a);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(n, 2.0);
+    vm.unbind();
+}
+
+#[test]
+fn compare_document_position_ancestor_contains() {
+    let (mut vm, mut session, mut dom, doc) = setup_fixture();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // body contains child → child.compareDocumentPosition(body) =
+    // CONTAINS | PRECEDING = 0x08 | 0x02 = 0x0a = 10.
+    let JsValue::Number(n) = vm
+        .eval(
+            "var child = document.createElement('child');\n\
+             document.body.appendChild(child);\n\
+             child.compareDocumentPosition(document.body);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(n, 10.0);
+    vm.unbind();
+}
+
+#[test]
+fn compare_document_position_descendant_contained_by() {
+    let (mut vm, mut session, mut dom, doc) = setup_fixture();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // body.compareDocumentPosition(child) = CONTAINED_BY | FOLLOWING
+    // = 0x10 | 0x04 = 0x14 = 20.
+    let JsValue::Number(n) = vm
+        .eval(
+            "var child = document.createElement('child');\n\
+             document.body.appendChild(child);\n\
+             document.body.compareDocumentPosition(child);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(n, 20.0);
+    vm.unbind();
+}
+
+#[test]
+fn compare_document_position_disconnected() {
+    let (mut vm, mut session, mut dom, doc) = setup_fixture();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Two detached nodes → DISCONNECTED (0x01) | PRECEDING (0x02) = 3.
+    let JsValue::Number(n) = vm
+        .eval(
+            "var a = document.createElement('a');\n\
+             var b = document.createElement('b');\n\
+             a.compareDocumentPosition(b);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(n, 3.0);
+    vm.unbind();
+}
+
 #[test]
 fn get_root_node_attached_returns_document() {
     let (mut vm, mut session, mut dom, doc) = setup();

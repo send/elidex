@@ -166,6 +166,10 @@ impl VmInner {
             (self.well_known.is_same_node, native_node_is_same_node),
             (self.well_known.get_root_node, native_node_get_root_node),
             (self.well_known.is_equal_node, native_node_is_equal_node),
+            (
+                self.well_known.compare_document_position,
+                native_node_compare_document_position,
+            ),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -803,6 +807,74 @@ fn native_node_get_root_node(
         }
     };
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(root)))
+}
+
+// ---------------------------------------------------------------------------
+// compareDocumentPosition (WHATWG DOM §4.4)
+// ---------------------------------------------------------------------------
+
+/// `Node.prototype.compareDocumentPosition(other)` — returns a bit
+/// flag describing the relative position of `other` to `this`.
+///
+/// Bit values (WHATWG §4.4):
+/// - `0x01 DOCUMENT_POSITION_DISCONNECTED`
+/// - `0x02 DOCUMENT_POSITION_PRECEDING`
+/// - `0x04 DOCUMENT_POSITION_FOLLOWING`
+/// - `0x08 DOCUMENT_POSITION_CONTAINS`
+/// - `0x10 DOCUMENT_POSITION_CONTAINED_BY`
+/// - `0x20 DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC` — always 0
+///   (implementation-defined per spec, elidex returns 0 by choice).
+///
+/// `this === other` → `0`.  Non-Node argument throws TypeError.
+///
+/// Shadow-tree awareness is light-tree only in Phase 2; full
+/// shadow-including semantics land with Custom Elements (PR5b).
+fn native_node_compare_document_position(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    const DISCONNECTED: u32 = 0x01;
+    const PRECEDING: u32 = 0x02;
+    const FOLLOWING: u32 = 0x04;
+    const CONTAINS: u32 = 0x08;
+    const CONTAINED_BY: u32 = 0x10;
+
+    let Some(self_entity) = entity_from_this(ctx, this) else {
+        // Unbound receiver — nothing to compare against; return
+        // DISCONNECTED.  (Browsers throw TypeError here, but our
+        // policy for unbound receivers is the softer silent path.)
+        return Ok(JsValue::Number(f64::from(DISCONNECTED)));
+    };
+    let other_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let other_entity = require_node_arg(ctx, other_arg, "compareDocumentPosition")?;
+    if self_entity == other_entity {
+        return Ok(JsValue::Number(0.0));
+    }
+    let dom = ctx.host().dom();
+    // Containment.
+    if dom.is_light_tree_ancestor_or_self(other_entity, self_entity) {
+        // `other` contains `this`.  Spec: CONTAINS | PRECEDING.
+        return Ok(JsValue::Number(f64::from(CONTAINS | PRECEDING)));
+    }
+    if dom.is_light_tree_ancestor_or_self(self_entity, other_entity) {
+        return Ok(JsValue::Number(f64::from(CONTAINED_BY | FOLLOWING)));
+    }
+    // Either siblings (with common ancestor) or disconnected subtrees.
+    // Use `tree_order_cmp` — returns Ordering that already handles
+    // both disjoint-tree fallback and sibling-order comparison.
+    if dom.find_tree_root(self_entity) != dom.find_tree_root(other_entity) {
+        // Disjoint trees: spec requires DISCONNECTED |
+        // IMPLEMENTATION_SPECIFIC | PRECEDING/FOLLOWING based on
+        // implementation choice.  We always return
+        // DISCONNECTED | PRECEDING for a stable comparator.
+        return Ok(JsValue::Number(f64::from(DISCONNECTED | PRECEDING)));
+    }
+    match dom.tree_order_cmp(self_entity, other_entity) {
+        std::cmp::Ordering::Less => Ok(JsValue::Number(f64::from(FOLLOWING))),
+        std::cmp::Ordering::Greater => Ok(JsValue::Number(f64::from(PRECEDING))),
+        std::cmp::Ordering::Equal => Ok(JsValue::Number(0.0)),
+    }
 }
 
 // ---------------------------------------------------------------------------
