@@ -8,18 +8,21 @@
 //! - `getElementById(id)` — pre-order DFS from the document root
 //!   (WHATWG DOM §4.2.4 "document descendants").  Uses
 //!   `EcsDom::find_by_id`.
-//! - `createElement(tag)` / `createTextNode(data)` — allocate ECS
-//!   entities; the Element form returns a freshly-cached wrapper,
-//!   the Text form returns a host object keyed on the text entity
-//!   (no text-specific wrapper methods yet — PR4c lands textContent,
-//!   splitText, etc.).
+//! - `createElement(tag)` / `createTextNode(data)` /
+//!   `createComment(data)` / `createDocumentFragment()` — allocate
+//!   ECS entities and return their wrappers.  Text wrappers chain
+//!   through `Text.prototype → CharacterData.prototype →
+//!   Node.prototype → EventTarget.prototype` so `data`, `length`,
+//!   `splitText`, `appendData` etc. resolve on the returned handle;
+//!   Comment wrappers chain through `CharacterData.prototype`
+//!   directly; Fragment wrappers chain through `Node.prototype`.
 //! - `body` / `head` / `documentElement` — tree walk from the
 //!   document root looking for the first `<html>` child, then within
 //!   that for `<head>` / `<body>`.  Phase 2 returns `null` when the
 //!   structure is missing rather than synthesising fallback nodes.
 //! - `title` (get) — concatenates text children of the first
-//!   `<title>` element descending from `<head>`; setter lands in PR4c
-//!   alongside the rest of the attribute-manipulation surface.
+//!   `<title>` element descending from `<head>`; setter lands with
+//!   the rest of the HTMLDocument polish in PR4f.
 //! - `URL` / `documentURI` — `VmInner::navigation.current_url`.
 //! - `readyState` — stub returning `"complete"` (the VM has no notion
 //!   of document loading state yet; the shell owns that in PR6).
