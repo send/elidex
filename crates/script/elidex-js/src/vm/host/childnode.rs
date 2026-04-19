@@ -223,16 +223,33 @@ fn native_child_node_before(
     let Some(parent) = ctx.host().dom().get_parent(entity) else {
         return Ok(JsValue::Undefined);
     };
+    // Snapshot ALL of `entity`'s preceding siblings BEFORE
+    // argument normalisation.  WHATWG §5.2.2 defines
+    // viablePreviousSibling as "last preceding sibling of this not
+    // in nodes" — computed against the ORIGINAL sibling chain, not
+    // whatever state `parent`'s children end up in after
+    // `convert_nodes_to_single_node_or_fragment` detaches some of
+    // them into a wrapper fragment.
+    let preceding_siblings: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut out: Vec<Entity> = Vec::new();
+        for sib in dom.children_iter(parent) {
+            if sib == entity {
+                break;
+            }
+            out.push(sib);
+        }
+        out
+    };
     let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
         return Ok(JsValue::Undefined);
     };
     let children = nodes_to_insert(ctx, pair.0);
     // Pre-insertion validity (WHATWG §4.2.3): reject ancestor
     // cycles / self-insert-into-parent BEFORE any mutation.  The
-    // `child == entity` no-op is allowed — inserting the receiver
-    // before itself leaves the tree unchanged and is NOT an
-    // ancestor-of-parent case (entity is parent's child, not
-    // parent's ancestor).
+    // receiver itself (`child == entity`) is a valid arg — it
+    // just re-inserts at its original position via the
+    // `child == anchor` advance below.
     for &child in &children {
         if child == entity {
             continue;
@@ -246,17 +263,37 @@ fn native_child_node_before(
             return Err(hierarchy_request_error("before"));
         }
     }
+    // viablePreviousSibling = last snapshotted preceding sibling
+    // that isn't being re-inserted.  Insertion anchor follows the
+    // spec: `viablePreviousSibling.nextSibling` if it's defined,
+    // otherwise `parent`'s first child.  Reading nextSibling in
+    // the CURRENT (post-normalisation) tree is correct because
+    // viable_prev itself is not in children → it's still attached
+    // to parent → its nextSibling reflects the post-detach state
+    // we're inserting into.
+    let viable_prev = preceding_siblings
+        .iter()
+        .rev()
+        .find(|&&sib| !children.iter().any(|&c| c == sib))
+        .copied();
+    let mut anchor = match viable_prev {
+        Some(prev) => ctx.host().dom().get_next_sibling(prev),
+        None => ctx.host().dom().children_iter(parent).next(),
+    };
     let mut err = None;
     for child in children {
-        // WHATWG ChildNode.before: `el.before(el)` is a no-op per the
-        // spec (the receiver would be its own "viable previous
-        // sibling").  `EcsDom::insert_before` rejects
-        // `new_child == ref_child`, so treat the self-reference as an
-        // explicit skip instead of letting it surface as a throw.
-        if child == entity {
-            continue;
+        // WHATWG "insert" step 2: if referenceChild is node,
+        // advance it to node.nextSibling.  Converts
+        // `insert_before(parent, x, x)` (which `EcsDom` rejects)
+        // into a no-op in-place move.
+        if Some(child) == anchor {
+            anchor = ctx.host().dom().get_next_sibling(child);
         }
-        if !ctx.host().dom().insert_before(parent, child, entity) {
+        let ok = match anchor {
+            Some(r) => ctx.host().dom().insert_before(parent, child, r),
+            None => ctx.host().dom().append_child(parent, child),
+        };
+        if !ok {
             err = Some(hierarchy_request_error("before"));
             break;
         }
