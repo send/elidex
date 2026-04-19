@@ -26,6 +26,7 @@
 
 pub(crate) mod abort;
 pub(super) mod character_data_proto;
+pub(super) mod childnode;
 pub(super) mod document;
 pub(super) mod dom_bridge;
 pub(super) mod element_proto;

@@ -78,7 +78,12 @@ impl VmInner {
         self.element_prototype = Some(proto_id);
         self.install_element_tree_nav(proto_id);
         self.install_element_attributes(proto_id);
-        self.install_element_child_node(proto_id);
+        // ChildNode mixin (WHATWG §5.2.2) — `before` / `after` /
+        // `replaceWith` / `remove`.  The same native fns are installed
+        // on `CharacterData.prototype` from
+        // `register_character_data_prototype`, matching WHATWG's
+        // mixin-on-multiple-interfaces pattern.
+        self.install_child_node_mixin(proto_id);
         self.install_element_matches(proto_id);
     }
 
@@ -221,28 +226,6 @@ impl VmInner {
                 shape::PropertyAttrs::METHOD,
             );
         }
-    }
-
-    /// Install ChildNode-mixin methods on `proto_id`.  WHATWG DOM
-    /// §5.2.2: ChildNode is implemented by Element / CharacterData /
-    /// DocumentType.  We expose only `remove()` on Element.prototype
-    /// here; a future PR that adds a `CharacterData.prototype` will
-    /// install the same member there (Text nodes currently cannot
-    /// call `remove()` — deferred).
-    ///
-    /// The tree-editing methods (`appendChild`, `removeChild`,
-    /// `insertBefore`, `replaceChild`) are **Node** members, not
-    /// ChildNode — they live on `Node.prototype`.
-    fn install_element_child_node(&mut self, proto_id: ObjectId) {
-        let name_sid = self.well_known.remove;
-        let name = self.strings.get_utf8(name_sid);
-        let fn_id = self.create_native_function(&name, native_element_remove);
-        self.define_shaped_property(
-            proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Data(JsValue::Object(fn_id)),
-            shape::PropertyAttrs::METHOD,
-        );
     }
 }
 
@@ -603,27 +586,6 @@ fn native_element_set_class_name(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     reflected_string_set(ctx, this, args, "class")
-}
-
-// ---------------------------------------------------------------------------
-// Natives: ChildNode mixin — `remove()`
-// ---------------------------------------------------------------------------
-
-fn native_element_remove(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Undefined);
-    };
-    // WHATWG ChildNode §5.2.2 `remove()`: if the node has no parent,
-    // do nothing.
-    let dom = ctx.host().dom();
-    if let Some(parent) = dom.get_parent(entity) {
-        let _ = dom.remove_child(parent, entity);
-    }
-    Ok(JsValue::Undefined)
 }
 
 // ---------------------------------------------------------------------------

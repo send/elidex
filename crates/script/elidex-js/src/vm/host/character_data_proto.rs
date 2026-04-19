@@ -70,6 +70,10 @@ impl VmInner {
         self.character_data_prototype = Some(proto_id);
         self.install_character_data_accessors(proto_id);
         self.install_character_data_methods(proto_id);
+        // ChildNode mixin (WHATWG §5.2.2) — `before` / `after` /
+        // `replaceWith` / `remove` are installed identically on
+        // `Element.prototype`.
+        self.install_child_node_mixin(proto_id);
     }
 
     fn install_character_data_accessors(&mut self, proto_id: ObjectId) {
