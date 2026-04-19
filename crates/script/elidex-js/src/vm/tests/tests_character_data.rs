@@ -249,6 +249,30 @@ fn text_delete_data_offset_exceeds_length_throws() {
     vm.unbind();
 }
 
+#[test]
+fn character_data_method_on_non_character_data_receiver_throws() {
+    // `CharacterData.prototype.appendData` is reachable via Function
+    // .call on a non-Text/Comment receiver — browsers throw TypeError
+    // (the spec's WebIDL brand check).  No-op-silently is the
+    // anti-pattern we want to avoid.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var el = document.createElement('p');\n\
+             var t = document.createTextNode('x');\n\
+             var err = null;\n\
+             try { t.appendData.call(el, 'bar'); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // Prototype chain
 // ---------------------------------------------------------------------------

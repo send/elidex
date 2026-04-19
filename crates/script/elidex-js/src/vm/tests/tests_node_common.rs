@@ -309,6 +309,27 @@ fn is_equal_node_different_kind_false() {
 }
 
 #[test]
+fn is_equal_node_non_node_arg_throws() {
+    // WebIDL `Node? other` non-null non-Node (number / string /
+    // plain object) is a conversion failure → TypeError.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var a = document.createElement('p');\n\
+             var err = null;\n\
+             try { a.isEqualNode({}); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
+#[test]
 fn is_equal_node_null_arg_false() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
@@ -539,7 +560,9 @@ fn compare_document_position_disconnected() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    // Two detached nodes → DISCONNECTED (0x01) | PRECEDING (0x02) = 3.
+    // Two detached nodes → DISCONNECTED (0x01) |
+    // IMPLEMENTATION_SPECIFIC (0x20) | PRECEDING (0x02) = 0x23 = 35
+    // (WHATWG §4.4: the disconnected branch must set all three).
     let JsValue::Number(n) = vm
         .eval(
             "var a = document.createElement('a');\n\
@@ -550,7 +573,7 @@ fn compare_document_position_disconnected() {
     else {
         panic!()
     };
-    assert_eq!(n, 3.0);
+    assert_eq!(n, 35.0);
     vm.unbind();
 }
 

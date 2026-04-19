@@ -222,10 +222,10 @@ pub(super) fn native_document_get_elements_by_class_name(
 
 pub(super) fn native_document_create_element(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
+    if ctx.host_if_bound().is_none() || document_receiver(ctx, this).is_none() {
         return Ok(JsValue::Null);
     }
 
@@ -233,34 +233,23 @@ pub(super) fn native_document_create_element(
     // "HTML document" branch.  We treat every bind as HTML.
     let tag = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
 
-    let new_entity = {
-        let dom = ctx.host().dom();
-        dom.create_element(tag, Attributes::default())
-    };
+    let new_entity = ctx.host().dom().create_element(tag, Attributes::default());
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
 pub(super) fn native_document_create_text_node(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
+    if ctx.host_if_bound().is_none() || document_receiver(ctx, this).is_none() {
         return Ok(JsValue::Null);
     }
-
     let data = coerce_first_arg_to_string(ctx, args)?;
-
-    let new_entity = {
-        let dom = ctx.host().dom();
-        dom.create_text(data)
-    };
-    // Text nodes share the same HostObject wrapper surface as
-    // elements — the prototype chain climbs through
-    // `EventTarget.prototype` either way.  PR4c will install
-    // text-specific own-properties (`data`, `length`, `splitText`,
-    // etc.) on a dedicated `Text.prototype`; until then the wrapper
-    // simply identifies the underlying entity.
+    let new_entity = ctx.host().dom().create_text(data);
+    // Text wrappers chain through `Text.prototype →
+    // CharacterData.prototype → Node.prototype → …` so `data` /
+    // `length` / `splitText` resolve on the returned handle.
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
@@ -270,10 +259,10 @@ pub(super) fn native_document_create_text_node(
 /// document method family).
 pub(super) fn native_document_create_comment(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
+    if ctx.host_if_bound().is_none() || document_receiver(ctx, this).is_none() {
         return Ok(JsValue::Null);
     }
     let data = coerce_first_arg_to_string(ctx, args)?;
@@ -283,13 +272,13 @@ pub(super) fn native_document_create_comment(
 
 /// `document.createDocumentFragment()` — WHATWG DOM §4.5.  Allocates
 /// a `DocumentFragment` entity that is **not** linked into any tree
-/// and returns its wrapper.  Unbound receiver → `null`.
+/// and returns its wrapper.  Unbound / non-Document receiver → `null`.
 pub(super) fn native_document_create_document_fragment(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
+    if ctx.host_if_bound().is_none() || document_receiver(ctx, this).is_none() {
         return Ok(JsValue::Null);
     }
     let new_entity = ctx.host().dom().create_document_fragment();

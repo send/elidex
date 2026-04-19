@@ -125,8 +125,9 @@ pub(super) fn native_node_get_root_node(
 /// - `0x04 DOCUMENT_POSITION_FOLLOWING`
 /// - `0x08 DOCUMENT_POSITION_CONTAINS`
 /// - `0x10 DOCUMENT_POSITION_CONTAINED_BY`
-/// - `0x20 DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC` — always 0
-///   (implementation-defined per spec, elidex returns 0 by choice).
+/// - `0x20 DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC` — set in the
+///   disconnected-trees branch per WHATWG §4.4 ("the result must
+///   also include IMPLEMENTATION_SPECIFIC"), zero elsewhere.
 ///
 /// `this === other` → `0`.  Non-Node argument throws TypeError.
 ///
@@ -142,12 +143,15 @@ pub(super) fn native_node_compare_document_position(
     const FOLLOWING: u32 = 0x04;
     const CONTAINS: u32 = 0x08;
     const CONTAINED_BY: u32 = 0x10;
+    const IMPLEMENTATION_SPECIFIC: u32 = 0x20;
 
     let Some(self_entity) = entity_from_this(ctx, this) else {
         // Unbound receiver: fall through to DISCONNECTED.  Browsers
         // throw TypeError here, but elidex's unbound-receiver policy
         // is the softer silent path.
-        return Ok(JsValue::Number(f64::from(DISCONNECTED)));
+        return Ok(JsValue::Number(f64::from(
+            DISCONNECTED | IMPLEMENTATION_SPECIFIC | PRECEDING,
+        )));
     };
     let other_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let other_entity = require_node_arg(ctx, other_arg, "compareDocumentPosition")?;
@@ -162,9 +166,14 @@ pub(super) fn native_node_compare_document_position(
         return Ok(JsValue::Number(f64::from(CONTAINED_BY | FOLLOWING)));
     }
     if dom.find_tree_root(self_entity) != dom.find_tree_root(other_entity) {
-        // Disjoint trees: spec permits any stable comparator; we
-        // always return DISCONNECTED | PRECEDING.
-        return Ok(JsValue::Number(f64::from(DISCONNECTED | PRECEDING)));
+        // WHATWG §4.4: when DISCONNECTED is set the result must also
+        // include IMPLEMENTATION_SPECIFIC and one of PRECEDING /
+        // FOLLOWING, with a "consistent" relative ordering.  Any
+        // stable comparator satisfies "consistent"; we always return
+        // PRECEDING for a deterministic choice.
+        return Ok(JsValue::Number(f64::from(
+            DISCONNECTED | IMPLEMENTATION_SPECIFIC | PRECEDING,
+        )));
     }
     match dom.tree_order_cmp(self_entity, other_entity) {
         std::cmp::Ordering::Less => Ok(JsValue::Number(f64::from(FOLLOWING))),
@@ -203,12 +212,10 @@ pub(super) fn native_node_is_equal_node(
     if matches!(other_arg, JsValue::Null | JsValue::Undefined) {
         return Ok(JsValue::Boolean(false));
     }
-    // Non-Node argument resolves to `false` rather than TypeError —
-    // WHATWG §4.4 step 1 leaks `false` for unreachable branches.
-    let other_entity = match require_node_arg(ctx, other_arg, "isEqualNode") {
-        Ok(e) => e,
-        Err(_) => return Ok(JsValue::Boolean(false)),
-    };
+    // Non-Node arguments go through WebIDL's `Node?` conversion and
+    // throw TypeError, matching `compareDocumentPosition` and every
+    // shipping browser (null / undefined are handled above).
+    let other_entity = require_node_arg(ctx, other_arg, "isEqualNode")?;
     let equal = {
         let dom = ctx.host().dom();
         nodes_equal(dom, self_entity, other_entity)

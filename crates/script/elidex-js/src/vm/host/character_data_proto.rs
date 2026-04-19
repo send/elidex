@@ -141,6 +141,17 @@ pub(super) fn char_data_get(ctx: &mut NativeContext<'_>, entity: Entity) -> Opti
     None
 }
 
+/// TypeError for CharacterData methods invoked on a non-Text /
+/// non-Comment receiver.  Matches the WebIDL behaviour (the method
+/// is exposed on `CharacterData.prototype`, so a `Function.call`-style
+/// reroute to another receiver is the only way to trip this).
+fn wrong_receiver_error(method: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'CharacterData': \
+         this is not a Text or Comment node."
+    ))
+}
+
 /// Overwrite the string data on `entity` based on its `NodeKind`.
 /// Returns `false` if the entity is neither a Text nor a Comment (the
 /// CharacterData methods are non-meaningful on other kinds).
@@ -303,7 +314,9 @@ fn native_char_data_append_data(
     let append = coerce_data_arg(ctx, args)?;
     let mut current = char_data_get(ctx, entity).unwrap_or_default();
     current.push_str(&append);
-    char_data_set(ctx, entity, current);
+    if !char_data_set(ctx, entity, current) {
+        return Err(wrong_receiver_error("appendData"));
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -323,7 +336,9 @@ fn native_char_data_insert_data(
     };
     let current = char_data_get(ctx, entity).unwrap_or_default();
     let new = edit_data_utf16(&current, offset, 0, Some(&data), "insertData")?;
-    char_data_set(ctx, entity, new);
+    if !char_data_set(ctx, entity, new) {
+        return Err(wrong_receiver_error("insertData"));
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -339,7 +354,9 @@ fn native_char_data_delete_data(
     let count = coerce_offset(ctx, args, 1, "count", "deleteData")?;
     let current = char_data_get(ctx, entity).unwrap_or_default();
     let new = edit_data_utf16(&current, offset, count, None, "deleteData")?;
-    char_data_set(ctx, entity, new);
+    if !char_data_set(ctx, entity, new) {
+        return Err(wrong_receiver_error("deleteData"));
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -360,7 +377,9 @@ fn native_char_data_replace_data(
     };
     let current = char_data_get(ctx, entity).unwrap_or_default();
     let new = edit_data_utf16(&current, offset, count, Some(&data), "replaceData")?;
-    char_data_set(ctx, entity, new);
+    if !char_data_set(ctx, entity, new) {
+        return Err(wrong_receiver_error("replaceData"));
+    }
     Ok(JsValue::Undefined)
 }
 
