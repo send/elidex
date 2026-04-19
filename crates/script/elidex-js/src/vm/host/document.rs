@@ -464,6 +464,10 @@ impl Vm {
         self.inner.install_methods(doc_wrapper, DOCUMENT_METHODS);
         self.inner
             .install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
+        // ParentNode mixin (WHATWG §5.2.4) — `prepend` / `append` /
+        // `replaceChildren`.  Shares the natives with `Element.prototype`
+        // via `install_parent_node_mixin`.
+        self.inner.install_parent_node_mixin(doc_wrapper);
 
         if let Some(hd) = self.host_data() {
             hd.document_methods_installed.insert(doc_entity);
