@@ -363,37 +363,25 @@ fn native_element_get_tag_name(
 }
 
 /// Read attribute `name` on `entity` as a String, or `None` if absent.
+///
+/// Thin shim around [`elidex_ecs::EcsDom::get_attribute`]; retained here
+/// to keep call sites terse and to enforce the `NativeContext` borrow
+/// discipline.
 fn attr_get(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) -> Option<String> {
-    let dom = ctx.host().dom();
-    dom.world()
-        .get::<&elidex_ecs::Attributes>(entity)
-        .ok()
-        .and_then(|attrs| attrs.get(name).map(str::to_owned))
+    ctx.host().dom().get_attribute(entity, name)
 }
 
-/// Set attribute `name` = `value` on `entity`, inserting an
-/// `Attributes` component if one does not exist.  Returns `false`
-/// when the entity has been destroyed.
+/// Set attribute `name` = `value` on `entity`.  Shim around
+/// [`elidex_ecs::EcsDom::set_attribute`].  Returns `false` when the
+/// entity has been destroyed.
 fn attr_set(ctx: &mut NativeContext<'_>, entity: Entity, name: &str, value: String) -> bool {
-    let dom = ctx.host().dom();
-    let has_component = dom.world().get::<&elidex_ecs::Attributes>(entity).is_ok();
-    if has_component {
-        if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
-            attrs.set(name, value);
-            return true;
-        }
-        return false;
-    }
-    let mut attrs = elidex_ecs::Attributes::default();
-    attrs.set(name, value);
-    dom.world_mut().insert_one(entity, attrs).is_ok()
+    ctx.host().dom().set_attribute(entity, name, value)
 }
 
+/// Remove attribute `name` from `entity`.  Shim around
+/// [`elidex_ecs::EcsDom::remove_attribute`].
 fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
-    let dom = ctx.host().dom();
-    if let Ok(mut attrs) = dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity) {
-        attrs.remove(name);
-    }
+    ctx.host().dom().remove_attribute(entity, name);
 }
 
 fn native_element_get_attribute(
