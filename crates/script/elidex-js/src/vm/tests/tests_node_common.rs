@@ -181,6 +181,142 @@ fn get_root_node_detached_returns_self() {
     vm.unbind();
 }
 
+// ---------------------------------------------------------------------------
+// isEqualNode
+// ---------------------------------------------------------------------------
+
+#[test]
+fn is_equal_node_same_tag_same_attrs_true() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var a = document.createElement('p');\n\
+             var b = document.createElement('p');\n\
+             a.setAttribute('id', 'x');\n\
+             b.setAttribute('id', 'x');\n\
+             a.isEqualNode(b);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(b);
+    vm.unbind();
+}
+
+#[test]
+fn is_equal_node_different_attrs_false() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var a = document.createElement('p');\n\
+             var b = document.createElement('p');\n\
+             a.setAttribute('id', 'x');\n\
+             b.setAttribute('id', 'y');\n\
+             a.isEqualNode(b);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(!b);
+    vm.unbind();
+}
+
+#[test]
+fn is_equal_node_different_children_order_false() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var a = document.createElement('p');\n\
+             a.appendChild(document.createElement('span'));\n\
+             a.appendChild(document.createElement('em'));\n\
+             var b = document.createElement('p');\n\
+             b.appendChild(document.createElement('em'));\n\
+             b.appendChild(document.createElement('span'));\n\
+             a.isEqualNode(b);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(!b);
+    vm.unbind();
+}
+
+#[test]
+fn is_equal_node_different_kind_false() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var a = document.createElement('p');\n\
+             var t = document.createTextNode('hi');\n\
+             a.isEqualNode(t);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(!b);
+    vm.unbind();
+}
+
+#[test]
+fn is_equal_node_null_arg_false() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var a = document.createElement('p');\n\
+             a.isEqualNode(null);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(!b);
+    vm.unbind();
+}
+
+#[test]
+fn is_equal_node_self_true() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var a = document.createElement('p');\n\
+             a.isEqualNode(a);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(b);
+    vm.unbind();
+}
+
 #[test]
 fn get_root_node_attached_returns_document() {
     let (mut vm, mut session, mut dom, doc) = setup();

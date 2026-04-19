@@ -165,6 +165,7 @@ impl VmInner {
             (self.well_known.clone_node, native_node_clone_node),
             (self.well_known.is_same_node, native_node_is_same_node),
             (self.well_known.get_root_node, native_node_get_root_node),
+            (self.well_known.is_equal_node, native_node_is_equal_node),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);
@@ -802,6 +803,123 @@ fn native_node_get_root_node(
         }
     };
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(root)))
+}
+
+// ---------------------------------------------------------------------------
+// isEqualNode (WHATWG DOM §4.4 "equals" algorithm)
+// ---------------------------------------------------------------------------
+
+/// `Node.prototype.isEqualNode(other)` — structural deep equality.
+///
+/// Returns `true` iff both nodes have:
+/// - the same `NodeKind`,
+/// - the same node name (tag for Elements, fixed `#text` / `#comment` /
+///   `#document` / `#document-fragment` for others),
+/// - identical attribute sets (names and values, order-independent),
+///   for Elements,
+/// - identical character-data (for Text / Comment),
+/// - the same number of children, each pair of which is isEqualNode.
+///
+/// Event listeners are ignored.  WebIDL `Node? other`: null / undefined
+/// → `false`.
+fn native_node_is_equal_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(self_entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let other_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    if matches!(other_arg, JsValue::Null | JsValue::Undefined) {
+        return Ok(JsValue::Boolean(false));
+    }
+    // Non-Node argument (not a wrapper, Window, etc.) is treated as
+    // not-equal rather than a TypeError — WHATWG §4.4 says the spec
+    // does not require type coercion for isEqualNode (the step 1
+    // early-return leaks out a `false` for unreachable branches).
+    let other_entity = match require_node_arg(ctx, other_arg, "isEqualNode") {
+        Ok(e) => e,
+        Err(_) => return Ok(JsValue::Boolean(false)),
+    };
+    let equal = {
+        let dom = ctx.host().dom();
+        nodes_equal(dom, self_entity, other_entity)
+    };
+    Ok(JsValue::Boolean(equal))
+}
+
+/// Structural deep-equality for two Node entities.  Walks children
+/// via `children_iter` (shadow-root entities are skipped in both
+/// subtrees, matching WHATWG light-tree semantics).
+fn nodes_equal(dom: &elidex_ecs::EcsDom, a: elidex_ecs::Entity, b: elidex_ecs::Entity) -> bool {
+    if dom.node_kind(a) != dom.node_kind(b) {
+        return false;
+    }
+    // Tag comparison (Element only).
+    let tag_a = dom.get_tag_name(a);
+    let tag_b = dom.get_tag_name(b);
+    if tag_a != tag_b {
+        return false;
+    }
+    // Attribute sets — order-independent (WHATWG §4.4 "equals").
+    if !attributes_equal(dom, a, b) {
+        return false;
+    }
+    // Character data.
+    let text_a = dom.world().get::<&elidex_ecs::TextContent>(a).ok();
+    let text_b = dom.world().get::<&elidex_ecs::TextContent>(b).ok();
+    match (text_a.as_deref(), text_b.as_deref()) {
+        (Some(x), Some(y)) if x.0 != y.0 => return false,
+        (Some(_), None) | (None, Some(_)) => return false,
+        _ => {}
+    }
+    drop((text_a, text_b));
+    let comment_a = dom.world().get::<&elidex_ecs::CommentData>(a).ok();
+    let comment_b = dom.world().get::<&elidex_ecs::CommentData>(b).ok();
+    match (comment_a.as_deref(), comment_b.as_deref()) {
+        (Some(x), Some(y)) if x.0 != y.0 => return false,
+        (Some(_), None) | (None, Some(_)) => return false,
+        _ => {}
+    }
+    drop((comment_a, comment_b));
+    // Children pairwise.
+    let kids_a: Vec<elidex_ecs::Entity> = dom.children_iter(a).collect();
+    let kids_b: Vec<elidex_ecs::Entity> = dom.children_iter(b).collect();
+    if kids_a.len() != kids_b.len() {
+        return false;
+    }
+    for (ca, cb) in kids_a.iter().zip(kids_b.iter()) {
+        if !nodes_equal(dom, *ca, *cb) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Attribute-set equality — same keys, same values, order-independent.
+fn attributes_equal(
+    dom: &elidex_ecs::EcsDom,
+    a: elidex_ecs::Entity,
+    b: elidex_ecs::Entity,
+) -> bool {
+    let attrs_a = dom.world().get::<&elidex_ecs::Attributes>(a).ok();
+    let attrs_b = dom.world().get::<&elidex_ecs::Attributes>(b).ok();
+    match (attrs_a, attrs_b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            if a.len() != b.len() {
+                return false;
+            }
+            a.iter().all(|(k, v)| b.get(k) == Some(v))
+        }
+        // One side has an `Attributes` component, the other does not —
+        // treat an absent component as an empty attribute set.  Elements
+        // without attributes sometimes carry the component (default),
+        // sometimes not, depending on construction path; normalise here.
+        (Some(a), None) => a.is_empty(),
+        (None, Some(b)) => b.is_empty(),
+    }
 }
 
 // ---------------------------------------------------------------------------
