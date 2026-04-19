@@ -49,6 +49,16 @@ impl VmInner {
     }
 }
 
+/// TypeError-surfaced HierarchyRequestError for the ParentNode
+/// mixin — mirrors the pattern `Node.appendChild` / `insertBefore`
+/// use (DOMException integration is deferred).
+fn hierarchy_request_error(method: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'Element': \
+         the new child node cannot be inserted."
+    ))
+}
+
 fn native_parent_node_prepend(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -62,18 +72,19 @@ fn native_parent_node_prepend(
     };
     let first = ctx.host().dom().children_iter(parent).next();
     let children = nodes_to_insert(ctx, pair.0);
+    let mut err = None;
     for child in children {
-        match first {
-            Some(f) => {
-                let _ = ctx.host().dom().insert_before(parent, child, f);
-            }
-            None => {
-                let _ = ctx.host().dom().append_child(parent, child);
-            }
+        let ok = match first {
+            Some(f) => ctx.host().dom().insert_before(parent, child, f),
+            None => ctx.host().dom().append_child(parent, child),
+        };
+        if !ok {
+            err = Some(hierarchy_request_error("prepend"));
+            break;
         }
     }
     destroy_wrapper_fragment_if_any(ctx, pair);
-    Ok(JsValue::Undefined)
+    err.map_or(Ok(JsValue::Undefined), Err)
 }
 
 fn native_parent_node_append(
@@ -88,11 +99,15 @@ fn native_parent_node_append(
         return Ok(JsValue::Undefined);
     };
     let children = nodes_to_insert(ctx, pair.0);
+    let mut err = None;
     for child in children {
-        let _ = ctx.host().dom().append_child(parent, child);
+        if !ctx.host().dom().append_child(parent, child) {
+            err = Some(hierarchy_request_error("append"));
+            break;
+        }
     }
     destroy_wrapper_fragment_if_any(ctx, pair);
-    Ok(JsValue::Undefined)
+    err.map_or(Ok(JsValue::Undefined), Err)
 }
 
 fn native_parent_node_replace_children(
@@ -112,12 +127,16 @@ fn native_parent_node_replace_children(
     for child in existing {
         let _ = ctx.host().dom().remove_child(parent, child);
     }
+    let mut err = None;
     if let Some(p) = pair {
         let children = nodes_to_insert(ctx, p.0);
         for child in children {
-            let _ = ctx.host().dom().append_child(parent, child);
+            if !ctx.host().dom().append_child(parent, child) {
+                err = Some(hierarchy_request_error("replaceChildren"));
+                break;
+            }
         }
         destroy_wrapper_fragment_if_any(ctx, p);
     }
-    Ok(JsValue::Undefined)
+    err.map_or(Ok(JsValue::Undefined), Err)
 }

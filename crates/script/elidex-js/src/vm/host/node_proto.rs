@@ -950,6 +950,20 @@ fn nodes_equal(dom: &elidex_ecs::EcsDom, a: elidex_ecs::Entity, b: elidex_ecs::E
                 return false;
             }
         }
+        Some(NodeKind::DocumentType) => {
+            let da = dom.world().get::<&elidex_ecs::DocTypeData>(a).ok();
+            let db = dom.world().get::<&elidex_ecs::DocTypeData>(b).ok();
+            match (da.as_deref(), db.as_deref()) {
+                (Some(x), Some(y)) => {
+                    if x.name != y.name || x.public_id != y.public_id || x.system_id != y.system_id
+                    {
+                        return false;
+                    }
+                }
+                (Some(_), None) | (None, Some(_)) => return false,
+                (None, None) => {}
+            }
+        }
         _ => {}
     }
     if !attributes_equal(dom, a, b) {

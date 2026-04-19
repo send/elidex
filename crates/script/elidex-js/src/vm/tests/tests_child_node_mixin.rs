@@ -217,6 +217,56 @@ fn element_before_multi_arg_inserts_all_in_order() {
 }
 
 #[test]
+fn element_before_nested_fragment_is_recursively_flattened() {
+    // When an outer DocumentFragment contains another fragment as a
+    // child, every level must be flattened so only concrete nodes
+    // land in the tree.  Reach this by passing a single outer
+    // fragment that has a nested fragment child.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval(
+        "var outer = document.createDocumentFragment();\n\
+         var inner = document.createDocumentFragment();\n\
+         inner.appendChild(document.createElement('x'));\n\
+         inner.appendChild(document.createElement('y'));\n\
+         outer.appendChild(inner);\n\
+         b.before(outer);",
+    )
+    .unwrap();
+    // Expected: [a, x, y, b].
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 4.0);
+    assert_eq!(eval_str(&mut vm, "p.childNodes[1].tagName;"), "X");
+    assert_eq!(eval_str(&mut vm, "p.childNodes[2].tagName;"), "Y");
+    vm.unbind();
+}
+
+#[test]
+fn element_before_self_insert_throws() {
+    // Inserting an ancestor as a child of its own subtree creates a
+    // cycle — EcsDom rejects, we surface TypeError (matching the
+    // Node.appendChild convention).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    let threw = vm
+        .eval(
+            "var err = null;\n\
+             try { a.before(p); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(matches!(threw, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
+#[test]
 fn element_after_document_fragment_flattens() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

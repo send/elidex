@@ -131,6 +131,18 @@ pub(super) fn destroy_wrapper_fragment_if_any(ctx: &mut NativeContext<'_>, pair:
 // Natives
 // ---------------------------------------------------------------------------
 
+/// Build the `HierarchyRequestError`-equivalent throw emitted when
+/// `EcsDom` rejects an insertion (self-insert, ancestor cycle,
+/// destroyed entity).  Matches the TypeError-surfaced pattern
+/// established by `Node.appendChild` / `insertBefore` (DOMException
+/// integration is deferred).
+fn hierarchy_request_error(method: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'Element': \
+         the new child node cannot be inserted."
+    ))
+}
+
 fn native_child_node_before(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -147,11 +159,15 @@ fn native_child_node_before(
         return Ok(JsValue::Undefined);
     };
     let children = nodes_to_insert(ctx, pair.0);
+    let mut err = None;
     for child in children {
-        let _ = ctx.host().dom().insert_before(parent, child, entity);
+        if !ctx.host().dom().insert_before(parent, child, entity) {
+            err = Some(hierarchy_request_error("before"));
+            break;
+        }
     }
     destroy_wrapper_fragment_if_any(ctx, pair);
-    Ok(JsValue::Undefined)
+    err.map_or(Ok(JsValue::Undefined), Err)
 }
 
 fn native_child_node_after(
@@ -170,18 +186,19 @@ fn native_child_node_after(
     };
     let next = ctx.host().dom().get_next_sibling(entity);
     let children = nodes_to_insert(ctx, pair.0);
+    let mut err = None;
     for child in children {
-        match next {
-            Some(n) => {
-                let _ = ctx.host().dom().insert_before(parent, child, n);
-            }
-            None => {
-                let _ = ctx.host().dom().append_child(parent, child);
-            }
+        let ok = match next {
+            Some(n) => ctx.host().dom().insert_before(parent, child, n),
+            None => ctx.host().dom().append_child(parent, child),
+        };
+        if !ok {
+            err = Some(hierarchy_request_error("after"));
+            break;
         }
     }
     destroy_wrapper_fragment_if_any(ctx, pair);
-    Ok(JsValue::Undefined)
+    err.map_or(Ok(JsValue::Undefined), Err)
 }
 
 fn native_child_node_replace_with(
@@ -199,12 +216,19 @@ fn native_child_node_replace_with(
     // is the simplest implementation of replaceWith that handles the
     // empty-args case (→ detach) correctly.
     let pair = convert_nodes_to_single_node_or_fragment(ctx, args)?;
+    let mut err = None;
     if let Some(p) = pair {
         let children = nodes_to_insert(ctx, p.0);
         for child in children {
-            let _ = ctx.host().dom().insert_before(parent, child, entity);
+            if !ctx.host().dom().insert_before(parent, child, entity) {
+                err = Some(hierarchy_request_error("replaceWith"));
+                break;
+            }
         }
         destroy_wrapper_fragment_if_any(ctx, p);
+    }
+    if let Some(e) = err {
+        return Err(e);
     }
     let _ = ctx.host().dom().remove_child(parent, entity);
     Ok(JsValue::Undefined)

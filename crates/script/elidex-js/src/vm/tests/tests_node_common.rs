@@ -297,6 +297,62 @@ fn is_equal_node_null_arg_false() {
 }
 
 #[test]
+fn is_equal_node_different_doctype_fields_false() {
+    // Two DocumentType nodes with different name / publicId /
+    // systemId must not compare equal.  elidex currently has no JS
+    // surface to create doctypes, so the entities are built via the
+    // ECS API then wrapped.
+    use super::super::value::JsValue as V;
+
+    let vm = Vm::new();
+    let session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let dt_a = dom.create_document_type("html", "", "");
+    let dt_b = dom.create_document_type("html", "-//W3C//DTD HTML 4.01//EN", "");
+    let (mut vm, mut session, mut dom) = (vm, session, dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wa = vm.inner.create_element_wrapper(dt_a);
+    let wb = vm.inner.create_element_wrapper(dt_b);
+    vm.set_global("dtA", V::Object(wa));
+    vm.set_global("dtB", V::Object(wb));
+    let JsValue::Boolean(b) = vm.eval("dtA.isEqualNode(dtB);").unwrap() else {
+        panic!()
+    };
+    assert!(!b, "different DocumentType payloads must not compare equal");
+    vm.unbind();
+}
+
+#[test]
+fn is_equal_node_matching_doctype_true() {
+    use super::super::value::JsValue as V;
+
+    let vm = Vm::new();
+    let session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let dt_a = dom.create_document_type("html", "pub", "sys");
+    let dt_b = dom.create_document_type("html", "pub", "sys");
+    let (mut vm, mut session, mut dom) = (vm, session, dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wa = vm.inner.create_element_wrapper(dt_a);
+    let wb = vm.inner.create_element_wrapper(dt_b);
+    vm.set_global("dtA", V::Object(wa));
+    vm.set_global("dtB", V::Object(wb));
+    let JsValue::Boolean(b) = vm.eval("dtA.isEqualNode(dtB);").unwrap() else {
+        panic!()
+    };
+    assert!(b);
+    vm.unbind();
+}
+
+#[test]
 fn is_equal_node_self_true() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

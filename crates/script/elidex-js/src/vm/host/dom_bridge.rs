@@ -116,21 +116,32 @@ pub(super) fn query_selector_in_subtree_first(
     result
 }
 
-/// Flatten a `DocumentFragment` entity into its light-tree children
-/// (so variadic insertion methods never leave a fragment in the
-/// tree); non-fragment entities return a single-element `vec![node]`.
+/// Recursively flatten `node` into the list of real nodes to insert.
+/// Any `DocumentFragment` — at any depth — expands to its light-tree
+/// children; non-fragment entities append as-is.
 ///
-/// WHATWG §4.2.3 step 6 mandates the flattening whether the fragment
-/// was created implicitly by the `convert-nodes-into-a-node` helper
-/// or supplied directly by JS.
+/// WHATWG §4.2.3 step 6 mandates fragment flattening; doing it
+/// recursively handles the edge case where a user-supplied
+/// `DocumentFragment` contains another fragment as one of its
+/// children (our internal `EcsDom::append_child` is intentionally
+/// unaware of the spec-level fragment-flattening rule).
 pub(super) fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<Entity> {
+    let mut out = Vec::new();
+    flatten_into(ctx, node, &mut out);
+    out
+}
+
+fn flatten_into(ctx: &mut NativeContext<'_>, node: Entity, out: &mut Vec<Entity>) {
     if matches!(
         ctx.host().dom().node_kind(node),
         Some(NodeKind::DocumentFragment)
     ) {
-        ctx.host().dom().children_iter(node).collect()
+        let children: Vec<Entity> = ctx.host().dom().children_iter(node).collect();
+        for child in children {
+            flatten_into(ctx, child, out);
+        }
     } else {
-        vec![node]
+        out.push(node);
     }
 }
 
