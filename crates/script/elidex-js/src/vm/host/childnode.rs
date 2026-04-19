@@ -72,6 +72,18 @@ fn normalize_single_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Ent
     if let JsValue::Object(id) = val {
         if let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind {
             if let Some(entity) = Entity::from_bits(entity_bits) {
+                // A HostObject whose `entity_bits` decodes but no
+                // longer exists in the DOM world is a detached /
+                // destroyed node — matches `require_node_arg`'s
+                // "detached (invalid entity)" brand failure.
+                // Silently coercing a stale Node wrapper to a Text
+                // node would hide the bug.
+                if !ctx.host().dom().contains(entity) {
+                    return Err(VmError::type_error(
+                        "Failed to execute argument conversion: \
+                         the node is detached (invalid entity).",
+                    ));
+                }
                 // Accept any DOM node (including legacy entities
                 // missing `NodeKind` but carrying DOM payload) via
                 // `node_kind_inferred`.  Window is an `EventTarget`
