@@ -822,10 +822,7 @@ impl EcsDom {
     /// can never alias the original via the returned handle.
     #[must_use = "returns None when src does not exist"]
     pub fn clone_subtree(&mut self, src: Entity) -> Option<Entity> {
-        if !self.contains(src) {
-            return None;
-        }
-        let root = self.clone_node_shallow(src);
+        let root = self.clone_node_shallow(src)?;
         // Walk original children and append clones in order.  The
         // helper performs this as an iterative traversal with an
         // explicit stack of `(src, dst)` pairs, so this does not
@@ -838,12 +835,33 @@ impl EcsDom {
 
     /// Allocate a new entity carrying the same [`NodeKind`] and core
     /// component data as `src` (attributes for Elements, text/comment
-    /// data for CharacterData, doctype fields for DocumentType).
+    /// data for CharacterData, doctype fields for DocumentType) with
+    /// no descendants and no parent/sibling links.
     ///
-    /// Tree relations are left at defaults — the caller threads the
-    /// clone into place.  Does **not** copy `ShadowRoot` or
-    /// `EventListeners`.
-    fn clone_node_shallow(&mut self, src: Entity) -> Entity {
+    /// Returns `None` when `src` does not exist so a missing source
+    /// can never alias the original via the returned handle.  Tree
+    /// relations on the clone are left at defaults — the caller
+    /// threads the clone into place.  Does **not** copy `ShadowRoot`
+    /// or `EventListeners`.
+    ///
+    /// Use this for `Node.cloneNode(false)` — it avoids the O(size)
+    /// cost of cloning the full subtree only to destroy descendants
+    /// that `cloneNode(false)` never wanted.
+    #[must_use = "returns None when src does not exist"]
+    pub fn clone_node_shallow(&mut self, src: Entity) -> Option<Entity> {
+        if !self.contains(src) {
+            return None;
+        }
+        Some(self.clone_node_shallow_unchecked(src))
+    }
+
+    /// Unchecked shallow-clone helper: spawns `dst` carrying `src`'s
+    /// payload without validating that `src` exists.  Callers must
+    /// verify existence first (the public [`clone_node_shallow`]
+    /// does exactly that).
+    ///
+    /// [`clone_node_shallow`]: Self::clone_node_shallow
+    fn clone_node_shallow_unchecked(&mut self, src: Entity) -> Entity {
         // Snapshot the payload under a read borrow, then spawn under
         // a mutable borrow.  Spawning a bare tuple first and then
         // inserting components one at a time keeps the hecs API
@@ -934,7 +952,10 @@ impl EcsDom {
             // version produced.
             let mut pending: Vec<(Entity, Entity)> = Vec::with_capacity(kids.len());
             for child_src in kids {
-                let child_dst = self.clone_node_shallow(child_src);
+                // `kids` was snapshotted from the live tree, so each
+                // entry is guaranteed to exist; the unchecked variant
+                // skips the redundant `contains` lookup.
+                let child_dst = self.clone_node_shallow_unchecked(child_src);
                 let _ = self.append_child(dst_parent, child_dst);
                 pending.push((child_src, child_dst));
             }

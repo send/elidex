@@ -339,15 +339,18 @@ fn attributes_equal(dom: &elidex_ecs::EcsDom, a: Entity, b: Entity) -> bool {
 ///
 /// Behaviour:
 /// - `deep` is coerced via `ToBoolean`; default is `false` (shallow).
-/// - Shallow clone copies attributes (Element) or character data
-///   (Text / Comment) only.
-/// - Deep clone additionally recurses through all light-tree
-///   descendants via [`elidex_ecs::EcsDom::clone_subtree`].
+/// - Shallow clone (`deep == false`) dispatches to
+///   [`elidex_ecs::EcsDom::clone_node_shallow`] — copies attributes
+///   (Element) or character data (Text / Comment) only, in
+///   O(attrs + character-data) work.  The descendant walk never
+///   runs.
+/// - Deep clone (`deep == true`) dispatches to
+///   [`elidex_ecs::EcsDom::clone_subtree`], which additionally
+///   recurses through all light-tree descendants.
 /// - The returned wrapper's entity has no parent or siblings
 ///   (WHATWG §4.5 "cloning steps" — the clone is an orphan).
 /// - Event listeners and shadow roots are **not** cloned.  WHATWG
-///   §4.5 explicitly excludes both; [`elidex_ecs::EcsDom::clone_subtree`]
-///   enforces it.
+///   §4.5 explicitly excludes both; both ECS helpers enforce it.
 /// - Cloned Document entities receive the full document-specific
 ///   own-property suite via
 ///   [`super::super::VmInner::install_document_methods_for_entity`]
@@ -365,21 +368,18 @@ pub(super) fn native_node_clone_node(
 
     let new_entity = {
         let dom = ctx.host().dom();
-        let Some(new_root) = dom.clone_subtree(src) else {
-            return Ok(JsValue::Null);
+        let cloned = if deep {
+            dom.clone_subtree(src)
+        } else {
+            // `cloneNode(false)` — skip the subtree walk entirely
+            // so shallow clone stays O(attrs + character-data)
+            // rather than O(|descendants|).
+            dom.clone_node_shallow(src)
         };
-        if !deep {
-            // Shallow: drop the cloned children so only the root
-            // survives.  `clone_subtree` is the only ECS entry
-            // point for cloning today; a dedicated
-            // `EcsDom::clone_node_shallow` is a straight profile-
-            // driven swap if it ever shows up in profiles.
-            let kids: Vec<Entity> = dom.children_iter(new_root).collect();
-            for child in kids {
-                despawn_subtree(dom, child);
-            }
+        match cloned {
+            Some(new_root) => new_root,
+            None => return Ok(JsValue::Null),
         }
-        new_root
     };
     // Stash the cloned NodeKind before `create_element_wrapper` so
     // that we can patch the document-specific method suite onto the
@@ -394,27 +394,4 @@ pub(super) fn native_node_clone_node(
             .install_document_methods_for_entity(new_entity, wrapper);
     }
     Ok(JsValue::Object(wrapper))
-}
-
-/// Despawn `entity` and everything underneath it, using an explicit
-/// stack so deep trees can't blow the Rust call stack.
-/// [`elidex_ecs::EcsDom::destroy_entity`] only removes one node, so
-/// we have to walk first and destroy bottom-up.
-fn despawn_subtree(dom: &mut elidex_ecs::EcsDom, entity: Entity) {
-    // Two-pass: (1) collect every descendant in pre-order so we
-    // know the full set of entities to destroy, then (2) destroy
-    // in reverse so children always go before their parents
-    // (destroy_entity orphans a node's remaining children if
-    // called on a non-leaf, which we don't want to rely on).
-    let mut order: Vec<Entity> = Vec::new();
-    let mut stack: Vec<Entity> = vec![entity];
-    while let Some(e) = stack.pop() {
-        order.push(e);
-        for c in dom.children_iter(e) {
-            stack.push(c);
-        }
-    }
-    for e in order.into_iter().rev() {
-        let _ = dom.destroy_entity(e);
-    }
 }
