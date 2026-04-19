@@ -788,16 +788,14 @@ impl EcsDom {
     /// root entity (WHATWG DOM §4.5 "clone a node").
     ///
     /// Invariants:
-    /// - The returned root has [`TreeRelation`] defaults —
-    ///   `parent: None`, `prev_sibling: None`, `next_sibling: None` —
+    /// - The returned root has default tree links
+    ///   (`parent: None`, `prev_sibling: None`, `next_sibling: None`) —
     ///   i.e. the clone is a fresh orphan.
-    /// - Descendant `TreeRelation` links mirror the source structure
-    ///   between the newly-allocated entities (parent and sibling
-    ///   pointers point inside the clone, never into the source
-    ///   subtree).
-    /// - [`ShadowRoot`] and [`ShadowHost`](crate::components::ShadowHost)
-    ///   components are **not** copied — closed shadow trees clone
-    ///   only the host's light tree.
+    /// - Descendant tree links mirror the source structure between
+    ///   the newly-allocated entities (parent and sibling pointers
+    ///   point inside the clone, never into the source subtree).
+    /// - `ShadowRoot` / `ShadowHost` components are **not** copied —
+    ///   closed shadow trees clone only the host's light tree.
     /// - `EventListeners` (and any other script-session-owned state
     ///   that lives outside the ECS) is **not** copied — those live
     ///   in `SessionCore`, which is outside this crate, and WHATWG
