@@ -235,15 +235,22 @@ pub(super) fn native_document_create_element(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    if document_receiver(ctx, this, "createElement")?.is_none() {
+    let Some(doc_entity) = document_receiver(ctx, this, "createElement")? else {
         return Ok(JsValue::Null);
-    }
+    };
 
     // WHATWG DOM §4.5 createElement normalises to lowercase in the
     // "HTML document" branch.  We treat every bind as HTML.
     let tag = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
 
-    let new_entity = ctx.host().dom().create_element(tag, Attributes::default());
+    // Anchor the new node's "node document" (WHATWG §4.4) to the
+    // receiver Document so that `newEl.ownerDocument` reports the
+    // creating document even before insertion — critical for clones
+    // and iframes where the bound global and the receiver differ.
+    let new_entity =
+        ctx.host()
+            .dom()
+            .create_element_with_owner(tag, Attributes::default(), Some(doc_entity));
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
@@ -255,11 +262,14 @@ pub(super) fn native_document_create_text_node(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    if document_receiver(ctx, this, "createTextNode")?.is_none() {
+    let Some(doc_entity) = document_receiver(ctx, this, "createTextNode")? else {
         return Ok(JsValue::Null);
-    }
+    };
     let data = coerce_first_arg_to_string(ctx, args)?;
-    let new_entity = ctx.host().dom().create_text(data);
+    let new_entity = ctx
+        .host()
+        .dom()
+        .create_text_with_owner(data, Some(doc_entity));
     // Text wrappers chain through `Text.prototype →
     // CharacterData.prototype → Node.prototype → …` so `data` /
     // `length` / `splitText` resolve on the returned handle.
@@ -278,11 +288,14 @@ pub(super) fn native_document_create_comment(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    if document_receiver(ctx, this, "createComment")?.is_none() {
+    let Some(doc_entity) = document_receiver(ctx, this, "createComment")? else {
         return Ok(JsValue::Null);
-    }
+    };
     let data = coerce_first_arg_to_string(ctx, args)?;
-    let new_entity = ctx.host().dom().create_comment(data);
+    let new_entity = ctx
+        .host()
+        .dom()
+        .create_comment_with_owner(data, Some(doc_entity));
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
@@ -297,10 +310,13 @@ pub(super) fn native_document_create_document_fragment(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    if document_receiver(ctx, this, "createDocumentFragment")?.is_none() {
+    let Some(doc_entity) = document_receiver(ctx, this, "createDocumentFragment")? else {
         return Ok(JsValue::Null);
-    }
-    let new_entity = ctx.host().dom().create_document_fragment();
+    };
+    let new_entity = ctx
+        .host()
+        .dom()
+        .create_document_fragment_with_owner(Some(doc_entity));
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 

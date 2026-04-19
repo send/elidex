@@ -4,6 +4,7 @@ mod tests_abort;
 mod tests_add_event_listener;
 mod tests_array_prototype;
 mod tests_array_prototype_ext;
+mod tests_associated_document;
 mod tests_async;
 mod tests_bigint;
 mod tests_character_data;

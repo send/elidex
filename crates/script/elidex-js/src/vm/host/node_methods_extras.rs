@@ -27,24 +27,24 @@ use elidex_ecs::{Entity, NodeKind};
 
 /// `Node.prototype.ownerDocument` — WHATWG §4.4.
 ///
-/// Returns `null` when `this` is itself a Document.  Otherwise the
-/// light-tree root is consulted: if the root is a Document entity
-/// (the receiver lives inside a Document subtree) return it; this
-/// lets nodes inside a cloned Document report the *clone* as their
-/// owner rather than the bound global document.  For orphan nodes
-/// and free-floating fragments whose root is not a Document, fall
-/// back to the bound document.
+/// Delegates to [`EcsDom::owner_document`], which honours the
+/// per-node [`AssociatedDocument`] component set at creation time and
+/// falls back to the tree-root walk for legacy entities.  Result
+/// mapping:
 ///
-/// ## Known limitation — cloned documents and detached nodes
+/// - Document receiver → `null` (per spec).
+/// - [`AssociatedDocument`] present and points at a live Document →
+///   that Document's wrapper (fixes `cloneDoc.createElement(...)` →
+///   reports the clone, not the bound global).
+/// - No component and tree-root is a Document → that Document
+///   (preserves html5ever-produced fixtures and anything already
+///   rooted in the main tree).
+/// - Otherwise (true orphan whose root is not a Document) → fall
+///   back to the bound global document so that pre-PR4f callers
+///   relying on the implicit single-document fallback keep working.
 ///
-/// WHATWG stores each node's "node document" at creation time, so
-/// `clone.createElement(...)` reports the *clone* as its
-/// `ownerDocument` even before insertion.  elidex currently has no
-/// per-node "associated document" component; detached nodes created
-/// by `clone.createElement(...)` therefore fall back to the bound
-/// global document here, not the clone.  A proper fix requires an
-/// `AssociatedDocument` ECS component set at node-creation time and
-/// is deferred to the multi-document / Worker work (PR5b).
+/// [`AssociatedDocument`]: elidex_ecs::AssociatedDocument
+/// [`EcsDom::owner_document`]: elidex_ecs::EcsDom::owner_document
 pub(super) fn native_node_get_owner_document(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -57,11 +57,14 @@ pub(super) fn native_node_get_owner_document(
     if matches!(dom.node_kind(entity), Some(NodeKind::Document)) {
         return Ok(JsValue::Null);
     }
-    let root = dom.find_tree_root(entity);
-    if matches!(dom.node_kind(root), Some(NodeKind::Document)) {
-        return Ok(JsValue::Object(ctx.vm.create_element_wrapper(root)));
+    if let Some(doc) = dom.owner_document(entity) {
+        return Ok(JsValue::Object(ctx.vm.create_element_wrapper(doc)));
     }
-    // Orphan / fragment root — fall back to the bound document.
+    // Orphan / fragment root — fall back to the bound document so
+    // that nodes created outside the VM (parser fixtures, bare
+    // `EcsDom::create_*` calls in tests) still report a sensible
+    // ownerDocument.  VM-created nodes never reach this branch once
+    // `createElement` sets `AssociatedDocument` at birth.
     let doc = ctx
         .vm
         .host_data
