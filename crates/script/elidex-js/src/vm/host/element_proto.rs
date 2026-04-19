@@ -851,11 +851,23 @@ fn perform_adjacent_insert(
     method: &str,
 ) -> Result<Option<Entity>, VmError> {
     let dom = ctx.host().dom();
+    // WHATWG `Node.insertBefore(x, x)` and its `x, x.nextSibling`
+    // sibling form treat "insert a node before itself" as a no-op
+    // that succeeds (§4.2.3 pre-insertion step 2).  `EcsDom::insert_before`
+    // rejects `new_child == ref_child` as invalid, so every position
+    // that would reduce to that edge case returns Ok(Some(node))
+    // before the rejecting call — matching the ChildNode mixin's
+    // `insert_before(parent, x, x)` accommodation in
+    // `vm/host/childnode.rs`.
     match pos {
         InsertAdjacentWhere::BeforeBegin => {
             let Some(parent) = dom.get_parent(target) else {
                 return Ok(None);
             };
+            // `parent.insertBefore(target, target)` — no-op move.
+            if node == target {
+                return Ok(Some(node));
+            }
             if !dom.insert_before(parent, node, target) {
                 return Err(adjacent_hierarchy_error(method));
             }
@@ -863,6 +875,10 @@ fn perform_adjacent_insert(
         }
         InsertAdjacentWhere::AfterBegin => {
             if let Some(first) = dom.children_iter(target).next() {
+                // `target.insertBefore(first, first)` — no-op move.
+                if node == first {
+                    return Ok(Some(node));
+                }
                 if !dom.insert_before(target, node, first) {
                     return Err(adjacent_hierarchy_error(method));
                 }
@@ -872,6 +888,8 @@ fn perform_adjacent_insert(
             Ok(Some(node))
         }
         InsertAdjacentWhere::BeforeEnd => {
+            // No spec-allowed no-op here: `target.appendChild(target)`
+            // is a genuine cycle and must fail.
             if !dom.append_child(target, node) {
                 return Err(adjacent_hierarchy_error(method));
             }
@@ -883,6 +901,10 @@ fn perform_adjacent_insert(
             };
             match dom.get_next_sibling(target) {
                 Some(next) => {
+                    // `parent.insertBefore(next, next)` — no-op move.
+                    if node == next {
+                        return Ok(Some(node));
+                    }
                     if !dom.insert_before(parent, node, next) {
                         return Err(adjacent_hierarchy_error(method));
                     }

@@ -173,11 +173,13 @@ fn require_iframe_receiver(
     // Inside the element cohort, reject non-iframe tags — a plain
     // <div> would otherwise satisfy the kind filter but has no
     // business on HTMLIFrameElement.prototype methods.
-    let is_iframe = ctx
-        .host()
-        .dom()
-        .get_tag_name(entity)
-        .is_some_and(|t| t.eq_ignore_ascii_case("iframe"));
+    //
+    // Use `HostData::tag_matches_ascii_case` directly rather than
+    // `EcsDom::get_tag_name(...).eq_ignore_ascii_case(...)` — the
+    // latter clones the TagType String on every accessor call, and
+    // this brand check fires on every `iframe.src` read.  The helper
+    // walks the ECS component in place and never allocates.
+    let is_iframe = ctx.host().tag_matches_ascii_case(entity, "iframe");
     if !is_iframe {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'HTMLIFrameElement': Illegal invocation"

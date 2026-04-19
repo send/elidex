@@ -222,6 +222,55 @@ fn insert_adjacent_text_rejects_bogus_where_before_allocating_text() {
 }
 
 #[test]
+fn insert_adjacent_element_afterbegin_first_child_is_noop_success() {
+    // Copilot R2 F4 lock-in: WHATWG treats "insert a node before
+    // itself" as a no-op success, but `EcsDom::insert_before`
+    // rejects `new_child == ref_child` as invalid.  The native must
+    // short-circuit on that edge case so scripts like
+    // `el.insertAdjacentElement('afterbegin', el.firstChild)` do not
+    // throw — they are a common pattern for "ensure x is the first
+    // child".
+    let out = run(
+        "var t = document.getElementById('t');\
+         var kid = document.createElement('em');\
+         t.appendChild(kid);\
+         var r = t.insertAdjacentElement('afterbegin', kid);\
+         r === kid && t.firstChild === kid ? 'ok' : 'fail';",
+        build_pair_in_parent,
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn insert_adjacent_element_beforebegin_self_is_noop_success() {
+    // Copilot R2 F4 lock-in: `el.insertAdjacentElement('beforebegin', el)`
+    // reduces to `parent.insertBefore(el, el)` which WHATWG treats as
+    // a no-op success.
+    let out = run(
+        "var t = document.getElementById('t');\
+         var parent = t.parentNode;\
+         var r = t.insertAdjacentElement('beforebegin', t);\
+         r === t && parent.childNodes[0] === t ? 'ok' : 'fail';",
+        build_pair_in_parent,
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn insert_adjacent_element_afterend_next_sibling_is_noop_success() {
+    // Same WHATWG invariant applied to `afterend` with
+    // `this.nextSibling` as the inserted node.
+    let out = run(
+        "var t = document.getElementById('t');\
+         var sib = document.getElementById('sib');\
+         var r = t.insertAdjacentElement('afterend', sib);\
+         r === sib && t.nextSibling === sib ? 'ok' : 'fail';",
+        build_pair_in_parent,
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn insert_adjacent_text_parent_less_short_circuit_does_not_leak_text() {
     // Copilot R1 F2 lock-in — `beforebegin` / `afterend` on a
     // parent-less receiver used to allocate a Text entity before

@@ -108,6 +108,23 @@ fn compat_mode_is_css1_compat() {
 }
 
 #[test]
+fn compat_mode_on_plain_object_returns_empty_not_css1_compat() {
+    // Copilot R2 F5 lock-in: `compatMode` used to return the cached
+    // "CSS1Compat" string even when called on a non-HostObject
+    // receiver (e.g. via `Object.getOwnPropertyDescriptor(...).get.call({})`).
+    // The unbound-receiver policy for Document accessors is to fall
+    // through silently with the kind's default — empty string here —
+    // so the getter does not leak a plausible answer for an
+    // invalid receiver.
+    let out = run(
+        "var getCompat = Object.getOwnPropertyDescriptor(document, 'compatMode').get; \
+         getCompat.call({}) + ':' + typeof getCompat.call({});",
+        build_html_with_head_body,
+    );
+    assert_eq!(out, ":string");
+}
+
+#[test]
 fn default_view_equals_global_this() {
     let out = run(
         "document.defaultView === globalThis ? 'same' : 'diff';",

@@ -439,11 +439,17 @@ pub(super) fn native_document_get_compat_mode(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Brand-check even though the returned value is the same for
-    // every valid Document — matches the other document accessors
-    // so `compatMode.call({})` fails instead of silently returning a
-    // plausible string.
-    let _ = document_receiver(ctx, this, "compatMode")?;
+    // `document_receiver` returns `Ok(None)` for unbound VMs and
+    // non-HostObject receivers (silent no-op policy, matches every
+    // other document accessor — `body` returns null, `title` returns
+    // "", etc.).  Fall through to the empty string in that case so
+    // `Object.getOwnPropertyDescriptor(...).get.call({})` does not
+    // leak a plausible "CSS1Compat" string from a detached call
+    // site.  Wrong-NodeKind receivers still throw TypeError via the
+    // `?` — unchanged brand-check contract.
+    if document_receiver(ctx, this, "compatMode")?.is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
     Ok(JsValue::String(ctx.vm.well_known.css1_compat))
 }
 
