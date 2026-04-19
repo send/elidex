@@ -128,6 +128,44 @@ fn clone_node_has_no_parent() {
 }
 
 #[test]
+fn clone_node_document_methods_operate_on_clone_not_bound_doc() {
+    // After cloning a document, methods like querySelector /
+    // getElementById must search the cloned subtree, not the
+    // still-bound document.  Add an `id=bound-only` element to the
+    // bound document AFTER cloning, so the clone cannot see it.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    // Seed the bound doc with a <html> root so the clone has
+    // something to search in.
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("globalThis.cloned = document.cloneNode(true);")
+        .unwrap();
+    // Append a new element to the BOUND document AFTER the clone —
+    // the clone must not see it.
+    vm.eval(
+        "var fresh = document.createElement('div');\n\
+         fresh.setAttribute('id', 'bound-only');\n\
+         document.documentElement.appendChild(fresh);",
+    )
+    .unwrap();
+    // `cloned.getElementById('bound-only')` searches the clone and
+    // should miss; `document.getElementById('bound-only')` finds it.
+    let cloned_hit = vm.eval("cloned.getElementById('bound-only');").unwrap();
+    assert!(
+        matches!(cloned_hit, JsValue::Null),
+        "cloned document should not see the bound doc's new element",
+    );
+    let bound_hit = vm.eval("document.getElementById('bound-only');").unwrap();
+    assert!(matches!(bound_hit, JsValue::Object(_)));
+    vm.unbind();
+}
+
+#[test]
 fn clone_node_document_wrapper_has_document_methods() {
     // A cloned Document must carry the same own-property suite as
     // the bound document — `createElement`, `getElementById`,

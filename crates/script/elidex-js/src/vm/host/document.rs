@@ -32,20 +32,37 @@ use super::dom_bridge::{
     coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
     query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
 };
+use super::event_target::entity_from_this;
 
-use elidex_ecs::{Attributes, Entity, TagType};
+use elidex_ecs::{Attributes, Entity, NodeKind, TagType};
 
 // ---------------------------------------------------------------------------
-// Tree walk from the document root.
+// Tree walk from the receiver document.
 // ---------------------------------------------------------------------------
 
-/// Locate the `<html>` root child of the bound document.  Returns
-/// `None` if there is no document entity or the document has no
-/// `<html>` child (e.g. empty tree).
-fn find_html_root(ctx: &mut NativeContext<'_>) -> Option<Entity> {
-    let doc = ctx.vm.host_data.as_deref()?.document_entity_opt()?;
+/// Resolve the target Document entity for a document-method call.
+///
+/// When invoked on the bound `document` global, `this` resolves to
+/// that entity.  When invoked on a cloned Document wrapper (produced
+/// by `document.cloneNode(true)`), `this` points at the clone — so
+/// `cloned.querySelector(...)` correctly searches the clone's
+/// subtree rather than the globally-bound document.
+///
+/// Returns `None` for unbound receivers or when `this` is not a
+/// Document; callers fall back to `null` / empty-array in that case.
+fn document_receiver(ctx: &mut NativeContext<'_>, this: JsValue) -> Option<Entity> {
+    let entity = entity_from_this(ctx, this)?;
+    match ctx.host().dom().node_kind(entity) {
+        Some(NodeKind::Document) => Some(entity),
+        _ => None,
+    }
+}
+
+/// Locate the `<html>` root child of `doc_entity`.  Returns `None`
+/// if the document has no `<html>` child (e.g. empty tree).
+fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<Entity> {
     let dom = ctx.host().dom();
-    dom.first_child_with_tag(doc, "html")
+    dom.first_child_with_tag(doc_entity, "html")
 }
 
 // ---------------------------------------------------------------------------
@@ -54,24 +71,17 @@ fn find_html_root(ctx: &mut NativeContext<'_>) -> Option<Entity> {
 
 pub(super) fn native_document_get_element_by_id(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
     let target = coerce_first_arg_to_string(ctx, args)?;
-
-    let matched: Option<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
-        let dom = ctx.host().dom();
-        doc.and_then(|d| dom.find_by_id(d, &target))
+    let Some(doc) = document_receiver(ctx, this) else {
+        return Ok(JsValue::Null);
     };
+    let matched = ctx.host().dom().find_by_id(doc, &target);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
 
@@ -81,54 +91,35 @@ pub(super) fn native_document_get_element_by_id(
 
 pub(super) fn native_document_query_selector(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelector")?;
-
-    let matched: Option<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
-        let dom = ctx.host().dom();
-        doc.and_then(|d| query_selector_in_subtree_first(dom, d, &selectors))
+    let Some(doc) = document_receiver(ctx, this) else {
+        return Ok(JsValue::Null);
     };
+    let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
 
 pub(super) fn native_document_query_selector_all(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
-
-    // Phase 1: collect entities while DOM is borrowed.
-    let entities: Vec<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
-        let dom = ctx.host().dom();
-        match doc {
-            Some(d) => query_selector_in_subtree_all(dom, d, &selectors),
-            None => Vec::new(),
-        }
+    let entities: Vec<Entity> = match document_receiver(ctx, this) {
+        Some(d) => query_selector_in_subtree_all(ctx.host().dom(), d, &selectors),
+        None => Vec::new(),
     };
-
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
@@ -138,7 +129,7 @@ pub(super) fn native_document_query_selector_all(
 
 pub(super) fn native_document_get_elements_by_tag_name(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
@@ -148,11 +139,7 @@ pub(super) fn native_document_get_elements_by_tag_name(
     let tag = coerce_first_arg_to_string(ctx, args)?;
     let match_all = tag == "*";
     let entities: Vec<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
+        let doc = document_receiver(ctx, this);
         let dom = ctx.host().dom();
         match doc {
             Some(d) => {
@@ -180,7 +167,7 @@ pub(super) fn native_document_get_elements_by_tag_name(
 
 pub(super) fn native_document_get_elements_by_class_name(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if ctx.host_if_bound().is_none() {
@@ -195,11 +182,7 @@ pub(super) fn native_document_get_elements_by_class_name(
     }
 
     let entities: Vec<Entity> = {
-        let doc = ctx
-            .vm
-            .host_data
-            .as_deref()
-            .and_then(|hd| hd.document_entity_opt());
+        let doc = document_receiver(ctx, this);
         let dom = ctx.host().dom();
         match doc {
             Some(d) => {
@@ -319,44 +302,45 @@ pub(super) fn native_document_create_document_fragment(
 
 pub(super) fn native_document_get_document_element(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let html = find_html_root(ctx);
+    let html = document_receiver(ctx, this).and_then(|doc| find_html_root_of(ctx, doc));
     Ok(wrap_entity_or_null(ctx.vm, html))
 }
 
 pub(super) fn native_document_get_head(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let head = find_html_root(ctx).and_then(|html| {
-        let dom = ctx.host().dom();
-        dom.first_child_with_tag(html, "head")
-    });
+    let head = document_receiver(ctx, this)
+        .and_then(|doc| find_html_root_of(ctx, doc))
+        .and_then(|html| ctx.host().dom().first_child_with_tag(html, "head"));
     Ok(wrap_entity_or_null(ctx.vm, head))
 }
 
 pub(super) fn native_document_get_body(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let body = find_html_root(ctx).and_then(|html| {
-        let dom = ctx.host().dom();
-        dom.first_child_with_tag(html, "body")
-    });
+    let body = document_receiver(ctx, this)
+        .and_then(|doc| find_html_root_of(ctx, doc))
+        .and_then(|html| ctx.host().dom().first_child_with_tag(html, "body"));
     Ok(wrap_entity_or_null(ctx.vm, body))
 }
 
 pub(super) fn native_document_get_title(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let title_text: String = {
-        let Some(html) = find_html_root(ctx) else {
+        let Some(doc) = document_receiver(ctx, this) else {
+            return Ok(JsValue::String(ctx.vm.well_known.empty));
+        };
+        let Some(html) = find_html_root_of(ctx, doc) else {
             return Ok(JsValue::String(ctx.vm.well_known.empty));
         };
         let dom = ctx.host().dom();

@@ -106,11 +106,29 @@ pub(super) fn convert_nodes_to_single_node_or_fragment(
     if args.len() == 1 {
         return Ok(Some((normalize_single_arg(ctx, args[0])?, false)));
     }
-    // Multi-arg: wrap in a freshly allocated DocumentFragment.
+    // Multi-arg: wrap in a freshly allocated DocumentFragment.  The
+    // fragment is fresh and the children are either freshly-created
+    // Text nodes or user-supplied Node entities, so `append_child`
+    // is expected to succeed — but we surface a TypeError on failure
+    // so the caller never silently drops arguments.  On error we
+    // also destroy the half-built wrapper to prevent ECS entity
+    // leaks.
     let fragment = ctx.host().dom().create_document_fragment();
     for &arg in args {
-        let child = normalize_single_arg(ctx, arg)?;
-        let _ = ctx.host().dom().append_child(fragment, child);
+        let child = match normalize_single_arg(ctx, arg) {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = ctx.host().dom().destroy_entity(fragment);
+                return Err(e);
+            }
+        };
+        if !ctx.host().dom().append_child(fragment, child) {
+            let _ = ctx.host().dom().destroy_entity(fragment);
+            return Err(VmError::type_error(
+                "Failed to build wrapper DocumentFragment: \
+                 argument rejected by the DOM.",
+            ));
+        }
     }
     Ok(Some((fragment, true)))
 }
