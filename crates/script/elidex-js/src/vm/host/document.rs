@@ -304,6 +304,38 @@ pub(super) fn native_document_create_text_node(
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
+/// `document.createComment(data)` — WHATWG DOM §4.5.  Allocates a
+/// Comment entity with the coerced `data` string and returns its
+/// wrapper.  Unbound receiver → `null` (matches the rest of the
+/// document method family).
+pub(super) fn native_document_create_comment(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    let data = coerce_first_arg_to_string(ctx, args)?;
+    let new_entity = ctx.host().dom().create_comment(data);
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+}
+
+/// `document.createDocumentFragment()` — WHATWG DOM §4.5.  Allocates
+/// a `DocumentFragment` entity that is **not** linked into any tree
+/// and returns its wrapper.  Unbound receiver → `null`.
+pub(super) fn native_document_create_document_fragment(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    let new_entity = ctx.host().dom().create_document_fragment();
+    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+}
+
 // ---------------------------------------------------------------------------
 // Getters: documentElement / head / body / title / URL / readyState
 // ---------------------------------------------------------------------------
@@ -456,6 +488,11 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
     ),
     ("createElement", native_document_create_element),
     ("createTextNode", native_document_create_text_node),
+    ("createComment", native_document_create_comment),
+    (
+        "createDocumentFragment",
+        native_document_create_document_fragment,
+    ),
 ];
 
 const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[

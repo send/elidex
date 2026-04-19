@@ -227,6 +227,78 @@ fn document_create_text_node_stores_data() {
 }
 
 #[test]
+fn document_create_comment_stores_data_and_reports_node_type() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // nodeType 8 = Comment per WHATWG §4.4.
+    let JsValue::Number(node_type) = vm.eval("document.createComment('hi').nodeType;").unwrap()
+    else {
+        panic!()
+    };
+    assert!((node_type - 8.0).abs() < f64::EPSILON);
+
+    // data field survives round trip (via nodeValue, which reads
+    // CommentData on Node.prototype).
+    let JsValue::Object(id) = vm.eval("document.createComment('world');").unwrap() else {
+        panic!()
+    };
+    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(id).kind else {
+        unreachable!()
+    };
+    let entity = elidex_ecs::Entity::from_bits(entity_bits).unwrap();
+    let data = {
+        let dom_ref = vm.host_data().unwrap().dom();
+        dom_ref
+            .world()
+            .get::<&elidex_ecs::CommentData>(entity)
+            .unwrap()
+            .0
+            .clone()
+    };
+    assert_eq!(data, "world");
+    vm.unbind();
+}
+
+#[test]
+fn document_create_document_fragment_reports_node_type_and_no_parent() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // nodeType 11 = DocumentFragment.
+    let JsValue::Number(node_type) = vm
+        .eval("document.createDocumentFragment().nodeType;")
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!((node_type - 11.0).abs() < f64::EPSILON);
+
+    // Freshly created fragment has no parent.
+    let JsValue::Null = vm
+        .eval("document.createDocumentFragment().parentNode;")
+        .unwrap()
+    else {
+        panic!("expected null parentNode for fresh fragment");
+    };
+    vm.unbind();
+}
+
+#[test]
 fn document_document_element_returns_html() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
