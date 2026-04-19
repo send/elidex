@@ -278,6 +278,13 @@ fn native_child_node_after(
     let Some(parent) = ctx.host().dom().get_parent(entity) else {
         return Ok(JsValue::Undefined);
     };
+    // Snapshot the receiver's next sibling BEFORE argument
+    // normalisation.  `convert_nodes_to_single_node_or_fragment`
+    // may detach `entity` if the caller included it in a multi-arg
+    // list (e.g. `a.after(b, a, c)`), which would leave the
+    // post-normalisation `get_next_sibling(entity)` returning a
+    // foreign chain or None and misplacing insertions.
+    let anchor_next = ctx.host().dom().get_next_sibling(entity);
     let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
         return Ok(JsValue::Undefined);
     };
@@ -297,11 +304,11 @@ fn native_child_node_after(
             return Err(hierarchy_request_error("after"));
         }
     }
-    // Track the "viable next sibling" starting at `entity.nextSibling`.
-    // Per WHATWG pre-insert: if we'd insert a node as its own
-    // reference, advance the reference past it (no-op, preserves the
-    // node's current position).
-    let mut ref_next = ctx.host().dom().get_next_sibling(entity);
+    // Start the viable-next-sibling walk at the snapshotted
+    // anchor, not at a fresh `get_next_sibling(entity)` call
+    // (which would observe any reparenting caused by argument
+    // normalisation — see the snapshot comment above).
+    let mut ref_next = anchor_next;
     let mut err = None;
     for child in children {
         if child == entity {
@@ -342,6 +349,11 @@ fn native_child_node_replace_with(
     let Some(parent) = ctx.host().dom().get_parent(entity) else {
         return Ok(JsValue::Undefined);
     };
+    // Snapshot the receiver's next sibling BEFORE argument
+    // normalisation so the viable-next-sibling anchor reflects
+    // `entity`'s original position — normalisation may detach
+    // `entity` if the caller included it in the arg list.
+    let initial_next = ctx.host().dom().get_next_sibling(entity);
     // WHATWG DOM §5.2.2 `replaceWith`:
     // 1. viableNextSibling = first following sibling of `this` not
     //    in `nodes`; otherwise null.
@@ -382,7 +394,9 @@ fn native_child_node_replace_with(
     // Viable-next-sibling search: skip over any following sibling
     // that appears in the args list (those will be moved into place
     // by the insertion loop, so they're not a stable anchor).
-    let mut viable_next = ctx.host().dom().get_next_sibling(entity);
+    // Starts from the pre-normalisation snapshot so an entity that
+    // was reparented during normalisation doesn't confuse the walk.
+    let mut viable_next = initial_next;
     while let Some(cand) = viable_next {
         if children.iter().any(|&c| c == cand) {
             viable_next = ctx.host().dom().get_next_sibling(cand);

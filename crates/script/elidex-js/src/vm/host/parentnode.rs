@@ -23,9 +23,8 @@ use super::super::value::{JsValue, NativeContext, ObjectId, PropertyKey, Propert
 use super::super::{NativeFn, VmInner};
 use super::childnode::{convert_nodes_to_single_node_or_fragment, finalize_pair};
 use super::dom_bridge::nodes_to_insert;
-use super::event_target::entity_from_this;
 
-use elidex_ecs::Entity;
+use elidex_ecs::{Entity, NodeKind};
 
 impl VmInner {
     /// Install `prepend` / `append` / `replaceChildren` on
@@ -67,12 +66,32 @@ fn hierarchy_request_error(method: &str) -> VmError {
     ))
 }
 
+/// ParentNode mixin receivers per WHATWG §4.2.6 — Element,
+/// Document, DocumentFragment.  DocumentFragment wrappers don't
+/// currently receive the mixin install (the prototype install
+/// happens on Element.prototype and the document wrapper only),
+/// but a `Function.call` reroute can still hit these natives with
+/// a Fragment receiver — accept it so we don't falsely throw.
+fn is_parent_node_kind(k: NodeKind) -> bool {
+    matches!(
+        k,
+        NodeKind::Element | NodeKind::Document | NodeKind::DocumentFragment
+    )
+}
+
 fn native_parent_node_prepend(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(parent) = entity_from_this(ctx, this) else {
+    let Some(parent) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "ParentNode",
+        "prepend",
+        is_parent_node_kind,
+    )?
+    else {
         return Ok(JsValue::Undefined);
     };
     let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
@@ -124,7 +143,14 @@ fn native_parent_node_append(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(parent) = entity_from_this(ctx, this) else {
+    let Some(parent) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "ParentNode",
+        "append",
+        is_parent_node_kind,
+    )?
+    else {
         return Ok(JsValue::Undefined);
     };
     let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
@@ -160,7 +186,14 @@ fn native_parent_node_replace_children(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(parent) = entity_from_this(ctx, this) else {
+    let Some(parent) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "ParentNode",
+        "replaceChildren",
+        is_parent_node_kind,
+    )?
+    else {
         return Ok(JsValue::Undefined);
     };
     // WHATWG §4.2.3 order: "convert nodes into a node" → "ensure
