@@ -88,14 +88,10 @@ fn native_text_split_text(
             "Failed to execute 'splitText' on 'Text': this is not a Text node.",
         ));
     }
+    // WebIDL `unsigned long` conversion (ToUint32, ES2020 §7.1.7).
+    // The DOM range check against `length` runs below.
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let offset_num = super::super::coerce::to_number(ctx.vm, offset_arg)?;
-    if !offset_num.is_finite() || offset_num < 0.0 {
-        return Err(VmError::range_error(
-            "Failed to execute 'splitText' on 'Text': offset must be a non-negative integer.",
-        ));
-    }
-    let offset = offset_num.floor() as usize;
+    let offset = super::super::coerce::to_uint32(ctx.vm, offset_arg)? as usize;
 
     let dom = ctx.host().dom();
     let current = dom

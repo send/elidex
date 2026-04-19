@@ -169,6 +169,24 @@ fn element_replace_children_preserves_tree_when_conversion_throws() {
 }
 
 #[test]
+fn element_prepend_own_first_child_is_noop() {
+    // WHATWG pre-insert: `parent.prepend(parent.firstChild)` is a
+    // no-op (the child is already at the position it would be
+    // moved to).  Must not throw, tree unchanged.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval("p.prepend(a);").unwrap();
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 2.0);
+    assert_eq!(eval_str(&mut vm, "p.childNodes[0].tagName;"), "A");
+    assert_eq!(eval_str(&mut vm, "p.childNodes[1].tagName;"), "B");
+    vm.unbind();
+}
+
+#[test]
 fn element_append_document_fragment_flattens() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

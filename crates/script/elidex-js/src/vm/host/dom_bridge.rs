@@ -118,13 +118,16 @@ pub(super) fn query_selector_in_subtree_first(
 
 /// Recursively flatten `node` into the list of real nodes to insert.
 /// Any `DocumentFragment` — at any depth — expands to its light-tree
-/// children; non-fragment entities append as-is.
+/// children and every visited fragment is drained of its children
+/// (detached from the fragment) so the hand-back ends up holding
+/// ordered non-fragment entities AND every wrapper fragment in the
+/// input chain is now empty and parentless.  Empty wrappers let
+/// [`super::childnode::destroy_wrapper_fragment_if_any`] safely
+/// despawn our internally-allocated wrapper on the happy path.
 ///
-/// WHATWG §4.2.3 step 6 mandates fragment flattening; doing it
-/// recursively handles the edge case where a user-supplied
-/// `DocumentFragment` contains another fragment as one of its
-/// children (our internal `EcsDom::append_child` is intentionally
-/// unaware of the spec-level fragment-flattening rule).
+/// WHATWG §4.2.3 step 6 mandates fragment flattening; our
+/// `EcsDom::append_child` is intentionally unaware of the spec-level
+/// rule, so we enforce it here at the call site.
 pub(super) fn nodes_to_insert(ctx: &mut NativeContext<'_>, node: Entity) -> Vec<Entity> {
     let mut out = Vec::new();
     flatten_into(ctx, node, &mut out);
@@ -138,6 +141,14 @@ fn flatten_into(ctx: &mut NativeContext<'_>, node: Entity, out: &mut Vec<Entity>
     ) {
         let children: Vec<Entity> = ctx.host().dom().children_iter(node).collect();
         for child in children {
+            // Detach each child from the fragment BEFORE recursing
+            // so nested fragments end up empty too — otherwise the
+            // outer wrapper would still own the inner fragment as a
+            // child after flattening, leaving it non-empty and
+            // blocking cleanup.  `remove_child` is a no-op when the
+            // link has already been severed, so recursive re-entry
+            // is safe.
+            let _ = ctx.host().dom().remove_child(node, child);
             flatten_into(ctx, child, out);
         }
     } else {

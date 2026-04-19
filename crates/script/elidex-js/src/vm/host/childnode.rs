@@ -173,6 +173,14 @@ fn native_child_node_before(
     let children = nodes_to_insert(ctx, pair.0);
     let mut err = None;
     for child in children {
+        // WHATWG ChildNode.before: `el.before(el)` is a no-op per the
+        // spec (the receiver would be its own "viable previous
+        // sibling").  `EcsDom::insert_before` rejects
+        // `new_child == ref_child`, so treat the self-reference as an
+        // explicit skip instead of letting it surface as a throw.
+        if child == entity {
+            continue;
+        }
         if !ctx.host().dom().insert_before(parent, child, entity) {
             err = Some(hierarchy_request_error("before"));
             break;
@@ -196,12 +204,23 @@ fn native_child_node_after(
     let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
         return Ok(JsValue::Undefined);
     };
-    let next = ctx.host().dom().get_next_sibling(entity);
     let children = nodes_to_insert(ctx, pair.0);
+    // Track the "viable next sibling" starting at `entity.nextSibling`.
+    // Per WHATWG pre-insert: if we'd insert a node as its own
+    // reference, advance the reference past it (no-op, preserves the
+    // node's current position).
+    let mut ref_next = ctx.host().dom().get_next_sibling(entity);
     let mut err = None;
     for child in children {
-        let ok = match next {
-            Some(n) => ctx.host().dom().insert_before(parent, child, n),
+        if child == entity {
+            continue;
+        }
+        if ref_next == Some(child) {
+            ref_next = ctx.host().dom().get_next_sibling(child);
+            continue;
+        }
+        let ok = match ref_next {
+            Some(r) => ctx.host().dom().insert_before(parent, child, r),
             None => ctx.host().dom().append_child(parent, child),
         };
         if !ok {

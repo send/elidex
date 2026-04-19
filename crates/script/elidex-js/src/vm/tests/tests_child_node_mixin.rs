@@ -325,6 +325,54 @@ fn element_after_mixed_string_and_node() {
 }
 
 #[test]
+fn element_before_self_is_noop() {
+    // WHATWG: `el.before(el)` is a no-op (the receiver is already
+    // its own "viable previous sibling").  Must not throw, order
+    // unchanged.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval("b.before(b);").unwrap();
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 2.0);
+    assert_eq!(eval_str(&mut vm, "p.childNodes[0].tagName;"), "A");
+    assert_eq!(eval_str(&mut vm, "p.childNodes[1].tagName;"), "B");
+    vm.unbind();
+}
+
+#[test]
+fn element_after_self_is_noop() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval("a.after(a);").unwrap();
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 2.0);
+    assert_eq!(eval_str(&mut vm, "p.childNodes[0].tagName;"), "A");
+    vm.unbind();
+}
+
+#[test]
+fn element_after_next_sibling_is_noop() {
+    // `a.after(b)` where b is already a's next sibling → no-op.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval("a.after(b);").unwrap();
+    assert_eq!(eval_num(&mut vm, "p.childNodes.length;"), 2.0);
+    assert_eq!(eval_str(&mut vm, "p.childNodes[0].tagName;"), "A");
+    assert_eq!(eval_str(&mut vm, "p.childNodes[1].tagName;"), "B");
+    vm.unbind();
+}
+
+#[test]
 fn before_empty_args_is_noop() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

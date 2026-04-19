@@ -269,25 +269,21 @@ fn native_char_data_get_length(
 // Natives: methods
 // ---------------------------------------------------------------------------
 
-/// Coerce the arg at `idx` to a u32 offset, rejecting negatives with
-/// RangeError.  WebIDL `unsigned long` conversion.
+/// Coerce the arg at `idx` via WebIDL `unsigned long` (ToUint32,
+/// ES2020 §7.1.7) — the spec-mandated conversion for CharacterData
+/// offsets.  Unlike a naive `to_number + floor`, this wraps
+/// out-of-range / negative inputs mod 2^32 before range-checking
+/// against the data length, matching browser behaviour.
 fn coerce_offset(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
     idx: usize,
-    label: &str,
-    method: &str,
+    _label: &str,
+    _method: &str,
 ) -> Result<usize, VmError> {
     let arg = args.get(idx).copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_number(ctx.vm, arg)?;
-    if !n.is_finite() || n < 0.0 {
-        return Err(VmError::range_error(format!(
-            "Failed to execute '{method}' on 'CharacterData': \
-             {label} must be a non-negative integer."
-        )));
-    }
-    // Floor matches ToUint32 semantics for non-integer inputs.
-    Ok(n.floor() as usize)
+    let n = super::super::coerce::to_uint32(ctx.vm, arg)?;
+    Ok(n as usize)
 }
 
 fn coerce_data_arg(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<String, VmError> {

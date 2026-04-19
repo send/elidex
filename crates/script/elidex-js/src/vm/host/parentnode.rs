@@ -73,12 +73,22 @@ fn native_parent_node_prepend(
     let Some(pair) = convert_nodes_to_single_node_or_fragment(ctx, args)? else {
         return Ok(JsValue::Undefined);
     };
-    let first = ctx.host().dom().children_iter(parent).next();
     let children = nodes_to_insert(ctx, pair.0);
+    // Track the "reference child" we insert before.  Starts as the
+    // parent's current first child; if we'd insert a node as its own
+    // reference, advance to that node's next sibling (WHATWG
+    // pre-insert no-op).  Snapshotting is correct because
+    // `insert_before` leaves the reference child's position intact
+    // relative to nodes inserted in front of it.
+    let mut ref_child = ctx.host().dom().children_iter(parent).next();
     let mut err = None;
     for child in children {
-        let ok = match first {
-            Some(f) => ctx.host().dom().insert_before(parent, child, f),
+        if ref_child == Some(child) {
+            ref_child = ctx.host().dom().get_next_sibling(child);
+            continue;
+        }
+        let ok = match ref_child {
+            Some(r) => ctx.host().dom().insert_before(parent, child, r),
             None => ctx.host().dom().append_child(parent, child),
         };
         if !ok {
@@ -123,14 +133,18 @@ fn native_parent_node_replace_children(
     };
     // WHATWG §4.2.3: convert the variadic arguments BEFORE clearing
     // the parent so a ToString / HierarchyRequestError throw leaves
-    // the tree untouched.  Mirror `replaceChildren` step 3 of the
-    // "replace all" algorithm.
+    // the tree untouched.  If a subsequent append fails the spec
+    // behaviour is trickier — a fully spec-accurate implementation
+    // would pre-validate insertion before touching the tree.  We
+    // approximate by rolling the existing children back on append
+    // failure so user JS never observes a partially-cleared parent.
     let pair = convert_nodes_to_single_node_or_fragment(ctx, args)?;
     let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
-    for child in existing {
+    for &child in &existing {
         let _ = ctx.host().dom().remove_child(parent, child);
     }
     let mut err = None;
+    let mut inserted: Vec<Entity> = Vec::new();
     if let Some(p) = pair {
         let children = nodes_to_insert(ctx, p.0);
         for child in children {
@@ -138,8 +152,17 @@ fn native_parent_node_replace_children(
                 err = Some(hierarchy_request_error("replaceChildren"));
                 break;
             }
+            inserted.push(child);
         }
         destroy_wrapper_fragment_if_any(ctx, p);
+    }
+    if err.is_some() {
+        for child in inserted {
+            let _ = ctx.host().dom().remove_child(parent, child);
+        }
+        for child in existing {
+            let _ = ctx.host().dom().append_child(parent, child);
+        }
     }
     err.map_or(Ok(JsValue::Undefined), Err)
 }

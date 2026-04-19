@@ -354,6 +354,33 @@ fn text_split_text_at_surrogate_pair_is_lossy_not_panic() {
 }
 
 #[test]
+fn text_substring_data_negative_offset_wraps_via_to_uint32() {
+    // WebIDL `unsigned long` conversion = ToUint32 (mod 2^32).  A
+    // negative offset becomes 0xFFFFFFFF, which exceeds the data
+    // length and raises RangeError.  Pre-R4 this used a naive
+    // `to_number` + negative-check that raised BEFORE reaching the
+    // range comparison, differing observably from browsers.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let threw = vm
+        .eval(
+            "var t = document.createTextNode('abc');\n\
+             var err = null;\n\
+             try { t.substringData(-1, 1); } catch (e) { err = e; }\n\
+             err !== null;",
+        )
+        .unwrap();
+    assert!(
+        matches!(threw, JsValue::Boolean(true)),
+        "substringData(-1, 1) must throw after ToUint32 wrapping"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn text_split_text_beyond_length_throws() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
