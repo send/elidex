@@ -109,7 +109,7 @@ impl EcsDom {
         self.create_element_with_owner(tag, attrs, None)
     }
 
-    /// Create an element node with an explicit owner [`Document`] entity.
+    /// Create an element node with an explicit owner `Document` entity.
     ///
     /// `owner = Some(doc)` attaches an [`AssociatedDocument`] component so
     /// that [`owner_document`](Self::owner_document) returns `doc` before
@@ -172,7 +172,7 @@ impl EcsDom {
         self.create_text_with_owner(text, None)
     }
 
-    /// Create a text node with an explicit owner [`Document`] entity.
+    /// Create a text node with an explicit owner `Document` entity.
     pub fn create_text_with_owner(
         &mut self,
         text: impl Into<String>,
@@ -199,7 +199,7 @@ impl EcsDom {
     }
 
     /// Create a document fragment node with an explicit owner
-    /// [`Document`] entity.
+    /// `Document` entity.
     pub fn create_document_fragment_with_owner(&mut self, owner: Option<Entity>) -> Entity {
         let entity = self
             .world
@@ -218,7 +218,7 @@ impl EcsDom {
         self.create_comment_with_owner(data, None)
     }
 
-    /// Create a comment node with an explicit owner [`Document`] entity.
+    /// Create a comment node with an explicit owner `Document` entity.
     pub fn create_comment_with_owner(
         &mut self,
         data: impl Into<String>,
@@ -405,7 +405,7 @@ impl EcsDom {
             .is_ok()
     }
 
-    /// Resolve the owner [`Document`] entity for a node
+    /// Resolve the owner `Document` entity for a node
     /// (WHATWG §4.4 `Node.ownerDocument`).
     ///
     /// Returns `None` when:

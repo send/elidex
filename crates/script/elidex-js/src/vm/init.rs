@@ -19,6 +19,7 @@ use super::host;
 
 impl Vm {
     /// Create a new VM with built-in globals registered.
+    #[allow(clippy::too_many_lines)]
     pub fn new() -> Self {
         let mut strings = StringPool::new();
 

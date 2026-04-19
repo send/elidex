@@ -594,6 +594,7 @@ fn invalidate_ics(compiled_functions: &mut [CompiledFunction], obj_marks: &[u64]
 
 impl VmInner {
     /// Run a full GC cycle: mark, sweep, invalidate ICs.
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn collect_garbage(&mut self) {
         // 1. Resize and clear mark bit-vectors.
         resize_marks(&mut self.gc_object_marks, self.objects.len());

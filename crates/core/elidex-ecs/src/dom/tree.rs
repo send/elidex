@@ -836,7 +836,7 @@ impl EcsDom {
     ///   document.
     ///
     /// Orphan nodes whose `ownerDocument` is `None` intentionally
-    /// produce a clone with no [`AssociatedDocument`] component —
+    /// produce a clone with no [`crate::AssociatedDocument`] component —
     /// callers relying on the tree-root fallback behaviour remain
     /// unchanged.
     #[must_use = "returns None when src does not exist"]
@@ -861,19 +861,14 @@ impl EcsDom {
         let root = self.clone_node_shallow_unchecked(src);
         let root_document = if matches!(src_kind, Some(NodeKind::Document)) {
             root
+        } else if let Some(doc) = document_for_children {
+            self.set_associated_document(root, doc);
+            doc
         } else {
-            match document_for_children {
-                Some(doc) => {
-                    self.set_associated_document(root, doc);
-                    doc
-                }
-                None => {
-                    // Orphan clone — no AssociatedDocument anywhere in
-                    // the new subtree.  Skip the descendant propagation.
-                    self.clone_children_recursive(src, root, None);
-                    return Some(root);
-                }
-            }
+            // Orphan clone — no AssociatedDocument anywhere in the
+            // new subtree.  Skip the descendant propagation.
+            self.clone_children_recursive(src, root, None);
+            return Some(root);
         };
         if matches!(src_kind, Some(NodeKind::Document)) {
             self.set_associated_document(root, root_document);

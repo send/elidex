@@ -390,7 +390,7 @@ pub struct DocTypeData {
     pub system_id: String,
 }
 
-/// WHATWG DOM §4.4 node document pointer — the [`Document`] entity a
+/// WHATWG DOM §4.4 node document pointer — the `Document` entity a
 /// node was created in.
 ///
 /// Component-based storage mirrors WHATWG's per-node "node document"
@@ -403,12 +403,12 @@ pub struct DocTypeData {
 /// for nodes created by a secondary Document (e.g. `doc.cloneNode`).
 ///
 /// Absence of the component on a given entity is still valid: the
-/// caller is expected to fall back to [`EcsDom::find_tree_root`],
+/// caller is expected to fall back to [`crate::EcsDom::find_tree_root`],
 /// which matches the pre-component behaviour exactly and keeps legacy
 /// fixtures (html5ever-produced trees, layout-only tests) working
 /// without migration.
 ///
-/// See [`EcsDom::owner_document`] for the fallback-aware accessor.
+/// See [`crate::EcsDom::owner_document`] for the fallback-aware accessor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AssociatedDocument(pub Entity);
 
