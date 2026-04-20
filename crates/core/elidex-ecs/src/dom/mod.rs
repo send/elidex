@@ -19,8 +19,8 @@ mod shadow;
 mod tree;
 
 use crate::components::{
-    AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowRoot, TagType, TextContent,
-    TreeRelation,
+    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowRoot,
+    TagType, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -99,13 +99,39 @@ impl EcsDom {
     }
 
     /// Create an element node with the given tag and attributes.
+    ///
+    /// Shim over [`create_element_with_owner`](Self::create_element_with_owner)
+    /// with `owner = None`.  New callers that know which Document the
+    /// node belongs to should prefer the `_with_owner` variant so that
+    /// [`owner_document`](Self::owner_document) can report the correct
+    /// Document even for detached nodes (WHATWG §4.4 "node document").
     pub fn create_element(&mut self, tag: impl Into<String>, attrs: Attributes) -> Entity {
-        self.world.spawn((
+        self.create_element_with_owner(tag, attrs, None)
+    }
+
+    /// Create an element node with an explicit owner `Document` entity.
+    ///
+    /// `owner = Some(doc)` attaches an [`AssociatedDocument`] component so
+    /// that [`owner_document`](Self::owner_document) returns `doc` before
+    /// the node is inserted into any tree.  `owner = None` mirrors legacy
+    /// [`create_element`](Self::create_element) behaviour.
+    pub fn create_element_with_owner(
+        &mut self,
+        tag: impl Into<String>,
+        attrs: Attributes,
+        owner: Option<Entity>,
+    ) -> Entity {
+        let owner = self.validate_owner_document(owner);
+        let entity = self.world.spawn((
             TagType(tag.into()),
             attrs,
             TreeRelation::default(),
             NodeKind::Element,
-        ))
+        ));
+        if let Some(doc) = owner {
+            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
+        }
+        entity
     }
 
     /// Create a document root entity (no tag, only tree relations).
@@ -140,27 +166,77 @@ impl EcsDom {
     }
 
     /// Create a text node.
+    ///
+    /// Shim over [`create_text_with_owner`](Self::create_text_with_owner)
+    /// with `owner = None`.
     pub fn create_text(&mut self, text: impl Into<String>) -> Entity {
-        self.world.spawn((
+        self.create_text_with_owner(text, None)
+    }
+
+    /// Create a text node with an explicit owner `Document` entity.
+    pub fn create_text_with_owner(
+        &mut self,
+        text: impl Into<String>,
+        owner: Option<Entity>,
+    ) -> Entity {
+        let owner = self.validate_owner_document(owner);
+        let entity = self.world.spawn((
             TextContent(text.into()),
             TreeRelation::default(),
             NodeKind::Text,
-        ))
+        ));
+        if let Some(doc) = owner {
+            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
+        }
+        entity
     }
 
     /// Create a document fragment node (WHATWG DOM 4.5).
+    ///
+    /// Shim over
+    /// [`create_document_fragment_with_owner`](Self::create_document_fragment_with_owner)
+    /// with `owner = None`.
     pub fn create_document_fragment(&mut self) -> Entity {
-        self.world
-            .spawn((TreeRelation::default(), NodeKind::DocumentFragment))
+        self.create_document_fragment_with_owner(None)
+    }
+
+    /// Create a document fragment node with an explicit owner
+    /// `Document` entity.
+    pub fn create_document_fragment_with_owner(&mut self, owner: Option<Entity>) -> Entity {
+        let owner = self.validate_owner_document(owner);
+        let entity = self
+            .world
+            .spawn((TreeRelation::default(), NodeKind::DocumentFragment));
+        if let Some(doc) = owner {
+            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
+        }
+        entity
     }
 
     /// Create a comment node.
+    ///
+    /// Shim over [`create_comment_with_owner`](Self::create_comment_with_owner)
+    /// with `owner = None`.
     pub fn create_comment(&mut self, data: impl Into<String>) -> Entity {
-        self.world.spawn((
+        self.create_comment_with_owner(data, None)
+    }
+
+    /// Create a comment node with an explicit owner `Document` entity.
+    pub fn create_comment_with_owner(
+        &mut self,
+        data: impl Into<String>,
+        owner: Option<Entity>,
+    ) -> Entity {
+        let owner = self.validate_owner_document(owner);
+        let entity = self.world.spawn((
             CommentData(data.into()),
             TreeRelation::default(),
             NodeKind::Comment,
-        ))
+        ));
+        if let Some(doc) = owner {
+            let _ = self.world.insert_one(entity, AssociatedDocument(doc));
+        }
+        entity
     }
 
     /// Create a document type node.
@@ -294,6 +370,106 @@ impl EcsDom {
         }
         if self.world.get::<&DocTypeData>(entity).is_ok() {
             return Some(NodeKind::DocumentType);
+        }
+        None
+    }
+
+    // ---- AssociatedDocument (WHATWG §4.4 "node document") ----
+
+    /// Validate an incoming `owner` argument passed to
+    /// `create_*_with_owner`.  Returns the entity unchanged when it
+    /// still points at a live [`NodeKind::Document`]; returns `None`
+    /// otherwise (destroyed / non-Document / never set).
+    ///
+    /// Write-time counterpart to the read-time validation in
+    /// [`owner_document`](Self::owner_document): both layers together
+    /// guarantee that an [`AssociatedDocument`] component in the
+    /// world always points at a real Document as long as it persists.
+    /// A `debug_assert!` fires when the caller passes a non-Document
+    /// owner so misuse surfaces immediately in test builds while
+    /// release builds keep the silent-skip safety net.
+    fn validate_owner_document(&self, owner: Option<Entity>) -> Option<Entity> {
+        let doc = owner?;
+        if self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document)) {
+            Some(doc)
+        } else {
+            debug_assert!(
+                false,
+                "create_*_with_owner passed an owner that is not a live Document entity"
+            );
+            None
+        }
+    }
+
+    /// Returns the [`AssociatedDocument`] component value for an
+    /// entity, or `None` if absent.
+    ///
+    /// Low-level accessor — callers that need WHATWG-compliant
+    /// `ownerDocument` semantics should use
+    /// [`owner_document`](Self::owner_document), which layers tree-root
+    /// fallback on top.
+    #[must_use]
+    pub fn get_associated_document(&self, entity: Entity) -> Option<Entity> {
+        self.world
+            .get::<&AssociatedDocument>(entity)
+            .ok()
+            .map(|a| a.0)
+    }
+
+    /// Attach or overwrite an entity's [`AssociatedDocument`] (WHATWG
+    /// §4.4 "node document").
+    ///
+    /// Idempotent: inserts when absent, updates in place when present.
+    /// Returns `false` if the entity has been destroyed.
+    pub fn set_associated_document(&mut self, entity: Entity, doc: Entity) -> bool {
+        if !self.contains(entity) {
+            return false;
+        }
+        if let Ok(mut slot) = self.world.get::<&mut AssociatedDocument>(entity) {
+            slot.0 = doc;
+            return true;
+        }
+        self.world
+            .insert_one(entity, AssociatedDocument(doc))
+            .is_ok()
+    }
+
+    /// Resolve the owner `Document` entity for a node
+    /// (WHATWG §4.4 `Node.ownerDocument`).
+    ///
+    /// Returns `None` when:
+    /// - `entity` is itself a `Document` (per WHATWG, `Document.ownerDocument`
+    ///   is `null`), **or**
+    /// - no [`AssociatedDocument`] is set and the tree root is not a
+    ///   Document (orphan node / detached fragment / Window).
+    ///
+    /// Otherwise, prefers the explicit [`AssociatedDocument`] component
+    /// (set at node-creation time by `create_*_with_owner` and propagated
+    /// through `clone_subtree`) and falls back to the tree-root walk so
+    /// that legacy entities created without the component still resolve
+    /// to the bound document when inserted into the main tree.
+    #[must_use]
+    pub fn owner_document(&self, entity: Entity) -> Option<Entity> {
+        if !self.contains(entity) {
+            return None;
+        }
+        if matches!(self.node_kind(entity), Some(NodeKind::Document)) {
+            return None;
+        }
+        if let Some(doc) = self.get_associated_document(entity) {
+            // Guard against a dangling pointer OR a wrongly-typed
+            // component — callers expect an actual Document back.
+            // A stale entity (destroyed / recycled as a non-Document)
+            // must not leak through; fall through to the tree-root
+            // walk in that case so `ownerDocument` never hands out a
+            // ghost or off-kind receiver.
+            if self.contains(doc) && matches!(self.node_kind(doc), Some(NodeKind::Document)) {
+                return Some(doc);
+            }
+        }
+        let root = self.find_tree_root(entity);
+        if matches!(self.node_kind(root), Some(NodeKind::Document)) {
+            return Some(root);
         }
         None
     }

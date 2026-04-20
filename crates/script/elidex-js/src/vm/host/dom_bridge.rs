@@ -199,3 +199,76 @@ pub(super) fn query_selector_in_subtree_all(
     });
     out
 }
+
+/// Pre-order DFS collecting every descendant of `root` whose tag name
+/// matches `tag` (ASCII case-insensitively), or every element when
+/// `tag == "*"`.  `root` itself is never a candidate, matching the
+/// WHATWG §4.2.6 scope rule ("every descendant element of node").
+///
+/// Shared by `document.getElementsByTagName` and
+/// `Element.prototype.getElementsByTagName` so the two surfaces cannot
+/// drift on `*` handling or case folding.
+pub(super) fn collect_descendants_by_tag_name(
+    dom: &EcsDom,
+    root: Entity,
+    tag: &str,
+) -> Vec<Entity> {
+    use elidex_ecs::TagType;
+    let mut out = Vec::new();
+    let match_all = tag == "*";
+    dom.traverse_descendants(root, |entity| {
+        if match_all {
+            if dom.world().get::<&TagType>(entity).is_ok() {
+                out.push(entity);
+            }
+        } else if let Ok(tt) = dom.world().get::<&TagType>(entity) {
+            if tt.0.eq_ignore_ascii_case(tag) {
+                out.push(entity);
+            }
+        }
+        true
+    });
+    out
+}
+
+/// Pre-order DFS collecting every descendant of `root` whose `class`
+/// attribute contains all tokens in `target_classes`.  Empty
+/// `target_classes` produces an empty Vec per WHATWG §4.2.6.2 step 2
+/// ("if classes is the empty set, return an empty HTMLCollection").
+/// `root` itself is never a match candidate.
+pub(super) fn collect_descendants_by_class_name(
+    dom: &EcsDom,
+    root: Entity,
+    target_classes: &[&str],
+) -> Vec<Entity> {
+    use elidex_ecs::{Attributes, TagType};
+    if target_classes.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    dom.traverse_descendants(root, |entity| {
+        // Match the sibling `collect_descendants_by_tag_name` and
+        // `query_selector_in_subtree_all`: require `TagType` (i.e.
+        // an Element) before inspecting the `class` attribute.
+        // `EcsDom::set_attribute` can attach an `Attributes`
+        // component to non-Element entities (parser fixtures, raw
+        // ECS test setups), which would otherwise leak into the
+        // result set and violate WHATWG §4.2.6.2 "descendant
+        // elements".
+        if dom.world().get::<&TagType>(entity).is_err() {
+            return true;
+        }
+        if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
+            if let Some(cls) = attrs.get("class") {
+                if target_classes
+                    .iter()
+                    .all(|tc| cls.split_whitespace().any(|ec| ec == *tc))
+                {
+                    out.push(entity);
+                }
+            }
+        }
+        true
+    });
+    out
+}

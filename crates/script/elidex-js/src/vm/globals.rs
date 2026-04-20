@@ -201,6 +201,13 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_text_prototype();
 
+        // DocumentType.prototype — chained to Node.prototype.  Carries
+        // `name` / `publicId` / `systemId` (WHATWG §4.7).  Does not
+        // participate in the CharacterData / Text chain; DocumentType
+        // has no character data of its own.
+        #[cfg(feature = "engine")]
+        self.register_document_type_prototype();
+
         // Element.prototype — chained to Node.prototype.  Holds
         // Element-specific members (tree nav, attributes, matches).
         // Wrappers for entities carrying a `TagType` component pick
@@ -209,6 +216,14 @@ impl VmInner {
         // this level.
         #[cfg(feature = "engine")]
         self.register_element_prototype();
+
+        // HTMLIFrameElement.prototype — tag-specific layer for
+        // <iframe> wrappers.  PR5b will splice HTMLElement.prototype
+        // between HTMLIFrameElement.prototype and Element.prototype;
+        // see `html_iframe_proto.rs` "PR5b CHECKLIST" for the
+        // migration invariant that must be honoured at that point.
+        #[cfg(feature = "engine")]
+        self.register_html_iframe_prototype();
 
         // Window.prototype — prototype for the `globalThis` `HostObject`
         // (WHATWG HTML §7.2).  Must run *after*
@@ -361,6 +376,32 @@ impl VmInner {
                 PropertyValue::Accessor {
                     getter: Some(gid),
                     setter: None,
+                },
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+    }
+
+    /// Install each `(name, getter, setter)` as an RW accessor pair
+    /// with WebIDL-default attrs.  The underlying flags mirror
+    /// `install_ro_accessors`; the `setter` slot is what makes the
+    /// accessor writable.
+    #[cfg(feature = "engine")]
+    pub(crate) fn install_rw_accessors(
+        &mut self,
+        obj_id: super::value::ObjectId,
+        accessors: &[(&str, NativeFn, NativeFn)],
+    ) {
+        for &(name, getter, setter) in accessors {
+            let gid = self.create_native_function(&format!("get {name}"), getter);
+            let sid = self.create_native_function(&format!("set {name}"), setter);
+            let key = PropertyKey::String(self.strings.intern(name));
+            self.define_shaped_property(
+                obj_id,
+                key,
+                PropertyValue::Accessor {
+                    getter: Some(gid),
+                    setter: Some(sid),
                 },
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );

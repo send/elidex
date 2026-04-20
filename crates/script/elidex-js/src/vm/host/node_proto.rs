@@ -35,7 +35,8 @@
 //!   `isConnected`, `ownerDocument`.
 //! - Methods:   `hasChildNodes`, `contains`, `appendChild`,
 //!   `removeChild`, `insertBefore`, `replaceChild`, `cloneNode`,
-//!   `isSameNode`, `getRootNode`.
+//!   `isSameNode`, `getRootNode`, `isEqualNode`,
+//!   `compareDocumentPosition`, `normalize`.
 //!
 //! Element-only members (`getAttribute`, `children`, `matches`, …)
 //! live on `Element.prototype` which chains here.
@@ -53,6 +54,7 @@ use super::event_target::entity_from_this;
 use super::node_methods_extras::{
     native_node_clone_node, native_node_compare_document_position, native_node_get_owner_document,
     native_node_get_root_node, native_node_is_equal_node, native_node_is_same_node,
+    native_node_normalize,
 };
 
 use elidex_ecs::{Entity, NodeKind, TagType};
@@ -174,6 +176,7 @@ impl VmInner {
                 self.well_known.compare_document_position,
                 native_node_compare_document_position,
             ),
+            (self.well_known.normalize, native_node_normalize),
         ] {
             let name = self.strings.get_utf8(name_sid);
             let fn_id = self.create_native_function(&name, func);

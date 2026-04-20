@@ -32,11 +32,12 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
-    query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, collect_descendants_by_class_name, collect_descendants_by_tag_name,
+    parse_dom_selector, query_selector_in_subtree_all, query_selector_in_subtree_first,
+    wrap_entities_as_array, wrap_entity_or_null,
 };
 
-use elidex_ecs::{Attributes, Entity, NodeKind, TagType};
+use elidex_ecs::{Attributes, Entity, NodeKind};
 
 // ---------------------------------------------------------------------------
 // Tree walk from the receiver document.
@@ -84,10 +85,12 @@ pub(super) fn native_document_get_element_by_id(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    let target = coerce_first_arg_to_string(ctx, args)?;
+    // WebIDL brand-check runs BEFORE argument ToString so an invalid
+    // receiver does not trigger user-supplied toString.
     let Some(doc) = document_receiver(ctx, this, "getElementById")? else {
         return Ok(JsValue::Null);
     };
+    let target = coerce_first_arg_to_string(ctx, args)?;
     let matched = ctx.host().dom().find_by_id(doc, &target);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
@@ -104,11 +107,12 @@ pub(super) fn native_document_query_selector(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
+    // Brand-check before argument ToString (WebIDL precedence).
     let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
         return Ok(JsValue::Null);
     };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
     let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
@@ -121,11 +125,12 @@ pub(super) fn native_document_query_selector_all(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
+    // Brand-check before argument ToString (WebIDL precedence).
     let Some(doc) = document_receiver(ctx, this, "querySelectorAll")? else {
         return Ok(JsValue::Null);
     };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
     let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
@@ -143,32 +148,18 @@ pub(super) fn native_document_get_elements_by_tag_name(
         return Ok(JsValue::Null);
     }
 
-    let tag = coerce_first_arg_to_string(ctx, args)?;
-    let match_all = tag == "*";
+    // Brand-check before argument ToString (WebIDL precedence).
+    // Mirrors the Element.prototype sibling; an invalid / non-
+    // Document receiver returns an empty Array without running the
+    // caller-supplied toString.
     let doc_opt = document_receiver(ctx, this, "getElementsByTagName")?;
-    let entities: Vec<Entity> = {
-        let dom = ctx.host().dom();
-        match doc_opt {
-            Some(d) => {
-                let mut result = Vec::new();
-                dom.traverse_descendants(d, |entity| {
-                    if match_all {
-                        if dom.world().get::<&TagType>(entity).is_ok() {
-                            result.push(entity);
-                        }
-                    } else if let Ok(tt) = dom.world().get::<&TagType>(entity) {
-                        if tt.0.eq_ignore_ascii_case(&tag) {
-                            result.push(entity);
-                        }
-                    }
-                    true
-                });
-                result
-            }
-            None => Vec::new(),
+    let entities: Vec<Entity> = match doc_opt {
+        Some(d) => {
+            let tag = coerce_first_arg_to_string(ctx, args)?;
+            collect_descendants_by_tag_name(ctx.host().dom(), d, &tag)
         }
+        None => Vec::new(),
     };
-
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
@@ -181,38 +172,16 @@ pub(super) fn native_document_get_elements_by_class_name(
         return Ok(JsValue::Null);
     }
 
-    let class_str = coerce_first_arg_to_string(ctx, args)?;
-
-    let target_classes: Vec<&str> = class_str.split_whitespace().collect();
-    if target_classes.is_empty() {
-        return Ok(wrap_entities_as_array(ctx.vm, &[]));
-    }
-
+    // Brand-check before argument ToString (WebIDL precedence).
     let doc_opt = document_receiver(ctx, this, "getElementsByClassName")?;
-    let entities: Vec<Entity> = {
-        let dom = ctx.host().dom();
-        match doc_opt {
-            Some(d) => {
-                let mut result = Vec::new();
-                dom.traverse_descendants(d, |entity| {
-                    if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
-                        if let Some(cls) = attrs.get("class") {
-                            if target_classes
-                                .iter()
-                                .all(|tc| cls.split_whitespace().any(|ec| ec == *tc))
-                            {
-                                result.push(entity);
-                            }
-                        }
-                    }
-                    true
-                });
-                result
-            }
-            None => Vec::new(),
+    let entities: Vec<Entity> = match doc_opt {
+        Some(d) => {
+            let class_str = coerce_first_arg_to_string(ctx, args)?;
+            let target_classes: Vec<&str> = class_str.split_whitespace().collect();
+            collect_descendants_by_class_name(ctx.host().dom(), d, &target_classes)
         }
+        None => Vec::new(),
     };
-
     Ok(wrap_entities_as_array(ctx.vm, &entities))
 }
 
@@ -235,15 +204,22 @@ pub(super) fn native_document_create_element(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    if document_receiver(ctx, this, "createElement")?.is_none() {
+    let Some(doc_entity) = document_receiver(ctx, this, "createElement")? else {
         return Ok(JsValue::Null);
-    }
+    };
 
     // WHATWG DOM §4.5 createElement normalises to lowercase in the
     // "HTML document" branch.  We treat every bind as HTML.
     let tag = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
 
-    let new_entity = ctx.host().dom().create_element(tag, Attributes::default());
+    // Anchor the new node's "node document" (WHATWG §4.4) to the
+    // receiver Document so that `newEl.ownerDocument` reports the
+    // creating document even before insertion — critical for clones
+    // and iframes where the bound global and the receiver differ.
+    let new_entity =
+        ctx.host()
+            .dom()
+            .create_element_with_owner(tag, Attributes::default(), Some(doc_entity));
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
@@ -255,11 +231,14 @@ pub(super) fn native_document_create_text_node(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    if document_receiver(ctx, this, "createTextNode")?.is_none() {
+    let Some(doc_entity) = document_receiver(ctx, this, "createTextNode")? else {
         return Ok(JsValue::Null);
-    }
+    };
     let data = coerce_first_arg_to_string(ctx, args)?;
-    let new_entity = ctx.host().dom().create_text(data);
+    let new_entity = ctx
+        .host()
+        .dom()
+        .create_text_with_owner(data, Some(doc_entity));
     // Text wrappers chain through `Text.prototype →
     // CharacterData.prototype → Node.prototype → …` so `data` /
     // `length` / `splitText` resolve on the returned handle.
@@ -278,11 +257,14 @@ pub(super) fn native_document_create_comment(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    if document_receiver(ctx, this, "createComment")?.is_none() {
+    let Some(doc_entity) = document_receiver(ctx, this, "createComment")? else {
         return Ok(JsValue::Null);
-    }
+    };
     let data = coerce_first_arg_to_string(ctx, args)?;
-    let new_entity = ctx.host().dom().create_comment(data);
+    let new_entity = ctx
+        .host()
+        .dom()
+        .create_comment_with_owner(data, Some(doc_entity));
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
@@ -297,10 +279,13 @@ pub(super) fn native_document_create_document_fragment(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    if document_receiver(ctx, this, "createDocumentFragment")?.is_none() {
+    let Some(doc_entity) = document_receiver(ctx, this, "createDocumentFragment")? else {
         return Ok(JsValue::Null);
-    }
-    let new_entity = ctx.host().dom().create_document_fragment();
+    };
+    let new_entity = ctx
+        .host()
+        .dom()
+        .create_document_fragment_with_owner(Some(doc_entity));
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
 
@@ -397,6 +382,267 @@ pub(super) fn native_document_get_ready_state(
 }
 
 // ---------------------------------------------------------------------------
+// title setter / compatMode / defaultView / doctype (PR4f C6)
+// ---------------------------------------------------------------------------
+
+/// `document.title = x` — WHATWG §4.5.  For HTML documents:
+/// 1. Find the `<title>` inside `<head>` if any.
+/// 2. If none exists but `<head>` does, create a new `<title>` and
+///    append it to `<head>`.
+/// 3. If no `<head>` exists, the setter is a **no-op** per spec.
+/// 4. Replace the title element's children with a single Text node
+///    containing the coerced string.
+pub(super) fn native_document_set_title(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "title")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let value = args.first().copied().unwrap_or(JsValue::Undefined);
+    let value_sid = super::super::coerce::to_string(ctx.vm, value)?;
+    let new_text = ctx.vm.strings.get_utf8(value_sid);
+
+    // Locate <head> under <html> for the receiver document.  Spec
+    // uses "html root" → "first head child"; legacy html5ever-shaped
+    // trees hand us exactly that shape already.
+    let Some(html) = find_html_root_of(ctx, doc) else {
+        return Ok(JsValue::Undefined);
+    };
+    let head_opt = ctx.host().dom().first_child_with_tag(html, "head");
+    let Some(head) = head_opt else {
+        // No <head> — spec is explicit: return without mutating.
+        return Ok(JsValue::Undefined);
+    };
+
+    // find_or_create_title.  We want a single <title> in <head>; if
+    // absent, allocate one and append (with the correct owner
+    // document).
+    let title = match ctx.host().dom().first_child_with_tag(head, "title") {
+        Some(t) => t,
+        None => {
+            let new_title = ctx.host().dom().create_element_with_owner(
+                "title",
+                elidex_ecs::Attributes::default(),
+                Some(doc),
+            );
+            let _ = ctx.host().dom().append_child(head, new_title);
+            new_title
+        }
+    };
+
+    // Clear existing text-node children; legal <title> content per
+    // WHATWG is text-only but we defensively include Element children
+    // too in case a bad parse left some in there.
+    let existing: Vec<elidex_ecs::Entity> = ctx.host().dom().children_iter(title).collect();
+    for child in existing {
+        let _ = ctx.host().dom().remove_child(title, child);
+    }
+    let text_entity = ctx.host().dom().create_text_with_owner(new_text, Some(doc));
+    let _ = ctx.host().dom().append_child(title, text_entity);
+    Ok(JsValue::Undefined)
+}
+
+/// `document.compatMode` — WHATWG §4.5 accessor.
+/// Fixed `"CSS1Compat"` (standards mode); `BackCompat` (quirks mode)
+/// requires a quirks-aware parser pass that elidex does not yet have.
+pub(super) fn native_document_get_compat_mode(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // `document_receiver` returns `Ok(None)` for unbound VMs and
+    // non-HostObject receivers (silent no-op policy, matches every
+    // other document accessor — `body` returns null, `title` returns
+    // "", etc.).  Fall through to the empty string in that case so
+    // `Object.getOwnPropertyDescriptor(...).get.call({})` does not
+    // leak a plausible "CSS1Compat" string from a detached call
+    // site.  Wrong-NodeKind receivers still throw TypeError via the
+    // `?` — unchanged brand-check contract.
+    if document_receiver(ctx, this, "compatMode")?.is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    Ok(JsValue::String(ctx.vm.well_known.css1_compat))
+}
+
+/// `document.defaultView` — WHATWG §4.5.  Returns the Window
+/// (`globalThis`) wrapper for the bound VM; a Document that is not
+/// currently the bound document (e.g. a detached clone) has no
+/// associated `Window` and therefore returns `null` per spec.
+///
+/// The bound `globalThis` is an independently-allocated `HostObject`
+/// (`VmInner::global_object`), not an entry in the element
+/// `wrapper_cache`.  Returning `global_object` directly preserves
+/// WHATWG's `document.defaultView === globalThis` invariant; calling
+/// `create_element_wrapper(window_entity)` here would allocate a
+/// parallel wrapper that does not compare equal.
+pub(super) fn native_document_get_default_view(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "defaultView")? else {
+        return Ok(JsValue::Null);
+    };
+    // Only the bound document has a Window.  Non-bound (cloned)
+    // documents are detached from any browsing context.
+    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    if bound_doc != Some(doc) {
+        return Ok(JsValue::Null);
+    }
+    Ok(JsValue::Object(ctx.vm.global_object))
+}
+
+/// `document.doctype` — WHATWG §4.5.  The first child whose
+/// `NodeKind` is `DocumentType`, or `null`.
+pub(super) fn native_document_get_doctype(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "doctype")? else {
+        return Ok(JsValue::Null);
+    };
+    let doctype = {
+        let dom = ctx.host().dom();
+        let mut found = None;
+        for child in dom.children_iter(doc) {
+            // `node_kind_inferred` matches the legacy-fallback used
+            // by `HostData::prototype_kind_for` and
+            // `require_node_arg`: entities that carry `DocTypeData`
+            // payload without an explicit `NodeKind` component still
+            // surface as doctype.  Keeps html5ever-produced fixtures
+            // (which predate the `NodeKind` component) discoverable.
+            if matches!(dom.node_kind_inferred(child), Some(NodeKind::DocumentType)) {
+                found = Some(child);
+                break;
+            }
+        }
+        found
+    };
+    Ok(wrap_entity_or_null(ctx.vm, doctype))
+}
+
+// ---------------------------------------------------------------------------
+// cookie / referrer (stubs) + forms / images / links (snapshot arrays)
+// ---------------------------------------------------------------------------
+
+/// `document.cookie` getter — **stub** (empty string).
+///
+/// WHATWG §6.5.2 explicitly permits returning `""` for a cookie-averse
+/// Document; elidex treats every Document as cookie-averse until the
+/// real cookie jar integration lands in PR6 / PR-Cookie-Store.  Scripts
+/// that read `document.cookie` therefore observe an empty string
+/// rather than a misleading partial implementation.
+pub(super) fn native_document_get_cookie(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = document_receiver(ctx, this, "cookie")?;
+    Ok(JsValue::String(ctx.vm.well_known.empty))
+}
+
+/// `document.cookie = x` — **stub** (no-op).  Real storage arrives
+/// with PR6 / PR-Cookie-Store.
+pub(super) fn native_document_set_cookie(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = document_receiver(ctx, this, "cookie")?;
+    // Silently drop the write — spec allows no-op on cookie-averse
+    // Documents.  See `native_document_get_cookie` docstring.
+    Ok(JsValue::Undefined)
+}
+
+/// `document.referrer` — **stub** (empty string).  Surfacing the real
+/// navigation referrer requires `NavigationState::referrer`, which is
+/// added in PR6 / PR-Navigation.
+pub(super) fn native_document_get_referrer(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = document_receiver(ctx, this, "referrer")?;
+    Ok(JsValue::String(ctx.vm.well_known.empty))
+}
+
+/// Shared implementation of `forms` / `images` / `links` — a **snapshot
+/// Array** (not a live HTMLCollection) containing every descendant
+/// Element matching the supplied predicate.
+///
+/// Live HTMLCollection semantics (index names, DOM-mutation tracking)
+/// land with the `HTMLCollection` interface itself in PR5b.  Until
+/// then, `forms.length` is guaranteed to reflect the DOM state *at
+/// call time*; WPT tests asserting liveness over this API are
+/// therefore expected to fail.
+fn snapshot_descendants_matching(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+    mut matches: impl FnMut(&elidex_ecs::EcsDom, Entity) -> bool,
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, method)? else {
+        return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let entities: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut out = Vec::new();
+        dom.traverse_descendants(doc, |entity| {
+            if matches(dom, entity) {
+                out.push(entity);
+            }
+            true
+        });
+        out
+    };
+    Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &entities))
+}
+
+/// `document.forms` — snapshot of every `<form>` descendant.  See
+/// [`snapshot_descendants_matching`] for the liveness caveat.
+pub(super) fn native_document_get_forms(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    snapshot_descendants_matching(ctx, this, "forms", |dom, e| {
+        dom.get_tag_name(e)
+            .is_some_and(|t| t.eq_ignore_ascii_case("form"))
+    })
+}
+
+/// `document.images` — snapshot of every `<img>` descendant.
+pub(super) fn native_document_get_images(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    snapshot_descendants_matching(ctx, this, "images", |dom, e| {
+        dom.get_tag_name(e)
+            .is_some_and(|t| t.eq_ignore_ascii_case("img"))
+    })
+}
+
+/// `document.links` — snapshot of every `<a>` / `<area>` descendant
+/// carrying an `href` attribute (WHATWG §4.5: anchors without `href`
+/// are **excluded**).
+pub(super) fn native_document_get_links(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    snapshot_descendants_matching(ctx, this, "links", |dom, e| {
+        let tag_ok = dom
+            .get_tag_name(e)
+            .is_some_and(|t| t.eq_ignore_ascii_case("a") || t.eq_ignore_ascii_case("area"));
+        tag_ok && dom.get_attribute(e, "href").is_some()
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Installation — add the own-properties to the document wrapper at bind time.
 // ---------------------------------------------------------------------------
 
@@ -453,6 +699,7 @@ impl super::super::VmInner {
         }
         self.install_methods(doc_wrapper, DOCUMENT_METHODS);
         self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
+        self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
         // ParentNode mixin (WHATWG §5.2.4) shared with
         // `Element.prototype`.
         self.install_parent_node_mixin(doc_wrapper);
@@ -490,8 +737,32 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("documentElement", native_document_get_document_element),
     ("head", native_document_get_head),
     ("body", native_document_get_body),
-    ("title", native_document_get_title),
     ("URL", native_document_get_url),
     ("documentURI", native_document_get_url),
     ("readyState", native_document_get_ready_state),
+    ("compatMode", native_document_get_compat_mode),
+    ("defaultView", native_document_get_default_view),
+    ("doctype", native_document_get_doctype),
+    // PR4f C7 stubs / snapshots — see native-fn docstrings for defer
+    // targets (PR6 / PR5b).
+    ("referrer", native_document_get_referrer),
+    ("forms", native_document_get_forms),
+    ("images", native_document_get_images),
+    ("links", native_document_get_links),
+];
+
+/// Read/write Document accessors.  `title` is WHATWG-backed; `cookie`
+/// is currently a stub whose setter silently drops writes (see the
+/// setter docstring for the PR6 integration path).
+const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[
+    (
+        "title",
+        native_document_get_title,
+        native_document_set_title,
+    ),
+    (
+        "cookie",
+        native_document_get_cookie,
+        native_document_set_cookie,
+    ),
 ];

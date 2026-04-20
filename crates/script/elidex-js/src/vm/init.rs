@@ -19,6 +19,7 @@ use super::host;
 
 impl Vm {
     /// Create a new VM with built-in globals registered.
+    #[allow(clippy::too_many_lines)]
     pub fn new() -> Self {
         let mut strings = StringPool::new();
 
@@ -95,6 +96,10 @@ impl Vm {
                 character_data_prototype: None,
                 #[cfg(feature = "engine")]
                 text_prototype: None,
+                #[cfg(feature = "engine")]
+                document_type_prototype: None,
+                #[cfg(feature = "engine")]
+                html_iframe_prototype: None,
                 window_prototype: None,
                 event_methods_prototype: None,
                 #[cfg(feature = "engine")]
