@@ -266,6 +266,14 @@ impl VmInner {
             self.register_event_prototype();
             self.register_event_global();
             self.register_custom_event_global();
+            // UIEvent family (PR5a2 C3).  Each descendant's prototype
+            // chains through `UIEvent.prototype → Event.prototype`, so
+            // UIEvent must register first.
+            self.register_ui_event_global();
+            self.register_mouse_event_global();
+            self.register_keyboard_event_global();
+            self.register_focus_event_global();
+            self.register_input_event_global();
         }
 
         // `DOMException` constructor + prototype (WebIDL §3.14).

@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 27],
+    proto_roots: [Option<ObjectId>; 32],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -678,6 +678,27 @@ impl VmInner {
                 // 26 + 1 (CustomEvent, PR5a2 C1) = 27.
                 #[cfg(feature = "engine")]
                 self.custom_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 27 + 5 (UIEvent family, PR5a2 C3) = 32.
+                #[cfg(feature = "engine")]
+                self.ui_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.mouse_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.keyboard_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.focus_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.input_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],

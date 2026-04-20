@@ -373,6 +373,40 @@ pub(crate) struct VmInner {
     /// `register_custom_event_global` during `register_globals`.
     #[cfg(feature = "engine")]
     pub(crate) custom_event_prototype: Option<ObjectId>,
+    /// `UIEvent.prototype` (UI Events §3.1).  Chains to
+    /// [`event_prototype`].  `view` / `detail` are own-data slots on
+    /// every UIEvent-family instance (constructed via `new UIEvent` or
+    /// any descendant ctor), kept in shape slot 9 / 10 so reads hit
+    /// the own-property fast path.  `UIEvent.prototype` itself carries
+    /// no instance state — it's the chain anchor for MouseEvent /
+    /// KeyboardEvent / FocusEvent / InputEvent.  `None` until
+    /// `register_ui_event_global()` runs during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) ui_event_prototype: Option<ObjectId>,
+    /// `MouseEvent.prototype` (UI Events §5.1).  Chains to
+    /// [`ui_event_prototype`].  MouseEvent instances have `view` /
+    /// `detail` + 13 mouse-specific slots (clientX/Y, button, buttons,
+    /// altKey/ctrlKey/metaKey/shiftKey, screenX/Y, movementX/Y,
+    /// relatedTarget) as own-data, matching WebIDL `[Unforgeable]`
+    /// reflection.  `None` until `register_mouse_event_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) mouse_event_prototype: Option<ObjectId>,
+    /// `KeyboardEvent.prototype` (UI Events §7.1).  Chains to
+    /// [`ui_event_prototype`].  Adds 9 own-data slots (key, code,
+    /// altKey/ctrlKey/metaKey/shiftKey, repeat, location, isComposing)
+    /// beyond the UIEvent base.  `None` until
+    /// `register_keyboard_event_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) keyboard_event_prototype: Option<ObjectId>,
+    /// `FocusEvent.prototype` (UI Events §6.1).  Chains to
+    /// [`ui_event_prototype`].  Adds `relatedTarget` own-data slot.
+    #[cfg(feature = "engine")]
+    pub(crate) focus_event_prototype: Option<ObjectId>,
+    /// `InputEvent.prototype` (UI Events §8.1).  Chains to
+    /// [`ui_event_prototype`].  Adds `inputType` / `data` /
+    /// `isComposing` own-data slots.
+    #[cfg(feature = "engine")]
+    pub(crate) input_event_prototype: Option<ObjectId>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

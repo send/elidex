@@ -85,6 +85,39 @@ pub(crate) struct PrecomputedEventShapes {
     /// `shape_for` falls through to `core` for
     /// `EventPayload::None` / non-CustomEvent variants.
     pub(crate) custom_event: ShapeId,
+    // -- PR5a2 C3: UIEvent family constructor shapes --
+    //
+    // Every UIEvent-family ctor allocates at a shape that extends
+    // `ui_event_constructed` (core-9 + `view` + `detail`), so the
+    // inherited UIEvent attributes live as own-data props at slot 9 /
+    // 10 — no prototype-accessor + HashMap side-channel needed.  The
+    // transition chain shares the `core + view + detail` prefix for
+    // every descendant.
+    /// Terminal shape for `new UIEvent(type, init)`.  Layout: core +
+    /// `view` + `detail` (11 slots total).  Also the parent shape of
+    /// every descendant's constructor shape below.
+    pub(crate) ui_event_constructed: ShapeId,
+    /// `new MouseEvent(type, init)` — UIEvent base + 13 mouse keys
+    /// (clientX/Y, button, buttons, altKey/ctrlKey/metaKey/shiftKey,
+    /// screenX/Y, movementX/Y, relatedTarget).  Distinct from the
+    /// UA-dispatch `mouse` shape because constructed MouseEvents carry
+    /// the full WebIDL mouse attribute surface (the UA dispatch
+    /// variant trims to the 8 keys `DispatchEvent`'s payload populates).
+    pub(crate) mouse_event_constructed: ShapeId,
+    /// `new KeyboardEvent(type, init)` — UIEvent base + 9 keys
+    /// (key, code, altKey/ctrlKey/metaKey/shiftKey, repeat, location,
+    /// isComposing).  Separate from the UA-dispatch `keyboard` shape
+    /// because the ctor exposes `location` / `isComposing`, which the
+    /// 7-key UA payload omits.
+    pub(crate) keyboard_event_constructed: ShapeId,
+    /// `new FocusEvent(type, init)` — UIEvent base + `relatedTarget`.
+    /// Separate from the UA-dispatch `focus` shape so the chain stays
+    /// anchored at `ui_event_constructed`, preserving `view` / `detail`
+    /// own-data on instances.
+    pub(crate) focus_event_constructed: ShapeId,
+    /// `new InputEvent(type, init)` — UIEvent base + `inputType` /
+    /// `data` / `isComposing`.
+    pub(crate) input_event_constructed: ShapeId,
 }
 
 // Local helpers for [`dispatch_payload`] — keep each variant arm
@@ -481,6 +514,63 @@ impl VmInner {
         // CustomEvent.prototype: core + `detail` (PR5a2 C1).
         let custom_event = extend(self, core, &[self.well_known.detail]);
 
+        // UIEvent family constructor shapes (PR5a2 C3).  Every
+        // descendant chains through `ui_event_constructed` so its 11
+        // leading slots — core-9 + `view` + `detail` — are identical
+        // across the tree.  `shape_add_transition` deduplication means
+        // MouseEvent's transition chain reuses the UIEvent prefix
+        // without allocating duplicate intermediate shapes.
+        let ui_event_constructed =
+            extend(self, core, &[self.well_known.view, self.well_known.detail]);
+        let mouse_event_constructed = extend(
+            self,
+            ui_event_constructed,
+            &[
+                self.well_known.screen_x,
+                self.well_known.screen_y,
+                self.well_known.client_x,
+                self.well_known.client_y,
+                self.well_known.ctrl_key,
+                self.well_known.shift_key,
+                self.well_known.alt_key,
+                self.well_known.meta_key,
+                self.well_known.button,
+                self.well_known.buttons,
+                self.well_known.related_target,
+                self.well_known.movement_x,
+                self.well_known.movement_y,
+            ],
+        );
+        let keyboard_event_constructed = extend(
+            self,
+            ui_event_constructed,
+            &[
+                self.well_known.key,
+                self.well_known.code,
+                self.well_known.location,
+                self.well_known.ctrl_key,
+                self.well_known.shift_key,
+                self.well_known.alt_key,
+                self.well_known.meta_key,
+                self.well_known.repeat,
+                self.well_known.is_composing,
+            ],
+        );
+        let focus_event_constructed = extend(
+            self,
+            ui_event_constructed,
+            &[self.well_known.related_target],
+        );
+        let input_event_constructed = extend(
+            self,
+            ui_event_constructed,
+            &[
+                self.well_known.data,
+                self.well_known.is_composing,
+                self.well_known.input_type,
+            ],
+        );
+
         PrecomputedEventShapes {
             core,
             mouse,
@@ -498,6 +588,11 @@ impl VmInner {
             page_transition,
             storage,
             custom_event,
+            ui_event_constructed,
+            mouse_event_constructed,
+            keyboard_event_constructed,
+            focus_event_constructed,
+            input_event_constructed,
         }
     }
 }

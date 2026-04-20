@@ -109,6 +109,16 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 custom_event_prototype: None,
                 #[cfg(feature = "engine")]
+                ui_event_prototype: None,
+                #[cfg(feature = "engine")]
+                mouse_event_prototype: None,
+                #[cfg(feature = "engine")]
+                keyboard_event_prototype: None,
+                #[cfg(feature = "engine")]
+                focus_event_prototype: None,
+                #[cfg(feature = "engine")]
+                input_event_prototype: None,
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),

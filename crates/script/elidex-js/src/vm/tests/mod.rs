@@ -54,6 +54,7 @@ mod tests_sparse_array;
 mod tests_string_complement;
 mod tests_timer;
 mod tests_try_catch_finally;
+mod tests_ui_event_constructor;
 mod tests_value_types;
 mod tests_window_global;
 

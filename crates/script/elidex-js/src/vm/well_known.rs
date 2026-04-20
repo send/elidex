@@ -114,6 +114,26 @@ pub(crate) struct WellKnownStrings {
     pub(crate) custom_event_global: StringId,
     pub(crate) detail: StringId,
 
+    // -- Specialized Event constructor globals (PR5a2 C3) --
+    // WebIDL names for the UIEvent family.  Each binds to a
+    // constructable function installed during `register_globals` and
+    // chains through `UIEvent.prototype → Event.prototype`.
+    pub(crate) ui_event_global: StringId,
+    pub(crate) mouse_event_global: StringId,
+    pub(crate) keyboard_event_global: StringId,
+    pub(crate) focus_event_global: StringId,
+    pub(crate) input_event_global: StringId,
+
+    // -- UIEvent / MouseEvent / KeyboardEvent init-dict keys (PR5a2 C3) --
+    // `view`, plus MouseEvent-specific constructor keys beyond the
+    // UA-dispatch Mouse payload set.  `detail` is reused from
+    // CustomEvent above; `location` is reused from Window.location.
+    pub(crate) view: StringId,
+    pub(crate) screen_x: StringId,
+    pub(crate) screen_y: StringId,
+    pub(crate) movement_x: StringId,
+    pub(crate) movement_y: StringId,
+
     // -- Event payload property keys --
     // Pre-interned so `create_event_object`'s payload installation
     // can feed them directly into the precomputed-shape slot array
@@ -391,6 +411,20 @@ impl WellKnownStrings {
             event_global: strings.intern("Event"),
             custom_event_global: strings.intern("CustomEvent"),
             detail: strings.intern("detail"),
+
+            // Specialized Event constructor globals (PR5a2 C3).
+            ui_event_global: strings.intern("UIEvent"),
+            mouse_event_global: strings.intern("MouseEvent"),
+            keyboard_event_global: strings.intern("KeyboardEvent"),
+            focus_event_global: strings.intern("FocusEvent"),
+            input_event_global: strings.intern("InputEvent"),
+
+            // UIEvent / MouseEvent init-dict keys (PR5a2 C3).
+            view: strings.intern("view"),
+            screen_x: strings.intern("screenX"),
+            screen_y: strings.intern("screenY"),
+            movement_x: strings.intern("movementX"),
+            movement_y: strings.intern("movementY"),
 
             // Event-payload property keys.  Interned once here so
             // `create_event_object` can feed slots into
