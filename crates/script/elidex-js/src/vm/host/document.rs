@@ -508,7 +508,13 @@ pub(super) fn native_document_get_doctype(
         let dom = ctx.host().dom();
         let mut found = None;
         for child in dom.children_iter(doc) {
-            if matches!(dom.node_kind(child), Some(NodeKind::DocumentType)) {
+            // `node_kind_inferred` matches the legacy-fallback used
+            // by `HostData::prototype_kind_for` and
+            // `require_node_arg`: entities that carry `DocTypeData`
+            // payload without an explicit `NodeKind` component still
+            // surface as doctype.  Keeps html5ever-produced fixtures
+            // (which predate the `NodeKind` component) discoverable.
+            if matches!(dom.node_kind_inferred(child), Some(NodeKind::DocumentType)) {
                 found = Some(child);
                 break;
             }

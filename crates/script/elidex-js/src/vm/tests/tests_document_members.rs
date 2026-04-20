@@ -160,6 +160,37 @@ fn doctype_returns_document_type_child() {
 }
 
 #[test]
+fn doctype_finds_legacy_doc_type_data_without_node_kind() {
+    // Copilot R4 F10 lock-in: `document.doctype` must use
+    // `node_kind_inferred` so html5ever-era fixtures that carry a
+    // `DocTypeData` payload without an explicit `NodeKind`
+    // component still resolve (matches the fallback already
+    // applied by `HostData::prototype_kind_for` /
+    // `require_node_arg`).
+    use elidex_ecs::NodeKind;
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    // Create a standard DocumentType entity and then strip the
+    // `NodeKind` component to simulate a legacy fixture whose
+    // payload predates the component.  The accessor must still
+    // surface this entity via the `node_kind_inferred` path.
+    let dt = dom.create_document_type("html", "", "");
+    assert!(dom.append_child(doc, dt));
+    let _ = dom.world_mut().remove_one::<NodeKind>(dt);
+    assert!(dom.node_kind(dt).is_none());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let resolved = vm.eval("document.doctype !== null;").unwrap();
+    assert!(matches!(resolved, JsValue::Boolean(true)));
+    vm.unbind();
+}
+
+#[test]
 fn doctype_is_null_when_absent() {
     let out = run(
         "document.doctype === null ? 'null' : 'present';",
