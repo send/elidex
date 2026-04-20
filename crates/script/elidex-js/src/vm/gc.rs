@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 36],
+    proto_roots: [Option<ObjectId>; 41],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -542,6 +542,15 @@ fn trace_work_list(
             // there's nothing to trace through.
             #[cfg(not(feature = "engine"))]
             ObjectKind::AbortSignal => {}
+            // `Headers` payload (header list + guard) lives in
+            // `VmInner::headers_states`; entries hold interned
+            // `StringId`s only (pool-permanent), so there is
+            // nothing to `mark_value` / `mark_object` here.  The
+            // sweep tail prunes entries whose key is dead — same
+            // pattern as `dom_exception_states`.  Engine-only: the
+            // variant itself is gated behind `feature = "engine"`.
+            #[cfg(feature = "engine")]
+            ObjectKind::Headers => {}
         }
     }
 }
@@ -744,6 +753,30 @@ impl VmInner {
                 self.pop_state_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 36 + 5 (Fetch surface: Headers / Request / Response
+                // / ArrayBuffer / Blob).  Slots past
+                // `headers_prototype` are `None` placeholders until
+                // the later Fetch prototypes install; the
+                // `.iter().flatten()` pattern in `mark_roots` skips
+                // them safely, so the array can grow in one step
+                // here without committing dead arms piecemeal.
+                // Every new trace entry added to a placeholder slot
+                // **must** keep the flatten pattern — direct
+                // indexing at a `None` slot would mark
+                // `ObjectId(0)` erroneously.
+                #[cfg(feature = "engine")]
+                self.headers_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // [37..=40] reserved for the remaining Fetch
+                // prototypes (request / response / array_buffer /
+                // blob).  They land in subsequent commits of the
+                // same tranche; Response.body's stream scaffolding
+                // is deferred to a later PR.
+                None,
+                None,
+                None,
+                None,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
@@ -849,6 +882,12 @@ impl VmInner {
                 composites.retain(|composite_id| bit_get(marks, composite_id.0));
                 !composites.is_empty()
             });
+            // `headers_states` — prune entries whose key `Headers`
+            // instance was collected so a recycled slot does not
+            // inherit a stale list / guard.  Matches the
+            // `dom_exception_states` / `abort_signal_states`
+            // post-sweep pattern.
+            self.headers_states.retain(|id, _| bit_get(marks, id.0));
         }
 
         // 5. IC invalidation.

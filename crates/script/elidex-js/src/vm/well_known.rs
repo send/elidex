@@ -337,6 +337,21 @@ pub(crate) struct WellKnownStrings {
     pub(crate) dom_exc_wrong_document_error: StringId,
     pub(crate) dom_exc_invalid_state_error: StringId,
     pub(crate) dom_exc_timeout_error: StringId,
+
+    // -- Headers (WHATWG Fetch §5.2) --
+    // Method and iteration-helper names.  `get` / `set` / `append` /
+    // `value` / `key` already live elsewhere and are reused here.
+    // `delete` is an ES keyword — field named `delete_str` to
+    // sidestep the `r#delete` raw-identifier contortion.
+    pub(crate) headers: StringId,
+    pub(crate) delete_str: StringId,
+    pub(crate) has: StringId,
+    pub(crate) get_set_cookie: StringId,
+    pub(crate) for_each: StringId,
+    pub(crate) entries: StringId,
+    pub(crate) keys: StringId,
+    pub(crate) values: StringId,
+    pub(crate) set_cookie_header: StringId,
 }
 
 impl WellKnownStrings {
@@ -601,6 +616,17 @@ impl WellKnownStrings {
             dom_exc_wrong_document_error: strings.intern("WrongDocumentError"),
             dom_exc_invalid_state_error: strings.intern("InvalidStateError"),
             dom_exc_timeout_error: strings.intern("TimeoutError"),
+
+            // Headers (WHATWG Fetch §5.2).
+            headers: strings.intern("Headers"),
+            delete_str: strings.intern("delete"),
+            has: strings.intern("has"),
+            get_set_cookie: strings.intern("getSetCookie"),
+            for_each: strings.intern("forEach"),
+            entries: strings.intern("entries"),
+            keys: strings.intern("keys"),
+            values: strings.intern("values"),
+            set_cookie_header: strings.intern("set-cookie"),
         }
     }
 }

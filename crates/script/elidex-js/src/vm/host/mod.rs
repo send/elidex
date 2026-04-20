@@ -48,6 +48,8 @@ pub(super) mod events_extras;
 #[cfg(feature = "engine")]
 pub(super) mod events_ui;
 pub(super) mod globals;
+#[cfg(feature = "engine")]
+pub(crate) mod headers;
 pub(super) mod history;
 pub(super) mod html_iframe_proto;
 pub(super) mod location;

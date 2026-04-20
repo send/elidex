@@ -460,6 +460,34 @@ pub(crate) struct VmInner {
     /// [`event_prototype`].  Adds `state` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) pop_state_event_prototype: Option<ObjectId>,
+    /// `Headers.prototype` (WHATWG Fetch §5.2).  Chains to
+    /// `Object.prototype` — Headers is a WebIDL interface with no
+    /// EventTarget ancestry.  Holds `append` / `set` / `delete` /
+    /// `get` / `has` / `getSetCookie` / `forEach` / `keys` /
+    /// `values` / `entries` methods plus `[Symbol.iterator]`.
+    /// Per-instance list and guard live in
+    /// [`Self::headers_states`], keyed by the instance's `ObjectId`.
+    ///
+    /// `None` until `register_headers_global()` runs during
+    /// `register_globals()` (after `register_prototypes` so
+    /// `object_prototype` is populated).  Engine-gated because every
+    /// consumer (Fetch API surface) is itself engine-only.
+    #[cfg(feature = "engine")]
+    pub(crate) headers_prototype: Option<ObjectId>,
+    /// Per-`Headers` out-of-band state, keyed by the instance's own
+    /// `ObjectId`.  Same pattern as [`Self::abort_signal_states`]:
+    /// payload lives here so [`ObjectKind::Headers`] stays
+    /// payload-free (preserves per-variant size discipline).
+    ///
+    /// Entries hold interned `StringId`s only (name / value are
+    /// pool-permanent), so the trace step has nothing to mark.
+    ///
+    /// GC contract: sweep tail prunes entries whose key `ObjectId`
+    /// was collected so a recycled slot can't observe a stale list
+    /// or guard — matching `abort_signal_states` /
+    /// `dom_exception_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) headers_states: HashMap<ObjectId, host::headers::HeadersState>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

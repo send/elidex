@@ -127,6 +127,10 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 pop_state_event_prototype: None,
                 #[cfg(feature = "engine")]
+                headers_prototype: None,
+                #[cfg(feature = "engine")]
+                headers_states: HashMap::new(),
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),

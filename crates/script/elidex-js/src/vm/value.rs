@@ -627,6 +627,25 @@ pub enum ObjectKind {
     /// GC contract: trace marks `signal_id` so the paired signal
     /// survives as long as the controller is reachable.
     AbortController { signal_id: ObjectId },
+    /// `Headers` instance (WHATWG Fetch §5.2) — the header list
+    /// backing `Request.headers` / `Response.headers` and also
+    /// constructible standalone via `new Headers(init)`.
+    ///
+    /// The actual header list (lowercased name → value strings) plus
+    /// the WebIDL `guard` (`none` / `immutable` / `request` /
+    /// `response` / `request-no-cors`) lives **out-of-band** in
+    /// `VmInner::headers_states`, keyed by this object's `ObjectId`.
+    /// Payload-free here so per-variant size discipline matches
+    /// [`Self::AbortSignal`].
+    ///
+    /// GC contract: the trace step looks up the entry in
+    /// `headers_states` — entries carry interned `StringId`s only
+    /// (pool-permanent), so no `mark_value` / `mark_object` pass is
+    /// needed for the payload.  Sweep tail prunes entries whose key
+    /// was collected so a recycled slot does not inherit stale
+    /// header lists.
+    #[cfg(feature = "engine")]
+    Headers,
 }
 
 impl ObjectKind {

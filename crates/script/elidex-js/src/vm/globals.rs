@@ -299,6 +299,14 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_abort_signal_global();
 
+        // `Headers` constructor + `Headers.prototype` (WHATWG Fetch
+        // §5.2).  Chains to `Object.prototype` (no EventTarget /
+        // Node ancestry), so order-wise anywhere after
+        // `register_prototypes` is fine.  Engine-gated because the
+        // Fetch surface is itself engine-only.
+        #[cfg(feature = "engine")]
+        self.register_headers_global();
+
         // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the

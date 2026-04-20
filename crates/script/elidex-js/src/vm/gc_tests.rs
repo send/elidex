@@ -316,10 +316,15 @@ fn gc_heap_bounded_in_loop() {
     assert_eq!(result.unwrap(), JsValue::Number(499_500.0));
     // Heap should not have grown to 1000+ objects.
     let live = vm.inner.objects.iter().filter(|o| o.is_some()).count();
-    // Base live count includes built-in prototypes/constructors (~250).
-    // Without GC, 1000 loop iterations would create 1000+ additional objects.
+    // Base live count includes built-in prototypes, constructors,
+    // and their installed methods.  The count grows each time we
+    // ship a new built-in interface (every `register_*_global`
+    // adds one ctor + one prototype + its methods).  Without GC,
+    // 1000 loop iterations would push this well over 1500, so the
+    // `< 1000` assertion remains a meaningful "GC actually ran"
+    // signal while leaving headroom for future built-ins.
     assert!(
-        live < 500,
+        live < 1000,
         "heap should be bounded by GC, got {live} live objects"
     );
 }
