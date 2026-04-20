@@ -1071,11 +1071,22 @@ fn element_remove_child_of_non_child_throws() {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
 
-    // span is a grandchild, not a direct child of body.
+    // span is a grandchild, not a direct child of body.  PR5a C4
+    // upgrades the throw from TypeError to
+    // `DOMException("NotFoundError")` (legacy code 8) per WHATWG
+    // DOM §4.4.
     let span_wrapper = vm.inner.create_element_wrapper(span);
     vm.set_global("_span", JsValue::Object(span_wrapper));
-    let r = vm.eval("document.getElementById('root').removeChild(_span);");
-    assert!(r.is_err(), "expected TypeError");
+    let check = vm
+        .eval(
+            "var root = document.getElementById('root');\
+             var thrown = null;\
+             try { root.removeChild(_span); } catch (e) { thrown = e; }\
+             thrown && thrown.name === 'NotFoundError' \
+             && thrown instanceof DOMException && thrown.code === 8;",
+        )
+        .unwrap();
+    assert!(matches!(check, JsValue::Boolean(true)));
 
     vm.unbind();
 }
@@ -1177,6 +1188,39 @@ fn element_replace_child_returns_old_node() {
 
     // _p is now detached from body; h is in its place.
     assert!(matches!(vm.eval("_p.parentNode;").unwrap(), JsValue::Null));
+
+    vm.unbind();
+}
+
+#[test]
+fn element_replace_child_rejects_non_child_with_not_found_error() {
+    // WHATWG DOM §4.4: `replaceChild` throws
+    // `DOMException("NotFoundError")` when `old` is not a child of
+    // the receiver.  PR5a C4 upgrade from the pre-C4 TypeError
+    // surface.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let span_wrapper = vm.inner.create_element_wrapper(span);
+    vm.set_global("_span", JsValue::Object(span_wrapper));
+    let check = vm
+        .eval(
+            "var root = document.getElementById('root');\
+             var h = document.createElement('h1');\
+             var thrown = null;\
+             try { root.replaceChild(h, _span); } catch (e) { thrown = e; }\
+             thrown && thrown.name === 'NotFoundError' \
+             && thrown instanceof DOMException && thrown.code === 8;",
+        )
+        .unwrap();
+    assert!(matches!(check, JsValue::Boolean(true)));
 
     vm.unbind();
 }
