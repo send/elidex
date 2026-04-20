@@ -695,9 +695,9 @@ pub(super) fn abort_signal(
     }
 
     // Materialise the abort reason: `undefined` becomes a fresh
-    // Error with `name === "AbortError"` (the spec wants a
-    // `DOMException`, but the plain Error matches what library
-    // detection code looks for: `err.name === 'AbortError'`).
+    // `DOMException("AbortError")` (WHATWG DOM §3.1.2 step 1) —
+    // `create_default_abort_error` routes through
+    // `VmInner::build_dom_exception` for the real instance.
     let materialised_reason = if matches!(reason, JsValue::Undefined) {
         create_default_abort_error(ctx)
     } else {
