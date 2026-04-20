@@ -369,7 +369,7 @@ impl VmInner {
         type_sid: StringId,
         init: UIEventInit,
         shape_id: ShapeId,
-        descendant_proto: ObjectId,
+        _descendant_proto: ObjectId,
         variant_slots: Vec<PropertyValue>,
     ) -> ObjectId {
         // `view` / `detail` precede the descendant's own slots (matches
@@ -378,17 +378,19 @@ impl VmInner {
         payload.push(PropertyValue::Data(init.view));
         payload.push(PropertyValue::Data(JsValue::Number(init.detail)));
         payload.extend(variant_slots);
-        let id =
-            self.create_fresh_event_object(this, type_sid, init.base, shape_id, payload, false);
-        // Override the prototype installed by `create_fresh_event_object`.
-        // Leaving `Event.prototype` in place would produce the wrong
-        // prototype chain for every UIEvent-family instance, so callers
-        // must supply the concrete descendant prototype (pure
-        // `new UIEvent(...)` passes `UIEvent.prototype`).  A non-Option
-        // parameter turns a missed registration into a compile error
-        // at the call site instead of a silent wrong-prototype instance.
-        self.get_object_mut(id).prototype = Some(descendant_proto);
-        id
+        // `create_fresh_event_object`'s `ensure_instance_or_alloc`
+        // already preserves the receiver's prototype in construct-mode
+        // (i.e. whatever `do_new` set based on `new.target.prototype`).
+        // For `new MouseEvent()` that's `MouseEvent.prototype`; for
+        // `class Sub extends MouseEvent; new Sub()` it's
+        // `Sub.prototype`.  A blanket overwrite to `descendant_proto`
+        // here would correctly handle the former (no-op) but silently
+        // break the subclass chain in the latter, so we do NOT touch
+        // the prototype — `_descendant_proto` is retained in the
+        // signature as a load-bearing registration-check
+        // (`.expect()` at the call site catches a missed prototype
+        // install) but the value itself is no longer applied.
+        self.create_fresh_event_object(this, type_sid, init.base, shape_id, payload, false)
     }
 }
 

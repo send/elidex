@@ -30,7 +30,7 @@
 
 use super::super::value::{JsValue, NativeContext, VmError};
 #[cfg(feature = "engine")]
-use super::super::value::{ObjectId, ObjectKind, PropertyKey, PropertyStorage, PropertyValue};
+use super::super::value::{ObjectId, ObjectKind, PropertyKey};
 use super::super::{NativeFn, VmInner};
 #[cfg(feature = "engine")]
 use elidex_script_session::event_dispatch::{
@@ -730,61 +730,24 @@ fn dispatch_script_event(
     // the internal slot (same source of truth as
     // `Event.prototype.preventDefault` consults) rather than the
     // data slot — both agree but the internal read is cheaper.
-    // Storage mode: Shaped on freshly-constructed events, Dictionary
-    // after the user issued a `delete` on any core attribute (the
-    // VM converts storage on the first successful configurable
-    // delete).  Read both paths — the Shaped slots reads the
-    // precomputed-shape indices directly; the Dictionary path
-    // keys off well-known StringIds.  If the user deleted `type`
-    // (slot 0), the WebIDL semantic (attribute reads internal
-    // slot) means we don't have one on record — fall through to
-    // the interned empty string so dispatch still produces a
-    // consistent listener filter (matches Chrome: a deleted
-    // `evt.type` leaves the internal slot untouched and listeners
-    // still match on its original value, but we don't model a
-    // separate internal slot, so reuse the type arg if available
-    // — absent that, empty string).
-    let cancelable = match ctx.vm.get_object(event_id).kind {
-        ObjectKind::Event { cancelable, .. } => cancelable,
+    // Read type / bubbles / cancelable / composed from the
+    // authoritative `ObjectKind::Event` internal slots — not from
+    // the JS-visible data properties.  WebIDL specifies these as
+    // readonly IDL attributes backed by internal slots; browsers
+    // use the slot value even when a user did `delete evt.type` or
+    // shadowed the accessor on the instance.  Elidex mirrors this
+    // by keeping the internal slot authoritative; the data
+    // property is a mirror installed for enumeration / ergonomic
+    // access but cannot hijack dispatch.
+    let (type_sid, bubbles, cancelable, composed) = match ctx.vm.get_object(event_id).kind {
+        ObjectKind::Event {
+            type_sid,
+            bubbles,
+            cancelable,
+            composed,
+            ..
+        } => (type_sid, bubbles, cancelable, composed),
         _ => unreachable!("dispatch_script_event: receiver is not ObjectKind::Event"),
-    };
-    let k_type = ctx.vm.well_known.event_type;
-    let k_bubbles = ctx.vm.well_known.bubbles;
-    let k_composed = ctx.vm.well_known.composed;
-    let empty_sid = ctx.vm.well_known.empty;
-    let (type_sid, bubbles, composed) = {
-        let obj = ctx.vm.get_object(event_id);
-        match &obj.storage {
-            PropertyStorage::Shaped { slots, .. } => {
-                let type_sid = match slots[0] {
-                    PropertyValue::Data(JsValue::String(sid)) => sid,
-                    _ => empty_sid,
-                };
-                let bubbles = matches!(slots[1], PropertyValue::Data(JsValue::Boolean(true)));
-                let composed = matches!(slots[7], PropertyValue::Data(JsValue::Boolean(true)));
-                (type_sid, bubbles, composed)
-            }
-            PropertyStorage::Dictionary(vec) => {
-                let lookup = |key_sid| {
-                    vec.iter()
-                        .find(|(k, _)| matches!(k, PropertyKey::String(s) if *s == key_sid))
-                        .map(|(_, p)| p.slot)
-                };
-                let type_sid = match lookup(k_type) {
-                    Some(PropertyValue::Data(JsValue::String(sid))) => sid,
-                    _ => empty_sid,
-                };
-                let bubbles = matches!(
-                    lookup(k_bubbles),
-                    Some(PropertyValue::Data(JsValue::Boolean(true)))
-                );
-                let composed = matches!(
-                    lookup(k_composed),
-                    Some(PropertyValue::Data(JsValue::Boolean(true)))
-                );
-                (type_sid, bubbles, composed)
-            }
-        }
     };
     let event_type_str = ctx.vm.strings.get_utf8(type_sid);
 

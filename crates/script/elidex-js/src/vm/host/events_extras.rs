@@ -137,29 +137,33 @@ impl VmInner {
         );
     }
 
-    /// Finalise a freshly-built Event from `create_fresh_event_object`
-    /// by overriding its prototype to the per-ctor descendant and
-    /// return the object id.  Shared across the four non-UIEvent
-    /// ctors (PromiseRejectionEvent / ErrorEvent / HashChangeEvent /
-    /// PopStateEvent).  `descendant_proto` is required — passing the
-    /// base `Event.prototype` by accident would silently leave
-    /// instances with the wrong prototype chain; callers `.expect()`
-    /// their respective `VmInner::<name>_prototype` field so a
-    /// missed registration is a panic at ctor entry instead of a
-    /// latent wrong-chain bug.
+    /// Finalise a freshly-built Event from `create_fresh_event_object`.
+    /// Shared across the four non-UIEvent ctors (PromiseRejectionEvent
+    /// / ErrorEvent / HashChangeEvent / PopStateEvent).
+    ///
+    /// The prototype is left as set by
+    /// `create_fresh_event_object.ensure_instance_or_alloc` — in
+    /// construct-mode that preserves `new.target.prototype` (i.e.
+    /// `PromiseRejectionEvent.prototype` for direct construction,
+    /// or `Sub.prototype` for `class Sub extends PromiseRejectionEvent
+    /// ; new Sub()`).  A prior revision unconditionally overwrote
+    /// the prototype to `descendant_proto`, which silently broke
+    /// subclass chains.  `_descendant_proto` is retained in the
+    /// signature as a load-bearing registration-check (callers
+    /// `.expect()` their `VmInner::<name>_prototype` so a missed
+    /// registration panics at ctor entry instead of producing a
+    /// latent wrong-chain bug) but the value itself is no longer
+    /// applied.
     fn build_event_subclass_instance(
         &mut self,
         this: JsValue,
         type_sid: StringId,
         base: EventInit,
         shape_id: ShapeId,
-        descendant_proto: ObjectId,
+        _descendant_proto: ObjectId,
         payload_slots: Vec<PropertyValue>,
     ) -> ObjectId {
-        let id =
-            self.create_fresh_event_object(this, type_sid, base, shape_id, payload_slots, false);
-        self.get_object_mut(id).prototype = Some(descendant_proto);
-        id
+        self.create_fresh_event_object(this, type_sid, base, shape_id, payload_slots, false)
     }
 }
 

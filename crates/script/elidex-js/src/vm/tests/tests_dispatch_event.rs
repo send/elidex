@@ -586,6 +586,92 @@ fn dispatch_after_user_delete_core_slot_does_not_panic() {
 }
 
 #[test]
+fn dispatch_ignores_user_delete_of_type_for_listener_matching() {
+    // Regression: before the internal-slot refactor, `delete
+    // evt.type` followed by `dispatchEvent(evt)` caused the
+    // listener-matching string to be empty, so listeners
+    // registered for the original type wouldn't fire.  Browsers
+    // back IDL attributes with internal slots; delete on the
+    // instance doesn't change dispatch semantics.  The
+    // authoritative `ObjectKind::Event.type_sid` is read by
+    // `dispatch_script_event` regardless of property-slot state.
+    let out = eval_tree_string(
+        "var fired = 'no'; \
+         el.addEventListener('c', function () { fired = 'yes'; }); \
+         var evt = new Event('c'); \
+         delete evt.type; \
+         el.dispatchEvent(evt); \
+         fired;",
+    );
+    assert_eq!(out, "yes", "listener must fire despite delete evt.type");
+}
+
+#[test]
+fn dispatch_ignores_user_delete_of_bubbles_for_phase_walk() {
+    // Same concern as `type`: `delete evt.bubbles` shouldn't
+    // turn a bubbling event into a non-bubbling one mid-flight.
+    // Browsers read the internal bubbles slot; elidex matches.
+    let out = eval_tree_string(
+        "var order = ''; \
+         el.addEventListener('c', function () { order += 'tgt;'; }); \
+         body.addEventListener('c', function () { order += 'bub;'; }); \
+         var evt = new Event('c', {bubbles: true}); \
+         delete evt.bubbles; \
+         el.dispatchEvent(evt); \
+         order;",
+    );
+    assert_eq!(
+        out,
+        "target;bub;".replace("target;", "tgt;"),
+        "bubble listener must still fire despite delete evt.bubbles"
+    );
+}
+
+#[test]
+fn event_ctor_respects_new_target_prototype() {
+    // Regression for R7.2 / R7.3: the ctor used to overwrite the
+    // instance's prototype to the base descendant's prototype
+    // unconditionally, which was a no-op for `new MouseEvent()`
+    // (where `do_new` already set `this.prototype =
+    // MouseEvent.prototype`) but would have silently broken
+    // subclass inheritance under `class Sub extends MouseEvent`.
+    // This test locks in the non-subclass case: `new X()` must
+    // leave `instance.prototype === X.prototype` so `instanceof
+    // X` works (the universal ergonomic expectation).
+    //
+    // Full subclass inheritance (`class Sub extends MouseEvent`
+    // with working `m instanceof MouseEvent` AND
+    // `m instanceof Sub`) requires the VM-level class-extends
+    // machinery to set up `Sub.prototype.__proto__ =
+    // MouseEvent.prototype`, which is a separate refactor
+    // outside PR5a2 scope.
+    let mut vm = Vm::new();
+    for (interface, init_args) in [
+        ("Event", "'x'"),
+        ("CustomEvent", "'x'"),
+        ("UIEvent", "'x'"),
+        ("MouseEvent", "'x'"),
+        ("KeyboardEvent", "'x'"),
+        ("FocusEvent", "'x'"),
+        ("InputEvent", "'x'"),
+        ("PromiseRejectionEvent", "'x', {promise: {}}"),
+        ("ErrorEvent", "'x'"),
+        ("HashChangeEvent", "'x'"),
+        ("PopStateEvent", "'x'"),
+    ] {
+        let r = vm
+            .eval(&format!(
+                "Object.getPrototypeOf(new {interface}({init_args})) === {interface}.prototype;",
+            ))
+            .unwrap();
+        assert!(
+            matches!(r, JsValue::Boolean(true)),
+            "new {interface}() prototype chain broken — got {r:?}"
+        );
+    }
+}
+
+#[test]
 fn dispatch_after_user_delete_preserves_prevent_default_return() {
     // Companion to the panic-avoidance regression: check that
     // return value + preventDefault still work after the user

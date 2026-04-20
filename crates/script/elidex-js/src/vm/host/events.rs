@@ -141,6 +141,10 @@ impl VmInner {
         current_target_wrapper_id: ObjectId,
         passive: bool,
     ) -> ObjectId {
+        // Intern the event type up front so it can seed both the
+        // internal `type_sid` slot (authoritative for dispatch) and
+        // the same-value JS `type` data property below.
+        let type_sid = self.strings.intern(&event.event_type);
         let event_id = self.alloc_object(Object {
             kind: ObjectKind::Event {
                 default_prevented: event.flags.default_prevented,
@@ -148,6 +152,9 @@ impl VmInner {
                 immediate_propagation_stopped: event.flags.immediate_propagation_stopped,
                 cancelable: event.cancelable,
                 passive,
+                type_sid,
+                bubbles: event.bubbles,
+                composed: event.composed,
                 composed_path: None,
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
@@ -193,8 +200,9 @@ impl VmInner {
         // with a later `.map(Data).collect()`) so
         // `define_with_precomputed_shape` can *move* the vector into
         // the object's slot storage — saves one heap allocation per
-        // dispatch.
-        let type_sid = g.strings.intern(&event.event_type);
+        // dispatch.  `type_sid` was interned before the alloc (see
+        // top of function) so the JS-visible `type` property and the
+        // internal `type_sid` slot share the same StringId.
         // 9 core + up to 8 payload (Mouse is the largest).  All 16 payload
         // variants fit in this capacity with no reallocation.
         let mut slots: Vec<PropertyValue> = Vec::with_capacity(17);
@@ -279,13 +287,19 @@ impl VmInner {
         // `preventDefault()` consults it without a property read
         // (hot path).  `passive` is always false for script-
         // constructed events — passive is a listener-registration
-        // flag, not an event-construction one.
+        // flag, not an event-construction one.  `type_sid` /
+        // `bubbles` / `composed` are seeded here too so dispatch
+        // reads the authoritative ctor-supplied values rather than
+        // the JS-exposed (user-mutable) data properties.
         self.get_object_mut(id).kind = ObjectKind::Event {
             default_prevented: false,
             propagation_stopped: false,
             immediate_propagation_stopped: false,
             cancelable: init.cancelable,
             passive: false,
+            type_sid,
+            bubbles: init.bubbles,
+            composed: init.composed,
             composed_path: None,
         };
         let timestamp_ms = self.start_instant.elapsed().as_secs_f64() * 1000.0;

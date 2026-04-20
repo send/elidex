@@ -23,6 +23,7 @@ use super::super::{shape, Vm};
 /// slots directly via get_object / NativeContext to decouple from C4's
 /// property-installation work.
 fn alloc_event(vm: &mut Vm, cancelable: bool, passive: bool) -> ObjectId {
+    let type_sid = vm.inner.strings.intern("test");
     vm.inner.alloc_object(Object {
         kind: ObjectKind::Event {
             default_prevented: false,
@@ -30,6 +31,9 @@ fn alloc_event(vm: &mut Vm, cancelable: bool, passive: bool) -> ObjectId {
             immediate_propagation_stopped: false,
             cancelable,
             passive,
+            type_sid,
+            bubbles: false,
+            composed: false,
             composed_path: None,
         },
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
