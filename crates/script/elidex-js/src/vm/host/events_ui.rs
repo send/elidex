@@ -78,34 +78,36 @@ fn resolve_view(
 ///
 /// Accepts:
 /// - `undefined` / `null` / missing → JS `null`
-/// - Object whose kind is [`ObjectKind::HostObject`] with a bound ECS
-///   entity (i.e. a DOM wrapper) → pass through as-is
+/// - DOM wrapper (`ObjectKind::HostObject` with a bound ECS entity) →
+///   pass through as-is
+/// - [`ObjectKind::AbortSignal`] → pass through as-is (AbortSignal is
+///   an EventTarget per WHATWG DOM §3.1 without being a Node)
 /// - Any other Object / primitive → TypeError
 ///
-/// Non-DOM HostObjects (e.g. AbortSignal) are also EventTargets in
-/// the WebIDL tree, so in principle they should be accepted.  The
-/// existing host wrappers are well-segregated (AbortSignal never
-/// appears as a `relatedTarget`), so the gate stays tight; the
-/// AbortSignal cross-brand case can be opened up when a concrete
-/// caller needs it.
+/// The brand check rejects plain `{}`, arrays and primitives to
+/// match real-browser `EventTarget?` coercion.  If future EventTarget
+/// `ObjectKind` variants are introduced (e.g. `Worker`,
+/// `BroadcastChannel`), they must be added to the accept list to
+/// stay spec-compliant — add an exhaustive match or a `match_event_target`
+/// helper at that point.
 fn resolve_related_target(vm: &VmInner, val: JsValue, interface: &str) -> Result<JsValue, VmError> {
     match val {
         JsValue::Undefined | JsValue::Null => Ok(JsValue::Null),
         JsValue::Object(id) => {
-            // WebIDL `EventTarget?` brand check — plain `{}` and
-            // non-DOM host objects (e.g. AbortSignal currently) are
-            // rejected; only DOM element / text / document wrappers
-            // (`ObjectKind::HostObject` carrying a non-sentinel
-            // entity_bits) pass.  Matches the comment above.
-            if let ObjectKind::HostObject { entity_bits } = vm.get_object(id).kind {
-                if elidex_ecs::Entity::from_bits(entity_bits).is_some() {
-                    return Ok(val);
+            // WebIDL `EventTarget?` brand check — plain objects and
+            // non-EventTarget `ObjectKind`s are rejected.
+            match vm.get_object(id).kind {
+                ObjectKind::HostObject { entity_bits }
+                    if elidex_ecs::Entity::from_bits(entity_bits).is_some() =>
+                {
+                    Ok(val)
                 }
+                ObjectKind::AbortSignal => Ok(val),
+                _ => Err(VmError::type_error(format!(
+                    "Failed to construct '{interface}': \
+                     member relatedTarget is not of type 'EventTarget'."
+                ))),
             }
-            Err(VmError::type_error(format!(
-                "Failed to construct '{interface}': \
-                 member relatedTarget is not of type 'EventTarget'."
-            )))
         }
         _ => Err(VmError::type_error(format!(
             "Failed to construct '{interface}': \

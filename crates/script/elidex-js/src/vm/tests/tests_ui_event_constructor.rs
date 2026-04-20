@@ -310,6 +310,33 @@ fn mouse_event_related_target_rejects_non_event_target() {
     expect_type_error(&mut vm, "new MouseEvent('m', {relatedTarget: true})");
 }
 
+#[test]
+fn mouse_event_related_target_accepts_abort_signal() {
+    // WHATWG DOM §3.1: AbortSignal is an EventTarget (not a Node),
+    // so WebIDL `EventTarget? relatedTarget` must accept it.
+    // Regression defence against over-tightening the brand check
+    // to DOM `HostObject` wrappers only.
+    assert!(matches!(
+        Vm::new()
+            .eval(
+                "var s = new AbortController().signal; \
+                 new MouseEvent('m', {relatedTarget: s}).relatedTarget === s;"
+            )
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+    // FocusEvent shares the same resolver.
+    assert!(matches!(
+        Vm::new()
+            .eval(
+                "var s = AbortSignal.abort(); \
+                 new FocusEvent('f', {relatedTarget: s}).relatedTarget === s;"
+            )
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // KeyboardEvent
 // ---------------------------------------------------------------------------
