@@ -127,7 +127,7 @@ fn dom_exception_instanceof_error() {
     assert!(eval_bool("new DOMException() instanceof Error"));
 }
 
-// `instanceof SyntaxError` would return true here. the VM shares
+// `instanceof SyntaxError` would return true here — the VM shares
 // a single `Error.prototype` across every error subclass (see
 // `globals_errors.rs` `error_proto` reuse), so `instanceof
 // SyntaxError` collapses to `instanceof Error` for any object in the

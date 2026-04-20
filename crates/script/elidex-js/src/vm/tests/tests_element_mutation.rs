@@ -215,8 +215,7 @@ fn element_replace_child_returns_old_node() {
 fn element_replace_child_rejects_non_child_with_not_found_error() {
     // WHATWG DOM §4.4: `replaceChild` throws
     // `DOMException("NotFoundError")` when `old` is not a child of
-    // the receiver.  The from the TypeError
-    // surface.
+    // the receiver (previously surfaced as TypeError).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -672,7 +671,7 @@ fn shadow_host_has_child_nodes_false_when_only_shadow_root() {
 
 #[test]
 fn contains_stops_at_shadow_boundary() {
-    // `host.contains(nodeInsideShadow)` must be false. the shadow
+    // `host.contains(nodeInsideShadow)` must be false — the shadow
     // root is NOT a light-tree descendant of its host, even though
     // elidex stores it as a child for convenience.
     use elidex_ecs::ShadowRootMode;
@@ -756,7 +755,7 @@ fn closest_stops_at_shadow_boundary() {
 #[test]
 fn text_wrapper_does_not_expose_element_placeholder_marker() {
     // Invariant: members installed on `Element.prototype` must be
-    // `undefined` on Text wrappers. the Text branch skips
+    // `undefined` on Text wrappers — the Text branch skips
     // `Element.prototype` and inherits from `Node.prototype` (and
     // then `EventTarget.prototype`).  `firstElementChild` is an
     // Element-only accessor, so `typeof` must be `undefined` on a

@@ -370,8 +370,8 @@ fn element_before_user_node_survives_later_arg_throw() {
 fn element_before_self_insert_throws_hierarchy_request_error() {
     // Inserting an ancestor as a child of its own subtree creates a
     // cycle. EcsDom rejects and we throw
-    // `DOMException("HierarchyRequestError")` (The from
-    // the TypeError surface).
+    // `DOMException("HierarchyRequestError")` (previously surfaced
+    // as TypeError).
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {

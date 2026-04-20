@@ -67,7 +67,7 @@ fn abort_sets_aborted_flag() {
 fn abort_with_undefined_creates_default_abort_error() {
     let mut vm = Vm::new();
     // Default reason is a DOMException with `name === "AbortError"`
-    // (The from plain Error).
+    // (migrated from the prior plain-Error shape).
     assert_eq!(
         eval_string(
             &mut vm,
@@ -79,7 +79,7 @@ fn abort_with_undefined_creates_default_abort_error() {
 
 #[test]
 fn abort_default_reason_is_dom_exception() {
-    // The guard. the default reason is a proper
+    // Regression guard: the default reason must be a proper
     // DOMException instance, not an ad-hoc Error wrapper.
     let mut vm = Vm::new();
     assert!(eval_bool(
@@ -524,7 +524,7 @@ fn abort_after_unbind_cleans_listener_store() {
     vm.unbind();
 
     // Re-bind for the abort call (so JS can reach `c`), then unbind
-    // again. the controller still holds the back-ref Vec built
+    // again.  The controller still holds the back-ref Vec built
     // during the first bind.  We need the second eval to actually
     // run, so re-bind transiently; the listener_store cleanup is
     // what we're verifying, and that runs regardless of bind state.
