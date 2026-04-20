@@ -140,12 +140,54 @@ fn ui_event_view_non_window_throws() {
 }
 
 #[test]
-fn ui_event_detail_coerces_via_to_number() {
+fn ui_event_detail_coerces_via_webidl_long() {
+    // UIEventInit.detail is WebIDL `long` — ToInt32 per WebIDL
+    // §3.10.9.  Integer-in-range values pass through, fractional
+    // inputs truncate toward zero, out-of-range inputs wrap
+    // modulo 2^32, and NaN / ±Infinity map to 0 (matching
+    // browser behaviour for `new UIEvent('x', {detail: NaN})`).
     assert_eq!(eval_number("new UIEvent('x', {detail: 7}).detail"), 7.0);
     assert_eq!(eval_number("new UIEvent('x', {detail: '42'}).detail"), 42.0);
-    assert!(eval_bool(
-        "Object.is(new UIEvent('x', {detail: NaN}).detail, NaN)"
-    ));
+    // Fractional → truncate toward zero.
+    assert_eq!(eval_number("new UIEvent('x', {detail: 3.9}).detail"), 3.0);
+    assert_eq!(eval_number("new UIEvent('x', {detail: -2.7}).detail"), -2.0);
+    // NaN / ±Infinity → 0.
+    assert_eq!(eval_number("new UIEvent('x', {detail: NaN}).detail"), 0.0);
+    assert_eq!(
+        eval_number("new UIEvent('x', {detail: Infinity}).detail"),
+        0.0
+    );
+    assert_eq!(
+        eval_number("new UIEvent('x', {detail: -Infinity}).detail"),
+        0.0
+    );
+    // int32 wrap — 2^31 becomes -2^31 (two's complement).
+    assert_eq!(
+        eval_number("new UIEvent('x', {detail: 2147483648}).detail"),
+        -2_147_483_648.0
+    );
+}
+
+#[test]
+fn mouse_event_movement_coerces_via_webidl_long() {
+    // MouseEventInit.movementX / movementY are WebIDL `long` —
+    // ToInt32 conversion.  Mirrors the UIEventInit.detail test.
+    assert_eq!(
+        eval_number("new MouseEvent('m', {movementX: NaN}).movementX"),
+        0.0
+    );
+    assert_eq!(
+        eval_number("new MouseEvent('m', {movementY: Infinity}).movementY"),
+        0.0
+    );
+    assert_eq!(
+        eval_number("new MouseEvent('m', {movementX: 3.9}).movementX"),
+        3.0
+    );
+    assert_eq!(
+        eval_number("new MouseEvent('m', {movementY: -2.7}).movementY"),
+        -2.0
+    );
 }
 
 // ---------------------------------------------------------------------------

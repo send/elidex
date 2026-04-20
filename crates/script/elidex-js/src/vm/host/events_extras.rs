@@ -138,22 +138,27 @@ impl VmInner {
     }
 
     /// Finalise a freshly-built Event from `create_fresh_event_object`
-    /// by overriding its prototype to a specific descendant (per-ctor)
-    /// and return the object id.  Shared across all four C4 ctors.
+    /// by overriding its prototype to the per-ctor descendant and
+    /// return the object id.  Shared across the four non-UIEvent
+    /// ctors (PromiseRejectionEvent / ErrorEvent / HashChangeEvent /
+    /// PopStateEvent).  `descendant_proto` is required — passing the
+    /// base `Event.prototype` by accident would silently leave
+    /// instances with the wrong prototype chain; callers `.expect()`
+    /// their respective `VmInner::<name>_prototype` field so a
+    /// missed registration is a panic at ctor entry instead of a
+    /// latent wrong-chain bug.
     fn build_event_subclass_instance(
         &mut self,
         this: JsValue,
         type_sid: StringId,
         base: EventInit,
         shape_id: ShapeId,
-        descendant_proto: Option<ObjectId>,
+        descendant_proto: ObjectId,
         payload_slots: Vec<PropertyValue>,
     ) -> ObjectId {
         let id =
             self.create_fresh_event_object(this, type_sid, base, shape_id, payload_slots, false);
-        if let Some(proto) = descendant_proto {
-            self.get_object_mut(id).prototype = Some(proto);
-        }
+        self.get_object_mut(id).prototype = Some(descendant_proto);
         id
     }
 }
@@ -246,7 +251,9 @@ fn native_promise_rejection_event_constructor(
         PropertyValue::Data(promise_val),
         PropertyValue::Data(reason_val),
     ];
-    let proto = g.promise_rejection_event_prototype;
+    let proto = g
+        .promise_rejection_event_prototype
+        .expect("PromiseRejectionEvent.prototype must be registered before ctor");
     let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
     drop(g);
     Ok(JsValue::Object(id))
@@ -301,7 +308,9 @@ fn native_error_event_constructor(
         PropertyValue::Data(error_val),
     ];
     let mut g = ctx.vm.push_temp_root(error_val);
-    let proto = g.error_event_prototype;
+    let proto = g
+        .error_event_prototype
+        .expect("ErrorEvent.prototype must be registered before ctor");
     let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
     drop(g);
     Ok(JsValue::Object(id))
@@ -343,7 +352,10 @@ fn native_hash_change_event_constructor(
         PropertyValue::Data(JsValue::String(old_url_sid)),
         PropertyValue::Data(JsValue::String(new_url_sid)),
     ];
-    let proto = ctx.vm.hash_change_event_prototype;
+    let proto = ctx
+        .vm
+        .hash_change_event_prototype
+        .expect("HashChangeEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
         .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
@@ -381,7 +393,9 @@ fn native_pop_state_event_constructor(
         .pop_state_event;
     let slots = vec![PropertyValue::Data(state_val)];
     let mut g = ctx.vm.push_temp_root(state_val);
-    let proto = g.pop_state_event_prototype;
+    let proto = g
+        .pop_state_event_prototype
+        .expect("PopStateEvent.prototype must be registered before ctor");
     let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
     drop(g);
     Ok(JsValue::Object(id))

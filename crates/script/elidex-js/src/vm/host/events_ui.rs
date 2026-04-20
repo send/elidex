@@ -147,13 +147,17 @@ fn parse_ui_members(
     let detail_val = ctx
         .vm
         .get_property_value(opts_id, PropertyKey::String(ctx.vm.well_known.detail))?;
-    // `detail` is `long` in WebIDL (§3.2) but JS has only Number —
-    // matching Chrome, we coerce via ToNumber.  NaN / Infinity round
-    // to 0 / ±MAX via the standard ES conversion (see
-    // `coerce::to_number`'s note on NaN handling).
+    // `detail` is WebIDL `long` (UI Events §3.2) — ToInt32 per WebIDL
+    // §3.10.9 (NaN / ±Infinity / ±0 → 0; otherwise truncate + mod 2^32
+    // with two's-complement reinterpret).  Browsers surface 0 for
+    // `new UIEvent('x', {detail: NaN}).detail`; preserving NaN was the
+    // pre-R3.4 behaviour.
     let detail = match detail_val {
         JsValue::Undefined => 0.0,
-        _ => super::super::coerce::to_number(ctx.vm, detail_val)?,
+        _ => {
+            let n = super::super::coerce::to_number(ctx.vm, detail_val)?;
+            f64::from(super::super::coerce::f64_to_int32(n))
+        }
     };
     Ok((view, detail))
 }
@@ -489,8 +493,14 @@ fn native_mouse_event_constructor(
             .vm
             .get_property_value(opts_id, PropertyKey::String(k_related))?;
         let related_target = resolve_related_target(ctx.vm, related_raw, "MouseEvent")?;
-        let movement_x = read_number(ctx, opts_id, k_movement_x, 0.0)?;
-        let movement_y = read_number(ctx, opts_id, k_movement_y, 0.0)?;
+        // `movementX` / `movementY` are WebIDL `long` (UI Events §5.1)
+        // — same ToInt32 treatment as `UIEvent.detail`.  `screenX`,
+        // `screenY`, `clientX`, `clientY` remain `double` per the
+        // MouseEvent IDL so ToNumber is correct for them.
+        let movement_x_raw = read_number(ctx, opts_id, k_movement_x, 0.0)?;
+        let movement_y_raw = read_number(ctx, opts_id, k_movement_y, 0.0)?;
+        let movement_x = f64::from(super::super::coerce::f64_to_int32(movement_x_raw));
+        let movement_y = f64::from(super::super::coerce::f64_to_int32(movement_y_raw));
         (
             screen_x,
             screen_y,

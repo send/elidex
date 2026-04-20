@@ -841,6 +841,13 @@ fn dispatch_script_event(
 
     // ---- F. Walk the three phases ----
     let saved_target = local.target;
+    // `last_written_target` mirrors the `target` slot state across
+    // the whole walk.  Seeded to `saved_target` because Step E just
+    // wrote `saved_target_wrapper_id` into the slot; walk_phase
+    // only rewrites when `local.target` diverges from this tracker
+    // (common case: no shadow crossing → never diverges → slot
+    // stays at saved_target without per-listener wrapper lookups).
+    let mut last_written_target = saved_target;
     // Phase 1: Capture (root → target, exclusive).
     walk_phase(
         ctx,
@@ -849,6 +856,7 @@ fn dispatch_script_event(
         EventPhase::Capturing,
         &mut local,
         saved_target,
+        &mut last_written_target,
     )?;
 
     // Phase 2: At-target.
@@ -863,6 +871,7 @@ fn dispatch_script_event(
                 EventPhase::AtTarget,
                 &mut local,
                 saved_target,
+                &mut last_written_target,
             )?;
         }
     }
@@ -876,6 +885,7 @@ fn dispatch_script_event(
             EventPhase::Bubbling,
             &mut local,
             saved_target,
+            &mut last_written_target,
         )?;
     }
 
@@ -951,6 +961,7 @@ fn walk_phase(
     phase: elidex_plugin::EventPhase,
     local: &mut DispatchEvent,
     saved_target: elidex_ecs::Entity,
+    last_written_target: &mut elidex_ecs::Entity,
 ) -> Result<(), VmError> {
     use super::events::{
         set_event_slot_raw, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_EVENT_PHASE, EVENT_SLOT_TARGET,
@@ -974,19 +985,26 @@ fn walk_phase(
         local.phase = phase;
 
         // Update the JS event slots to match the current phase
-        // state.  `currentTarget` always changes per entity; the
-        // target slot only needs a rewrite when `apply_retarget`
-        // actually moved it (common case: no shadow crossing, so
-        // `local.target == saved_target` across the whole walk
-        // and the per-entity wrapper resolve is skippable).
-        let target_wrapper = ctx.vm.create_element_wrapper(local.target);
+        // state.  `currentTarget` always changes per entity and is
+        // always rewritten.  `target` only needs a rewrite when
+        // `apply_retarget` moved it — the common case (no shadow
+        // crossing) has `local.target == saved_target` across the
+        // whole walk, so the tracker skips the wrapper_cache lookup
+        // plus slot write for every listener after the first.  The
+        // tracker threads across phases through `dispatch_script_event`
+        // so a phase-1 retarget that gets reverted in phase 2 still
+        // restores the slot correctly.
+        if *last_written_target != local.target {
+            let target_wrapper = ctx.vm.create_element_wrapper(local.target);
+            set_event_slot_raw(
+                ctx.vm,
+                event_id,
+                EVENT_SLOT_TARGET,
+                JsValue::Object(target_wrapper),
+            );
+            *last_written_target = local.target;
+        }
         let current_wrapper = ctx.vm.create_element_wrapper(*entity);
-        set_event_slot_raw(
-            ctx.vm,
-            event_id,
-            EVENT_SLOT_TARGET,
-            JsValue::Object(target_wrapper),
-        );
         set_event_slot_raw(
             ctx.vm,
             event_id,
