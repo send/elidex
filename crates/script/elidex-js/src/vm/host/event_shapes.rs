@@ -24,13 +24,24 @@
 //! Variants with no payload keys (`EventPayload::None`, `Scroll`)
 //! share the `core` terminal shape directly.  Any non-exhaustive
 //! variant the VM doesn't yet recognise also falls through to `core`
-//! — those payloads install no extra properties (see the `_`
-//! fallthrough in `events::append_payload_slots`).
+//! — those payloads install no extra properties (see the wildcard
+//! arm in [`dispatch_payload`]).
+//!
+//! ## PR5a2 C2 — shape + slot-writer unification
+//!
+//! Shape selection and payload-slot assembly used to live in two
+//! separate 16-arm matches (`PrecomputedEventShapes::shape_for` and
+//! `events::append_payload_slots`) that had to be kept in lockstep;
+//! reordering one without the other silently wrote payload values
+//! into the wrong JS-visible key slots.  PR5a2 C2 consolidates both
+//! into [`dispatch_payload`], a single match that picks the shape
+//! AND writes the payload slots in one pass — adding a new variant
+//! touches exactly one arm.
 
 #![cfg(feature = "engine")]
 
 use super::super::shape::{PropertyAttrs, ShapeId, ROOT_SHAPE};
-use super::super::value::{PropertyKey, StringId};
+use super::super::value::{JsValue, PropertyKey, PropertyValue, StringId};
 use super::super::VmInner;
 use elidex_plugin::EventPayload;
 
@@ -76,37 +87,253 @@ pub(crate) struct PrecomputedEventShapes {
     pub(crate) custom_event: ShapeId,
 }
 
-impl PrecomputedEventShapes {
-    /// Return the terminal shape for `payload`.
-    ///
-    /// Match arms mirror `events::append_payload_slots` 1-to-1 —
-    /// keeping them in sync is a structural invariant (each variant's
-    /// slot order is determined by this shape's `ordered_entries`,
-    /// which the payload-slot assembly must respect).
-    #[inline]
-    pub(crate) fn shape_for(&self, payload: &EventPayload) -> ShapeId {
+// Local helpers for [`dispatch_payload`] — keep each variant arm
+// readable by wrapping the repetitive
+// `slots.push(PropertyValue::Data(JsValue::X(v)))` call.  Inlined
+// at `#[inline]` by the optimiser; measured neutral vs. direct
+// pushes at -O3.
+fn push_num(slots: &mut Vec<PropertyValue>, v: f64) {
+    slots.push(PropertyValue::Data(JsValue::Number(v)));
+}
+fn push_bool(slots: &mut Vec<PropertyValue>, v: bool) {
+    slots.push(PropertyValue::Data(JsValue::Boolean(v)));
+}
+fn push_str(slots: &mut Vec<PropertyValue>, sid: StringId) {
+    slots.push(PropertyValue::Data(JsValue::String(sid)));
+}
+fn push_val(slots: &mut Vec<PropertyValue>, v: JsValue) {
+    slots.push(PropertyValue::Data(v));
+}
+
+/// PR5a2 C2: the single source of truth for `EventPayload` ↔
+/// `(ShapeId, payload-slot sequence)`.  Picks the terminal shape
+/// and appends the variant-specific slot values to `slots` in a
+/// single match — adding a new variant touches only this function,
+/// [`VmInner::build_precomputed_event_shapes`], and the
+/// [`PrecomputedEventShapes`] struct.
+///
+/// `slots` must already contain the core-9 values in canonical
+/// order before this call; `dispatch_payload` appends exactly
+/// `<terminal_shape>.property_count() - CORE_KEY_COUNT` entries.
+/// Debug builds verify that delta via [`payload_key_count`].
+///
+/// `vm` is needed because some variants intern payload strings
+/// (`Keyboard.key`, `Message.origin`, etc.) or allocate element
+/// wrappers (`Focus.relatedTarget`).
+#[allow(clippy::too_many_lines)]
+pub(super) fn dispatch_payload(
+    vm: &mut VmInner,
+    slots: &mut Vec<PropertyValue>,
+    payload: &EventPayload,
+) -> ShapeId {
+    // Pull the shape_id first as a `Copy` value so the rest of the
+    // function can borrow `vm` mutably for interning / wrapper
+    // allocation without conflicting with the shapes borrow.
+    let shape_id: ShapeId = {
+        let shapes = vm
+            .precomputed_event_shapes
+            .as_ref()
+            .expect("precomputed_event_shapes must be built before dispatch_payload");
         match payload {
-            EventPayload::Mouse(_) => self.mouse,
-            EventPayload::Keyboard(_) => self.keyboard,
-            EventPayload::Transition(_) => self.transition,
-            EventPayload::Animation(_) => self.animation,
-            EventPayload::Input(_) => self.input,
-            EventPayload::Clipboard(_) => self.clipboard,
-            EventPayload::Composition(_) => self.composition,
-            EventPayload::Focus(_) => self.focus,
-            EventPayload::Wheel(_) => self.wheel,
-            EventPayload::Message { .. } => self.message,
-            EventPayload::CloseEvent(_) => self.close_event,
-            EventPayload::HashChange(_) => self.hash_change,
-            EventPayload::PageTransition(_) => self.page_transition,
-            EventPayload::Storage { .. } => self.storage,
-            // `Scroll` / `None` install no payload properties; any
-            // future non-exhaustive variant without a matching arm
-            // in `append_payload_slots` likewise installs none, so
-            // all fall through to the core-9 shape.
-            _ => self.core,
+            EventPayload::Mouse(_) => shapes.mouse,
+            EventPayload::Keyboard(_) => shapes.keyboard,
+            EventPayload::Transition(_) => shapes.transition,
+            EventPayload::Animation(_) => shapes.animation,
+            EventPayload::Input(_) => shapes.input,
+            EventPayload::Clipboard(_) => shapes.clipboard,
+            EventPayload::Composition(_) => shapes.composition,
+            EventPayload::Focus(_) => shapes.focus,
+            EventPayload::Wheel(_) => shapes.wheel,
+            EventPayload::Message { .. } => shapes.message,
+            EventPayload::CloseEvent(_) => shapes.close_event,
+            EventPayload::HashChange(_) => shapes.hash_change,
+            EventPayload::PageTransition(_) => shapes.page_transition,
+            EventPayload::Storage { .. } => shapes.storage,
+            // `Scroll` / `None` / unknown non-exhaustive variants
+            // install no payload properties → the core-9 shape.
+            _ => shapes.core,
         }
+    };
+
+    let len_before = slots.len();
+
+    match payload {
+        EventPayload::Mouse(m) => {
+            // clientX, clientY, button, buttons, altKey, ctrlKey, metaKey, shiftKey
+            push_num(slots, m.client_x);
+            push_num(slots, m.client_y);
+            push_num(slots, f64::from(m.button));
+            push_num(slots, f64::from(m.buttons));
+            push_bool(slots, m.alt_key);
+            push_bool(slots, m.ctrl_key);
+            push_bool(slots, m.meta_key);
+            push_bool(slots, m.shift_key);
+        }
+        EventPayload::Keyboard(k) => {
+            // key, code, altKey, ctrlKey, metaKey, shiftKey, repeat
+            let key_sid = vm.strings.intern(&k.key);
+            let code_sid = vm.strings.intern(&k.code);
+            push_str(slots, key_sid);
+            push_str(slots, code_sid);
+            push_bool(slots, k.alt_key);
+            push_bool(slots, k.ctrl_key);
+            push_bool(slots, k.meta_key);
+            push_bool(slots, k.shift_key);
+            push_bool(slots, k.repeat);
+        }
+        EventPayload::Transition(t) => {
+            // propertyName, elapsedTime, pseudoElement
+            let name_sid = vm.strings.intern(&t.property_name);
+            let pe_sid = vm.strings.intern(&t.pseudo_element);
+            push_str(slots, name_sid);
+            push_num(slots, t.elapsed_time);
+            push_str(slots, pe_sid);
+        }
+        EventPayload::Animation(a) => {
+            // animationName, elapsedTime, pseudoElement
+            let name_sid = vm.strings.intern(&a.animation_name);
+            let pe_sid = vm.strings.intern(&a.pseudo_element);
+            push_str(slots, name_sid);
+            push_num(slots, a.elapsed_time);
+            push_str(slots, pe_sid);
+        }
+        EventPayload::Input(i) => {
+            // inputType, data, isComposing
+            let type_sid = vm.strings.intern(&i.input_type);
+            let data_val = match &i.data {
+                Some(str_) => JsValue::String(vm.strings.intern(str_)),
+                None => JsValue::Null,
+            };
+            push_str(slots, type_sid);
+            push_val(slots, data_val);
+            push_bool(slots, i.is_composing);
+        }
+        EventPayload::Clipboard(c) => {
+            // dataType, data
+            let type_sid = vm.strings.intern(&c.data_type);
+            let data_sid = vm.strings.intern(&c.data);
+            push_str(slots, type_sid);
+            push_str(slots, data_sid);
+        }
+        EventPayload::Composition(c) => {
+            // data
+            let data_sid = vm.strings.intern(&c.data);
+            push_str(slots, data_sid);
+        }
+        EventPayload::Focus(f) => {
+            // relatedTarget
+            // `Entity::to_bits().get()` is NonZeroU64, so a `0` bits
+            // value is a payload construction bug.  Fall back to
+            // `null` rather than panic so a malformed payload still
+            // produces a sensible JS value.
+            let related_val = match f.related_target.and_then(elidex_ecs::Entity::from_bits) {
+                Some(entity) => JsValue::Object(vm.create_element_wrapper(entity)),
+                None => JsValue::Null,
+            };
+            push_val(slots, related_val);
+        }
+        EventPayload::Wheel(w) => {
+            // deltaX, deltaY, deltaMode
+            push_num(slots, w.delta_x);
+            push_num(slots, w.delta_y);
+            push_num(slots, f64::from(w.delta_mode));
+        }
+        EventPayload::Message {
+            data,
+            origin,
+            last_event_id,
+        } => {
+            // data, origin, lastEventId
+            let data_sid = vm.strings.intern(data);
+            let origin_sid = vm.strings.intern(origin);
+            let last_id_sid = vm.strings.intern(last_event_id);
+            push_str(slots, data_sid);
+            push_str(slots, origin_sid);
+            push_str(slots, last_id_sid);
+            // `source` / `ports` populated when MessagePort lands (PR5b).
+        }
+        EventPayload::CloseEvent(c) => {
+            // code, reason, wasClean
+            let reason_sid = vm.strings.intern(&c.reason);
+            push_num(slots, f64::from(c.code));
+            push_str(slots, reason_sid);
+            push_bool(slots, c.was_clean);
+        }
+        EventPayload::HashChange(h) => {
+            // oldURL, newURL
+            let old_sid = vm.strings.intern(&h.old_url);
+            let new_sid = vm.strings.intern(&h.new_url);
+            push_str(slots, old_sid);
+            push_str(slots, new_sid);
+        }
+        EventPayload::PageTransition(p) => {
+            // persisted
+            push_bool(slots, p.persisted);
+        }
+        EventPayload::Storage {
+            key,
+            old_value,
+            new_value,
+            url,
+        } => {
+            // key, oldValue, newValue, url
+            let opt = |vm: &mut VmInner, str_: &Option<String>| match str_ {
+                Some(x) => JsValue::String(vm.strings.intern(x)),
+                None => JsValue::Null,
+            };
+            let key_val = opt(vm, key);
+            let old_val = opt(vm, old_value);
+            let new_val = opt(vm, new_value);
+            let url_sid = vm.strings.intern(url);
+            push_val(slots, key_val);
+            push_val(slots, old_val);
+            push_val(slots, new_val);
+            push_str(slots, url_sid);
+            // `storageArea` populated when localStorage / sessionStorage land (PR5a).
+        }
+        EventPayload::Scroll | EventPayload::None => {
+            // No extra slots.  Terminal shape = `core`.
+        }
+        // `EventPayload` is `#[non_exhaustive]`.  A new upstream
+        // variant landing without a matching arm here installs no
+        // payload slots — matches the `core` terminal shape returned
+        // by the shape-selection match above.  Debug-trips so test
+        // runs surface the omission; release silently no-ops to
+        // avoid hard-failing dispatch on payloads we just don't
+        // display yet.
+        _ => debug_assert!(
+            false,
+            "unhandled EventPayload variant in dispatch_payload — \
+             add a matching arm to BOTH the shape selection above \
+             and the payload-slot writer below, plus an entry in \
+             build_precomputed_event_shapes",
+        ),
     }
+
+    // Variant-count invariant: every payload writer pushes exactly
+    // the number of slots its terminal shape expects.  Catches
+    // "writer forgot a push" or "shape added a key without writer"
+    // drift in debug runs; release builds still pass through to
+    // `define_with_precomputed_shape`'s own count assertion.
+    debug_assert_eq!(
+        slots.len() - len_before,
+        payload_key_count(vm, shape_id),
+        "dispatch_payload: writer and shape disagree on payload key count"
+    );
+
+    shape_id
+}
+
+/// Number of payload-specific keys in `shape_id` — that is, total
+/// properties minus the core-9.  Panics if `shape_id` is bogus
+/// (out-of-bounds into `vm.shapes`); callers always pass a shape
+/// returned by `build_precomputed_event_shapes`, so this shouldn't
+/// fire outside test code.
+pub(crate) fn payload_key_count(vm: &VmInner, shape_id: ShapeId) -> usize {
+    vm.shapes[shape_id as usize]
+        .ordered_entries
+        .len()
+        .saturating_sub(CORE_KEY_COUNT)
 }
 
 impl VmInner {
