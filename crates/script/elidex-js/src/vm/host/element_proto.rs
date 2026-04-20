@@ -782,7 +782,7 @@ fn adjacent_syntax_error(method: &str, where_value: &str) -> VmError {
     VmError::type_error(format!(
         "Failed to execute '{method}' on 'Element': \
          the value provided ('{where_value}') is not one of \
-         'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'."
+         'beforebegin', 'afterbegin', 'beforeend', or 'afterend'."
     ))
 }
 
