@@ -150,6 +150,13 @@ struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     abort_signal_states:
         &'a std::collections::HashMap<ObjectId, super::host::abort::AbortSignalState>,
+    /// Pending `AbortSignal.timeout(ms)` registrations — the
+    /// `ObjectId` values are signals that must survive until the
+    /// timer fires (see `VmInner::pending_timeout_signals` for the
+    /// full contract).  Keys are `u32` timer ids (not `ObjectId`s)
+    /// so they don't need tracing.
+    #[cfg(feature = "engine")]
+    pending_timeout_signals: &'a HashMap<u32, ObjectId>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -280,6 +287,17 @@ fn mark_roots(
     #[cfg(feature = "engine")]
     for entry in &roots.navigation.history_entries {
         mark_value(entry.state, obj_marks, work);
+    }
+
+    // (j) Pending AbortSignal.timeout registrations.  The signal
+    // ObjectId is only reachable via this map until the timer
+    // fires — without this root, a `let s = AbortSignal.timeout(100);`
+    // where `s` is not captured anywhere else would collect the
+    // signal and the subsequent internal-abort-on-fire would
+    // reference a dead slot.
+    #[cfg(feature = "engine")]
+    for &signal_id in roots.pending_timeout_signals.values() {
+        mark_object(signal_id, obj_marks, work);
     }
 }
 
@@ -671,6 +689,8 @@ impl VmInner {
             navigation: &self.navigation,
             #[cfg(feature = "engine")]
             abort_signal_states: &self.abort_signal_states,
+            #[cfg(feature = "engine")]
+            pending_timeout_signals: &self.pending_timeout_signals,
         };
 
         self.gc_work_list.clear();
@@ -726,6 +746,14 @@ impl VmInner {
             // needed during mark, only this post-sweep GC.
             self.dom_exception_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // `pending_timeout_signals` — values are rooted during
+            // mark so a collected signal is an invariant violation
+            // (the `mark_roots` pass kept them alive).  Defensively
+            // prune any entry whose signal *did* get collected
+            // (e.g. from a hypothetical non-strong-ref path a
+            // future PR introduces).
+            self.pending_timeout_signals
+                .retain(|_, signal_id| bit_get(marks, signal_id.0));
         }
 
         // 5. IC invalidation.

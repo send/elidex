@@ -113,6 +113,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 abort_listener_back_refs: HashMap::new(),
                 #[cfg(feature = "engine")]
+                pending_timeout_signals: HashMap::new(),
+                #[cfg(feature = "engine")]
                 precomputed_event_shapes: None,
                 generator_yielded: None,
                 current_microtask: None,

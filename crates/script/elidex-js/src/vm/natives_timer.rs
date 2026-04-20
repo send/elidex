@@ -247,6 +247,35 @@ impl VmInner {
                 .expect("head_ready implies non-empty");
             if self.cancelled_timers.remove(&entry.id) {
                 self.active_timer_ids.remove(&entry.id);
+                // `AbortSignal.timeout(ms)` entries are one-shot;
+                // a cancellation drops the pending-signal map entry
+                // so the signal can be collected.
+                #[cfg(feature = "engine")]
+                {
+                    self.pending_timeout_signals.remove(&entry.id);
+                }
+                continue;
+            }
+            // AbortSignal.timeout(ms) timer fired — route through the
+            // internal abort path (WHATWG §3.1.3.2) instead of
+            // dispatching the placeholder callback.  The signal's
+            // `reason` becomes `DOMException("TimeoutError")`.  We
+            // install the entry as current_timer first so the GC root
+            // stays stable during the dispatch.
+            #[cfg(feature = "engine")]
+            if let Some(signal_id) = self.pending_timeout_signals.remove(&entry.id) {
+                self.active_timer_ids.remove(&entry.id);
+                self.current_timer = Some(entry);
+                let timeout_name = self.well_known.dom_exc_timeout_error;
+                let reason = self.build_dom_exception(timeout_name, "signal timed out");
+                let fire_result =
+                    super::host::abort::internal_abort_signal(self, signal_id, reason);
+                let _ = self.current_timer.take();
+                if let Err(e) = fire_result {
+                    eprintln!("timeout signal abort {} threw: {e}", signal_id.0);
+                }
+                fired += 1;
+                // One-shot — no re-arm; jump to the top of the loop.
                 continue;
             }
             // Install the popped entry as a GC root before invoking user

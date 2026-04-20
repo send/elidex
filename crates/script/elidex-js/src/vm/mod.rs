@@ -332,6 +332,27 @@ pub(crate) struct VmInner {
     /// exists.
     #[cfg(feature = "engine")]
     pub(crate) abort_listener_back_refs: HashMap<elidex_script_session::ListenerId, ObjectId>,
+    /// Pending `AbortSignal.timeout(ms)` registrations — keyed by
+    /// timer id (the `u32` returned by `schedule_timer`), value is
+    /// the signal `ObjectId` to abort when the timer fires.  PR5a
+    /// C8 plumbing: the timer's callback slot carries a sentinel
+    /// no-op function, and the drain path consults this map BEFORE
+    /// invoking the callback — if an entry exists, the VM performs
+    /// an internal `abort(DOMException("TimeoutError"))` on the
+    /// signal and skips the JS callback dispatch.
+    ///
+    /// GC contract:
+    /// - Each value `ObjectId` is treated as a root (traced in
+    ///   `mark_roots`) so a `timeout(100)` signal stranded in this
+    ///   map survives until the timer fires.
+    /// - On timer fire / explicit cancel, the entry is removed (the
+    ///   signal drops back to "reachable only if some listener /
+    ///   captured variable holds it").
+    /// - GC sweep prunes entries whose signal was collected via a
+    ///   different path — a defensive cleanup that's cheap (empty
+    ///   map in the common case).
+    #[cfg(feature = "engine")]
+    pub(crate) pending_timeout_signals: HashMap<u32, ObjectId>,
     /// Internal prototype for `ObjectKind::Event` instances.  Holds the
     /// four event methods (`preventDefault`, `stopPropagation`,
     /// `stopImmediatePropagation`, `composedPath`) and the
