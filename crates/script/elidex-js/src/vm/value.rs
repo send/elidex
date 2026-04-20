@@ -646,6 +646,34 @@ pub enum ObjectKind {
     /// header lists.
     #[cfg(feature = "engine")]
     Headers,
+    /// `Request` instance (WHATWG Fetch §5.3).  Payload-free; the
+    /// `method` / `url` / `headers_id` state lives in
+    /// `VmInner::request_states`.  Body bytes (when present) live
+    /// in the shared `VmInner::body_data` map keyed by this
+    /// object's `ObjectId` — `clone()` uses `Arc::clone` on the
+    /// entry so two Requests can share a single backing buffer
+    /// without copy.
+    ///
+    /// GC contract: the trace step marks the `headers_id` Companion
+    /// from the state entry.  Body bytes are plain `Arc<[u8]>` (no
+    /// `ObjectId` references), so they need no marking.  Sweep
+    /// tail prunes `request_states` / `body_data` / `body_used`
+    /// entries whose key was collected.
+    #[cfg(feature = "engine")]
+    Request,
+    /// `Response` instance (WHATWG Fetch §5.5).  Payload-free;
+    /// `status` / `statusText` / `url` / `headers_id` /
+    /// `response_type` live in `VmInner::response_states`.  Body
+    /// bytes share `VmInner::body_data` with `Request` — the map
+    /// key is the Response's `ObjectId`.  IDL readonly attrs read
+    /// from the side-table state, not from own-data properties on
+    /// the instance, so `delete resp.status` is immune (PR5a2 R7.1
+    /// lesson: IDL attr internal slot is authoritative).
+    ///
+    /// GC contract: same shape as `Request` — mark the companion
+    /// `headers_id`, prune state / body entries in the sweep tail.
+    #[cfg(feature = "engine")]
+    Response,
 }
 
 impl ObjectKind {

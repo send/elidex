@@ -282,7 +282,7 @@ pub(super) fn native_string_from_char_code(
     for &arg in args {
         let n = ctx.to_number(arg)?;
         // ToUint16: truncate then modulo 2^16 (handles negative correctly)
-        let code = to_uint16(n);
+        let code = super::coerce::f64_to_uint16(n);
         result.push(code);
     }
     let id = ctx.vm.strings.intern_utf16(&result);
@@ -315,16 +315,4 @@ pub(super) fn native_string_from_code_point(
     }
     let id = ctx.vm.strings.intern_utf16(&result);
     Ok(JsValue::String(id))
-}
-
-/// ToUint16 (ES2020 §7.1.10): truncate then modulo 2^16.
-fn to_uint16(n: f64) -> u16 {
-    if n.is_nan() || n.is_infinite() || n == 0.0 {
-        return 0;
-    }
-    let int = n.trunc().rem_euclid(65536.0);
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    {
-        int as u16
-    }
 }

@@ -316,6 +316,28 @@ pub(super) fn f64_to_uint32(n: f64) -> u32 {
     result
 }
 
+/// ToUint16 (ES2020 §7.1.10 / WebIDL §3.10.5).  Modular truncation
+/// to the `[0, 2^16)` range.  Used by WebIDL `unsigned short`
+/// coercion (`Response.status`, `MouseEventInit.buttons`) and by
+/// `String.fromCharCode` ES §22.1.2.1 step 3.
+///
+/// NaN / ±Infinity / ±0 all map to `0`, matching the behaviour
+/// of the sibling `f64_to_int32` / `f64_to_uint32` helpers.
+pub(crate) fn f64_to_uint16(n: f64) -> u16 {
+    if n.is_nan() || n.is_infinite() || n == 0.0 {
+        return 0;
+    }
+    let int = n.trunc().rem_euclid(65_536.0);
+    // rem_euclid guarantees the result is in [0, 2^16), so the
+    // cast is infallible.  The `cast_possible_truncation` lint
+    // fires because the underlying f64 could theoretically hold
+    // any finite value, but the preceding rem_euclid normalises
+    // it into the u16 range first.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let result = int as u16;
+    result
+}
+
 // ---------------------------------------------------------------------------
 // ToObject (ES2020 §7.1.13)
 // ---------------------------------------------------------------------------

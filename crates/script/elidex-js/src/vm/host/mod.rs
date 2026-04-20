@@ -59,5 +59,9 @@ pub(super) mod node_methods_extras;
 pub(super) mod node_proto;
 pub(super) mod parentnode;
 pub(super) mod performance;
+#[cfg(feature = "engine")]
+pub(crate) mod request_response;
+#[cfg(feature = "engine")]
+pub(super) mod request_response_accessors;
 pub(super) mod text_proto;
 pub(super) mod window;

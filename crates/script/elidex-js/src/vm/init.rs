@@ -131,6 +131,18 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 headers_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                request_prototype: None,
+                #[cfg(feature = "engine")]
+                request_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                response_prototype: None,
+                #[cfg(feature = "engine")]
+                response_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                body_data: HashMap::new(),
+                #[cfg(feature = "engine")]
+                body_used: HashSet::new(),
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),

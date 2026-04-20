@@ -150,6 +150,17 @@ struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     abort_signal_states:
         &'a std::collections::HashMap<ObjectId, super::host::abort::AbortSignalState>,
+    /// `Request` / `Response` companion-Headers pointers live in
+    /// these two side tables.  Passed through so `trace_work_list`
+    /// can mark the paired Headers when the owning Request /
+    /// Response is reachable — otherwise the Headers would be
+    /// collected despite being reachable via the state entry.
+    #[cfg(feature = "engine")]
+    request_states:
+        &'a std::collections::HashMap<ObjectId, super::host::request_response::RequestState>,
+    #[cfg(feature = "engine")]
+    response_states:
+        &'a std::collections::HashMap<ObjectId, super::host::request_response::ResponseState>,
     /// Pending `AbortSignal.timeout(ms)` registrations — the
     /// `ObjectId` values are signals that must survive until the
     /// timer fires (see `VmInner::pending_timeout_signals` for the
@@ -338,6 +349,14 @@ fn trace_work_list(
     #[cfg(feature = "engine")] abort_signal_states: &std::collections::HashMap<
         ObjectId,
         super::host::abort::AbortSignalState,
+    >,
+    #[cfg(feature = "engine")] request_states: &std::collections::HashMap<
+        ObjectId,
+        super::host::request_response::RequestState,
+    >,
+    #[cfg(feature = "engine")] response_states: &std::collections::HashMap<
+        ObjectId,
+        super::host::request_response::ResponseState,
     >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
@@ -551,6 +570,42 @@ fn trace_work_list(
             // variant itself is gated behind `feature = "engine"`.
             #[cfg(feature = "engine")]
             ObjectKind::Headers => {}
+            // `Request` / `Response` carry their paired Headers
+            // as an `ObjectId` in `request_states` /
+            // `response_states`.  Without marking it here the
+            // companion Headers would be collected whenever the
+            // user code only retained the Request / Response
+            // itself.  Body bytes (`body_data[id]`) are plain
+            // `Arc<[u8]>` — no ObjectId fan-out, so no marking
+            // required.  URL / method / statusText are pool-
+            // permanent StringIds.
+            //
+            // Entries missing from `request_states` /
+            // `response_states` are treated as empty (matches a
+            // freshly allocated instance whose state was never
+            // installed — defensive, should not happen).
+            //
+            // `trace_work_list`'s immutable borrow on `objects`
+            // forbids us from also borrowing `VmInner` here, so
+            // the trace function takes the two state maps as
+            // explicit args (see the match signature below).
+            #[cfg(feature = "engine")]
+            ObjectKind::Request => {
+                if let Some(headers_id) =
+                    request_states.get(&ObjectId(obj_idx)).map(|s| s.headers_id)
+                {
+                    mark_object(headers_id, obj_marks, work);
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::Response => {
+                if let Some(headers_id) = response_states
+                    .get(&ObjectId(obj_idx))
+                    .map(|s| s.headers_id)
+                {
+                    mark_object(headers_id, obj_marks, work);
+                }
+            }
         }
     }
 }
@@ -768,13 +823,21 @@ impl VmInner {
                 self.headers_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // [37..=40] reserved for the remaining Fetch
-                // prototypes (request / response / array_buffer /
-                // blob).  They land in subsequent commits of the
-                // same tranche; Response.body's stream scaffolding
-                // is deferred to a later PR.
+                // [37] request_prototype / [38] response_prototype
+                // land together with the Request / Response ctors.
+                #[cfg(feature = "engine")]
+                self.request_prototype,
+                #[cfg(not(feature = "engine"))]
                 None,
+                #[cfg(feature = "engine")]
+                self.response_prototype,
+                #[cfg(not(feature = "engine"))]
                 None,
+                // [39..=40] reserved for the remaining Fetch
+                // prototypes (array_buffer / blob).  They land in
+                // subsequent commits of the same tranche;
+                // `Response.body`'s stream scaffolding is deferred
+                // to a later PR.
                 None,
                 None,
             ],
@@ -791,6 +854,10 @@ impl VmInner {
             navigation: &self.navigation,
             #[cfg(feature = "engine")]
             abort_signal_states: &self.abort_signal_states,
+            #[cfg(feature = "engine")]
+            request_states: &self.request_states,
+            #[cfg(feature = "engine")]
+            response_states: &self.response_states,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
         };
@@ -809,6 +876,10 @@ impl VmInner {
             roots.upvalues,
             #[cfg(feature = "engine")]
             roots.abort_signal_states,
+            #[cfg(feature = "engine")]
+            roots.request_states,
+            #[cfg(feature = "engine")]
+            roots.response_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -888,6 +959,19 @@ impl VmInner {
             // `dom_exception_states` / `abort_signal_states`
             // post-sweep pattern.
             self.headers_states.retain(|id, _| bit_get(marks, id.0));
+            // `request_states` / `response_states` / `body_data` /
+            // `body_used` — companion-Headers pointers were rooted
+            // during mark for reachable keys, so surviving entries
+            // are intact.  Prune entries whose key was collected to
+            // avoid a recycled slot inheriting stale method /
+            // status / body bytes (same pattern as
+            // `abort_signal_states`).  `body_data` / `body_used`
+            // reach across both Request and Response keys — pruning
+            // by the key's mark bit handles both cases in one pass.
+            self.request_states.retain(|id, _| bit_get(marks, id.0));
+            self.response_states.retain(|id, _| bit_get(marks, id.0));
+            self.body_data.retain(|id, _| bit_get(marks, id.0));
+            self.body_used.retain(|id| bit_get(marks, id.0));
         }
 
         // 5. IC invalidation.

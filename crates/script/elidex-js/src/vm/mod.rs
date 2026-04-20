@@ -488,6 +488,87 @@ pub(crate) struct VmInner {
     /// `dom_exception_states`.
     #[cfg(feature = "engine")]
     pub(crate) headers_states: HashMap<ObjectId, host::headers::HeadersState>,
+    /// `Request.prototype` (WHATWG Fetch §5.3).  Chains to
+    /// `Object.prototype` (no EventTarget / Node ancestry).  Holds
+    /// the IDL accessor suite (`method` / `url` / `headers` /
+    /// `body` / `bodyUsed` / `redirect` / `mode` / `credentials`
+    /// / `cache`) plus `clone`.
+    ///
+    /// `None` until `register_request_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) request_prototype: Option<ObjectId>,
+    /// Per-`Request` out-of-band state, keyed by the instance's
+    /// own `ObjectId`.  Payload lives here so
+    /// [`ObjectKind::Request`] stays payload-free.
+    ///
+    /// GC contract: trace marks `headers_id` (the paired Headers
+    /// instance) so it survives alongside the Request.  URL /
+    /// method are pool-permanent `StringId`s (no marking needed).
+    /// Sweep tail prunes entries whose key `ObjectId` was
+    /// collected so a recycled slot can't inherit stale state —
+    /// matching `headers_states` / `abort_signal_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) request_states: HashMap<ObjectId, host::request_response::RequestState>,
+    /// `Response.prototype` (WHATWG Fetch §5.5).  Chains to
+    /// `Object.prototype`.  Holds the IDL accessor suite
+    /// (`status` / `ok` / `statusText` / `url` / `type` /
+    /// `headers` / `body` / `bodyUsed` / `redirected`) plus
+    /// `clone`.
+    ///
+    /// The `Response` constructor function itself carries three
+    /// static factories — `Response.error` / `Response.redirect` /
+    /// `Response.json` — installed on the ctor in
+    /// `register_response_global`.
+    ///
+    /// `None` until `register_response_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) response_prototype: Option<ObjectId>,
+    /// Per-`Response` out-of-band state, keyed by the instance's
+    /// own `ObjectId`.  Payload lives here so
+    /// [`ObjectKind::Response`] stays payload-free and IDL
+    /// readonly attrs can read from the authoritative internal
+    /// slot rather than observable own-data (PR5a2 R7.1 lesson:
+    /// `delete resp.url` must not affect `resp.url` reads).
+    ///
+    /// GC contract: identical to `request_states` — mark
+    /// `headers_id`, prune dead keys in the sweep tail.
+    #[cfg(feature = "engine")]
+    pub(crate) response_states: HashMap<ObjectId, host::request_response::ResponseState>,
+    /// Shared body byte storage for `Request` / `Response` (and,
+    /// once the Body mixin read methods land, those consumers).  Keyed by the
+    /// owning object's `ObjectId`; the value is an `Arc<[u8]>` so
+    /// `clone()` can share the buffer across two objects without
+    /// copy (WHATWG §5 "body" cloning is reference-counted).
+    ///
+    /// Non-body Requests / Responses simply omit their entry —
+    /// `.body` returns `null` when the key is absent.
+    ///
+    /// GC contract: the values hold no `ObjectId` references, so
+    /// the trace step skips them.  Sweep tail drops entries whose
+    /// key was collected (matching `headers_states`) so that a
+    /// recycled slot does not inherit stale bytes.
+    #[cfg(feature = "engine")]
+    pub(crate) body_data: HashMap<ObjectId, std::sync::Arc<[u8]>>,
+    /// One-shot "body already consumed" flag (WHATWG §5 `bodyUsed`).
+    /// Inserted the first time `Body.text()` / `.json()` /
+    /// `.arrayBuffer()` / `.blob()` is called on the object; a
+    /// second call then rejects with `TypeError`.
+    ///
+    /// Today this set is only written by the Body mixin read
+    /// methods — which have not landed yet — so it is always
+    /// empty; the `.bodyUsed` IDL getter reads it and returns
+    /// `false`.  Wiring it now means the getter lives alongside
+    /// the other Request / Response accessors and the GC trace
+    /// already knows how to prune it, so the follow-up commit
+    /// that adds `text()` / `json()` / `arrayBuffer()` / `blob()`
+    /// only has to `insert()` at the right moment.
+    ///
+    /// GC contract: sweep tail prunes entries whose key was
+    /// collected, same as the other side tables.
+    #[cfg(feature = "engine")]
+    pub(crate) body_used: HashSet<ObjectId>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

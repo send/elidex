@@ -307,6 +307,16 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_headers_global();
 
+        // `Request` / `Response` constructors + prototypes (WHATWG
+        // Fetch §5.3 / §5.5).  Must run after
+        // `register_headers_global` because both ctors allocate a
+        // companion Headers instance in their fill path.
+        #[cfg(feature = "engine")]
+        {
+            self.register_request_global();
+            self.register_response_global();
+        }
+
         // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the

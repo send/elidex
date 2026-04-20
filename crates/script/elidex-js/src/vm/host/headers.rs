@@ -159,7 +159,7 @@ impl VmInner {
             PropertyValue::Data(JsValue::Object(ctor)),
             PropertyAttrs::METHOD,
         );
-        let name_sid = self.well_known.headers;
+        let name_sid = self.well_known.headers_global;
         self.globals.insert(name_sid, JsValue::Object(ctor));
     }
 
@@ -274,7 +274,12 @@ fn native_headers_constructor(
 
 /// Populate `headers_id` from an `init` value per WHATWG Fetch
 /// §5.2 "fill a Headers object".
-fn fill_headers_from_init(
+///
+/// `pub(super)` so the `request_response` module can reuse this
+/// logic for its `init.headers` member (avoids a parallel
+/// reimplementation — validation / lowercase / revalidation
+/// skipping on `Headers`-source all stay in one place).
+pub(super) fn fill_headers_from_init(
     ctx: &mut NativeContext<'_>,
     headers_id: ObjectId,
     init: JsValue,
