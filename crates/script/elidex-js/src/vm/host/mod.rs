@@ -30,12 +30,14 @@
 //!   used by both `document.rs` and Element / Node prototype natives.
 
 pub(crate) mod abort;
+pub(super) mod abort_statics;
 pub(super) mod character_data_proto;
 pub(super) mod childnode;
 pub(super) mod document;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;
 pub(crate) mod dom_exception;
+pub(super) mod element_insert_adjacent;
 pub(super) mod element_proto;
 pub(super) mod elements;
 pub(super) mod event_shapes;

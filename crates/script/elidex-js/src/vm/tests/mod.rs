@@ -1,6 +1,8 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
 mod tests_abort;
+mod tests_abort_signal_option;
+mod tests_abort_statics;
 mod tests_add_event_listener;
 mod tests_array_prototype;
 mod tests_array_prototype_ext;
@@ -17,7 +19,9 @@ mod tests_document_members;
 mod tests_document_methods;
 mod tests_document_type;
 mod tests_dom_exception;
+mod tests_element_attributes;
 mod tests_element_methods;
+mod tests_element_mutation;
 mod tests_element_subtree_collection;
 mod tests_element_subtree_query;
 mod tests_element_wrapper;
