@@ -14,6 +14,27 @@ use super::{eval_bool, eval_number, eval_string};
 // ---------------------------------------------------------------------------
 
 #[test]
+fn dom_exception_call_without_new_throws_type_error() {
+    // WebIDL §3.7 + browser parity: `DOMException("m")` without
+    // `new` throws TypeError.  Matches AbortController / Promise
+    // constructor enforcement in this crate.
+    let mut vm = Vm::new();
+    let check = vm
+        .eval(
+            "var caught = null;\
+             try { DOMException('m'); } catch (e) { caught = e.name; }\
+             caught;",
+        )
+        .unwrap();
+    match check {
+        super::super::value::JsValue::String(id) => {
+            assert_eq!(vm.get_string(id), "TypeError");
+        }
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+#[test]
 fn dom_exception_default_name_is_error() {
     assert_eq!(eval_string("new DOMException().name"), "Error");
 }

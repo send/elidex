@@ -186,6 +186,16 @@ fn native_dom_exception_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // WebIDL §3.7 + browser parity: DOMException is `[Constructor]`
+    // only — `DOMException("m")` without `new` throws TypeError in
+    // every major browser.  Matches the `AbortController` and
+    // `Promise` constructor contract in this crate.
+    if !ctx.is_construct() {
+        return Err(VmError::type_error(
+            "Failed to construct 'DOMException': Please use the 'new' operator",
+        ));
+    }
+
     let message_sid = match args.first().copied() {
         Some(JsValue::Undefined) | None => ctx.vm.well_known.empty,
         Some(v) => super::super::coerce::to_string(ctx.vm, v)?,
@@ -195,11 +205,10 @@ fn native_dom_exception_constructor(
         Some(v) => super::super::coerce::to_string(ctx.vm, v)?,
     };
 
-    // `new` pre-allocates an instance whose prototype already chains
-    // to `DOMException.prototype` via `do_new`'s lookup; plain call
-    // (`DOMException("m")`) allocates a fresh Ordinary here.  Route
-    // through `ensure_instance_or_alloc` so both forms land on the
-    // same object layout.
+    // `new` pre-allocated an instance whose prototype already chains
+    // to `DOMException.prototype` via `do_new`'s lookup.  Reuse that
+    // instance (as `AbortController` does) so the ECS / shape state
+    // lines up with the receiver the caller will see.
     let proto = ctx.vm.dom_exception_prototype;
     let receiver = ctx.vm.ensure_instance_or_alloc(this, proto);
     let JsValue::Object(id) = receiver else {
