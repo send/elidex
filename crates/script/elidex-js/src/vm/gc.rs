@@ -157,9 +157,17 @@ struct GcRoots<'a> {
     /// so they don't need tracing.
     #[cfg(feature = "engine")]
     pending_timeout_signals: &'a HashMap<u32, ObjectId>,
+    /// `AbortSignal.any(...)` composite → inputs fan-out map.  The
+    /// values are composite signal `ObjectId`s that must stay
+    /// reachable while any of their inputs is alive; see
+    /// [`super::VmInner::any_composite_map`] for the sweep-tail
+    /// pruning contract and the mark-phase rationale.
+    #[cfg(feature = "engine")]
+    any_composite_map: &'a HashMap<ObjectId, Vec<ObjectId>>,
 }
 
 /// Scan all GC roots and enqueue reachable objects.
+#[allow(clippy::too_many_lines)]
 fn mark_roots(
     roots: &GcRoots<'_>,
     obj_marks: &mut [u64],
@@ -298,6 +306,23 @@ fn mark_roots(
     #[cfg(feature = "engine")]
     for &signal_id in roots.pending_timeout_signals.values() {
         mark_object(signal_id, obj_marks, work);
+    }
+
+    // (k) `AbortSignal.any` composite fan-out values.  A composite
+    // built by `any([a, b])` whose JS reference is dropped (but
+    // `a` / `b` retained) is reachable only through this map's
+    // values — without marking it, a GC triggered before any
+    // input aborts would reclaim the composite and the input's
+    // eventual abort would dead-slot the fan-out fire.  Input
+    // keys don't need marking: they already have independent
+    // live references (otherwise the user couldn't invoke
+    // `abort` on them, which is the only path that reaches this
+    // map on fire).
+    #[cfg(feature = "engine")]
+    for composites in roots.any_composite_map.values() {
+        for &composite_id in composites {
+            mark_object(composite_id, obj_marks, work);
+        }
     }
 }
 
@@ -734,6 +759,8 @@ impl VmInner {
             abort_signal_states: &self.abort_signal_states,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
+            #[cfg(feature = "engine")]
+            any_composite_map: &self.any_composite_map,
         };
 
         self.gc_work_list.clear();
@@ -807,6 +834,22 @@ impl VmInner {
             // so a recycled slot can't observe "already dispatching"
             // membership.
             self.dispatched_events.retain(|id| bit_get(marks, id.0));
+            // `any_composite_map` — input → composites fan-out.
+            // Prune entries whose key (input signal) was collected;
+            // for surviving entries, filter the composite list by
+            // live-ness.  Composites were roots during mark so a
+            // filtered-out composite indicates it was reachable
+            // only via this map (same pattern as
+            // `pending_timeout_signals`).  An empty list after
+            // filter is dropped so the map shrinks as inputs
+            // outlive their composites.
+            self.any_composite_map.retain(|input_id, composites| {
+                if !bit_get(marks, input_id.0) {
+                    return false;
+                }
+                composites.retain(|composite_id| bit_get(marks, composite_id.0));
+                !composites.is_empty()
+            });
         }
 
         // 5. IC invalidation.

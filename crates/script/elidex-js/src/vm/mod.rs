@@ -354,6 +354,28 @@ pub(crate) struct VmInner {
     ///   map in the common case).
     #[cfg(feature = "engine")]
     pub(crate) pending_timeout_signals: HashMap<u32, ObjectId>,
+    /// `AbortSignal.any(inputs)` fan-out map — keyed by an input
+    /// signal's `ObjectId`, valued by the list of composite signal
+    /// `ObjectId`s that observe it (WHATWG DOM §3.1.3.3 "follow
+    /// abort signal" algorithm, native fan-out flavour).
+    ///
+    /// When an input aborts, [`host::abort::abort_signal`] consults
+    /// this map and performs an internal abort on every still-active
+    /// composite using the input's reason.  The list is not
+    /// deduplicated — duplicated inputs in the `any()` call (e.g.
+    /// `any([a, a])`) add two entries, but the second trip through
+    /// `abort_signal` is a no-op via its `aborted` latch.
+    ///
+    /// GC contract:
+    /// - Mark phase: every composite `ObjectId` in the values is a
+    ///   strong root so an `AbortSignal.any([a, b])` whose result
+    ///   the user discards (but `a` / `b` retain) stays reachable
+    ///   until either input aborts or both inputs are collected.
+    /// - Sweep tail: prune entries whose key was collected (input
+    ///   dead) and filter the value list for dead composites —
+    ///   same pattern as [`Self::abort_signal_states`].
+    #[cfg(feature = "engine")]
+    pub(crate) any_composite_map: HashMap<ObjectId, Vec<ObjectId>>,
     /// Events currently being dispatched — WHATWG DOM §2.9 step 3
     /// forbids re-entrant `dispatchEvent()` on the same `Event`
     /// instance, and the spec algorithm's "dispatch flag" is a

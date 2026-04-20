@@ -197,3 +197,162 @@ fn abort_signal_timeout_canceled_signal_state_cleaned() {
         .drain_timers(Instant::now() + Duration::from_millis(10));
     assert!(vm.inner.pending_timeout_signals.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// PR5a2 C6: AbortSignal.any multi-input propagation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn any_two_inputs_first_abort_propagates_with_first_reason() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new AbortController(); \
+         var b = new AbortController(); \
+         var c = AbortSignal.any([a.signal, b.signal]); \
+         a.abort('first'); \
+         c.aborted && c.reason === 'first';"
+    ));
+}
+
+#[test]
+fn any_two_inputs_second_abort_is_noop_after_first() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var a = new AbortController(); \
+             var b = new AbortController(); \
+             var c = AbortSignal.any([a.signal, b.signal]); \
+             a.abort('first'); \
+             b.abort('second'); \
+             c.reason;"
+        ),
+        "first"
+    );
+}
+
+#[test]
+fn any_three_inputs_first_already_aborted_uses_first_reason() {
+    // WHATWG §3.1.3.3 step 2 already-aborted fast path — the
+    // composite is sync-aborted at construction time with the
+    // *first* already-aborted input's reason, not whichever
+    // iterable entry comes first unconditionally.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new AbortController(); \
+         var b = AbortSignal.abort('b-reason'); \
+         var cc = new AbortController(); \
+         var c = AbortSignal.any([a.signal, b, cc.signal]); \
+         c.aborted && c.reason === 'b-reason';"
+    ));
+}
+
+#[test]
+fn any_chained_composites_propagate_through_chain() {
+    // `c2 = any([c1, c])` where `c1 = any([a, b])`.  Abort `a`
+    // should fire `c1`, which fans out to `c2`.  Tests recursive
+    // `abort_signal` invocation inside the fan-out hook.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new AbortController(); \
+         var b = new AbortController(); \
+         var cc = new AbortController(); \
+         var c1 = AbortSignal.any([a.signal, b.signal]); \
+         var c2 = AbortSignal.any([c1, cc.signal]); \
+         a.abort('deep'); \
+         c1.aborted && c2.aborted && c2.reason === 'deep';"
+    ));
+}
+
+#[test]
+fn any_direct_composite_abort_does_not_touch_inputs() {
+    // Calling `abort()` on a composite (through the `reason`
+    // accessor that short-circuits on `aborted`) must NOT
+    // propagate to its inputs — only the input → composite
+    // direction is wired.  Composites are EventTargets, not
+    // controllers — there is no direct public `abort()` on
+    // `AbortSignal`, so this test uses `AbortSignal.abort(reason)`
+    // to reach a pre-aborted composite replacement — which can't
+    // happen for a composite built by `any()` since we don't hand
+    // out its controller.  Exercise the reverse-direction contract
+    // by asserting the inputs are still live after their composite
+    // aborts via chained propagation.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new AbortController(); \
+         var b = new AbortController(); \
+         var c = AbortSignal.any([a.signal, b.signal]); \
+         a.abort('src'); \
+         !b.signal.aborted;"
+    ));
+}
+
+#[test]
+fn any_duplicate_input_fires_composite_only_once() {
+    // `any([a, a])` records two entries in any_composite_map;
+    // abort(a) visits the composite twice but the second call
+    // short-circuits via `aborted` latch, so listeners fire once.
+    let mut vm = Vm::new();
+    assert_eq!(
+        vm.eval(
+            "var a = new AbortController(); \
+             var c = AbortSignal.any([a.signal, a.signal]); \
+             var fired = 0; \
+             c.addEventListener('abort', function () { fired++; }); \
+             a.abort('dup'); \
+             fired;"
+        )
+        .unwrap(),
+        JsValue::Number(1.0)
+    );
+}
+
+#[test]
+fn any_composite_map_cleaned_after_input_aborts() {
+    // Once an input aborts, its `any_composite_map` entry is
+    // drained (the fan-out hook removes the key) so subsequent
+    // GC / lookup paths don't revisit dead state.  Empty after
+    // single-input abort with no other map entries alive.
+    let mut vm = Vm::new();
+    vm.eval(
+        "var a = new AbortController(); \
+         var b = new AbortController(); \
+         globalThis.c = AbortSignal.any([a.signal, b.signal]); \
+         a.abort('x');",
+    )
+    .unwrap();
+    // `a` entry is gone (fanned out); `b` entry remains (input
+    // still active).  One entry remaining is the expected state.
+    assert_eq!(vm.inner.any_composite_map.len(), 1);
+}
+
+#[test]
+fn any_composite_survives_gc_while_inputs_live() {
+    // If user drops the composite reference but keeps input
+    // controllers alive, the composite must stay reachable via
+    // `any_composite_map`'s value-side root so a subsequent
+    // input abort still has a live target.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.a = new AbortController(); \
+         globalThis.b = new AbortController(); \
+         var c = AbortSignal.any([a.signal, b.signal]); \
+         globalThis.c = c;",
+    )
+    .unwrap();
+    // Run a full GC; composite should survive via the map root.
+    vm.inner.collect_garbage();
+    assert_eq!(vm.inner.any_composite_map.len(), 2);
+
+    // Now drop the user-visible reference, GC, abort.  Composite
+    // must still exist in the map + still be abortable.
+    vm.eval("globalThis.c = undefined;").unwrap();
+    vm.inner.collect_garbage();
+    vm.eval("a.abort('post-gc');").unwrap();
+    // After abort, the `a` key entry should be drained; `b` remains.
+    assert_eq!(vm.inner.any_composite_map.len(), 1);
+}

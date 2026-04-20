@@ -760,6 +760,36 @@ pub(super) fn abort_signal(
         state.abort_listeners.clear();
     }
 
+    // `AbortSignal.any(inputs)` fan-out (WHATWG §3.1.3.3) — if
+    // this signal appears as an input in any composite built
+    // above, propagate the abort to each composite using *this*
+    // signal's materialised reason.  Entries are removed as we
+    // visit them: once the input has aborted, future aborts on
+    // it are no-ops (the latch above returns early), so the
+    // fan-out need not run twice.  The composite's own `aborted`
+    // latch inside a recursive `abort_signal` call guards
+    // against duplicate fires if multiple inputs share a
+    // composite in the same call stack.
+    let fan_out_targets = ctx.vm.any_composite_map.remove(&signal_id);
+    if let Some(composites) = fan_out_targets {
+        for composite_id in composites {
+            // Materialised reason is latched on the input's
+            // state — re-read rather than re-materialising so we
+            // propagate the exact value handed to listeners.
+            let reason = ctx
+                .vm
+                .abort_signal_states
+                .get(&signal_id)
+                .map(|s| s.reason)
+                .unwrap_or(JsValue::Undefined);
+            // Recursive call — composite may itself be an input
+            // to another composite, chaining arbitrarily deep.
+            // `abort_signal`'s latch means an already-aborted
+            // composite is a cheap no-op return.
+            abort_signal(ctx, composite_id, reason)?;
+        }
+    }
+
     Ok(())
 }
 
