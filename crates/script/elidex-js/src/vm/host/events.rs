@@ -681,11 +681,20 @@ pub(crate) const EVENT_SLOT_CURRENT_TARGET: usize = 5;
 ///   WebIDL core attributes are `WEBIDL_RO` (configurable=true),
 ///   so deletion is legal and triggers the Shaped → Dictionary
 ///   transition.  Spec-wise dispatch must still set the
-///   attribute; fall back to a keyed set that either updates
-///   the existing entry or appends a fresh one with the
-///   WEBIDL_RO attrs that the ctor installed.  Matches Chrome
-///   semantics (IDL attribute accessor reads the internal slot
-///   even post-delete).
+///   attribute; fall back to a keyed set with two sub-cases:
+///   - the key still exists in the dictionary (e.g. the user
+///     re-assigned `evt.target = 'x'` after deleting) → update
+///     the slot value in place, **preserving the existing
+///     attrs** so a user's `Object.defineProperty(evt,
+///     'target', …)` custom descriptor isn't clobbered by
+///     dispatch.
+///   - the key is absent (pure delete, no subsequent write) →
+///     append a fresh entry with the `WEBIDL_RO` attrs the ctor
+///     originally installed.
+///   Matches Chrome semantics (IDL attribute accessor reads the
+///   internal slot even post-delete; dispatch re-installs the
+///   property but respects any custom descriptor already in
+///   place).
 pub(crate) fn set_event_slot_raw(
     vm: &mut VmInner,
     event_id: ObjectId,
