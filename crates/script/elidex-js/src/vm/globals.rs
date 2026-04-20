@@ -266,16 +266,16 @@ impl VmInner {
             self.register_event_prototype();
             self.register_event_global();
             self.register_custom_event_global();
-            // UIEvent family (PR5a2 C3).  Each descendant's prototype
-            // chains through `UIEvent.prototype → Event.prototype`, so
+            // UIEvent family.  Each descendant's prototype chains
+            // through `UIEvent.prototype → Event.prototype`, so
             // UIEvent must register first.
             self.register_ui_event_global();
             self.register_mouse_event_global();
             self.register_keyboard_event_global();
             self.register_focus_event_global();
             self.register_input_event_global();
-            // Non-UIEvent specialized ctors (PR5a2 C4) — chain
-            // directly to Event.prototype, no UIEvent prefix.
+            // Non-UIEvent specialized ctors — chain directly to
+            // Event.prototype, no UIEvent prefix.
             self.register_promise_rejection_event_global();
             self.register_error_event_global();
             self.register_hash_change_event_global();

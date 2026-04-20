@@ -21,10 +21,10 @@
 //! `NativeFunction` objects per dispatch, no fresh shape transitions
 //! for the method properties.
 //!
-//! `Event.prototype` is JS-visible via `globalThis.Event.prototype`
-//! (PR5a2 C1 landed `new Event(type, init)`).  Both UA-initiated
-//! dispatch (via `create_event_object`) and script construction
-//! (via `native_event_constructor`) chain through this same object.
+//! `Event.prototype` is JS-visible via `globalThis.Event.prototype`.
+//! Both UA-initiated dispatch (via `create_event_object`) and script
+//! construction (via `native_event_constructor`) chain through this
+//! same object.
 //!
 //! ## Properties installed on each event
 //!
@@ -218,9 +218,9 @@ impl VmInner {
         slots.push(PropertyValue::Data(JsValue::Boolean(event.is_trusted)));
 
         // Payload-specific slot values + matching terminal shape.
-        // PR5a2 C2 unified shape selection and payload-slot writes
-        // into a single match so adding a variant touches exactly
-        // one function (see `event_shapes::dispatch_payload`).
+        // Shape selection and payload-slot writes live in a single
+        // match so adding a variant touches exactly one function
+        // (see `event_shapes::dispatch_payload`).
         //
         // May allocate (Focus's relatedTarget via
         // `create_element_wrapper`); the returned wrapper ObjectId
@@ -237,10 +237,11 @@ impl VmInner {
         event_id
     }
 
-    /// Build a freshly-constructed Event object for
-    /// `new Event(type, init)` (PR5a2 C1) and subsequent specialized
-    /// constructors (PR5a2 C3-C4).  The pre-allocated `this` receiver
-    /// from `do_new` is promoted in place to `ObjectKind::Event` so
+    /// Build a freshly-constructed Event object for `new Event(type,
+    /// init)` and subsequent specialized constructors (UIEvent family,
+    /// PromiseRejectionEvent, ErrorEvent, etc.).  The pre-allocated
+    /// `this` receiver from `do_new` is promoted in place to
+    /// `ObjectKind::Event` so
     /// the subclass prototype chain (`class Sub extends Event {}`)
     /// is preserved — overwriting `this` with a fresh allocation
     /// would drop the `Sub.prototype` link.
@@ -295,7 +296,7 @@ impl VmInner {
         slots.push(PropertyValue::Data(JsValue::Boolean(init.cancelable)));
         // eventPhase = NONE (WHATWG DOM §2.2).  Mutated to
         // CAPTURING_PHASE / AT_TARGET / BUBBLING_PHASE by
-        // `dispatchEvent` (PR5a2 C5).
+        // `dispatchEvent`.
         slots.push(PropertyValue::Data(JsValue::Number(0.0)));
         slots.push(PropertyValue::Data(JsValue::Null));
         slots.push(PropertyValue::Data(JsValue::Null));
@@ -395,15 +396,79 @@ impl VmInner {
 }
 
 // ---------------------------------------------------------------------
-// Constructors + init-dict parsers (PR5a2 C1)
+// Constructors + init-dict parsers
 // ---------------------------------------------------------------------
+
+/// Shared WebIDL `[Constructor]` gate — every Event family ctor
+/// must reject call-mode invocation (`Event('click')` without `new`)
+/// before reaching any argument coercion.  Returns `Err(TypeError)`
+/// in call mode, `Ok(())` in construct mode.  Error message format
+/// matches the `Event` / `CustomEvent` ctors originally in this file.
+pub(super) fn check_construct(ctx: &NativeContext<'_>, interface: &str) -> Result<(), VmError> {
+    if ctx.is_construct() {
+        Ok(())
+    } else {
+        Err(VmError::type_error(format!(
+            "Failed to construct '{interface}': Please use the 'new' operator",
+        )))
+    }
+}
+
+/// Extract the required `type` first-argument from a ctor call.
+/// Absent arg → TypeError; Symbol or other non-string values pass
+/// through `coerce::to_string` (Symbol throws per ES2020 §7.1.12).
+pub(super) fn type_arg(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    interface: &str,
+) -> Result<StringId, VmError> {
+    let v = args.first().copied().ok_or_else(|| {
+        VmError::type_error(format!(
+            "Failed to construct '{interface}': 1 argument required, but only 0 present.",
+        ))
+    })?;
+    super::super::coerce::to_string(ctx.vm, v)
+}
+
+/// Wire a ctor function object to its prototype + the `name` global.
+///
+/// Shared between `Event` / `CustomEvent` (this module), the UIEvent
+/// family ([`super::events_ui`]) and the direct-Event descendants
+/// ([`super::events_extras`]) — all four register sites installed the
+/// same three-step pattern: create the native ctor function, set
+/// `ctor.prototype = proto_id` with BUILTIN attrs, set
+/// `proto_id.constructor = ctor` with METHOD attrs, expose on
+/// `globals[name]`.
+pub(super) fn install_ctor(
+    vm: &mut VmInner,
+    proto_id: ObjectId,
+    name: &str,
+    func: NativeFn,
+    global_sid: StringId,
+) {
+    let ctor = vm.create_constructable_function(name, func);
+    let proto_key = PropertyKey::String(vm.well_known.prototype);
+    vm.define_shaped_property(
+        ctor,
+        proto_key,
+        PropertyValue::Data(JsValue::Object(proto_id)),
+        PropertyAttrs::BUILTIN,
+    );
+    let ctor_key = PropertyKey::String(vm.well_known.constructor);
+    vm.define_shaped_property(
+        proto_id,
+        ctor_key,
+        PropertyValue::Data(JsValue::Object(ctor)),
+        PropertyAttrs::METHOD,
+    );
+    vm.globals.insert(global_sid, JsValue::Object(ctor));
+}
 
 /// `EventInit` dictionary (WHATWG DOM §2.4).  Defaults: all `false`.
 ///
-/// `pub(crate)` because
-/// [`VmInner::create_fresh_event_object`] exposes it — both the
-/// plain `Event` ctor and (PR5a2 C3+) specialized constructors in
-/// sibling `host/*` modules build an `EventInit` via
+/// `pub(crate)` because [`VmInner::create_fresh_event_object`]
+/// exposes it — both the plain `Event` ctor and the specialized
+/// constructors in sibling `host/*` modules build an `EventInit` via
 /// [`parse_event_init`] and hand it off.
 #[derive(Default, Clone, Copy)]
 pub(crate) struct EventInit {
@@ -570,9 +635,9 @@ fn native_custom_event_get_detail(
 // ---------------------------------------------------------------------
 // Core-9 slot indices — see `host::event_shapes` CORE_KEY_COUNT and
 // `build_precomputed_event_shapes` for the authoritative ordering.
-// PR5a2 C5 consumers (dispatchEvent) mutate `target`, `currentTarget`,
-// and `eventPhase` in place across phases; the index constants are
-// named so the call site reads as intent, not "slot 3".
+// `dispatchEvent` mutates `target`, `currentTarget`, and `eventPhase`
+// in place across phases; the named constants keep call sites
+// self-documenting instead of reading as "slot 3".
 // ---------------------------------------------------------------------
 
 /// Core-9 slot index for `eventPhase` (`0` / `1=CAPTURING` / `2=AT_TARGET` /
@@ -588,12 +653,12 @@ pub(crate) const EVENT_SLOT_CURRENT_TARGET: usize = 5;
 /// Overwrite one core-9 slot on an `ObjectKind::Event` in place, skipping
 /// the shape-transition path.
 ///
-/// PR5a2 C5 script-initiated dispatch needs to advance `currentTarget`
-/// / `eventPhase` / `target` on a user-constructed event object
-/// without changing its shape — `define_shaped_property` would treat
-/// each write as a shape transition (allocating a fresh shape to
-/// record attr changes) and defeat the precomputed-shape fast path
-/// built in PR3.6.
+/// Script-initiated dispatch needs to advance `currentTarget` /
+/// `eventPhase` / `target` on a user-constructed event object
+/// without changing its shape — `define_shaped_property` would
+/// treat each write as a shape transition (allocating a fresh
+/// shape to record attr changes) and defeat the precomputed-shape
+/// fast path.
 ///
 /// Safety: requires `event_id` to refer to a Shaped storage whose
 /// shape was built via `build_precomputed_event_shapes` (i.e. one of
@@ -636,7 +701,6 @@ pub(crate) fn set_event_slot_raw(
 }
 
 // ---------------------------------------------------------------------
-// Payload slot assembly moved to
-// `host::event_shapes::dispatch_payload` (PR5a2 C2) — shape
-// selection and slot writes now live in a single SSOT match.
+// Payload slot assembly lives in `host::event_shapes::dispatch_payload`
+// — shape selection and slot writes share a single SSOT match.
 // ---------------------------------------------------------------------

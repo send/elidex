@@ -1,4 +1,4 @@
-//! Specialized Event constructors for the UIEvent family (PR5a2 C3).
+//! Specialized Event constructors for the UIEvent family.
 //!
 //! WebIDL IDL tree (UI Events §3 / §5 / §6 / §7 / §8):
 //!
@@ -33,13 +33,13 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::shape::{PropertyAttrs, ShapeId};
+use super::super::shape::ShapeId;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::events::{parse_event_init, EventInit};
+use super::events::{check_construct, install_ctor, parse_event_init, type_arg, EventInit};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,11 +82,12 @@ fn resolve_view(
 ///   entity (i.e. a DOM wrapper) → pass through as-is
 /// - Any other Object / primitive → TypeError
 ///
-/// Non-DOM HostObjects (e.g. AbortSignal) are also EventTargets in the
-/// WebIDL tree, so in principle they should be accepted.  The existing
-/// host wrappers are well-segregated (AbortSignal never appears as a
-/// `relatedTarget`) so for PR5a2 C3 we keep the gate tight and defer
-/// the AbortSignal cross-brand test to a follow-up.
+/// Non-DOM HostObjects (e.g. AbortSignal) are also EventTargets in
+/// the WebIDL tree, so in principle they should be accepted.  The
+/// existing host wrappers are well-segregated (AbortSignal never
+/// appears as a `relatedTarget`), so the gate stays tight; the
+/// AbortSignal cross-brand case can be opened up when a concrete
+/// caller needs it.
 fn resolve_related_target(val: JsValue, interface: &str) -> Result<JsValue, VmError> {
     match val {
         JsValue::Undefined | JsValue::Null => Ok(JsValue::Null),
@@ -370,31 +371,6 @@ impl VmInner {
     }
 }
 
-fn install_ctor(
-    vm: &mut VmInner,
-    proto_id: ObjectId,
-    name: &str,
-    func: NativeFn,
-    global_sid: StringId,
-) {
-    let ctor = vm.create_constructable_function(name, func);
-    let proto_key = PropertyKey::String(vm.well_known.prototype);
-    vm.define_shaped_property(
-        ctor,
-        proto_key,
-        PropertyValue::Data(JsValue::Object(proto_id)),
-        PropertyAttrs::BUILTIN,
-    );
-    let ctor_key = PropertyKey::String(vm.well_known.constructor);
-    vm.define_shaped_property(
-        proto_id,
-        ctor_key,
-        PropertyValue::Data(JsValue::Object(ctor)),
-        PropertyAttrs::METHOD,
-    );
-    vm.globals.insert(global_sid, JsValue::Object(ctor));
-}
-
 fn register_descendant(
     vm: &mut VmInner,
     parent: Option<ObjectId>,
@@ -417,32 +393,6 @@ fn register_descendant(
 // ---------------------------------------------------------------------------
 // Native constructor fns
 // ---------------------------------------------------------------------------
-
-/// Extract the required `type` first-argument from a ctor call.  Absent
-/// arg → TypeError; Symbol / other non-string values pass through
-/// `coerce::to_string` which throws for Symbol.
-fn type_arg(
-    ctx: &mut NativeContext<'_>,
-    args: &[JsValue],
-    interface: &str,
-) -> Result<StringId, VmError> {
-    let v = args.first().copied().ok_or_else(|| {
-        VmError::type_error(format!(
-            "Failed to construct '{interface}': 1 argument required, but only 0 present.",
-        ))
-    })?;
-    super::super::coerce::to_string(ctx.vm, v)
-}
-
-fn check_construct(ctx: &NativeContext<'_>, interface: &str) -> Result<(), VmError> {
-    if ctx.is_construct() {
-        Ok(())
-    } else {
-        Err(VmError::type_error(format!(
-            "Failed to construct '{interface}': Please use the 'new' operator",
-        )))
-    }
-}
 
 fn native_ui_event_constructor(
     ctx: &mut NativeContext<'_>,

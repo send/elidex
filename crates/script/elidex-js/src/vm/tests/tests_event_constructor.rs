@@ -1,5 +1,5 @@
 //! Tests for `new Event(type, init)` / `new CustomEvent(type, init)`
-//! (WebIDL §2.2, §2.3) — PR5a2 C1.
+//! (WebIDL §2.2, §2.3).
 //!
 //! Covers:
 //! - EventInit dictionary parsing (bubbles / cancelable / composed)
@@ -56,7 +56,7 @@ fn new_event_init_cancelable_and_bubbles() {
 fn new_event_default_target_and_phase_are_null_zero() {
     // WHATWG §2.2: a freshly-constructed event has no target yet;
     // eventPhase is NONE (0).  Both are mutated when dispatchEvent
-    // starts walking the propagation path (PR5a2 C5).
+    // starts walking the propagation path.
     assert!(matches!(
         Vm::new().eval("new Event('x').target").unwrap(),
         JsValue::Null
@@ -288,12 +288,11 @@ fn custom_event_without_new_throws() {
 #[test]
 fn core_9_slot_order_is_locked() {
     // Structural invariant: every Event shape extends from `core`
-    // with the 9 canonical keys at slots 0..9.  PR5a2 C5's
-    // `dispatchEvent` mutates slots 3 / 4 / 5 (eventPhase / target /
-    // currentTarget) by index without re-reading the shape — if
-    // this ever changes, dispatchEvent would silently write wrong
-    // keys.  The assertion ties the index → key mapping to the
-    // well-known StringIds.
+    // with the 9 canonical keys at slots 0..9.  `dispatchEvent`
+    // mutates slots 3 / 4 / 5 (eventPhase / target / currentTarget)
+    // by index without re-reading the shape — if this ever changes,
+    // dispatchEvent would silently write wrong keys.  The assertion
+    // ties the index → key mapping to the well-known StringIds.
     let vm = Vm::new();
     let shapes = vm
         .inner

@@ -1,6 +1,6 @@
 //! Tests for `new UIEvent` / `new MouseEvent` / `new KeyboardEvent` /
 //! `new FocusEvent` / `new InputEvent` (UI Events §3 / §5 / §6 / §7 /
-//! §8) — PR5a2 C3.
+//! §8).
 //!
 //! Covers:
 //! - `[Constructor]` gate (call-mode throws TypeError) for all 5 ctors

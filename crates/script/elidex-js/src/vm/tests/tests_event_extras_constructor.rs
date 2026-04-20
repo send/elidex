@@ -1,5 +1,5 @@
 //! Tests for `new PromiseRejectionEvent` / `ErrorEvent` /
-//! `HashChangeEvent` / `PopStateEvent` (HTML §8) — PR5a2 C4.
+//! `HashChangeEvent` / `PopStateEvent` (HTML §8).
 //!
 //! Covers:
 //! - `[Constructor]` gate (call-mode throws TypeError)

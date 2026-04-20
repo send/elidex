@@ -199,7 +199,7 @@ fn abort_signal_timeout_canceled_signal_state_cleaned() {
 }
 
 // ---------------------------------------------------------------------------
-// PR5a2 C6: AbortSignal.any multi-input propagation
+// AbortSignal.any multi-input propagation
 // ---------------------------------------------------------------------------
 
 #[test]

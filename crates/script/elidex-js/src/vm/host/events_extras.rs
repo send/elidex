@@ -1,4 +1,4 @@
-//! Non-UIEvent specialized Event constructors (PR5a2 C4).
+//! Non-UIEvent specialized Event constructors.
 //!
 //! WebIDL interfaces covered here extend `Event` **directly** (not
 //! `UIEvent`) and therefore chain `<Descendant>.prototype →
@@ -13,48 +13,25 @@
 //!
 //! Each ctor goes through the shared
 //! [`VmInner::create_fresh_event_object`] entry point with an explicit
-//! `shape_id` drawn from [`PrecomputedEventShapes`] — PR5a2 B2 fix
-//! detached shape selection from `EventPayload`, letting ctors pick
-//! any terminal shape without round-tripping through the UA dispatch
-//! payload.  Prototype is then overridden to the per-ctor descendant
-//! so the chain ends at its specific `.prototype`, not `Event.prototype`.
+//! `shape_id` drawn from [`PrecomputedEventShapes`] — shape selection
+//! is detached from `EventPayload`, letting ctors pick any terminal
+//! shape without round-tripping through the UA dispatch payload.
+//! Prototype is then overridden to the per-ctor descendant so the
+//! chain ends at its specific `.prototype`, not `Event.prototype`.
 
 #![cfg(feature = "engine")]
 
-use super::super::shape::{PropertyAttrs, ShapeId};
+use super::super::shape::ShapeId;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::events::{parse_event_init, EventInit};
+use super::events::{check_construct, install_ctor, parse_event_init, type_arg, EventInit};
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-fn check_construct(ctx: &NativeContext<'_>, interface: &str) -> Result<(), VmError> {
-    if ctx.is_construct() {
-        Ok(())
-    } else {
-        Err(VmError::type_error(format!(
-            "Failed to construct '{interface}': Please use the 'new' operator",
-        )))
-    }
-}
-
-fn type_arg(
-    ctx: &mut NativeContext<'_>,
-    args: &[JsValue],
-    interface: &str,
-) -> Result<StringId, VmError> {
-    let v = args.first().copied().ok_or_else(|| {
-        VmError::type_error(format!(
-            "Failed to construct '{interface}': 1 argument required, but only 0 present.",
-        ))
-    })?;
-    super::super::coerce::to_string(ctx.vm, v)
-}
 
 fn opts_object_id(val: JsValue) -> Option<ObjectId> {
     match val {
@@ -198,23 +175,7 @@ fn register_event_subclass(
         extensible: true,
     });
     store(vm, proto_id);
-
-    let ctor = vm.create_constructable_function(name, func);
-    let proto_key = PropertyKey::String(vm.well_known.prototype);
-    vm.define_shaped_property(
-        ctor,
-        proto_key,
-        PropertyValue::Data(JsValue::Object(proto_id)),
-        PropertyAttrs::BUILTIN,
-    );
-    let ctor_key = PropertyKey::String(vm.well_known.constructor);
-    vm.define_shaped_property(
-        proto_id,
-        ctor_key,
-        PropertyValue::Data(JsValue::Object(ctor)),
-        PropertyAttrs::METHOD,
-    );
-    vm.globals.insert(global_sid, JsValue::Object(ctor));
+    install_ctor(vm, proto_id, name, func, global_sid);
 }
 
 // ---------------------------------------------------------------------------

@@ -389,10 +389,9 @@ pub(crate) struct VmInner {
     /// events — avoids 5 native-fn allocations + 5 shape transitions
     /// per listener invocation.
     ///
-    /// JS-visible via `globalThis.Event.prototype`; PR5a2 landed the
-    /// spec-visible `Event` constructor.  Every `ObjectKind::Event`
-    /// (UA-initiated or script-constructed) chains through this
-    /// prototype.
+    /// JS-visible via `globalThis.Event.prototype`.  Every
+    /// `ObjectKind::Event` (UA-initiated or script-constructed)
+    /// chains through this prototype.
     pub(crate) event_prototype: Option<ObjectId>,
     /// `CustomEvent.prototype` (WebIDL §2.3).  Chains to
     /// [`event_prototype`] and adds the `detail` accessor.  Set by

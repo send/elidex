@@ -1,5 +1,5 @@
-//! PR5a2 C5: `EventTarget.prototype.dispatchEvent(event)` integration
-//! tests.  Covers WHATWG DOM §2.9 algorithm behaviour:
+//! `EventTarget.prototype.dispatchEvent(event)` integration tests.
+//! Covers WHATWG DOM §2.9 algorithm behaviour:
 //!
 //! - Listener fires on target.
 //! - Capture / at-target / bubble phase ordering.

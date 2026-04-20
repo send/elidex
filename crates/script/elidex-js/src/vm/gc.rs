@@ -700,12 +700,12 @@ impl VmInner {
                 self.dom_exception_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 26 + 1 (CustomEvent, PR5a2 C1) = 27.
+                // 26 + 1 (CustomEvent) = 27.
                 #[cfg(feature = "engine")]
                 self.custom_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 27 + 5 (UIEvent family, PR5a2 C3) = 32.
+                // 27 + 5 (UIEvent family) = 32.
                 #[cfg(feature = "engine")]
                 self.ui_event_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -726,7 +726,7 @@ impl VmInner {
                 self.input_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 32 + 4 (PR5a2 C4 non-UIEvent specialized ctors) = 36.
+                // 32 + 4 (non-UIEvent specialized ctors) = 36.
                 #[cfg(feature = "engine")]
                 self.promise_rejection_event_prototype,
                 #[cfg(not(feature = "engine"))]

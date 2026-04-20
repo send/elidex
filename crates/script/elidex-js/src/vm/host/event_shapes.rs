@@ -27,15 +27,15 @@
 //! — those payloads install no extra properties (see the wildcard
 //! arm in [`dispatch_payload`]).
 //!
-//! ## PR5a2 C2 — shape + slot-writer unification
+//! ## Shape + slot-writer unification
 //!
 //! Shape selection and payload-slot assembly used to live in two
 //! separate 16-arm matches (`PrecomputedEventShapes::shape_for` and
 //! `events::append_payload_slots`) that had to be kept in lockstep;
 //! reordering one without the other silently wrote payload values
-//! into the wrong JS-visible key slots.  PR5a2 C2 consolidates both
-//! into [`dispatch_payload`], a single match that picks the shape
-//! AND writes the payload slots in one pass — adding a new variant
+//! into the wrong JS-visible key slots.  [`dispatch_payload`]
+//! consolidates both into a single match that picks the shape AND
+//! writes the payload slots in one pass — adding a new variant
 //! touches exactly one arm.
 
 #![cfg(feature = "engine")]
@@ -85,7 +85,7 @@ pub(crate) struct PrecomputedEventShapes {
     /// `shape_for` falls through to `core` for
     /// `EventPayload::None` / non-CustomEvent variants.
     pub(crate) custom_event: ShapeId,
-    // -- PR5a2 C3: UIEvent family constructor shapes --
+    // -- UIEvent family constructor shapes --
     //
     // Every UIEvent-family ctor allocates at a shape that extends
     // `ui_event_constructed` (core-9 + `view` + `detail`), so the
@@ -118,7 +118,7 @@ pub(crate) struct PrecomputedEventShapes {
     /// `new InputEvent(type, init)` — UIEvent base + `inputType` /
     /// `data` / `isComposing`.
     pub(crate) input_event_constructed: ShapeId,
-    // -- PR5a2 C4: non-UIEvent specialized constructor shapes --
+    // -- Non-UIEvent specialized constructor shapes --
     //
     // These chain directly to `core` (no UIEvent prefix) since their
     // WebIDL interfaces extend `Event`, not `UIEvent`.  Slot layout
@@ -158,7 +158,7 @@ fn push_val(slots: &mut Vec<PropertyValue>, v: JsValue) {
     slots.push(PropertyValue::Data(v));
 }
 
-/// PR5a2 C2: the single source of truth for `EventPayload` ↔
+/// Single source of truth for `EventPayload` ↔
 /// `(ShapeId, payload-slot sequence)`.  Picks the terminal shape
 /// and appends the variant-specific slot values to `slots` in a
 /// single match — adding a new variant touches only this function,
@@ -531,11 +531,11 @@ impl VmInner {
                 self.well_known.url,
             ],
         );
-        // CustomEvent.prototype: core + `detail` (PR5a2 C1).
+        // CustomEvent.prototype: core + `detail`.
         let custom_event = extend(self, core, &[self.well_known.detail]);
 
-        // UIEvent family constructor shapes (PR5a2 C3).  Every
-        // descendant chains through `ui_event_constructed` so its 11
+        // UIEvent family constructor shapes.  Every descendant
+        // chains through `ui_event_constructed` so its 11
         // leading slots — core-9 + `view` + `detail` — are identical
         // across the tree.  `shape_add_transition` deduplication means
         // MouseEvent's transition chain reuses the UIEvent prefix
@@ -591,10 +591,9 @@ impl VmInner {
             ],
         );
 
-        // Non-UIEvent specialized constructor shapes (PR5a2 C4).
-        // Chain to `core` directly — these don't inherit `view` /
-        // `detail` since their WebIDL interfaces extend Event, not
-        // UIEvent.
+        // Non-UIEvent specialized constructor shapes.  Chain to
+        // `core` directly — these don't inherit `view` / `detail`
+        // since their WebIDL interfaces extend Event, not UIEvent.
         let promise_rejection_event = extend(
             self,
             core,

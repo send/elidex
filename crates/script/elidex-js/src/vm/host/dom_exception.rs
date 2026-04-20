@@ -67,11 +67,10 @@ pub(super) fn not_found_error(name_sid: StringId, method: &str, detail: &str) ->
     )
 }
 
-/// `DOMException("InvalidStateError")` factory.  WHATWG DOM §2.9 step 3
-/// re-dispatch throw site (`EventTarget.dispatchEvent` on an event
-/// whose dispatch flag is already set) is the sole consumer in PR5a2
-/// — future callers may arrive as new algorithm steps pull in the
-/// error shape.
+/// `DOMException("InvalidStateError")` factory.  Used by the WHATWG
+/// DOM §2.9 step 3 re-dispatch throw in `EventTarget.dispatchEvent`
+/// (event whose dispatch flag is already set); future callers may
+/// arrive as new algorithm steps pull in the error shape.
 pub(super) fn invalid_state_error(
     name_sid: StringId,
     interface: &str,

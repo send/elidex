@@ -106,7 +106,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) unhandledrejection: StringId,
     pub(crate) promise: StringId,
 
-    // -- Event constructor globals (PR5a2 C1) --
+    // -- Event constructor globals --
     // `Event` / `CustomEvent` are the global names bound to their
     // respective constructable functions; `detail` is a property key
     // on CustomEvent instances (CustomEventInit dict member + accessor).
@@ -114,7 +114,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) custom_event_global: StringId,
     pub(crate) detail: StringId,
 
-    // -- Specialized Event constructor globals (PR5a2 C3) --
+    // -- Specialized Event constructor globals (UIEvent family) --
     // WebIDL names for the UIEvent family.  Each binds to a
     // constructable function installed during `register_globals` and
     // chains through `UIEvent.prototype → Event.prototype`.
@@ -124,7 +124,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) focus_event_global: StringId,
     pub(crate) input_event_global: StringId,
 
-    // -- UIEvent / MouseEvent / KeyboardEvent init-dict keys (PR5a2 C3) --
+    // -- UIEvent / MouseEvent / KeyboardEvent init-dict keys --
     // `view`, plus MouseEvent-specific constructor keys beyond the
     // UA-dispatch Mouse payload set.  `detail` is reused from
     // CustomEvent above; `location` is reused from Window.location.
@@ -134,7 +134,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) movement_x: StringId,
     pub(crate) movement_y: StringId,
 
-    // -- Non-UIEvent specialized constructor globals (PR5a2 C4) --
+    // -- Non-UIEvent specialized constructor globals --
     // PromiseRejectionEvent / ErrorEvent / HashChangeEvent /
     // PopStateEvent all chain directly to `Event.prototype` (not
     // UIEvent — they're sibling subclasses of Event).
@@ -143,7 +143,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) hash_change_event_global: StringId,
     pub(crate) pop_state_event_global: StringId,
 
-    // -- ErrorEvent / PopStateEvent init-dict keys (PR5a2 C4) --
+    // -- ErrorEvent / PopStateEvent init-dict keys --
     // `message` / `error` / `reason` / `promise` / `old_url` /
     // `new_url` already exist elsewhere and are reused here.
     pub(crate) filename: StringId,
@@ -424,32 +424,32 @@ impl WellKnownStrings {
             unhandledrejection: strings.intern("unhandledrejection"),
             promise: strings.intern("promise"),
 
-            // Event constructor globals (PR5a2 C1).
+            // Event constructor globals.
             event_global: strings.intern("Event"),
             custom_event_global: strings.intern("CustomEvent"),
             detail: strings.intern("detail"),
 
-            // Specialized Event constructor globals (PR5a2 C3).
+            // Specialized Event constructor globals (UIEvent family).
             ui_event_global: strings.intern("UIEvent"),
             mouse_event_global: strings.intern("MouseEvent"),
             keyboard_event_global: strings.intern("KeyboardEvent"),
             focus_event_global: strings.intern("FocusEvent"),
             input_event_global: strings.intern("InputEvent"),
 
-            // UIEvent / MouseEvent init-dict keys (PR5a2 C3).
+            // UIEvent / MouseEvent init-dict keys.
             view: strings.intern("view"),
             screen_x: strings.intern("screenX"),
             screen_y: strings.intern("screenY"),
             movement_x: strings.intern("movementX"),
             movement_y: strings.intern("movementY"),
 
-            // Non-UIEvent specialized Event constructor globals (PR5a2 C4).
+            // Non-UIEvent specialized Event constructor globals.
             promise_rejection_event_global: strings.intern("PromiseRejectionEvent"),
             error_event_global: strings.intern("ErrorEvent"),
             hash_change_event_global: strings.intern("HashChangeEvent"),
             pop_state_event_global: strings.intern("PopStateEvent"),
 
-            // ErrorEvent / PopStateEvent init-dict keys (PR5a2 C4).
+            // ErrorEvent / PopStateEvent init-dict keys.
             filename: strings.intern("filename"),
             lineno: strings.intern("lineno"),
             colno: strings.intern("colno"),
