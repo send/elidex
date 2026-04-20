@@ -819,10 +819,26 @@ fn adjacent_hierarchy_error(method: &str) -> VmError {
     ))
 }
 
+/// TypeError thrown when `insertAdjacentElement`'s second argument
+/// is a HostObject whose entity has been destroyed / recycled.
+/// Separated from [`adjacent_element_arg_error`] so stale wrappers
+/// surface the "detached" failure mode rather than being misreported
+/// as non-Element (matches [`super::event_target::require_receiver`]
+/// which also distinguishes destroyed vs. wrong-kind receivers).
+fn adjacent_element_detached_error() -> VmError {
+    VmError::type_error(
+        "Failed to execute 'insertAdjacentElement' on 'Element': \
+         parameter 2 is detached (invalid entity)."
+            .to_owned(),
+    )
+}
+
 /// Extract an Element [`Entity`] from a method argument, throwing a
 /// WebIDL-style `TypeError` on any non-Element value (including
 /// `null` / `undefined` / non-HostObject objects / HostObjects that
-/// are not `NodeKind::Element`).
+/// are not `NodeKind::Element`).  A HostObject whose entity has been
+/// destroyed surfaces a distinct "detached" error so scripts can
+/// distinguish stale wrappers from genuine type mismatches.
 fn require_element_arg(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<Entity, VmError> {
     let JsValue::Object(id) = value else {
         return Err(adjacent_element_arg_error());
@@ -830,7 +846,15 @@ fn require_element_arg(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<En
     let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
         return Err(adjacent_element_arg_error());
     };
-    let entity = Entity::from_bits(entity_bits).ok_or_else(adjacent_element_arg_error)?;
+    let entity = Entity::from_bits(entity_bits).ok_or_else(adjacent_element_detached_error)?;
+    // Stale-entity check BEFORE the kind lookup: a destroyed entity
+    // has no components, so `node_kind_inferred` would return None
+    // and masquerade as "wrong type".  Catching it here keeps the
+    // error message aligned with `require_receiver` (which makes the
+    // same split for stale receivers).
+    if !ctx.host().dom().contains(entity) {
+        return Err(adjacent_element_detached_error());
+    }
     match ctx.host().dom().node_kind_inferred(entity) {
         Some(NodeKind::Element) => Ok(entity),
         _ => Err(adjacent_element_arg_error()),

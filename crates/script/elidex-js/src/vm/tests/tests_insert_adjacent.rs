@@ -271,6 +271,60 @@ fn insert_adjacent_element_afterend_next_sibling_is_noop_success() {
 }
 
 #[test]
+fn insert_adjacent_element_stale_entity_arg_reports_detached_not_wrong_type() {
+    // Copilot R5 F11 lock-in: `require_element_arg` must distinguish
+    // a stale/destroyed Entity (message: "detached") from a genuine
+    // non-Element argument (message: "not of type 'Element'") so
+    // script debuggers get the right diagnosis.  Matches the
+    // equivalent split in `event_target::require_receiver`.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_pair_in_parent(&mut dom);
+
+    // Pre-allocate an element; keep its Entity around so we can
+    // destroy it AFTER the VM wrapper caches it.
+    let stray = dom.create_element("span", Attributes::default());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Force the VM to allocate a wrapper for `stray` (so the next
+    // eval can hold a HostObject reference), then destroy the
+    // underlying Entity.  The wrapper survives, but its
+    // `entity_bits` now point at a recycled / empty slot.
+    let _stray_wrapper = vm.create_element_wrapper(stray);
+    vm.unbind();
+    assert!(dom.destroy_entity(stray));
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Preserve the wrapper in a JS global, then destroy from the
+    // ECS side via the test harness before calling the native.
+    let script = "\
+        var target = document.getElementById('t');\
+        var stale = globalThis.__stale_wrapper;\
+        try { target.insertAdjacentElement('beforebegin', stale); 'no-throw'; } \
+        catch (e) { \
+          var detached = typeof e === 'string' && e.indexOf('detached') >= 0; \
+          var wrongType = typeof e === 'string' && e.indexOf('not of type') >= 0; \
+          detached + '|' + wrongType; }";
+    vm.set_global(
+        "__stale_wrapper",
+        super::super::value::JsValue::Object(_stray_wrapper),
+    );
+    let result = vm.eval(script).unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "true|false");
+    vm.unbind();
+}
+
+#[test]
 fn insert_adjacent_text_parent_less_short_circuit_does_not_leak_text() {
     // Copilot R1 F2 lock-in — `beforebegin` / `afterend` on a
     // parent-less receiver used to allocate a Text entity before

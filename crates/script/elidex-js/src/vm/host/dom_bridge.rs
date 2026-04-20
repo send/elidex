@@ -241,12 +241,23 @@ pub(super) fn collect_descendants_by_class_name(
     root: Entity,
     target_classes: &[&str],
 ) -> Vec<Entity> {
-    use elidex_ecs::Attributes;
+    use elidex_ecs::{Attributes, TagType};
     if target_classes.is_empty() {
         return Vec::new();
     }
     let mut out = Vec::new();
     dom.traverse_descendants(root, |entity| {
+        // Match the sibling `collect_descendants_by_tag_name` and
+        // `query_selector_in_subtree_all`: require `TagType` (i.e.
+        // an Element) before inspecting the `class` attribute.
+        // `EcsDom::set_attribute` can attach an `Attributes`
+        // component to non-Element entities (parser fixtures, raw
+        // ECS test setups), which would otherwise leak into the
+        // result set and violate WHATWG §4.2.6.2 "descendant
+        // elements".
+        if dom.world().get::<&TagType>(entity).is_err() {
+            return true;
+        }
         if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
             if let Some(cls) = attrs.get("class") {
                 if target_classes

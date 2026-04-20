@@ -236,6 +236,48 @@ fn element_get_elements_by_class_name_brand_check_precedes_tostring() {
 }
 
 #[test]
+fn element_get_elements_by_class_name_skips_non_element_with_attributes() {
+    // Copilot R5 F12 lock-in: `EcsDom::set_attribute` will attach an
+    // `Attributes` component to any entity, including Text / Comment
+    // nodes produced by parser fixtures.  The collector must require
+    // `TagType` before matching class tokens so non-Elements never
+    // leak into the result set (WHATWG §4.2.6.2 "descendant
+    // elements").
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+    // Manually stamp `class="x"` onto a Text node under #root — this
+    // bypasses the VM's brand-checked Element-only setAttribute path
+    // and mimics what a parser fixture could produce.
+    let root = dom
+        .first_child_with_tag(
+            dom.first_child_with_tag(dom.document_root().unwrap(), "html")
+                .unwrap(),
+            "body",
+        )
+        .unwrap();
+    let hot_div = dom.first_child_with_tag(root, "div").unwrap();
+    let bogus_text = dom.create_text("x");
+    assert!(dom.append_child(hot_div, bogus_text));
+    assert!(dom.set_attribute(bogus_text, "class", "x".to_owned()));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Count elements with class "x" — the bogus Text carrying
+    // `class="x"` must be excluded.  Baseline count is 4 (see
+    // `element_get_elements_by_class_name_single_token`) — identical
+    // here, not 5.
+    let result = vm
+        .eval("document.getElementById('root').getElementsByClassName('x').length;")
+        .unwrap();
+    assert!(matches!(result, JsValue::Number(n) if (n - 4.0).abs() < 1e-9));
+    vm.unbind();
+}
+
+#[test]
 fn element_subtree_query_does_not_include_receiver() {
     // `#inner` has class "y x z"; `#inner.getElementsByClassName('y')`
     // must NOT include `#inner` itself — per spec "every descendant".
