@@ -105,7 +105,9 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 dom_exception_states: HashMap::new(),
                 window_prototype: None,
-                event_methods_prototype: None,
+                event_prototype: None,
+                #[cfg(feature = "engine")]
+                custom_event_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]

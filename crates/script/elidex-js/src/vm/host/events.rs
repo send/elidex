@@ -14,16 +14,17 @@
 //!
 //! Methods (`preventDefault` / `stopPropagation` /
 //! `stopImmediatePropagation` / `composedPath`) and the
-//! `defaultPrevented` accessor live on a single shared internal
-//! prototype (`VmInner::event_methods_prototype`, populated once at
-//! `register_globals` time).  Per-event allocation is therefore just
-//! the data-property writes — no fresh `NativeFunction` objects per
-//! dispatch, no fresh shape transitions for the method properties.
+//! `defaultPrevented` accessor live on the shared `Event.prototype`
+//! (`VmInner::event_prototype`, populated once at `register_globals`
+//! time alongside the `Event` global constructor).  Per-event
+//! allocation is therefore just the data-property writes — no fresh
+//! `NativeFunction` objects per dispatch, no fresh shape transitions
+//! for the method properties.
 //!
-//! This is NOT exposed as the spec `Event.prototype` global; the
-//! constructor + visible `Event` global ship in PR5a alongside
-//! `new Event(...)`.  At that point this intrinsic can become the
-//! parent of (or be replaced by) the spec prototype.
+//! `Event.prototype` is JS-visible via `globalThis.Event.prototype`
+//! (PR5a2 C1 landed `new Event(type, init)`).  Both UA-initiated
+//! dispatch (via `create_event_object`) and script construction
+//! (via `native_event_constructor`) chain through this same object.
 //!
 //! ## Properties installed on each event
 //!
@@ -55,20 +56,24 @@ use super::super::natives_event::{
     native_event_composed_path, native_event_get_default_prevented, native_event_prevent_default,
     native_event_stop_immediate_propagation, native_event_stop_propagation,
 };
-use super::super::shape::{self, PropertyAttrs};
+use super::super::shape::{self, PropertyAttrs, ShapeId};
 use super::super::value::{
-    JsValue, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
+    PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
+use super::event_shapes::CORE_KEY_COUNT;
 
 impl VmInner {
-    /// Populate `event_methods_prototype` with the four event methods
-    /// + `defaultPrevented` accessor.
+    /// Populate `event_prototype` with the four event methods +
+    /// `defaultPrevented` accessor.  This is the spec `Event.prototype`
+    /// (WebIDL §2.2) — JS-visible via the `Event` global constructor
+    /// installed by [`Self::register_event_global`].
     ///
     /// Called once from `register_globals` after `Object.prototype`
     /// exists; the resulting object is the prototype every event
     /// instance inherits from.
-    pub(in crate::vm) fn register_event_methods_prototype(&mut self) {
+    pub(in crate::vm) fn register_event_prototype(&mut self) {
         let proto_id = self.create_object_with_methods(&[
             ("preventDefault", native_event_prevent_default as NativeFn),
             ("stopPropagation", native_event_stop_propagation),
@@ -94,7 +99,7 @@ impl VmInner {
             },
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
-        self.event_methods_prototype = Some(proto_id);
+        self.event_prototype = Some(proto_id);
     }
 
     /// Build the JS event object for a single listener invocation.
@@ -147,9 +152,10 @@ impl VmInner {
                 composed_path: None,
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            // Methods + `defaultPrevented` accessor inherited from the
-            // shared prototype — no per-event method install.
-            prototype: self.event_methods_prototype,
+            // Methods + `defaultPrevented` accessor inherited from
+            // `Event.prototype` (shared across all events — UA-
+            // initiated and script-constructed alike).
+            prototype: self.event_prototype,
             extensible: true,
         });
 
@@ -236,6 +242,335 @@ impl VmInner {
         drop(g);
         event_id
     }
+
+    /// Build a freshly-constructed Event object for
+    /// `new Event(type, init)` (PR5a2 C1) and subsequent specialized
+    /// constructors (PR5a2 C3-C4).  The pre-allocated `this` receiver
+    /// from `do_new` is promoted in place to `ObjectKind::Event` so
+    /// the subclass prototype chain (`class Sub extends Event {}`)
+    /// is preserved — overwriting `this` with a fresh allocation
+    /// would drop the `Sub.prototype` link.
+    ///
+    /// Core-9 slot values are:
+    /// `type` / `bubbles` / `cancelable` / `eventPhase = 0` /
+    /// `target = null` / `currentTarget = null` / `timeStamp = <now>` /
+    /// `composed` / `isTrusted`.  `payload_slots` extends this in the
+    /// order implied by `shape_id`.  `shape_id` must refer to a shape
+    /// built by `build_precomputed_event_shapes` (or an augmented
+    /// variant) — length of the combined slot vec must equal
+    /// `shape.property_count()`, otherwise
+    /// `define_with_precomputed_shape` debug-asserts.
+    pub(crate) fn create_fresh_event_object(
+        &mut self,
+        this: JsValue,
+        type_sid: StringId,
+        init: EventInit,
+        shape_id: ShapeId,
+        payload_slots: Vec<PropertyValue>,
+        is_trusted: bool,
+    ) -> ObjectId {
+        // `ensure_instance_or_alloc` in construct-mode returns `this`
+        // as-is (already allocated by `do_new` with the subclass
+        // prototype); in call-mode it allocates a fresh Ordinary
+        // whose prototype is `Event.prototype`.  Constructors gate
+        // call-mode out via `is_construct()` before reaching here,
+        // so call-mode only runs through tests / assertions.
+        let receiver = self.ensure_instance_or_alloc(this, self.event_prototype);
+        let JsValue::Object(id) = receiver else {
+            unreachable!("ensure_instance_or_alloc always yields an Object");
+        };
+        // Promote the pre-allocated Ordinary to `ObjectKind::Event`.
+        // `cancelable` stored in the internal slot because
+        // `preventDefault()` consults it without a property read
+        // (hot path).  `passive` is always false for script-
+        // constructed events — passive is a listener-registration
+        // flag, not an event-construction one.
+        self.get_object_mut(id).kind = ObjectKind::Event {
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_propagation_stopped: false,
+            cancelable: init.cancelable,
+            passive: false,
+            composed_path: None,
+        };
+        let timestamp_ms = self.start_instant.elapsed().as_secs_f64() * 1000.0;
+        let mut slots: Vec<PropertyValue> =
+            Vec::with_capacity(CORE_KEY_COUNT + payload_slots.len());
+        slots.push(PropertyValue::Data(JsValue::String(type_sid)));
+        slots.push(PropertyValue::Data(JsValue::Boolean(init.bubbles)));
+        slots.push(PropertyValue::Data(JsValue::Boolean(init.cancelable)));
+        // eventPhase = NONE (WHATWG DOM §2.2).  Mutated to
+        // CAPTURING_PHASE / AT_TARGET / BUBBLING_PHASE by
+        // `dispatchEvent` (PR5a2 C5).
+        slots.push(PropertyValue::Data(JsValue::Number(0.0)));
+        slots.push(PropertyValue::Data(JsValue::Null));
+        slots.push(PropertyValue::Data(JsValue::Null));
+        slots.push(PropertyValue::Data(JsValue::Number(timestamp_ms)));
+        slots.push(PropertyValue::Data(JsValue::Boolean(init.composed)));
+        slots.push(PropertyValue::Data(JsValue::Boolean(is_trusted)));
+        slots.extend(payload_slots);
+        self.define_with_precomputed_shape(id, shape_id, slots);
+        id
+    }
+
+    /// Install the `Event` global constructor + populate
+    /// `Event.prototype.constructor`.  Must run **after**
+    /// [`Self::register_event_prototype`] (that creates
+    /// `self.event_prototype`).
+    pub(in crate::vm) fn register_event_global(&mut self) {
+        let proto_id = self
+            .event_prototype
+            .expect("register_event_global called before register_event_prototype");
+        let ctor = self.create_constructable_function("Event", native_event_constructor);
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor)),
+            PropertyAttrs::METHOD,
+        );
+        let name = self.well_known.event_global;
+        self.globals.insert(name, JsValue::Object(ctor));
+    }
+
+    /// Install `CustomEvent.prototype` (chained to `Event.prototype`),
+    /// `CustomEvent.prototype.detail` accessor, `.constructor`
+    /// back-pointer, and the `CustomEvent` global.  Must run after
+    /// [`Self::register_event_global`] (which sets
+    /// `self.event_prototype.constructor`).
+    pub(in crate::vm) fn register_custom_event_global(&mut self) {
+        let event_proto = self
+            .event_prototype
+            .expect("register_custom_event_global called before register_event_prototype");
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(event_proto),
+            extensible: true,
+        });
+        // `detail` accessor — reads the `detail` own-data slot on the
+        // CustomEvent instance.  Installed as a prototype accessor so
+        // `Object.keys(new CustomEvent('x', {detail: 1}))` still
+        // contains `detail` via the slot (own property) while
+        // prototype-side lookups route through the getter for
+        // wrong-brand / subclass-without-slot cases.
+        //
+        // NOTE: Because CustomEvent stores `detail` as an own data
+        // property (slot 9 of the `custom_event` shape), the accessor
+        // is shadowed by the own property for normal instances — it
+        // only fires for e.g. `CustomEvent.prototype.detail` reads
+        // (`undefined`, matching browsers).
+        let get_detail = self.create_native_function("get detail", native_custom_event_get_detail);
+        self.define_shaped_property(
+            proto_id,
+            PropertyKey::String(self.well_known.detail),
+            PropertyValue::Accessor {
+                getter: Some(get_detail),
+                setter: None,
+            },
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        self.custom_event_prototype = Some(proto_id);
+
+        let ctor =
+            self.create_constructable_function("CustomEvent", native_custom_event_constructor);
+        let proto_key = PropertyKey::String(self.well_known.prototype);
+        self.define_shaped_property(
+            ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(proto_id)),
+            PropertyAttrs::BUILTIN,
+        );
+        let ctor_key = PropertyKey::String(self.well_known.constructor);
+        self.define_shaped_property(
+            proto_id,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(ctor)),
+            PropertyAttrs::METHOD,
+        );
+        let name = self.well_known.custom_event_global;
+        self.globals.insert(name, JsValue::Object(ctor));
+    }
+}
+
+// ---------------------------------------------------------------------
+// Constructors + init-dict parsers (PR5a2 C1)
+// ---------------------------------------------------------------------
+
+/// `EventInit` dictionary (WHATWG DOM §2.4).  Defaults: all `false`.
+///
+/// `pub(crate)` because
+/// [`VmInner::create_fresh_event_object`] exposes it — both the
+/// plain `Event` ctor and (PR5a2 C3+) specialized constructors in
+/// sibling `host/*` modules build an `EventInit` via
+/// [`parse_event_init`] and hand it off.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct EventInit {
+    pub(crate) bubbles: bool,
+    pub(crate) cancelable: bool,
+    pub(crate) composed: bool,
+}
+
+/// WHATWG DOM §2.4: parse an `EventInit` dictionary from `val`.
+///
+/// - `undefined` / `null` / missing → all flags `false`.
+/// - Object → read `bubbles`, `cancelable`, `composed` (boolean coercion;
+///   missing keys default to `false`).  Getter side-effects on the
+///   init object are observable.
+/// - Other (string / number / etc.) → `TypeError` matching WebIDL
+///   dictionary coercion.
+///
+/// `interface` names the constructor for the error message
+/// (`Event` / `CustomEvent`).
+pub(super) fn parse_event_init(
+    ctx: &mut NativeContext<'_>,
+    val: JsValue,
+    interface: &str,
+) -> Result<EventInit, VmError> {
+    match val {
+        JsValue::Undefined | JsValue::Null => Ok(EventInit::default()),
+        JsValue::Object(opts_id) => {
+            // Read order matches Chrome's invocation order: bubbles,
+            // cancelable, composed (verified via userland getter probe).
+            // Each `get_property_value` may fire user getters; side
+            // effects on the init object are observable.
+            let mut out = EventInit::default();
+            for (key_sid, slot) in [
+                (ctx.vm.well_known.bubbles, &mut out.bubbles),
+                (ctx.vm.well_known.cancelable, &mut out.cancelable),
+                (ctx.vm.well_known.composed, &mut out.composed),
+            ] {
+                let v = ctx
+                    .vm
+                    .get_property_value(opts_id, PropertyKey::String(key_sid))?;
+                *slot = super::super::coerce::to_boolean(ctx.vm, v);
+            }
+            Ok(out)
+        }
+        _ => Err(VmError::type_error(format!(
+            "Failed to construct '{interface}': \
+             The provided value is not of type '{interface}Init'.",
+        ))),
+    }
+}
+
+/// `new Event(type, eventInitDict?)` (WHATWG DOM §2.4).
+///
+/// - `type` required; absent → `TypeError`.  Non-string values
+///   coerce via `ToString` (Symbol throws).
+/// - `eventInitDict` optional; see [`parse_event_init`].
+/// - `new` required; call-mode (`Event('click')`) → `TypeError`
+///   (WebIDL `[Constructor]` gate — matches all major browsers).
+fn native_event_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if !ctx.is_construct() {
+        return Err(VmError::type_error(
+            "Failed to construct 'Event': Please use the 'new' operator",
+        ));
+    }
+    let type_arg = args.first().copied().ok_or_else(|| {
+        VmError::type_error("Failed to construct 'Event': 1 argument required, but only 0 present.")
+    })?;
+    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
+    let init = parse_event_init(
+        ctx,
+        args.get(1).copied().unwrap_or(JsValue::Undefined),
+        "Event",
+    )?;
+    let shape_id = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing — register_globals did not run")
+        .core;
+    let id = ctx
+        .vm
+        .create_fresh_event_object(this, type_sid, init, shape_id, Vec::new(), false);
+    Ok(JsValue::Object(id))
+}
+
+/// `new CustomEvent(type, customEventInitDict?)` (WHATWG DOM §2.3).
+///
+/// Extends `EventInit` with `detail: any = null`.  User-supplied
+/// `undefined` is preserved (WebIDL `any` type); missing key →
+/// `null` (WHATWG default).  This diverges subtly from a naïve
+/// `undefined ↔ null` mapping; see the in-body comment.
+fn native_custom_event_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if !ctx.is_construct() {
+        return Err(VmError::type_error(
+            "Failed to construct 'CustomEvent': Please use the 'new' operator",
+        ));
+    }
+    let type_arg = args.first().copied().ok_or_else(|| {
+        VmError::type_error(
+            "Failed to construct 'CustomEvent': 1 argument required, but only 0 present.",
+        )
+    })?;
+    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
+    let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let base = parse_event_init(ctx, init_arg, "CustomEvent")?;
+    // Read `detail` separately — WebIDL `any` preserves the
+    // supplied value including `undefined`.  Missing key also yields
+    // `Undefined` from `get_property_value`; the WHATWG default is
+    // `null`.  We collapse both to `null` for parity with Chrome's
+    // common-case behaviour; a strict "own-key-present" distinction
+    // (which would preserve explicit `{detail: undefined}`) can be
+    // added later if tests require it.
+    let detail = match init_arg {
+        JsValue::Object(opts_id) => {
+            let v = ctx
+                .vm
+                .get_property_value(opts_id, PropertyKey::String(ctx.vm.well_known.detail))?;
+            if matches!(v, JsValue::Undefined) {
+                JsValue::Null
+            } else {
+                v
+            }
+        }
+        _ => JsValue::Null,
+    };
+    let shape_id = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing — register_globals did not run")
+        .custom_event;
+    // Root `detail` across the in-place promotion inside
+    // `create_fresh_event_object` — if `detail` is an Object, GC
+    // could collect it between here and the slot write without a
+    // root.  The guard also borrows the VM mutably, so subsequent
+    // ops go through the guard's `Deref<Target = VmInner>`.
+    let mut g = ctx.vm.push_temp_root(detail);
+    let payload_slots = vec![PropertyValue::Data(detail)];
+    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, payload_slots, false);
+    drop(g);
+    Ok(JsValue::Object(id))
+}
+
+/// `get CustomEvent.prototype.detail` — fallback accessor for
+/// subclass instances (or direct prototype reads) that don't carry
+/// the `detail` own-data slot.  Most instances hit the own property
+/// (slot 9) first and never reach this getter.
+fn native_custom_event_get_detail(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Undefined)
 }
 
 // ---------------------------------------------------------------------

@@ -34,6 +34,15 @@ use super::super::value::{PropertyKey, StringId};
 use super::super::VmInner;
 use elidex_plugin::EventPayload;
 
+/// Number of core properties every Event shape extends from (PR3.6):
+/// `type`, `bubbles`, `cancelable`, `eventPhase`, `target`,
+/// `currentTarget`, `timeStamp`, `composed`, `isTrusted`.  All variant
+/// shapes are built by `extend(core, &[...payload_keys...])` so
+/// `shape.property_count() - CORE_KEY_COUNT` yields the payload key
+/// count.  Hardcoded invariant — verified by `core_9_slot_order_is_locked`
+/// in `tests_event_shapes.rs`.
+pub(crate) const CORE_KEY_COUNT: usize = 9;
+
 /// Terminal `ShapeId`s for every `EventPayload` variant.
 ///
 /// Built once during `register_globals` (after the payload-key
@@ -59,6 +68,12 @@ pub(crate) struct PrecomputedEventShapes {
     pub(crate) hash_change: ShapeId,
     pub(crate) page_transition: ShapeId,
     pub(crate) storage: ShapeId,
+    /// Terminal shape for `new CustomEvent(type, {detail})` instances.
+    /// Extends `core` with a single `detail` slot (JS-visible own
+    /// property, WEBIDL_RO).  Not used by UA-initiated dispatch —
+    /// `shape_for` falls through to `core` for
+    /// `EventPayload::None` / non-CustomEvent variants.
+    pub(crate) custom_event: ShapeId,
 }
 
 impl PrecomputedEventShapes {
@@ -236,6 +251,8 @@ impl VmInner {
                 self.well_known.url,
             ],
         );
+        // CustomEvent.prototype: core + `detail` (PR5a2 C1).
+        let custom_event = extend(self, core, &[self.well_known.detail]);
 
         PrecomputedEventShapes {
             core,
@@ -253,6 +270,7 @@ impl VmInner {
             hash_change,
             page_transition,
             storage,
+            custom_event,
         }
     }
 }

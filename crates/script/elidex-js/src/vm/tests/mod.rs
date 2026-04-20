@@ -25,6 +25,7 @@ mod tests_element_mutation;
 mod tests_element_subtree_collection;
 mod tests_element_subtree_query;
 mod tests_element_wrapper;
+mod tests_event_constructor;
 mod tests_event_object;
 mod tests_event_target;
 mod tests_function_prototype;

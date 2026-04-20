@@ -354,20 +354,25 @@ pub(crate) struct VmInner {
     ///   map in the common case).
     #[cfg(feature = "engine")]
     pub(crate) pending_timeout_signals: HashMap<u32, ObjectId>,
-    /// Internal prototype for `ObjectKind::Event` instances.  Holds the
-    /// four event methods (`preventDefault`, `stopPropagation`,
-    /// `stopImmediatePropagation`, `composedPath`) and the
-    /// `defaultPrevented` accessor.  Methods are stateless `fn`
-    /// pointers that match on `this`'s `ObjectKind::Event` for state,
-    /// so a single prototype is shared across all dispatched events —
-    /// avoids 5 native-fn allocations + 5 shape transitions per
-    /// listener invocation.
+    /// `Event.prototype` (WebIDL §2.2).  Holds the four event methods
+    /// (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`,
+    /// `composedPath`) and the `defaultPrevented` accessor, plus the
+    /// `constructor` back-pointer to the `Event` global.  Methods are
+    /// stateless `fn` pointers that match on `this`'s `ObjectKind::Event`
+    /// for state, so a single prototype is shared across all dispatched
+    /// events — avoids 5 native-fn allocations + 5 shape transitions
+    /// per listener invocation.
     ///
-    /// NOT exposed as `Event.prototype` to JS (the spec global +
-    /// constructor land in PR5a alongside `new Event(...)`); this is
-    /// a pure VM intrinsic.  When PR5a lands, `Event.prototype` can
-    /// become this object's parent or replace it outright.
-    pub(crate) event_methods_prototype: Option<ObjectId>,
+    /// JS-visible via `globalThis.Event.prototype`; PR5a2 landed the
+    /// spec-visible `Event` constructor.  Every `ObjectKind::Event`
+    /// (UA-initiated or script-constructed) chains through this
+    /// prototype.
+    pub(crate) event_prototype: Option<ObjectId>,
+    /// `CustomEvent.prototype` (WebIDL §2.3).  Chains to
+    /// [`event_prototype`] and adds the `detail` accessor.  Set by
+    /// `register_custom_event_global` during `register_globals`.
+    #[cfg(feature = "engine")]
+    pub(crate) custom_event_prototype: Option<ObjectId>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

@@ -106,6 +106,14 @@ pub(crate) struct WellKnownStrings {
     pub(crate) unhandledrejection: StringId,
     pub(crate) promise: StringId,
 
+    // -- Event constructor globals (PR5a2 C1) --
+    // `Event` / `CustomEvent` are the global names bound to their
+    // respective constructable functions; `detail` is a property key
+    // on CustomEvent instances (CustomEventInit dict member + accessor).
+    pub(crate) event_global: StringId,
+    pub(crate) custom_event_global: StringId,
+    pub(crate) detail: StringId,
+
     // -- Event payload property keys --
     // Pre-interned so `create_event_object`'s payload installation
     // can feed them directly into the precomputed-shape slot array
@@ -378,6 +386,11 @@ impl WellKnownStrings {
             about_blank: strings.intern("about:blank"),
             unhandledrejection: strings.intern("unhandledrejection"),
             promise: strings.intern("promise"),
+
+            // Event constructor globals (PR5a2 C1).
+            event_global: strings.intern("Event"),
+            custom_event_global: strings.intern("CustomEvent"),
+            detail: strings.intern("detail"),
 
             // Event-payload property keys.  Interned once here so
             // `create_event_object` can feed slots into

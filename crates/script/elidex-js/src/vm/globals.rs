@@ -254,11 +254,19 @@ impl VmInner {
             self.install_window_self_ref();
         }
 
-        // Internal Event-methods prototype (PR3) — `event_methods_prototype`
-        // is set under the `engine` feature only; without engine there are
-        // no DOM events to dispatch and the methods are unused.
+        // `Event.prototype` + `Event` / `CustomEvent` globals (WebIDL §2.2
+        // / §2.3).  `event_prototype` is set under the `engine` feature
+        // only; without engine there are no DOM events to dispatch and
+        // the methods are unused.  The spec constructors (`Event` /
+        // `CustomEvent`) are installed by
+        // [`VmInner::register_event_global`] and
+        // [`VmInner::register_custom_event_global`].
         #[cfg(feature = "engine")]
-        self.register_event_methods_prototype();
+        {
+            self.register_event_prototype();
+            self.register_event_global();
+            self.register_custom_event_global();
+        }
 
         // `DOMException` constructor + prototype (WebIDL §3.14).
         // Must run after `register_error_constructors`
@@ -281,8 +289,8 @@ impl VmInner {
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the
         // shape-transition walk uses the interned StringIds.  Also
-        // after `event_methods_prototype` so no field ordering assumes
-        // shapes exist without the prototype.
+        // after `event_prototype` so no field ordering assumes shapes
+        // exist without the prototype.
         #[cfg(feature = "engine")]
         {
             let shapes = self.build_precomputed_event_shapes();

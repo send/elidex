@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 26],
+    proto_roots: [Option<ObjectId>; 27],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -647,7 +647,7 @@ impl VmInner {
                 self.node_prototype,
                 self.element_prototype,
                 self.window_prototype,
-                self.event_methods_prototype,
+                self.event_prototype,
                 #[cfg(feature = "engine")]
                 self.abort_signal_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -673,6 +673,11 @@ impl VmInner {
                 // 25 + 1 (DOMException) = 26.
                 #[cfg(feature = "engine")]
                 self.dom_exception_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 26 + 1 (CustomEvent, PR5a2 C1) = 27.
+                #[cfg(feature = "engine")]
+                self.custom_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],
