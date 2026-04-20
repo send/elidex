@@ -103,10 +103,59 @@ fn normalize_single_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Ent
     Ok(text)
 }
 
+/// Classification of a variadic argument after a side-effect-free
+/// validation pass.  A second materialisation pass consumes the Vec
+/// to allocate Text children + build the wrapper fragment.
+enum ClassifiedArg {
+    Node(Entity),
+    Text(super::super::value::StringId),
+}
+
+/// Side-effect-free classification of a single arg.  Throws on
+/// detached Node wrappers and on Symbol ToString, without ever
+/// detaching / allocating.
+fn classify_arg_without_mutation(
+    ctx: &mut NativeContext<'_>,
+    val: JsValue,
+) -> Result<ClassifiedArg, VmError> {
+    if let JsValue::Object(id) = val {
+        if let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind {
+            if let Some(entity) = Entity::from_bits(entity_bits) {
+                if !ctx.host().dom().contains(entity) {
+                    return Err(VmError::type_error(
+                        "Failed to execute argument conversion: \
+                         the node is detached (invalid entity).",
+                    ));
+                }
+                let inferred = ctx.host().dom().node_kind_inferred(entity);
+                if matches!(inferred, Some(k) if k != NodeKind::Window) {
+                    return Ok(ClassifiedArg::Node(entity));
+                }
+            }
+        }
+    }
+    // Primitive / coercible to string — `to_string` may throw on
+    // Symbol.  Doing this in the pre-validation pass forces the
+    // throw to happen BEFORE any user Node is detached into a
+    // wrapper fragment (WHATWG §4.2.5 semantics — the "convert
+    // nodes into a node" algorithm validates before re-parenting).
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    Ok(ClassifiedArg::Text(sid))
+}
+
 /// Normalise a variadic argument list.  Returns `None` for empty
 /// input, `Some((entity, was_wrapped))` otherwise — if
 /// `was_wrapped == true`, the caller must destroy `entity` after
 /// consuming it.
+///
+/// Multi-arg path is **side-effect-free until every arg is
+/// validated**: a pre-pass classifies each arg (detached check,
+/// ToString coerce, Symbol throw) without allocating a
+/// DocumentFragment or detaching any user Node.  Only after the
+/// pre-pass succeeds do we allocate the fragment and move children
+/// into it.  This guarantees that a throw during conversion cannot
+/// strand a user-supplied Node inside a fragment that's about to be
+/// destroyed (the silent data-loss scenario documented in PR5a C5).
 pub(super) fn convert_nodes_to_single_node_or_fragment(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
@@ -117,20 +166,23 @@ pub(super) fn convert_nodes_to_single_node_or_fragment(
     if args.len() == 1 {
         return Ok(Some((normalize_single_arg(ctx, args[0])?, false)));
     }
-    // Multi-arg: wrap in a freshly allocated DocumentFragment.  The
-    // fragment is fresh and the children are either freshly-created
-    // Text nodes or user-supplied Node entities, so `append_child`
-    // is expected to succeed — but we surface a TypeError on failure
-    // so the caller never silently drops arguments.  On error we
-    // also destroy the half-built wrapper to prevent ECS entity
-    // leaks.
-    let fragment = ctx.host().dom().create_document_fragment();
+    // Pre-validation pass — no allocation, no tree mutation.
+    let mut classified = Vec::with_capacity(args.len());
     for &arg in args {
-        let child = match normalize_single_arg(ctx, arg) {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = ctx.host().dom().destroy_entity(fragment);
-                return Err(e);
+        classified.push(classify_arg_without_mutation(ctx, arg)?);
+    }
+    // Materialisation pass — every arg has passed validation; the
+    // only remaining failure mode is EcsDom rejecting
+    // `append_child`, which would be a genuine DOM invariant
+    // violation (fragment was just allocated, user nodes already
+    // checked).  Still cleaned up defensively.
+    let fragment = ctx.host().dom().create_document_fragment();
+    for c in classified {
+        let child = match c {
+            ClassifiedArg::Node(e) => e,
+            ClassifiedArg::Text(sid) => {
+                let s = ctx.vm.strings.get_utf8(sid);
+                ctx.host().dom().create_text(&s)
             }
         };
         if !ctx.host().dom().append_child(fragment, child) {

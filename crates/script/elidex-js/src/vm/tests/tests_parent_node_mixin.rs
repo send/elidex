@@ -169,6 +169,50 @@ fn element_replace_children_preserves_tree_when_conversion_throws() {
 }
 
 #[test]
+fn element_append_user_node_survives_later_arg_throw() {
+    // PR5a C5 regression guard — `convert_nodes_to_single_node_or_fragment`
+    // must validate all args BEFORE moving any user Node into the
+    // wrapper fragment.  Pre-fix, a flow like
+    // `target.append(existingUserNode, Symbol())` would:
+    //   1. Alloc fragment
+    //   2. append_child(fragment, existingUserNode) — detaches
+    //      existingUserNode from its current parent
+    //   3. ToString(Symbol()) throws
+    //   4. destroy_entity(fragment) — destroys existingUserNode too
+    // After the side-effect-free reorder, Symbol() throws before
+    // step 1 so existingUserNode stays attached.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Build two parents; move `userNode` into `other` first, then
+    // try to append it into `p` along with a throwing Symbol arg.
+    vm.eval(
+        "globalThis.p = document.createElement('p');\n\
+         globalThis.other = document.createElement('other');\n\
+         globalThis.userNode = document.createElement('u');\n\
+         other.appendChild(userNode);",
+    )
+    .unwrap();
+    let ok = vm
+        .eval(
+            "var err = null;\n\
+             try { p.append(userNode, Symbol()); } catch (e) { err = e; }\n\
+             var thrown = err !== null;\n\
+             var still_in_other = userNode.parentNode === other;\n\
+             thrown + ':' + still_in_other;",
+        )
+        .unwrap();
+    let sid = match ok {
+        JsValue::String(id) => id,
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "true:true");
+    vm.unbind();
+}
+
+#[test]
 fn element_prepend_ancestor_cycle_throws_before_mutation() {
     // Pre-insertion validity (WHATWG §4.2.3): if a later arg is an
     // ancestor of the receiver, `prepend(firstArg, ancestor)` must

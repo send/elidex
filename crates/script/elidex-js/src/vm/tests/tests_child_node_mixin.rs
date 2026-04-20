@@ -333,6 +333,40 @@ fn element_before_nested_fragment_is_recursively_flattened() {
 }
 
 #[test]
+fn element_before_user_node_survives_later_arg_throw() {
+    // PR5a C5 regression guard applied to the ChildNode path — a
+    // throw on arg[1] must NOT strand arg[0] inside a doomed
+    // wrapper fragment.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    make_parent_with_children(&mut vm);
+    vm.eval(
+        "globalThis.other = document.createElement('other');\n\
+         globalThis.userNode = document.createElement('u');\n\
+         other.appendChild(userNode);",
+    )
+    .unwrap();
+    let ok = vm
+        .eval(
+            "var err = null;\n\
+             try { a.before(userNode, Symbol()); } catch (e) { err = e; }\n\
+             var thrown = err !== null;\n\
+             var still_in_other = userNode.parentNode === other;\n\
+             thrown + ':' + still_in_other;",
+        )
+        .unwrap();
+    let sid = match ok {
+        JsValue::String(id) => id,
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "true:true");
+    vm.unbind();
+}
+
+#[test]
 fn element_before_self_insert_throws_hierarchy_request_error() {
     // Inserting an ancestor as a child of its own subtree creates a
     // cycle — EcsDom rejects and we throw
