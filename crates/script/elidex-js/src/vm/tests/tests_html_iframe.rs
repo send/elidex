@@ -172,6 +172,6 @@ fn iframe_src_on_non_iframe_host_throws() {
              Object.getPrototypeOf(iframe), 'src').get; \
          var div = document.createElement('div'); \
          try { getSrc.call(div); 'no-throw'; } \
-         catch (e) { (typeof e === 'string' && e.indexOf('Illegal') >= 0) ? 'ok' : 'bad'; }");
+         catch (e) { (e && e.message && e.message.indexOf('Illegal') >= 0) ? 'ok' : 'bad'; }");
     assert_eq!(out, "ok");
 }

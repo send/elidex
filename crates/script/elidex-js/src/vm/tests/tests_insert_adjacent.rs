@@ -133,15 +133,17 @@ fn insert_adjacent_element_afterend_no_parent_returns_null() {
 
 #[test]
 fn insert_adjacent_element_rejects_bogus_where() {
-    // CallMethod coerces VmError into its Display string (separate
-    // pre-existing VM quirk from Op::Call's Error-object wrap), so we
-    // assert on the string contents rather than e.name / instanceof.
+    // PR5a C1 B1-fix unified dispatch: CallMethod now wraps VmError
+    // into a proper Error object (same as Op::Call), so assert on
+    // `e.name` instead of the old string-coerce shape.  C2 swaps
+    // this to DOMException("SyntaxError") — the assertion will
+    // update at that point.
     let out = run(
         "var t = document.getElementById('t');\
          var p = document.createElement('p');\
          try { t.insertAdjacentElement('sideways', p); 'no-throw'; } \
          catch (e) { \
-           var isType = (typeof e === 'string' && e.indexOf('TypeError') >= 0);\
+           var isType = (e && e.name === 'TypeError');\
            var unchanged = t.parentNode.childNodes.length === 2;\
            isType + ':' + unchanged; }",
         build_pair_in_parent,
@@ -154,7 +156,7 @@ fn insert_adjacent_element_rejects_non_element_arg() {
     let out = run(
         "var t = document.getElementById('t');\
          try { t.insertAdjacentElement('beforeend', null); 'no-throw'; } \
-         catch (e) { (typeof e === 'string' && e.indexOf('TypeError') >= 0) ? 'threw' : 'bad'; }",
+         catch (e) { (e && e.name === 'TypeError') ? 'threw' : 'bad'; }",
         build_pair_in_parent,
     );
     assert_eq!(out, "threw");
@@ -309,8 +311,9 @@ fn insert_adjacent_element_stale_entity_arg_reports_detached_not_wrong_type() {
         var stale = globalThis.__stale_wrapper;\
         try { target.insertAdjacentElement('beforebegin', stale); 'no-throw'; } \
         catch (e) { \
-          var detached = typeof e === 'string' && e.indexOf('detached') >= 0; \
-          var wrongType = typeof e === 'string' && e.indexOf('not of type') >= 0; \
+          var m = (e && e.message) || ''; \
+          var detached = m.indexOf('detached') >= 0; \
+          var wrongType = m.indexOf('not of type') >= 0; \
           detached + '|' + wrongType; }";
     vm.set_global(
         "__stale_wrapper",

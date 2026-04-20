@@ -260,6 +260,15 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_event_methods_prototype();
 
+        // `DOMException` constructor + prototype (WebIDL §3.14).
+        // Must run after `register_error_constructors`
+        // (`dom_exception_prototype.[[Prototype]] = error_prototype`).
+        // Engine-gated because every caller (insertAdjacent*,
+        // ChildNode / ParentNode mixins, removeChild, AbortSignal,
+        // location) is itself engine-only.
+        #[cfg(feature = "engine")]
+        self.register_dom_exception_global();
+
         // `AbortController` constructor + `AbortSignal` global +
         // `AbortSignal.prototype` (WHATWG DOM §3.1).  Must run after
         // `register_event_target_prototype` (the prototype chains

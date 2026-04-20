@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 25],
+    proto_roots: [Option<ObjectId>; 26],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -652,6 +652,11 @@ impl VmInner {
                 self.html_iframe_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 25 + 1 (DOMException, PR5a C1) = 26.
+                #[cfg(feature = "engine")]
+                self.dom_exception_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
@@ -714,6 +719,13 @@ impl VmInner {
                 .retain(|id, _| bit_get(marks, id.0));
             self.abort_listener_back_refs
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
+            // DOMException out-of-band state: prune entries whose
+            // instance was collected so a recycled slot can't
+            // inherit stale `name` / `message`.  Payload is
+            // `StringId` pairs (pool-permanent) — no trace pass
+            // needed during mark, only this post-sweep GC.
+            self.dom_exception_states
+                .retain(|id, _| bit_get(marks, id.0));
         }
 
         // 5. IC invalidation.

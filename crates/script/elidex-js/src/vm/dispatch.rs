@@ -681,12 +681,15 @@ impl VmInner {
                     let argc = self.read_u8_op() as usize;
                     let call_ic_idx = self.read_u16_op() as usize;
                     if let Err(e) = self.ic_call_method(func_id, argc, call_ic_idx) {
-                        let thrown = if let VmErrorKind::ThrowValue(val) = e.kind {
-                            val
-                        } else {
-                            let msg = self.strings.intern(&e.to_string());
-                            JsValue::String(msg)
-                        };
+                        // Route through `vm_error_to_thrown` so
+                        // DOMException / TypeError / etc. all get
+                        // their proper prototype chain — previously
+                        // this path flattened any non-`ThrowValue`
+                        // error into a plain `JsValue::String`, so
+                        // `catch (e) { e.name === 'SyntaxError' }`
+                        // failed silently on every DOM-method throw
+                        // (PR5a B1 fix).
+                        let thrown = self.vm_error_to_thrown(&e);
                         if self.handle_exception(thrown, entry_frame_depth) {
                             continue;
                         }

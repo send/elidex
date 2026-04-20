@@ -100,6 +100,10 @@ impl Vm {
                 document_type_prototype: None,
                 #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
+                #[cfg(feature = "engine")]
+                dom_exception_prototype: None,
+                #[cfg(feature = "engine")]
+                dom_exception_states: HashMap::new(),
                 window_prototype: None,
                 event_methods_prototype: None,
                 #[cfg(feature = "engine")]

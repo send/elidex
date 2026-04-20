@@ -35,6 +35,7 @@ pub(super) mod childnode;
 pub(super) mod document;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;
+pub(crate) mod dom_exception;
 pub(super) mod element_proto;
 pub(super) mod elements;
 pub(super) mod event_shapes;

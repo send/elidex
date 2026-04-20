@@ -252,6 +252,37 @@ pub(crate) struct VmInner {
     /// `register_globals()` (after `register_element_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) html_iframe_prototype: Option<ObjectId>,
+    /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
+    /// `Error.prototype` so `instanceof Error` holds for DOMException
+    /// instances.  Holds the `name` / `message` / `code` accessor
+    /// triplet that reads from
+    /// [`Self::dom_exception_states`] via receiver brand-check.
+    ///
+    /// `None` until `register_dom_exception_global()` runs during
+    /// `register_globals()` (after `register_error_constructors` so
+    /// `error_prototype` is populated).  Engine-gated: every
+    /// consumer (insertAdjacent*, ChildNode / ParentNode mixins,
+    /// removeChild, AbortSignal, location) lives behind the
+    /// `engine` feature, so the prototype itself is gated too.
+    #[cfg(feature = "engine")]
+    pub(crate) dom_exception_prototype: Option<ObjectId>,
+    /// Per-`DOMException` out-of-band state, keyed by the instance's
+    /// own `ObjectId` (same pattern as
+    /// [`Self::abort_signal_states`]).  `name` / `message` accessor
+    /// reads go through this side table instead of own-data
+    /// properties, matching the WebIDL §3.6.8 spec (attribute
+    /// accessors read internal slots).
+    ///
+    /// GC contract:
+    /// - Trace step: entries whose key `ObjectId` is reachable via
+    ///   the `DOMException.prototype` chain stay — `name` and
+    ///   `message` are interned `StringId`s (pool-permanent), so the
+    ///   `DomExceptionState` payload needs no `mark_value` pass.
+    /// - Sweep tail (`collect_garbage`): entries whose key was
+    ///   collected are pruned so a recycled `ObjectId` does not
+    ///   inherit stale `name` / `message`.
+    #[cfg(feature = "engine")]
+    pub(crate) dom_exception_states: HashMap<ObjectId, host::dom_exception::DomExceptionState>,
     /// `Window.prototype` — prototype for the `globalThis` / `window`
     /// `HostObject` (WHATWG HTML §7.2).  Inherits from
     /// `EventTarget.prototype` so `window.addEventListener` resolves

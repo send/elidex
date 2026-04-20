@@ -500,17 +500,18 @@ mod signal_option {
         let mut dom = EcsDom::new();
         let _entity = bind_with_div(&mut vm, &mut session, &mut dom);
 
-        // Catch surfaces the TypeError; capture an "ok|" sentinel
-        // when the catch fires, then expose the message via
-        // `String(e)` so engine-internal differences in error
-        // shape (Error wrapper vs. raw value) don't matter.
+        // Catch surfaces the TypeError; use `e.toString()` rather
+        // than `String(e)` because the VM's simplified
+        // OrdinaryToPrimitive returns `"[object Object]"` for
+        // non-wrapper receivers (§7.1.1.1 open task — see `ops.rs`
+        // `to_primitive` simplification note).
         let result = vm
             .eval(
                 "var caught = '';
                  try {
                    target.addEventListener('click', function() {}, {signal: 'not a signal'});
                    caught = 'no-throw';
-                 } catch(e) { caught = String(e); }
+                 } catch(e) { caught = e.toString(); }
                  caught;",
             )
             .unwrap();
@@ -734,7 +735,7 @@ fn dispatch_event_validates_abort_signal_receiver() {
              try {
                AbortSignal.prototype.dispatchEvent.call({}, null);
                caught = 'no-throw';
-             } catch(e) { caught = String(e); }
+             } catch(e) { caught = e.toString(); }
              caught;",
         )
         .unwrap();
@@ -785,7 +786,7 @@ fn abort_call_on_alien_object_with_signal_property_throws() {
              try {
                AbortController.prototype.abort.call(alien);
                caught = 'no-throw';
-             } catch(e) { caught = String(e); }
+             } catch(e) { caught = e.toString(); }
              // The cross-call must throw AND must not abort the
              // signal.
              caught + '|aborted=' + c.signal.aborted;",
