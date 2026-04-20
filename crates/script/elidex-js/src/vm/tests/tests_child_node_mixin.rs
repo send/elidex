@@ -191,7 +191,7 @@ fn element_replace_with_ancestor_cycle_preserves_tree() {
     }
     make_parent_with_children(&mut vm);
     // Build: grandparent > p > (a, b).  `a.replaceWith(grandparent)`
-    //. grandparent is p's ancestor, so insert would cycle.
+    // — grandparent is p's ancestor, so insert would cycle.
     vm.eval(
         "globalThis.grandparent = document.createElement('gp');\n\
          grandparent.appendChild(p);",

@@ -1,8 +1,8 @@
-//! Tests for `DOMException` (WebIDL §3.14). constructor layout,
+//! Tests for `DOMException` (WebIDL §3.14) — constructor layout,
 //! accessor shape, prototype chain, and the unified
 //! `vm_error_to_thrown` dispatch path that materialises
 //! [`super::super::value::VmErrorKind::DomException`] into a real
-//! JS instance .
+//! JS instance.
 
 #![cfg(feature = "engine")]
 
@@ -230,16 +230,13 @@ fn dom_exception_accessor_cross_call_on_alien_throws() {
 
 #[test]
 fn dom_exception_from_vm_error_has_correct_name_via_dispatch() {
-    // Triggers the unified dispatch path: the ChildNode mixin
-    // (installed in C3) throws DOMException("HierarchyRequestError")
-    // via `Op::CallMethod`. `e.name` must be the spec name, not
-    // a stringified VmError Display.
-    //
-    // The the unified dispatch and the DOMException
-    // type, but the call sites that actually throw DOMException
-    // land in C2-C4.  Until then, assert the round-trip works
-    // via a constructor-built instance. the regression guard
-    // itself tightens in C2.
+    // Round-trip: a constructor-built `DOMException` must preserve
+    // `name` through accessor reads so the same shape surfaces
+    // whether the instance originates from `new DOMException(...)`
+    // or from an internal throw materialised via
+    // `vm_error_to_thrown`.  The ChildNode / ParentNode mixins
+    // (below) exercise the throw path end-to-end; this guard pins
+    // the round-trip on its own.
     assert_eq!(
         eval_string("new DOMException('boom', 'HierarchyRequestError').name"),
         "HierarchyRequestError"

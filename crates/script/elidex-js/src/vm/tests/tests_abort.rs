@@ -395,8 +395,8 @@ fn signal_proto_chain_skips_node_prototype() {
     );
 }
 
-// PR4d C3 `addEventListener({signal})` integration tests moved to
-// `tests_abort_signal_option.rs` (Thesplit).
+// `addEventListener({signal})` integration tests live in
+// `tests_abort_signal_option.rs`.
 
 #[test]
 fn abort_controller_constructor_requires_new() {
@@ -803,4 +803,4 @@ mod bound_listener_pruning {
     }
 }
 
-// Thestatic factory tests moved to tests_abort_statics.rs (C9 split).
+// Static factory tests live in `tests_abort_statics.rs`.

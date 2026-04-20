@@ -133,10 +133,10 @@ fn insert_adjacent_element_afterend_no_parent_returns_null() {
 
 #[test]
 fn insert_adjacent_element_rejects_bogus_where() {
-    // The bogus `where` argument → DOMException("SyntaxError")
-    // per WHATWG DOM §4.9 step 1.  Upgrade from the Theinterim
-    // TypeError guard.  Also spot-checks `e instanceof DOMException`
-    // (prototype chain) and the legacy `.code === 12`.
+    // Bogus `where` argument → `DOMException("SyntaxError")` per
+    // WHATWG DOM §4.9 step 1.  Also spot-checks
+    // `e instanceof DOMException` (prototype chain) and the legacy
+    // `.code === 12`.
     let out = run(
         "var t = document.getElementById('t');\
          var p = document.createElement('p');\
@@ -234,8 +234,8 @@ fn insert_adjacent_text_no_parent_is_noop_returns_undefined() {
 fn insert_adjacent_text_rejects_bogus_where_before_allocating_text() {
     // S6: position-parse failure is checked BEFORE the Text is created
     // so we don't leak detached Text nodes into the ECS on misuse.
-    // Thealso tightens the throw shape to
-    // `DOMException("SyntaxError")`.
+    // The throw shape is `DOMException("SyntaxError")` per WHATWG
+    // DOM §4.9 step 1.
     let out = run(
         "var t = document.getElementById('t');\
          try { t.insertAdjacentText('middle', 'x'); 'no-throw'; } \

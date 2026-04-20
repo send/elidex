@@ -20,15 +20,14 @@ fn eval_number(vm: &mut Vm, source: &str) -> f64 {
 }
 
 /// Construct a VM whose navigation base is `http://localhost/`
-/// (not the default `about:blank`).  The URL handling
-/// to the WHATWG `url` crate, which refuses to resolve a relative
-/// URL like `"/a"` against a non-hierarchical base like
-/// `about:blank`. matching real browsers, where
-/// `history.pushState(null, '', '/a')` on an about:blank page
-/// throws.  Tests that exercise history / path plumbing therefore
-/// need a concrete hierarchical base; this helper installs it
-/// up-front so each test body stays focused on the behaviour
-/// under test.
+/// (not the default `about:blank`).  The WHATWG `url` crate refuses
+/// to resolve a relative URL like `"/a"` against a
+/// non-hierarchical base like `about:blank`, matching real browser
+/// behaviour where `history.pushState(null, '', '/a')` on an
+/// about:blank page throws.  Tests that exercise history / path
+/// plumbing therefore need a concrete hierarchical base; this
+/// helper installs it up-front so each test body stays focused on
+/// the behaviour under test.
 fn new_vm_with_base() -> Vm {
     let mut vm = Vm::new();
     vm.eval("location.href = 'http://localhost/';").unwrap();

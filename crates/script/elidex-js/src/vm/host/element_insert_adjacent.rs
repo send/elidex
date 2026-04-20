@@ -44,8 +44,6 @@ fn parse_adjacent_position(raw: &str) -> Option<InsertAdjacentWhere> {
     }
 }
 
-/// TypeError thrown when `where` is not one of the four spec literals.
-///
 /// `DOMException("SyntaxError")` thrown when the first argument of
 /// `insertAdjacent*` is not one of the four recognised positions.
 /// All callers embed the method name so the message stays aligned

@@ -94,11 +94,13 @@ pub(super) fn native_abort_signal_static_timeout(
 /// input is already aborted, the returned signal is aborted
 /// synchronously with the first-aborted signal's reason.
 ///
-/// Phase 2 scope: strong references between the returned signal
-/// and each input via `addEventListener('abort', …)`.  A future
-/// weak-ref pass will detach the listener once the composite is
-/// unreachable — today a long-lived composite keeps every input
-/// alive until explicitly aborted.
+/// Current implementation scope: only the **already-aborted**
+/// fast path is wired up.  When every input is still active the
+/// composite is returned non-aborted; abort propagation via
+/// `addEventListener('abort', …)` on each input is not yet
+/// installed (TODO in the function body), so the composite does
+/// not currently observe subsequent aborts.  That propagation
+/// arrives with the Event-constructor surface in the next tranche.
 pub(super) fn native_abort_signal_static_any(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
