@@ -628,6 +628,52 @@ fn dispatch_ignores_user_delete_of_bubbles_for_phase_walk() {
 }
 
 #[test]
+fn passive_listener_prevent_default_is_silently_ignored() {
+    // WHATWG DOM §2.10 step 15: passive is a per-listener flag.
+    // While a passive listener's callback runs, the event's
+    // `in passive listener flag` is set so `preventDefault()`
+    // becomes a silent no-op for that call.  After the
+    // listener returns, the flag clears so a subsequent
+    // non-passive listener's `preventDefault()` works normally.
+    // Regression for R8.1 — script-dispatch was reusing the
+    // user's event object and never toggling the passive slot
+    // per listener, so a passive listener could incorrectly
+    // cancel the event.
+    //
+    // Test: passive listener calls preventDefault → ignored
+    // (event stays non-cancelled, return value stays true).
+    let out = eval_tree_bool(
+        "var evt = new Event('c', {cancelable: true}); \
+         el.addEventListener('c', function (e) { e.preventDefault(); }, \
+             {passive: true}); \
+         el.dispatchEvent(evt);",
+    );
+    assert!(
+        out,
+        "passive listener's preventDefault must be ignored → return true"
+    );
+}
+
+#[test]
+fn non_passive_listener_after_passive_can_still_cancel() {
+    // Regression companion: the passive slot must be restored
+    // after the passive listener's call so a subsequent
+    // non-passive listener can cancel normally.  Without the
+    // restore, the passive=true slot would leak into the next
+    // listener and make its `preventDefault` a no-op too.
+    let out = eval_tree_bool(
+        "var evt = new Event('c', {cancelable: true}); \
+         el.addEventListener('c', function () {}, {passive: true}); \
+         el.addEventListener('c', function (e) { e.preventDefault(); }); \
+         el.dispatchEvent(evt);",
+    );
+    assert!(
+        !out,
+        "non-passive listener after passive must still cancel → return false"
+    );
+}
+
+#[test]
 fn event_ctor_respects_new_target_prototype() {
     // Regression for R7.2 / R7.3: the ctor used to overwrite the
     // instance's prototype to the base descendant's prototype

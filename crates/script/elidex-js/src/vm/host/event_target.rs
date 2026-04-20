@@ -1047,6 +1047,19 @@ fn walk_phase(
                 continue;
             };
 
+            // WHATWG DOM §2.10 step 15: passive is a per-listener
+            // bit, not a per-event one — the event's `in passive
+            // listener flag` (our `ObjectKind::Event.passive`
+            // internal slot) is temporarily set to the invoking
+            // listener's `passive` for the call and cleared
+            // afterward so `preventDefault()` can observe it.
+            // UA-dispatch handles this by rebuilding the JS event
+            // object per listener with the correct `passive`;
+            // script-dispatch reuses the user's event object, so
+            // we toggle the slot around each call_value instead.
+            if let ObjectKind::Event { passive, .. } = &mut ctx.vm.get_object_mut(event_id).kind {
+                *passive = entry.passive;
+            }
             // Invoke the listener.  `this` is the currentTarget
             // wrapper per §2.10 step 15 (matches WebIDL callback
             // `this` binding).  Throw propagation is swallowed
@@ -1057,6 +1070,13 @@ fn walk_phase(
                 JsValue::Object(current_wrapper),
                 &[JsValue::Object(event_id)],
             );
+            // Restore the slot to `false` so post-dispatch
+            // `preventDefault()` (if called from outside any
+            // listener — e.g. a microtask scheduled during
+            // dispatch) observes the default non-passive state.
+            if let ObjectKind::Event { passive, .. } = &mut ctx.vm.get_object_mut(event_id).kind {
+                *passive = false;
+            }
 
             // Sync internal flag state back to the local walker.
             // Capture BEFORE the `once` cleanup below because
