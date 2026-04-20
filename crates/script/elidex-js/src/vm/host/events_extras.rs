@@ -16,8 +16,14 @@
 //! `shape_id` drawn from [`PrecomputedEventShapes`] — shape selection
 //! is detached from `EventPayload`, letting ctors pick any terminal
 //! shape without round-tripping through the UA dispatch payload.
-//! Prototype is then overridden to the per-ctor descendant so the
-//! chain ends at its specific `.prototype`, not `Event.prototype`.
+//! Prototype selection is intentionally left to the normal
+//! construction path so `new.target.prototype` is preserved,
+//! including for `class Sub extends …` subclasses; the resulting
+//! chain therefore ends at the appropriate descendant `.prototype`
+//! rather than being forcibly reset to `Event.prototype` (an
+//! earlier revision did overwrite unconditionally, which silently
+//! broke subclass inheritance — see `build_event_subclass_instance`
+//! doc for the load-bearing `_descendant_proto` registration check).
 
 #![cfg(feature = "engine")]
 

@@ -667,9 +667,12 @@ pub(super) fn native_event_target_dispatch_event(
 
     // ---- 2. Receiver brand check ----
     // `entity_from_this` returns None for unbound / non-HostObject
-    // receivers, matching `addEventListener`'s silent-no-op policy
-    // (detach-tolerant: JS that retained `document` across
-    // `Vm::unbind()` gets `false` instead of a panic).
+    // receivers; we fall through to the spec's "event not
+    // canceled" default of `true` (matches `addEventListener`'s
+    // silent-no-op policy — detach-tolerant: JS that retained
+    // `document` across `Vm::unbind()` gets `true` instead of a
+    // panic, and a plain-object receiver reached via
+    // `dispatchEvent.call({}, ...)` behaves the same way).
     let Some(target_entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(true));
     };
