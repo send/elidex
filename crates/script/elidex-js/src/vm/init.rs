@@ -135,6 +135,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 pending_timeout_signals: HashMap::new(),
                 #[cfg(feature = "engine")]
+                dispatched_events: HashSet::new(),
+                #[cfg(feature = "engine")]
                 precomputed_event_shapes: None,
                 generator_yielded: None,
                 current_microtask: None,

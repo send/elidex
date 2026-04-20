@@ -354,6 +354,24 @@ pub(crate) struct VmInner {
     ///   map in the common case).
     #[cfg(feature = "engine")]
     pub(crate) pending_timeout_signals: HashMap<u32, ObjectId>,
+    /// Events currently being dispatched — WHATWG DOM §2.9 step 3
+    /// forbids re-entrant `dispatchEvent()` on the same `Event`
+    /// instance, and the spec algorithm's "dispatch flag" is a
+    /// per-event bit.  Storing the set VM-side (keyed by the event's
+    /// `ObjectId`) keeps the flag out-of-band so `ObjectKind::Event`
+    /// doesn't grow an extra byte per instance.
+    ///
+    /// Membership is cleared at dispatch completion (normal return
+    /// or throw from a listener — both exit paths drop the id),
+    /// leaving the event re-dispatchable on a later call.
+    ///
+    /// GC contract: the set is side-table state — entries whose key
+    /// `ObjectId` was collected are pruned in `collect_garbage`'s
+    /// sweep tail so a recycled slot can't observe stale
+    /// "already dispatching" membership.  Same pattern as
+    /// `abort_signal_states` and `dom_exception_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) dispatched_events: HashSet<ObjectId>,
     /// `Event.prototype` (WebIDL §2.2).  Holds the four event methods
     /// (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`,
     /// `composedPath`) and the `defaultPrevented` accessor, plus the

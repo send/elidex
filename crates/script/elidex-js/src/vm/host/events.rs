@@ -568,6 +568,74 @@ fn native_custom_event_get_detail(
 }
 
 // ---------------------------------------------------------------------
+// Core-9 slot indices — see `host::event_shapes` CORE_KEY_COUNT and
+// `build_precomputed_event_shapes` for the authoritative ordering.
+// PR5a2 C5 consumers (dispatchEvent) mutate `target`, `currentTarget`,
+// and `eventPhase` in place across phases; the index constants are
+// named so the call site reads as intent, not "slot 3".
+// ---------------------------------------------------------------------
+
+/// Core-9 slot index for `eventPhase` (`0` / `1=CAPTURING` / `2=AT_TARGET` /
+/// `3=BUBBLING`).  WHATWG DOM §2.2.
+pub(crate) const EVENT_SLOT_EVENT_PHASE: usize = 3;
+/// Core-9 slot index for `target`.  Retargeted per-listener during dispatch
+/// (WHATWG DOM §2.5) — restored on dispatch completion.
+pub(crate) const EVENT_SLOT_TARGET: usize = 4;
+/// Core-9 slot index for `currentTarget`.  Advances through the
+/// propagation path; `null` outside a dispatch.
+pub(crate) const EVENT_SLOT_CURRENT_TARGET: usize = 5;
+
+/// Overwrite one core-9 slot on an `ObjectKind::Event` in place, skipping
+/// the shape-transition path.
+///
+/// PR5a2 C5 script-initiated dispatch needs to advance `currentTarget`
+/// / `eventPhase` / `target` on a user-constructed event object
+/// without changing its shape — `define_shaped_property` would treat
+/// each write as a shape transition (allocating a fresh shape to
+/// record attr changes) and defeat the precomputed-shape fast path
+/// built in PR3.6.
+///
+/// Safety: requires `event_id` to refer to a Shaped storage whose
+/// shape was built via `build_precomputed_event_shapes` (i.e. one of
+/// `precomputed_event_shapes.*` or a descendant).  The caller is
+/// responsible for passing a slot index inside the core-9 range
+/// [0, `CORE_KEY_COUNT`); payload slots (index ≥ 9) are out of
+/// scope for this helper.
+///
+/// Debug-only shape lock-in: asserts the target shape is a descendant
+/// of the core-9 shape and that slot 3 / 4 / 5 are the expected keys
+/// (`eventPhase` / `target` / `currentTarget`).  Catches accidental
+/// reordering of `build_precomputed_event_shapes` in tests.
+pub(crate) fn set_event_slot_raw(
+    vm: &mut VmInner,
+    event_id: ObjectId,
+    slot_idx: usize,
+    new_val: JsValue,
+) {
+    debug_assert!(
+        slot_idx < CORE_KEY_COUNT,
+        "set_event_slot_raw: slot index {slot_idx} ≥ CORE_KEY_COUNT={CORE_KEY_COUNT} — \
+         payload slots are variant-specific and must not be touched by dispatch"
+    );
+    let obj = vm.get_object_mut(event_id);
+    debug_assert!(
+        matches!(obj.kind, ObjectKind::Event { .. }),
+        "set_event_slot_raw: object is not ObjectKind::Event"
+    );
+    match &mut obj.storage {
+        PropertyStorage::Shaped { slots, .. } => {
+            slots[slot_idx] = PropertyValue::Data(new_val);
+        }
+        PropertyStorage::Dictionary(_) => {
+            unreachable!(
+                "set_event_slot_raw: Event objects always use Shaped storage — \
+                 dispatch path was expected to observe a precomputed-shape event"
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
 // Payload slot assembly moved to
 // `host::event_shapes::dispatch_payload` (PR5a2 C2) — shape
 // selection and slot writes now live in a single SSOT match.

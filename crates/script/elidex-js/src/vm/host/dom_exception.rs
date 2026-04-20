@@ -67,6 +67,23 @@ pub(super) fn not_found_error(name_sid: StringId, method: &str, detail: &str) ->
     )
 }
 
+/// `DOMException("InvalidStateError")` factory.  WHATWG DOM §2.9 step 3
+/// re-dispatch throw site (`EventTarget.dispatchEvent` on an event
+/// whose dispatch flag is already set) is the sole consumer in PR5a2
+/// — future callers may arrive as new algorithm steps pull in the
+/// error shape.
+pub(super) fn invalid_state_error(
+    name_sid: StringId,
+    interface: &str,
+    method: &str,
+    detail: &str,
+) -> VmError {
+    VmError::dom_exception(
+        name_sid,
+        format!("Failed to execute '{method}' on '{interface}': {detail}"),
+    )
+}
+
 /// Per-instance out-of-band state for a `DOMException`.  Storage
 /// lives on [`super::super::VmInner::dom_exception_states`], keyed
 /// by the instance's `ObjectId` (same pattern as

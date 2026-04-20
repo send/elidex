@@ -797,6 +797,16 @@ impl VmInner {
             // future PR introduces).
             self.pending_timeout_signals
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
+            // `dispatched_events` — event ObjectIds whose dispatch is
+            // currently in flight.  The event is rooted during its
+            // listener walk (via the caller's JS stack), so a
+            // collected entry indicates the walk completed without
+            // calling `dispatched_events.remove` (e.g. a Rust panic
+            // in a native helper between the insert and the cleanup
+            // sentinel).  Treat it as defensive: drop the stale id
+            // so a recycled slot can't observe "already dispatching"
+            // membership.
+            self.dispatched_events.retain(|id| bit_get(marks, id.0));
         }
 
         // 5. IC invalidation.
