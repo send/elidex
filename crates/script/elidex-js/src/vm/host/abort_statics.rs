@@ -117,11 +117,15 @@ pub(super) fn native_abort_signal_static_any(
         }
     };
 
-    let composite = ctx.vm.create_abort_signal();
-    // Pre-pass: collect + validate input signals; if any is
-    // already aborted, composite aborts synchronously with that
-    // reason (WHATWG §3.1.3.3 step 2).
+    // Pre-validation pass — side-effect-free.  We validate every
+    // element (brand check + AbortSignal kind) *before* allocating
+    // the composite signal so a throw on a bogus element does not
+    // strand an unreferenced entry in `abort_signal_states`.  Also
+    // capture the first already-aborted signal's reason so we can
+    // propagate it when (and only when) the allocation succeeds
+    // (WHATWG §3.1.3.3 step 2).
     let mut inputs: Vec<ObjectId> = Vec::with_capacity(elements.len());
+    let mut first_aborted_reason: Option<JsValue> = None;
     for v in elements {
         let JsValue::Object(sig_id) = v else {
             return Err(VmError::type_error(
@@ -133,22 +137,20 @@ pub(super) fn native_abort_signal_static_any(
                 "AbortSignal.any: iterable element is not an AbortSignal",
             ));
         }
-        let already_aborted = ctx
-            .vm
-            .abort_signal_states
-            .get(&sig_id)
-            .is_some_and(|s| s.aborted);
-        if already_aborted {
-            let reason = ctx
-                .vm
-                .abort_signal_states
-                .get(&sig_id)
-                .map(|s| s.reason)
-                .unwrap_or(JsValue::Undefined);
-            abort_signal(ctx, composite, reason)?;
-            return Ok(JsValue::Object(composite));
+        if first_aborted_reason.is_none() {
+            if let Some(state) = ctx.vm.abort_signal_states.get(&sig_id) {
+                if state.aborted {
+                    first_aborted_reason = Some(state.reason);
+                }
+            }
         }
         inputs.push(sig_id);
+    }
+
+    // Validation succeeded — allocate the composite exactly once.
+    let composite = ctx.vm.create_abort_signal();
+    if let Some(reason) = first_aborted_reason {
+        abort_signal(ctx, composite, reason)?;
     }
     // TODO: multi-input propagation — install an 'abort' listener
     // on each input that forwards to `composite`.  Requires the

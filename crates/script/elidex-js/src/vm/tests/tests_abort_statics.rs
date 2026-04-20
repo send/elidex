@@ -94,6 +94,28 @@ fn abort_signal_any_already_aborted_input_propagates() {
 }
 
 #[test]
+fn abort_signal_any_invalid_element_does_not_strand_composite_state() {
+    // Regression: `AbortSignal.any([invalid])` used to allocate
+    // the composite signal (+ insert into `abort_signal_states`)
+    // BEFORE validating the iterable elements.  A throw on a bogus
+    // element left the composite rooted in the state map until the
+    // next GC cycle — frequent misuse could accumulate entries.
+    // The pre-validation reorder ensures no allocation happens on
+    // the error path.
+    let mut vm = Vm::new();
+    let baseline = vm.inner.abort_signal_states.len();
+    for _ in 0..5 {
+        let r = vm.eval("try { AbortSignal.any([42]); 0; } catch(e) { 1; }");
+        assert!(matches!(r.unwrap(), JsValue::Number(n) if (n - 1.0).abs() < f64::EPSILON));
+    }
+    assert_eq!(
+        vm.inner.abort_signal_states.len(),
+        baseline,
+        "no composite signal should be left in abort_signal_states after validation throws"
+    );
+}
+
+#[test]
 fn abort_signal_any_non_signal_arg_throws_type_error() {
     let mut vm = Vm::new();
     // PR5a scope: coercion failure is a plain TypeError (not
