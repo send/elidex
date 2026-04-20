@@ -291,7 +291,8 @@ fn custom_event_without_new_throws() {
 #[test]
 fn core_9_slot_order_is_locked() {
     // Structural invariant: every Event shape extends from `core`
-    // with the 9 canonical keys at slots 0..9.  `dispatchEvent`
+    // with the 9 canonical keys at slots 0..8 (CORE_KEY_COUNT).
+    // `dispatchEvent`
     // mutates slots 3 / 4 / 5 (eventPhase / target / currentTarget)
     // by index without re-reading the shape — if this ever changes,
     // dispatchEvent would silently write wrong keys.  The assertion
