@@ -354,44 +354,30 @@ pub(crate) struct VmInner {
     ///   map in the common case).
     #[cfg(feature = "engine")]
     pub(crate) pending_timeout_signals: HashMap<u32, ObjectId>,
-    /// `AbortSignal.any(inputs)` fan-out map — keyed by an input
-    /// signal's `ObjectId`, valued by the list of composite signal
-    /// `ObjectId`s that observe it (WHATWG DOM §3.1.3.3 "follow
-    /// abort signal" algorithm, native fan-out flavour).
+    /// `AbortSignal.any(inputs)` fan-out — input `ObjectId` →
+    /// composite signal `ObjectId`s that observe it (WHATWG DOM
+    /// §3.1.3.3).  On input abort, [`host::abort::abort_signal`]
+    /// removes the entry and fires each composite with the
+    /// input's reason; composites' own `aborted` latch makes
+    /// duplicate inputs (`any([a, a])`) safe.
     ///
-    /// When an input aborts, [`host::abort::abort_signal`] consults
-    /// this map and performs an internal abort on every still-active
-    /// composite using the input's reason.  The list is not
-    /// deduplicated — duplicated inputs in the `any()` call (e.g.
-    /// `any([a, a])`) add two entries, but the second trip through
-    /// `abort_signal` is a no-op via its `aborted` latch.
-    ///
-    /// GC contract:
-    /// - Mark phase: every composite `ObjectId` in the values is a
-    ///   strong root so an `AbortSignal.any([a, b])` whose result
-    ///   the user discards (but `a` / `b` retain) stays reachable
-    ///   until either input aborts or both inputs are collected.
-    /// - Sweep tail: prune entries whose key was collected (input
-    ///   dead) and filter the value list for dead composites —
-    ///   same pattern as [`Self::abort_signal_states`].
+    /// GC contract: composite ObjectIds in the values are strong
+    /// roots (so `any([a, b])` whose result the user discards
+    /// stays reachable until either input aborts or is
+    /// collected); sweep prunes dead input keys and filters dead
+    /// composites — see [`Self::abort_signal_states`] for the
+    /// shared prune pattern.
     #[cfg(feature = "engine")]
     pub(crate) any_composite_map: HashMap<ObjectId, Vec<ObjectId>>,
-    /// Events currently being dispatched — WHATWG DOM §2.9 step 3
-    /// forbids re-entrant `dispatchEvent()` on the same `Event`
-    /// instance, and the spec algorithm's "dispatch flag" is a
-    /// per-event bit.  Storing the set VM-side (keyed by the event's
-    /// `ObjectId`) keeps the flag out-of-band so `ObjectKind::Event`
-    /// doesn't grow an extra byte per instance.
+    /// In-flight dispatch flag side table — WHATWG DOM §2.9 step 3
+    /// rejects re-entrant `dispatchEvent()` on an event that is
+    /// already propagating.  Kept out-of-band so `ObjectKind::Event`
+    /// stays payload-free.  Membership is cleared at dispatch
+    /// completion (happy path or throw), so a later sequential
+    /// re-dispatch of the same instance succeeds.
     ///
-    /// Membership is cleared at dispatch completion (normal return
-    /// or throw from a listener — both exit paths drop the id),
-    /// leaving the event re-dispatchable on a later call.
-    ///
-    /// GC contract: the set is side-table state — entries whose key
-    /// `ObjectId` was collected are pruned in `collect_garbage`'s
-    /// sweep tail so a recycled slot can't observe stale
-    /// "already dispatching" membership.  Same pattern as
-    /// `abort_signal_states` and `dom_exception_states`.
+    /// GC contract: sweep prunes entries whose key was collected,
+    /// matching [`Self::abort_signal_states`].
     #[cfg(feature = "engine")]
     pub(crate) dispatched_events: HashSet<ObjectId>,
     /// `Event.prototype` (WebIDL §2.2).  Holds the four event methods

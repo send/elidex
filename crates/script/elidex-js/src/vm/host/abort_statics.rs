@@ -84,17 +84,15 @@ pub(super) fn native_abort_signal_static_timeout(
 /// input is already aborted at call time, the returned signal is
 /// aborted synchronously with the first-aborted signal's reason;
 /// otherwise the composite is non-aborted and propagation happens
-/// lazily via [`super::super::VmInner::any_composite_map`] —
-/// every abort on an input consults the map and fires on each
-/// observing composite before returning to the user.  Chained
-/// composites (`any([any([a, b]), c])`) propagate through the
-/// map's recursive `abort_signal` call.
+/// via [`super::super::VmInner::any_composite_map`] — every abort
+/// on an input consults the map and fires on each observing
+/// composite before returning to the user.  Chained composites
+/// (`any([any([a, b]), c])`) propagate through the map's
+/// recursive `abort_signal` call.
 ///
-/// PR5a2 C6 superseded the earlier "TODO multi-input propagation"
-/// marker — no `addEventListener('abort', …)` indirection is
-/// needed because the fan-out runs inside
-/// [`super::abort::abort_signal`] directly, sparing a pair of
-/// engine-side function allocations per input.
+/// The fan-out runs inside [`super::abort::abort_signal`]
+/// directly rather than via `addEventListener('abort', …)` so
+/// the composite does not incur per-input native-fn allocations.
 pub(super) fn native_abort_signal_static_any(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

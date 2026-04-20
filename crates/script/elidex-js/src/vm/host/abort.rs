@@ -770,22 +770,12 @@ pub(super) fn abort_signal(
     // latch inside a recursive `abort_signal` call guards
     // against duplicate fires if multiple inputs share a
     // composite in the same call stack.
-    let fan_out_targets = ctx.vm.any_composite_map.remove(&signal_id);
-    if let Some(composites) = fan_out_targets {
+    // Reason was just latched into `state.reason` above; hoist the
+    // read outside the loop so composites receive the exact
+    // propagated value and we skip N-1 HashMap lookups.
+    if let Some(composites) = ctx.vm.any_composite_map.remove(&signal_id) {
+        let reason = materialised_reason;
         for composite_id in composites {
-            // Materialised reason is latched on the input's
-            // state — re-read rather than re-materialising so we
-            // propagate the exact value handed to listeners.
-            let reason = ctx
-                .vm
-                .abort_signal_states
-                .get(&signal_id)
-                .map(|s| s.reason)
-                .unwrap_or(JsValue::Undefined);
-            // Recursive call — composite may itself be an input
-            // to another composite, chaining arbitrarily deep.
-            // `abort_signal`'s latch means an already-aborted
-            // composite is a cheap no-op return.
             abort_signal(ctx, composite_id, reason)?;
         }
     }

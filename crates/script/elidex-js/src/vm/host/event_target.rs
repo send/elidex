@@ -721,7 +721,7 @@ fn dispatch_script_event(
     use super::events::{
         set_event_slot_raw, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_EVENT_PHASE, EVENT_SLOT_TARGET,
     };
-    use elidex_plugin::{EventPayload, EventPhase};
+    use elidex_plugin::EventPhase;
 
     // ---- A. Extract the event's invariant attributes ----
     // The `type`, `bubbles`, `cancelable`, `composed` slots never
@@ -780,32 +780,27 @@ fn dispatch_script_event(
     };
     // `DispatchEvent` is `#[non_exhaustive]` (cross-crate boundary —
     // the session crate owns it), so direct struct literal is
-    // rejected.  `new_untrusted` sets `is_trusted = false`,
-    // `bubbles = false`, `cancelable = false`, `composed = false`
-    // and then we overwrite the mutable invariants pulled from
-    // the user event.  `_ = EventPayload::None` — payload is not
-    // consulted by `build_dispatch_plan` / `apply_retarget` (they
-    // only read target / composed / flags), so the default None
-    // is correct.
+    // rejected.  `new_untrusted` sets `is_trusted = false` plus
+    // `EventPayload::None` + `EventPhase::None`; we override the
+    // user-facing invariants below.  `build_dispatch_plan` /
+    // `apply_retarget` only read target / composed / flags, so the
+    // default payload is correct.
     let mut local = DispatchEvent::new_untrusted(event_type_str, target_entity);
     local.bubbles = bubbles;
     local.cancelable = cancelable;
     local.composed = composed;
     local.flags = initial_flags;
     local.dispatch_flag = true;
-    let _ = EventPayload::None; // Documents the payload contract; optimised out.
-    let _ = EventPhase::None;
 
     // ---- C. Build dispatch plan + composed path ----
     // Scoped DOM borrow so subsequent `create_element_wrapper`
     // calls (which need `&mut ctx.vm`) don't overlap.
-    let (plan, prop_path) = {
+    let plan = {
         let dom = ctx.host().dom();
-        let plan = build_dispatch_plan(dom, &local);
-        let path = build_propagation_path(dom, local.target, local.composed);
-        (plan, path)
+        let p = build_dispatch_plan(dom, &local);
+        local.composed_path = build_propagation_path(dom, local.target, local.composed);
+        p
     };
-    local.composed_path = prop_path.clone();
 
     // ---- D. Seed the user event's `composed_path` internal slot ----
     // Build one Array of wrappers mirroring `create_event_object`'s
@@ -824,7 +819,8 @@ fn dispatch_script_event(
         let mut g = ctx
             .vm
             .push_temp_root(JsValue::Object(saved_target_wrapper_id));
-        let elements: Vec<JsValue> = prop_path
+        let elements: Vec<JsValue> = local
+            .composed_path
             .iter()
             .map(|&entity| JsValue::Object(g.create_element_wrapper(entity)))
             .collect();
@@ -978,10 +974,11 @@ fn walk_phase(
         local.phase = phase;
 
         // Update the JS event slots to match the current phase
-        // state.  `target` may differ from `saved_target` when
-        // the listener entity sits outside a shadow boundary that
-        // the target is nested within; `currentTarget` always
-        // changes per entity; `eventPhase` encodes the phase enum.
+        // state.  `currentTarget` always changes per entity; the
+        // target slot only needs a rewrite when `apply_retarget`
+        // actually moved it (common case: no shadow crossing, so
+        // `local.target == saved_target` across the whole walk
+        // and the per-entity wrapper resolve is skippable).
         let target_wrapper = ctx.vm.create_element_wrapper(local.target);
         let current_wrapper = ctx.vm.create_element_wrapper(*entity);
         set_event_slot_raw(
