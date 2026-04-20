@@ -407,6 +407,25 @@ pub(crate) struct VmInner {
     /// `isComposing` own-data slots.
     #[cfg(feature = "engine")]
     pub(crate) input_event_prototype: Option<ObjectId>,
+    /// `PromiseRejectionEvent.prototype` (HTML §8.1.7.3.4).  Chains to
+    /// [`event_prototype`] (sibling of UIEvent, not descendant).  Adds
+    /// `promise` / `reason` own-data slots.
+    #[cfg(feature = "engine")]
+    pub(crate) promise_rejection_event_prototype: Option<ObjectId>,
+    /// `ErrorEvent.prototype` (HTML §8.1.7.2).  Chains to
+    /// [`event_prototype`].  Adds `message` / `filename` / `lineno` /
+    /// `colno` / `error` own-data slots.
+    #[cfg(feature = "engine")]
+    pub(crate) error_event_prototype: Option<ObjectId>,
+    /// `HashChangeEvent.prototype` (HTML §8.1.3).  Chains to
+    /// [`event_prototype`].  Adds `oldURL` / `newURL` own-data slots
+    /// (reuses the UA-dispatch `hash_change` shape).
+    #[cfg(feature = "engine")]
+    pub(crate) hash_change_event_prototype: Option<ObjectId>,
+    /// `PopStateEvent.prototype` (HTML §8.8.1).  Chains to
+    /// [`event_prototype`].  Adds `state` own-data slot.
+    #[cfg(feature = "engine")]
+    pub(crate) pop_state_event_prototype: Option<ObjectId>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

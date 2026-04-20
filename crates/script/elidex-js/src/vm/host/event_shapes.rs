@@ -118,6 +118,26 @@ pub(crate) struct PrecomputedEventShapes {
     /// `new InputEvent(type, init)` — UIEvent base + `inputType` /
     /// `data` / `isComposing`.
     pub(crate) input_event_constructed: ShapeId,
+    // -- PR5a2 C4: non-UIEvent specialized constructor shapes --
+    //
+    // These chain directly to `core` (no UIEvent prefix) since their
+    // WebIDL interfaces extend `Event`, not `UIEvent`.  Slot layout
+    // per init-dict key order; HashChangeEvent reuses the existing
+    // `hash_change` terminal shape (both have `oldURL` / `newURL` in
+    // identical order).
+    /// `new PromiseRejectionEvent(type, init)` — core + `promise` +
+    /// `reason`.  The UA dispatch path doesn't use a separate payload
+    /// variant for these (Promise rejections flow through
+    /// `VmInner::dispatch_unhandled_rejection` which constructs the
+    /// Event object directly), so this shape is only reached via the
+    /// script-side ctor.
+    pub(crate) promise_rejection_event: ShapeId,
+    /// `new ErrorEvent(type, init)` — core + `message` + `filename`
+    /// + `lineno` + `colno` + `error`.  Separate from any UA error
+    /// reporting path.
+    pub(crate) error_event: ShapeId,
+    /// `new PopStateEvent(type, init)` — core + `state`.
+    pub(crate) pop_state_event: ShapeId,
 }
 
 // Local helpers for [`dispatch_payload`] — keep each variant arm
@@ -571,6 +591,28 @@ impl VmInner {
             ],
         );
 
+        // Non-UIEvent specialized constructor shapes (PR5a2 C4).
+        // Chain to `core` directly — these don't inherit `view` /
+        // `detail` since their WebIDL interfaces extend Event, not
+        // UIEvent.
+        let promise_rejection_event = extend(
+            self,
+            core,
+            &[self.well_known.promise, self.well_known.reason],
+        );
+        let error_event = extend(
+            self,
+            core,
+            &[
+                self.well_known.message,
+                self.well_known.filename,
+                self.well_known.lineno,
+                self.well_known.colno,
+                self.well_known.error,
+            ],
+        );
+        let pop_state_event = extend(self, core, &[self.well_known.state]);
+
         PrecomputedEventShapes {
             core,
             mouse,
@@ -593,6 +635,9 @@ impl VmInner {
             keyboard_event_constructed,
             focus_event_constructed,
             input_event_constructed,
+            promise_rejection_event,
+            error_event,
+            pop_state_event,
         }
     }
 }

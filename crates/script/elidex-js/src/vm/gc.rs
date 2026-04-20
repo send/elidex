@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 32],
+    proto_roots: [Option<ObjectId>; 36],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -699,6 +699,23 @@ impl VmInner {
                 None,
                 #[cfg(feature = "engine")]
                 self.input_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 32 + 4 (PR5a2 C4 non-UIEvent specialized ctors) = 36.
+                #[cfg(feature = "engine")]
+                self.promise_rejection_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.error_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.hash_change_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.pop_state_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],

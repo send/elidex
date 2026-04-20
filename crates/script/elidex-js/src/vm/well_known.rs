@@ -134,6 +134,23 @@ pub(crate) struct WellKnownStrings {
     pub(crate) movement_x: StringId,
     pub(crate) movement_y: StringId,
 
+    // -- Non-UIEvent specialized constructor globals (PR5a2 C4) --
+    // PromiseRejectionEvent / ErrorEvent / HashChangeEvent /
+    // PopStateEvent all chain directly to `Event.prototype` (not
+    // UIEvent — they're sibling subclasses of Event).
+    pub(crate) promise_rejection_event_global: StringId,
+    pub(crate) error_event_global: StringId,
+    pub(crate) hash_change_event_global: StringId,
+    pub(crate) pop_state_event_global: StringId,
+
+    // -- ErrorEvent / PopStateEvent init-dict keys (PR5a2 C4) --
+    // `message` / `error` / `reason` / `promise` / `old_url` /
+    // `new_url` already exist elsewhere and are reused here.
+    pub(crate) filename: StringId,
+    pub(crate) lineno: StringId,
+    pub(crate) colno: StringId,
+    pub(crate) state: StringId,
+
     // -- Event payload property keys --
     // Pre-interned so `create_event_object`'s payload installation
     // can feed them directly into the precomputed-shape slot array
@@ -425,6 +442,18 @@ impl WellKnownStrings {
             screen_y: strings.intern("screenY"),
             movement_x: strings.intern("movementX"),
             movement_y: strings.intern("movementY"),
+
+            // Non-UIEvent specialized Event constructor globals (PR5a2 C4).
+            promise_rejection_event_global: strings.intern("PromiseRejectionEvent"),
+            error_event_global: strings.intern("ErrorEvent"),
+            hash_change_event_global: strings.intern("HashChangeEvent"),
+            pop_state_event_global: strings.intern("PopStateEvent"),
+
+            // ErrorEvent / PopStateEvent init-dict keys (PR5a2 C4).
+            filename: strings.intern("filename"),
+            lineno: strings.intern("lineno"),
+            colno: strings.intern("colno"),
+            state: strings.intern("state"),
 
             // Event-payload property keys.  Interned once here so
             // `create_event_object` can feed slots into

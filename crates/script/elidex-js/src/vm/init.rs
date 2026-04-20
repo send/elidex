@@ -119,6 +119,14 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 input_event_prototype: None,
                 #[cfg(feature = "engine")]
+                promise_rejection_event_prototype: None,
+                #[cfg(feature = "engine")]
+                error_event_prototype: None,
+                #[cfg(feature = "engine")]
+                hash_change_event_prototype: None,
+                #[cfg(feature = "engine")]
+                pop_state_event_prototype: None,
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),

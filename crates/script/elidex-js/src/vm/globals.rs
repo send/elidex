@@ -274,6 +274,12 @@ impl VmInner {
             self.register_keyboard_event_global();
             self.register_focus_event_global();
             self.register_input_event_global();
+            // Non-UIEvent specialized ctors (PR5a2 C4) — chain
+            // directly to Event.prototype, no UIEvent prefix.
+            self.register_promise_rejection_event_global();
+            self.register_error_event_global();
+            self.register_hash_change_event_global();
+            self.register_pop_state_event_global();
         }
 
         // `DOMException` constructor + prototype (WebIDL §3.14).
