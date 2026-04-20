@@ -157,13 +157,11 @@ struct GcRoots<'a> {
     /// so they don't need tracing.
     #[cfg(feature = "engine")]
     pending_timeout_signals: &'a HashMap<u32, ObjectId>,
-    /// `AbortSignal.any(...)` composite → inputs fan-out map.  The
-    /// values are composite signal `ObjectId`s that must stay
-    /// reachable while any of their inputs is alive; see
-    /// [`super::VmInner::any_composite_map`] for the sweep-tail
-    /// pruning contract and the mark-phase rationale.
-    #[cfg(feature = "engine")]
-    any_composite_map: &'a HashMap<ObjectId, Vec<ObjectId>>,
+    // `any_composite_map` is weak bookkeeping only — no GC roots
+    // live there.  The sweep pass prunes dead ObjectIds post-GC
+    // and `abort_signal`'s fan-out tolerates missing state — both
+    // routes avoid keeping composite signals alive through this
+    // map (see `mark_roots` step (k) for the rationale).
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -308,22 +306,25 @@ fn mark_roots(
         mark_object(signal_id, obj_marks, work);
     }
 
-    // (k) `AbortSignal.any` composite fan-out values.  A composite
-    // built by `any([a, b])` whose JS reference is dropped (but
-    // `a` / `b` retained) is reachable only through this map's
-    // values — without marking it, a GC triggered before any
-    // input aborts would reclaim the composite and the input's
-    // eventual abort would dead-slot the fan-out fire.  Input
-    // keys don't need marking: they already have independent
-    // live references (otherwise the user couldn't invoke
-    // `abort` on them, which is the only path that reaches this
-    // map on fire).
-    #[cfg(feature = "engine")]
-    for composites in roots.any_composite_map.values() {
-        for &composite_id in composites {
-            mark_object(composite_id, obj_marks, work);
-        }
-    }
+    // (k) `AbortSignal.any` composite fan-out entries are weak
+    // bookkeeping only — NOT GC roots.  Marking composite values
+    // here would retain every `any([...])` result until every
+    // input signal also dies, letting a caller that discards the
+    // composite (e.g. `AbortSignal.any([a, b])` in a loop without
+    // storing results) accumulate unreachable composites
+    // indefinitely.
+    //
+    // Rooting lives on the indirect path instead: a composite
+    // with an installed `'abort'` listener or `onabort` handler is
+    // kept alive through `abort_signal_states` (its listener
+    // callbacks are traced when the signal's own ObjectId is
+    // marked — and the signal is marked through whatever JS
+    // reference held it: stack frame, global, upvalue, etc.).
+    // A composite with no such anchor is correctly collected; the
+    // sweep tail prunes its any_composite_map entry and the
+    // fan-out path in `abort_signal` tolerates dead ObjectIds
+    // (`abort_signal` itself silently early-returns for
+    // already-aborted / missing state).
 }
 
 /// Trace the work list: pop enqueued ObjectIds, mark their transitive references.
@@ -759,8 +760,6 @@ impl VmInner {
             abort_signal_states: &self.abort_signal_states,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
-            #[cfg(feature = "engine")]
-            any_composite_map: &self.any_composite_map,
         };
 
         self.gc_work_list.clear();

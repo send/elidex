@@ -194,12 +194,17 @@ fn native_promise_rejection_event_constructor(
 ) -> Result<JsValue, VmError> {
     check_construct(ctx, "PromiseRejectionEvent")?;
     let type_sid = type_arg(ctx, args, "PromiseRejectionEvent")?;
-    // WHATWG HTML §8.1.7.3.4: `eventInitDict` is required (the dict
-    // itself has `required Promise<any> promise`).  Distinguish a
-    // missing second argument (arity error) from a present-but-
-    // non-dictionary value (WebIDL `PromiseRejectionEventInit`
-    // coercion error) — collapsing both into a single "arity" text
-    // misreports the null / number / string / bool cases.
+    // WHATWG HTML §8.1.7.3.4 + WebIDL §3.10.23 dictionary coercion:
+    //   - A missing second arg → arity error (dict with `required`
+    //     member has no valid zero-arg form).
+    //   - `null` / `undefined` → WebIDL treats as an empty
+    //     dictionary; the subsequent `required promise` check
+    //     reports "required member promise is undefined", matching
+    //     Chrome.  Collapsing `null` into a coercion error would
+    //     diverge from the spec.
+    //   - Non-object primitive (number / string / bool) → WebIDL
+    //     dictionary coercion error (`parameter 2 is not of type
+    //     'PromiseRejectionEventInit'`).
     let init_arg = match args.get(1).copied() {
         Some(v) => v,
         None => {
@@ -210,7 +215,10 @@ fn native_promise_rejection_event_constructor(
         }
     };
     let opts_id = match init_arg {
-        JsValue::Object(id) => id,
+        JsValue::Object(id) => Some(id),
+        // `null` / `undefined` → WebIDL empty dict; fall through
+        // so the required-member check drives the error text.
+        JsValue::Null | JsValue::Undefined => None,
         _ => {
             return Err(VmError::type_error(
                 "Failed to construct 'PromiseRejectionEvent': \
@@ -219,23 +227,30 @@ fn native_promise_rejection_event_constructor(
         }
     };
     let base = parse_event_init(ctx, init_arg, "PromiseRejectionEvent")?;
-    // `required Promise<any> promise` — absent key throws.  The check
-    // uses the raw own-property lookup result: `undefined` (missing or
-    // explicit `undefined`) is WebIDL-required-violating.  We don't
-    // validate that the value is a Promise-shaped object (matches
-    // Chrome's loose pass-through: any value is stored as-is).
+    // `required Promise<any> promise` — absent key (empty-dict case
+    // from null / undefined / `{}`) throws.  The check uses the raw
+    // own-property lookup result: `undefined` (missing or explicit
+    // `undefined`) is WebIDL-required-violating.  We don't validate
+    // that the value is a Promise-shaped object (matches Chrome's
+    // loose pass-through: any value is stored as-is).
     let k_promise = ctx.vm.well_known.promise;
     let k_reason = ctx.vm.well_known.reason;
-    let promise_val = ctx
-        .vm
-        .get_property_value(opts_id, PropertyKey::String(k_promise))?;
+    let promise_val = match opts_id {
+        Some(id) => ctx
+            .vm
+            .get_property_value(id, PropertyKey::String(k_promise))?,
+        None => JsValue::Undefined,
+    };
     if matches!(promise_val, JsValue::Undefined) {
         return Err(VmError::type_error(
             "Failed to construct 'PromiseRejectionEvent': \
              required member promise is undefined.",
         ));
     }
-    let reason_val = read_any(ctx, opts_id, k_reason, JsValue::Undefined)?;
+    let reason_val = match opts_id {
+        Some(id) => read_any(ctx, id, k_reason, JsValue::Undefined)?,
+        None => JsValue::Undefined,
+    };
     let shape_id = ctx
         .vm
         .precomputed_event_shapes

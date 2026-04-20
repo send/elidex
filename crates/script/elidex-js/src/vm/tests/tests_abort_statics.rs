@@ -331,28 +331,56 @@ fn any_composite_map_cleaned_after_input_aborts() {
 }
 
 #[test]
-fn any_composite_survives_gc_while_inputs_live() {
-    // If user drops the composite reference but keeps input
-    // controllers alive, the composite must stay reachable via
-    // `any_composite_map`'s value-side root so a subsequent
-    // input abort still has a live target.
+fn any_composite_map_is_weak_bookkeeping() {
+    // `any_composite_map` does NOT root composite signal
+    // ObjectIds.  If the user holds a reference to the composite,
+    // it survives (kept alive via stack / global / etc.); if the
+    // user drops all references, the composite is collectable and
+    // the sweep tail prunes its entry from the map so unreachable
+    // composites don't accumulate while inputs remain alive.
     let mut vm = Vm::new();
     vm.eval(
         "globalThis.a = new AbortController(); \
          globalThis.b = new AbortController(); \
-         var c = AbortSignal.any([a.signal, b.signal]); \
-         globalThis.c = c;",
+         globalThis.c = AbortSignal.any([a.signal, b.signal]);",
     )
     .unwrap();
-    // Run a full GC; composite should survive via the map root.
+    // User holds `c` → both input entries stay alive after GC.
     vm.inner.collect_garbage();
     assert_eq!(vm.inner.any_composite_map.len(), 2);
 
-    // Now drop the user-visible reference, GC, abort.  Composite
-    // must still exist in the map + still be abortable.
+    // User drops `c` → composite collectable; sweep removes dead
+    // ObjectIds from each Vec, draining both input entries when
+    // the composite was their only element.
     vm.eval("globalThis.c = undefined;").unwrap();
     vm.inner.collect_garbage();
-    vm.eval("a.abort('post-gc');").unwrap();
-    // After abort, the `a` key entry should be drained; `b` remains.
+    assert_eq!(
+        vm.inner.any_composite_map.len(),
+        0,
+        "dropped composite must be pruned from any_composite_map"
+    );
+
+    // Aborting an input after the composite is gone must be a
+    // silent no-op (fan-out path tolerates the empty map).
+    let result = vm.eval("a.abort('post-gc'); a.signal.aborted;").unwrap();
+    assert!(matches!(result, JsValue::Boolean(true)));
+}
+
+#[test]
+fn any_composite_with_user_ref_survives_gc_and_propagates_abort() {
+    // With a live user reference, the composite is marked via the
+    // normal GC path (globalThis) and abort propagation still
+    // works — weak bookkeeping doesn't break the common case.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.a = new AbortController(); \
+         globalThis.c = AbortSignal.any([a.signal]);",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
     assert_eq!(vm.inner.any_composite_map.len(), 1);
+    let result = vm
+        .eval("a.abort('x'); c.aborted && c.reason === 'x';")
+        .unwrap();
+    assert!(matches!(result, JsValue::Boolean(true)));
 }

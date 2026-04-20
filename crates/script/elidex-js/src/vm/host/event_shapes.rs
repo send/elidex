@@ -27,16 +27,19 @@
 //! — those payloads install no extra properties (see the wildcard
 //! arm in [`dispatch_payload`]).
 //!
-//! ## Shape + slot-writer unification
+//! ## Shape + slot-writer coordination
 //!
 //! Shape selection and payload-slot assembly used to live in two
 //! separate 16-arm matches (`PrecomputedEventShapes::shape_for` and
-//! `events::append_payload_slots`) that had to be kept in lockstep;
-//! reordering one without the other silently wrote payload values
-//! into the wrong JS-visible key slots.  [`dispatch_payload`]
-//! consolidates both into a single match that picks the shape AND
-//! writes the payload slots in one pass — adding a new variant
-//! touches exactly one arm.
+//! `events::append_payload_slots`) in two different modules that had
+//! to be kept in lockstep; reordering one without the other silently
+//! wrote payload values into the wrong JS-visible key slots.
+//! [`dispatch_payload`] co-locates both operations in a single
+//! function — in practice still a `match` for shape selection
+//! followed by per-variant slot pushes within the same function body,
+//! but adding a new variant now touches one arm in one file instead
+//! of two arms across two files, which is what the SSOT unification
+//! was after.
 
 #![cfg(feature = "engine")]
 

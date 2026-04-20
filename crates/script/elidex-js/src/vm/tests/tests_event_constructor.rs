@@ -9,7 +9,10 @@
 //! - Default values (null target/currentTarget, eventPhase 0, isTrusted false)
 //! - Prototype chain: `instance → Event.prototype → Object.prototype`
 //! - `CustomEvent.prototype → Event.prototype`
-//! - Brand check: `Event.prototype.preventDefault.call(plainObj)` TypeError
+//! - Brand check: `Event.prototype.preventDefault.call(plainObj)` returns
+//!   `undefined` (silent no-op — elidex convention for detached method
+//!   handles, see `natives_event.rs` module doc rationale; WebIDL
+//!   TypeError path is deferred)
 //! - `timeStamp` is non-zero (monotonic origin shared with
 //!   `performance.now()`)
 //! - Core-9 shape slot layout invariant (S2 lock-in test)
