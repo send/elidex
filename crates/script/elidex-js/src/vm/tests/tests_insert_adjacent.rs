@@ -133,19 +133,20 @@ fn insert_adjacent_element_afterend_no_parent_returns_null() {
 
 #[test]
 fn insert_adjacent_element_rejects_bogus_where() {
-    // PR5a C1 B1-fix unified dispatch: CallMethod now wraps VmError
-    // into a proper Error object (same as Op::Call), so assert on
-    // `e.name` instead of the old string-coerce shape.  C2 swaps
-    // this to DOMException("SyntaxError") — the assertion will
-    // update at that point.
+    // PR5a C2: bogus `where` argument → DOMException("SyntaxError")
+    // per WHATWG DOM §4.9 step 1.  Upgrade from the PR5a C1 interim
+    // TypeError guard.  Also spot-checks `e instanceof DOMException`
+    // (prototype chain) and the legacy `.code === 12`.
     let out = run(
         "var t = document.getElementById('t');\
          var p = document.createElement('p');\
          try { t.insertAdjacentElement('sideways', p); 'no-throw'; } \
          catch (e) { \
-           var isType = (e && e.name === 'TypeError');\
+           var isDom = (e && e.name === 'SyntaxError' \
+                        && e instanceof DOMException \
+                        && e.code === 12);\
            var unchanged = t.parentNode.childNodes.length === 2;\
-           isType + ':' + unchanged; }",
+           isDom + ':' + unchanged; }",
         build_pair_in_parent,
     );
     assert_eq!(out, "true:true");
@@ -153,10 +154,29 @@ fn insert_adjacent_element_rejects_bogus_where() {
 
 #[test]
 fn insert_adjacent_element_rejects_non_element_arg() {
+    // `null` fails the WebIDL `Element` coercion — still a plain
+    // TypeError (not a DOMException), matching Blink / Gecko.
     let out = run(
         "var t = document.getElementById('t');\
          try { t.insertAdjacentElement('beforeend', null); 'no-throw'; } \
          catch (e) { (e && e.name === 'TypeError') ? 'threw' : 'bad'; }",
+        build_pair_in_parent,
+    );
+    assert_eq!(out, "threw");
+}
+
+#[test]
+fn insert_adjacent_element_cycle_throws_hierarchy_request_error() {
+    // Inserting an ancestor into its descendant is a cycle.  The
+    // EcsDom `append_child` rejects it, and the throw path maps to
+    // `DOMException("HierarchyRequestError")` with legacy code 3.
+    let out = run(
+        "var t = document.getElementById('t');\
+         var parent = t.parentNode;\
+         try { t.insertAdjacentElement('beforeend', parent); 'no-throw'; } \
+         catch (e) { (e && e.name === 'HierarchyRequestError' \
+                      && e instanceof DOMException \
+                      && e.code === 3) ? 'threw' : 'bad'; }",
         build_pair_in_parent,
     );
     assert_eq!(out, "threw");
@@ -214,10 +234,13 @@ fn insert_adjacent_text_no_parent_is_noop_returns_undefined() {
 fn insert_adjacent_text_rejects_bogus_where_before_allocating_text() {
     // S6: position-parse failure is checked BEFORE the Text is created
     // so we don't leak detached Text nodes into the ECS on misuse.
+    // PR5a C2 also tightens the throw shape to
+    // `DOMException("SyntaxError")`.
     let out = run(
         "var t = document.getElementById('t');\
          try { t.insertAdjacentText('middle', 'x'); 'no-throw'; } \
-         catch (e) { 'threw'; }",
+         catch (e) { (e && e.name === 'SyntaxError' \
+                      && e instanceof DOMException) ? 'threw' : 'bad'; }",
         build_pair_in_parent,
     );
     assert_eq!(out, "threw");

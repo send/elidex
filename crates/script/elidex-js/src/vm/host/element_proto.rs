@@ -772,18 +772,22 @@ fn parse_adjacent_position(raw: &str) -> Option<InsertAdjacentWhere> {
 
 /// TypeError thrown when `where` is not one of the four spec literals.
 ///
-/// TODO(PR5a): upgrade `TypeError` → `DOMException("SyntaxError")`
-/// when DOMException lands.  All callers embed the method name so the
-/// message stays aligned with WHATWG `insertAdjacent*` step 1.
+/// `DOMException("SyntaxError")` thrown when the first argument of
+/// `insertAdjacent*` is not one of the four recognised positions.
+/// All callers embed the method name so the message stays aligned
+/// with WHATWG `insertAdjacent*` step 1.
 ///
 /// `where_value` is echoed into the message (matching Blink / Gecko)
 /// so script debuggers see the exact literal the caller supplied.
-fn adjacent_syntax_error(method: &str, where_value: &str) -> VmError {
-    VmError::type_error(format!(
-        "Failed to execute '{method}' on 'Element': \
-         the value provided ('{where_value}') is not one of \
-         'beforebegin', 'afterbegin', 'beforeend', or 'afterend'."
-    ))
+fn adjacent_syntax_error(ctx: &NativeContext<'_>, method: &str, where_value: &str) -> VmError {
+    VmError::dom_exception(
+        ctx.vm.well_known.dom_exc_syntax_error,
+        format!(
+            "Failed to execute '{method}' on 'Element': \
+             the value provided ('{where_value}') is not one of \
+             'beforebegin', 'afterbegin', 'beforeend', or 'afterend'."
+        ),
+    )
 }
 
 /// True when `pos` is one of the two positions that require the
@@ -807,17 +811,10 @@ fn adjacent_element_arg_error() -> VmError {
     )
 }
 
-/// TypeError thrown when `insertAdjacent*` fails pre-insertion validity
-/// (cycle / ancestor self-insert / destroyed entity).
-///
-/// TODO(PR5a): upgrade `TypeError` → `DOMException("HierarchyRequestError")`
-/// when DOMException lands.
-fn adjacent_hierarchy_error(method: &str) -> VmError {
-    VmError::type_error(format!(
-        "Failed to execute '{method}' on 'Element': \
-         the new child node cannot be inserted at this position."
-    ))
-}
+// `DOMException("HierarchyRequestError")` for insertAdjacent* is
+// assembled inline inside `perform_adjacent_insert` so the
+// `HierarchyRequestError` StringId is captured *before* the EcsDom
+// mutable borrow — see the closure at the top of that function.
 
 /// TypeError thrown when `insertAdjacentElement`'s second argument
 /// is a HostObject whose entity has been destroyed / recycled.
@@ -874,6 +871,22 @@ fn perform_adjacent_insert(
     pos: InsertAdjacentWhere,
     method: &str,
 ) -> Result<Option<Entity>, VmError> {
+    // Capture the interned `"HierarchyRequestError"` StringId up
+    // front — once `ctx.host().dom()` holds the mutable borrow,
+    // reaching back into `ctx.vm.well_known` would collide.  The
+    // helper that uses it (`make_hierarchy_err`) runs only on the
+    // cold error path, so the up-front capture is free on the
+    // success path.
+    let hier_name = ctx.vm.well_known.dom_exc_hierarchy_request_error;
+    let make_hierarchy_err = |method: &str| -> VmError {
+        VmError::dom_exception(
+            hier_name,
+            format!(
+                "Failed to execute '{method}' on 'Element': \
+                 the new child node cannot be inserted at this position."
+            ),
+        )
+    };
     let dom = ctx.host().dom();
     // WHATWG `Node.insertBefore(x, x)` and its `x, x.nextSibling`
     // sibling form treat "insert a node before itself" as a no-op
@@ -893,7 +906,7 @@ fn perform_adjacent_insert(
                 return Ok(Some(node));
             }
             if !dom.insert_before(parent, node, target) {
-                return Err(adjacent_hierarchy_error(method));
+                return Err(make_hierarchy_err(method));
             }
             Ok(Some(node))
         }
@@ -904,10 +917,10 @@ fn perform_adjacent_insert(
                     return Ok(Some(node));
                 }
                 if !dom.insert_before(target, node, first) {
-                    return Err(adjacent_hierarchy_error(method));
+                    return Err(make_hierarchy_err(method));
                 }
             } else if !dom.append_child(target, node) {
-                return Err(adjacent_hierarchy_error(method));
+                return Err(make_hierarchy_err(method));
             }
             Ok(Some(node))
         }
@@ -915,7 +928,7 @@ fn perform_adjacent_insert(
             // No spec-allowed no-op here: `target.appendChild(target)`
             // is a genuine cycle and must fail.
             if !dom.append_child(target, node) {
-                return Err(adjacent_hierarchy_error(method));
+                return Err(make_hierarchy_err(method));
             }
             Ok(Some(node))
         }
@@ -930,12 +943,12 @@ fn perform_adjacent_insert(
                         return Ok(Some(node));
                     }
                     if !dom.insert_before(parent, node, next) {
-                        return Err(adjacent_hierarchy_error(method));
+                        return Err(make_hierarchy_err(method));
                     }
                 }
                 None => {
                     if !dom.append_child(parent, node) {
-                        return Err(adjacent_hierarchy_error(method));
+                        return Err(make_hierarchy_err(method));
                     }
                 }
             }
@@ -964,8 +977,16 @@ pub(super) fn native_element_insert_adjacent_element(
     let where_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let where_raw = super::super::coerce::to_string(ctx.vm, where_arg)?;
     let where_str = ctx.vm.strings.get_utf8(where_raw);
-    let pos = parse_adjacent_position(&where_str)
-        .ok_or_else(|| adjacent_syntax_error("insertAdjacentElement", &where_str))?;
+    let pos = match parse_adjacent_position(&where_str) {
+        Some(p) => p,
+        None => {
+            return Err(adjacent_syntax_error(
+                ctx,
+                "insertAdjacentElement",
+                &where_str,
+            ))
+        }
+    };
 
     let element_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let node = require_element_arg(ctx, element_arg)?;
@@ -995,8 +1016,10 @@ pub(super) fn native_element_insert_adjacent_text(
     let where_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let where_raw = super::super::coerce::to_string(ctx.vm, where_arg)?;
     let where_str = ctx.vm.strings.get_utf8(where_raw);
-    let pos = parse_adjacent_position(&where_str)
-        .ok_or_else(|| adjacent_syntax_error("insertAdjacentText", &where_str))?;
+    let pos = match parse_adjacent_position(&where_str) {
+        Some(p) => p,
+        None => return Err(adjacent_syntax_error(ctx, "insertAdjacentText", &where_str)),
+    };
 
     // Parent-less short-circuit: `beforebegin` / `afterend` require
     // the receiver to have a parent, and the spec treats the missing-
