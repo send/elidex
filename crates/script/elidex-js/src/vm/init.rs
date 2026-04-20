@@ -105,7 +105,27 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 dom_exception_states: HashMap::new(),
                 window_prototype: None,
-                event_methods_prototype: None,
+                event_prototype: None,
+                #[cfg(feature = "engine")]
+                custom_event_prototype: None,
+                #[cfg(feature = "engine")]
+                ui_event_prototype: None,
+                #[cfg(feature = "engine")]
+                mouse_event_prototype: None,
+                #[cfg(feature = "engine")]
+                keyboard_event_prototype: None,
+                #[cfg(feature = "engine")]
+                focus_event_prototype: None,
+                #[cfg(feature = "engine")]
+                input_event_prototype: None,
+                #[cfg(feature = "engine")]
+                promise_rejection_event_prototype: None,
+                #[cfg(feature = "engine")]
+                error_event_prototype: None,
+                #[cfg(feature = "engine")]
+                hash_change_event_prototype: None,
+                #[cfg(feature = "engine")]
+                pop_state_event_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
@@ -114,6 +134,10 @@ impl Vm {
                 abort_listener_back_refs: HashMap::new(),
                 #[cfg(feature = "engine")]
                 pending_timeout_signals: HashMap::new(),
+                #[cfg(feature = "engine")]
+                any_composite_map: HashMap::new(),
+                #[cfg(feature = "engine")]
+                dispatched_events: HashSet::new(),
                 #[cfg(feature = "engine")]
                 precomputed_event_shapes: None,
                 generator_yielded: None,

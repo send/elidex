@@ -544,6 +544,23 @@ pub enum ObjectKind {
         /// listener registered with `{passive: true}`.  Gates
         /// `preventDefault` into a silent no-op.
         passive: bool,
+        /// Immutable internal slot — set from the ctor's first argument.
+        /// `dispatchEvent` reads this for listener type matching so a
+        /// user-side `delete evt.type` / overridden prototype accessor
+        /// cannot hijack dispatch (matches browsers' IDL-attribute /
+        /// internal-slot semantics; the data property on the instance
+        /// is a mirror of this slot).
+        type_sid: StringId,
+        /// Immutable internal slot — `event.bubbles` as established by
+        /// the ctor.  Read by `dispatchEvent` in place of the JS
+        /// property so `delete evt.bubbles` cannot turn a bubbling
+        /// event into a non-bubbling one mid-dispatch.
+        bubbles: bool,
+        /// Immutable internal slot — `event.composed` as established by
+        /// the ctor.  Read by `dispatchEvent` in place of the JS
+        /// property so `delete evt.composed` cannot change shadow
+        /// boundary crossing behaviour mid-dispatch.
+        composed: bool,
         /// Lazily-allocated `[target, ...ancestors]` Array returned by
         /// `composedPath()`.  `None` until the first call.
         composed_path: Option<ObjectId>,

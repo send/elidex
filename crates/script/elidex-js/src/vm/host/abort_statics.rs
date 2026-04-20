@@ -81,16 +81,18 @@ pub(super) fn native_abort_signal_static_timeout(
 
 /// `AbortSignal.any(signals)` — returns a signal that aborts as
 /// soon as any input signal aborts (WHATWG §3.1.3.3).  If any
-/// input is already aborted, the returned signal is aborted
-/// synchronously with the first-aborted signal's reason.
+/// input is already aborted at call time, the returned signal is
+/// aborted synchronously with the first-aborted signal's reason;
+/// otherwise the composite is non-aborted and propagation happens
+/// via [`super::super::VmInner::any_composite_map`] — every abort
+/// on an input consults the map and fires on each observing
+/// composite before returning to the user.  Chained composites
+/// (`any([any([a, b]), c])`) propagate through the map's
+/// recursive `abort_signal` call.
 ///
-/// Current implementation scope: only the **already-aborted**
-/// fast path is wired up.  When every input is still active the
-/// composite is returned non-aborted; abort propagation via
-/// `addEventListener('abort', …)` on each input is not yet
-/// installed (TODO in the function body), so the composite does
-/// not currently observe subsequent aborts.  That propagation
-/// arrives with the Event-constructor surface in the next tranche.
+/// The fan-out runs inside [`super::abort::abort_signal`]
+/// directly rather than via `addEventListener('abort', …)` so
+/// the composite does not incur per-input native-fn allocations.
 pub(super) fn native_abort_signal_static_any(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -150,11 +152,30 @@ pub(super) fn native_abort_signal_static_any(
     // Validation succeeded — allocate the composite exactly once.
     let composite = ctx.vm.create_abort_signal();
     if let Some(reason) = first_aborted_reason {
+        // Already-aborted fast path: composite is sync-aborted with
+        // the first input's reason; fan-out registration is
+        // redundant (any subsequent input abort would target an
+        // already-aborted composite).
         abort_signal(ctx, composite, reason)?;
+    } else {
+        // Multi-input propagation (WHATWG §3.1.3.3) — register the
+        // composite against every still-active input so each
+        // input's `abort_signal` fire path fans out to it.  Skip
+        // the composite itself (self-referential entries cannot
+        // arise from the input list — `create_abort_signal`
+        // allocates a fresh id — but this is the cheapest guard
+        // against a future refactor that swaps the order of
+        // allocate-after-validate).
+        for input_sid in inputs {
+            if input_sid == composite {
+                continue;
+            }
+            ctx.vm
+                .any_composite_map
+                .entry(input_sid)
+                .or_default()
+                .push(composite);
+        }
     }
-    // TODO: multi-input propagation — install an 'abort' listener
-    // on each input that forwards to `composite`.  Requires the
-    // Event-ctor surface that lands in the next tranche.
-    let _ = inputs;
     Ok(JsValue::Object(composite))
 }

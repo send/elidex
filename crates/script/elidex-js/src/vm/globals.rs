@@ -254,11 +254,33 @@ impl VmInner {
             self.install_window_self_ref();
         }
 
-        // Internal Event-methods prototype (PR3) — `event_methods_prototype`
-        // is set under the `engine` feature only; without engine there are
-        // no DOM events to dispatch and the methods are unused.
+        // `Event.prototype` + `Event` / `CustomEvent` globals (WebIDL §2.2
+        // / §2.3).  `event_prototype` is set under the `engine` feature
+        // only; without engine there are no DOM events to dispatch and
+        // the methods are unused.  The spec constructors (`Event` /
+        // `CustomEvent`) are installed by
+        // [`VmInner::register_event_global`] and
+        // [`VmInner::register_custom_event_global`].
         #[cfg(feature = "engine")]
-        self.register_event_methods_prototype();
+        {
+            self.register_event_prototype();
+            self.register_event_global();
+            self.register_custom_event_global();
+            // UIEvent family.  Each descendant's prototype chains
+            // through `UIEvent.prototype → Event.prototype`, so
+            // UIEvent must register first.
+            self.register_ui_event_global();
+            self.register_mouse_event_global();
+            self.register_keyboard_event_global();
+            self.register_focus_event_global();
+            self.register_input_event_global();
+            // Non-UIEvent specialized ctors — chain directly to
+            // Event.prototype, no UIEvent prefix.
+            self.register_promise_rejection_event_global();
+            self.register_error_event_global();
+            self.register_hash_change_event_global();
+            self.register_pop_state_event_global();
+        }
 
         // `DOMException` constructor + prototype (WebIDL §3.14).
         // Must run after `register_error_constructors`
@@ -281,8 +303,8 @@ impl VmInner {
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the
         // shape-transition walk uses the interned StringIds.  Also
-        // after `event_methods_prototype` so no field ordering assumes
-        // shapes exist without the prototype.
+        // after `event_prototype` so no field ordering assumes shapes
+        // exist without the prototype.
         #[cfg(feature = "engine")]
         {
             let shapes = self.build_precomputed_event_shapes();

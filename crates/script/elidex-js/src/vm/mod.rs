@@ -354,20 +354,112 @@ pub(crate) struct VmInner {
     ///   map in the common case).
     #[cfg(feature = "engine")]
     pub(crate) pending_timeout_signals: HashMap<u32, ObjectId>,
-    /// Internal prototype for `ObjectKind::Event` instances.  Holds the
-    /// four event methods (`preventDefault`, `stopPropagation`,
-    /// `stopImmediatePropagation`, `composedPath`) and the
-    /// `defaultPrevented` accessor.  Methods are stateless `fn`
-    /// pointers that match on `this`'s `ObjectKind::Event` for state,
-    /// so a single prototype is shared across all dispatched events —
-    /// avoids 5 native-fn allocations + 5 shape transitions per
-    /// listener invocation.
+    /// `AbortSignal.any(inputs)` fan-out — input `ObjectId` →
+    /// composite signal `ObjectId`s that observe it (WHATWG DOM
+    /// §3.1.3.3).  On input abort, [`host::abort::abort_signal`]
+    /// removes the entry and fires each composite with the
+    /// input's reason; composites' own `aborted` latch makes
+    /// duplicate inputs (`any([a, a])`) safe.
     ///
-    /// NOT exposed as `Event.prototype` to JS (the spec global +
-    /// constructor land in PR5a alongside `new Event(...)`); this is
-    /// a pure VM intrinsic.  When PR5a lands, `Event.prototype` can
-    /// become this object's parent or replace it outright.
-    pub(crate) event_methods_prototype: Option<ObjectId>,
+    /// GC contract: **weak bookkeeping only** — composite
+    /// ObjectIds stored in the values are NOT GC roots.  The mark
+    /// phase deliberately skips this map so a `AbortSignal.any([a,
+    /// b])` result that the user discards (without installing a
+    /// listener or binding it to a long-lived slot) stays
+    /// collectable even while `a` / `b` remain alive; otherwise
+    /// tight loops that build composites and drop them would
+    /// accumulate unreachable signals.  Composites survive when
+    /// held via JS stack / global / upvalue paths in the normal
+    /// way; the fan-out loop tolerates dead ObjectIds (the
+    /// nested `abort_signal` call silently early-returns on a
+    /// missing state entry).  Sweep prunes entries whose input
+    /// key was collected, and filters each value list by composite
+    /// liveness — see [`Self::abort_signal_states`] for the shared
+    /// prune pattern.
+    #[cfg(feature = "engine")]
+    pub(crate) any_composite_map: HashMap<ObjectId, Vec<ObjectId>>,
+    /// In-flight dispatch flag side table — WHATWG DOM §2.9 step 3
+    /// rejects re-entrant `dispatchEvent()` on an event that is
+    /// already propagating.  Kept out-of-band so `ObjectKind::Event`
+    /// stays payload-free.  Membership is cleared at dispatch
+    /// completion (happy path or throw), so a later sequential
+    /// re-dispatch of the same instance succeeds.
+    ///
+    /// GC contract: sweep prunes entries whose key was collected,
+    /// matching [`Self::abort_signal_states`].
+    #[cfg(feature = "engine")]
+    pub(crate) dispatched_events: HashSet<ObjectId>,
+    /// `Event.prototype` (WebIDL §2.2).  Holds the four event methods
+    /// (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`,
+    /// `composedPath`) and the `defaultPrevented` accessor, plus the
+    /// `constructor` back-pointer to the `Event` global.  Methods are
+    /// stateless `fn` pointers that match on `this`'s `ObjectKind::Event`
+    /// for state, so a single prototype is shared across all dispatched
+    /// events — avoids 5 native-fn allocations + 5 shape transitions
+    /// per listener invocation.
+    ///
+    /// JS-visible via `globalThis.Event.prototype`.  Every
+    /// `ObjectKind::Event` (UA-initiated or script-constructed)
+    /// chains through this prototype.
+    pub(crate) event_prototype: Option<ObjectId>,
+    /// `CustomEvent.prototype` (WebIDL §2.3).  Chains to
+    /// [`event_prototype`] and adds the `detail` accessor.  Set by
+    /// `register_custom_event_global` during `register_globals`.
+    #[cfg(feature = "engine")]
+    pub(crate) custom_event_prototype: Option<ObjectId>,
+    /// `UIEvent.prototype` (UI Events §3.1).  Chains to
+    /// [`event_prototype`].  `view` / `detail` are own-data slots on
+    /// every UIEvent-family instance (constructed via `new UIEvent` or
+    /// any descendant ctor), kept in shape slot 9 / 10 so reads hit
+    /// the own-property fast path.  `UIEvent.prototype` itself carries
+    /// no instance state — it's the chain anchor for MouseEvent /
+    /// KeyboardEvent / FocusEvent / InputEvent.  `None` until
+    /// `register_ui_event_global()` runs during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) ui_event_prototype: Option<ObjectId>,
+    /// `MouseEvent.prototype` (UI Events §5.1).  Chains to
+    /// [`ui_event_prototype`].  MouseEvent instances have `view` /
+    /// `detail` + 13 mouse-specific slots (clientX/Y, button, buttons,
+    /// altKey/ctrlKey/metaKey/shiftKey, screenX/Y, movementX/Y,
+    /// relatedTarget) as own-data, matching WebIDL `[Unforgeable]`
+    /// reflection.  `None` until `register_mouse_event_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) mouse_event_prototype: Option<ObjectId>,
+    /// `KeyboardEvent.prototype` (UI Events §7.1).  Chains to
+    /// [`ui_event_prototype`].  Adds 9 own-data slots (key, code,
+    /// altKey/ctrlKey/metaKey/shiftKey, repeat, location, isComposing)
+    /// beyond the UIEvent base.  `None` until
+    /// `register_keyboard_event_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) keyboard_event_prototype: Option<ObjectId>,
+    /// `FocusEvent.prototype` (UI Events §6.1).  Chains to
+    /// [`ui_event_prototype`].  Adds `relatedTarget` own-data slot.
+    #[cfg(feature = "engine")]
+    pub(crate) focus_event_prototype: Option<ObjectId>,
+    /// `InputEvent.prototype` (UI Events §8.1).  Chains to
+    /// [`ui_event_prototype`].  Adds `inputType` / `data` /
+    /// `isComposing` own-data slots.
+    #[cfg(feature = "engine")]
+    pub(crate) input_event_prototype: Option<ObjectId>,
+    /// `PromiseRejectionEvent.prototype` (HTML §8.1.7.3.4).  Chains to
+    /// [`event_prototype`] (sibling of UIEvent, not descendant).  Adds
+    /// `promise` / `reason` own-data slots.
+    #[cfg(feature = "engine")]
+    pub(crate) promise_rejection_event_prototype: Option<ObjectId>,
+    /// `ErrorEvent.prototype` (HTML §8.1.7.2).  Chains to
+    /// [`event_prototype`].  Adds `message` / `filename` / `lineno` /
+    /// `colno` / `error` own-data slots.
+    #[cfg(feature = "engine")]
+    pub(crate) error_event_prototype: Option<ObjectId>,
+    /// `HashChangeEvent.prototype` (HTML §8.1.3).  Chains to
+    /// [`event_prototype`].  Adds `oldURL` / `newURL` own-data slots
+    /// (reuses the UA-dispatch `hash_change` shape).
+    #[cfg(feature = "engine")]
+    pub(crate) hash_change_event_prototype: Option<ObjectId>,
+    /// `PopStateEvent.prototype` (HTML §8.8.1).  Chains to
+    /// [`event_prototype`].  Adds `state` own-data slot.
+    #[cfg(feature = "engine")]
+    pub(crate) pop_state_event_prototype: Option<ObjectId>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

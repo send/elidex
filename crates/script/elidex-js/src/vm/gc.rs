@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 26],
+    proto_roots: [Option<ObjectId>; 36],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -157,9 +157,15 @@ struct GcRoots<'a> {
     /// so they don't need tracing.
     #[cfg(feature = "engine")]
     pending_timeout_signals: &'a HashMap<u32, ObjectId>,
+    // `any_composite_map` is weak bookkeeping only — no GC roots
+    // live there.  The sweep pass prunes dead ObjectIds post-GC
+    // and `abort_signal`'s fan-out tolerates missing state — both
+    // routes avoid keeping composite signals alive through this
+    // map (see `mark_roots` step (k) for the rationale).
 }
 
 /// Scan all GC roots and enqueue reachable objects.
+#[allow(clippy::too_many_lines)]
 fn mark_roots(
     roots: &GcRoots<'_>,
     obj_marks: &mut [u64],
@@ -299,6 +305,26 @@ fn mark_roots(
     for &signal_id in roots.pending_timeout_signals.values() {
         mark_object(signal_id, obj_marks, work);
     }
+
+    // (k) `AbortSignal.any` composite fan-out entries are weak
+    // bookkeeping only — NOT GC roots.  Marking composite values
+    // here would retain every `any([...])` result until every
+    // input signal also dies, letting a caller that discards the
+    // composite (e.g. `AbortSignal.any([a, b])` in a loop without
+    // storing results) accumulate unreachable composites
+    // indefinitely.
+    //
+    // Rooting lives on the indirect path instead: a composite
+    // with an installed `'abort'` listener or `onabort` handler is
+    // kept alive through `abort_signal_states` (its listener
+    // callbacks are traced when the signal's own ObjectId is
+    // marked — and the signal is marked through whatever JS
+    // reference held it: stack frame, global, upvalue, etc.).
+    // A composite with no such anchor is correctly collected; the
+    // sweep tail prunes its any_composite_map entry and the
+    // fan-out path in `abort_signal` tolerates dead ObjectIds
+    // (`abort_signal` itself silently early-returns for
+    // already-aborted / missing state).
 }
 
 /// Trace the work list: pop enqueued ObjectIds, mark their transitive references.
@@ -647,7 +673,7 @@ impl VmInner {
                 self.node_prototype,
                 self.element_prototype,
                 self.window_prototype,
-                self.event_methods_prototype,
+                self.event_prototype,
                 #[cfg(feature = "engine")]
                 self.abort_signal_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -673,6 +699,49 @@ impl VmInner {
                 // 25 + 1 (DOMException) = 26.
                 #[cfg(feature = "engine")]
                 self.dom_exception_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 26 + 1 (CustomEvent) = 27.
+                #[cfg(feature = "engine")]
+                self.custom_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 27 + 5 (UIEvent family) = 32.
+                #[cfg(feature = "engine")]
+                self.ui_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.mouse_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.keyboard_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.focus_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.input_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 32 + 4 (non-UIEvent specialized ctors) = 36.
+                #[cfg(feature = "engine")]
+                self.promise_rejection_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.error_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.hash_change_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.pop_state_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],
@@ -754,6 +823,32 @@ impl VmInner {
             // future PR introduces).
             self.pending_timeout_signals
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
+            // `dispatched_events` — event ObjectIds whose dispatch is
+            // currently in flight.  The event is rooted during its
+            // listener walk (via the caller's JS stack), so a
+            // collected entry indicates the walk completed without
+            // calling `dispatched_events.remove` (e.g. a Rust panic
+            // in a native helper between the insert and the cleanup
+            // sentinel).  Treat it as defensive: drop the stale id
+            // so a recycled slot can't observe "already dispatching"
+            // membership.
+            self.dispatched_events.retain(|id| bit_get(marks, id.0));
+            // `any_composite_map` — input → composites fan-out.
+            // Prune entries whose key (input signal) was collected;
+            // for surviving entries, filter the composite list by
+            // live-ness.  Composites were roots during mark so a
+            // filtered-out composite indicates it was reachable
+            // only via this map (same pattern as
+            // `pending_timeout_signals`).  An empty list after
+            // filter is dropped so the map shrinks as inputs
+            // outlive their composites.
+            self.any_composite_map.retain(|input_id, composites| {
+                if !bit_get(marks, input_id.0) {
+                    return false;
+                }
+                composites.retain(|composite_id| bit_get(marks, composite_id.0));
+                !composites.is_empty()
+            });
         }
 
         // 5. IC invalidation.

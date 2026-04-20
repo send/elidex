@@ -100,15 +100,14 @@ fn default_prevented_is_accessor_and_reflects_flag_live() {
     let ev = make_event("click", true, EventPayload::None, el);
     let obj = vm.inner.create_event_object(&ev, target, target, false);
 
-    // `defaultPrevented` lives on `event_methods_prototype` (PR3
-    // simplify pass): the accessor is shared across every event
-    // instance so we look it up on the prototype rather than as an
-    // own property.
+    // `defaultPrevented` lives on `Event.prototype`: the accessor
+    // is shared across every event instance so we look it up on the
+    // prototype rather than as an own property.
     let proto_id = vm
         .inner
         .get_object(obj)
         .prototype
-        .expect("event must have prototype = event_methods_prototype");
+        .expect("event must have prototype = Event.prototype");
     let dp_sid = vm.inner.strings.lookup("defaultPrevented").unwrap();
     let (slot, attrs) = vm
         .inner
@@ -161,11 +160,11 @@ fn default_prevented_is_accessor_and_reflects_flag_live() {
 }
 
 #[test]
-fn four_methods_installed_on_event_methods_prototype() {
-    // Methods live on the shared `event_methods_prototype` intrinsic
-    // (PR3 simplify pass: avoids 4 native-fn allocs + 4 shape
-    // transitions per event).  Verify they're reachable via prototype
-    // chain by inspecting the prototype's own properties directly.
+fn four_methods_installed_on_event_prototype() {
+    // Methods live on the shared `Event.prototype` (PR3 simplify pass:
+    // avoids 4 native-fn allocs + 4 shape transitions per event).
+    // Verify they're reachable via prototype chain by inspecting the
+    // prototype's own properties directly.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -194,7 +193,7 @@ fn four_methods_installed_on_event_methods_prototype() {
             .get_object(proto_id)
             .storage
             .get(PropertyKey::String(sid), &vm.inner.shapes)
-            .unwrap_or_else(|| panic!("{name} missing from event_methods_prototype"));
+            .unwrap_or_else(|| panic!("{name} missing from Event.prototype"));
         let PropertyValue::Data(JsValue::Object(fn_id)) = slot else {
             panic!("{name}: expected Data(Object), got {slot:?}");
         };

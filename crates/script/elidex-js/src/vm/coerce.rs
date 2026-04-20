@@ -290,7 +290,7 @@ pub(crate) fn to_uint32(vm: &VmInner, val: JsValue) -> Result<u32, VmError> {
 }
 
 /// The modulo-2^32 conversion from f64 to i32 (ES2020 §7.1.6 step 5-6).
-fn f64_to_int32(n: f64) -> i32 {
+pub(crate) fn f64_to_int32(n: f64) -> i32 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {
         return 0;
     }

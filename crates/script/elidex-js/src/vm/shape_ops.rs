@@ -123,7 +123,7 @@ impl VmInner {
     /// path must fall back to `define_shaped_property` (a design
     /// trade-off — this API is optimised for the event-object case,
     /// where every own property is a data property and accessors
-    /// live on the shared `event_methods_prototype`).
+    /// live on the shared `Event.prototype`).
     ///
     /// # Panics
     ///

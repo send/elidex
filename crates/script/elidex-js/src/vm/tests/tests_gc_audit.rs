@@ -27,6 +27,7 @@ use super::super::Vm;
 /// the Event's id.  No prototype installed — these tests touch the
 /// internal-slot path only.
 fn alloc_event_with_path(vm: &mut Vm, path: Option<ObjectId>) -> ObjectId {
+    let type_sid = vm.inner.strings.intern("test");
     vm.inner.alloc_object(Object {
         kind: ObjectKind::Event {
             default_prevented: false,
@@ -34,6 +35,9 @@ fn alloc_event_with_path(vm: &mut Vm, path: Option<ObjectId>) -> ObjectId {
             immediate_propagation_stopped: false,
             cancelable: true,
             passive: false,
+            type_sid,
+            bubbles: false,
+            composed: false,
             composed_path: path,
         },
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),

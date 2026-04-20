@@ -43,6 +43,10 @@ pub(super) mod elements;
 pub(super) mod event_shapes;
 pub(super) mod event_target;
 pub(super) mod events;
+#[cfg(feature = "engine")]
+pub(super) mod events_extras;
+#[cfg(feature = "engine")]
+pub(super) mod events_ui;
 pub(super) mod globals;
 pub(super) mod history;
 pub(super) mod html_iframe_proto;
