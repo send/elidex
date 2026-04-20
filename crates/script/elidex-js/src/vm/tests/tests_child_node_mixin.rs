@@ -201,7 +201,8 @@ fn element_replace_with_ancestor_cycle_preserves_tree() {
         .eval(
             "var err = null;\n\
              try { a.replaceWith(grandparent); } catch (e) { err = e; }\n\
-             err !== null;",
+             err !== null && err.name === 'HierarchyRequestError' \
+             && err instanceof DOMException;",
         )
         .unwrap();
     assert!(matches!(threw, JsValue::Boolean(true)));
@@ -332,10 +333,11 @@ fn element_before_nested_fragment_is_recursively_flattened() {
 }
 
 #[test]
-fn element_before_self_insert_throws() {
+fn element_before_self_insert_throws_hierarchy_request_error() {
     // Inserting an ancestor as a child of its own subtree creates a
-    // cycle — EcsDom rejects, we surface TypeError (matching the
-    // Node.appendChild convention).
+    // cycle — EcsDom rejects and we throw
+    // `DOMException("HierarchyRequestError")` (PR5a C3 upgrade from
+    // the pre-C3 TypeError surface).
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {
@@ -346,7 +348,8 @@ fn element_before_self_insert_throws() {
         .eval(
             "var err = null;\n\
              try { a.before(p); } catch (e) { err = e; }\n\
-             err !== null;",
+             err !== null && err.name === 'HierarchyRequestError' \
+             && err instanceof DOMException && err.code === 3;",
         )
         .unwrap();
     assert!(matches!(threw, JsValue::Boolean(true)));

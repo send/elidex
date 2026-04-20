@@ -189,7 +189,8 @@ fn element_prepend_ancestor_cycle_throws_before_mutation() {
         .eval(
             "var err = null;\n\
              try { p.prepend(x, grandparent); } catch (e) { err = e; }\n\
-             err !== null;",
+             err !== null && err.name === 'HierarchyRequestError' \
+             && err instanceof DOMException;",
         )
         .unwrap();
     assert!(matches!(threw, JsValue::Boolean(true)));
@@ -235,7 +236,8 @@ fn element_replace_children_does_not_clear_parent_on_ancestor_cycle() {
         .eval(
             "var err = null;\n\
              try { p.replaceChildren(a, grandparent); } catch (e) { err = e; }\n\
-             err !== null;",
+             err !== null && err.name === 'HierarchyRequestError' \
+             && err instanceof DOMException;",
         )
         .unwrap();
     assert!(matches!(threw, JsValue::Boolean(true)));

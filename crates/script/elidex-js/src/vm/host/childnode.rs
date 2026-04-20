@@ -176,18 +176,19 @@ pub(super) fn finalize_pair(ctx: &mut NativeContext<'_>, pair: (Entity, bool), s
 // Natives
 // ---------------------------------------------------------------------------
 
-/// Build the `HierarchyRequestError`-equivalent throw emitted when
+/// Build the `DOMException("HierarchyRequestError")` emitted when
 /// `EcsDom` rejects an insertion (self-insert, ancestor cycle,
-/// destroyed entity).  Matches the TypeError-surfaced pattern
-/// established by `Node.appendChild` / `insertBefore` (DOMException
-/// integration is deferred).  Uses `'ChildNode'` as the interface
-/// label because this mixin is installed on both Element and
+/// destroyed entity).  Uses `'ChildNode'` as the interface label
+/// because this mixin is installed on both Element and
 /// CharacterData wrappers.
-fn hierarchy_request_error(method: &str) -> VmError {
-    VmError::type_error(format!(
-        "Failed to execute '{method}' on 'ChildNode': \
-         the new child node cannot be inserted."
-    ))
+fn hierarchy_request_error(ctx: &NativeContext<'_>, method: &str) -> VmError {
+    VmError::dom_exception(
+        ctx.vm.well_known.dom_exc_hierarchy_request_error,
+        format!(
+            "Failed to execute '{method}' on 'ChildNode': \
+             the new child node cannot be inserted."
+        ),
+    )
 }
 
 /// ChildNode mixin receivers must be Element, Text, Comment, or
@@ -260,7 +261,7 @@ fn native_child_node_before(
             .is_light_tree_ancestor_or_self(child, parent)
         {
             finalize_pair(ctx, pair, false);
-            return Err(hierarchy_request_error("before"));
+            return Err(hierarchy_request_error(ctx, "before"));
         }
     }
     // viablePreviousSibling = last snapshotted preceding sibling
@@ -294,7 +295,7 @@ fn native_child_node_before(
             None => ctx.host().dom().append_child(parent, child),
         };
         if !ok {
-            err = Some(hierarchy_request_error("before"));
+            err = Some(hierarchy_request_error(ctx, "before"));
             break;
         }
     }
@@ -348,7 +349,7 @@ fn native_child_node_after(
             .is_light_tree_ancestor_or_self(child, parent)
         {
             finalize_pair(ctx, pair, false);
-            return Err(hierarchy_request_error("after"));
+            return Err(hierarchy_request_error(ctx, "after"));
         }
     }
     // viableNextSibling = first sibling in the pre-normalisation
@@ -368,7 +369,7 @@ fn native_child_node_after(
             None => ctx.host().dom().append_child(parent, child),
         };
         if !ok {
-            err = Some(hierarchy_request_error("after"));
+            err = Some(hierarchy_request_error(ctx, "after"));
             break;
         }
     }
@@ -444,7 +445,7 @@ fn native_child_node_replace_with(
             .is_light_tree_ancestor_or_self(child, parent)
         {
             finalize_pair(ctx, p, false);
-            return Err(hierarchy_request_error("replaceWith"));
+            return Err(hierarchy_request_error(ctx, "replaceWith"));
         }
     }
     // viableNextSibling = first sibling in the pre-normalisation
@@ -461,7 +462,7 @@ fn native_child_node_replace_with(
             None => ctx.host().dom().append_child(parent, child),
         };
         if !ok {
-            err = Some(hierarchy_request_error("replaceWith"));
+            err = Some(hierarchy_request_error(ctx, "replaceWith"));
             break;
         }
     }
