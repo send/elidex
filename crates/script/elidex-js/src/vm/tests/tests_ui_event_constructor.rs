@@ -13,8 +13,9 @@
 //!   isComposing / location / data / inputType)
 //! - `view` resolution: null / undefined / globalThis allowed;
 //!   other values throw TypeError
-//! - `relatedTarget` resolution: null / undefined / Object allowed;
-//!   primitives throw TypeError
+//! - `relatedTarget` resolution: null / undefined → null; DOM
+//!   HostObject wrappers accepted; plain objects and primitives
+//!   throw TypeError (WebIDL `EventTarget?` brand check)
 //! - Inherited Event members (type / bubbles / cancelable / timeStamp /
 //!   isTrusted) on UIEvent-family instances
 //! - Symbol `type` argument propagates TypeError from `coerce::to_string`
@@ -257,7 +258,7 @@ fn mouse_event_modifiers_pass_through() {
 }
 
 #[test]
-fn mouse_event_related_target_accepts_null_and_object() {
+fn mouse_event_related_target_null_and_missing_map_to_null() {
     // null / missing → null
     assert!(matches!(
         Vm::new().eval("new MouseEvent('m').relatedTarget").unwrap(),
@@ -269,19 +270,44 @@ fn mouse_event_related_target_accepts_null_and_object() {
             .unwrap(),
         JsValue::Null
     ));
-    // Object → identity-preserved.
-    assert!(eval_bool(
-        "(function(){ var t={};  \
-         return new MouseEvent('m', {relatedTarget: t}).relatedTarget === t; \
-         })()"
-    ));
 }
 
 #[test]
-fn mouse_event_related_target_primitive_throws() {
+fn mouse_event_related_target_accepts_dom_wrapper() {
+    // A real DOM HostObject (document wrapper) passes the
+    // `EventTarget?` brand check and is identity-preserved.
+    use super::super::test_helpers::setup_with_element;
+    use elidex_ecs::EcsDom;
+    use elidex_script_session::SessionCore;
+
     let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    #[allow(unsafe_code)]
+    unsafe {
+        setup_with_element(&mut vm, &mut session, &mut dom, doc, "div");
+    }
+    assert!(matches!(
+        vm.eval("new MouseEvent('m', {relatedTarget: el}).relatedTarget === el;")
+            .unwrap(),
+        JsValue::Boolean(true)
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn mouse_event_related_target_rejects_non_event_target() {
+    // WebIDL `EventTarget? relatedTarget` — plain `{}` and non-DOM
+    // objects (including primitives) are not EventTargets, so they
+    // throw TypeError per browser behaviour.  Covers the regression
+    // where the resolver accepted any `JsValue::Object(_)`.
+    let mut vm = Vm::new();
+    expect_type_error(&mut vm, "new MouseEvent('m', {relatedTarget: {}})");
+    expect_type_error(&mut vm, "new MouseEvent('m', {relatedTarget: []})");
     expect_type_error(&mut vm, "new MouseEvent('m', {relatedTarget: 42})");
     expect_type_error(&mut vm, "new MouseEvent('m', {relatedTarget: 'x'})");
+    expect_type_error(&mut vm, "new MouseEvent('m', {relatedTarget: true})");
 }
 
 // ---------------------------------------------------------------------------
@@ -350,12 +376,36 @@ fn focus_event_related_target_default_null() {
 }
 
 #[test]
-fn focus_event_related_target_object_pass_through() {
-    assert!(eval_bool(
-        "(function(){ var t={}; \
-         return new FocusEvent('focus', {relatedTarget: t}).relatedTarget === t; \
-         })()"
+fn focus_event_related_target_rejects_non_event_target() {
+    // WebIDL `EventTarget? relatedTarget` — plain objects and
+    // primitives are not EventTargets (shared brand check with
+    // MouseEvent's resolver).
+    let mut vm = Vm::new();
+    expect_type_error(&mut vm, "new FocusEvent('focus', {relatedTarget: {}})");
+    expect_type_error(&mut vm, "new FocusEvent('focus', {relatedTarget: 42})");
+}
+
+#[test]
+fn focus_event_related_target_accepts_dom_wrapper() {
+    // DOM HostObject wrapper is accepted and identity-preserved.
+    use super::super::test_helpers::setup_with_element;
+    use elidex_ecs::EcsDom;
+    use elidex_script_session::SessionCore;
+
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    #[allow(unsafe_code)]
+    unsafe {
+        setup_with_element(&mut vm, &mut session, &mut dom, doc, "input");
+    }
+    assert!(matches!(
+        vm.eval("new FocusEvent('focus', {relatedTarget: el}).relatedTarget === el;")
+            .unwrap(),
+        JsValue::Boolean(true)
     ));
+    vm.unbind();
 }
 
 // ---------------------------------------------------------------------------

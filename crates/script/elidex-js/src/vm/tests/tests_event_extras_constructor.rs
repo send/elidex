@@ -80,6 +80,66 @@ fn promise_rejection_event_requires_init_dict_and_promise_key() {
 }
 
 #[test]
+fn promise_rejection_event_non_object_second_arg_is_dict_coercion_error() {
+    // Regression: a present-but-non-object second arg (e.g. `null`,
+    // number, string, boolean) previously reported "2 arguments
+    // required, but only 1 present." — misleading because the arg
+    // *is* present.  WebIDL coerces the second arg to
+    // `PromiseRejectionEventInit` first; non-dictionary values
+    // should throw "parameter 2 is not of type
+    // 'PromiseRejectionEventInit'".  The arity text remains reserved
+    // for the truly-missing case.
+    let mut vm = Vm::new();
+    let err = vm
+        .eval(
+            "try { new PromiseRejectionEvent('r', null); 'no-throw' } \
+             catch (e) { String(e.message) }",
+        )
+        .unwrap();
+    let JsValue::String(sid) = err else {
+        panic!("expected string error message");
+    };
+    let msg = vm.get_string(sid);
+    assert!(
+        msg.contains("not of type 'PromiseRejectionEventInit'"),
+        "null → dict coercion error expected, got: {msg}"
+    );
+    // Repeat for a few more non-object primitives to lock the path.
+    for arg in ["42", "'x'", "true"] {
+        let err = vm
+            .eval(&format!(
+                "try {{ new PromiseRejectionEvent('r', {arg}); 'no-throw' }} \
+                 catch (e) {{ String(e.message) }}"
+            ))
+            .unwrap();
+        let JsValue::String(sid) = err else {
+            panic!("expected string error message for arg {arg}");
+        };
+        let msg = vm.get_string(sid);
+        assert!(
+            msg.contains("not of type 'PromiseRejectionEventInit'"),
+            "{arg} → dict coercion error expected, got: {msg}"
+        );
+    }
+    // Truly-missing second arg still reports arity — the paths
+    // must not regress into the same text.
+    let err = vm
+        .eval(
+            "try { new PromiseRejectionEvent('r'); 'no-throw' } \
+             catch (e) { String(e.message) }",
+        )
+        .unwrap();
+    let JsValue::String(sid) = err else {
+        panic!("expected string error message");
+    };
+    let msg = vm.get_string(sid);
+    assert!(
+        msg.contains("2 arguments required"),
+        "missing 2nd arg → arity error expected, got: {msg}"
+    );
+}
+
+#[test]
 fn promise_rejection_event_exposes_promise_and_reason() {
     assert!(eval_bool(
         "(function(){ var p = {}; var r = 'boom'; \

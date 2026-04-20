@@ -190,19 +190,30 @@ fn native_promise_rejection_event_constructor(
     check_construct(ctx, "PromiseRejectionEvent")?;
     let type_sid = type_arg(ctx, args, "PromiseRejectionEvent")?;
     // WHATWG HTML §8.1.7.3.4: `eventInitDict` is required (the dict
-    // itself has `required Promise<any> promise`).  A missing second
-    // argument therefore fails before we even parse the dict.
-    let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let base = parse_event_init(ctx, init_arg, "PromiseRejectionEvent")?;
+    // itself has `required Promise<any> promise`).  Distinguish a
+    // missing second argument (arity error) from a present-but-
+    // non-dictionary value (WebIDL `PromiseRejectionEventInit`
+    // coercion error) — collapsing both into a single "arity" text
+    // misreports the null / number / string / bool cases.
+    let init_arg = match args.get(1).copied() {
+        Some(v) => v,
+        None => {
+            return Err(VmError::type_error(
+                "Failed to construct 'PromiseRejectionEvent': \
+                 2 arguments required, but only 1 present.",
+            ));
+        }
+    };
     let opts_id = match init_arg {
         JsValue::Object(id) => id,
         _ => {
             return Err(VmError::type_error(
                 "Failed to construct 'PromiseRejectionEvent': \
-                 2 arguments required, but only 1 present.",
-            ))
+                 parameter 2 is not of type 'PromiseRejectionEventInit'.",
+            ));
         }
     };
+    let base = parse_event_init(ctx, init_arg, "PromiseRejectionEvent")?;
     // `required Promise<any> promise` — absent key throws.  The check
     // uses the raw own-property lookup result: `undefined` (missing or
     // explicit `undefined`) is WebIDL-required-violating.  We don't

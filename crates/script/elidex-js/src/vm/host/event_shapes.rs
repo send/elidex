@@ -45,13 +45,13 @@ use super::super::value::{JsValue, PropertyKey, PropertyValue, StringId};
 use super::super::VmInner;
 use elidex_plugin::EventPayload;
 
-/// Number of core properties every Event shape extends from (PR3.6):
+/// Number of core properties every Event shape extends from:
 /// `type`, `bubbles`, `cancelable`, `eventPhase`, `target`,
 /// `currentTarget`, `timeStamp`, `composed`, `isTrusted`.  All variant
 /// shapes are built by `extend(core, &[...payload_keys...])` so
 /// `shape.property_count() - CORE_KEY_COUNT` yields the payload key
 /// count.  Hardcoded invariant — verified by `core_9_slot_order_is_locked`
-/// in `tests_event_shapes.rs`.
+/// in `tests_event_constructor.rs`.
 pub(crate) const CORE_KEY_COUNT: usize = 9;
 
 /// Terminal `ShapeId`s for every `EventPayload` variant.

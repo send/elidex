@@ -560,10 +560,11 @@ fn native_event_constructor(
 
 /// `new CustomEvent(type, customEventInitDict?)` (WHATWG DOM §2.3).
 ///
-/// Extends `EventInit` with `detail: any = null`.  User-supplied
-/// `undefined` is preserved (WebIDL `any` type); missing key →
-/// `null` (WHATWG default).  This diverges subtly from a naïve
-/// `undefined ↔ null` mapping; see the in-body comment.
+/// Extends `EventInit` with `detail: any = null`.  Missing `detail`
+/// defaults to `null` (WHATWG default); an explicit `{detail:
+/// undefined}` is also normalised to `null` by this implementation
+/// (see the in-body comment — the WebIDL `any` type technically
+/// preserves `undefined`, and a future change may relax this).
 fn native_custom_event_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

@@ -88,10 +88,25 @@ fn resolve_view(
 /// appears as a `relatedTarget`), so the gate stays tight; the
 /// AbortSignal cross-brand case can be opened up when a concrete
 /// caller needs it.
-fn resolve_related_target(val: JsValue, interface: &str) -> Result<JsValue, VmError> {
+fn resolve_related_target(vm: &VmInner, val: JsValue, interface: &str) -> Result<JsValue, VmError> {
     match val {
         JsValue::Undefined | JsValue::Null => Ok(JsValue::Null),
-        JsValue::Object(_) => Ok(val),
+        JsValue::Object(id) => {
+            // WebIDL `EventTarget?` brand check — plain `{}` and
+            // non-DOM host objects (e.g. AbortSignal currently) are
+            // rejected; only DOM element / text / document wrappers
+            // (`ObjectKind::HostObject` carrying a non-sentinel
+            // entity_bits) pass.  Matches the comment above.
+            if let ObjectKind::HostObject { entity_bits } = vm.get_object(id).kind {
+                if elidex_ecs::Entity::from_bits(entity_bits).is_some() {
+                    return Ok(val);
+                }
+            }
+            Err(VmError::type_error(format!(
+                "Failed to construct '{interface}': \
+                 member relatedTarget is not of type 'EventTarget'."
+            )))
+        }
         _ => Err(VmError::type_error(format!(
             "Failed to construct '{interface}': \
              member relatedTarget is not of type 'EventTarget'."
@@ -348,7 +363,7 @@ impl VmInner {
         type_sid: StringId,
         init: UIEventInit,
         shape_id: ShapeId,
-        descendant_proto: Option<ObjectId>,
+        descendant_proto: ObjectId,
         variant_slots: Vec<PropertyValue>,
     ) -> ObjectId {
         // `view` / `detail` precede the descendant's own slots (matches
@@ -360,13 +375,13 @@ impl VmInner {
         let id =
             self.create_fresh_event_object(this, type_sid, init.base, shape_id, payload, false);
         // Override the prototype installed by `create_fresh_event_object`.
-        // For a pure `new UIEvent(...)` call, caller passes
-        // `descendant_proto = None` and we leave `Event.prototype` in
-        // place (wrong!) — so always override.  `UIEvent.prototype`
-        // itself is a valid target for direct UIEvent construction.
-        if let Some(proto) = descendant_proto {
-            self.get_object_mut(id).prototype = Some(proto);
-        }
+        // Leaving `Event.prototype` in place would produce the wrong
+        // prototype chain for every UIEvent-family instance, so callers
+        // must supply the concrete descendant prototype (pure
+        // `new UIEvent(...)` passes `UIEvent.prototype`).  A non-Option
+        // parameter turns a missed registration into a compile error
+        // at the call site instead of a silent wrong-prototype instance.
+        self.get_object_mut(id).prototype = Some(descendant_proto);
         id
     }
 }
@@ -410,7 +425,10 @@ fn native_ui_event_constructor(
         .expect("precomputed_event_shapes missing")
         .ui_event_constructed;
     // `UIEvent` instance targets `UIEvent.prototype` (no descendant).
-    let ui_proto = ctx.vm.ui_event_prototype;
+    let ui_proto = ctx
+        .vm
+        .ui_event_prototype
+        .expect("UIEvent.prototype must be registered before native_ui_event_constructor");
     let id = ctx
         .vm
         .build_ui_event_instance(this, type_sid, init, shape_id, ui_proto, Vec::new());
@@ -468,7 +486,7 @@ fn native_mouse_event_constructor(
         let related_raw = ctx
             .vm
             .get_property_value(opts_id, PropertyKey::String(k_related))?;
-        let related_target = resolve_related_target(related_raw, "MouseEvent")?;
+        let related_target = resolve_related_target(ctx.vm, related_raw, "MouseEvent")?;
         let movement_x = read_number(ctx, opts_id, k_movement_x, 0.0)?;
         let movement_y = read_number(ctx, opts_id, k_movement_y, 0.0)?;
         (
@@ -516,7 +534,9 @@ fn native_mouse_event_constructor(
     // For an ObjectId relatedTarget, GC-rooting avoids the wrapper
     // being swept before it lands in the slot.
     let mut g = ctx.vm.push_temp_root(related_target);
-    let mouse_proto = g.mouse_event_prototype;
+    let mouse_proto = g
+        .mouse_event_prototype
+        .expect("MouseEvent.prototype must be registered before native_mouse_event_constructor");
     let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, mouse_proto, slots);
     drop(g);
     Ok(JsValue::Object(id))
@@ -576,7 +596,9 @@ fn native_keyboard_event_constructor(
         PropertyValue::Data(JsValue::Boolean(repeat)),
         PropertyValue::Data(JsValue::Boolean(is_composing)),
     ];
-    let kb_proto = ctx.vm.keyboard_event_prototype;
+    let kb_proto = ctx.vm.keyboard_event_prototype.expect(
+        "KeyboardEvent.prototype must be registered before native_keyboard_event_constructor",
+    );
     let id = ctx
         .vm
         .build_ui_event_instance(this, type_sid, ui, shape_id, kb_proto, slots);
@@ -602,7 +624,7 @@ fn native_focus_event_constructor(
             opts_id,
             PropertyKey::String(ctx.vm.well_known.related_target),
         )?;
-        resolve_related_target(raw, "FocusEvent")?
+        resolve_related_target(ctx.vm, raw, "FocusEvent")?
     } else {
         JsValue::Null
     };
@@ -614,7 +636,9 @@ fn native_focus_event_constructor(
         .focus_event_constructed;
     let slots = vec![PropertyValue::Data(related_target)];
     let mut g = ctx.vm.push_temp_root(related_target);
-    let focus_proto = g.focus_event_prototype;
+    let focus_proto = g
+        .focus_event_prototype
+        .expect("FocusEvent.prototype must be registered before native_focus_event_constructor");
     let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, focus_proto, slots);
     drop(g);
     Ok(JsValue::Object(id))
@@ -669,7 +693,10 @@ fn native_input_event_constructor(
         PropertyValue::Data(JsValue::Boolean(is_composing)),
         PropertyValue::Data(JsValue::String(input_type_sid)),
     ];
-    let in_proto = ctx.vm.input_event_prototype;
+    let in_proto = ctx
+        .vm
+        .input_event_prototype
+        .expect("InputEvent.prototype must be registered before native_input_event_constructor");
     let id = ctx
         .vm
         .build_ui_event_instance(this, type_sid, ui, shape_id, in_proto, slots);
