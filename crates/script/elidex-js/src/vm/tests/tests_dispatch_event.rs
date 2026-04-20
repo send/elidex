@@ -547,3 +547,64 @@ fn event_object_remains_event_kind_after_dispatch() {
     );
     vm.unbind();
 }
+
+#[test]
+fn dispatch_after_user_delete_core_slot_does_not_panic() {
+    // WebIDL core Event attributes install as `WEBIDL_RO`
+    // (configurable=true), so `delete evt.target` is a legal JS
+    // operation that flips the object from Shaped → Dictionary
+    // storage.  Before this regression defence, the in-place slot
+    // write in `set_event_slot_raw` `unreachable!`-panicked on
+    // Dictionary storage, crashing the VM whenever a user
+    // deleted any of `target` / `currentTarget` / `eventPhase`
+    // and then dispatched the same event.  The Dictionary
+    // fallback path preserves the semantic contract (dispatch
+    // re-installs the attribute, user's delete is transparently
+    // overwritten — matching Chrome's accessor-on-prototype
+    // behaviour).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    build_simple_tree(&mut vm, &mut session, &mut dom);
+    let out = vm
+        .eval(
+            "var evt = new Event('c'); \
+             delete evt.target; \
+             delete evt.currentTarget; \
+             delete evt.eventPhase; \
+             var seen = 'no'; \
+             el.addEventListener('c', function (e) { seen = (e.target === el); }); \
+             el.dispatchEvent(evt); \
+             seen;",
+        )
+        .unwrap();
+    assert!(
+        matches!(out, JsValue::Boolean(true)),
+        "post-delete dispatch must restore target so listener sees the wrapper"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn dispatch_after_user_delete_preserves_prevent_default_return() {
+    // Companion to the panic-avoidance regression: check that
+    // return value + preventDefault still work after the user
+    // deletes slot properties.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    build_simple_tree(&mut vm, &mut session, &mut dom);
+    let out = vm
+        .eval(
+            "var evt = new Event('c', {cancelable: true}); \
+             delete evt.target; \
+             el.addEventListener('c', function (e) { e.preventDefault(); }); \
+             el.dispatchEvent(evt);",
+        )
+        .unwrap();
+    assert!(
+        matches!(out, JsValue::Boolean(false)),
+        "return value must reflect preventDefault even after delete"
+    );
+    vm.unbind();
+}

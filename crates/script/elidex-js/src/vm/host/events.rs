@@ -651,8 +651,7 @@ pub(crate) const EVENT_SLOT_TARGET: usize = 4;
 /// propagation path; `null` outside a dispatch.
 pub(crate) const EVENT_SLOT_CURRENT_TARGET: usize = 5;
 
-/// Overwrite one core-9 slot on an `ObjectKind::Event` in place, skipping
-/// the shape-transition path.
+/// Overwrite one core-9 slot on an `ObjectKind::Event` in place.
 ///
 /// Script-initiated dispatch needs to advance `currentTarget` /
 /// `eventPhase` / `target` on a user-constructed event object
@@ -661,17 +660,18 @@ pub(crate) const EVENT_SLOT_CURRENT_TARGET: usize = 5;
 /// shape to record attr changes) and defeat the precomputed-shape
 /// fast path.
 ///
-/// Safety: requires `event_id` to refer to a Shaped storage whose
-/// shape was built via `build_precomputed_event_shapes` (i.e. one of
-/// `precomputed_event_shapes.*` or a descendant).  The caller is
-/// responsible for passing a slot index inside the core-9 range
-/// [0, `CORE_KEY_COUNT`); payload slots (index ≥ 9) are out of
-/// scope for this helper.
-///
-/// Debug-only shape lock-in: asserts the target shape is a descendant
-/// of the core-9 shape and that slot 3 / 4 / 5 are the expected keys
-/// (`eventPhase` / `target` / `currentTarget`).  Catches accidental
-/// reordering of `build_precomputed_event_shapes` in tests.
+/// Storage modes:
+/// - **Shaped** (common case): direct slot index write, zero
+///   shape-transition overhead.
+/// - **Dictionary** (after user-side `delete evt.target` etc.):
+///   WebIDL core attributes are `WEBIDL_RO` (configurable=true),
+///   so deletion is legal and triggers the Shaped → Dictionary
+///   transition.  Spec-wise dispatch must still set the
+///   attribute; fall back to a keyed set that either updates
+///   the existing entry or appends a fresh one with the
+///   WEBIDL_RO attrs that the ctor installed.  Matches Chrome
+///   semantics (IDL attribute accessor reads the internal slot
+///   even post-delete).
 pub(crate) fn set_event_slot_raw(
     vm: &mut VmInner,
     event_id: ObjectId,
@@ -683,6 +683,17 @@ pub(crate) fn set_event_slot_raw(
         "set_event_slot_raw: slot index {slot_idx} ≥ CORE_KEY_COUNT={CORE_KEY_COUNT} — \
          payload slots are variant-specific and must not be touched by dispatch"
     );
+    // Pre-capture the StringId for Dictionary fallback so the
+    // subsequent `&mut obj.storage` borrow doesn't race with
+    // `vm.well_known`.  Only target / currentTarget / eventPhase
+    // are mutated during dispatch; other slot indices are
+    // unreachable from C5 + C5/walk_phase call sites.
+    let key_sid_opt = match slot_idx {
+        EVENT_SLOT_EVENT_PHASE => Some(vm.well_known.event_phase),
+        EVENT_SLOT_TARGET => Some(vm.well_known.target),
+        EVENT_SLOT_CURRENT_TARGET => Some(vm.well_known.current_target),
+        _ => None,
+    };
     let obj = vm.get_object_mut(event_id);
     debug_assert!(
         matches!(obj.kind, ObjectKind::Event { .. }),
@@ -692,11 +703,33 @@ pub(crate) fn set_event_slot_raw(
         PropertyStorage::Shaped { slots, .. } => {
             slots[slot_idx] = PropertyValue::Data(new_val);
         }
-        PropertyStorage::Dictionary(_) => {
-            unreachable!(
-                "set_event_slot_raw: Event objects always use Shaped storage — \
-                 dispatch path was expected to observe a precomputed-shape event"
-            )
+        PropertyStorage::Dictionary(vec) => {
+            // User-invoked `delete e.target` (or similar) flipped
+            // the object to Dictionary storage; restore the slot
+            // semantically.  Caller must provide a slot_idx that
+            // maps to a known well-known key (target /
+            // currentTarget / eventPhase) — other indices would
+            // indicate a new call site added to dispatch that
+            // doesn't have a Dictionary fallback mapped yet.
+            let Some(key_sid) = key_sid_opt else {
+                debug_assert!(
+                    false,
+                    "set_event_slot_raw: Dictionary fallback missing for slot index {slot_idx}"
+                );
+                return;
+            };
+            let key = PropertyKey::String(key_sid);
+            if let Some(entry) = vec.iter_mut().find(|(k, _)| *k == key) {
+                entry.1.slot = PropertyValue::Data(new_val);
+            } else {
+                vec.push((
+                    key,
+                    super::super::value::Property::from_attrs(
+                        PropertyValue::Data(new_val),
+                        PropertyAttrs::WEBIDL_RO,
+                    ),
+                ));
+            }
         }
     }
 }

@@ -730,28 +730,63 @@ fn dispatch_script_event(
     // the internal slot (same source of truth as
     // `Event.prototype.preventDefault` consults) rather than the
     // data slot — both agree but the internal read is cheaper.
-    let (event_type_str, bubbles, cancelable, composed) = {
-        let obj = ctx.vm.get_object(event_id);
-        let ObjectKind::Event { cancelable, .. } = obj.kind else {
-            // Unreachable — caller's brand check established this.
-            unreachable!("dispatch_script_event: receiver is not ObjectKind::Event");
-        };
-        let PropertyStorage::Shaped { slots, .. } = &obj.storage else {
-            unreachable!("Event must use Shaped storage");
-        };
-        let type_sid = match slots[0] {
-            PropertyValue::Data(JsValue::String(sid)) => sid,
-            _ => unreachable!("Event slot 0 (type) must be a String"),
-        };
-        let bubbles = matches!(slots[1], PropertyValue::Data(JsValue::Boolean(true)));
-        let composed = matches!(slots[7], PropertyValue::Data(JsValue::Boolean(true)));
-        (
-            ctx.vm.strings.get_utf8(type_sid),
-            bubbles,
-            cancelable,
-            composed,
-        )
+    // Storage mode: Shaped on freshly-constructed events, Dictionary
+    // after the user issued a `delete` on any core attribute (the
+    // VM converts storage on the first successful configurable
+    // delete).  Read both paths — the Shaped slots reads the
+    // precomputed-shape indices directly; the Dictionary path
+    // keys off well-known StringIds.  If the user deleted `type`
+    // (slot 0), the WebIDL semantic (attribute reads internal
+    // slot) means we don't have one on record — fall through to
+    // the interned empty string so dispatch still produces a
+    // consistent listener filter (matches Chrome: a deleted
+    // `evt.type` leaves the internal slot untouched and listeners
+    // still match on its original value, but we don't model a
+    // separate internal slot, so reuse the type arg if available
+    // — absent that, empty string).
+    let cancelable = match ctx.vm.get_object(event_id).kind {
+        ObjectKind::Event { cancelable, .. } => cancelable,
+        _ => unreachable!("dispatch_script_event: receiver is not ObjectKind::Event"),
     };
+    let k_type = ctx.vm.well_known.event_type;
+    let k_bubbles = ctx.vm.well_known.bubbles;
+    let k_composed = ctx.vm.well_known.composed;
+    let empty_sid = ctx.vm.well_known.empty;
+    let (type_sid, bubbles, composed) = {
+        let obj = ctx.vm.get_object(event_id);
+        match &obj.storage {
+            PropertyStorage::Shaped { slots, .. } => {
+                let type_sid = match slots[0] {
+                    PropertyValue::Data(JsValue::String(sid)) => sid,
+                    _ => empty_sid,
+                };
+                let bubbles = matches!(slots[1], PropertyValue::Data(JsValue::Boolean(true)));
+                let composed = matches!(slots[7], PropertyValue::Data(JsValue::Boolean(true)));
+                (type_sid, bubbles, composed)
+            }
+            PropertyStorage::Dictionary(vec) => {
+                let lookup = |key_sid| {
+                    vec.iter()
+                        .find(|(k, _)| matches!(k, PropertyKey::String(s) if *s == key_sid))
+                        .map(|(_, p)| p.slot)
+                };
+                let type_sid = match lookup(k_type) {
+                    Some(PropertyValue::Data(JsValue::String(sid))) => sid,
+                    _ => empty_sid,
+                };
+                let bubbles = matches!(
+                    lookup(k_bubbles),
+                    Some(PropertyValue::Data(JsValue::Boolean(true)))
+                );
+                let composed = matches!(
+                    lookup(k_composed),
+                    Some(PropertyValue::Data(JsValue::Boolean(true)))
+                );
+                (type_sid, bubbles, composed)
+            }
+        }
+    };
+    let event_type_str = ctx.vm.strings.get_utf8(type_sid);
 
     // ---- B. Build the local DispatchEvent shim ----
     // The session crate's `build_dispatch_plan` / `apply_retarget`

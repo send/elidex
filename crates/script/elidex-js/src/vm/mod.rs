@@ -361,12 +361,21 @@ pub(crate) struct VmInner {
     /// input's reason; composites' own `aborted` latch makes
     /// duplicate inputs (`any([a, a])`) safe.
     ///
-    /// GC contract: composite ObjectIds in the values are strong
-    /// roots (so `any([a, b])` whose result the user discards
-    /// stays reachable until either input aborts or is
-    /// collected); sweep prunes dead input keys and filters dead
-    /// composites — see [`Self::abort_signal_states`] for the
-    /// shared prune pattern.
+    /// GC contract: **weak bookkeeping only** — composite
+    /// ObjectIds stored in the values are NOT GC roots.  The mark
+    /// phase deliberately skips this map so a `AbortSignal.any([a,
+    /// b])` result that the user discards (without installing a
+    /// listener or binding it to a long-lived slot) stays
+    /// collectable even while `a` / `b` remain alive; otherwise
+    /// tight loops that build composites and drop them would
+    /// accumulate unreachable signals.  Composites survive when
+    /// held via JS stack / global / upvalue paths in the normal
+    /// way; the fan-out loop tolerates dead ObjectIds (the
+    /// nested `abort_signal` call silently early-returns on a
+    /// missing state entry).  Sweep prunes entries whose input
+    /// key was collected, and filters each value list by composite
+    /// liveness — see [`Self::abort_signal_states`] for the shared
+    /// prune pattern.
     #[cfg(feature = "engine")]
     pub(crate) any_composite_map: HashMap<ObjectId, Vec<ObjectId>>,
     /// In-flight dispatch flag side table — WHATWG DOM §2.9 step 3
