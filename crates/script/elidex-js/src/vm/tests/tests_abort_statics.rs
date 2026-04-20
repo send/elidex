@@ -1,8 +1,8 @@
-//! PR5a C8 — `AbortSignal.abort` / `.timeout` / `.any` static factory
-//! tests (WHATWG DOM §3.1.3).
+//! `AbortSignal.abort` / `.timeout` / `.any` static factory tests
+//! (WHATWG DOM §3.1.3).
 //!
 //! Split out of [`super::tests_abort`] to keep that file under the
-//! project's 1000-line convention (PR5a C9).
+//! project's 1000-line convention.
 
 #![cfg(feature = "engine")]
 

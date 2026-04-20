@@ -1,8 +1,8 @@
 //! Shape-transition and property-operation helpers for [`VmInner`].
 //!
 //! Split out of [`super::mod`] to keep that file under the
-//! project's 1000-line convention (PR5a C9).  All APIs remain
-//! `pub(crate)` — call sites are unaffected by the move.
+//! project's 1000-line convention.  All APIs remain `pub(crate)` —
+//! call sites are unaffected by the move.
 
 use std::collections::HashMap;
 

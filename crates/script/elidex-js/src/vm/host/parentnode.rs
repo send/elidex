@@ -53,17 +53,17 @@ impl VmInner {
     }
 }
 
-/// `DOMException("HierarchyRequestError")` for the ParentNode
-/// mixin.  Uses `'ParentNode'` as the interface label because this
-/// mixin is installed on both `Element.prototype` and the document
-/// wrapper (so the method can throw for `document.append(...)` too).
+/// Thin wrapper over [`super::dom_exception::hierarchy_request_error`]
+/// that fills in the `'ParentNode'` interface label.  Mixin is
+/// installed on `Element.prototype` and the document wrapper, so
+/// `document.append(...)` and `element.prepend(...)` both surface
+/// through this factory.
 fn hierarchy_request_error(ctx: &NativeContext<'_>, method: &str) -> VmError {
-    VmError::dom_exception(
+    super::dom_exception::hierarchy_request_error(
         ctx.vm.well_known.dom_exc_hierarchy_request_error,
-        format!(
-            "Failed to execute '{method}' on 'ParentNode': \
-             the new child node cannot be inserted."
-        ),
+        "ParentNode",
+        method,
+        "the new child node cannot be inserted.",
     )
 }
 

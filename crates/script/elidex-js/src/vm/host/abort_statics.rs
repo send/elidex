@@ -158,12 +158,9 @@ pub(super) fn native_abort_signal_static_any(
         }
         inputs.push(sig_id);
     }
-    // Multi-input propagation (non-empty, no input already aborted):
-    // a listener on each input that forwards the abort to the
-    // composite lands in PR5a2 alongside the Event-ctor cleanup.
-    // Empty input and already-aborted paths — which PR5a tests
-    // exercise — are fully handled above.
-    // TODO(PR5a2): propagation listeners for multi-input any().
+    // TODO: multi-input propagation — install an 'abort' listener
+    // on each input that forwards to `composite`.  Requires the
+    // Event-ctor surface that lands in the next tranche.
     let _ = inputs;
     Ok(JsValue::Object(composite))
 }

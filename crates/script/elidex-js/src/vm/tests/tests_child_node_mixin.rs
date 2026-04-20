@@ -1,4 +1,4 @@
-//! ChildNode mixin tests (WHATWG DOM §5.2.2) — `before` / `after` /
+//! ChildNode mixin tests (WHATWG DOM §5.2.2). `before` / `after` /
 //! `replaceWith` / `remove` installed on `Element.prototype` and
 //! `CharacterData.prototype`.
 
@@ -158,7 +158,7 @@ fn element_replace_with_no_args_detaches() {
 fn element_replace_with_self_is_noop() {
     // WHATWG §5.2.2 `replaceWith`: if an arg equals `this`, the
     // viable-next-sibling walk skips over it and the remove/insert
-    // cycle restores the node at its original position — effectively
+    // cycle restores the node at its original position. effectively
     // a no-op.  Must not throw (the old impl tripped
     // `insert_before(parent, this, this)` and raised
     // HierarchyRequestError).
@@ -191,7 +191,7 @@ fn element_replace_with_ancestor_cycle_preserves_tree() {
     }
     make_parent_with_children(&mut vm);
     // Build: grandparent > p > (a, b).  `a.replaceWith(grandparent)`
-    // — grandparent is p's ancestor, so insert would cycle.
+    //. grandparent is p's ancestor, so insert would cycle.
     vm.eval(
         "globalThis.grandparent = document.createElement('gp');\n\
          grandparent.appendChild(p);",
@@ -334,7 +334,7 @@ fn element_before_nested_fragment_is_recursively_flattened() {
 
 #[test]
 fn element_before_user_node_survives_later_arg_throw() {
-    // PR5a C5 regression guard applied to the ChildNode path — a
+    // The guard applied to the ChildNode path. a
     // throw on arg[1] must NOT strand arg[0] inside a doomed
     // wrapper fragment.
     let (mut vm, mut session, mut dom, doc) = setup();
@@ -369,9 +369,9 @@ fn element_before_user_node_survives_later_arg_throw() {
 #[test]
 fn element_before_self_insert_throws_hierarchy_request_error() {
     // Inserting an ancestor as a child of its own subtree creates a
-    // cycle — EcsDom rejects and we throw
-    // `DOMException("HierarchyRequestError")` (PR5a C3 upgrade from
-    // the pre-C3 TypeError surface).
+    // cycle. EcsDom rejects and we throw
+    // `DOMException("HierarchyRequestError")` (The from
+    // the TypeError surface).
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {
@@ -398,7 +398,7 @@ fn element_after_document_fragment_flattens() {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
     make_parent_with_children(&mut vm);
-    // Pass a single DocumentFragment — it should not be re-wrapped.
+    // Pass a single DocumentFragment. it should not be re-wrapped.
     // Its children should move into the tree at the insertion point.
     vm.eval(
         "var f = document.createDocumentFragment();\n\

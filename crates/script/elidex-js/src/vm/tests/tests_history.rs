@@ -20,10 +20,10 @@ fn eval_number(vm: &mut Vm, source: &str) -> f64 {
 }
 
 /// Construct a VM whose navigation base is `http://localhost/`
-/// (not the default `about:blank`).  PR5a C6 switched URL handling
+/// (not the default `about:blank`).  The URL handling
 /// to the WHATWG `url` crate, which refuses to resolve a relative
 /// URL like `"/a"` against a non-hierarchical base like
-/// `about:blank` — matching real browsers, where
+/// `about:blank`. matching real browsers, where
 /// `history.pushState(null, '', '/a')` on an about:blank page
 /// throws.  Tests that exercise history / path plumbing therefore
 /// need a concrete hierarchical base; this helper installs it
@@ -140,7 +140,7 @@ fn history_state_survives_gc() {
     let mut vm = new_vm_with_base();
     vm.eval(
         "history.pushState({step: 7, nested: {v: 99}}, '', '/x');
-         // Many allocations to raise GC pressure — if the state's
+         // Many allocations to raise GC pressure. if the state's
          // nested object were unrooted, GC would have claimed it.
          var filler = [];
          for (var i = 0; i < 5000; i++) { filler.push({k: i}); }

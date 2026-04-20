@@ -1,5 +1,5 @@
 //! PR4f C4: `Element.prototype.insertAdjacentElement` /
-//! `insertAdjacentText` — WHATWG DOM §4.9.
+//! `insertAdjacentText`. WHATWG DOM §4.9.
 
 #![cfg(feature = "engine")]
 
@@ -133,8 +133,8 @@ fn insert_adjacent_element_afterend_no_parent_returns_null() {
 
 #[test]
 fn insert_adjacent_element_rejects_bogus_where() {
-    // PR5a C2: bogus `where` argument → DOMException("SyntaxError")
-    // per WHATWG DOM §4.9 step 1.  Upgrade from the PR5a C1 interim
+    // The bogus `where` argument → DOMException("SyntaxError")
+    // per WHATWG DOM §4.9 step 1.  Upgrade from the Theinterim
     // TypeError guard.  Also spot-checks `e instanceof DOMException`
     // (prototype chain) and the legacy `.code === 12`.
     let out = run(
@@ -154,7 +154,7 @@ fn insert_adjacent_element_rejects_bogus_where() {
 
 #[test]
 fn insert_adjacent_element_rejects_non_element_arg() {
-    // `null` fails the WebIDL `Element` coercion — still a plain
+    // `null` fails the WebIDL `Element` coercion. still a plain
     // TypeError (not a DOMException), matching Blink / Gecko.
     let out = run(
         "var t = document.getElementById('t');\
@@ -234,7 +234,7 @@ fn insert_adjacent_text_no_parent_is_noop_returns_undefined() {
 fn insert_adjacent_text_rejects_bogus_where_before_allocating_text() {
     // S6: position-parse failure is checked BEFORE the Text is created
     // so we don't leak detached Text nodes into the ECS on misuse.
-    // PR5a C2 also tightens the throw shape to
+    // Thealso tightens the throw shape to
     // `DOMException("SyntaxError")`.
     let out = run(
         "var t = document.getElementById('t');\
@@ -253,7 +253,7 @@ fn insert_adjacent_element_afterbegin_first_child_is_noop_success() {
     // rejects `new_child == ref_child` as invalid.  The native must
     // short-circuit on that edge case so scripts like
     // `el.insertAdjacentElement('afterbegin', el.firstChild)` do not
-    // throw — they are a common pattern for "ensure x is the first
+    // throw. they are a common pattern for "ensure x is the first
     // child".
     let out = run(
         "var t = document.getElementById('t');\
@@ -352,7 +352,7 @@ fn insert_adjacent_element_stale_entity_arg_reports_detached_not_wrong_type() {
 
 #[test]
 fn insert_adjacent_text_parent_less_short_circuit_does_not_leak_text() {
-    // Copilot R1 F2 lock-in — `beforebegin` / `afterend` on a
+    // Copilot R1 F2 lock-in. `beforebegin` / `afterend` on a
     // parent-less receiver used to allocate a Text entity before
     // realising the insertion was a no-op, leaking an orphan into
     // ECS.  Count Text entities before and after to confirm no new
@@ -375,7 +375,7 @@ fn insert_adjacent_text_parent_less_short_circuit_does_not_leak_text() {
     assert!(matches!(result, JsValue::Number(n) if n == 0.0));
     vm.unbind();
 
-    // No Text entity should exist in the ECS — the receiver had no
+    // No Text entity should exist in the ECS. the receiver had no
     // parent, so both insertAdjacentText calls are silent no-ops.
     let text_count = dom.world().query::<&TextContent>().iter().count();
     assert_eq!(

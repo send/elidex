@@ -67,7 +67,7 @@ fn abort_sets_aborted_flag() {
 fn abort_with_undefined_creates_default_abort_error() {
     let mut vm = Vm::new();
     // Default reason is a DOMException with `name === "AbortError"`
-    // (PR5a C8 upgrade from plain Error).
+    // (The from plain Error).
     assert_eq!(
         eval_string(
             &mut vm,
@@ -79,7 +79,7 @@ fn abort_with_undefined_creates_default_abort_error() {
 
 #[test]
 fn abort_default_reason_is_dom_exception() {
-    // PR5a C8 regression guard — the default reason is a proper
+    // The guard. the default reason is a proper
     // DOMException instance, not an ad-hoc Error wrapper.
     let mut vm = Vm::new();
     assert!(eval_bool(
@@ -255,7 +255,7 @@ fn onabort_handler_fires_on_abort() {
 #[test]
 fn onabort_runs_before_addeventlistener_callbacks() {
     let mut vm = Vm::new();
-    // WHATWG §8.1.5 — event-handler IDL attribute fires "first in
+    // WHATWG §8.1.5. event-handler IDL attribute fires "first in
     // addition to others registered".  PR4d implements that order.
     assert_eq!(
         eval_string(
@@ -364,7 +364,7 @@ fn signal_is_event_target_but_not_node() {
 
 #[test]
 fn signal_proto_chain_skips_node_prototype() {
-    // AbortSignal is an EventTarget but not a Node — its prototype
+    // AbortSignal is an EventTarget but not a Node. its prototype
     // chain must be `signal → AbortSignal.prototype →
     // EventTarget.prototype → Object.prototype` (3 hops up).
     // Verifying directly via VM internals is more robust than going
@@ -396,7 +396,7 @@ fn signal_proto_chain_skips_node_prototype() {
 }
 
 // PR4d C3 `addEventListener({signal})` integration tests moved to
-// `tests_abort_signal_option.rs` (PR5a C9 split).
+// `tests_abort_signal_option.rs` (Thesplit).
 
 #[test]
 fn abort_controller_constructor_requires_new() {
@@ -524,7 +524,7 @@ fn abort_after_unbind_cleans_listener_store() {
     vm.unbind();
 
     // Re-bind for the abort call (so JS can reach `c`), then unbind
-    // again — the controller still holds the back-ref Vec built
+    // again. the controller still holds the back-ref Vec built
     // during the first bind.  We need the second eval to actually
     // run, so re-bind transiently; the listener_store cleanup is
     // what we're verifying, and that runs regardless of bind state.
@@ -547,7 +547,7 @@ fn second_abort_with_modified_state_does_nothing() {
     // Regression: with the new "leave callbacks in state" approach,
     // a second abort() must still be a no-op.  The latch + the
     // post-dispatch `abort_listeners.clear()` together guarantee
-    // this — verify by adding a listener AFTER the first abort
+    // this. verify by adding a listener AFTER the first abort
     // and confirming a second abort doesn't invoke it (the
     // already-aborted guard short-circuits the registration).
     let mut vm = Vm::new();
@@ -557,7 +557,7 @@ fn second_abort_with_modified_state_does_nothing() {
              var n = 0;
              c.signal.addEventListener('abort', function() { n++; });
              c.abort();
-             // Try to register after abort — should be ignored.
+             // Try to register after abort. should be ignored.
              c.signal.addEventListener('abort', function() { n += 100; });
              c.abort();
              n;",
@@ -601,7 +601,7 @@ fn dispatch_event_validates_abort_signal_receiver() {
 #[test]
 fn dispatch_event_on_real_signal_returns_false_stub() {
     // The stub still returns `false` for legitimate AbortSignal
-    // receivers — only the cross-call case throws.
+    // receivers. only the cross-call case throws.
     let mut vm = Vm::new();
     assert_eq!(
         vm.eval(
@@ -663,7 +663,7 @@ fn defining_signal_property_does_not_retarget_abort() {
             "var c = new AbortController();
              var original = c.signal;
              var alien = new AbortController().signal;
-             // Replace the visible property — must not affect abort target.
+             // Replace the visible property. must not affect abort target.
              Object.defineProperty(c, 'signal', {value: alien, configurable: true});
              c.abort();
              // Original signal aborts via internal slot; alien stays untouched.
@@ -696,7 +696,7 @@ fn controller_signal_property_still_readable_normally() {
 mod bound_listener_pruning {
     //! Regression for Copilot R2: `bound_listener_removals` must be
     //! pruned when the underlying listener is removed (via
-    //! `removeEventListener`) — otherwise the back-ref grows
+    //! `removeEventListener`). otherwise the back-ref grows
     //! unbounded across add/remove cycles for a long-lived signal.
 
     use super::*;
@@ -743,7 +743,7 @@ mod bound_listener_pruning {
         )
         .unwrap();
 
-        // Reach into VM state directly — no JS-visible API exposes
+        // Reach into VM state directly. no JS-visible API exposes
         // the back-ref Vec count.
         //
         // SAFETY-of-test: we never escape the borrow; just reading
@@ -791,7 +791,7 @@ mod bound_listener_pruning {
         assert_eq!(before, 1, "expected one back-ref entry pre-GC");
 
         // Force a GC pass while the signal is still rooted via
-        // `globalThis.c` — entries must survive.
+        // `globalThis.c`. entries must survive.
         vm.inner.collect_garbage();
 
         let after = vm.inner.abort_listener_back_refs.len();
@@ -803,4 +803,4 @@ mod bound_listener_pruning {
     }
 }
 
-// PR5a C8 static factory tests moved to tests_abort_statics.rs (C9 split).
+// Thestatic factory tests moved to tests_abort_statics.rs (C9 split).

@@ -279,9 +279,9 @@ pub(crate) struct WellKnownStrings {
     pub(crate) remove_event_listener: StringId,
     pub(crate) dispatch_event: StringId,
 
-    // -- DOMException (PR5a C1) --
+    // -- DOMException --
     // The constructor identifier, WebIDL member names, and the
-    // subset of §2.1 spec exception names used by PR5a callers.
+    // subset of WHATWG §2.1 spec exception names currently used.
     // Additional names land at their first use site (interning is
     // deduplicating, so a later `well_known` entry is a
     // HashMap-hit fallback for hot paths).

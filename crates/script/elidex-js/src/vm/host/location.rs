@@ -19,7 +19,7 @@
 //! URLs with [`Url::join`] so `location.href = "foo"` against
 //! `https://site/a/` lands at `https://site/a/foo`.
 //!
-//! Canonicalisation differs from the pre-PR5a hand-rolled splitter:
+//! Canonicalisation notes (inherited from the `url` crate):
 //! - Default ports are stripped (`http://host:80/` → `http://host/`).
 //! - Host is lowercased (`http://HOST/` → `http://host/`).
 //! - Authority-bearing URLs without a path gain a trailing `/`
@@ -41,20 +41,13 @@ use super::super::shape;
 use super::super::value::{JsValue, NativeContext, PropertyKey, PropertyValue, VmError};
 use super::super::VmInner;
 
-/// Resolve `input` against the current document URL.  Absolute
-/// inputs parse as-is; relative inputs use
-/// [`NavigationState::current_url`] as the base (matching WHATWG
-/// HTML §7.1.2 "location object" setter semantics).  Returns `None`
-/// if `input` is neither an absolute URL nor resolvable relative to
-/// the base — the caller translates that to a DOMException in C7.
+/// Resolve `input` against the current document URL.  `Url::join`
+/// accepts both absolute and relative inputs per WHATWG URL §4.5 —
+/// an absolute input replaces the base, a relative input composes.
+/// Returns `None` on parse failure; the caller translates that to a
+/// `DOMException("SyntaxError")`.
 fn resolve_url(ctx: &NativeContext<'_>, input: &str) -> Option<Url> {
-    match Url::parse(input) {
-        Ok(u) => Some(u),
-        Err(url::ParseError::RelativeUrlWithoutBase) => {
-            ctx.vm.navigation.current_url.join(input).ok()
-        }
-        Err(_) => None,
-    }
+    ctx.vm.navigation.current_url.join(input).ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -74,11 +67,12 @@ fn url_component(
     ctx: &mut NativeContext<'_>,
     extract: impl FnOnce(&Url) -> String,
 ) -> Result<JsValue, VmError> {
-    // Clone the URL because the closure borrow holds the nav read
-    // across the subsequent `intern` (which needs `&mut vm`).  The
-    // Url clone is Arc-backed internally, so this is cheap.
-    let url = ctx.vm.navigation.current_url.clone();
-    let s = extract(&url);
+    // Extract produces an owned `String`, so the borrow on
+    // `current_url` ends before `intern_current` takes `&mut`.
+    // Cloning the URL would cost a full heap allocation (WHATWG
+    // `url::Url` is not Arc-backed — the stored serialization is a
+    // plain String).
+    let s = extract(&ctx.vm.navigation.current_url);
     Ok(intern_current(ctx, &s))
 }
 

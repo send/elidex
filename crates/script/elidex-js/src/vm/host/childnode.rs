@@ -155,7 +155,7 @@ fn classify_arg_without_mutation(
 /// pre-pass succeeds do we allocate the fragment and move children
 /// into it.  This guarantees that a throw during conversion cannot
 /// strand a user-supplied Node inside a fragment that's about to be
-/// destroyed (the silent data-loss scenario documented in PR5a C5).
+/// destroyed (silent data-loss scenario).
 pub(super) fn convert_nodes_to_single_node_or_fragment(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
@@ -228,18 +228,16 @@ pub(super) fn finalize_pair(ctx: &mut NativeContext<'_>, pair: (Entity, bool), s
 // Natives
 // ---------------------------------------------------------------------------
 
-/// Build the `DOMException("HierarchyRequestError")` emitted when
-/// `EcsDom` rejects an insertion (self-insert, ancestor cycle,
-/// destroyed entity).  Uses `'ChildNode'` as the interface label
-/// because this mixin is installed on both Element and
-/// CharacterData wrappers.
+/// Thin wrapper over [`super::dom_exception::hierarchy_request_error`]
+/// that fills in the `'ChildNode'` interface label.  This mixin is
+/// installed on both Element and CharacterData wrappers, so the
+/// interface surface is `ChildNode` regardless of concrete receiver.
 fn hierarchy_request_error(ctx: &NativeContext<'_>, method: &str) -> VmError {
-    VmError::dom_exception(
+    super::dom_exception::hierarchy_request_error(
         ctx.vm.well_known.dom_exc_hierarchy_request_error,
-        format!(
-            "Failed to execute '{method}' on 'ChildNode': \
-             the new child node cannot be inserted."
-        ),
+        "ChildNode",
+        method,
+        "the new child node cannot be inserted.",
     )
 }
 

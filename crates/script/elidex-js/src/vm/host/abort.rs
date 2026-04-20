@@ -184,11 +184,11 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
         // Install `AbortSignal.abort` / `.timeout` / `.any` static
-        // factories (WHATWG §3.1.3, PR5a C8).  They live as own
-        // methods on the constructor function object itself, not
-        // on the prototype — `AbortSignal.abort()` reads a
+        // factories (WHATWG §3.1.3).  They live as own methods on
+        // the constructor function object itself, not on the
+        // prototype — `AbortSignal.abort()` reads a
         // constructor-static method just like `Array.from`.
-        // Bodies live in `abort_statics.rs` (PR5a C9 split).
+        // Bodies live in `abort_statics.rs`.
         use super::abort_statics::{
             native_abort_signal_static_abort, native_abort_signal_static_any,
             native_abort_signal_static_timeout,

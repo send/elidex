@@ -249,9 +249,12 @@ impl VmInner {
                 self.active_timer_ids.remove(&entry.id);
                 // `AbortSignal.timeout(ms)` entries are one-shot;
                 // a cancellation drops the pending-signal map entry
-                // so the signal can be collected.
+                // so the signal can be collected.  Gated on
+                // `!is_empty()` so the hot setTimeout path doesn't
+                // pay a hash computation when no timeouts are in
+                // flight.
                 #[cfg(feature = "engine")]
-                {
+                if !self.pending_timeout_signals.is_empty() {
                     self.pending_timeout_signals.remove(&entry.id);
                 }
                 continue;
@@ -261,9 +264,14 @@ impl VmInner {
             // dispatching the placeholder callback.  The signal's
             // `reason` becomes `DOMException("TimeoutError")`.  We
             // install the entry as current_timer first so the GC root
-            // stays stable during the dispatch.
+            // stays stable during the dispatch.  The `is_empty` guard
+            // skips the hash computation on the common case (every
+            // setTimeout fire).
             #[cfg(feature = "engine")]
-            if let Some(signal_id) = self.pending_timeout_signals.remove(&entry.id) {
+            if let Some(signal_id) = (!self.pending_timeout_signals.is_empty())
+                .then(|| self.pending_timeout_signals.remove(&entry.id))
+                .flatten()
+            {
                 self.active_timer_ids.remove(&entry.id);
                 self.current_timer = Some(entry);
                 let timeout_name = self.well_known.dom_exc_timeout_error;

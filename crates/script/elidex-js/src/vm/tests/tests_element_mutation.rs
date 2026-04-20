@@ -8,7 +8,7 @@
 //! - Element-only members must NOT surface on Text nodes.
 //!
 //! Split out of [`super::tests_element_methods`] to keep that file
-//! under the project's 1000-line convention (PR5a C9).
+//! under the project's 1000-line convention.
 
 #![cfg(feature = "engine")]
 
@@ -44,7 +44,7 @@ fn element_append_child_adds_new_element_and_returns_it() {
         .unwrap();
     assert!(matches!(v, JsValue::Boolean(true)));
 
-    // Count elements on body (originally 2 — p, div; now 3 with new section).
+    // Count elements on body (originally 2. p, div; now 3 with new section).
     assert!(matches!(
         vm.eval("document.getElementById('root').childElementCount;")
             .unwrap(),
@@ -91,10 +91,9 @@ fn element_remove_child_of_non_child_throws() {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
 
-    // span is a grandchild, not a direct child of body.  PR5a C4
-    // upgrades the throw from TypeError to
-    // `DOMException("NotFoundError")` (legacy code 8) per WHATWG
-    // DOM §4.4.
+    // span is a grandchild, not a direct child of body.  Throw
+    // shape per WHATWG DOM §4.4:
+    // `DOMException("NotFoundError")` (legacy code 8).
     let span_wrapper = vm.inner.create_element_wrapper(span);
     vm.set_global("_span", JsValue::Object(span_wrapper));
     let check = vm
@@ -216,7 +215,7 @@ fn element_replace_child_returns_old_node() {
 fn element_replace_child_rejects_non_child_with_not_found_error() {
     // WHATWG DOM §4.4: `replaceChild` throws
     // `DOMException("NotFoundError")` when `old` is not a child of
-    // the receiver.  PR5a C4 upgrade from the pre-C4 TypeError
+    // the receiver.  The from the TypeError
     // surface.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
@@ -434,7 +433,7 @@ fn element_closest_returns_null_when_no_match() {
 fn window_does_not_expose_node_members() {
     // WHATWG: Window is an EventTarget but NOT a Node.
     // `window.nodeType` / `window.parentNode` / `window.textContent`
-    // must all be `undefined` — they live on `Node.prototype` which
+    // must all be `undefined`. they live on `Node.prototype` which
     // is NOT in Window's prototype chain.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
@@ -464,7 +463,7 @@ fn window_does_not_expose_node_members() {
             "{expr} must be undefined on Window"
         );
     }
-    // But window.addEventListener — an EventTarget method — is still present.
+    // But window.addEventListener. an EventTarget method. is still present.
     let v = vm.eval("typeof window.addEventListener;").unwrap();
     let JsValue::String(sid) = v else { panic!() };
     assert_eq!(vm.get_string(sid), "function");
@@ -475,7 +474,7 @@ fn window_does_not_expose_node_members() {
 #[test]
 fn text_parent_element_returns_parent_element() {
     // `parentElement` is a Node member (WHATWG §4.4), not Element-
-    // specific — so a Text wrapper must expose it and return the
+    // specific. so a Text wrapper must expose it and return the
     // parent element when its parent is one.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
@@ -502,7 +501,7 @@ fn text_parent_element_returns_parent_element() {
 #[test]
 fn text_wrapper_sees_node_members() {
     // Text nodes chain through `Node.prototype`, so Node-level
-    // accessors and methods must all resolve — `firstChild` returns
+    // accessors and methods must all resolve. `firstChild` returns
     // null, `appendChild` exists, `textContent` returns own data.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
@@ -517,7 +516,7 @@ fn text_wrapper_sees_node_members() {
     let raw_wrapper = vm.inner.create_element_wrapper(raw);
     vm.set_global("_raw", JsValue::Object(raw_wrapper));
 
-    // firstChild / lastChild / childNodes on Text — exist, return
+    // firstChild / lastChild / childNodes on Text. exist, return
     // null / empty.
     assert!(matches!(
         vm.eval("_raw.firstChild;").unwrap(),
@@ -543,7 +542,7 @@ fn text_wrapper_sees_node_members() {
 
 #[test]
 fn append_child_rejects_window_argument() {
-    // Window is an EventTarget but not a Node in WHATWG — passing
+    // Window is an EventTarget but not a Node in WHATWG. passing
     // it as the child argument to a mutation method must throw the
     // same "parameter is not of type 'Node'" TypeError as any other
     // non-Node.  Covers appendChild / removeChild / insertBefore /
@@ -673,7 +672,7 @@ fn shadow_host_has_child_nodes_false_when_only_shadow_root() {
 
 #[test]
 fn contains_stops_at_shadow_boundary() {
-    // `host.contains(nodeInsideShadow)` must be false — the shadow
+    // `host.contains(nodeInsideShadow)` must be false. the shadow
     // root is NOT a light-tree descendant of its host, even though
     // elidex stores it as a child for convenience.
     use elidex_ecs::ShadowRootMode;
@@ -728,7 +727,7 @@ fn closest_stops_at_shadow_boundary() {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
 
-    // Set div.id = "host" so it would be matched by `#host` — if the
+    // Set div.id = "host" so it would be matched by `#host`. if the
     // walk crossed the shadow boundary, `inner.closest('#host')`
     // would return `div`.  Correct behaviour: return null.
     let div_wrapper = vm.inner.create_element_wrapper(div);
@@ -757,7 +756,7 @@ fn closest_stops_at_shadow_boundary() {
 #[test]
 fn text_wrapper_does_not_expose_element_placeholder_marker() {
     // Invariant: members installed on `Element.prototype` must be
-    // `undefined` on Text wrappers — the Text branch skips
+    // `undefined` on Text wrappers. the Text branch skips
     // `Element.prototype` and inherits from `Node.prototype` (and
     // then `EventTarget.prototype`).  `firstElementChild` is an
     // Element-only accessor, so `typeof` must be `undefined` on a

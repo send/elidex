@@ -1,4 +1,4 @@
-//! ParentNode mixin tests (WHATWG DOM §5.2.4) — `prepend` /
+//! ParentNode mixin tests (WHATWG DOM §5.2.4). `prepend` /
 //! `append` / `replaceChildren` installed on Element.prototype and
 //! on the document wrapper.
 
@@ -170,15 +170,15 @@ fn element_replace_children_preserves_tree_when_conversion_throws() {
 
 #[test]
 fn element_append_user_node_survives_later_arg_throw() {
-    // PR5a C5 regression guard — `convert_nodes_to_single_node_or_fragment`
+    // The guard. `convert_nodes_to_single_node_or_fragment`
     // must validate all args BEFORE moving any user Node into the
     // wrapper fragment.  Pre-fix, a flow like
     // `target.append(existingUserNode, Symbol())` would:
     //   1. Alloc fragment
-    //   2. append_child(fragment, existingUserNode) — detaches
+    //   2. append_child(fragment, existingUserNode). detaches
     //      existingUserNode from its current parent
     //   3. ToString(Symbol()) throws
-    //   4. destroy_entity(fragment) — destroys existingUserNode too
+    //   4. destroy_entity(fragment). destroys existingUserNode too
     // After the side-effect-free reorder, Symbol() throws before
     // step 1 so existingUserNode stays attached.
     let (mut vm, mut session, mut dom, doc) = setup();
@@ -216,7 +216,7 @@ fn element_append_user_node_survives_later_arg_throw() {
 fn element_prepend_ancestor_cycle_throws_before_mutation() {
     // Pre-insertion validity (WHATWG §4.2.3): if a later arg is an
     // ancestor of the receiver, `prepend(firstArg, ancestor)` must
-    // throw BEFORE firstArg is inserted — no partial mutation.
+    // throw BEFORE firstArg is inserted. no partial mutation.
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {
@@ -238,7 +238,7 @@ fn element_prepend_ancestor_cycle_throws_before_mutation() {
         )
         .unwrap();
     assert!(matches!(threw, JsValue::Boolean(true)));
-    // `x` must NOT have been inserted — throw happened before
+    // `x` must NOT have been inserted. throw happened before
     // the first insertion.
     let JsValue::Boolean(x_in_p) = vm
         .eval("Array.prototype.slice.call(p.childNodes).indexOf(x) !== -1;")
@@ -263,7 +263,7 @@ fn element_replace_children_does_not_clear_parent_on_ancestor_cycle() {
     //
     // We validate the user-observable invariant: children that were
     // *not* passed as args (here `b`) are still children of `p` after
-    // the throw — they were never removed because the clear step is
+    // the throw. they were never removed because the clear step is
     // gated behind pre-validation.
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

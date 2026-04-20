@@ -681,9 +681,10 @@ impl VmInner {
                     let argc = self.read_u8_op() as usize;
                     let call_ic_idx = self.read_u16_op() as usize;
                     if let Err(e) = self.ic_call_method(func_id, argc, call_ic_idx) {
-                        // PR5a B1: route through `vm_error_to_thrown` so
-                        // DOMException / TypeError keep their prototype
-                        // chain (prev path flattened to JsValue::String).
+                        // Must route through `vm_error_to_thrown` —
+                        // the short-cut that flattens to `JsValue::String`
+                        // drops the prototype chain on DOMException / TypeError
+                        // and breaks `catch (e) { e.name === '…' }`.
                         let thrown = self.vm_error_to_thrown(&e);
                         if self.handle_exception(thrown, entry_frame_depth) {
                             continue;

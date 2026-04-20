@@ -2,9 +2,9 @@
 //! `insertAdjacentText` (WHATWG DOM §4.9).
 //!
 //! Split out of [`super::element_proto`] to keep that file under
-//! the project's 1000-line convention (PR5a C9).  The install-time
-//! reference in `install_element_matches` reaches these natives
-//! via their `pub(super)` re-export.
+//! the project's 1000-line convention.  The install-time reference
+//! in `install_element_matches` reaches these natives via their
+//! `pub(super)` re-export.
 
 #![cfg(feature = "engine")]
 
@@ -147,18 +147,14 @@ fn perform_adjacent_insert(
 ) -> Result<Option<Entity>, VmError> {
     // Capture the interned `"HierarchyRequestError"` StringId up
     // front — once `ctx.host().dom()` holds the mutable borrow,
-    // reaching back into `ctx.vm.well_known` would collide.  The
-    // helper that uses it (`make_hierarchy_err`) runs only on the
-    // cold error path, so the up-front capture is free on the
-    // success path.
+    // reaching back into `ctx.vm.well_known` would collide.
     let hier_name = ctx.vm.well_known.dom_exc_hierarchy_request_error;
     let make_hierarchy_err = |method: &str| -> VmError {
-        VmError::dom_exception(
+        super::dom_exception::hierarchy_request_error(
             hier_name,
-            format!(
-                "Failed to execute '{method}' on 'Element': \
-                 the new child node cannot be inserted at this position."
-            ),
+            "Element",
+            method,
+            "the new child node cannot be inserted at this position.",
         )
     };
     let dom = ctx.host().dom();

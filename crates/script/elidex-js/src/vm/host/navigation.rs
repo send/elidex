@@ -34,8 +34,7 @@ pub(crate) const MAX_HISTORY_ENTRIES: usize = 50;
 pub(crate) struct HistoryEntry {
     /// The URL the entry points at.  Held as [`Url`] so that
     /// relative-URL resolution (`history.pushState(…, '/new')`) is
-    /// a WHATWG-conformant `base.join(input)` call — the pre-PR5a
-    /// String form required each call site to re-parse.
+    /// a WHATWG-conformant `base.join(input)` call.
     pub(crate) url: Url,
     /// The serialised state associated with the entry (`history.state`).
     ///

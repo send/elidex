@@ -3,7 +3,7 @@
 //! `getAttributeNames` / `toggleAttribute` + `id` / `className`.
 //!
 //! Split out of [`super::tests_element_methods`] to keep that file
-//! under the project's 1000-line convention (PR5a C9).
+//! under the project's 1000-line convention.
 
 #![cfg(feature = "engine")]
 

@@ -145,7 +145,7 @@ fn location_reload_is_no_op_but_callable() {
 }
 
 // ---------------------------------------------------------------------------
-// PR5a C6 — WHATWG `url` crate canonicalisation
+// WHATWG `url` crate canonicalisation
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -182,7 +182,7 @@ fn location_href_setter_resolves_relative_against_base() {
 #[test]
 fn location_href_setter_throws_dom_exception_on_invalid_url() {
     // Unresolvable relative URL on `about:blank` base → SyntaxError
-    // DOMException (PR5a C7 throw path).
+    // DOMException throw path.
     let mut vm = Vm::new();
     let check = vm
         .eval(

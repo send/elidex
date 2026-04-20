@@ -1,8 +1,8 @@
-//! Tests for `DOMException` (WebIDL §3.14) — constructor layout,
+//! Tests for `DOMException` (WebIDL §3.14). constructor layout,
 //! accessor shape, prototype chain, and the unified
 //! `vm_error_to_thrown` dispatch path that materialises
 //! [`super::super::value::VmErrorKind::DomException`] into a real
-//! JS instance (PR5a C1).
+//! JS instance .
 
 #![cfg(feature = "engine")]
 
@@ -92,7 +92,7 @@ fn dom_exception_code_for_invalid_state_error() {
 
 #[test]
 fn dom_exception_code_for_syntax_error() {
-    // Legacy code 12 — SyntaxError's DOMException-flavoured code.
+    // Legacy code 12. SyntaxError's DOMException-flavoured code.
     // Independent of the JS `SyntaxError` global (the name string
     // collides, but the object identity + code accessor are
     // distinct).
@@ -127,7 +127,7 @@ fn dom_exception_instanceof_error() {
     assert!(eval_bool("new DOMException() instanceof Error"));
 }
 
-// `instanceof SyntaxError` would return true here — the VM shares
+// `instanceof SyntaxError` would return true here. the VM shares
 // a single `Error.prototype` across every error subclass (see
 // `globals_errors.rs` `error_proto` reuse), so `instanceof
 // SyntaxError` collapses to `instanceof Error` for any object in the
@@ -141,7 +141,7 @@ fn dom_exception_instanceof_error() {
 #[test]
 fn dom_exception_no_own_keys() {
     // `name` / `message` / `code` are accessor properties on
-    // `DOMException.prototype`, not own data — so the instance has
+    // `DOMException.prototype`, not own data. so the instance has
     // *zero* enumerable own keys (spec parity with browsers).
     assert_eq!(
         eval_number("Object.keys(new DOMException('m')).length"),
@@ -190,7 +190,7 @@ fn dom_exception_tostring_with_name_and_message() {
 
 #[test]
 fn dom_exception_tostring_default_message_empty() {
-    // Spec §19.5.3.4 step 8 — when message is the empty string, the
+    // Spec §19.5.3.4 step 8. when message is the empty string, the
     // separator + message is omitted, producing just the name.
     // The default DOMException name is "Error" (matches `new
     // DOMException().name`).
@@ -204,7 +204,7 @@ fn dom_exception_tostring_default_message_empty() {
 #[test]
 fn dom_exception_accessor_cross_call_on_alien_throws() {
     // `Object.getOwnPropertyDescriptor(DOMException.prototype,
-    // 'name').get.call({})` must throw TypeError — receiver lacks
+    // 'name').get.call({})` must throw TypeError. receiver lacks
     // the DOMException brand-check side-table entry.
     let mut vm = Vm::new();
     let result = vm
@@ -232,13 +232,13 @@ fn dom_exception_accessor_cross_call_on_alien_throws() {
 fn dom_exception_from_vm_error_has_correct_name_via_dispatch() {
     // Triggers the unified dispatch path: the ChildNode mixin
     // (installed in C3) throws DOMException("HierarchyRequestError")
-    // via `Op::CallMethod` — `e.name` must be the spec name, not
+    // via `Op::CallMethod`. `e.name` must be the spec name, not
     // a stringified VmError Display.
     //
-    // PR5a C1 ships the unified dispatch and the DOMException
+    // The the unified dispatch and the DOMException
     // type, but the call sites that actually throw DOMException
     // land in C2-C4.  Until then, assert the round-trip works
-    // via a constructor-built instance — the regression guard
+    // via a constructor-built instance. the regression guard
     // itself tightens in C2.
     assert_eq!(
         eval_string("new DOMException('boom', 'HierarchyRequestError').name"),

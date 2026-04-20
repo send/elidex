@@ -670,7 +670,7 @@ impl VmInner {
                 self.html_iframe_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 25 + 1 (DOMException, PR5a C1) = 26.
+                // 25 + 1 (DOMException) = 26.
                 #[cfg(feature = "engine")]
                 self.dom_exception_prototype,
                 #[cfg(not(feature = "engine"))]
