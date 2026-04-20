@@ -278,6 +278,20 @@ pub(crate) struct WellKnownStrings {
     pub(crate) add_event_listener: StringId,
     pub(crate) remove_event_listener: StringId,
     pub(crate) dispatch_event: StringId,
+
+    // -- DOMException --
+    // The constructor identifier, WebIDL member names, and the
+    // subset of WHATWG §2.1 spec exception names currently used.
+    // Additional names land at their first use site (interning is
+    // deduplicating, so a later `well_known` entry is a
+    // HashMap-hit fallback for hot paths).
+    pub(crate) dom_exception: StringId,
+    pub(crate) dom_exc_syntax_error: StringId,
+    pub(crate) dom_exc_hierarchy_request_error: StringId,
+    pub(crate) dom_exc_not_found_error: StringId,
+    pub(crate) dom_exc_wrong_document_error: StringId,
+    pub(crate) dom_exc_invalid_state_error: StringId,
+    pub(crate) dom_exc_timeout_error: StringId,
 }
 
 impl WellKnownStrings {
@@ -503,6 +517,14 @@ impl WellKnownStrings {
             add_event_listener: strings.intern("addEventListener"),
             remove_event_listener: strings.intern("removeEventListener"),
             dispatch_event: strings.intern("dispatchEvent"),
+
+            dom_exception: strings.intern("DOMException"),
+            dom_exc_syntax_error: strings.intern("SyntaxError"),
+            dom_exc_hierarchy_request_error: strings.intern("HierarchyRequestError"),
+            dom_exc_not_found_error: strings.intern("NotFoundError"),
+            dom_exc_wrong_document_error: strings.intern("WrongDocumentError"),
+            dom_exc_invalid_state_error: strings.intern("InvalidStateError"),
+            dom_exc_timeout_error: strings.intern("TimeoutError"),
         }
     }
 }

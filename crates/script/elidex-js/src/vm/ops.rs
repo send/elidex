@@ -171,6 +171,14 @@ impl VmInner {
     pub(crate) fn vm_error_to_thrown(&mut self, error: &VmError) -> JsValue {
         match &error.kind {
             VmErrorKind::ThrowValue(val) => *val,
+            // DOMException instances route through a dedicated
+            // builder so the resulting object has
+            // `DOMException.prototype` in its chain and the out-of-band
+            // `dom_exception_states` entry populated.  Engine-gated
+            // because every call site that builds a DomException
+            // lives behind `engine` too.
+            #[cfg(feature = "engine")]
+            VmErrorKind::DomException { name } => self.build_dom_exception(*name, &error.message),
             kind => {
                 let error_name = match kind {
                     VmErrorKind::TypeError => "TypeError",

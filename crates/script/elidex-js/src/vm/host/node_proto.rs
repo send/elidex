@@ -669,13 +669,16 @@ fn native_node_remove_child(
     };
     let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let child = require_node_arg(ctx, child_arg, "removeChild")?;
+    // Capture the interned `"NotFoundError"` StringId BEFORE the
+    // `&mut dom` borrow so the cold error path doesn't fight the
+    // host mutable borrow.
+    let not_found = ctx.vm.well_known.dom_exc_not_found_error;
     let ok = ctx.host().dom().remove_child(parent, child);
     if !ok {
-        // `NotFoundError` in the spec — surfaced as TypeError per the
-        // DOMException deferral documented on `appendChild`.
-        return Err(VmError::type_error(
-            "Failed to execute 'removeChild' on 'Node': \
-             The node to be removed is not a child of this node.",
+        return Err(super::dom_exception::not_found_error(
+            not_found,
+            "removeChild",
+            "The node to be removed is not a child of this node.",
         ));
     }
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(child)))
@@ -704,10 +707,12 @@ fn native_node_insert_before(
         }
         _ => {
             let ref_node = require_node_arg(ctx, ref_arg, "insertBefore")?;
+            let not_found = ctx.vm.well_known.dom_exc_not_found_error;
             if !ctx.host().dom().insert_before(parent, new_node, ref_node) {
-                return Err(VmError::type_error(
-                    "Failed to execute 'insertBefore' on 'Node': \
-                     the reference node is not a child of this node.",
+                return Err(super::dom_exception::not_found_error(
+                    not_found,
+                    "insertBefore",
+                    "the reference node is not a child of this node.",
                 ));
             }
         }
@@ -727,10 +732,12 @@ fn native_node_replace_child(
     let new_node = require_node_arg(ctx, new_arg, "replaceChild")?;
     let old_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let old_node = require_node_arg(ctx, old_arg, "replaceChild")?;
+    let not_found = ctx.vm.well_known.dom_exc_not_found_error;
     if !ctx.host().dom().replace_child(parent, new_node, old_node) {
-        return Err(VmError::type_error(
-            "Failed to execute 'replaceChild' on 'Node': \
-             the node to be replaced is not a child of this node.",
+        return Err(super::dom_exception::not_found_error(
+            not_found,
+            "replaceChild",
+            "the node to be replaced is not a child of this node.",
         ));
     }
     // Spec: returns the *replaced* (old) node.

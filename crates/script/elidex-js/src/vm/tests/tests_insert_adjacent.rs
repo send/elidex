@@ -1,5 +1,5 @@
 //! PR4f C4: `Element.prototype.insertAdjacentElement` /
-//! `insertAdjacentText` — WHATWG DOM §4.9.
+//! `insertAdjacentText`. WHATWG DOM §4.9.
 
 #![cfg(feature = "engine")]
 
@@ -133,17 +133,20 @@ fn insert_adjacent_element_afterend_no_parent_returns_null() {
 
 #[test]
 fn insert_adjacent_element_rejects_bogus_where() {
-    // CallMethod coerces VmError into its Display string (separate
-    // pre-existing VM quirk from Op::Call's Error-object wrap), so we
-    // assert on the string contents rather than e.name / instanceof.
+    // Bogus `where` argument → `DOMException("SyntaxError")` per
+    // WHATWG DOM §4.9 step 1.  Also spot-checks
+    // `e instanceof DOMException` (prototype chain) and the legacy
+    // `.code === 12`.
     let out = run(
         "var t = document.getElementById('t');\
          var p = document.createElement('p');\
          try { t.insertAdjacentElement('sideways', p); 'no-throw'; } \
          catch (e) { \
-           var isType = (typeof e === 'string' && e.indexOf('TypeError') >= 0);\
+           var isDom = (e && e.name === 'SyntaxError' \
+                        && e instanceof DOMException \
+                        && e.code === 12);\
            var unchanged = t.parentNode.childNodes.length === 2;\
-           isType + ':' + unchanged; }",
+           isDom + ':' + unchanged; }",
         build_pair_in_parent,
     );
     assert_eq!(out, "true:true");
@@ -151,10 +154,29 @@ fn insert_adjacent_element_rejects_bogus_where() {
 
 #[test]
 fn insert_adjacent_element_rejects_non_element_arg() {
+    // `null` fails the WebIDL `Element` coercion. still a plain
+    // TypeError (not a DOMException), matching Blink / Gecko.
     let out = run(
         "var t = document.getElementById('t');\
          try { t.insertAdjacentElement('beforeend', null); 'no-throw'; } \
-         catch (e) { (typeof e === 'string' && e.indexOf('TypeError') >= 0) ? 'threw' : 'bad'; }",
+         catch (e) { (e && e.name === 'TypeError') ? 'threw' : 'bad'; }",
+        build_pair_in_parent,
+    );
+    assert_eq!(out, "threw");
+}
+
+#[test]
+fn insert_adjacent_element_cycle_throws_hierarchy_request_error() {
+    // Inserting an ancestor into its descendant is a cycle.  The
+    // EcsDom `append_child` rejects it, and the throw path maps to
+    // `DOMException("HierarchyRequestError")` with legacy code 3.
+    let out = run(
+        "var t = document.getElementById('t');\
+         var parent = t.parentNode;\
+         try { t.insertAdjacentElement('beforeend', parent); 'no-throw'; } \
+         catch (e) { (e && e.name === 'HierarchyRequestError' \
+                      && e instanceof DOMException \
+                      && e.code === 3) ? 'threw' : 'bad'; }",
         build_pair_in_parent,
     );
     assert_eq!(out, "threw");
@@ -212,10 +234,13 @@ fn insert_adjacent_text_no_parent_is_noop_returns_undefined() {
 fn insert_adjacent_text_rejects_bogus_where_before_allocating_text() {
     // S6: position-parse failure is checked BEFORE the Text is created
     // so we don't leak detached Text nodes into the ECS on misuse.
+    // The throw shape is `DOMException("SyntaxError")` per WHATWG
+    // DOM §4.9 step 1.
     let out = run(
         "var t = document.getElementById('t');\
          try { t.insertAdjacentText('middle', 'x'); 'no-throw'; } \
-         catch (e) { 'threw'; }",
+         catch (e) { (e && e.name === 'SyntaxError' \
+                      && e instanceof DOMException) ? 'threw' : 'bad'; }",
         build_pair_in_parent,
     );
     assert_eq!(out, "threw");
@@ -228,7 +253,7 @@ fn insert_adjacent_element_afterbegin_first_child_is_noop_success() {
     // rejects `new_child == ref_child` as invalid.  The native must
     // short-circuit on that edge case so scripts like
     // `el.insertAdjacentElement('afterbegin', el.firstChild)` do not
-    // throw — they are a common pattern for "ensure x is the first
+    // throw. they are a common pattern for "ensure x is the first
     // child".
     let out = run(
         "var t = document.getElementById('t');\
@@ -309,8 +334,9 @@ fn insert_adjacent_element_stale_entity_arg_reports_detached_not_wrong_type() {
         var stale = globalThis.__stale_wrapper;\
         try { target.insertAdjacentElement('beforebegin', stale); 'no-throw'; } \
         catch (e) { \
-          var detached = typeof e === 'string' && e.indexOf('detached') >= 0; \
-          var wrongType = typeof e === 'string' && e.indexOf('not of type') >= 0; \
+          var m = (e && e.message) || ''; \
+          var detached = m.indexOf('detached') >= 0; \
+          var wrongType = m.indexOf('not of type') >= 0; \
           detached + '|' + wrongType; }";
     vm.set_global(
         "__stale_wrapper",
@@ -326,7 +352,7 @@ fn insert_adjacent_element_stale_entity_arg_reports_detached_not_wrong_type() {
 
 #[test]
 fn insert_adjacent_text_parent_less_short_circuit_does_not_leak_text() {
-    // Copilot R1 F2 lock-in — `beforebegin` / `afterend` on a
+    // Copilot R1 F2 lock-in. `beforebegin` / `afterend` on a
     // parent-less receiver used to allocate a Text entity before
     // realising the insertion was a no-op, leaking an orphan into
     // ECS.  Count Text entities before and after to confirm no new
@@ -349,7 +375,7 @@ fn insert_adjacent_text_parent_less_short_circuit_does_not_leak_text() {
     assert!(matches!(result, JsValue::Number(n) if n == 0.0));
     vm.unbind();
 
-    // No Text entity should exist in the ECS — the receiver had no
+    // No Text entity should exist in the ECS. the receiver had no
     // parent, so both insertAdjacentText calls are silent no-ops.
     let text_count = dom.world().query::<&TextContent>().iter().count();
     assert_eq!(

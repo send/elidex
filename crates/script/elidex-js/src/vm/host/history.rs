@@ -145,7 +145,27 @@ fn state_mutate(
         ctx.vm.navigation.current_url.clone()
     } else {
         let sid = coerce::to_string(ctx.vm, url_arg)?;
-        ctx.vm.strings.get_utf8(sid)
+        let input = ctx.vm.strings.get_utf8(sid);
+        // WHATWG HTML §7.4.3 step 4: parse `url` relative to the
+        // current document's URL.  `url::Url::join` handles both
+        // absolute and relative inputs against the base.  On parse
+        // failure we throw `DOMException("SyntaxError")` — spec
+        // wording is "If parsing fails, throw a
+        // SecurityError/SyntaxError" depending on same-origin state;
+        // Phase 2 uses SyntaxError uniformly (SecurityError lands
+        // with the shell navigation bridge in PR6).
+        match ctx.vm.navigation.current_url.join(&input) {
+            Ok(u) => u,
+            Err(_) => {
+                let syntax = ctx.vm.well_known.dom_exc_syntax_error;
+                return Err(VmError::dom_exception(
+                    syntax,
+                    format!(
+                        "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
+                    ),
+                ));
+            }
+        }
     };
 
     let nav = &mut ctx.vm.navigation;
@@ -153,7 +173,7 @@ fn state_mutate(
     debug_assert!(!nav.history_entries.is_empty());
     if replace_index {
         let entry = &mut nav.history_entries[nav.history_index];
-        entry.url.clone_from(&new_url);
+        entry.url = new_url.clone();
         entry.state = state;
     } else {
         nav.push_entry(new_url.clone(), state);

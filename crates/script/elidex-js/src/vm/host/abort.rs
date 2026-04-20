@@ -183,6 +183,37 @@ impl VmInner {
             PropertyValue::Data(JsValue::Object(abort_signal_ctor)),
             PropertyAttrs::METHOD,
         );
+        // Install `AbortSignal.abort` / `.timeout` / `.any` static
+        // factories (WHATWG §3.1.3).  They live as own methods on
+        // the constructor function object itself, not on the
+        // prototype — `AbortSignal.abort()` reads a
+        // constructor-static method just like `Array.from`.
+        // Bodies live in `abort_statics.rs`.
+        use super::abort_statics::{
+            native_abort_signal_static_abort, native_abort_signal_static_any,
+            native_abort_signal_static_timeout,
+        };
+        for (name_sid, func) in [
+            (
+                self.strings.intern("abort"),
+                native_abort_signal_static_abort as NativeFn,
+            ),
+            (
+                self.strings.intern("timeout"),
+                native_abort_signal_static_timeout,
+            ),
+            (self.strings.intern("any"), native_abort_signal_static_any),
+        ] {
+            let name = self.strings.get_utf8(name_sid);
+            let fn_id = self.create_native_function(&name, func);
+            self.define_shaped_property(
+                abort_signal_ctor,
+                PropertyKey::String(name_sid),
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
+
         let abort_signal_name = self.well_known.abort_signal;
         self.globals
             .insert(abort_signal_name, JsValue::Object(abort_signal_ctor));
@@ -640,7 +671,15 @@ fn native_abort_signal_dispatch_event(
 /// IDL handler attribute remains observable from script after
 /// the event fires (browsers expose the same handler reference
 /// to subsequent `signal.onabort` reads).
-fn abort_signal(
+/// Entry point used by both the public `AbortController.abort()`
+/// dispatch and the `AbortSignal.timeout` internal fire — see
+/// module doc for the contract.  Exposed to `natives_timer`
+/// via [`internal_abort_signal`] so the drain path can route
+/// a fired timeout through the same state-update + listener
+/// dispatch as a user-visible abort.  Also `pub(super)` so the
+/// static factories in [`super::abort_statics`] can compose it
+/// with fresh signal allocation.
+pub(super) fn abort_signal(
     ctx: &mut NativeContext<'_>,
     signal_id: ObjectId,
     reason: JsValue,
@@ -656,9 +695,9 @@ fn abort_signal(
     }
 
     // Materialise the abort reason: `undefined` becomes a fresh
-    // Error with `name === "AbortError"` (the spec wants a
-    // `DOMException`, but the plain Error matches what library
-    // detection code looks for: `err.name === 'AbortError'`).
+    // `DOMException("AbortError")` (WHATWG DOM §3.1.2 step 1) —
+    // `create_default_abort_error` routes through
+    // `VmInner::build_dom_exception` for the real instance.
     let materialised_reason = if matches!(reason, JsValue::Undefined) {
         create_default_abort_error(ctx)
     } else {
@@ -724,37 +763,38 @@ fn abort_signal(
     Ok(())
 }
 
-/// Construct the default abort reason — an `Error` instance with
-/// `name === "AbortError"` and a generic message.  Mirrors the
-/// own-property layout `error_ctor_impl` produces (so `JSON.stringify`,
-/// `Object.keys`, `e.toString()` all behave the same way).  Should
-/// become a real `DOMException` once that interface is implemented.
+/// Construct the default abort reason — a `DOMException` instance
+/// with `name === "AbortError"` (WHATWG DOM §3.1.2 step 1: "set
+/// reason to a new 'AbortError' DOMException").  Routed through
+/// [`VmInner::build_dom_exception`] so the instance has
+/// `DOMException.prototype` in its chain and the side-table entry
+/// populated — `reason.code === 20`,
+/// `reason instanceof DOMException`, `reason instanceof Error` all
+/// hold as a result.
 fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
-    let proto = ctx.vm.error_prototype;
-    let id = ctx.alloc_object(Object {
-        kind: ObjectKind::Ordinary,
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: proto,
-        extensible: true,
-    });
-    let name_key = PropertyKey::String(ctx.vm.well_known.name);
-    let name_val = JsValue::String(ctx.vm.well_known.abort_error);
-    ctx.vm.define_shaped_property(
-        id,
-        name_key,
-        PropertyValue::Data(name_val),
-        PropertyAttrs::METHOD,
-    );
-    let msg_sid = ctx.intern("signal is aborted without reason");
-    let msg_key = PropertyKey::String(ctx.vm.well_known.message);
-    ctx.vm.define_shaped_property(
-        id,
-        msg_key,
-        PropertyValue::Data(JsValue::String(msg_sid)),
-        PropertyAttrs::METHOD,
-    );
-    JsValue::Object(id)
+    let name = ctx.vm.well_known.abort_error;
+    ctx.vm
+        .build_dom_exception(name, "signal is aborted without reason")
 }
+
+/// Entry point for the timer drain path — synthesises a
+/// `NativeContext` so the internal abort dispatch can reuse the
+/// same state-update + listener plumbing as a user-visible
+/// `controller.abort()`.  Engine-only because the caller
+/// (`natives_timer::drain_timers`) only routes through here when
+/// the `pending_timeout_signals` map has an entry, which is itself
+/// engine-feature-gated.
+pub(in crate::vm) fn internal_abort_signal(
+    vm: &mut super::super::VmInner,
+    signal_id: ObjectId,
+    reason: JsValue,
+) -> Result<(), VmError> {
+    let mut ctx = super::super::value::NativeContext { vm };
+    abort_signal(&mut ctx, signal_id, reason)
+}
+
+// Static factories live in `abort_statics.rs` to keep this file
+// under the 1000-line convention.
 
 /// Detach `(entity, listener_id)` pairs from their host's ECS
 /// `EventListeners` component and the `HostData::listener_store`.

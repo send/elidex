@@ -129,7 +129,7 @@ fn doctype_name_on_wrong_host_object_throws() {
         "var getName = Object.getOwnPropertyDescriptor( \
              Object.getPrototypeOf(document.doctype), 'name').get; \
          try { getName.call(document.documentElement); 'no-throw'; } \
-         catch (e) { (typeof e === 'string' && e.indexOf('Illegal') >= 0) ? 'ok' : 'bad:' + e; }",
+         catch (e) { (e && e.message && e.message.indexOf('Illegal') >= 0) ? 'ok' : 'bad'; }",
         |dom| build_doctype_fixture(dom, "", ""),
     );
     assert_eq!(out, "ok");

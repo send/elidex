@@ -53,17 +53,18 @@ impl VmInner {
     }
 }
 
-/// TypeError-surfaced HierarchyRequestError for the ParentNode
-/// mixin — mirrors the pattern `Node.appendChild` / `insertBefore`
-/// use (DOMException integration is deferred).  Uses `'ParentNode'`
-/// as the interface label because this mixin is installed on both
-/// `Element.prototype` and the document wrapper (so the method can
-/// throw for `document.append(...)` too).
-fn hierarchy_request_error(method: &str) -> VmError {
-    VmError::type_error(format!(
-        "Failed to execute '{method}' on 'ParentNode': \
-         the new child node cannot be inserted."
-    ))
+/// Thin wrapper over [`super::dom_exception::hierarchy_request_error`]
+/// that fills in the `'ParentNode'` interface label.  Mixin is
+/// installed on `Element.prototype` and the document wrapper, so
+/// `document.append(...)` and `element.prepend(...)` both surface
+/// through this factory.
+fn hierarchy_request_error(ctx: &NativeContext<'_>, method: &str) -> VmError {
+    super::dom_exception::hierarchy_request_error(
+        ctx.vm.well_known.dom_exc_hierarchy_request_error,
+        "ParentNode",
+        method,
+        "the new child node cannot be inserted.",
+    )
 }
 
 /// ParentNode mixin receivers per WHATWG §4.2.6 — Element,
@@ -109,7 +110,7 @@ fn native_parent_node_prepend(
             .is_light_tree_ancestor_or_self(child, parent)
         {
             finalize_pair(ctx, pair, false);
-            return Err(hierarchy_request_error("prepend"));
+            return Err(hierarchy_request_error(ctx, "prepend"));
         }
     }
     // Track the "reference child" we insert before.  Starts as the
@@ -130,7 +131,7 @@ fn native_parent_node_prepend(
             None => ctx.host().dom().append_child(parent, child),
         };
         if !ok {
-            err = Some(hierarchy_request_error("prepend"));
+            err = Some(hierarchy_request_error(ctx, "prepend"));
             break;
         }
     }
@@ -167,13 +168,13 @@ fn native_parent_node_append(
             .is_light_tree_ancestor_or_self(child, parent)
         {
             finalize_pair(ctx, pair, false);
-            return Err(hierarchy_request_error("append"));
+            return Err(hierarchy_request_error(ctx, "append"));
         }
     }
     let mut err = None;
     for child in children {
         if !ctx.host().dom().append_child(parent, child) {
-            err = Some(hierarchy_request_error("append"));
+            err = Some(hierarchy_request_error(ctx, "append"));
             break;
         }
     }
@@ -220,7 +221,7 @@ fn native_parent_node_replace_children(
                 .is_light_tree_ancestor_or_self(child, parent)
             {
                 finalize_pair(ctx, p, false);
-                return Err(hierarchy_request_error("replaceChildren"));
+                return Err(hierarchy_request_error(ctx, "replaceChildren"));
             }
         }
         let existing: Vec<Entity> = ctx.host().dom().children_iter(parent).collect();
@@ -237,7 +238,7 @@ fn native_parent_node_replace_children(
             // regression and still leave the parent half-populated,
             // which is worse than an explicit throw.
             if !ctx.host().dom().append_child(parent, child) {
-                err = Some(hierarchy_request_error("replaceChildren"));
+                err = Some(hierarchy_request_error(ctx, "replaceChildren"));
                 break;
             }
         }

@@ -20,6 +20,10 @@ num-bigint = "0.4"
 num-traits = "0.2"
 regress = { workspace = true }
 unicode-ident = "1.0"
+# WHATWG URL parser — consumed by the `location` / `history`
+# host globals (PR5a C6).  Workspace dep; the elidex-net crate
+# already owns the same entry.
+url = { workspace = true }
 elidex-script-session = { workspace = true, optional = true }
 elidex-ecs = { workspace = true, optional = true }
 elidex-css = { workspace = true, optional = true }
