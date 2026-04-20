@@ -15,6 +15,8 @@
 
 #![cfg(feature = "engine")]
 
+use url::Url;
+
 use super::super::value::JsValue;
 
 /// Maximum number of session-history entries retained by the
@@ -30,9 +32,11 @@ pub(crate) const MAX_HISTORY_ENTRIES: usize = 50;
 /// §7.4.1 "session history entry").
 #[derive(Clone, Debug)]
 pub(crate) struct HistoryEntry {
-    /// The URL the entry points at.  Updated in place when
-    /// `history.replaceState(…, url)` is called.
-    pub(crate) url: String,
+    /// The URL the entry points at.  Held as [`Url`] so that
+    /// relative-URL resolution (`history.pushState(…, '/new')`) is
+    /// a WHATWG-conformant `base.join(input)` call — the pre-PR5a
+    /// String form required each call site to re-parse.
+    pub(crate) url: Url,
     /// The serialised state associated with the entry (`history.state`).
     ///
     /// Held as a bare [`JsValue`] — structured clone happens when the
@@ -53,8 +57,12 @@ pub(crate) struct HistoryEntry {
 pub(crate) struct NavigationState {
     /// The current browsing-context URL.  Backs `location.href`,
     /// `document.URL`, and `document.documentURI`.  Initialised to
-    /// `"about:blank"` per WHATWG HTML §7.3.3 "Creating documents".
-    pub(crate) current_url: String,
+    /// `about:blank` per WHATWG HTML §7.3.3 "Creating documents".
+    /// Held as [`Url`] so location getters call the WHATWG parser
+    /// directly (scheme / host / port / path / query / fragment
+    /// accessors) and relative URL setters (`location.href = "foo"`)
+    /// use [`Url::join`] for base-relative resolution.
+    pub(crate) current_url: Url,
     /// The in-memory session history stack.
     pub(crate) history_entries: Vec<HistoryEntry>,
     /// The index of the current entry within [`Self::history_entries`].
@@ -63,10 +71,16 @@ pub(crate) struct NavigationState {
     pub(crate) history_index: usize,
 }
 
+/// Parse `"about:blank"` once at construction — a panic here would
+/// indicate a broken `url` crate build (the literal is WHATWG-valid).
+fn parse_about_blank() -> Url {
+    Url::parse("about:blank").expect("`about:blank` must parse as a WHATWG URL")
+}
+
 impl NavigationState {
     /// Create a fresh navigation state pointing at `about:blank`.
     pub(crate) fn new() -> Self {
-        let initial_url = String::from("about:blank");
+        let initial_url = parse_about_blank();
         Self {
             current_url: initial_url.clone(),
             history_entries: vec![HistoryEntry {
@@ -83,7 +97,7 @@ impl NavigationState {
     /// new index for convenience.
     ///
     /// Called by `location.assign` / `location.href=` / `history.pushState`.
-    pub(crate) fn push_entry(&mut self, url: String, state: JsValue) -> usize {
+    pub(crate) fn push_entry(&mut self, url: Url, state: JsValue) -> usize {
         self.history_entries.truncate(self.history_index + 1);
         self.history_entries.push(HistoryEntry { url, state });
         if self.history_entries.len() > MAX_HISTORY_ENTRIES {

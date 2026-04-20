@@ -365,7 +365,10 @@ pub(super) fn native_document_get_url(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let url = ctx.vm.navigation.current_url.clone();
+    // `current_url` is now a `Url`; `as_str()` produces the
+    // canonical WHATWG serialisation (what `document.URL` /
+    // `documentURI` returns per WHATWG DOM §4.5.1).
+    let url = ctx.vm.navigation.current_url.as_str().to_string();
     let sid = ctx.vm.strings.intern(&url);
     Ok(JsValue::String(sid))
 }

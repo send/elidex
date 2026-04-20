@@ -143,3 +143,55 @@ fn location_reload_is_no_op_but_callable() {
     vm.eval("location.reload();").unwrap();
     assert_eq!(eval_string(&mut vm, "location.href;"), "about:blank");
 }
+
+// ---------------------------------------------------------------------------
+// PR5a C6 — WHATWG `url` crate canonicalisation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn location_href_canonicalises_host_case() {
+    // WHATWG URL §4.4: host is lowercased at parse time.
+    let mut vm = Vm::new();
+    vm.eval("location.href = 'http://HOST.EXAMPLE/a';").unwrap();
+    assert_eq!(eval_string(&mut vm, "location.host;"), "host.example");
+}
+
+#[test]
+fn location_href_strips_default_port() {
+    // Default port for the scheme is stripped.
+    let mut vm = Vm::new();
+    vm.eval("location.href = 'http://host:80/a';").unwrap();
+    assert_eq!(eval_string(&mut vm, "location.host;"), "host");
+    assert_eq!(eval_string(&mut vm, "location.port;"), "");
+    assert_eq!(eval_string(&mut vm, "location.href;"), "http://host/a");
+}
+
+#[test]
+fn location_href_setter_resolves_relative_against_base() {
+    // `location.href = 'bar'` against `https://site/foo/` lands at
+    // `https://site/foo/bar` via `Url::join` (WHATWG URL §4.5).
+    let mut vm = Vm::new();
+    vm.eval("location.href = 'https://site/foo/';").unwrap();
+    vm.eval("location.href = 'bar';").unwrap();
+    assert_eq!(
+        eval_string(&mut vm, "location.href;"),
+        "https://site/foo/bar"
+    );
+}
+
+#[test]
+fn location_href_setter_throws_dom_exception_on_invalid_url() {
+    // Unresolvable relative URL on `about:blank` base → SyntaxError
+    // DOMException (PR5a C7 throw path).
+    let mut vm = Vm::new();
+    let check = vm
+        .eval(
+            "var thrown = null;\
+             try { location.href = '\\u0000'; } \
+             catch (e) { thrown = e; }\
+             thrown && thrown.name === 'SyntaxError' \
+             && thrown instanceof DOMException;",
+        )
+        .unwrap();
+    assert!(matches!(check, JsValue::Boolean(true)));
+}

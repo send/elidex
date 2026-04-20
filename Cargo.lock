@@ -2014,6 +2014,7 @@ dependencies = [
  "num-traits",
  "regress",
  "unicode-ident",
+ "url",
 ]
 
 [[package]]
