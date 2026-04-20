@@ -65,6 +65,35 @@ impl Eq for TimerEntry {}
 /// polish (spec-alignment PR).
 const MIN_INTERVAL_REPEAT_MS: u64 = 4;
 
+/// Upper bound on timer delays — `Instant::now() + delay` must not
+/// overflow on any platform.  macOS / Linux both back `Instant` with
+/// a bounded representation (typically `CLOCK_MONOTONIC` nanoseconds
+/// from boot), so an astronomical `delay` will panic in the `Add`
+/// impl.  100 years is larger than any realistic timer horizon yet
+/// remains safely representable when added to a fresh `Instant`.
+const MAX_DELAY_MICROS: u64 = 100 * 365 * 24 * 60 * 60 * 1_000_000;
+
+/// Clamp a JS-side `ms` value (already `ToNumber`-coerced) to a
+/// [`Duration`] safe to add to `Instant::now()`.  Non-finite,
+/// negative, and zero inputs all map to `Duration::ZERO` (fires
+/// immediately, matching WHATWG §8.7 step 2).  Very large inputs
+/// saturate at [`MAX_DELAY_MICROS`] so hostile scripts cannot panic
+/// the VM by passing `Number.MAX_VALUE` through `setTimeout` or
+/// `AbortSignal.timeout`.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+pub(super) fn clamp_delay_to_duration(ms: f64) -> Duration {
+    if ms.is_finite() && ms > 0.0 {
+        let micros_f = (ms * 1000.0).min(MAX_DELAY_MICROS as f64);
+        Duration::from_micros(micros_f as u64)
+    } else {
+        Duration::ZERO
+    }
+}
+
 /// Core scheduler: allocates an id, pushes a [`TimerEntry`] onto the heap.
 /// `repeat=None` for `setTimeout`, `Some(delay)` for `setInterval`.
 fn schedule_timer(
@@ -93,28 +122,11 @@ fn schedule_timer(
     // the string→number coercion, so matching spec means running the
     // non-primitive argument through `ToNumber` (which also produces NaN
     // for symbols / rejects with a TypeError the same way every other
-    // coercion does).  Non-finite / non-positive outputs clamp to 0.
+    // coercion does).  Non-finite / non-positive outputs clamp to 0;
+    // astronomical values saturate at [`MAX_DELAY_MICROS`].
     let delay_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let delay_ms = {
-        let n = ctx.to_number(delay_arg)?;
-        if n.is_finite() && n > 0.0 {
-            n
-        } else {
-            0.0
-        }
-    };
-    // Clamp to a safe f64→u64 range.  2^53 microseconds is ~285 years,
-    // well beyond any realistic timer horizon; anything larger is not
-    // representable in f64 anyway.
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
-    let delay = {
-        let micros_f64 = (delay_ms * 1000.0).min((1u64 << 53) as f64);
-        Duration::from_micros(micros_f64 as u64)
-    };
+    let delay_ms = ctx.to_number(delay_arg)?;
+    let delay = clamp_delay_to_duration(delay_ms);
 
     let positional = if args.len() > 2 {
         args[2..].to_vec()
@@ -189,6 +201,15 @@ fn cancel_timer(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<JsValue
     // naive heap scan misses.
     if ctx.vm.active_timer_ids.remove(&id) {
         ctx.vm.cancelled_timers.insert(id);
+        // Drop the `AbortSignal.timeout(ms)` back-ref **immediately**
+        // instead of waiting for `drain_timers` to sweep the cancelled
+        // entry.  Without this, a host that calls `clearTimeout(id)`
+        // and never drives the event loop again would strand the
+        // signal rooted via `pending_timeout_signals`.
+        #[cfg(feature = "engine")]
+        if !ctx.vm.pending_timeout_signals.is_empty() {
+            ctx.vm.pending_timeout_signals.remove(&id);
+        }
     }
     Ok(JsValue::Undefined)
 }

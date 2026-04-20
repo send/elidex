@@ -84,14 +84,15 @@ pub(crate) struct DomExceptionState {
 /// Resolve `this` to the `DomExceptionState` entry for the instance.
 ///
 /// WebIDL §3.2 brand-check semantics:
-/// - `null` / `undefined` → return `None` (silently missing, caller
-///   translates to the WebIDL default for the attribute) is the wrong
-///   answer for most APIs — we throw `TypeError` to match
+/// - `null` / `undefined` and other non-object receivers → throw
+///   `TypeError`, matching
 ///   `Object.getOwnPropertyDescriptor(DOMException.prototype,
 ///   'name').get.call(undefined)` behaviour on browsers.
-/// - wrong-type receiver (no entry in `dom_exception_states`) →
-///   throw `TypeError` ("Illegal invocation").
-/// - valid instance → `Some(state)` copy (cheap — two `StringId`s).
+/// - wrong-brand object receiver (no entry in
+///   `dom_exception_states`) → throw `TypeError` ("Illegal
+///   invocation").
+/// - valid instance → return a copied `DomExceptionState` (cheap —
+///   two `StringId`s).
 fn require_dom_exception_this(
     ctx: &NativeContext<'_>,
     this: JsValue,

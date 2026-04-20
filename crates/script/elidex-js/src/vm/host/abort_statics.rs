@@ -53,19 +53,9 @@ pub(super) fn native_abort_signal_static_timeout(
 ) -> Result<JsValue, VmError> {
     let ms_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let ms = ctx.to_number(ms_arg)?;
-    // WHATWG §3.1.3.2 step 1: coerce via WebIDL `unsigned long long`
-    // → clamp NaN / negative / non-finite to 0ms.
-    let clamped_ms = if ms.is_finite() && ms > 0.0 {
-        ms.min(u64::MAX as f64 / 1_000.0)
-    } else {
-        0.0
-    };
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
-    let delay = std::time::Duration::from_micros((clamped_ms * 1000.0) as u64);
+    // Share the setTimeout clamp so `AbortSignal.timeout(Number.MAX_VALUE)`
+    // cannot overflow `Instant::now() + delay` and panic the VM.
+    let delay = super::super::natives_timer::clamp_delay_to_duration(ms);
 
     let signal_id = ctx.vm.create_abort_signal();
     // Reserve a timer id + push a heap entry.  The callback slot is

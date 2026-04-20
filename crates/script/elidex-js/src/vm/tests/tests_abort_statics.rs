@@ -113,6 +113,57 @@ fn abort_signal_any_non_signal_arg_throws_type_error() {
 }
 
 #[test]
+fn abort_signal_timeout_astronomical_ms_does_not_panic() {
+    // Regression: `AbortSignal.timeout(Number.MAX_VALUE)` previously
+    // built a `Duration` that overflowed `Instant::now() + delay` and
+    // panicked.  The shared `clamp_delay_to_duration` helper caps
+    // at 100 years so this path now returns a pending signal
+    // without incident.
+    let mut vm = Vm::new();
+    let r = vm
+        .eval("typeof AbortSignal.timeout(Number.MAX_VALUE) === 'object';")
+        .unwrap();
+    assert!(matches!(r, JsValue::Boolean(true)));
+    // Infinity and NaN also must not panic (clamp to 0ms).
+    let r = vm
+        .eval("typeof AbortSignal.timeout(Infinity) === 'object';")
+        .unwrap();
+    assert!(matches!(r, JsValue::Boolean(true)));
+    let r = vm
+        .eval("typeof AbortSignal.timeout(NaN) === 'object';")
+        .unwrap();
+    assert!(matches!(r, JsValue::Boolean(true)));
+}
+
+#[test]
+fn clear_timeout_immediately_drops_pending_timeout_signals_entry() {
+    // Regression: `clearTimeout(id)` that happens to cancel an
+    // `AbortSignal.timeout(ms)` timer must drop the
+    // `pending_timeout_signals` entry synchronously — without this,
+    // a host that never drives `drain_timers` again would leak the
+    // signal.
+    let mut vm = Vm::new();
+    vm.eval("globalThis.s = AbortSignal.timeout(1000);")
+        .unwrap();
+    // Only one timer entry in flight — grab its id from the map.
+    assert_eq!(vm.inner.pending_timeout_signals.len(), 1);
+    let timer_id = *vm
+        .inner
+        .pending_timeout_signals
+        .keys()
+        .next()
+        .expect("timer id should be registered");
+    // `clearTimeout` accepts the underlying numeric id regardless of
+    // the JS API that scheduled the timer.  Verifies the drop path
+    // runs even though no `drain_timers` tick followed.
+    vm.eval(&format!("clearTimeout({timer_id});")).unwrap();
+    assert!(
+        vm.inner.pending_timeout_signals.is_empty(),
+        "clearTimeout should have dropped the signal back-ref"
+    );
+}
+
+#[test]
 fn abort_signal_timeout_canceled_signal_state_cleaned() {
     // When the signal's pending_timeout_signals entry fires,
     // the map entry is removed.  Drain twice — second drain
