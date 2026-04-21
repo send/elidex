@@ -143,6 +143,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 body_used: HashSet::new(),
                 #[cfg(feature = "engine")]
+                array_buffer_prototype: None,
+                #[cfg(feature = "engine")]
+                blob_prototype: None,
+                #[cfg(feature = "engine")]
+                blob_data: HashMap::new(),
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),

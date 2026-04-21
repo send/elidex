@@ -31,6 +31,12 @@
 
 pub(crate) mod abort;
 pub(super) mod abort_statics;
+#[cfg(feature = "engine")]
+pub(crate) mod array_buffer;
+#[cfg(feature = "engine")]
+pub(crate) mod blob;
+#[cfg(feature = "engine")]
+pub(super) mod body_mixin;
 pub(super) mod character_data_proto;
 pub(super) mod childnode;
 pub(super) mod document;

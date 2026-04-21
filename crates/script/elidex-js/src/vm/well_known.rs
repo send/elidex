@@ -393,6 +393,20 @@ pub(crate) struct WellKnownStrings {
     pub(crate) response_type_error: StringId,
     pub(crate) response_type_opaque: StringId,
     pub(crate) response_type_opaqueredirect: StringId,
+
+    // -- ArrayBuffer / Blob / Body mixin (ES2020 §24.1 / File API
+    // §3 / WHATWG Fetch §5 Body mixin) --
+    // Constructor global names are separate fields from the
+    // camelCase attribute / method names to sidestep the name
+    // collision the Headers ctor ran into (`"Headers"` ctor name
+    // vs `"headers"` attr name).
+    pub(crate) array_buffer_global: StringId,
+    pub(crate) blob_global: StringId,
+    pub(crate) byte_length: StringId,
+    pub(crate) size: StringId,
+    pub(crate) slice: StringId,
+    pub(crate) text: StringId,
+    pub(crate) array_buffer: StringId,
 }
 
 impl WellKnownStrings {
@@ -703,6 +717,15 @@ impl WellKnownStrings {
             response_type_error: strings.intern("error"),
             response_type_opaque: strings.intern("opaque"),
             response_type_opaqueredirect: strings.intern("opaqueredirect"),
+
+            // ArrayBuffer / Blob / Body mixin.
+            array_buffer_global: strings.intern("ArrayBuffer"),
+            blob_global: strings.intern("Blob"),
+            byte_length: strings.intern("byteLength"),
+            size: strings.intern("size"),
+            slice: strings.intern("slice"),
+            text: strings.intern("text"),
+            array_buffer: strings.intern("arrayBuffer"),
         }
     }
 }

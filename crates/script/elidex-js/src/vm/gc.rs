@@ -606,6 +606,16 @@ fn trace_work_list(
                     mark_object(headers_id, obj_marks, work);
                 }
             }
+            // `ArrayBuffer` / `Blob` payloads are bytes-only —
+            // the backing `Arc<[u8]>` holds no ObjectId
+            // references, so there is nothing to fan out here.
+            // The sweep tail prunes `body_data` (ArrayBuffer
+            // storage, shared with Request / Response) and
+            // `blob_data` (Blob storage) entries whose key was
+            // collected, mirroring `headers_states` /
+            // `abort_signal_states`.
+            #[cfg(feature = "engine")]
+            ObjectKind::ArrayBuffer | ObjectKind::Blob => {}
         }
     }
 }
@@ -833,12 +843,16 @@ impl VmInner {
                 self.response_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // [39..=40] reserved for the remaining Fetch
-                // prototypes (array_buffer / blob).  They land in
-                // subsequent commits of the same tranche;
-                // `Response.body`'s stream scaffolding is deferred
-                // to a later PR.
+                // [39] array_buffer_prototype / [40] blob_prototype
+                // land together with the ArrayBuffer + Blob ctors
+                // (follow-up commit in the same tranche).
+                #[cfg(feature = "engine")]
+                self.array_buffer_prototype,
+                #[cfg(not(feature = "engine"))]
                 None,
+                #[cfg(feature = "engine")]
+                self.blob_prototype,
+                #[cfg(not(feature = "engine"))]
                 None,
             ],
             global_object: self.global_object,
@@ -972,6 +986,11 @@ impl VmInner {
             self.response_states.retain(|id, _| bit_get(marks, id.0));
             self.body_data.retain(|id, _| bit_get(marks, id.0));
             self.body_used.retain(|id| bit_get(marks, id.0));
+            // `blob_data` — prune entries whose key `Blob`
+            // instance was collected so a recycled slot can't
+            // inherit stale bytes / type.  Matches `body_data` /
+            // `headers_states` pattern.
+            self.blob_data.retain(|id, _| bit_get(marks, id.0));
         }
 
         // 5. IC invalidation.

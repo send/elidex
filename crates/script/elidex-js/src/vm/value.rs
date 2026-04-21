@@ -674,6 +674,39 @@ pub enum ObjectKind {
     /// `headers_id`, prune state / body entries in the sweep tail.
     #[cfg(feature = "engine")]
     Response,
+    /// `ArrayBuffer` instance (ES2020 §24.1, minimal Phase 2 form).
+    /// Payload-free; the backing bytes live in the shared
+    /// `VmInner::body_data` map keyed by this object's `ObjectId`.
+    /// `.slice()` allocates a fresh ArrayBuffer + `Arc<[u8]>` range
+    /// copy.  TypedArray views (Uint8Array / DataView / …) are
+    /// deferred to the next tranche; this variant's byte storage is
+    /// therefore not shared with any view object yet.
+    ///
+    /// IDL readonly `byteLength` reads the `Arc<[u8]>::len()` of
+    /// the `body_data` entry — authoritative internal slot (PR5a2
+    /// R7.1 lesson: `delete buf.byteLength` must not break reads).
+    ///
+    /// GC contract: payload-free — the trace step has nothing to
+    /// fan out (body bytes are plain `Arc<[u8]>`, no ObjectId
+    /// references).  Sweep tail pruning of `body_data` already
+    /// drops dead-key entries alongside Request / Response.
+    #[cfg(feature = "engine")]
+    ArrayBuffer,
+    /// `Blob` instance (File API §3, minimal Phase 2 form).
+    /// Payload-free; bytes plus MIME type live out-of-band in
+    /// `VmInner::blob_data` keyed by this object's `ObjectId`.
+    /// Body bytes are **not** shared with `body_data` — Blob has
+    /// its own side table because its state carries a `type_sid`
+    /// alongside the bytes.
+    ///
+    /// IDL readonly `size` / `type` read from the authoritative
+    /// side-table slot.
+    ///
+    /// GC contract: payload-free — blob bytes hold no ObjectId
+    /// references.  The sweep tail prunes `blob_data` entries whose
+    /// key was collected.
+    #[cfg(feature = "engine")]
+    Blob,
 }
 
 impl ObjectKind {

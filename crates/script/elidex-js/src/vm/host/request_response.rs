@@ -595,9 +595,14 @@ fn normalise_method(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<StringI
     })
 }
 
-/// Coerce a body init value (string / null / undefined in Phase 2)
-/// into raw UTF-8 bytes.  ArrayBuffer / Blob / FormData support
-/// lands with the upcoming Body / Blob commit.
+/// Coerce a body init value into raw UTF-8 bytes.  Accepts
+/// `String` / `ArrayBuffer` / `Blob` directly (per WHATWG §5
+/// "extract a body"); any other non-null / non-undefined value is
+/// `ToString`-coerced, matching browsers' forgiving
+/// `new Request(url, {body: 42})` → `"42"` behaviour.
+///
+/// `FormData` / `URLSearchParams` / `ReadableStream` land with
+/// their own tranches.
 fn extract_body_bytes(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
@@ -608,6 +613,19 @@ fn extract_body_bytes(
             let raw = ctx.vm.strings.get_utf8(sid);
             Ok(Some(Arc::from(raw.as_bytes())))
         }
+        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
+            ObjectKind::ArrayBuffer => Ok(Some(super::array_buffer::array_buffer_bytes(
+                ctx.vm, obj_id,
+            ))),
+            ObjectKind::Blob => Ok(Some(super::blob::blob_bytes(ctx.vm, obj_id))),
+            _ => {
+                // Generic fallback: stringify.  Covers plain
+                // objects / Arrays / numbers once wrapped.
+                let sid = super::super::coerce::to_string(ctx.vm, val)?;
+                let raw = ctx.vm.strings.get_utf8(sid);
+                Ok(Some(Arc::from(raw.as_bytes())))
+            }
+        },
         _ => {
             // String coercion covers number / bool / symbol-throws,
             // matching browsers' `new Request(url, {body: 42})` → "42".
@@ -809,10 +827,30 @@ fn parse_response_init(
 }
 
 /// Default `Content-Type` for a body argument (WHATWG §5 "extract
-/// a body", abbreviated for Phase 2's scalar body types).
+/// a body").  `String` bodies default to
+/// `"text/plain;charset=UTF-8"`; `Blob` bodies carry their own
+/// `type` (or nothing if the Blob's type is empty).  `ArrayBuffer`
+/// has no default CT — matches spec (§5 step 4.7 "If object is a
+/// BufferSource, ... set Content-Type to null").
 fn content_type_for_body(ctx: &NativeContext<'_>, body: JsValue) -> Option<StringId> {
     match body {
         JsValue::String(_) => Some(ctx.vm.well_known.text_plain_charset_utf8),
+        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
+            ObjectKind::Blob => {
+                let ty = super::blob::blob_type(ctx.vm, obj_id);
+                // An empty type means "don't expose a Content-Type"
+                // per WHATWG §5 step 4.4.3 "If object's type
+                // attribute is not the empty string, set
+                // Content-Type to its value".
+                if ty == ctx.vm.well_known.empty {
+                    None
+                } else {
+                    Some(ty)
+                }
+            }
+            ObjectKind::ArrayBuffer => None,
+            _ => None,
+        },
         _ => None,
     }
 }

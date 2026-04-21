@@ -569,6 +569,37 @@ pub(crate) struct VmInner {
     /// collected, same as the other side tables.
     #[cfg(feature = "engine")]
     pub(crate) body_used: HashSet<ObjectId>,
+    /// `ArrayBuffer.prototype` (ES2020 §24.1, minimal Phase 2 form
+    /// — `byteLength` getter + `slice` method only; TypedArray
+    /// views are deferred to the next tranche).  Chains to
+    /// `Object.prototype`.
+    ///
+    /// `None` until `register_array_buffer_global()` runs during
+    /// `register_globals()`.  Per-instance byte storage shares the
+    /// [`Self::body_data`] map so ArrayBuffer / Request / Response
+    /// all prune through the same sweep path.
+    #[cfg(feature = "engine")]
+    pub(crate) array_buffer_prototype: Option<ObjectId>,
+    /// `Blob.prototype` (File API §3, minimal Phase 2 form).
+    /// Chains to `Object.prototype`.  Holds `size` / `type`
+    /// getters + `slice` / `text` / `arrayBuffer` methods.
+    ///
+    /// `None` until `register_blob_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) blob_prototype: Option<ObjectId>,
+    /// Per-`Blob` out-of-band state, keyed by the instance's own
+    /// `ObjectId`.  Separate from [`Self::body_data`] because a
+    /// Blob carries a `type_sid` alongside its bytes; folding both
+    /// into one map would force every Request / Response entry to
+    /// carry a phantom type slot.
+    ///
+    /// GC contract: bytes are plain `Arc<[u8]>` with no ObjectId
+    /// references, so the trace step does nothing.  Sweep tail
+    /// prunes entries whose key `ObjectId` was collected — same
+    /// pattern as `body_data` / `headers_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) blob_data: HashMap<ObjectId, host::blob::BlobData>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after
