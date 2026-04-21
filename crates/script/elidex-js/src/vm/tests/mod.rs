@@ -33,6 +33,7 @@ mod tests_event_constructor;
 mod tests_event_extras_constructor;
 mod tests_event_object;
 mod tests_event_target;
+mod tests_fetch;
 mod tests_function_prototype;
 mod tests_gc_audit;
 mod tests_generator;

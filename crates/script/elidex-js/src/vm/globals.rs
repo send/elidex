@@ -338,6 +338,13 @@ impl VmInner {
             self.install_body_mixin_methods(response_proto);
         }
 
+        // `fetch()` global (WHATWG Fetch §5.1).  Must run after
+        // `register_response_global` so `response_prototype`
+        // exists when the first fetched Response is constructed
+        // on the broker response path.
+        #[cfg(feature = "engine")]
+        self.register_fetch_global();
+
         // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the

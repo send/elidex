@@ -2004,6 +2004,7 @@ dependencies = [
 name = "elidex-js"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "criterion",
  "elidex-css",
  "elidex-ecs",

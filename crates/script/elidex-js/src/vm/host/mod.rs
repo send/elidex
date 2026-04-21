@@ -53,6 +53,8 @@ pub(super) mod events;
 pub(super) mod events_extras;
 #[cfg(feature = "engine")]
 pub(super) mod events_ui;
+#[cfg(feature = "engine")]
+pub(super) mod fetch;
 pub(super) mod globals;
 #[cfg(feature = "engine")]
 pub(crate) mod headers;

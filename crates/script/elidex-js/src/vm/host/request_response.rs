@@ -603,7 +603,12 @@ fn normalise_method(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<StringI
 ///
 /// `FormData` / `URLSearchParams` / `ReadableStream` land with
 /// their own tranches.
-fn extract_body_bytes(
+///
+/// `pub(super)` so the `fetch()` host (`vm/host/fetch.rs`) can
+/// reuse the exact same coercion path for `init.body` without
+/// duplicating the ArrayBuffer / Blob extraction branches — the
+/// two code paths would otherwise drift.
+pub(super) fn extract_body_bytes(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
 ) -> Result<Option<Arc<[u8]>>, VmError> {
@@ -640,7 +645,12 @@ fn extract_body_bytes(
 /// `navigation.current_url` base.  Failure → `TypeError`
 /// (WHATWG Fetch §5.3 step 11 requires a URL parse that may yield
 /// `failure`; the ctor then throws `TypeError`).
-fn parse_url(vm: &VmInner, input: &str) -> Result<Url, VmError> {
+///
+/// `pub(super)` so the `fetch()` host (`vm/host/fetch.rs`) can
+/// reuse the same relative-resolution path.  `about:blank` as a
+/// base makes `Url::join` fail for relative input — the caller
+/// surfaces this as a `TypeError` per WHATWG Fetch §5.1.
+pub(super) fn parse_url(vm: &VmInner, input: &str) -> Result<Url, VmError> {
     if let Ok(abs) = Url::parse(input) {
         return Ok(abs);
     }

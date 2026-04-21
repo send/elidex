@@ -18,6 +18,7 @@ engine = [
     "elidex-plugin",
     "elidex-css",
     "elidex-net",
+    "bytes",
 ]
 
 [dependencies]
@@ -38,6 +39,11 @@ elidex-plugin = { workspace = true, optional = true }
 # (Fetch API `Window.fetch`).  Optional + engine-gated because
 # the Fetch surface itself is engine-only.
 elidex-net = { workspace = true, optional = true }
+# `bytes::Bytes` is the body type on `elidex_net::Request` /
+# `Response`; `vm/host/fetch.rs` constructs Bytes values
+# directly, so the workspace-shared crate is pulled in when
+# `engine` is enabled.
+bytes = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
