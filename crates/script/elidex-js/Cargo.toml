@@ -12,7 +12,13 @@ categories = ["web-programming", "parsing"]
 
 [features]
 default = []
-engine = ["elidex-script-session", "elidex-ecs", "elidex-plugin", "elidex-css"]
+engine = [
+    "elidex-script-session",
+    "elidex-ecs",
+    "elidex-plugin",
+    "elidex-css",
+    "elidex-net",
+]
 
 [dependencies]
 hashbrown = "0.15"
@@ -28,9 +34,17 @@ elidex-script-session = { workspace = true, optional = true }
 elidex-ecs = { workspace = true, optional = true }
 elidex-css = { workspace = true, optional = true }
 elidex-plugin = { workspace = true, optional = true }
+# Network transport — consumed by the `fetch()` host global
+# (Fetch API `Window.fetch`).  Optional + engine-gated because
+# the Fetch surface itself is engine-only.
+elidex-net = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+# Mock `NetworkHandle` for fetch tests.  Separate from the
+# regular `elidex-net` dep so production builds don't pull the
+# `test-hooks` feature accidentally.
+elidex-net = { workspace = true, features = ["test-hooks"] }
 
 # Event-object construction throughput (PR3.6) — measures the per-
 # dispatch cost of `create_event_object` for each EventPayload variant.

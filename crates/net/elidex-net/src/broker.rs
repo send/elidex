@@ -168,6 +168,8 @@ impl NetworkProcessHandle {
             control_tx: self.control_tx.clone(),
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
+            #[cfg(feature = "test-hooks")]
+            mock_responses: None,
         }
     }
 
@@ -228,6 +230,18 @@ pub struct NetworkHandle {
     /// Events buffered during blocking fetch (drained by `drain_events()`).
     /// Uses `RefCell` for interior mutability (content thread is single-threaded).
     buffered: std::cell::RefCell<Vec<NetworkToRenderer>>,
+    /// Test-only: when `Some`, [`Self::fetch_blocking`] reads from the
+    /// map instead of going through the broker.  Populated via
+    /// [`Self::mock_with_responses`]; absent (`None`) for every
+    /// production construction path.  The map keys on the URL
+    /// serialisation — callers insert
+    /// `(url::Url::parse(...).unwrap(), Ok(response) or Err(msg))`
+    /// entries.  Each entry is consumed on first match (pop-then-
+    /// return) so repeated lookups of the same URL require
+    /// duplicating the entry.
+    #[cfg(feature = "test-hooks")]
+    mock_responses:
+        Option<std::cell::RefCell<std::collections::HashMap<String, Result<Response, String>>>>,
 }
 
 impl NetworkHandle {
@@ -249,6 +263,8 @@ impl NetworkHandle {
             control_tx,
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
+            #[cfg(feature = "test-hooks")]
+            mock_responses: None,
         }
     }
 
@@ -275,6 +291,8 @@ impl NetworkHandle {
             control_tx: self.control_tx.clone(),
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
+            #[cfg(feature = "test-hooks")]
+            mock_responses: None,
         }
     }
 
@@ -284,6 +302,26 @@ impl NetworkHandle {
         self.client_id
     }
 
+    /// Construct a mock handle that answers `fetch_blocking` from a
+    /// pre-populated `URL → Result<Response, String>` map.  Intended
+    /// for downstream unit tests (the Fetch surface in `elidex-js`)
+    /// that need deterministic responses without a live Network
+    /// Process.
+    ///
+    /// Entries are consumed on first match.  A request whose URL is
+    /// not in the map resolves to `Err("mock: no response for {url}")`.
+    #[cfg(feature = "test-hooks")]
+    #[must_use]
+    pub fn mock_with_responses(responses: Vec<(url::Url, Result<Response, String>)>) -> Self {
+        let map: std::collections::HashMap<String, Result<Response, String>> = responses
+            .into_iter()
+            .map(|(u, r)| (u.to_string(), r))
+            .collect();
+        let mut handle = Self::disconnected();
+        handle.mock_responses = Some(std::cell::RefCell::new(map));
+        handle
+    }
+
     /// Send a blocking fetch request.
     ///
     /// The content thread blocks until the fetch completes (or times out
@@ -291,6 +329,19 @@ impl NetworkHandle {
     /// buffered internally and returned by the next [`drain_events`](Self::drain_events)
     /// call.
     pub fn fetch_blocking(&self, request: Request) -> Result<Response, String> {
+        // Test-hooks mock short-circuit: when populated, the map
+        // answers directly and the broker is never contacted.  Keeps
+        // the blocking-path semantics (sync return) identical to the
+        // live path from the caller's perspective.
+        #[cfg(feature = "test-hooks")]
+        if let Some(ref map) = self.mock_responses {
+            let url_str = request.url.to_string();
+            let mut guard = map.borrow_mut();
+            return guard
+                .remove(&url_str)
+                .unwrap_or_else(|| Err(format!("mock: no response for {url_str}")));
+        }
+
         let fetch_id = FetchId::next();
         let _ = self
             .request_tx

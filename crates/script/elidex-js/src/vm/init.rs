@@ -149,6 +149,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 blob_data: HashMap::new(),
                 #[cfg(feature = "engine")]
+                network_handle: None,
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),

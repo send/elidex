@@ -2007,6 +2007,7 @@ dependencies = [
  "criterion",
  "elidex-css",
  "elidex-ecs",
+ "elidex-net",
  "elidex-plugin",
  "elidex-script-session",
  "hashbrown 0.15.5",

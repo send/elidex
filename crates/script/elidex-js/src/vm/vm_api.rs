@@ -264,6 +264,28 @@ impl Vm {
         }
     }
 
+    /// Install the `NetworkHandle` used by the `fetch()` host
+    /// global.  Without a handle, every `fetch()` call rejects
+    /// with a `TypeError` (matches `NetworkHandle::disconnected()`
+    /// semantics — the embedder simply has no live broker).
+    ///
+    /// Callers typically construct the handle from the Network
+    /// Process broker (`NetworkProcessHandle::create_renderer_handle()`)
+    /// or — for self-contained tests — from
+    /// `NetworkHandle::mock_with_responses()` behind the
+    /// `elidex-net/test-hooks` feature.
+    ///
+    /// Replaces any previously installed handle.  Dropping the
+    /// `Vm` (or calling this with a fresh handle) releases the
+    /// previous `Rc`.
+    #[cfg(feature = "engine")]
+    pub fn install_network_handle(
+        &mut self,
+        handle: std::rc::Rc<elidex_net::broker::NetworkHandle>,
+    ) {
+        self.inner.network_handle = Some(handle);
+    }
+
     /// Install a new global variable.
     ///
     /// Reusing a name is normally a bug — shell host globals and JS-visible

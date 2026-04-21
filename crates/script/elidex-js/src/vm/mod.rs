@@ -600,6 +600,26 @@ pub(crate) struct VmInner {
     /// pattern as `body_data` / `headers_states`.
     #[cfg(feature = "engine")]
     pub(crate) blob_data: HashMap<ObjectId, host::blob::BlobData>,
+    /// Content-thread `NetworkHandle` used by the `fetch()` host
+    /// global.  `None` in test / standalone mode (`fetch()` then
+    /// rejects with `TypeError`); the embedding harness —
+    /// typically `elidex-shell` — installs a handle via
+    /// [`Vm::install_network_handle`] after VM construction.
+    ///
+    /// Wrapped in `Rc` because every [`NetworkHandle`](elidex_net::broker::NetworkHandle)
+    /// carries a [`RefCell<Vec<_>>`](std::cell::RefCell) of buffered
+    /// events and so is `!Send + !Sync`.  The content thread is
+    /// single-threaded (matches [`Vm`]'s own `!Send + !Sync`
+    /// invariant from `host_data.rs`), so `Rc` instead of `Arc`
+    /// is the tighter fit.  Each content thread owns its own
+    /// handle; worker threads (future) allocate sibling handles
+    /// via [`NetworkHandle::create_sibling_handle`].
+    ///
+    /// GC contract: this is Rust-owned, not a JS object — the GC
+    /// does not mark / sweep it, and dropping the `Rc` at `Vm`
+    /// teardown releases the handle.
+    #[cfg(feature = "engine")]
+    pub(crate) network_handle: Option<std::rc::Rc<elidex_net::broker::NetworkHandle>>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after
