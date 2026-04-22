@@ -337,6 +337,59 @@ fn headers_append_invalid_name_error_includes_context() {
 }
 
 #[test]
+fn fetch_response_headers_go_through_normalisation() {
+    // Broker-delivered response headers must satisfy the same
+    // invariants as script-constructed Headers: names are
+    // lowercased, values are HTTP-whitespace-trimmed.  A broker
+    // that delivers `Content-Type` with surrounding whitespace
+    // and mixed-case name must appear to JS as a clean
+    // `content-type` header with trimmed value — so
+    // `resp.headers.get('content-type')` works regardless of
+    // capitalization and without leading spaces.
+    let url = url::Url::parse("http://example.com/resp-norm").expect("valid");
+    let parsed = url.clone();
+    let response = elidex_net::Response {
+        status: 200,
+        // Broker emits mixed-case name + whitespace-padded value.
+        // Normalisation must fold both to script-visible form.
+        headers: vec![("Content-TYPE".to_string(), "  text/plain  ".to_string())],
+        body: bytes::Bytes::from_static(b"hi"),
+        url: parsed.clone(),
+        version: HttpVersion::H1,
+        url_list: vec![parsed],
+    };
+    let mut vm = mock_vm(vec![(url, Ok(response))]);
+    vm.eval(
+        "globalThis.name_get = ''; \
+         globalThis.value_get = ''; \
+         fetch('http://example.com/resp-norm').then(resp => { \
+             globalThis.name_get = resp.headers.get('content-type'); \
+             globalThis.value_get = resp.headers.get('CONTENT-TYPE'); \
+         });",
+    )
+    .unwrap();
+    // Header name lookup is case-insensitive on our side (`.get`
+    // calls `validate_and_normalise_name` which lowercases), so
+    // both accesses resolve to the same entry.
+    match vm.get_global("name_get") {
+        Some(JsValue::String(id)) => assert_eq!(
+            vm.get_string(id),
+            "text/plain",
+            "broker value must be HTTP-whitespace-trimmed"
+        ),
+        other => panic!("expected trimmed value, got {other:?}"),
+    }
+    match vm.get_global("value_get") {
+        Some(JsValue::String(id)) => assert_eq!(
+            vm.get_string(id),
+            "text/plain",
+            "case-insensitive lookup must match the normalised entry"
+        ),
+        other => panic!("expected trimmed value via case-variant lookup, got {other:?}"),
+    }
+}
+
+#[test]
 fn response_redirect_type_is_opaque_redirect() {
     // WHATWG Fetch §5.5 step 7: `Response.redirect(url, status)`
     // produces an opaque-redirect response whose `type` is

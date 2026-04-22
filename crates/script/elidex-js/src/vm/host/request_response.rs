@@ -734,9 +734,12 @@ fn build_response_instance(
         ));
     }
 
-    // Allocate the companion Headers as **Immutable** so post-ctor
-    // `resp.headers.append(...)` throws TypeError per §5.5.
-    // Copy entries from the init's `headers` member if present.
+    // Allocate the companion Headers as `None` (mutable) so the
+    // subsequent `init.headers` copy and default `Content-Type`
+    // splice can succeed, then flip the guard to `Immutable` in
+    // the block below — WHATWG Fetch §5.5 step 11 demands the
+    // post-ctor surface be immutable so `resp.headers.append(...)`
+    // throws TypeError.
     let headers_id = ctx.vm.create_headers(HeadersGuard::None);
     if let Some(hval) = init_headers {
         fill_headers_like(ctx, headers_id, hval, "Failed to construct 'Response'")?;

@@ -453,15 +453,24 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
     // to Immutable (matches `new Response(...)` contract).
     let headers_id = vm.create_headers(HeadersGuard::None);
     {
-        // Lowercase name + intern both components, then push
-        // directly to the list.  Bypass the public
-        // `append_entry` so we can share the same ctx-free path
-        // as the in-module Response ctor.
+        // Route each broker-delivered header through the shared
+        // `validate_and_normalise` helper so the resulting
+        // `HeadersState` carries the **same** invariants as a
+        // script-constructed `Headers` instance: lowercased
+        // name, RFC 7230 token-valid name, CR/LF/NUL-free value,
+        // HTTP-whitespace-trimmed value.  Malformed entries
+        // (broker-side bug, not user input) are silently
+        // skipped — defensive, preserves the invariant even if
+        // the network layer later relaxes its own filters.
         for (name, value) in response.headers {
-            let name_sid = vm.strings.intern(&name.to_ascii_lowercase());
+            let name_sid = vm.strings.intern(&name);
             let value_sid = vm.strings.intern(&value);
-            if let Some(state) = vm.headers_states.get_mut(&headers_id) {
-                state.list.push((name_sid, value_sid));
+            if let Ok((nn, nv)) =
+                super::headers::validate_and_normalise(vm, name_sid, value_sid, "response")
+            {
+                if let Some(state) = vm.headers_states.get_mut(&headers_id) {
+                    state.list.push((nn, nv));
+                }
             }
         }
         if let Some(state) = vm.headers_states.get_mut(&headers_id) {

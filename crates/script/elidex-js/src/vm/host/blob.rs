@@ -222,6 +222,15 @@ pub(crate) fn create_blob_from_bytes(
 
 /// Synchronously resolve `promise` with `value`.  Idempotent —
 /// relies on `settle_promise`'s `[[AlreadyResolved]]` guard.
+///
+/// **Invariant** (debug-checked): `promise` must have no
+/// fulfill/reject reactions attached at call time.  All current
+/// callers (Body mixin / Blob read methods / fetch) settle inline
+/// on the same tick as `create_promise`, before the Promise
+/// object is handed back to JS, so there is no opportunity for
+/// user `.then()` to register a reaction.  If a future caller
+/// leaks the Promise to JS before settling, the debug_assert
+/// surfaces the misuse before reactions are silently dropped.
 pub(super) fn resolve_promise_sync(vm: &mut VmInner, promise: ObjectId, value: JsValue) {
     // Directly mutate the promise state for the fulfilled case —
     // matches `natives_promise::fulfill_promise` minus the
@@ -231,6 +240,11 @@ pub(super) fn resolve_promise_sync(vm: &mut VmInner, promise: ObjectId, value: J
     let obj = vm.get_object_mut(promise);
     if let ObjectKind::Promise(state) = &mut obj.kind {
         if matches!(state.status, PromiseStatus::Pending) && !state.already_resolved {
+            debug_assert!(
+                state.fulfill_reactions.is_empty() && state.reject_reactions.is_empty(),
+                "resolve_promise_sync called on Promise with attached reactions — \
+                 would silently drop them; use the full settle_promise path instead"
+            );
             state.already_resolved = true;
             state.status = PromiseStatus::Fulfilled;
             state.result = value;
@@ -241,15 +255,21 @@ pub(super) fn resolve_promise_sync(vm: &mut VmInner, promise: ObjectId, value: J
 }
 
 /// Synchronously reject `promise` with `reason`.  Same contract
-/// as [`resolve_promise_sync`].  Skips the unhandled-rejection
-/// queueing because the Body mixin callers always attach a
-/// reaction via `await` / `.then` / `.catch` in normal code
-/// paths — queueing would produce a spurious warning for the
-/// common pattern `await blob.text().catch(...)`.
+/// as [`resolve_promise_sync`], including the no-pending-reactions
+/// debug_assert.  Skips the unhandled-rejection queueing because
+/// the Body mixin callers always attach a reaction via `await` /
+/// `.then` / `.catch` in normal code paths — queueing would
+/// produce a spurious warning for the common pattern
+/// `await blob.text().catch(...)`.
 pub(super) fn reject_promise_sync(vm: &mut VmInner, promise: ObjectId, reason: JsValue) {
     let obj = vm.get_object_mut(promise);
     if let ObjectKind::Promise(state) = &mut obj.kind {
         if matches!(state.status, PromiseStatus::Pending) && !state.already_resolved {
+            debug_assert!(
+                state.fulfill_reactions.is_empty() && state.reject_reactions.is_empty(),
+                "reject_promise_sync called on Promise with attached reactions — \
+                 would silently drop them; use the full settle_promise path instead"
+            );
             state.already_resolved = true;
             state.status = PromiseStatus::Rejected;
             state.result = reason;

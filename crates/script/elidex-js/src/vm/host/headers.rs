@@ -707,7 +707,11 @@ fn trim_http_whitespace(s: &str) -> &str {
 /// Returns `TypeError` per WHATWG Fetch §5.2 validation steps —
 /// `DOMException` would be the wrong choice here (spec says
 /// `TypeError`).
-fn validate_and_normalise(
+/// `pub(super)` so the `fetch` module can route broker-delivered
+/// response headers through the same name/value invariants as
+/// script-constructed Headers (§5.2 normalisation — lowercased
+/// name, trimmed value, no CR/LF/NUL).
+pub(super) fn validate_and_normalise(
     vm: &mut VmInner,
     name_sid: StringId,
     value_sid: StringId,
