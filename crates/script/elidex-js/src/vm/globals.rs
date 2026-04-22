@@ -61,6 +61,12 @@ fn native_function_prototype_noop(
 impl VmInner {
     // -- Global registration -------------------------------------------------
 
+    // Flat sequence of intrinsic / host-global `register_*_global()` calls.
+    // Splitting into groups buys no clarity — the ordering constraints
+    // (Object.prototype before Array global, EventTarget.prototype before
+    // Window, …) are captured in the inline comments.  Sibling
+    // [`Self::register_prototypes`] carries the same allow.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn register_globals(&mut self) {
         // Allocate the global object (`globalThis` / `window`).  It is a
         // `HostObject` backed by the Window ECS entity so that
