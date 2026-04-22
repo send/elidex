@@ -334,8 +334,46 @@ pub(super) fn parse_headers_init_entries(
                 }
                 return Ok(out);
             }
-            // Otherwise treat as Record<ByteString, ByteString>:
-            // iterate own enumerable string keys (§9.1.11.1 order).
+            // WebIDL union resolution for `HeadersInit` (§Fetch 5.2:
+            // `sequence<sequence<ByteString>> or record<ByteString,
+            // ByteString>`): if `init` has a callable `[Symbol.iterator]`
+            // it must be consumed as the sequence branch — iterate the
+            // user-supplied iterator and validate each yielded pair.
+            // Arrays already hit the fast path above; this branch picks
+            // up generic iterables (user-defined `[Symbol.iterator]`
+            // objects, Map-like wrappers, etc.) that would otherwise
+            // fall through to the record path and silently produce an
+            // empty Headers list (R17.1).  `GetMethod` semantics:
+            // null/undefined → not iterable (record branch); any other
+            // non-callable → TypeError.
+            let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
+            let iter_method = ctx.get_property_value(obj_id, iter_key)?;
+            let iter_fn = match iter_method {
+                JsValue::Undefined | JsValue::Null => None,
+                JsValue::Object(id) if ctx.vm.get_object(id).kind.is_callable() => {
+                    Some(iter_method)
+                }
+                _ => {
+                    return Err(VmError::type_error(format!(
+                        "{error_prefix}: @@iterator is not callable"
+                    )));
+                }
+            };
+            if let Some(fn_val) = iter_fn {
+                let iter = ctx.vm.call_value(fn_val, init, &[])?;
+                if !matches!(iter, JsValue::Object(_)) {
+                    return Err(VmError::type_error(format!(
+                        "{error_prefix}: @@iterator must return an object"
+                    )));
+                }
+                let mut out = Vec::new();
+                while let Some(pair) = ctx.vm.iter_next(iter)? {
+                    out.push(validate_pair_entry(ctx, pair, error_prefix)?);
+                }
+                return Ok(out);
+            }
+            // Record branch: no `@@iterator` — iterate own enumerable
+            // string keys (§9.1.11.1 order) and coerce each value.
             let keys = super::super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
             let mut out = Vec::with_capacity(keys.len());
             for key_sid in keys {

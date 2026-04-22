@@ -235,3 +235,79 @@ fn symbol_iterator_aliases_entries() {
         "Headers.prototype[Symbol.iterator] === Headers.prototype.entries;"
     ));
 }
+
+#[test]
+fn ctor_consumes_user_iterable_as_sequence() {
+    let mut vm = Vm::new();
+    // WebIDL `HeadersInit` union (Copilot R17.1): any object whose
+    // `[Symbol.iterator]` is callable must be consumed as
+    // `sequence<sequence<ByteString>>`, not silently dropped to
+    // the record branch.  Custom iterable yields two 2-tuples.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var src = { [Symbol.iterator]() { \
+                 var i = 0; \
+                 var pairs = [['X-A', '1'], ['X-B', '2']]; \
+                 return { next() { \
+                     return i < pairs.length \
+                         ? { value: pairs[i++], done: false } \
+                         : { value: undefined, done: true }; \
+                 } }; \
+             } }; \
+             var h = new Headers(src); h.get('x-a') + ',' + h.get('x-b');"
+        ),
+        "1,2"
+    );
+}
+
+#[test]
+fn ctor_iterable_yielding_non_pair_throws() {
+    let mut vm = Vm::new();
+    // Inner element must be a length-2 array; a 3-tuple must be
+    // rejected (WebIDL `sequence<sequence<ByteString>>` inner
+    // arity check routed through `validate_pair_entry`).
+    assert!(eval_bool(
+        &mut vm,
+        "var src = { [Symbol.iterator]() { \
+             var done = false; \
+             return { next() { \
+                 if (done) return { value: undefined, done: true }; \
+                 done = true; \
+                 return { value: ['a', 'b', 'c'], done: false }; \
+             } }; \
+         } }; \
+         var r = false; try { new Headers(src); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn ctor_symbol_iterator_null_falls_through_to_record() {
+    let mut vm = Vm::new();
+    // `[Symbol.iterator]: null` matches `GetMethod`'s
+    // "null/undefined ⇒ no method" rule (ES §7.3.11) and must
+    // therefore be interpreted as a plain record.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var src = { 'x-a': '1', [Symbol.iterator]: null }; \
+             var h = new Headers(src); h.get('x-a');"
+        ),
+        "1"
+    );
+}
+
+#[test]
+fn ctor_symbol_iterator_non_callable_throws() {
+    let mut vm = Vm::new();
+    // A non-null, non-callable `@@iterator` is a TypeError — the
+    // WebIDL union resolution picks the sequence branch and then
+    // fails the IsCallable check.
+    assert!(eval_bool(
+        &mut vm,
+        "var src = { [Symbol.iterator]: 42 }; \
+         var r = false; try { new Headers(src); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
