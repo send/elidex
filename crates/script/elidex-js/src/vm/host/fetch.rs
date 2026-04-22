@@ -93,6 +93,27 @@ fn native_fetch(
 ) -> Result<JsValue, VmError> {
     let promise = super::super::natives_promise::create_promise(ctx.vm);
 
+    // Root `promise` across every subsequent allocation.
+    // `alloc_object` contract requires callers to root any
+    // `ObjectId` reachable only through a Rust local whenever a
+    // later alloc could trigger GC (see `vm/mod.rs::alloc_object`
+    // and `feedback_gc_safety.md`).  The guard below pushes the
+    // Promise onto the VM stack; `temp_holder` + shadowed `ctx`
+    // reborrow the guard so the rest of the function reads and
+    // writes vm state through the rooted path without touching
+    // the original outer `ctx` (whose `&mut vm` is borrowed by
+    // the guard and thus frozen until the guard drops).
+    //
+    // Current runtime has `gc_enabled = false` inside every
+    // native call, so the racy alloc-during-GC path this guards
+    // against is unreachable today — but matching the invariant
+    // elsewhere in the VM (`wrap_in_array_iterator`, event
+    // constructors) keeps the codebase uniform and protects
+    // against future refactors that relax the gate.
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
+    let mut temp_holder = super::super::value::NativeContext { vm: &mut *g };
+    let ctx = &mut temp_holder;
+
     // Parse `init.signal` before building the Request so a bogus
     // `signal` value (non-AbortSignal primitive or DOM object)
     // rejects without first running the more expensive URL /

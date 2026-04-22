@@ -517,10 +517,18 @@ fn native_blob_text(
 ) -> Result<JsValue, VmError> {
     let id = require_blob_this(ctx, this, "text")?;
     let promise = super::super::natives_promise::create_promise(ctx.vm);
-    let bytes = blob_bytes(ctx.vm, id);
+    // Keep `promise` rooted across the subsequent StringPool
+    // intern — `alloc_object` inside intern() could otherwise
+    // trigger GC between `create_promise` and
+    // `resolve_promise_sync`, reclaiming the promise's slot
+    // while it is only held in this Rust local.  The guard's
+    // `Drop` pops the stack entry on every exit path.
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
+    let bytes = blob_bytes(&g, id);
     let decoded = String::from_utf8_lossy(&bytes).into_owned();
-    let sid = ctx.vm.strings.intern(&decoded);
-    resolve_promise_sync(ctx.vm, promise, JsValue::String(sid));
+    let sid = g.strings.intern(&decoded);
+    resolve_promise_sync(&mut g, promise, JsValue::String(sid));
+    drop(g);
     Ok(JsValue::Object(promise))
 }
 
@@ -533,9 +541,15 @@ fn native_blob_array_buffer(
 ) -> Result<JsValue, VmError> {
     let id = require_blob_this(ctx, this, "arrayBuffer")?;
     let promise = super::super::natives_promise::create_promise(ctx.vm);
-    let bytes = blob_bytes(ctx.vm, id);
-    let buf_id = super::array_buffer::create_array_buffer_from_bytes(ctx.vm, bytes);
-    resolve_promise_sync(ctx.vm, promise, JsValue::Object(buf_id));
+    // Root `promise` across the subsequent `ArrayBuffer` alloc
+    // (see `native_blob_text` for rationale).  The Blob instance
+    // `id` is already reachable from JS (method receiver) so
+    // `blob_bytes` stays safe without extra rooting.
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
+    let bytes = blob_bytes(&g, id);
+    let buf_id = super::array_buffer::create_array_buffer_from_bytes(&mut g, bytes);
+    resolve_promise_sync(&mut g, promise, JsValue::Object(buf_id));
+    drop(g);
     Ok(JsValue::Object(promise))
 }
 
