@@ -46,6 +46,28 @@ fn ok_response(url: &str, status: u16, body: &'static str) -> NetResponse {
 }
 
 #[test]
+fn fetch_no_args_throws_type_error_synchronously() {
+    // WebIDL "not enough arguments supplied to call" is a
+    // binding-level failure that browsers surface as a synchronous
+    // TypeError — not a rejected Promise.  Verified against
+    // Chrome / Firefox / Safari: `try { fetch() } catch (e) { ... }`
+    // catches a sync TypeError (R19.1).  `fetch('...')` with a
+    // valid URL shape does not synchronously throw; only the
+    // missing-argument path does.
+    let mut vm = no_handle_vm();
+    vm.eval(
+        "globalThis.r = null; \
+         try { fetch(); } \
+         catch (e) { globalThis.r = e instanceof TypeError; }",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::Boolean(b)) => assert!(b),
+        other => panic!("expected r to be true, got {other:?}"),
+    }
+}
+
+#[test]
 fn fetch_with_no_handle_rejects_type_error() {
     let mut vm = no_handle_vm();
     vm.eval(

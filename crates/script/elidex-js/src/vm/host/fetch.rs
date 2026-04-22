@@ -83,14 +83,33 @@ impl VmInner {
 
 /// `fetch(input, init?)` (WHATWG Fetch §5.1).
 ///
-/// Always returns a Promise — every error path rejects rather
-/// than throwing synchronously, matching spec (`fetch()` never
-/// synchronously throws, even for obviously bogus inputs).
+/// Post-binding failures (URL parse, header validation, network
+/// error, pre-flight abort, invalid `signal`) all reject the
+/// returned Promise rather than throwing synchronously, matching
+/// the WHATWG Fetch contract that `fetch()` returns a Promise for
+/// every well-formed call.  The one exception is the WebIDL
+/// binding-level check that runs *before* the method body:
+/// `fetch()` with no arguments is a WebIDL "not enough arguments"
+/// failure which browsers surface as a synchronous TypeError
+/// (verified on Chrome / Firefox / Safari).  The argument-count
+/// guard therefore throws via `VmError::type_error` rather than
+/// producing an already-rejected Promise (R19.1).
 fn native_fetch(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // WebIDL binding: missing required `input` → synchronous
+    // TypeError, not a Promise rejection.  Must run *before*
+    // `create_promise` so callers that never handed any argument
+    // see the same shape (`try { fetch() } catch (e) { ... }`)
+    // as browsers.
+    if args.is_empty() {
+        return Err(VmError::type_error(
+            "Failed to execute 'fetch': 1 argument required, but only 0 present.",
+        ));
+    }
+
     let promise = super::super::natives_promise::create_promise(ctx.vm);
 
     // Root `promise` across every subsequent allocation.
@@ -268,11 +287,15 @@ fn build_net_request(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
 ) -> Result<elidex_net::Request, VmError> {
-    if args.is_empty() {
-        return Err(VmError::type_error(
-            "Failed to execute 'fetch': 1 argument required, but only 0 present.",
-        ));
-    }
+    // `native_fetch` rejects the empty-args case with a synchronous
+    // `VmError::type_error` before calling us (R19.1 — WebIDL
+    // binding "not enough arguments").  An empty slice here would
+    // mean a future caller bypassed that gate; prefer a clear
+    // panic in that hypothetical over silent index-out-of-bounds.
+    debug_assert!(
+        !args.is_empty(),
+        "build_net_request called with empty args — native_fetch must reject earlier",
+    );
     let input = args[0];
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
