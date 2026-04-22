@@ -122,20 +122,65 @@ fn content_type_of(ctx: &NativeContext<'_>, id: ObjectId) -> super::super::value
 // Native methods
 // ---------------------------------------------------------------------------
 
+/// Outcome of the shared Body-mixin prologue: either a settled
+/// Promise (body already used → rejected) or the owner object's
+/// id plus the unsettled Promise to fulfil with the consumed
+/// body's result.
+enum BodyRead {
+    /// Body already consumed — the prologue already rejected
+    /// `promise` with a TypeError; return it as-is.
+    AlreadyRejected { promise: ObjectId },
+    /// Body successfully locked for consumption; `bytes` carries
+    /// the full content, `promise` is the (still-pending) Promise
+    /// the caller settles, and `owner_id` is the Request /
+    /// Response the bytes came from (needed by `.blob()` for its
+    /// `content-type` lookup).
+    Bytes {
+        owner_id: ObjectId,
+        bytes: Arc<[u8]>,
+        promise: ObjectId,
+    },
+}
+
+/// Shared prologue for every Body-mixin method: brand-check,
+/// allocate the Promise, check / mark `body_used`, read the bytes.
+/// Matches WHATWG Fetch §5.2 "consume body" steps 1-3.  Method-
+/// specific post-processing (UTF-8 decode, JSON.parse, wrap as
+/// ArrayBuffer, wrap as Blob) runs in the caller.
+fn start_body_read(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<BodyRead, VmError> {
+    let id = require_body_this(ctx, this, method)?;
+    let promise = create_promise(ctx.vm);
+    if ctx.vm.body_used.contains(&id) {
+        let reason = thrown_type_error(ctx, "Body stream is already used");
+        reject_promise_sync(ctx.vm, promise, reason);
+        return Ok(BodyRead::AlreadyRejected { promise });
+    }
+    mark_body_used(ctx, id);
+    let bytes = read_body_bytes(ctx, id);
+    Ok(BodyRead::Bytes {
+        owner_id: id,
+        bytes,
+        promise,
+    })
+}
+
 pub(super) fn native_body_text(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_body_this(ctx, this, "text")?;
-    let promise = create_promise(ctx.vm);
-    if ctx.vm.body_used.contains(&id) {
-        let reason = thrown_type_error(ctx, "Body stream is already used");
-        reject_promise_sync(ctx.vm, promise, reason);
-        return Ok(JsValue::Object(promise));
-    }
-    mark_body_used(ctx, id);
-    let bytes = read_body_bytes(ctx, id);
+    let (_owner_id, bytes, promise) = match start_body_read(ctx, this, "text")? {
+        BodyRead::AlreadyRejected { promise } => return Ok(JsValue::Object(promise)),
+        BodyRead::Bytes {
+            owner_id,
+            bytes,
+            promise,
+        } => (owner_id, bytes, promise),
+    };
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let sid = ctx.vm.strings.intern(&text);
     resolve_promise_sync(ctx.vm, promise, JsValue::String(sid));
@@ -147,15 +192,14 @@ pub(super) fn native_body_json(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_body_this(ctx, this, "json")?;
-    let promise = create_promise(ctx.vm);
-    if ctx.vm.body_used.contains(&id) {
-        let reason = thrown_type_error(ctx, "Body stream is already used");
-        reject_promise_sync(ctx.vm, promise, reason);
-        return Ok(JsValue::Object(promise));
-    }
-    mark_body_used(ctx, id);
-    let bytes = read_body_bytes(ctx, id);
+    let (_owner_id, bytes, promise) = match start_body_read(ctx, this, "json")? {
+        BodyRead::AlreadyRejected { promise } => return Ok(JsValue::Object(promise)),
+        BodyRead::Bytes {
+            owner_id,
+            bytes,
+            promise,
+        } => (owner_id, bytes, promise),
+    };
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let sid = ctx.vm.strings.intern(&text);
     // Delegate to `JSON.parse` — matches spec §5 "consume body" →
@@ -181,15 +225,14 @@ pub(super) fn native_body_array_buffer(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_body_this(ctx, this, "arrayBuffer")?;
-    let promise = create_promise(ctx.vm);
-    if ctx.vm.body_used.contains(&id) {
-        let reason = thrown_type_error(ctx, "Body stream is already used");
-        reject_promise_sync(ctx.vm, promise, reason);
-        return Ok(JsValue::Object(promise));
-    }
-    mark_body_used(ctx, id);
-    let bytes = read_body_bytes(ctx, id);
+    let (_owner_id, bytes, promise) = match start_body_read(ctx, this, "arrayBuffer")? {
+        BodyRead::AlreadyRejected { promise } => return Ok(JsValue::Object(promise)),
+        BodyRead::Bytes {
+            owner_id,
+            bytes,
+            promise,
+        } => (owner_id, bytes, promise),
+    };
     let buf_id = super::array_buffer::create_array_buffer_from_bytes(ctx.vm, bytes);
     resolve_promise_sync(ctx.vm, promise, JsValue::Object(buf_id));
     Ok(JsValue::Object(promise))
@@ -200,16 +243,15 @@ pub(super) fn native_body_blob(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_body_this(ctx, this, "blob")?;
-    let promise = create_promise(ctx.vm);
-    if ctx.vm.body_used.contains(&id) {
-        let reason = thrown_type_error(ctx, "Body stream is already used");
-        reject_promise_sync(ctx.vm, promise, reason);
-        return Ok(JsValue::Object(promise));
-    }
-    mark_body_used(ctx, id);
-    let bytes = read_body_bytes(ctx, id);
-    let type_sid = content_type_of(ctx, id);
+    let (owner_id, bytes, promise) = match start_body_read(ctx, this, "blob")? {
+        BodyRead::AlreadyRejected { promise } => return Ok(JsValue::Object(promise)),
+        BodyRead::Bytes {
+            owner_id,
+            bytes,
+            promise,
+        } => (owner_id, bytes, promise),
+    };
+    let type_sid = content_type_of(ctx, owner_id);
     let blob_id = create_blob_from_bytes(ctx.vm, bytes, type_sid);
     resolve_promise_sync(ctx.vm, promise, JsValue::Object(blob_id));
     Ok(JsValue::Object(promise))

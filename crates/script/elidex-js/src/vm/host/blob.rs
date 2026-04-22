@@ -43,6 +43,7 @@ use super::super::value::{
     PropertyStorage, PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
+use super::array_buffer::relative_index;
 
 // ---------------------------------------------------------------------------
 // State
@@ -512,19 +513,7 @@ fn native_blob_array_buffer(
     Ok(JsValue::Object(promise))
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn relative_index(n: f64, len: f64) -> usize {
-    let clamped = if n.is_nan() {
-        0.0
-    } else if n < 0.0 {
-        (len + n).max(0.0)
-    } else {
-        n.min(len)
-    };
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let as_usize = clamped as usize;
-    as_usize
-}
+// `relative_index` is shared with ArrayBuffer.slice — see
+// [`super::array_buffer::relative_index`].  Not hoisted into a
+// dedicated helpers module because it only serves these two call
+// sites at present.

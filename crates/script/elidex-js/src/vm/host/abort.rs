@@ -799,12 +799,9 @@ pub(super) fn abort_signal(
     // the async refactor's responsibility — this site only
     // issues the cancellation so the broker can hang up early.
     if let Some(fetch_ids) = ctx.vm.fetch_abort_observers.remove(&signal_id) {
-        if !fetch_ids.is_empty() {
-            if let Some(handle) = ctx.vm.network_handle.as_ref().map(std::rc::Rc::clone) {
-                for fetch_id in fetch_ids {
-                    let _ =
-                        handle.send(elidex_net::broker::RendererToNetwork::CancelFetch(fetch_id));
-                }
+        if let Some(handle) = ctx.vm.network_handle.as_ref().map(std::rc::Rc::clone) {
+            for fetch_id in fetch_ids {
+                let _ = handle.send(elidex_net::broker::RendererToNetwork::CancelFetch(fetch_id));
             }
         }
     }

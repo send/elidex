@@ -139,16 +139,12 @@ fn native_fetch(
         return Ok(JsValue::Object(promise));
     };
 
-    // `signal` is intentionally dropped here — Phase 2 blocking
-    // fetch has no JS tick in which mid-flight abort could fire,
-    // so the observer machinery (`VmInner::fetch_abort_observers`)
-    // has nothing to register.  The async fetch refactor will
-    // insert `(signal, broker-fetch-id)` registration + broker-
-    // reply pruning at exactly this site.
-    let _ = signal;
-
-    // Blocking broker call.  Phase 2: no mid-flight abort; see
-    // module doc.
+    // Blocking broker call.  `signal` is not registered in
+    // `fetch_abort_observers` here: the blocking broker call is
+    // synchronous, so no JS listener can fire
+    // `controller.abort()` before the reply.  The PR5-async-fetch
+    // refactor will insert `(signal, broker-fetch-id)` registration
+    // + broker-reply pruning at exactly this site.
     match handle.fetch_blocking(request) {
         Ok(response) => {
             let resp_id = create_response_from_net(ctx.vm, response);
@@ -311,11 +307,15 @@ fn request_from_vm_request(
         })
         .unwrap_or_default();
 
+    // `Bytes::from_owner(Arc::clone(arc))` hands the `Arc<[u8]>`
+    // to the `Bytes` instance as its owner, so no byte copy
+    // happens — the broker reads directly from the same
+    // allocation `body_data` already rooted.
     let body = ctx
         .vm
         .body_data
         .get(&obj_id)
-        .map_or_else(Bytes::new, |bytes| Bytes::copy_from_slice(bytes));
+        .map_or_else(Bytes::new, |arc| Bytes::from_owner(Arc::clone(arc)));
 
     Ok(elidex_net::Request {
         method,
@@ -349,19 +349,15 @@ fn parse_init_for_fetch(ctx: &mut NativeContext<'_>, init: JsValue) -> Result<In
             let headers_val = ctx.get_property_value(opts_id, headers_key)?;
             let body_val = ctx.get_property_value(opts_id, body_key)?;
 
-            // Method
+            // Method — shares the forbidden-method filter with
+            // `Request`'s ctor; the filter returns the uppercased
+            // canonical name.
             let method = if matches!(method_val, JsValue::Undefined) {
                 default_method
             } else {
                 let sid = super::super::coerce::to_string(ctx.vm, method_val)?;
                 let raw = ctx.vm.strings.get_utf8(sid);
-                let upper = raw.to_ascii_uppercase();
-                if matches!(upper.as_str(), "CONNECT" | "TRACE" | "TRACK") {
-                    return Err(VmError::type_error(format!(
-                        "Failed to execute 'fetch': '{raw}' HTTP method is unsupported."
-                    )));
-                }
-                upper
+                super::request_response::validate_http_method(&raw, "Failed to execute 'fetch'")?
             };
 
             // Headers — reuse the `new Headers(init)` algorithm
@@ -388,9 +384,10 @@ fn parse_init_for_fetch(ctx: &mut NativeContext<'_>, init: JsValue) -> Result<In
                     .unwrap_or_default()
             };
 
-            // Body
-            let body = extract_body_bytes(ctx, body_val)?
-                .map_or_else(Bytes::new, |arc| Bytes::copy_from_slice(&arc));
+            // Body — zero-copy handoff via `Bytes::from_owner`
+            // (see `request_from_vm_request` for rationale).
+            let body =
+                extract_body_bytes(ctx, body_val)?.map_or_else(Bytes::new, Bytes::from_owner);
 
             Ok((method, headers, body))
         }

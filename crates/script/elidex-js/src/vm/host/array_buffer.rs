@@ -322,9 +322,12 @@ fn native_array_buffer_slice(
 }
 
 /// Clamp `n` to `[0, len]`; negative values count from the end.
-/// Matches the spec's `relative_index` helper used by
-/// `Array.prototype.slice` et al.
-fn relative_index(n: f64, len: f64) -> usize {
+/// Matches the slice-range helper used by `ArrayBuffer.prototype.slice`
+/// and `Blob.prototype.slice` (both share identical clamp semantics
+/// at this tranche, pending [Clamp] / ToIntegerOrInfinity alignment
+/// in a follow-up).  Shared here so `blob.rs` doesn't re-implement
+/// the same function — both callers live under `vm::host`.
+pub(super) fn relative_index(n: f64, len: f64) -> usize {
     let clamped = if n.is_nan() {
         0.0
     } else if n < 0.0 {

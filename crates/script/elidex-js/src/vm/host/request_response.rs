@@ -432,9 +432,8 @@ fn native_request_constructor(
     let input = args[0];
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    let (url_sid, mut method_sid, headers_source, body_bytes) = resolve_request_input(ctx, input)?;
-    let (override_method, headers_init_arg, body_init_arg) =
-        parse_request_init(ctx, init, &mut method_sid)?;
+    let (url_sid, method_sid, headers_source, body_bytes) = resolve_request_input(ctx, input)?;
+    let (override_method, headers_init_arg, body_init_arg) = parse_request_init(ctx, init)?;
     let method_sid = override_method.unwrap_or(method_sid);
 
     // Allocate companion Headers (guard = None; a later PR tightens
@@ -527,16 +526,9 @@ fn resolve_request_input(
 /// Parse the `init` dict (§5.3 step 27-38).  Returns the
 /// optional method override, optional headers source, and
 /// optional body bytes.  Unknown members are ignored silently.
-///
-/// `method_sid_hint` is updated in place **only** when an init
-/// method is present but fails normalisation — so the caller can
-/// still surface the original Request-input method if needed.
-/// (Kept as an out-param because all three tuple slots are already
-/// used up.)
 fn parse_request_init(
     ctx: &mut NativeContext<'_>,
     init: JsValue,
-    _method_sid_hint: &mut StringId,
 ) -> Result<RequestInitParts, VmError> {
     match init {
         JsValue::Undefined | JsValue::Null => Ok((None, None, None)),
@@ -576,13 +568,8 @@ fn parse_request_init(
 fn normalise_method(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<StringId, VmError> {
     let raw_sid = super::super::coerce::to_string(ctx.vm, val)?;
     let raw = ctx.vm.strings.get_utf8(raw_sid);
-    let upper = raw.to_ascii_uppercase();
+    let upper = validate_http_method(&raw, "Failed to construct 'Request'")?;
     let wk = &ctx.vm.well_known;
-    if upper == "CONNECT" || upper == "TRACE" || upper == "TRACK" {
-        return Err(VmError::type_error(format!(
-            "Failed to construct 'Request': '{raw}' HTTP method is unsupported."
-        )));
-    }
     Ok(match upper.as_str() {
         "GET" => wk.http_get,
         "HEAD" => wk.http_head,
@@ -593,6 +580,23 @@ fn normalise_method(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<StringI
         "PATCH" => wk.http_patch,
         _ => ctx.vm.strings.intern(&upper),
     })
+}
+
+/// Uppercase `raw` and reject WHATWG §4.6 forbidden methods
+/// (`CONNECT` / `TRACE` / `TRACK`).  Returns the uppercase
+/// `String` on success; error messages are prefixed with
+/// `error_prefix` (e.g. `"Failed to construct 'Request'"` or
+/// `"Failed to execute 'fetch'"`) so the caller's reporting
+/// context is preserved.  Shared by `Request`'s ctor and
+/// `fetch()`'s init parse.
+pub(super) fn validate_http_method(raw: &str, error_prefix: &str) -> Result<String, VmError> {
+    let upper = raw.to_ascii_uppercase();
+    if matches!(upper.as_str(), "CONNECT" | "TRACE" | "TRACK") {
+        return Err(VmError::type_error(format!(
+            "{error_prefix}: '{raw}' HTTP method is unsupported."
+        )));
+    }
+    Ok(upper)
 }
 
 /// Coerce a body init value into raw UTF-8 bytes.  Accepts
@@ -858,7 +862,9 @@ fn content_type_for_body(ctx: &NativeContext<'_>, body: JsValue) -> Option<Strin
                     Some(ty)
                 }
             }
-            ObjectKind::ArrayBuffer => None,
+            // `ArrayBuffer` bodies fall through to `None` — spec
+            // §5 step 4.7 "If object is a BufferSource, ... set
+            // Content-Type to null".
             _ => None,
         },
         _ => None,
