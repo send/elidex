@@ -536,9 +536,10 @@ pub(crate) struct VmInner {
     /// `headers_id`, prune dead keys in the sweep tail.
     #[cfg(feature = "engine")]
     pub(crate) response_states: HashMap<ObjectId, host::request_response::ResponseState>,
-    /// Shared body byte storage for `Request` / `Response` (and,
-    /// once the Body mixin read methods land, those consumers).  Keyed by the
-    /// owning object's `ObjectId`; the value is an `Arc<[u8]>` so
+    /// Shared body byte storage for `Request` / `Response` / `Blob`
+    /// / `ArrayBuffer` and the Body mixin read methods (`text` /
+    /// `json` / `arrayBuffer` / `blob`).  Keyed by the owning
+    /// object's `ObjectId`; the value is an `Arc<[u8]>` so
     /// `clone()` can share the buffer across two objects without
     /// copy (WHATWG §5 "body" cloning is reference-counted).
     ///
@@ -552,18 +553,12 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) body_data: HashMap<ObjectId, std::sync::Arc<[u8]>>,
     /// One-shot "body already consumed" flag (WHATWG §5 `bodyUsed`).
-    /// Inserted the first time `Body.text()` / `.json()` /
-    /// `.arrayBuffer()` / `.blob()` is called on the object; a
-    /// second call then rejects with `TypeError`.
-    ///
-    /// Today this set is only written by the Body mixin read
-    /// methods — which have not landed yet — so it is always
-    /// empty; the `.bodyUsed` IDL getter reads it and returns
-    /// `false`.  Wiring it now means the getter lives alongside
-    /// the other Request / Response accessors and the GC trace
-    /// already knows how to prune it, so the follow-up commit
-    /// that adds `text()` / `json()` / `arrayBuffer()` / `blob()`
-    /// only has to `insert()` at the right moment.
+    /// Inserted by the Body mixin read methods (`text()` /
+    /// `.json()` / `.arrayBuffer()` / `.blob()`) the first time
+    /// any one of them runs on a given object; a second call on
+    /// the same object then rejects its returned Promise with
+    /// `TypeError`.  The `.bodyUsed` IDL getter reads membership
+    /// directly.
     ///
     /// GC contract: sweep tail prunes entries whose key was
     /// collected, same as the other side tables.

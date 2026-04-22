@@ -82,11 +82,12 @@ use super::super::{NativeFn, VmInner};
 pub(crate) enum HeadersGuard {
     /// Fully mutable (standalone `new Headers(...)` default).
     None,
-    /// Every mutating method throws `TypeError` (Response's headers
-    /// after initialisation, WHATWG Fetch §5.5 step 11).  Installed
-    /// by the forthcoming `Response` ctor — not reachable from
-    /// script in the current scope, hence `dead_code`.
-    #[allow(dead_code)]
+    /// Every mutating method throws `TypeError`.  Installed by
+    /// the `Response` ctor (WHATWG Fetch §5.5 step 11), by
+    /// `Response.error()` / `.redirect()` / `.json()`, and by
+    /// `fetch()` when wrapping a broker response.  Observable
+    /// from script — e.g. `new Response('').headers.append(...)`
+    /// throws.
     Immutable,
 }
 
