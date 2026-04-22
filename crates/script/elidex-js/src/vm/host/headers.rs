@@ -858,17 +858,41 @@ fn sort_and_combine(vm: &mut VmInner, headers_id: ObjectId) -> Vec<(StringId, St
 /// Values) so it iterates the elements directly.  Used by `keys()`,
 /// `values()`, `entries()` — the same snapshot strategy as
 /// `Map.prototype.entries()` (S8 critical-review decision).
+///
+/// # GC safety
+///
+/// The `alloc_object` call for the iterator can trigger GC.
+/// Between `create_array_object` (which returns `arr_id`) and
+/// the iterator alloc, `arr_id` has no GC root — it is only
+/// referenced by a Rust local, *not* yet by any live JS object.
+/// Without the explicit temp-root guard below, a GC triggered
+/// by the iterator's own allocation would reclaim the snapshot
+/// array, leaving `ArrayIterState.array_id` pointing at a
+/// freed slot.  The [`VmTempRoot`] RAII guard holds `arr_id`
+/// on the VM stack until the iterator is fully constructed
+/// and installed (at which point the iterator's
+/// `ArrayIterState.array_id` field becomes a proper strong
+/// reference that the GC trace picks up).
 fn wrap_in_array_iterator(ctx: &mut NativeContext<'_>, elements: Vec<JsValue>) -> JsValue {
     let arr_id = ctx.vm.create_array_object(elements);
-    let iter_id = ctx.vm.alloc_object(Object {
+    // Snapshot the prototype ObjectId first so the subsequent
+    // `alloc_object(...)` call doesn't hold an immutable borrow
+    // on `rooted` while also requesting a mutable one.
+    let iter_proto = ctx.vm.array_iterator_prototype;
+    let mut rooted = ctx.vm.push_temp_root(JsValue::Object(arr_id));
+    let iter_id = rooted.alloc_object(Object {
         kind: ObjectKind::ArrayIterator(ArrayIterState {
             array_id: arr_id,
             index: 0,
             kind: 0, // Values
         }),
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: ctx.vm.array_iterator_prototype,
+        prototype: iter_proto,
         extensible: true,
     });
+    // Dropping `rooted` here restores the stack; `arr_id` is
+    // now reachable from `iter_id`'s `ArrayIterState` field so
+    // the GC trace keeps it alive.
+    drop(rooted);
     JsValue::Object(iter_id)
 }
