@@ -226,63 +226,37 @@ pub(crate) fn create_blob_from_bytes(
     id
 }
 
-/// Synchronously resolve `promise` with `value`.  Idempotent —
-/// relies on `settle_promise`'s `[[AlreadyResolved]]` guard.
+/// Resolve `promise` with `value` via the standard
+/// [`super::super::natives_promise::settle_promise`] path
+/// (fulfill branch).  Kept as a thin helper because call sites
+/// read more clearly with `resolve_promise_sync(vm, p, v)` than
+/// with the 4-arg `settle_promise(vm, p, false, v)`.
 ///
-/// **Invariant** (debug-checked): `promise` must have no
-/// fulfill/reject reactions attached at call time.  All current
-/// callers (Body mixin / Blob read methods / fetch) settle inline
-/// on the same tick as `create_promise`, before the Promise
-/// object is handed back to JS, so there is no opportunity for
-/// user `.then()` to register a reaction.  If a future caller
-/// leaks the Promise to JS before settling, the debug_assert
-/// surfaces the misuse before reactions are silently dropped.
+/// The `_sync` name is historical: the earlier implementation
+/// bypassed microtask scheduling / unhandled-rejection queueing
+/// entirely, but that silently dropped rejections whose user
+/// code lacked a `.catch` (Copilot R14/R15 findings).  Now we
+/// delegate to the full settlement path — it is still
+/// synchronous from the caller's perspective (the Promise
+/// status flips immediately, no `await` needed by callers), but
+/// reactions are properly enqueued and rejections participate in
+/// unhandled-rejection tracking.
 pub(super) fn resolve_promise_sync(vm: &mut VmInner, promise: ObjectId, value: JsValue) {
-    // Directly mutate the promise state for the fulfilled case —
-    // matches `natives_promise::fulfill_promise` minus the
-    // microtask scheduling (all of our Body mixin callers invoke
-    // this with a non-Promise value, so the spec's thenable
-    // assimilation path does not apply).
-    let obj = vm.get_object_mut(promise);
-    if let ObjectKind::Promise(state) = &mut obj.kind {
-        if matches!(state.status, PromiseStatus::Pending) && !state.already_resolved {
-            debug_assert!(
-                state.fulfill_reactions.is_empty() && state.reject_reactions.is_empty(),
-                "resolve_promise_sync called on Promise with attached reactions — \
-                 would silently drop them; use the full settle_promise path instead"
-            );
-            state.already_resolved = true;
-            state.status = PromiseStatus::Fulfilled;
-            state.result = value;
-            state.fulfill_reactions.clear();
-            state.reject_reactions.clear();
-        }
-    }
+    let _ = super::super::natives_promise::settle_promise(vm, promise, false, value);
 }
 
-/// Synchronously reject `promise` with `reason`.  Same contract
-/// as [`resolve_promise_sync`], including the no-pending-reactions
-/// debug_assert.  Skips the unhandled-rejection queueing because
-/// the Body mixin callers always attach a reaction via `await` /
-/// `.then` / `.catch` in normal code paths — queueing would
-/// produce a spurious warning for the common pattern
-/// `await blob.text().catch(...)`.
+/// Reject `promise` with `reason` via
+/// [`super::super::natives_promise::settle_promise`]'s reject
+/// branch.  Symmetric with [`resolve_promise_sync`] — see that
+/// helper for the `_sync` naming note.
+///
+/// Rejections that settle with no attached reaction are queued
+/// on [`VmInner::pending_rejections`]; the end-of-drain scan
+/// then either dispatches `unhandledrejection` (if a listener is
+/// registered on the document) or logs to stderr, matching
+/// WHATWG HTML §8.1.5.7.
 pub(super) fn reject_promise_sync(vm: &mut VmInner, promise: ObjectId, reason: JsValue) {
-    let obj = vm.get_object_mut(promise);
-    if let ObjectKind::Promise(state) = &mut obj.kind {
-        if matches!(state.status, PromiseStatus::Pending) && !state.already_resolved {
-            debug_assert!(
-                state.fulfill_reactions.is_empty() && state.reject_reactions.is_empty(),
-                "reject_promise_sync called on Promise with attached reactions — \
-                 would silently drop them; use the full settle_promise path instead"
-            );
-            state.already_resolved = true;
-            state.status = PromiseStatus::Rejected;
-            state.result = reason;
-            state.fulfill_reactions.clear();
-            state.reject_reactions.clear();
-        }
-    }
+    let _ = super::super::natives_promise::settle_promise(vm, promise, true, reason);
 }
 
 // ---------------------------------------------------------------------------

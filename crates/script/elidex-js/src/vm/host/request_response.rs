@@ -550,7 +550,15 @@ fn parse_request_init(
                 JsValue::Undefined => None,
                 other => Some(other),
             };
-            let body_override = extract_body_bytes(ctx, body_val)?;
+            // WebIDL nullable body: `null` explicitly clears the
+            // base body; `undefined` (field absent) preserves it.
+            // Matches `fetch(req, {body: null})` (R15.2) and
+            // Chromium / Firefox.
+            let body_override = match body_val {
+                JsValue::Undefined => None,
+                JsValue::Null => Some(Arc::from(&[][..])),
+                _ => extract_body_bytes(ctx, body_val)?,
+            };
             Ok((method_override, headers_override, body_override))
         }
         _ => Err(VmError::type_error(

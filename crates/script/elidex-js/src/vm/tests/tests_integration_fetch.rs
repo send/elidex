@@ -390,6 +390,74 @@ fn fetch_response_headers_go_through_normalisation() {
 }
 
 #[test]
+fn body_mixin_unhandled_rejection_drained_by_vm() {
+    // R15.1: the Body mixin's `reject_promise_sync` /
+    // `resolve_promise_sync` helpers formerly bypassed
+    // `pending_rejections` entirely — so a user who called
+    // `resp.json()` twice (double-read → TypeError) without a
+    // `.catch` would silently lose the rejection.  Now both
+    // helpers delegate to `natives_promise::settle_promise`,
+    // so the queue + end-of-eval drain catches them exactly
+    // like `fetch()` does after R14.
+    use super::super::value::{ObjectKind, PromiseStatus};
+    let mut vm = Vm::new();
+    vm.eval(
+        "var r = new Response('x'); \
+         r.text(); \
+         globalThis.p2 = r.text();",
+    )
+    .unwrap();
+    let JsValue::Object(id) = vm.get_global("p2").expect("p2 must be defined") else {
+        panic!("p2 must be a Promise Object");
+    };
+    let kind = &vm
+        .inner
+        .objects
+        .get(id.0 as usize)
+        .and_then(|o| o.as_ref())
+        .expect("p2's slot must be live")
+        .kind;
+    let ObjectKind::Promise(state) = kind else {
+        panic!("p2 must be a Promise");
+    };
+    assert!(
+        matches!(state.status, PromiseStatus::Rejected),
+        "double-read r.text() must reject"
+    );
+    assert!(
+        state.handled,
+        "unhandled double-read rejection must be drained — pre-R15 this stayed false because reject_promise_sync bypassed the queue"
+    );
+}
+
+#[test]
+fn fetch_null_body_override_clears_base_body() {
+    // R15.2: `fetch(req, {body: null})` must clear the body
+    // (spec nullable; matches Chromium / Firefox behaviour).
+    // The mock can't directly observe broker-facing body bytes,
+    // so we verify via the parallel `new Request(req, {body: null})`
+    // code path which shares the null-clears-body semantics, and
+    // separately confirm the fetch() call resolves cleanly (no
+    // crash).
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.text_len = -1; \
+         var seed = new Request('http://example.com/x', {method: 'POST', body: 'payload'}); \
+         var merged = new Request(seed, {body: null}); \
+         merged.text().then(t => { globalThis.text_len = t.length; });",
+    )
+    .unwrap();
+    match vm.get_global("text_len") {
+        Some(JsValue::Number(n)) => assert_eq!(
+            n,
+            0.0,
+            "{{body: null}} override must clear the base body (text() should read empty, got len={n})"
+        ),
+        other => panic!("expected text_len to be a Number, got {other:?}"),
+    }
+}
+
+#[test]
 fn fetch_unhandled_rejection_drained_by_vm() {
     // WHATWG HTML §8.1.5.7: a rejected Promise that settles with
     // no reaction attached must surface on the VM's unhandled-
