@@ -313,6 +313,83 @@ fn ctor_symbol_iterator_non_callable_throws() {
 }
 
 #[test]
+fn ctor_inner_pair_accepts_custom_iterable() {
+    let mut vm = Vm::new();
+    // WebIDL `sequence<sequence<ByteString>>`: the inner pair may
+    // be any iterable yielding exactly two items — not only a
+    // literal two-element Array (R22.1).  Here the outer is an
+    // Array, the inner is a user `[Symbol.iterator]` object.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var inner = { [Symbol.iterator]() { \
+                 var step = 0; \
+                 return { next() { \
+                     step++; \
+                     if (step === 1) return { value: 'X-A', done: false }; \
+                     if (step === 2) return { value: '1', done: false }; \
+                     return { value: undefined, done: true }; \
+                 } }; \
+             } }; \
+             var h = new Headers([inner]); h.get('x-a');"
+        ),
+        "1"
+    );
+}
+
+#[test]
+fn ctor_inner_pair_arity_three_throws() {
+    let mut vm = Vm::new();
+    // Inner iterable yielding three items is a spec TypeError
+    // ("must contain iterables of length 2").  Closes inner
+    // iterator before propagating (R22.1 early-exit path).
+    assert!(eval_bool(
+        &mut vm,
+        "globalThis.returnCalled = false; \
+         var inner = { [Symbol.iterator]() { \
+             var step = 0; \
+             return { \
+                 next() { \
+                     step++; \
+                     if (step === 1) return { value: 'a', done: false }; \
+                     if (step === 2) return { value: 'b', done: false }; \
+                     return { value: 'c', done: false }; \
+                 }, \
+                 return() { \
+                     globalThis.returnCalled = true; \
+                     return { value: undefined, done: true }; \
+                 } \
+             }; \
+         } }; \
+         var threw = false; \
+         try { new Headers([inner]); } \
+         catch (e) { threw = e instanceof TypeError; } \
+         threw && globalThis.returnCalled;"
+    ));
+}
+
+#[test]
+fn ctor_inner_pair_arity_one_throws() {
+    let mut vm = Vm::new();
+    // Inner iterable yielding only one item (then done) is also a
+    // TypeError.  No IteratorClose here — `done` is normal
+    // completion per §7.4.6.
+    assert!(eval_bool(
+        &mut vm,
+        "var inner = { [Symbol.iterator]() { \
+             var step = 0; \
+             return { next() { \
+                 step++; \
+                 if (step === 1) return { value: 'only', done: false }; \
+                 return { value: undefined, done: true }; \
+             } }; \
+         } }; \
+         var r = false; try { new Headers([inner]); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
 fn ctor_iterable_abrupt_completion_calls_return() {
     let mut vm = Vm::new();
     // ES §7.4.6 / WebIDL sequence conversion: if a yielded pair
