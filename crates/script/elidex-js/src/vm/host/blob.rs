@@ -30,8 +30,11 @@
 //!   now.
 //! - `File` subclass / `FileList`.
 //! - Line-ending normalisation for `endings: "native"`.
-//! - MIME type validation — Phase 2 accepts any ASCII string with
-//!   no lower-case normalisation (Chromium is lax too).
+//! - MIME type validation — Phase 2 accepts any ASCII string and
+//!   ASCII-lowercases it when stored in [`BlobData::type_sid`]
+//!   (matching Chromium / Firefox; the spec's full media-type
+//!   parse lands with a later tranche).  Non-ASCII rejects with
+//!   the empty type.
 
 #![cfg(feature = "engine")]
 

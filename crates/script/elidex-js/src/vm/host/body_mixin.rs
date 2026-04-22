@@ -46,7 +46,11 @@ use super::blob::{create_blob_from_bytes, reject_promise_sync, resolve_promise_s
 
 /// Brand-check `this` against `Request` / `Response`.  Returns
 /// the `ObjectId` for downstream body lookup.  Non-Body receivers
-/// yield `TypeError` (WebIDL §3.2 brand checks).
+/// yield `TypeError` (WebIDL §3.2 brand checks).  The error
+/// message names `Request`/`Response` rather than a fictional
+/// `Body` prototype because the Body mixin is installed directly
+/// on the two concrete prototypes — there is no script-visible
+/// `Body` interface.
 fn require_body_this(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -54,13 +58,13 @@ fn require_body_this(
 ) -> Result<ObjectId, VmError> {
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
-            "Body.prototype.{method} called on non-Body"
+            "Failed to execute '{method}': Illegal invocation — receiver is not a Request or Response"
         )));
     };
     match ctx.vm.get_object(id).kind {
         ObjectKind::Request | ObjectKind::Response => Ok(id),
         _ => Err(VmError::type_error(format!(
-            "Body.prototype.{method} called on non-Body"
+            "Failed to execute '{method}': Illegal invocation — receiver is not a Request or Response"
         ))),
     }
 }

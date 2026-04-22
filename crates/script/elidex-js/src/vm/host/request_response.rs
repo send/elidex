@@ -568,9 +568,13 @@ fn parse_request_init(
 fn normalise_method(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<StringId, VmError> {
     let raw_sid = super::super::coerce::to_string(ctx.vm, val)?;
     let raw = ctx.vm.strings.get_utf8(raw_sid);
-    let upper = validate_http_method(&raw, "Failed to construct 'Request'")?;
+    let canonical = validate_http_method(&raw, "Failed to construct 'Request'")?;
     let wk = &ctx.vm.well_known;
-    Ok(match upper.as_str() {
+    // `validate_http_method` returns the uppercased token for the
+    // seven canonical methods and the original casing otherwise —
+    // dispatching on the uppercase here is safe because the match
+    // arms cover exactly the canonical-uppercase forms.
+    Ok(match canonical.as_str() {
         "GET" => wk.http_get,
         "HEAD" => wk.http_head,
         "POST" => wk.http_post,
@@ -578,17 +582,25 @@ fn normalise_method(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<StringI
         "DELETE" => wk.http_delete,
         "OPTIONS" => wk.http_options,
         "PATCH" => wk.http_patch,
-        _ => ctx.vm.strings.intern(&upper),
+        _ => ctx.vm.strings.intern(&canonical),
     })
 }
 
-/// Uppercase `raw` and reject WHATWG §4.6 forbidden methods
-/// (`CONNECT` / `TRACE` / `TRACK`).  Returns the uppercase
-/// `String` on success; error messages are prefixed with
-/// `error_prefix` (e.g. `"Failed to construct 'Request'"` or
+/// Apply WHATWG §5.3 step 24 method canonicalisation + §4.6
+/// forbidden-method filter.  Returns the canonical form:
+/// - the uppercase token for the seven byte-case-insensitive
+///   canonical methods (`GET` / `HEAD` / `POST` / `PUT` /
+///   `DELETE` / `OPTIONS` / `PATCH`),
+/// - the original case otherwise (unknown extensions like
+///   `CustomOperation` or `MKCOL` pass through verbatim —
+///   matches Chromium / Firefox).
+///
+/// The forbidden-method check runs on the uppercased token so
+/// `connect` / `Trace` / `track` all reject case-insensitively.
+/// Error messages are prefixed with `error_prefix` (e.g.
+/// `"Failed to construct 'Request'"` or
 /// `"Failed to execute 'fetch'"`) so the caller's reporting
-/// context is preserved.  Shared by `Request`'s ctor and
-/// `fetch()`'s init parse.
+/// context is preserved.
 pub(super) fn validate_http_method(raw: &str, error_prefix: &str) -> Result<String, VmError> {
     let upper = raw.to_ascii_uppercase();
     if matches!(upper.as_str(), "CONNECT" | "TRACE" | "TRACK") {
@@ -596,7 +608,17 @@ pub(super) fn validate_http_method(raw: &str, error_prefix: &str) -> Result<Stri
             "{error_prefix}: '{raw}' HTTP method is unsupported."
         )));
     }
-    Ok(upper)
+    if matches!(
+        upper.as_str(),
+        "GET" | "HEAD" | "POST" | "PUT" | "DELETE" | "OPTIONS" | "PATCH"
+    ) {
+        Ok(upper)
+    } else {
+        // Non-canonical extension — preserve the original casing
+        // (spec §5.3 step 24 only canonicalises the seven known
+        // methods; unknown tokens bypass the uppercase step).
+        Ok(raw.to_string())
+    }
 }
 
 /// Coerce a body init value into raw UTF-8 bytes.  Accepts

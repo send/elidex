@@ -390,6 +390,78 @@ fn fetch_response_headers_go_through_normalisation() {
 }
 
 #[test]
+fn request_method_canonical_uppercase_is_normalised() {
+    // WHATWG Fetch §5.3 step 24: a case-insensitive match against
+    // the seven canonical methods is uppercased to the canonical
+    // form.  `get` → `"GET"`, `post` → `"POST"`, etc.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.m = ''; \
+         var req = new Request('http://example.com/x', {method: 'post'}); \
+         globalThis.m = req.method;",
+    )
+    .unwrap();
+    match vm.get_global("m") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "POST"),
+        other => panic!("expected canonical POST, got {other:?}"),
+    }
+}
+
+#[test]
+fn request_method_unknown_extension_preserves_case() {
+    // WHATWG Fetch §5.3 step 24 only canonicalises the seven
+    // byte-case-insensitive methods.  Unknown tokens (WebDAV's
+    // `MKCOL`, custom RPC verbs like `CustomOperation`) must
+    // pass through *verbatim* without uppercasing.  Regression:
+    // before R6, `{method: 'CustomOperation'}` stored the
+    // all-uppercase `CUSTOMOPERATION`, diverging from browsers.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.m1 = ''; \
+         globalThis.m2 = ''; \
+         var req1 = new Request('http://example.com/x', {method: 'CustomOperation'}); \
+         var req2 = new Request('http://example.com/x', {method: 'MkCol'}); \
+         globalThis.m1 = req1.method; \
+         globalThis.m2 = req2.method;",
+    )
+    .unwrap();
+    match vm.get_global("m1") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "CustomOperation"),
+        other => panic!("expected verbatim CustomOperation, got {other:?}"),
+    }
+    match vm.get_global("m2") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "MkCol"),
+        other => panic!("expected verbatim MkCol, got {other:?}"),
+    }
+}
+
+#[test]
+fn request_forbidden_method_rejects_case_insensitively() {
+    // The §4.6 forbidden-method filter must run on the
+    // uppercased token so `connect` / `Trace` / `track` all
+    // reject regardless of input casing — even though unknown
+    // tokens preserve their case on success.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r1 = ''; \
+         globalThis.r2 = ''; \
+         try { new Request('http://example.com/x', {method: 'connect'}); } \
+         catch (e) { globalThis.r1 = e instanceof TypeError ? e.name : 'not-type'; } \
+         try { new Request('http://example.com/x', {method: 'Trace'}); } \
+         catch (e) { globalThis.r2 = e instanceof TypeError ? e.name : 'not-type'; }",
+    )
+    .unwrap();
+    match vm.get_global("r1") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "TypeError"),
+        other => panic!("expected TypeError for connect, got {other:?}"),
+    }
+    match vm.get_global("r2") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "TypeError"),
+        other => panic!("expected TypeError for Trace, got {other:?}"),
+    }
+}
+
+#[test]
 fn response_redirect_type_is_opaque_redirect() {
     // WHATWG Fetch §5.5 step 7: `Response.redirect(url, status)`
     // produces an opaque-redirect response whose `type` is
