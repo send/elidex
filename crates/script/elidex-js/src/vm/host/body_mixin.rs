@@ -95,10 +95,17 @@ fn read_body_bytes(ctx: &NativeContext<'_>, id: ObjectId) -> Arc<[u8]> {
         .unwrap_or_else(|| Arc::from(&[][..]))
 }
 
-/// Return the receiver's companion-Headers `Content-Type` value
+/// Return the receiver's companion-Headers `Content-Type` value,
 /// or the empty `StringId` if absent.  Used by `.blob()` to seed
 /// the new Blob's `type`.
-fn content_type_of(ctx: &NativeContext<'_>, id: ObjectId) -> super::super::value::StringId {
+///
+/// Multi-valued `Content-Type` headers are combined with `", "`
+/// so the returned string matches what
+/// `resp.headers.get('content-type')` would produce (WHATWG
+/// Fetch §5.2 "get").  Without this, `resp.headers.get` and
+/// `(await resp.blob()).type` could disagree on the same
+/// Response — a consumer-observable inconsistency.
+fn content_type_of(ctx: &mut NativeContext<'_>, id: ObjectId) -> super::super::value::StringId {
     let headers_id = match ctx.vm.get_object(id).kind {
         ObjectKind::Request => ctx.vm.request_states.get(&id).map(|s| s.headers_id),
         ObjectKind::Response => ctx.vm.response_states.get(&id).map(|s| s.headers_id),
@@ -109,17 +116,38 @@ fn content_type_of(ctx: &NativeContext<'_>, id: ObjectId) -> super::super::value
     let Some(headers_id) = headers_id else {
         return empty;
     };
-    ctx.vm
+    // Collect every matching value in insertion order.  Typical
+    // responses have 0 or 1 `Content-Type` so the Vec allocation
+    // rarely grows.
+    let values: Vec<super::super::value::StringId> = ctx
+        .vm
         .headers_states
         .get(&headers_id)
-        .and_then(|state| {
+        .map(|state| {
             state
                 .list
                 .iter()
-                .find(|(n, _)| *n == ct_name)
+                .filter(|(n, _)| *n == ct_name)
                 .map(|(_, v)| *v)
+                .collect()
         })
-        .unwrap_or(empty)
+        .unwrap_or_default();
+    match values.len() {
+        0 => empty,
+        1 => values[0],
+        _ => {
+            // Match `Headers.get()` combine algorithm — join with
+            // `", "` and intern.
+            let mut joined = String::new();
+            for (i, sid) in values.iter().enumerate() {
+                if i > 0 {
+                    joined.push_str(", ");
+                }
+                joined.push_str(&ctx.vm.strings.get_utf8(*sid));
+            }
+            ctx.vm.strings.intern(&joined)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

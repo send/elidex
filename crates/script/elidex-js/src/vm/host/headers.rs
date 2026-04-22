@@ -286,45 +286,65 @@ pub(super) fn fill_headers_from_init(
     init: JsValue,
     error_prefix: &str,
 ) -> Result<(), VmError> {
+    let entries = parse_headers_init_entries(ctx, init, error_prefix)?;
+    for (name_sid, value_sid) in entries {
+        append_entry(ctx, headers_id, name_sid, value_sid)?;
+    }
+    Ok(())
+}
+
+/// Parse `init` per WHATWG Fetch §5.2 "fill a Headers object"
+/// into an owned `Vec<(StringId, StringId)>` of
+/// (lowercased-name, trimmed-value) pairs — **without**
+/// allocating a `Headers` instance or touching
+/// `headers_states`.  Used by the `fetch()` host when it needs
+/// the parsed entries directly for the broker-facing
+/// `elidex_net::Request`; that path formerly allocated a
+/// throwaway `Headers` JS object, filled it, snapshotted its
+/// list, and left the object to the next GC (R8.2).  The
+/// shared [`fill_headers_from_init`] wrapper above now
+/// delegates here so the validation / source-type branches do
+/// not drift.
+pub(super) fn parse_headers_init_entries(
+    ctx: &mut NativeContext<'_>,
+    init: JsValue,
+    error_prefix: &str,
+) -> Result<Vec<(StringId, StringId)>, VmError> {
     match init {
-        JsValue::Undefined | JsValue::Null => Ok(()),
+        JsValue::Undefined | JsValue::Null => Ok(Vec::new()),
         JsValue::Object(obj_id) => {
             // Source `Headers`: copy entries directly.  Values are
             // already validated, so we can bypass revalidation.
             if matches!(ctx.vm.get_object(obj_id).kind, ObjectKind::Headers) {
-                let src = ctx
+                return Ok(ctx
                     .vm
                     .headers_states
                     .get(&obj_id)
                     .map(|s| s.list.clone())
-                    .unwrap_or_default();
-                for (name_sid, value_sid) in src {
-                    append_entry(ctx, headers_id, name_sid, value_sid)?;
-                }
-                return Ok(());
+                    .unwrap_or_default());
             }
             // Source `Array`: require each element to be a length-2
             // sequence.  Clone elements to release the borrow before
-            // calling back into `append_entry` (which mutates
-            // `headers_states`).
+            // coercing / validating.
             if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
                 let snapshot = elements.clone();
+                let mut out = Vec::with_capacity(snapshot.len());
                 for pair in snapshot {
-                    fill_from_pair_entry(ctx, headers_id, pair, error_prefix)?;
+                    out.push(validate_pair_entry(ctx, pair, error_prefix)?);
                 }
-                return Ok(());
+                return Ok(out);
             }
             // Otherwise treat as Record<ByteString, ByteString>:
             // iterate own enumerable string keys (§9.1.11.1 order).
             let keys = super::super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
+            let mut out = Vec::with_capacity(keys.len());
             for key_sid in keys {
                 let value = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;
                 let value_sid = super::super::coerce::to_string(ctx.vm, value)?;
-                let (name_sid, value_sid) =
-                    validate_and_normalise(ctx.vm, key_sid, value_sid, error_prefix)?;
-                append_entry(ctx, headers_id, name_sid, value_sid)?;
+                let pair = validate_and_normalise(ctx.vm, key_sid, value_sid, error_prefix)?;
+                out.push(pair);
             }
-            Ok(())
+            Ok(out)
         }
         _ => Err(VmError::type_error(format!(
             "{error_prefix}: The provided value is not of type 'HeadersInit'."
@@ -332,13 +352,13 @@ pub(super) fn fill_headers_from_init(
     }
 }
 
-/// Consume one `[name, value]` pair from the Array-init form.
-fn fill_from_pair_entry(
+/// Validate one `[name, value]` pair from the Array-init form
+/// and return the normalised `(name_sid, value_sid)` tuple.
+fn validate_pair_entry(
     ctx: &mut NativeContext<'_>,
-    headers_id: ObjectId,
     pair: JsValue,
     error_prefix: &str,
-) -> Result<(), VmError> {
+) -> Result<(StringId, StringId), VmError> {
     let JsValue::Object(pair_id) = pair else {
         return Err(VmError::type_error(format!(
             "{error_prefix}: Sequence header init must contain arrays of length 2"
@@ -354,8 +374,7 @@ fn fill_from_pair_entry(
     };
     let name_sid = super::super::coerce::to_string(ctx.vm, pair_elems[0])?;
     let value_sid = super::super::coerce::to_string(ctx.vm, pair_elems[1])?;
-    let (name_sid, value_sid) = validate_and_normalise(ctx.vm, name_sid, value_sid, error_prefix)?;
-    append_entry(ctx, headers_id, name_sid, value_sid)
+    validate_and_normalise(ctx.vm, name_sid, value_sid, error_prefix)
 }
 
 // ---------------------------------------------------------------------------

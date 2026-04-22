@@ -390,6 +390,48 @@ fn fetch_response_headers_go_through_normalisation() {
 }
 
 #[test]
+fn blob_type_combines_multivalued_content_type() {
+    // WHATWG Fetch §5.2 `Headers.get` combines duplicate-name
+    // values with `", "`.  `.blob()` seeds the new Blob's `type`
+    // from Content-Type, so both surfaces must agree on the
+    // combined value — otherwise `resp.headers.get('content-type')`
+    // and `(await resp.blob()).type` diverge for the same Response.
+    //
+    // Phase 2 `new Response(...)` accepts an `init.headers` Array
+    // of pairs with duplicate names, so we use that to
+    // construct a multi-Content-Type Response entirely in JS
+    // without needing the broker.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.combined_get = ''; \
+         globalThis.blob_type = ''; \
+         var resp = new Response('x', {headers: [\
+             ['content-type', 'text/plain'], \
+             ['content-type', 'charset=utf-8'] \
+         ]}); \
+         globalThis.combined_get = resp.headers.get('content-type'); \
+         resp.blob().then(b => { globalThis.blob_type = b.type; });",
+    )
+    .unwrap();
+    match vm.get_global("combined_get") {
+        Some(JsValue::String(id)) => assert_eq!(
+            vm.get_string(id),
+            "text/plain, charset=utf-8",
+            "Headers.get must combine with ', '"
+        ),
+        other => panic!("expected combined Content-Type, got {other:?}"),
+    }
+    match vm.get_global("blob_type") {
+        Some(JsValue::String(id)) => assert_eq!(
+            vm.get_string(id),
+            "text/plain, charset=utf-8",
+            "Blob.type must match Headers.get on the same Content-Type header"
+        ),
+        other => panic!("expected blob.type to match combined Content-Type, got {other:?}"),
+    }
+}
+
+#[test]
 fn request_ctor_null_headers_clears_base_headers() {
     // WHATWG Fetch + browsers: `new Request(existingReq,
     // {headers: null})` discards the existing Request's headers

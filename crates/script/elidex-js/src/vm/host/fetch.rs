@@ -348,10 +348,13 @@ type InitOverrides = (Option<String>, Option<Vec<(String, String)>>, Option<Byte
 
 /// Parse the `init` dict.  Every field is `Option<_>`; a present
 /// value means `init` explicitly set it.  `undefined` (including
-/// the field being absent entirely) maps to `None`; `null` on
-/// `headers` / `body` is also treated as "not provided" in
-/// Phase 2 (spec-correct null-clears-body lands with the async
-/// fetch refactor that implements the full §5.3 algorithm walk).
+/// the field being absent entirely) always maps to `None`.
+/// `null` handling is **field-specific** — see the per-field
+/// "Null vs undefined" block below for the source-of-truth
+/// semantics.  In short: `headers: null` overrides to empty
+/// (matching Request ctor), `body: null` stays as "no override"
+/// in Phase 2 (spec-correct null-clears-body lands with the
+/// async fetch refactor that implements the full §5.3 walk).
 fn parse_init_overrides(
     ctx: &mut NativeContext<'_>,
     init: JsValue,
@@ -380,14 +383,13 @@ fn parse_init_overrides(
                 )?)
             };
 
-            // Headers — reuse the `new Headers(init)` algorithm
-            // (lowercasing / validation / Array-of-pairs / Record
-            // paths converge on the same code).  The throwaway
-            // `companion` is explicitly removed from
-            // `headers_states` after snapshotting so no orphan
-            // entry waits for the next GC (R4.2).  Failure paths
-            // also drop the companion — propagated via `?`
-            // *after* the cleanup.
+            // Headers — reuse the shared `new Headers(init)`
+            // algorithm (lowercasing / validation /
+            // Array-of-pairs / Record paths converge on the same
+            // code) via `parse_headers_init_entries`, which
+            // returns the parsed entries directly as
+            // `Vec<(StringId, StringId)>` without allocating a
+            // throwaway `Headers` JS object (R8.2).
             //
             // **Null vs undefined**: `undefined` (field absent)
             // returns `None` → base headers preserved.  `null`
@@ -400,27 +402,15 @@ fn parse_init_overrides(
                 JsValue::Undefined => None,
                 JsValue::Null => Some(Vec::new()),
                 _ => {
-                    let companion = ctx.vm.create_headers(HeadersGuard::None);
-                    let fill_result = super::headers::fill_headers_from_init(
+                    let entries = super::headers::parse_headers_init_entries(
                         ctx,
-                        companion,
                         headers_val,
                         "Failed to execute 'fetch'",
-                    );
-                    let snapshot = ctx
-                        .vm
-                        .headers_states
-                        .remove(&companion)
-                        .map(|hs| {
-                            hs.list
-                                .into_iter()
-                                .map(|(n, v)| {
-                                    (ctx.vm.strings.get_utf8(n), ctx.vm.strings.get_utf8(v))
-                                })
-                                .collect::<Vec<(String, String)>>()
-                        })
-                        .unwrap_or_default();
-                    fill_result?;
+                    )?;
+                    let snapshot: Vec<(String, String)> = entries
+                        .into_iter()
+                        .map(|(n, v)| (ctx.vm.strings.get_utf8(n), ctx.vm.strings.get_utf8(v)))
+                        .collect();
                     Some(snapshot)
                 }
             };
