@@ -44,8 +44,8 @@
 //!   methods live in [`super::body_mixin`] and share the
 //!   [`VmInner::body_data`] side table with this module.
 //! - `.body` getter always returns `null` (Phase 2 non-streaming;
-//!   a later PR supplies the `ReadableStream` replacement — see
-//!   `~/.claude/plans/pr5a-fetch.md` §D10).
+//!   a later PR5-streams tranche of the M4-12 boa → VM cutover
+//!   supplies the `ReadableStream` replacement).
 //! - `init.signal` is honoured by the `fetch()` path (pre-flight
 //!   brand / aborted check — see [`super::fetch`]); the ctor
 //!   itself silently accepts and stores the option.

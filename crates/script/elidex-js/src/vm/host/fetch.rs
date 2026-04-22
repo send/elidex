@@ -136,7 +136,7 @@ fn native_fetch(
     // `alloc_object` contract requires callers to root any
     // `ObjectId` reachable only through a Rust local whenever a
     // later alloc could trigger GC (see `vm/mod.rs::alloc_object`
-    // and `feedback_gc_safety.md`).  The guard below pushes the
+    // and `vm/temp_root.rs`'s contract docs).  The guard below pushes the
     // Promise onto the VM stack; `temp_holder` + shadowed `ctx`
     // reborrow the guard so the rest of the function reads and
     // writes vm state through the rooted path without touching
@@ -654,7 +654,7 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
     // refactors body storage to a stream-compatible wrapper
     // anyway.  The copy is observable only on large fetch
     // responses — for script-sized bodies it's below measurement
-    // noise (see `m4-12-post-pr5a-fetch-roadmap.md` §PR-spec-polish).
+    // noise, tracked for the post-PR5a-fetch spec-polish pass.
     if !response.body.is_empty() {
         let bytes: Arc<[u8]> = Arc::from(&response.body[..]);
         g2.body_data.insert(inst_id, bytes);

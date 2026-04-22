@@ -308,10 +308,13 @@ fn native_array_buffer_slice(
     let stop = relative_index(end, len_f);
     let final_len = stop.saturating_sub(start);
 
-    // Copy the slice into a fresh Arc<[u8]>.  Partial-share of an
-    // Arc<[u8]> slice requires per-range allocation until a shared-
-    // store refactor lands (planned for TypedArray tranche — see
-    // `~/.claude/plans/pr5a-fetch.md` §D7).
+    // Copy the slice into a fresh `Arc<[u8]>`.  Partial-share of an
+    // `Arc<[u8]>` sub-range requires per-range allocation until the
+    // backing store is refactored to support shared slices (planned
+    // for the later TypedArray tranche of M4-12 — the current layer
+    // is ArrayBuffer-only and byte-copy-on-slice is acceptable
+    // because the measurable cost lands only when a script actually
+    // slices large buffers).
     let bytes: Arc<[u8]> = if final_len == 0 {
         Arc::from(&[][..])
     } else {

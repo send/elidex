@@ -1,10 +1,9 @@
 //! Event object construction — the JS-side view of a `DispatchEvent`
 //! that gets passed to every listener.
 //!
-//! Per design decision D4 (see `m4-12-pr3-plan.md`), the event object is
-//! rebuilt **per listener invocation** — this mirrors boa's behaviour
-//! and sidesteps `currentTarget` mutation between capture / target /
-//! bubble phases.  The flag fields are threaded through
+//! The event object is rebuilt **per listener invocation** (mirrors
+//! boa's behaviour and sidesteps `currentTarget` mutation between
+//! capture / target / bubble phases).  The flag fields are threaded through
 //! `ObjectKind::Event`'s internal slots; `DispatchFlags` is synced
 //! **in** (at construction) and **out** (in PR3 C5 `call_listener`) so
 //! accumulated state (e.g. a prior listener's `preventDefault`)

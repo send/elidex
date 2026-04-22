@@ -32,10 +32,11 @@
 //!   instead of the `long` variant so `"100px"` round-trips faithfully.
 //! - **Boolean reflect** (WHATWG "boolean reflect" — attribute
 //!   presence ↔ IDL boolean): `allowFullscreen`.
-//! - **Parity null stubs** — `contentDocument`, `contentWindow`.  Real
-//!   cross-context proxies arrive with PR5d; the null return today
-//!   matches the existing boa stub, and PR5d *must* land before the
-//!   boa → VM cut-over (see `m4-12-pr4e-complete.md`).
+//! - **Parity null stubs** — `contentDocument`, `contentWindow`.
+//!   Real cross-context proxies land in a later M4-12 tranche
+//!   (PR5d); the `null` return today matches the existing boa
+//!   stub, and that tranche must land before the boa → VM
+//!   cut-over completes.
 
 #![cfg(feature = "engine")]
 

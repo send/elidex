@@ -92,10 +92,12 @@ pub(super) fn native_request_get_body(
 ) -> Result<JsValue, VmError> {
     // Phase 2: non-streaming — the `.body` getter always returns
     // `null`.  Body bytes remain retrievable via the Body mixin
-    // (the upcoming Body mixin `.text()` / `.json()` / ...).
-    // Spec technically requires
-    // `ReadableStream | null`; the `null` fallback is a Phase 2
-    // intentional limitation documented in `~/.claude/plans/pr5a-fetch.md` §D10.
+    // (`.text()` / `.json()` / `.arrayBuffer()` / `.blob()` —
+    // see `body_mixin.rs`).  Fetch spec technically types `.body`
+    // as `ReadableStream?`; the Phase-2 `null` fallback is
+    // intentional until `ReadableStream` is implemented (planned
+    // in the later PR5-streams tranche of the M4-12 boa → VM
+    // cutover).
     Ok(JsValue::Null)
 }
 
