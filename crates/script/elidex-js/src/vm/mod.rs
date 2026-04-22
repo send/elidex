@@ -543,8 +543,13 @@ pub(crate) struct VmInner {
     /// `clone()` can share the buffer across two objects without
     /// copy (WHATWG §5 "body" cloning is reference-counted).
     ///
-    /// Non-body Requests / Responses simply omit their entry —
-    /// `.body` returns `null` when the key is absent.
+    /// Requests / Responses without body bytes simply omit their
+    /// entry.  In Phase 2 the `.body` IDL getter is always `null`
+    /// because `ReadableStream` is deferred to the PR5-streams
+    /// tranche; the Body mixin read methods (`text` / `json` /
+    /// `arrayBuffer` / `blob`) read directly from this map, so
+    /// key presence is the "does this carry bytes?" signal rather
+    /// than the JS-visible `.body` getter.
     ///
     /// GC contract: the values hold no `ObjectId` references, so
     /// the trace step skips them.  Sweep tail drops entries whose
