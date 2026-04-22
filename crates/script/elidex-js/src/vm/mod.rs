@@ -536,12 +536,16 @@ pub(crate) struct VmInner {
     /// `headers_id`, prune dead keys in the sweep tail.
     #[cfg(feature = "engine")]
     pub(crate) response_states: HashMap<ObjectId, host::request_response::ResponseState>,
-    /// Shared body byte storage for `Request` / `Response` / `Blob`
-    /// / `ArrayBuffer` and the Body mixin read methods (`text` /
-    /// `json` / `arrayBuffer` / `blob`).  Keyed by the owning
-    /// object's `ObjectId`; the value is an `Arc<[u8]>` so
-    /// `clone()` can share the buffer across two objects without
-    /// copy (WHATWG §5 "body" cloning is reference-counted).
+    /// Shared body byte storage for `Request` / `Response` /
+    /// `ArrayBuffer` and the Body mixin read methods (`text` /
+    /// `json` / `arrayBuffer` / `blob`).  `Blob` payloads live in
+    /// the separate [`Self::blob_data`] table (R20.2); don't
+    /// conflate them — future zero-copy / GC-sweep decisions
+    /// pivot on which side table owns the bytes.  Keyed by the
+    /// owning object's `ObjectId`; the value is an `Arc<[u8]>`
+    /// so `clone()` can share the buffer across two objects
+    /// without copy (WHATWG §5 "body" cloning is reference-
+    /// counted).
     ///
     /// Requests / Responses without body bytes simply omit their
     /// entry.  In Phase 2 the `.body` IDL getter is always `null`

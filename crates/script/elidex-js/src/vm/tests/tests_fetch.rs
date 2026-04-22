@@ -68,6 +68,26 @@ fn fetch_no_args_throws_type_error_synchronously() {
 }
 
 #[test]
+fn fetch_non_object_init_throws_type_error_synchronously() {
+    // WebIDL `RequestInit` is a dictionary argument; converting a
+    // non-object / non-undefined / non-null value to a dictionary
+    // fails at the binding layer and surfaces as a sync TypeError
+    // — same shape as `new Request(url, 42)` / `new Response(null,
+    // 42)`, verified against Chrome / Firefox / Safari (R20.1).
+    let mut vm = no_handle_vm();
+    vm.eval(
+        "globalThis.r = null; \
+         try { fetch('http://x/', 42); } \
+         catch (e) { globalThis.r = e instanceof TypeError; }",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::Boolean(b)) => assert!(b),
+        other => panic!("expected r to be true, got {other:?}"),
+    }
+}
+
+#[test]
 fn fetch_with_no_handle_rejects_type_error() {
     let mut vm = no_handle_vm();
     vm.eval(

@@ -87,13 +87,14 @@ impl VmInner {
 /// error, pre-flight abort, invalid `signal`) all reject the
 /// returned Promise rather than throwing synchronously, matching
 /// the WHATWG Fetch contract that `fetch()` returns a Promise for
-/// every well-formed call.  The one exception is the WebIDL
-/// binding-level check that runs *before* the method body:
-/// `fetch()` with no arguments is a WebIDL "not enough arguments"
-/// failure which browsers surface as a synchronous TypeError
-/// (verified on Chrome / Firefox / Safari).  The argument-count
-/// guard therefore throws via `VmError::type_error` rather than
-/// producing an already-rejected Promise (R19.1).
+/// every well-formed call.  The exceptions are WebIDL
+/// binding-level checks that run *before* the method body and
+/// must therefore throw synchronously (verified on Chrome /
+/// Firefox / Safari):
+///
+/// - No arguments at all → "not enough arguments" (R19.1).
+/// - `init` is a non-object / non-undefined / non-null — WebIDL
+///   dictionary type conversion rejects the value (R20.1).
 fn native_fetch(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -107,6 +108,25 @@ fn native_fetch(
     if args.is_empty() {
         return Err(VmError::type_error(
             "Failed to execute 'fetch': 1 argument required, but only 0 present.",
+        ));
+    }
+
+    // WebIDL `RequestInit` is a dictionary argument.  Conversion
+    // of a non-object / non-undefined / non-null value to a
+    // dictionary fails at the binding layer, producing a
+    // synchronous TypeError (same shape as `new Request(..., 42)`
+    // and `new Response(..., 42)` — both already throw sync).
+    // Must run before `create_promise` so the observable shape
+    // matches browsers: `try { fetch(url, 42) } catch (e) { ... }`
+    // catches here rather than `.catch(e => ...)`-ing a rejected
+    // Promise (R20.1).
+    let init_raw = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    if !matches!(
+        init_raw,
+        JsValue::Undefined | JsValue::Null | JsValue::Object(_)
+    ) {
+        return Err(VmError::type_error(
+            "Failed to execute 'fetch': init must be an object",
         ));
     }
 
@@ -137,8 +157,10 @@ fn native_fetch(
     // `signal` value (non-AbortSignal primitive or DOM object)
     // rejects without first running the more expensive URL /
     // headers / body parse.  WHATWG Fetch §5.4 Request
-    // constructor step 29 requires the brand check.
-    let init_raw = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    // constructor step 29 requires the brand check.  `init_raw`
+    // above is already normalised to `Undefined`/`Null`/`Object(_)`
+    // by the R20.1 binding-level guard — `extract_signal_from_init`
+    // only needs to handle those three shapes.
     let signal = match extract_signal_from_init(ctx, init_raw) {
         Ok(sid) => sid,
         Err(err) => {
