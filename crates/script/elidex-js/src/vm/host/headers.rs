@@ -367,8 +367,28 @@ pub(super) fn parse_headers_init_entries(
                     )));
                 }
                 let mut out = Vec::new();
-                while let Some(pair) = ctx.vm.iter_next(iter)? {
-                    out.push(validate_pair_entry(ctx, pair, error_prefix)?);
+                loop {
+                    // A throw from `iter_next` itself means the iterator's
+                    // own `.next()` raised — per ES §7.4.6 the iterator is
+                    // already considered closed, so `IteratorClose` must
+                    // *not* be called.  Propagate directly.
+                    let pair = match ctx.vm.iter_next(iter)? {
+                        Some(p) => p,
+                        None => break,
+                    };
+                    // A throw from `validate_pair_entry` is an abrupt
+                    // completion of the for-of-like loop body; §7.4.6
+                    // requires `IteratorClose` (i.e. call `.return()` on
+                    // the iterator) before propagating.  A throw from
+                    // `.return()` itself takes precedence over the
+                    // triggering abrupt completion (§7.4.6 step 6-7).
+                    match validate_pair_entry(ctx, pair, error_prefix) {
+                        Ok(p) => out.push(p),
+                        Err(err) => {
+                            let close_err = ctx.vm.iter_close(iter).err();
+                            return Err(close_err.unwrap_or(err));
+                        }
+                    }
                 }
                 return Ok(out);
             }

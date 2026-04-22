@@ -492,7 +492,19 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
 
     // Companion Headers — allocate mutable, splice, then flip
     // to Immutable (matches `new Response(...)` contract).
+    //
+    // `headers_id` is also rooted across the header-splice work.
+    // `headers_states` is **not** itself a GC root (see
+    // `gc::mark_roots` — the entry is reached only via
+    // `response_states[inst_id].headers_id`), so until
+    // `response_states.insert(...)` links the Headers into the
+    // Response, `headers_id` is reachable only through this
+    // Rust local.  Route every subsequent allocation through `g2`
+    // to keep both `inst_id` and `headers_id` rooted across the
+    // `strings.intern` / `body_data.insert` / `response_states
+    // .insert` sequence below (R18.2).
     let headers_id = g.create_headers(HeadersGuard::None);
+    let mut g2 = g.push_temp_root(JsValue::Object(headers_id));
     {
         // Route each broker-delivered header through the shared
         // `validate_and_normalise` helper so the resulting
@@ -504,17 +516,17 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
         // skipped — defensive, preserves the invariant even if
         // the network layer later relaxes its own filters.
         for (name, value) in response.headers {
-            let name_sid = g.strings.intern(&name);
-            let value_sid = g.strings.intern(&value);
+            let name_sid = g2.strings.intern(&name);
+            let value_sid = g2.strings.intern(&value);
             if let Ok((nn, nv)) =
-                super::headers::validate_and_normalise(&mut g, name_sid, value_sid, "response")
+                super::headers::validate_and_normalise(&mut g2, name_sid, value_sid, "response")
             {
-                if let Some(state) = g.headers_states.get_mut(&headers_id) {
+                if let Some(state) = g2.headers_states.get_mut(&headers_id) {
                     state.list.push((nn, nv));
                 }
             }
         }
-        if let Some(state) = g.headers_states.get_mut(&headers_id) {
+        if let Some(state) = g2.headers_states.get_mut(&headers_id) {
             state.guard = HeadersGuard::Immutable;
         }
     }
@@ -537,14 +549,14 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
     // noise (see `m4-12-post-pr5a-fetch-roadmap.md` §PR-spec-polish).
     if !response.body.is_empty() {
         let bytes: Arc<[u8]> = Arc::from(&response.body[..]);
-        g.body_data.insert(inst_id, bytes);
+        g2.body_data.insert(inst_id, bytes);
     }
 
-    let url_sid = g.strings.intern(response.url.as_str());
-    let status_text_sid = g.well_known.empty;
+    let url_sid = g2.strings.intern(response.url.as_str());
+    let status_text_sid = g2.well_known.empty;
     let redirected = response.url_list.len() > 1;
 
-    g.response_states.insert(
+    g2.response_states.insert(
         inst_id,
         ResponseState {
             status: response.status,
@@ -555,6 +567,7 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
             redirected,
         },
     );
+    drop(g2);
     // `inst_id` is now referenced from `response_states` (and
     // `headers_id` is referenced from its ResponseState field),
     // so dropping the root is safe.

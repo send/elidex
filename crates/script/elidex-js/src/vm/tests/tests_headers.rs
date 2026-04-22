@@ -311,3 +311,39 @@ fn ctor_symbol_iterator_non_callable_throws() {
          catch (e) { r = e instanceof TypeError; } r;"
     ));
 }
+
+#[test]
+fn ctor_iterable_abrupt_completion_calls_return() {
+    let mut vm = Vm::new();
+    // ES §7.4.6 / WebIDL sequence conversion: if a yielded pair
+    // fails validation (abrupt completion of the for-of-like body),
+    // `IteratorClose` must invoke the iterator's `.return()`.  This
+    // regression test hands the ctor an iterator whose second value
+    // is an invalid 3-tuple; `validate_pair_entry` rejects it, which
+    // triggers the abrupt-completion path.  `.return()` records its
+    // invocation by setting `globalThis.returnCalled = true`; the
+    // outer expression asserts both that the ctor threw TypeError
+    // **and** that `.return()` was called (R18.1).
+    assert!(eval_bool(
+        &mut vm,
+        "globalThis.returnCalled = false; \
+         var src = { [Symbol.iterator]() { \
+             var step = 0; \
+             return { \
+                 next() { \
+                     step++; \
+                     if (step === 1) return { value: ['a', '1'], done: false }; \
+                     return { value: ['b', 'c', 'd'], done: false }; \
+                 }, \
+                 return() { \
+                     globalThis.returnCalled = true; \
+                     return { value: undefined, done: true }; \
+                 } \
+             }; \
+         } }; \
+         var threw = false; \
+         try { new Headers(src); } \
+         catch (e) { threw = e instanceof TypeError; } \
+         threw && globalThis.returnCalled;"
+    ));
+}

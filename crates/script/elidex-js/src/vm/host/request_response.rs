@@ -438,7 +438,22 @@ fn native_request_constructor(
 
     // Allocate companion Headers (guard = None; a later PR tightens
     // to `request` guard once the forbidden-header list is enforced).
+    //
+    // Root `headers_id` across `fill_headers_like` / `copy_headers_
+    // entries` / `body_data.insert` / `request_states.insert`:
+    // `headers_states` is **not** itself a GC root — the Headers
+    // object is reached only via `request_states[inst_id]
+    // .headers_id`, which isn't installed until the end of this
+    // function.  `fill_headers_like` in particular can run arbitrary
+    // user code (a user-supplied iterable's `.next()` / `.return()`)
+    // whose allocations would otherwise collect `headers_id` under a
+    // future GC-enabled path.  `inst_id` is the constructor receiver
+    // and is already rooted by the caller.  Same invariant as R16
+    // (Response clone) / R18.2 (broker Response) (R18-audit).
     let headers_id = ctx.vm.create_headers(HeadersGuard::None);
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(headers_id));
+    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let ctx = &mut rooted_holder;
     // Copy entries from either the source Request's headers or the
     // init dict's `headers` value (if provided, it overrides).
     match headers_init_arg {
@@ -770,7 +785,19 @@ fn build_response_instance(
     // the block below — WHATWG Fetch §5.5 step 11 demands the
     // post-ctor surface be immutable so `resp.headers.append(...)`
     // throws TypeError.
+    // Root `headers_id` across `fill_headers_like` (may invoke
+    // user-supplied iterables' `.next()` / `.return()`) +
+    // `ensure_content_type` + `body_data.insert` +
+    // `response_states.insert`.  `headers_states` is not a GC
+    // root on its own — the Headers is reached only via
+    // `response_states[inst_id].headers_id`, which isn't installed
+    // until the end of this helper.  `inst_id` is the ctor receiver
+    // and is already rooted by the caller.  Same invariant as
+    // R18.2 / Audit 1 (R18-audit).
     let headers_id = ctx.vm.create_headers(HeadersGuard::None);
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(headers_id));
+    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let ctx = &mut rooted_holder;
     if let Some(hval) = init_headers {
         fill_headers_like(ctx, headers_id, hval, "Failed to construct 'Response'")?;
     }
@@ -976,6 +1003,12 @@ fn native_response_static_error(
 ) -> Result<JsValue, VmError> {
     // Allocate a raw Response instance (not via `new Response()`
     // because the ctor rejects status 0 → "outside [200, 599]").
+    //
+    // Root `inst_id` across the subsequent `create_headers` call:
+    // the new Response is reachable only via this Rust local until
+    // `response_states.insert(...)` links it at the end of the
+    // function, and `create_headers` itself allocates an object
+    // that can trigger GC under a future refactor (R18-audit).
     let proto = ctx.vm.response_prototype;
     let inst_id = ctx.vm.alloc_object(Object {
         kind: ObjectKind::Response,
@@ -983,14 +1016,15 @@ fn native_response_static_error(
         prototype: proto,
         extensible: true,
     });
-    let headers_id = ctx.vm.create_headers(HeadersGuard::Immutable);
-    let wk = &ctx.vm.well_known;
-    ctx.vm.response_states.insert(
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(inst_id));
+    let headers_id = g.create_headers(HeadersGuard::Immutable);
+    let empty_sid = g.well_known.empty;
+    g.response_states.insert(
         inst_id,
         ResponseState {
             status: 0,
-            status_text_sid: wk.empty,
-            url_sid: wk.empty,
+            status_text_sid: empty_sid,
+            url_sid: empty_sid,
             headers_id,
             response_type: ResponseType::Error,
             redirected: false,
@@ -1042,6 +1076,13 @@ fn native_response_static_redirect(
         302
     };
 
+    // Root `inst_id` across `create_headers` (which allocates an
+    // object and would otherwise collect the newly-allocated
+    // Response under a future GC-enabled refactor).  `strings
+    // .intern` + `headers_states` mutation + `well_known` access
+    // after `create_headers` are alloc-free, so `headers_id`
+    // itself reaches `response_states` without a separate root
+    // (R18-audit).
     let proto = ctx.vm.response_prototype;
     let inst_id = ctx.vm.alloc_object(Object {
         kind: ObjectKind::Response,
@@ -1049,19 +1090,20 @@ fn native_response_static_redirect(
         prototype: proto,
         extensible: true,
     });
-    let headers_id = ctx.vm.create_headers(HeadersGuard::None);
-    let location_name = ctx.vm.strings.intern("location");
-    if let Some(state) = ctx.vm.headers_states.get_mut(&headers_id) {
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(inst_id));
+    let headers_id = g.create_headers(HeadersGuard::None);
+    let location_name = g.strings.intern("location");
+    if let Some(state) = g.headers_states.get_mut(&headers_id) {
         state.list.push((location_name, abs_url_sid));
         state.guard = HeadersGuard::Immutable;
     }
-    let wk = &ctx.vm.well_known;
-    ctx.vm.response_states.insert(
+    let empty_sid = g.well_known.empty;
+    g.response_states.insert(
         inst_id,
         ResponseState {
             status,
-            status_text_sid: wk.empty,
-            url_sid: wk.empty,
+            status_text_sid: empty_sid,
+            url_sid: empty_sid,
             headers_id,
             // WHATWG Fetch §5.5 step 7: `Response.redirect(...)`
             // produces an opaque-redirect response.  `type` must
