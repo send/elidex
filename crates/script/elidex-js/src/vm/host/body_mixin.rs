@@ -57,16 +57,26 @@ fn require_body_this(
     method: &str,
 ) -> Result<ObjectId, VmError> {
     let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}': Illegal invocation — receiver is not a Request or Response"
-        )));
+        return Err(body_illegal_invocation(method));
     };
     match ctx.vm.get_object(id).kind {
         ObjectKind::Request | ObjectKind::Response => Ok(id),
-        _ => Err(VmError::type_error(format!(
-            "Failed to execute '{method}': Illegal invocation — receiver is not a Request or Response"
-        ))),
+        _ => Err(body_illegal_invocation(method)),
     }
+}
+
+/// Shared "brand check failed" error for the Body mixin methods.
+/// Uses the same `"Failed to execute '{method}' on '{Interface}':
+/// Illegal invocation"` shape as `event_target::require_receiver`
+/// and the WebIDL brand checks on Request / Response / Headers,
+/// so user-facing error messages stay uniform across built-ins.
+/// There is no script-visible `Body` interface, so the `{Interface}`
+/// slot names the two concrete interfaces that expose the mixin
+/// (R28.1).
+fn body_illegal_invocation(method: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'Request or Response': Illegal invocation"
+    ))
 }
 
 /// Record the receiver as body-consumed.  Called before any read

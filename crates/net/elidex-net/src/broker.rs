@@ -236,9 +236,13 @@ pub struct NetworkHandle {
     /// production construction path.  The map keys on the URL
     /// serialisation — callers insert
     /// `(url::Url::parse(...).unwrap(), Ok(response) or Err(msg))`
-    /// entries.  Each entry is consumed on first match (pop-then-
-    /// return) so repeated lookups of the same URL require
-    /// duplicating the entry.
+    /// entries.  Each URL may hold **one** configured response
+    /// because the backing store is a `HashMap` (duplicate keys
+    /// overwrite at construction); that response is consumed on
+    /// the first matching lookup (pop-then-return).  If a test
+    /// needs the same URL to answer twice, either (a) use two
+    /// distinct URLs, or (b) upgrade the store to
+    /// `HashMap<String, VecDeque<...>>` first — R28.2.
     #[cfg(feature = "test-hooks")]
     mock_responses:
         Option<std::cell::RefCell<std::collections::HashMap<String, Result<Response, String>>>>,
