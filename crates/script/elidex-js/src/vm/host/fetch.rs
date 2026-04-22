@@ -372,10 +372,11 @@ type InitOverrides = (Option<String>, Option<Vec<(String, String)>>, Option<Byte
 /// the field being absent entirely) always maps to `None`.
 /// `null` handling is **field-specific** — see the per-field
 /// "Null vs undefined" block below for the source-of-truth
-/// semantics.  In short: `headers: null` overrides to empty
-/// (matching Request ctor), `body: null` stays as "no override"
-/// in Phase 2 (spec-correct null-clears-body lands with the
-/// async fetch refactor that implements the full §5.3 walk).
+/// semantics.  In short: both `headers: null` and `body: null`
+/// explicitly override to the empty form — empty header list /
+/// empty body bytes — matching `new Request(req, init)` and
+/// browser Fetch (WebIDL nullable members).  `undefined` or an
+/// absent field preserves the base.
 fn parse_init_overrides(
     ctx: &mut NativeContext<'_>,
     init: JsValue,
@@ -475,9 +476,23 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
         extensible: true,
     });
 
+    // Root the freshly-allocated Response across the next two
+    // allocations (the companion `create_headers` + the per-name
+    // / per-value `intern` calls).  Before `response_states`
+    // stores `inst_id` near the end of this function, the new
+    // Response is reachable only through this Rust local — per
+    // `alloc_object`'s contract, any subsequent alloc that
+    // triggers GC would reclaim it.  Same defensive invariant
+    // as `wrap_in_array_iterator` (R10) and `native_fetch`
+    // (R13).  The current runtime runs this site with
+    // `gc_enabled = false` (called from inside `native_fetch`),
+    // so the hazard is unreachable today; the guard future-
+    // proofs it.
+    let mut g = vm.push_temp_root(JsValue::Object(inst_id));
+
     // Companion Headers — allocate mutable, splice, then flip
     // to Immutable (matches `new Response(...)` contract).
-    let headers_id = vm.create_headers(HeadersGuard::None);
+    let headers_id = g.create_headers(HeadersGuard::None);
     {
         // Route each broker-delivered header through the shared
         // `validate_and_normalise` helper so the resulting
@@ -489,17 +504,17 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
         // skipped — defensive, preserves the invariant even if
         // the network layer later relaxes its own filters.
         for (name, value) in response.headers {
-            let name_sid = vm.strings.intern(&name);
-            let value_sid = vm.strings.intern(&value);
+            let name_sid = g.strings.intern(&name);
+            let value_sid = g.strings.intern(&value);
             if let Ok((nn, nv)) =
-                super::headers::validate_and_normalise(vm, name_sid, value_sid, "response")
+                super::headers::validate_and_normalise(&mut g, name_sid, value_sid, "response")
             {
-                if let Some(state) = vm.headers_states.get_mut(&headers_id) {
+                if let Some(state) = g.headers_states.get_mut(&headers_id) {
                     state.list.push((nn, nv));
                 }
             }
         }
-        if let Some(state) = vm.headers_states.get_mut(&headers_id) {
+        if let Some(state) = g.headers_states.get_mut(&headers_id) {
             state.guard = HeadersGuard::Immutable;
         }
     }
@@ -522,14 +537,14 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
     // noise (see `m4-12-post-pr5a-fetch-roadmap.md` §PR-spec-polish).
     if !response.body.is_empty() {
         let bytes: Arc<[u8]> = Arc::from(&response.body[..]);
-        vm.body_data.insert(inst_id, bytes);
+        g.body_data.insert(inst_id, bytes);
     }
 
-    let url_sid = vm.strings.intern(response.url.as_str());
-    let status_text_sid = vm.well_known.empty;
+    let url_sid = g.strings.intern(response.url.as_str());
+    let status_text_sid = g.well_known.empty;
     let redirected = response.url_list.len() > 1;
 
-    vm.response_states.insert(
+    g.response_states.insert(
         inst_id,
         ResponseState {
             status: response.status,
@@ -540,5 +555,9 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
             redirected,
         },
     );
+    // `inst_id` is now referenced from `response_states` (and
+    // `headers_id` is referenced from its ResponseState field),
+    // so dropping the root is safe.
+    drop(g);
     inst_id
 }

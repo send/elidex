@@ -220,6 +220,19 @@ pub(super) fn native_request_clone(
     };
     let body = ctx.vm.body_data.get(&id).map(Arc::clone);
     let new_headers = ctx.vm.create_headers(HeadersGuard::None);
+    // Root `new_headers` across the subsequent allocations — the
+    // `copy_headers_entries` entry-splice path and the cloned
+    // Request's `alloc_object` can each trigger GC, and
+    // `new_headers` is only reachable from a Rust local until
+    // `request_states.insert` links it into the cloned Request's
+    // state below.  Same defensive invariant as R10 / R13 / R16:
+    // `alloc_object`'s contract demands caller-side rooting of
+    // any `ObjectId` reachable only via a local.  Unreachable
+    // today (`gc_enabled = false` inside natives) but preserved
+    // uniformly.
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(new_headers));
+    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let ctx = &mut rooted_holder;
     copy_headers_entries(ctx, src_headers_id, new_headers);
     // Propagate the source guard so a cloned Request built from
     // an immutable-companion (extremely unusual — only happens
@@ -426,6 +439,11 @@ pub(super) fn native_response_clone(
     // New companion Headers: start mutable, splice source
     // entries, flip to Immutable to match the original.
     let new_headers = ctx.vm.create_headers(HeadersGuard::None);
+    // Root `new_headers` across the splice + clone-alloc window
+    // (R16 GC-safety invariant — mirrors `native_request_clone`).
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(new_headers));
+    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let ctx = &mut rooted_holder;
     copy_headers_entries(ctx, src_headers_id, new_headers);
     if let Some(src_guard) = ctx.vm.headers_states.get(&src_headers_id).map(|s| s.guard) {
         if let Some(dst) = ctx.vm.headers_states.get_mut(&new_headers) {

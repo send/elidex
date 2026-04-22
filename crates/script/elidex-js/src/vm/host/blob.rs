@@ -45,8 +45,8 @@ use std::sync::Arc;
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PromiseStatus, PropertyKey,
-    PropertyStorage, PropertyValue, StringId, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
+    PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
 use super::array_buffer::relative_index;
