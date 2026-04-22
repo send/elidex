@@ -327,16 +327,22 @@ fn native_array_buffer_slice(
     Ok(JsValue::Object(new_id))
 }
 
-/// Clamp `n` to `[0, len]`; negative values count from the end.
-/// Matches the slice-range helper used by `ArrayBuffer.prototype.slice`
-/// and `Blob.prototype.slice` (both share identical clamp semantics
-/// at this tranche, pending [Clamp] / ToIntegerOrInfinity alignment
-/// in a follow-up).  Shared here so `blob.rs` doesn't re-implement
-/// the same function — both callers live under `vm::host`.
+/// Clamp `n` to `[0, len]`, applying the spec
+/// `ToIntegerOrInfinity` truncation first (ES §7.1.5 —
+/// sign-preserving truncation toward zero, NaN → 0) so fractional
+/// arguments match browser semantics: `slice(-1.9)` is `slice(-1)`
+/// not `slice(-1.9)`.  Matches the slice-range helper used by
+/// `ArrayBuffer.prototype.slice` (ES §25.1.5.3) and
+/// `Blob.prototype.slice` (File API §3.2.3).  Shared here so
+/// `blob.rs` doesn't re-implement the same function — both
+/// callers live under `vm::host` (R24.1).
 pub(super) fn relative_index(n: f64, len: f64) -> usize {
-    let clamped = if n.is_nan() {
-        0.0
-    } else if n < 0.0 {
+    // ToIntegerOrInfinity: NaN → 0; else truncate toward zero.
+    // `f64::trunc` preserves ±∞, which then flows through the
+    // signed-clamp below: `-∞ + len = -∞` → `max(0)` = 0; `+∞`
+    // → `min(len)` = len.
+    let n = if n.is_nan() { 0.0 } else { n.trunc() };
+    let clamped = if n < 0.0 {
         (len + n).max(0.0)
     } else {
         n.min(len)
