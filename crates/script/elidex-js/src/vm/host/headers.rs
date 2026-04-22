@@ -793,8 +793,18 @@ fn append_entry(
 }
 
 /// Join every `StringId` in `values` with `", "` into a single
-/// interned `StringId`.  Used by `get` for multi-valued headers.
-fn join_values_comma_space(vm: &mut VmInner, values: &[StringId]) -> StringId {
+/// interned `StringId` (WHATWG Fetch §5.2 `combine` algorithm).
+/// Used by `Headers.get` for multi-valued headers and by
+/// [`super::body_mixin::content_type_of`] so `Blob.type` and
+/// `resp.headers.get('content-type')` always agree on the
+/// combined form — `pub(super)` so body-mixin can share.
+///
+/// **Caller contract**: `values` must be non-empty.  A zero-length
+/// input is a logic error (the caller should short-circuit to
+/// the "no matching header" sentinel before calling); the body
+/// still returns the empty interned string in that case, which
+/// is harmless but not a defined output.
+pub(super) fn join_values_comma_space(vm: &mut VmInner, values: &[StringId]) -> StringId {
     if values.len() == 1 {
         return values[0];
     }

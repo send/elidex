@@ -132,22 +132,12 @@ fn content_type_of(ctx: &mut NativeContext<'_>, id: ObjectId) -> super::super::v
                 .collect()
         })
         .unwrap_or_default();
-    match values.len() {
-        0 => empty,
-        1 => values[0],
-        _ => {
-            // Match `Headers.get()` combine algorithm — join with
-            // `", "` and intern.
-            let mut joined = String::new();
-            for (i, sid) in values.iter().enumerate() {
-                if i > 0 {
-                    joined.push_str(", ");
-                }
-                joined.push_str(&ctx.vm.strings.get_utf8(*sid));
-            }
-            ctx.vm.strings.intern(&joined)
-        }
+    if values.is_empty() {
+        return empty;
     }
+    // Share the exact algorithm `Headers.get` uses so the two
+    // surfaces cannot drift (WHATWG §5.2 combine).
+    super::headers::join_values_comma_space(ctx.vm, &values)
 }
 
 // ---------------------------------------------------------------------------
