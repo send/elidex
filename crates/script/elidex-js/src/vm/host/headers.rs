@@ -825,7 +825,7 @@ fn sort_and_combine(vm: &mut VmInner, headers_id: ObjectId) -> Vec<(StringId, St
     let mut name_ids: Vec<StringId> = list.iter().map(|(n, _)| *n).collect();
     // Sort by code-unit order (WHATWG Fetch §5.2 step 3.4:
     // "sort names in ascending order with a being less than b
-    // if b is code-unit less than a").  Header-name validation
+    // if a is code-unit less than b").  Header-name validation
     // upstream restricts bytes to the RFC 7230 token set (ASCII
     // only), so code-unit order on `&[u16]` coincides with
     // byte order without any `String` allocation.  Duplicates

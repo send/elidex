@@ -26,8 +26,11 @@
 //!
 //! ## Deferred
 //!
-//! - `.stream()` — needs `ReadableStream`; throws `TypeError` for
-//!   now.
+//! - `.stream()` — needs `ReadableStream`; not yet installed on
+//!   `Blob.prototype` at all.  Calling `blob.stream()` currently
+//!   surfaces the generic "method is not a function" TypeError
+//!   from the property-access path, since no method is registered.
+//!   Lands with the PR5-streams tranche.
 //! - `File` subclass / `FileList`.
 //! - Line-ending normalisation for `endings: "native"`.
 //! - MIME type validation — Phase 2 accepts any ASCII string and
