@@ -42,6 +42,7 @@ mod tests_history;
 mod tests_host_object;
 mod tests_html_iframe;
 mod tests_insert_adjacent;
+mod tests_integration_fetch;
 mod tests_json;
 mod tests_location;
 mod tests_m4_10_2;

@@ -431,9 +431,9 @@ fn native_abort_signal_constructor(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // WHATWG §3.1: `new AbortSignal()` throws.  Instances are
-    // obtained via `new AbortController().signal` — the spec's
-    // `AbortSignal.abort(reason)` / `.timeout(ms)` static
-    // factories are not yet implemented.
+    // obtained via `new AbortController().signal` or the spec's
+    // `AbortSignal.abort(reason)` / `.timeout(ms)` / `.any(signals)`
+    // static factories (see [`super::abort_statics`]).
     Err(VmError::type_error("AbortSignal is not constructable"))
 }
 
@@ -577,10 +577,12 @@ fn native_abort_signal_add_event_listener(
     }
     if let Some(state) = ctx.vm.abort_signal_states.get_mut(&id) {
         // Already-aborted signals drop the registration — strictly
-        // the spec queues a microtask that fires once, but the
-        // microtask machinery for `'abort'` events lives with the
-        // Event constructor surface (not yet implemented), and
-        // dropping is what the test fixtures observe.
+        // the spec queues a microtask that fires the callback
+        // once, but wiring the microtask synthesis through the
+        // shadowed dispatch path is out of scope for PR5a2.
+        // Dropping is what the current test fixtures observe and
+        // matches browsers when the caller inspects
+        // `signal.aborted` after the add.
         if state.aborted {
             return Ok(JsValue::Undefined);
         }
@@ -629,12 +631,16 @@ fn native_abort_signal_dispatch_event(
     // the stub silently returns `false`, masking the misuse.
     let _ = require_abort_signal_this(ctx, this, "dispatchEvent")?;
     // Stub returning `false` (WHATWG's "event not dispatched"
-    // default).  A real implementation requires `new Event(...)`
-    // — the only meaningful way to construct the argument from
-    // script — which has not yet landed.  `controller.abort()`
-    // synthesises its `'abort'` dispatch internally without going
-    // through this method, so the stub does not block the
-    // primary AbortSignal use-case.
+    // default).  `Event` constructors exist as of PR5a2, but
+    // AbortSignal keeps its `'abort'` listener list in
+    // [`AbortSignalState::abort_listeners`] rather than on an
+    // ECS entity — the shared `EventTarget.prototype.dispatchEvent`
+    // walk therefore has nothing to iterate here.  Routing
+    // script-side `signal.dispatchEvent(new Event('abort'))` into
+    // that custom store is tracked separately; `controller.abort()`
+    // synthesises its dispatch internally without going through
+    // this method, so the stub does not block the primary
+    // AbortSignal use-case.
     Ok(JsValue::Boolean(false))
 }
 
@@ -649,8 +655,10 @@ fn native_abort_signal_dispatch_event(
 /// rather than a proper Event payload — typical handlers inspect
 /// `signal.aborted` / `signal.reason`, both stable on the signal,
 /// so the missing payload does not affect observable behaviour.
-/// Building a real Event here requires the `new Event(...)`
-/// constructor surface (not yet implemented).
+/// Threading a synthesised `Event('abort')` object through here
+/// (now that Event constructors exist) is a separate refactor
+/// because AbortSignal listeners do not live on an ECS entity
+/// and so cannot reuse the shared dispatch walk directly.
 ///
 /// # GC safety
 ///

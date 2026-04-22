@@ -210,13 +210,13 @@ impl VmInner {
     }
 
     /// Allocate a fresh `Headers` instance with its state row
-    /// installed in [`Self::headers_states`].  Reserved for the
-    /// upcoming `Request` / `Response` ctors, which allocate their
-    /// companion Headers with the appropriate guard; the `Headers`
-    /// constructor itself inlines this because it must repurpose
-    /// the `do_new`-allocated receiver to preserve the
-    /// `new.target.prototype` chain.
-    #[allow(dead_code)]
+    /// installed in [`Self::headers_states`].  Used by the
+    /// `Request` / `Response` / `fetch()` paths (and
+    /// `Response.redirect` / `.error` / `.json` statics) to
+    /// allocate their companion Headers with the appropriate
+    /// guard; the JS-visible `Headers` constructor itself inlines
+    /// this because it must repurpose the `do_new`-allocated
+    /// receiver to preserve the `new.target.prototype` chain.
     pub(in crate::vm) fn create_headers(&mut self, guard: HeadersGuard) -> ObjectId {
         let proto = self.headers_prototype;
         let id = self.alloc_object(Object {

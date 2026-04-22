@@ -29,34 +29,34 @@
 //! This matches PR5a2 R7.1 (internal-slot authoritative) and the
 //! browser behaviour for attribute reflection.
 //!
-//! ## Scope (this commit)
+//! ## Scope
 //!
-//! - `new Request(input, init?)` — input = URL string or Request clone.
-//! - `new Response(body?, init?)` — body = string / null / undefined
-//!   (typed-array / Blob bodies land once the `ArrayBuffer` /
-//!   `Blob` variants exist — follow-up commit in the same
-//!   tranche).
+//! - `new Request(input, init?)` — input = URL string or Request
+//!   clone.  `init.body` accepts string / `ArrayBuffer` /
+//!   `TypedArray` / `Blob` (landed with the PR5a-fetch C3 Body-
+//!   mixin tranche).
+//! - `new Response(body?, init?)` — same body types.
 //! - All IDL getters listed above.
 //! - `request.clone()` / `response.clone()` — shared body via `Arc`.
 //! - `Response.error()` / `Response.redirect(url, status)` /
 //!   `Response.json(data, init?)` static factories.
-//! - `.body` getter always returns `null` (Phase 2 non-streaming; a
-//!   later PR supplies the `ReadableStream` replacement — see
-//!   `~/.claude/plans/pr5a-fetch.md` §D10).  Body bytes remain
-//!   accessible to the upcoming Body-mixin methods (`.text()` /
-//!   `.json()` / `.arrayBuffer()` / `.blob()`) through
-//!   `VmInner::body_data`.
+//! - `.text()` / `.json()` / `.arrayBuffer()` / `.blob()` read
+//!   methods live in [`super::body_mixin`] and share the
+//!   [`VmInner::body_data`] side table with this module.
+//! - `.body` getter always returns `null` (Phase 2 non-streaming;
+//!   a later PR supplies the `ReadableStream` replacement — see
+//!   `~/.claude/plans/pr5a-fetch.md` §D10).
+//! - `init.signal` is honoured by the `fetch()` path (pre-flight
+//!   brand / aborted check — see [`super::fetch`]); the ctor
+//!   itself silently accepts and stores the option.
 //!
 //! ## Deferred
 //!
-//! - `.text()` / `.json()` / `.arrayBuffer()` / `.blob()` read methods.
-//! - `ArrayBuffer` / `Blob` / `FormData` body init.
-//! - AbortSignal option (`init.signal`) — handled by the `fetch()`
-//!   path, not by the ctor itself; until fetch lands we silently
-//!   accept and ignore the option.
+//! - `FormData` / `URLSearchParams` body init — no other surface
+//!   consumes them yet.
 //! - Strict forbidden-header / forbidden-method enforcement.
 //!   Phase 2 is permissive; CORS-mode enforcement lands with the
-//!   `fetch()` integration PR.
+//!   PR5-async-fetch refactor that threads through an Origin.
 
 #![cfg(feature = "engine")]
 

@@ -12,11 +12,12 @@
 //!   work; `fetch()` calls the same helpers (`parse_url`,
 //!   `extract_body_bytes`) from `request_response.rs` so the
 //!   behaviour matches byte-for-byte.
-//! - `init.method` / `init.headers` / `init.body` parsed in the
-//!   obvious way.  `signal` / `mode` / `credentials` / `cache` /
-//!   `redirect` are accepted silently and ignored — those arms
-//!   land with the AbortSignal wire (follow-up) and the async
-//!   fetch refactor.
+//! - `init.method` / `init.headers` / `init.body` / `init.signal`
+//!   parsed in the obvious way.  `signal` is brand-checked and
+//!   pre-flight-aborted (see the Phase 2 limitation below).
+//!   `mode` / `credentials` / `cache` / `redirect` are accepted
+//!   silently and ignored until the async fetch refactor threads
+//!   them through the broker.
 //! - Errors map per WHATWG §5.2: network failures / missing
 //!   handle / bad URL / bad body all reject with **`TypeError`**
 //!   (not `DOMException`).  Spec-prescribed text is
