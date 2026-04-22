@@ -620,6 +620,30 @@ pub(crate) struct VmInner {
     /// teardown releases the handle.
     #[cfg(feature = "engine")]
     pub(crate) network_handle: Option<std::rc::Rc<elidex_net::broker::NetworkHandle>>,
+    /// Fan-out map for `AbortSignal` → in-flight `FetchId`s.  When a
+    /// signal aborts, [`host::abort::abort_signal`] drains the entry
+    /// for that signal's `ObjectId` and sends
+    /// [`elidex_net::broker::RendererToNetwork::CancelFetch`] for each
+    /// recorded fetch so the broker can discard the response.
+    ///
+    /// ## Phase 2 limitation (documented)
+    ///
+    /// `NetworkHandle::fetch_blocking` blocks the content thread, so
+    /// JS never runs between `fetch()` entry and the broker reply.
+    /// No user code can therefore fire an abort mid-flight — the
+    /// map stays empty for the lifetime of a blocking fetch and the
+    /// drain loop in `abort_signal` is dead code until the PR5-async-
+    /// fetch refactor lands.  The wire is in place so the async
+    /// refactor only has to populate on entry and prune on broker
+    /// reply.
+    ///
+    /// GC contract: sweep prunes entries whose key (signal) was
+    /// collected, matching [`Self::abort_signal_states`] /
+    /// [`Self::any_composite_map`].  Entries with live signal keys
+    /// are retained as-is; the `FetchId`s inside are plain `u64`s
+    /// that carry no GC obligations.
+    #[cfg(feature = "engine")]
+    pub(crate) fetch_abort_observers: HashMap<ObjectId, Vec<elidex_net::broker::FetchId>>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

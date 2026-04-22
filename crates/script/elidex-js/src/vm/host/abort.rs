@@ -780,6 +780,27 @@ pub(super) fn abort_signal(
         }
     }
 
+    // Fan out to every in-flight `fetch()` that registered this
+    // signal in `VmInner::fetch_abort_observers` — send a
+    // `CancelFetch` to the broker so it can drop the response
+    // (WHATWG Fetch §5.1 step 13: if abort signal is aborted, set
+    // request's done flag).  Phase 2 blocking fetch never
+    // registers (the map is empty on the in-flight path), so this
+    // loop is a no-op until the async refactor lands; see the
+    // field's doc on `VmInner`.  The Promise rejection itself is
+    // the async refactor's responsibility — this site only
+    // issues the cancellation so the broker can hang up early.
+    if let Some(fetch_ids) = ctx.vm.fetch_abort_observers.remove(&signal_id) {
+        if !fetch_ids.is_empty() {
+            if let Some(handle) = ctx.vm.network_handle.as_ref().map(std::rc::Rc::clone) {
+                for fetch_id in fetch_ids {
+                    let _ =
+                        handle.send(elidex_net::broker::RendererToNetwork::CancelFetch(fetch_id));
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

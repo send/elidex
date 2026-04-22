@@ -991,6 +991,14 @@ impl VmInner {
             // inherit stale bytes / type.  Matches `body_data` /
             // `headers_states` pattern.
             self.blob_data.retain(|id, _| bit_get(marks, id.0));
+            // `fetch_abort_observers` — prune entries whose key
+            // `AbortSignal` was collected so a recycled slot can't
+            // pick up stale fan-out `FetchId`s.  The values are
+            // plain `FetchId(u64)` and carry no GC obligation, so
+            // no per-entry filtering is needed.  Same pattern as
+            // `abort_signal_states`.
+            self.fetch_abort_observers
+                .retain(|id, _| bit_get(marks, id.0));
         }
 
         // 5. IC invalidation.

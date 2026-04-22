@@ -36,9 +36,13 @@
 //! to JS.  User code still observes the expected asynchronous
 //! shape (`.then` / `await` schedule a microtask), but `signal`-
 //! based mid-flight cancellation cannot fire — there is no JS
-//! tick between the broker send and the broker reply.  The wire
-//! for `AbortSignal` lands with the follow-up commit alongside a
-//! documented no-op mid-flight path.
+//! tick between the broker send and the broker reply.  The only
+//! effective `signal` path in Phase 2 is the **pre-flight** check
+//! implemented below: if `signal.aborted === true` before the
+//! broker call, we reject immediately with `signal.reason`.
+//! `VmInner::fetch_abort_observers` holds the wire for the
+//! mid-flight path; it stays empty in Phase 2 and will be
+//! populated by the PR5-async-fetch refactor.
 
 #![cfg(feature = "engine")]
 
@@ -88,6 +92,31 @@ fn native_fetch(
 ) -> Result<JsValue, VmError> {
     let promise = super::super::natives_promise::create_promise(ctx.vm);
 
+    // Parse `init.signal` before building the Request so a bogus
+    // `signal` value (non-AbortSignal primitive or DOM object)
+    // rejects without first running the more expensive URL /
+    // headers / body parse.  WHATWG Fetch §5.4 Request
+    // constructor step 29 requires the brand check.
+    let init_raw = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let signal = match extract_signal_from_init(ctx, init_raw) {
+        Ok(sid) => sid,
+        Err(err) => {
+            let reason = ctx.vm.vm_error_to_thrown(&err);
+            reject_promise_sync(ctx.vm, promise, reason);
+            return Ok(JsValue::Object(promise));
+        }
+    };
+
+    // Pre-flight abort: WHATWG Fetch §5.1 main-fetch step 3.
+    // Check *before* building the request so an already-aborted
+    // signal short-circuits the whole pipeline.
+    if let Some(signal_id) = signal {
+        if let Some(reason) = pre_flight_abort_reason(ctx, signal_id) {
+            reject_promise_sync(ctx.vm, promise, reason);
+            return Ok(JsValue::Object(promise));
+        }
+    }
+
     // Build the broker-level Request.  Any validation failure
     // settles the Promise directly — no synchronous throw.
     let request = match build_net_request(ctx, args) {
@@ -109,6 +138,14 @@ fn native_fetch(
         return Ok(JsValue::Object(promise));
     };
 
+    // `signal` is intentionally dropped here — Phase 2 blocking
+    // fetch has no JS tick in which mid-flight abort could fire,
+    // so the observer machinery (`VmInner::fetch_abort_observers`)
+    // has nothing to register.  The async fetch refactor will
+    // insert `(signal, broker-fetch-id)` registration + broker-
+    // reply pruning at exactly this site.
+    let _ = signal;
+
     // Blocking broker call.  Phase 2: no mid-flight abort; see
     // module doc.
     match handle.fetch_blocking(request) {
@@ -127,6 +164,67 @@ fn native_fetch(
     }
 
     Ok(JsValue::Object(promise))
+}
+
+// ---------------------------------------------------------------------------
+// Signal extraction + pre-flight abort (WHATWG Fetch §5.1 / §5.4)
+// ---------------------------------------------------------------------------
+
+/// Read `init.signal` and validate its brand.  Returns:
+/// - `Ok(None)` when `init` is `undefined` / `null`, when `init`
+///   is an object without a `signal` own/inherited property, or
+///   when the property value is `undefined` / `null` (WHATWG
+///   Fetch §5.4 step 29: `null` is the explicit "no signal"
+///   sentinel).
+/// - `Ok(Some(id))` for a genuine `AbortSignal` instance (brand
+///   checked via `ObjectKind::AbortSignal`).
+/// - `Err(TypeError)` for any other non-null value, matching
+///   WHATWG WebIDL §3.2.1 interface-type conversion.
+///
+/// Runs before `build_net_request` so a bad signal rejects early
+/// without paying for URL / headers parsing.
+fn extract_signal_from_init(
+    ctx: &mut NativeContext<'_>,
+    init: JsValue,
+) -> Result<Option<ObjectId>, VmError> {
+    let opts_id = match init {
+        JsValue::Undefined | JsValue::Null => return Ok(None),
+        JsValue::Object(id) => id,
+        _ => {
+            // Non-object init is already rejected in
+            // `parse_init_for_fetch` — this helper is called
+            // earlier, so treat the same way: reject with the
+            // same spec wording.
+            return Err(VmError::type_error(
+                "Failed to execute 'fetch': init must be an object",
+            ));
+        }
+    };
+    let signal_key = PropertyKey::String(ctx.vm.well_known.signal);
+    let signal_val = ctx.get_property_value(opts_id, signal_key)?;
+    match signal_val {
+        JsValue::Undefined | JsValue::Null => Ok(None),
+        JsValue::Object(sid) if matches!(ctx.vm.get_object(sid).kind, ObjectKind::AbortSignal) => {
+            Ok(Some(sid))
+        }
+        _ => Err(VmError::type_error(
+            "Failed to execute 'fetch': member signal is not of type AbortSignal.",
+        )),
+    }
+}
+
+/// Return `Some(reason)` if `signal.aborted === true`, else
+/// `None`.  The reason is materialised by `abort_signal()` at the
+/// time `controller.abort()` ran, so reading `state.reason`
+/// surfaces the already-constructed `DOMException("AbortError")`
+/// (or the user-supplied value) without re-allocating.
+fn pre_flight_abort_reason(ctx: &NativeContext<'_>, signal_id: ObjectId) -> Option<JsValue> {
+    let state = ctx.vm.abort_signal_states.get(&signal_id)?;
+    if state.aborted {
+        Some(state.reason)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -234,10 +332,7 @@ type InitParts = (String, Vec<(String, String)>, Bytes);
 
 /// Parse the `init` dict for the String-input path — extract
 /// method (canonicalised), headers list, and body bytes.
-fn parse_init_for_fetch(
-    ctx: &mut NativeContext<'_>,
-    init: JsValue,
-) -> Result<InitParts, VmError> {
+fn parse_init_for_fetch(ctx: &mut NativeContext<'_>, init: JsValue) -> Result<InitParts, VmError> {
     let default_method = "GET".to_string();
     let default_headers: Vec<(String, String)> = Vec::new();
     let default_body = Bytes::new();
@@ -284,7 +379,9 @@ fn parse_init_for_fetch(
                     .map(|hs| {
                         hs.list
                             .iter()
-                            .map(|(n, v)| (ctx.vm.strings.get_utf8(*n), ctx.vm.strings.get_utf8(*v)))
+                            .map(|(n, v)| {
+                                (ctx.vm.strings.get_utf8(*n), ctx.vm.strings.get_utf8(*v))
+                            })
                             .collect()
                     })
                     .unwrap_or_default()

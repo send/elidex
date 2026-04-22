@@ -151,6 +151,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 network_handle: None,
                 #[cfg(feature = "engine")]
+                fetch_abort_observers: HashMap::new(),
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),
