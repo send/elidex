@@ -156,7 +156,18 @@ type RequestInputParts = (StringId, StringId, Option<ObjectId>, Option<Arc<[u8]>
 /// Tuple returned by [`parse_request_init`]: optional method
 /// override, optional headers-init source (copied into the
 /// companion Headers), optional body bytes.
-type RequestInitParts = (Option<StringId>, Option<JsValue>, Option<Arc<[u8]>>);
+/// Request `init` parse result.
+///
+/// The `body` slot is **tri-state**: `None` means the caller
+/// didn't set `body` at all (preserve the Request clone's base
+/// body); `Some(None)` means the caller explicitly set `body:
+/// null` and expects the base body to be cleared; `Some(Some(b))`
+/// is an explicit replacement with `b`.  The distinction matters
+/// because WHATWG Fetch §5.3 step 40 forbids `GET`/`HEAD`
+/// requests from carrying a body — a cleared body must not
+/// trigger that check, while an explicit empty-string body must
+/// (R25.1 / R25.3).
+type RequestInitParts = (Option<StringId>, Option<JsValue>, Option<Option<Arc<[u8]>>>);
 
 // ---------------------------------------------------------------------------
 // State structs
@@ -465,11 +476,32 @@ fn native_request_constructor(
         }
     }
 
-    // Body: `init.body` overrides; otherwise inherit from source
-    // Request (with the same Arc).  Source inheritance is `None`
-    // if no body was set.
-    let body_bytes = body_init_arg.or(body_bytes);
-    if let Some(bytes) = body_bytes {
+    // Body: resolve the tri-state `init.body` against the source
+    // Request's base body.  `None` preserves the base; `Some(None)`
+    // clears it; `Some(Some(b))` replaces.  See `RequestInitParts`
+    // doc for the spec rationale (R25.3).
+    let final_body: Option<Arc<[u8]>> = match body_init_arg {
+        None => body_bytes,
+        Some(None) => None,
+        Some(Some(b)) => Some(b),
+    };
+
+    // WHATWG Fetch §5.3 step 40: a Request whose method is `GET`
+    // or `HEAD` cannot carry a body.  Applies to the *final*
+    // state, so a clone path that keeps the source's body but
+    // overrides the method to `GET` also fails; an explicit
+    // `body: null` that clears the body lets `GET`/`HEAD` pass
+    // (R25.1).
+    if final_body.is_some() {
+        let method = ctx.vm.strings.get_utf8(method_sid);
+        if method == "GET" || method == "HEAD" {
+            return Err(VmError::type_error(format!(
+                "Failed to construct 'Request': Request with {method} method cannot have body"
+            )));
+        }
+    }
+
+    if let Some(bytes) = final_body {
         ctx.vm.body_data.insert(inst_id, bytes);
     }
 
@@ -565,14 +597,25 @@ fn parse_request_init(
                 JsValue::Undefined => None,
                 other => Some(other),
             };
-            // WebIDL nullable body: `null` explicitly clears the
-            // base body; `undefined` (field absent) preserves it.
-            // Matches `fetch(req, {body: null})` (R15.2) and
-            // Chromium / Firefox.
+            // WebIDL nullable body, tri-state (R25.3):
+            // - `undefined` → `None` — field absent, preserve the
+            //   Request clone's base body.
+            // - `null` → `Some(None)` — explicit clear; the final
+            //   Request has no body, distinct from an empty body.
+            // - anything else → `Some(Some(bytes))` — explicit
+            //   replacement, including `''` (empty string) which
+            //   is still "a body" for the GET/HEAD check below.
+            //
+            // Prior to R25.3 `null` collapsed to `Some(empty)`
+            // (R15.2 carry-over), which correctly cleared the
+            // base body only because we never re-read "was the
+            // body present" afterward.  The GET/HEAD check
+            // (`native_request_constructor`) now needs the
+            // distinction.
             let body_override = match body_val {
                 JsValue::Undefined => None,
-                JsValue::Null => Some(Arc::from(&[][..])),
-                _ => extract_body_bytes(ctx, body_val)?,
+                JsValue::Null => Some(None),
+                _ => Some(extract_body_bytes(ctx, body_val)?),
             };
             Ok((method_override, headers_override, body_override))
         }

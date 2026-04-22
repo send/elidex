@@ -326,21 +326,27 @@ fn build_net_request(
     // Case 1: input is a Request instance — start with its state.
     if let JsValue::Object(obj_id) = input {
         if matches!(ctx.vm.get_object(obj_id).kind, ObjectKind::Request) {
-            let (mut method, url, mut headers, mut body) = request_base_from_vm(ctx, obj_id)?;
+            let (mut method, url, mut headers, base_body) = request_base_from_vm(ctx, obj_id)?;
             if let Some(m) = method_override {
                 method = m;
             }
             if let Some(h) = headers_override {
                 headers = h;
             }
-            if let Some(b) = body_override {
-                body = b;
-            }
+            // Tri-state body resolution (R25.3): `None` preserves
+            // the source Request's body; `Some(None)` clears it;
+            // `Some(Some(b))` replaces.
+            let final_body: Option<Bytes> = match body_override {
+                None => base_body,
+                Some(None) => None,
+                Some(Some(b)) => Some(b),
+            };
+            reject_get_head_with_body(&method, final_body.is_some())?;
             return Ok(elidex_net::Request {
                 method,
                 url,
                 headers,
-                body,
+                body: final_body.unwrap_or_else(Bytes::new),
             });
         }
     }
@@ -353,21 +359,53 @@ fn build_net_request(
             "Failed to execute 'fetch': Invalid URL '{raw_url_owned}'"
         ))
     })?;
+    let method = method_override.unwrap_or_else(|| "GET".to_string());
+    // URL-input path has no base body; the tri-state's outer
+    // `Some(None)` / `None` both yield "no body".
+    let final_body: Option<Bytes> = match body_override {
+        None | Some(None) => None,
+        Some(Some(b)) => Some(b),
+    };
+    reject_get_head_with_body(&method, final_body.is_some())?;
     Ok(elidex_net::Request {
-        method: method_override.unwrap_or_else(|| "GET".to_string()),
+        method,
         url,
         headers: headers_override.unwrap_or_default(),
-        body: body_override.unwrap_or_else(Bytes::new),
+        body: final_body.unwrap_or_else(Bytes::new),
     })
+}
+
+/// WHATWG Fetch §5.3 step 40: if method is `GET` / `HEAD` and the
+/// final Request has a body, throw `TypeError`.  Shared between
+/// the Request-input and URL-input `build_net_request` paths
+/// (R25.1 / R25.2).  `fetch()` routes the resulting error through
+/// `reject_promise_sync`, so the observable shape is a rejected
+/// Promise — matching how `new Request(url, {method:'GET', body:
+/// 'x'})` throws synchronously while `fetch(url, {method:'GET',
+/// body:'x'})` rejects.
+fn reject_get_head_with_body(method: &str, has_body: bool) -> Result<(), VmError> {
+    if has_body && (method == "GET" || method == "HEAD") {
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'fetch': Request with {method} method cannot have body"
+        )));
+    }
+    Ok(())
 }
 
 /// Extract the `(method, url, headers, body)` tuple from a VM
 /// `Request` instance.  Used as the base for the Request-input
 /// path of `fetch()` before `init` overrides are layered on.
+/// Returns `body: Option<Bytes>` where `None` means "the source
+/// Request has no body at all" (key absent in `body_data`) and
+/// `Some(bytes)` means "has body with these bytes" (possibly
+/// empty).  The presence distinction matters for the WHATWG Fetch
+/// §5.3 step 40 GET/HEAD-without-body check (R25.1): a cloned
+/// Request whose source has no body may switch to `GET`/`HEAD`
+/// freely, but one whose source carries a body cannot.
 fn request_base_from_vm(
     ctx: &NativeContext<'_>,
     obj_id: ObjectId,
-) -> Result<(String, Url, Vec<(String, String)>, Bytes), VmError> {
+) -> Result<(String, Url, Vec<(String, String)>, Option<Bytes>), VmError> {
     let state = ctx
         .vm
         .request_states
@@ -397,20 +435,38 @@ fn request_base_from_vm(
     // `Bytes::from_owner(Arc::clone(arc))` hands the `Arc<[u8]>`
     // to the `Bytes` instance as its owner, so no byte copy
     // happens — the broker reads directly from the same
-    // allocation `body_data` already rooted.
+    // allocation `body_data` already rooted.  `Option<Bytes>`
+    // preserves the "no body" vs "empty body" distinction (see
+    // fn doc).
     let body = ctx
         .vm
         .body_data
         .get(&obj_id)
-        .map_or_else(Bytes::new, |arc| Bytes::from_owner(Arc::clone(arc)));
+        .map(|arc| Bytes::from_owner(Arc::clone(arc)));
 
     Ok((method, url, headers, body))
 }
 
 /// `(method?, headers?, body?)` returned by [`parse_init_overrides`].
-/// `None` means the caller's `init` did not set that field — the
-/// base (Request-input) or default (URL-input) applies.
-type InitOverrides = (Option<String>, Option<Vec<(String, String)>>, Option<Bytes>);
+///
+/// Method and headers are plain `Option<_>` — `None` means absent,
+/// `Some(_)` means explicit.
+///
+/// The body slot is **tri-state** (R25.3):
+/// - outer `None` — `init.body` was absent; preserve the base
+///   Request's body (for the Request-input path) or use `None`
+///   (URL-input path).
+/// - `Some(None)` — `init.body` was explicitly `null`; clear any
+///   base body.  The final Request has no body.
+/// - `Some(Some(b))` — `init.body` was an explicit value; replace
+///   with `b`.  Any non-`null`, non-`undefined` input lands here,
+///   including the empty string which still counts as "has a
+///   body" for the GET/HEAD check in `build_net_request`.
+type InitOverrides = (
+    Option<String>,
+    Option<Vec<(String, String)>>,
+    Option<Option<Bytes>>,
+);
 
 /// Parse the `init` dict.  Every field is `Option<_>`; a present
 /// value means `init` explicitly set it.  `undefined` (including
@@ -489,10 +545,17 @@ fn parse_init_overrides(
             // to empty body" (matches `new Request(req, {body:
             // null})` and Chromium / Firefox Fetch), mirroring the
             // headers null-override semantics fixed in R7.1.
+            // Tri-state (R25.3) — see [`InitOverrides`] doc.
+            // - `undefined`: preserve base / default.
+            // - `null`: explicit clear.  Must be distinguishable
+            //   from an empty-but-present body so the GET/HEAD
+            //   check in `build_net_request` can fire only when a
+            //   body is actually present.
+            // - anything else: explicit replace.
             let body_override = match body_val {
                 JsValue::Undefined => None,
-                JsValue::Null => Some(Bytes::new()),
-                _ => extract_body_bytes(ctx, body_val)?.map(Bytes::from_owner),
+                JsValue::Null => Some(None),
+                _ => Some(extract_body_bytes(ctx, body_val)?.map(Bytes::from_owner)),
             };
 
             Ok((method_override, headers_override, body_override))

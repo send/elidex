@@ -298,3 +298,104 @@ fn response_static_json_sets_content_type_application_json() {
         "application/json"
     );
 }
+
+// --- R25: WHATWG Fetch §5.3 step 40 — GET/HEAD + body forbidden ---
+
+#[test]
+fn request_ctor_get_with_body_throws_type_error() {
+    let mut vm = Vm::new();
+    // WHATWG Fetch §5.3 step 40: GET with a body is a sync
+    // TypeError (R25.1).
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; \
+         try { new Request('http://x/', {method:'GET', body:'x'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_ctor_head_with_body_throws_type_error() {
+    let mut vm = Vm::new();
+    // `HEAD` is symmetric to `GET` for this check (R25.1).
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; \
+         try { new Request('http://x/', {method:'HEAD', body:'x'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_ctor_default_method_get_with_body_throws() {
+    let mut vm = Vm::new();
+    // `method` defaults to `GET` when absent; step 40 applies to
+    // the final state, so a body without an explicit method is
+    // still a TypeError (R25.1).
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; \
+         try { new Request('http://x/', {body:'x'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_ctor_get_with_null_body_ok() {
+    let mut vm = Vm::new();
+    // `body: null` explicitly clears the body — the final
+    // Request has no body, so step 40 does not apply (R25.3
+    // tri-state).
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "new Request('http://x/', {method:'GET', body:null}).method;"
+        ),
+        "GET"
+    );
+}
+
+#[test]
+fn request_ctor_post_with_body_ok() {
+    let mut vm = Vm::new();
+    // `POST` / any non-GET/HEAD method + body is fine (baseline).
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "new Request('http://x/', {method:'POST', body:'x'}).method;"
+        ),
+        "POST"
+    );
+}
+
+#[test]
+fn request_ctor_clone_post_with_method_get_throws() {
+    let mut vm = Vm::new();
+    // Clone path: source Request has a body; init overrides
+    // method to GET without clearing the body → final state is
+    // GET + body → TypeError (R25.1 checks *final* state, not
+    // just `init.body`).
+    assert!(eval_bool(
+        &mut vm,
+        "var post = new Request('http://x/', {method:'POST', body:'x'}); \
+         var r = false; \
+         try { new Request(post, {method:'GET'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_ctor_clone_post_with_method_get_and_null_body_ok() {
+    let mut vm = Vm::new();
+    // Clone path with explicit `body:null` clears the source's
+    // body; final state is GET + no body → no TypeError (R25.3
+    // tri-state handling).
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var post = new Request('http://x/', {method:'POST', body:'x'}); \
+             new Request(post, {method:'GET', body:null}).method;"
+        ),
+        "GET"
+    );
+}

@@ -68,6 +68,28 @@ fn fetch_no_args_throws_type_error_synchronously() {
 }
 
 #[test]
+fn fetch_get_with_body_rejects_type_error() {
+    // WHATWG Fetch §5.3 step 40 applies to `fetch()` too —
+    // GET/HEAD + body is a TypeError.  Unlike `new Request(...)`
+    // (sync throw), `fetch()` surfaces it as a Promise rejection
+    // because the error is post-binding: `build_net_request` runs
+    // inside the Promise-rooted prologue and routes failures
+    // through `reject_promise_sync` (R25.2).
+    let url = url::Url::parse("http://example.com/").expect("valid");
+    let mut vm = mock_vm(vec![(url, Ok(ok_response("http://example.com/", 200, "")))]);
+    vm.eval(
+        "globalThis.r = null; \
+         fetch('http://example.com/', {method:'GET', body:'x'}) \
+             .catch(e => { globalThis.r = e instanceof TypeError; });",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::Boolean(b)) => assert!(b),
+        other => panic!("expected r to be true, got {other:?}"),
+    }
+}
+
+#[test]
 fn fetch_non_object_init_throws_type_error_synchronously() {
     // WebIDL `RequestInit` is a dictionary argument; converting a
     // non-object / non-undefined / non-null value to a dictionary
