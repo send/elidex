@@ -57,9 +57,27 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, VmError,
 };
 use super::super::VmInner;
-use super::blob::{reject_promise_sync, resolve_promise_sync};
 use super::headers::HeadersGuard;
 use super::request_response::{extract_body_bytes, parse_url, ResponseState, ResponseType};
+
+/// Thin wrappers over [`super::super::natives_promise::settle_promise`] so
+/// the call sites below read like the old `resolve_promise_sync` /
+/// `reject_promise_sync` helpers that `blob.rs` still uses.  The key
+/// behavioural difference is that these go through the *normal*
+/// settlement path: rejections that land without an attached reaction
+/// are queued on [`VmInner::pending_rejections`] so the end-of-drain
+/// unhandled-rejection scan can surface them (WHATWG HTML §8.1.5.7).
+/// The Body-mixin `_sync` variants intentionally skip the queue because
+/// their callers chain `.catch()` immediately; `fetch()` callers don't
+/// have the same guarantee — a bare `fetch(url)` with no `.catch` is
+/// a common idiom, and browsers warn on its rejection.
+fn fetch_resolve(vm: &mut VmInner, promise: ObjectId, value: JsValue) {
+    let _ = super::super::natives_promise::settle_promise(vm, promise, false, value);
+}
+
+fn fetch_reject(vm: &mut VmInner, promise: ObjectId, reason: JsValue) {
+    let _ = super::super::natives_promise::settle_promise(vm, promise, true, reason);
+}
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -124,7 +142,7 @@ fn native_fetch(
         Ok(sid) => sid,
         Err(err) => {
             let reason = ctx.vm.vm_error_to_thrown(&err);
-            reject_promise_sync(ctx.vm, promise, reason);
+            fetch_reject(ctx.vm, promise, reason);
             return Ok(JsValue::Object(promise));
         }
     };
@@ -134,7 +152,7 @@ fn native_fetch(
     // signal short-circuits the whole pipeline.
     if let Some(signal_id) = signal {
         if let Some(reason) = pre_flight_abort_reason(ctx, signal_id) {
-            reject_promise_sync(ctx.vm, promise, reason);
+            fetch_reject(ctx.vm, promise, reason);
             return Ok(JsValue::Object(promise));
         }
     }
@@ -145,7 +163,7 @@ fn native_fetch(
         Ok(req) => req,
         Err(err) => {
             let reason = ctx.vm.vm_error_to_thrown(&err);
-            reject_promise_sync(ctx.vm, promise, reason);
+            fetch_reject(ctx.vm, promise, reason);
             return Ok(JsValue::Object(promise));
         }
     };
@@ -156,7 +174,7 @@ fn native_fetch(
     let Some(handle) = ctx.vm.network_handle.clone() else {
         let err = VmError::type_error("Failed to fetch: no NetworkHandle installed on this VM");
         let reason = ctx.vm.vm_error_to_thrown(&err);
-        reject_promise_sync(ctx.vm, promise, reason);
+        fetch_reject(ctx.vm, promise, reason);
         return Ok(JsValue::Object(promise));
     };
 
@@ -169,7 +187,7 @@ fn native_fetch(
     match handle.fetch_blocking(request) {
         Ok(response) => {
             let resp_id = create_response_from_net(ctx.vm, response);
-            resolve_promise_sync(ctx.vm, promise, JsValue::Object(resp_id));
+            fetch_resolve(ctx.vm, promise, JsValue::Object(resp_id));
         }
         Err(msg) => {
             // Spec §5.2 "Network error" → TypeError, not
@@ -177,7 +195,7 @@ fn native_fetch(
             // diagnostics but wrap in the spec-prescribed wording.
             let err = VmError::type_error(format!("Failed to fetch: {msg}"));
             let reason = ctx.vm.vm_error_to_thrown(&err);
-            reject_promise_sync(ctx.vm, promise, reason);
+            fetch_reject(ctx.vm, promise, reason);
         }
     }
 

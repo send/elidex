@@ -390,6 +390,49 @@ fn fetch_response_headers_go_through_normalisation() {
 }
 
 #[test]
+fn fetch_unhandled_rejection_drained_by_vm() {
+    // WHATWG HTML §8.1.5.7: a rejected Promise that settles with
+    // no reaction attached must surface on the VM's unhandled-
+    // rejection queue so the end-of-drain scan can process it
+    // (either firing an `unhandledrejection` event or logging to
+    // stderr).
+    //
+    // Pre-R14, `fetch()` settled via `reject_promise_sync` which
+    // bypassed that queue entirely — so `fetch(url)` without a
+    // trailing `.catch()` silently lost its error.  After R14
+    // `fetch()` goes through `settle_promise` which enqueues on
+    // `pending_rejections`; the end-of-eval drain then marks
+    // `state.handled = true` after processing.  Observing
+    // `state.handled` post-eval proves the rejection made it
+    // through the queued path.
+    use super::super::value::{ObjectKind, PromiseStatus};
+    let mut vm = Vm::new();
+    vm.eval("globalThis.p = fetch('http://example.com/no-handle');")
+        .unwrap();
+    let JsValue::Object(id) = vm.get_global("p").expect("p must be defined") else {
+        panic!("p must be a Promise Object");
+    };
+    let kind = &vm
+        .inner
+        .objects
+        .get(id.0 as usize)
+        .and_then(|o| o.as_ref())
+        .expect("p's slot must be live")
+        .kind;
+    let ObjectKind::Promise(state) = kind else {
+        panic!("p must be a Promise");
+    };
+    assert!(
+        matches!(state.status, PromiseStatus::Rejected),
+        "fetch() with no handle must reject"
+    );
+    assert!(
+        state.handled,
+        "unhandled fetch rejection must be drained (marked handled by `process_pending_rejections`) — pre-R14 this stayed false because `reject_promise_sync` bypassed the queue"
+    );
+}
+
+#[test]
 fn blob_type_combines_multivalued_content_type() {
     // WHATWG Fetch §5.2 `Headers.get` combines duplicate-name
     // values with `", "`.  `.blob()` seeds the new Blob's `type`
