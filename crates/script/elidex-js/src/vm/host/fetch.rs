@@ -231,14 +231,18 @@ fn pre_flight_abort_reason(ctx: &NativeContext<'_>, signal_id: ObjectId) -> Opti
 /// Build an [`elidex_net::Request`] from `fetch()`'s arguments.
 ///
 /// Two input shapes:
-/// - **Request instance** — copy `method` / `url` / `headers` /
-///   `body` from the VM state.  `init` is ignored in Phase 2
-///   (spec says init overrides selected fields; the subset of
-///   sites we've surveyed don't rely on this, so leaving it for
-///   the async fetch refactor keeps this tranche small).
+/// - **Request instance** — start with `method` / `url` / `headers`
+///   / `body` from the Request's VM state; any member present in
+///   `init` overrides the corresponding field (WHATWG Fetch §5.1
+///   step 12, §5.3 Request ctor).
 /// - **URL string** — parse against `navigation.current_url`;
 ///   `init.method` / `init.headers` / `init.body` supply the
 ///   remaining fields, defaulting to `GET` / empty / empty.
+///
+/// In both cases `init` is parsed via [`parse_init_overrides`],
+/// which returns `None` for each field that the caller's `init`
+/// did not explicitly set — `None` preserves the base, `Some`
+/// replaces it.
 fn build_net_request(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
@@ -251,10 +255,27 @@ fn build_net_request(
     let input = args[0];
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    // Case 1: input is a Request instance.
+    let (method_override, headers_override, body_override) = parse_init_overrides(ctx, init)?;
+
+    // Case 1: input is a Request instance — start with its state.
     if let JsValue::Object(obj_id) = input {
         if matches!(ctx.vm.get_object(obj_id).kind, ObjectKind::Request) {
-            return request_from_vm_request(ctx, obj_id);
+            let (mut method, url, mut headers, mut body) = request_base_from_vm(ctx, obj_id)?;
+            if let Some(m) = method_override {
+                method = m;
+            }
+            if let Some(h) = headers_override {
+                headers = h;
+            }
+            if let Some(b) = body_override {
+                body = b;
+            }
+            return Ok(elidex_net::Request {
+                method,
+                url,
+                headers,
+                body,
+            });
         }
     }
 
@@ -266,21 +287,21 @@ fn build_net_request(
             "Failed to execute 'fetch': Invalid URL '{raw_url_owned}'"
         ))
     })?;
-
-    let (method, headers, body) = parse_init_for_fetch(ctx, init)?;
     Ok(elidex_net::Request {
-        method,
+        method: method_override.unwrap_or_else(|| "GET".to_string()),
         url,
-        headers,
-        body,
+        headers: headers_override.unwrap_or_default(),
+        body: body_override.unwrap_or_else(Bytes::new),
     })
 }
 
-/// Extract a broker-level Request from a VM `Request` instance.
-fn request_from_vm_request(
+/// Extract the `(method, url, headers, body)` tuple from a VM
+/// `Request` instance.  Used as the base for the Request-input
+/// path of `fetch()` before `init` overrides are layered on.
+fn request_base_from_vm(
     ctx: &NativeContext<'_>,
     obj_id: ObjectId,
-) -> Result<elidex_net::Request, VmError> {
+) -> Result<(String, Url, Vec<(String, String)>, Bytes), VmError> {
     let state = ctx
         .vm
         .request_states
@@ -317,29 +338,26 @@ fn request_from_vm_request(
         .get(&obj_id)
         .map_or_else(Bytes::new, |arc| Bytes::from_owner(Arc::clone(arc)));
 
-    Ok(elidex_net::Request {
-        method,
-        url,
-        headers,
-        body,
-    })
+    Ok((method, url, headers, body))
 }
 
-/// `(method, headers, body)` returned by [`parse_init_for_fetch`].
-/// Broken out to sidestep the clippy `type_complexity` lint without
-/// dissolving the tuple into a dedicated struct (the fields are
-/// only consumed once, at the caller, so a struct would be noise).
-type InitParts = (String, Vec<(String, String)>, Bytes);
+/// `(method?, headers?, body?)` returned by [`parse_init_overrides`].
+/// `None` means the caller's `init` did not set that field — the
+/// base (Request-input) or default (URL-input) applies.
+type InitOverrides = (Option<String>, Option<Vec<(String, String)>>, Option<Bytes>);
 
-/// Parse the `init` dict for the String-input path — extract
-/// method (canonicalised), headers list, and body bytes.
-fn parse_init_for_fetch(ctx: &mut NativeContext<'_>, init: JsValue) -> Result<InitParts, VmError> {
-    let default_method = "GET".to_string();
-    let default_headers: Vec<(String, String)> = Vec::new();
-    let default_body = Bytes::new();
-
+/// Parse the `init` dict.  Every field is `Option<_>`; a present
+/// value means `init` explicitly set it.  `undefined` (including
+/// the field being absent entirely) maps to `None`; `null` on
+/// `headers` / `body` is also treated as "not provided" in
+/// Phase 2 (spec-correct null-clears-body lands with the async
+/// fetch refactor that implements the full §5.3 algorithm walk).
+fn parse_init_overrides(
+    ctx: &mut NativeContext<'_>,
+    init: JsValue,
+) -> Result<InitOverrides, VmError> {
     match init {
-        JsValue::Undefined | JsValue::Null => Ok((default_method, default_headers, default_body)),
+        JsValue::Undefined | JsValue::Null => Ok((None, None, None)),
         JsValue::Object(opts_id) => {
             let method_sid_key = PropertyKey::String(ctx.vm.well_known.method);
             let headers_key = PropertyKey::String(ctx.vm.well_known.headers);
@@ -349,47 +367,63 @@ fn parse_init_for_fetch(ctx: &mut NativeContext<'_>, init: JsValue) -> Result<In
             let headers_val = ctx.get_property_value(opts_id, headers_key)?;
             let body_val = ctx.get_property_value(opts_id, body_key)?;
 
-            // Method — shares the forbidden-method filter with
-            // `Request`'s ctor; the filter returns the uppercased
-            // canonical name.
-            let method = if matches!(method_val, JsValue::Undefined) {
-                default_method
+            // Method — shared forbidden-method filter with
+            // `Request`'s ctor.
+            let method_override = if matches!(method_val, JsValue::Undefined) {
+                None
             } else {
                 let sid = super::super::coerce::to_string(ctx.vm, method_val)?;
                 let raw = ctx.vm.strings.get_utf8(sid);
-                super::request_response::validate_http_method(&raw, "Failed to execute 'fetch'")?
+                Some(super::request_response::validate_http_method(
+                    &raw,
+                    "Failed to execute 'fetch'",
+                )?)
             };
 
             // Headers — reuse the `new Headers(init)` algorithm
-            // so lowercasing / validation / Array-of-pairs / Record
-            // paths all converge on the same code.  Allocate a
-            // throwaway Headers instance, fill it, snapshot the
-            // list out.
-            let headers: Vec<(String, String)> = if matches!(headers_val, JsValue::Undefined) {
-                Vec::new()
+            // (lowercasing / validation / Array-of-pairs / Record
+            // paths converge on the same code).  The throwaway
+            // `companion` is explicitly removed from
+            // `headers_states` after snapshotting so no orphan
+            // entry waits for the next GC (R4.2).  Failure paths
+            // also drop the companion — propagated via `?`
+            // *after* the cleanup.
+            let headers_override = if matches!(headers_val, JsValue::Undefined | JsValue::Null) {
+                None
             } else {
                 let companion = ctx.vm.create_headers(HeadersGuard::None);
-                super::headers::fill_headers_from_init(ctx, companion, headers_val)?;
-                ctx.vm
+                let fill_result = super::headers::fill_headers_from_init(
+                    ctx,
+                    companion,
+                    headers_val,
+                    "Failed to execute 'fetch'",
+                );
+                let snapshot = ctx
+                    .vm
                     .headers_states
-                    .get(&companion)
+                    .remove(&companion)
                     .map(|hs| {
                         hs.list
-                            .iter()
-                            .map(|(n, v)| {
-                                (ctx.vm.strings.get_utf8(*n), ctx.vm.strings.get_utf8(*v))
-                            })
-                            .collect()
+                            .into_iter()
+                            .map(|(n, v)| (ctx.vm.strings.get_utf8(n), ctx.vm.strings.get_utf8(v)))
+                            .collect::<Vec<(String, String)>>()
                     })
-                    .unwrap_or_default()
+                    .unwrap_or_default();
+                fill_result?;
+                Some(snapshot)
             };
 
-            // Body — zero-copy handoff via `Bytes::from_owner`
-            // (see `request_from_vm_request` for rationale).
-            let body =
-                extract_body_bytes(ctx, body_val)?.map_or_else(Bytes::new, Bytes::from_owner);
+            // Body — zero-copy handoff via `Bytes::from_owner`.
+            // `extract_body_bytes` already returns `None` for
+            // `undefined` / `null`, matching our "field not
+            // present" semantics.
+            let body_override = if matches!(body_val, JsValue::Undefined) {
+                None
+            } else {
+                extract_body_bytes(ctx, body_val)?.map(Bytes::from_owner)
+            };
 
-            Ok((method, headers, body))
+            Ok((method_override, headers_override, body_override))
         }
         _ => Err(VmError::type_error(
             "Failed to execute 'fetch': init must be an object",

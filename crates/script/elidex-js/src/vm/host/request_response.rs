@@ -442,7 +442,7 @@ fn native_request_constructor(
     // Copy entries from either the source Request's headers or the
     // init dict's `headers` value (if provided, it overrides).
     match headers_init_arg {
-        Some(h) => fill_headers_like(ctx, headers_id, h)?,
+        Some(h) => fill_headers_like(ctx, headers_id, h, "Failed to construct 'Request'")?,
         None => {
             if let Some(src_headers_id) = headers_source {
                 copy_headers_entries(ctx, src_headers_id, headers_id);
@@ -739,7 +739,7 @@ fn build_response_instance(
     // Copy entries from the init's `headers` member if present.
     let headers_id = ctx.vm.create_headers(HeadersGuard::None);
     if let Some(hval) = init_headers {
-        fill_headers_like(ctx, headers_id, hval)?;
+        fill_headers_like(ctx, headers_id, hval, "Failed to construct 'Response'")?;
     }
     // If the caller supplied a default `Content-Type` and the user
     // didn't already set one via `init.headers`, populate it —
@@ -878,12 +878,16 @@ fn content_type_for_body(ctx: &NativeContext<'_>, body: JsValue) -> Option<Strin
 /// Delegates to [`super::headers::fill_headers_from_init`] so the
 /// WHATWG §5.2 "fill a Headers object" algorithm lives in one
 /// place and name / value validation does not drift.
-fn fill_headers_like(
+/// `error_prefix` is the caller's reporting context (e.g.
+/// `"Failed to construct 'Request'"`) threaded into any validation
+/// error so users see the surface that triggered the failure.
+pub(super) fn fill_headers_like(
     ctx: &mut NativeContext<'_>,
     target_headers_id: ObjectId,
     init: JsValue,
+    error_prefix: &str,
 ) -> Result<(), VmError> {
-    super::headers::fill_headers_from_init(ctx, target_headers_id, init)
+    super::headers::fill_headers_from_init(ctx, target_headers_id, init, error_prefix)
 }
 
 /// Splice every entry from `src_id` into `dst_id`.  Entries are

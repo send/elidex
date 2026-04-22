@@ -269,7 +269,7 @@ fn native_headers_constructor(
         .insert(id, HeadersState::new(HeadersGuard::None));
 
     let init = args.first().copied().unwrap_or(JsValue::Undefined);
-    fill_headers_from_init(ctx, id, init)?;
+    fill_headers_from_init(ctx, id, init, "Failed to construct 'Headers'")?;
     Ok(JsValue::Object(id))
 }
 
@@ -284,6 +284,7 @@ pub(super) fn fill_headers_from_init(
     ctx: &mut NativeContext<'_>,
     headers_id: ObjectId,
     init: JsValue,
+    error_prefix: &str,
 ) -> Result<(), VmError> {
     match init {
         JsValue::Undefined | JsValue::Null => Ok(()),
@@ -309,7 +310,7 @@ pub(super) fn fill_headers_from_init(
             if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
                 let snapshot = elements.clone();
                 for pair in snapshot {
-                    fill_from_pair_entry(ctx, headers_id, pair)?;
+                    fill_from_pair_entry(ctx, headers_id, pair, error_prefix)?;
                 }
                 return Ok(());
             }
@@ -319,15 +320,15 @@ pub(super) fn fill_headers_from_init(
             for key_sid in keys {
                 let value = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;
                 let value_sid = super::super::coerce::to_string(ctx.vm, value)?;
-                let (name_sid, value_sid) = validate_and_normalise(ctx.vm, key_sid, value_sid)?;
+                let (name_sid, value_sid) =
+                    validate_and_normalise(ctx.vm, key_sid, value_sid, error_prefix)?;
                 append_entry(ctx, headers_id, name_sid, value_sid)?;
             }
             Ok(())
         }
-        _ => Err(VmError::type_error(
-            "Failed to construct 'Headers': \
-             The provided value is not of type 'HeadersInit'.",
-        )),
+        _ => Err(VmError::type_error(format!(
+            "{error_prefix}: The provided value is not of type 'HeadersInit'."
+        ))),
     }
 }
 
@@ -336,25 +337,24 @@ fn fill_from_pair_entry(
     ctx: &mut NativeContext<'_>,
     headers_id: ObjectId,
     pair: JsValue,
+    error_prefix: &str,
 ) -> Result<(), VmError> {
     let JsValue::Object(pair_id) = pair else {
-        return Err(VmError::type_error(
-            "Failed to construct 'Headers': \
-             Sequence header init must contain arrays of length 2",
-        ));
+        return Err(VmError::type_error(format!(
+            "{error_prefix}: Sequence header init must contain arrays of length 2"
+        )));
     };
     let pair_elems = match &ctx.vm.get_object(pair_id).kind {
         ObjectKind::Array { elements } if elements.len() == 2 => elements.clone(),
         _ => {
-            return Err(VmError::type_error(
-                "Failed to construct 'Headers': \
-                 Sequence header init must contain arrays of length 2",
-            ));
+            return Err(VmError::type_error(format!(
+                "{error_prefix}: Sequence header init must contain arrays of length 2"
+            )));
         }
     };
     let name_sid = super::super::coerce::to_string(ctx.vm, pair_elems[0])?;
     let value_sid = super::super::coerce::to_string(ctx.vm, pair_elems[1])?;
-    let (name_sid, value_sid) = validate_and_normalise(ctx.vm, name_sid, value_sid)?;
+    let (name_sid, value_sid) = validate_and_normalise(ctx.vm, name_sid, value_sid, error_prefix)?;
     append_entry(ctx, headers_id, name_sid, value_sid)
 }
 
@@ -370,7 +370,12 @@ fn native_headers_append(
     let id = require_headers_this(ctx, this, "append")?;
     require_mutable(ctx, id, "append")?;
     let (name_sid, value_sid) = take_name_value_args(ctx, args, "append")?;
-    let (name_sid, value_sid) = validate_and_normalise(ctx.vm, name_sid, value_sid)?;
+    let (name_sid, value_sid) = validate_and_normalise(
+        ctx.vm,
+        name_sid,
+        value_sid,
+        "Failed to execute 'append' on 'Headers'",
+    )?;
     append_entry(ctx, id, name_sid, value_sid)?;
     Ok(JsValue::Undefined)
 }
@@ -383,7 +388,12 @@ fn native_headers_set(
     let id = require_headers_this(ctx, this, "set")?;
     require_mutable(ctx, id, "set")?;
     let (name_sid, value_sid) = take_name_value_args(ctx, args, "set")?;
-    let (name_sid, value_sid) = validate_and_normalise(ctx.vm, name_sid, value_sid)?;
+    let (name_sid, value_sid) = validate_and_normalise(
+        ctx.vm,
+        name_sid,
+        value_sid,
+        "Failed to execute 'set' on 'Headers'",
+    )?;
     if let Some(state) = ctx.vm.headers_states.get_mut(&id) {
         // Remove every existing entry with the same lowercase name,
         // then append once — WHATWG Fetch §5.2 "set a header".
@@ -401,7 +411,8 @@ fn native_headers_delete(
     let id = require_headers_this(ctx, this, "delete")?;
     require_mutable(ctx, id, "delete")?;
     let name_sid = take_name_arg(ctx, args, "delete")?;
-    let name_sid = validate_and_normalise_name(ctx.vm, name_sid)?;
+    let name_sid =
+        validate_and_normalise_name(ctx.vm, name_sid, "Failed to execute 'delete' on 'Headers'")?;
     if let Some(state) = ctx.vm.headers_states.get_mut(&id) {
         state.list.retain(|(n, _)| *n != name_sid);
     }
@@ -415,7 +426,8 @@ fn native_headers_get(
 ) -> Result<JsValue, VmError> {
     let id = require_headers_this(ctx, this, "get")?;
     let name_sid = take_name_arg(ctx, args, "get")?;
-    let name_sid = validate_and_normalise_name(ctx.vm, name_sid)?;
+    let name_sid =
+        validate_and_normalise_name(ctx.vm, name_sid, "Failed to execute 'get' on 'Headers'")?;
     // Collect every matching value in insertion order, then join
     // with `", "` (WHATWG §5.2 "get a header").  `set-cookie` is
     // not specially handled here — `get("set-cookie")` returns the
@@ -447,7 +459,8 @@ fn native_headers_has(
 ) -> Result<JsValue, VmError> {
     let id = require_headers_this(ctx, this, "has")?;
     let name_sid = take_name_arg(ctx, args, "has")?;
-    let name_sid = validate_and_normalise_name(ctx.vm, name_sid)?;
+    let name_sid =
+        validate_and_normalise_name(ctx.vm, name_sid, "Failed to execute 'has' on 'Headers'")?;
     let present = ctx
         .vm
         .headers_states
@@ -698,14 +711,15 @@ fn validate_and_normalise(
     vm: &mut VmInner,
     name_sid: StringId,
     value_sid: StringId,
+    error_prefix: &str,
 ) -> Result<(StringId, StringId), VmError> {
-    let name_sid = validate_and_normalise_name(vm, name_sid)?;
+    let name_sid = validate_and_normalise_name(vm, name_sid, error_prefix)?;
     let value_raw = vm.strings.get_utf8(value_sid);
     let trimmed = trim_http_whitespace(&value_raw);
     if !is_valid_header_value_content(trimmed) {
-        return Err(VmError::type_error(
-            "Invalid header value: contains CR, LF, or NUL",
-        ));
+        return Err(VmError::type_error(format!(
+            "{error_prefix}: Invalid header value — contains CR, LF, or NUL"
+        )));
     }
     // Re-intern the trimmed form only if trimming changed bytes —
     // otherwise keep the original StringId so repeated adds share
@@ -718,12 +732,16 @@ fn validate_and_normalise(
     Ok((name_sid, value_sid))
 }
 
-fn validate_and_normalise_name(vm: &mut VmInner, name_sid: StringId) -> Result<StringId, VmError> {
+fn validate_and_normalise_name(
+    vm: &mut VmInner,
+    name_sid: StringId,
+    error_prefix: &str,
+) -> Result<StringId, VmError> {
     let raw = vm.strings.get_utf8(name_sid);
     if !is_valid_header_name(&raw) {
-        return Err(VmError::type_error(
-            "Invalid header name: must match RFC 7230 token syntax",
-        ));
+        return Err(VmError::type_error(format!(
+            "{error_prefix}: Invalid header name '{raw}' — must match RFC 7230 token syntax"
+        )));
     }
     let lower = raw.to_ascii_lowercase();
     // Avoid the re-intern if already lowercase (common case for

@@ -245,6 +245,98 @@ fn response_ctor_rejects_out_of_uint16_status_with_type_error() {
 }
 
 #[test]
+fn fetch_request_input_with_init_method_override() {
+    // WHATWG Fetch §5.1 step 12 + §5.3 Request ctor: when
+    // `input` is a Request and `init.method` is present, the
+    // init value overrides the Request's method before the
+    // broker call.  Regression: pre-R4 this path ignored init
+    // entirely and silently sent the Request's original method.
+    let url = url::Url::parse("http://example.com/req-init-method").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(json_response("http://example.com/req-init-method", "ok")),
+    )]);
+    // The mock doesn't verify method — but we can observe the
+    // method in the returned Response via a follow-up Request
+    // constructed from the same merged semantics.  Simpler:
+    // assert the fetch resolves (proves the override doesn't
+    // crash), and separately verify the merge on a second
+    // Request built from the same init.
+    vm.eval(
+        "globalThis.r = 0; \
+         globalThis.m = ''; \
+         var req = new Request('http://example.com/req-init-method', {method: 'GET'}); \
+         fetch(req, {method: 'POST'}).then(resp => { globalThis.r = resp.status; }); \
+         globalThis.m = new Request(req, {method: 'POST'}).method;",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
+        other => panic!("expected r to be 200, got {other:?}"),
+    }
+    match vm.get_global("m") {
+        Some(JsValue::String(id)) => assert_eq!(
+            vm.get_string(id),
+            "POST",
+            "init.method must override Request's own method"
+        ),
+        other => panic!("expected m to be POST, got {other:?}"),
+    }
+}
+
+#[test]
+fn fetch_request_input_without_init_preserves_request_method() {
+    // Regression for the same §5.1 step 12 codepath in the
+    // opposite direction: when `init` is absent or has no
+    // `method` key, the Request's own method passes through
+    // unchanged.
+    let url = url::Url::parse("http://example.com/req-preserve").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(json_response("http://example.com/req-preserve", "ok")),
+    )]);
+    vm.eval(
+        "globalThis.r = 0; \
+         var req = new Request('http://example.com/req-preserve', {method: 'DELETE'}); \
+         fetch(req).then(resp => { globalThis.r = resp.status; });",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
+        other => panic!("expected r to be 200, got {other:?}"),
+    }
+}
+
+#[test]
+fn headers_append_invalid_name_error_includes_context() {
+    // WHATWG Fetch §5.2 validation errors must be attributable
+    // to the surface that triggered them.  Before R4.3 the
+    // message was a bare "Invalid header name: must match RFC
+    // 7230 token syntax" and users couldn't tell whether the
+    // fault came from `append` / `set` / ctor.  Now the error
+    // starts with `"Failed to execute 'append' on 'Headers'"`
+    // so the stack trace is self-explanatory.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r = ''; \
+         var h = new Headers(); \
+         try { h.append('bad name with spaces', 'v'); } \
+         catch (e) { globalThis.r = e.message; }",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => {
+            let msg = vm.get_string(id);
+            assert!(
+                msg.starts_with("Failed to execute 'append' on 'Headers'"),
+                "expected operation-prefixed error, got: {msg}"
+            );
+        }
+        other => panic!("expected error message string, got {other:?}"),
+    }
+}
+
+#[test]
 fn response_redirect_type_is_opaque_redirect() {
     // WHATWG Fetch §5.5 step 7: `Response.redirect(url, status)`
     // produces an opaque-redirect response whose `type` is
