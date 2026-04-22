@@ -438,6 +438,19 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
     // Body bytes.  Skip the map insert for zero-byte responses
     // so `.body_data.contains_key(id)` keeps meaning "this
     // response actually carries bytes".
+    //
+    // **Phase 2 cost**: `response.body` is `bytes::Bytes` (which
+    // is itself ref-counted) but we copy into `Arc<[u8]>` because
+    // `VmInner::body_data` is typed `Arc<[u8]>` to match the
+    // broker-independent Request / Blob / ArrayBuffer paths.
+    // Switching the side-table type to `Bytes` (or adding a
+    // zero-copy shim) is plausible but intrudes on every body-
+    // mixin reader in `body_mixin.rs` and every GC sweep site in
+    // `gc.rs`; deferred to the PR5-streams tranche which
+    // refactors body storage to a stream-compatible wrapper
+    // anyway.  The copy is observable only on large fetch
+    // responses — for script-sized bodies it's below measurement
+    // noise (see `m4-12-post-pr5a-fetch-roadmap.md` §PR-spec-polish).
     if !response.body.is_empty() {
         let bytes: Arc<[u8]> = Arc::from(&response.body[..]);
         vm.body_data.insert(inst_id, bytes);

@@ -782,9 +782,14 @@ fn sort_and_combine(vm: &mut VmInner, headers_id: ObjectId) -> Vec<(StringId, St
     // Vec+sort+dedup instead of HashSet so the downstream sort is
     // stable without extra bookkeeping.
     let mut name_ids: Vec<StringId> = list.iter().map(|(n, _)| *n).collect();
-    // Sort by bytewise UTF-8 of the name (spec: "byte less than").
-    // Duplicates disappear in the dedup below.
-    name_ids.sort_by_cached_key(|sid| vm.strings.get_utf8(*sid));
+    // Sort by code-unit order (WHATWG Fetch §5.2 step 3.4:
+    // "sort names in ascending order with a being less than b
+    // if b is code-unit less than a").  Header-name validation
+    // upstream restricts bytes to the RFC 7230 token set (ASCII
+    // only), so code-unit order on `&[u16]` coincides with
+    // byte order without any `String` allocation.  Duplicates
+    // disappear in the dedup below.
+    name_ids.sort_by(|a, b| vm.strings.get(*a).cmp(vm.strings.get(*b)));
     name_ids.dedup();
 
     let mut out: Vec<(StringId, StringId)> = Vec::with_capacity(list.len());
