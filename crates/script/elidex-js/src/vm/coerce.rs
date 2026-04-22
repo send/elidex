@@ -318,11 +318,16 @@ pub(super) fn f64_to_uint32(n: f64) -> u32 {
 
 /// ToUint16 (ES2020 §7.1.10 / WebIDL §3.10.5).  Modular truncation
 /// to the `[0, 2^16)` range.  Used by WebIDL `unsigned short`
-/// coercion (`Response.status`, `MouseEventInit.buttons`) and by
-/// `String.fromCharCode` ES §22.1.2.1 step 3.
+/// coercion (`MouseEventInit.buttons`) and by `String.fromCharCode`
+/// ES §22.1.2.1 step 3.
 ///
 /// NaN / ±Infinity / ±0 all map to `0`, matching the behaviour
 /// of the sibling `f64_to_int32` / `f64_to_uint32` helpers.
+///
+/// **Do not use for WebIDL attributes tagged `[EnforceRange]`**
+/// (e.g. `ResponseInit.status`).  Those must reject out-of-range
+/// inputs rather than wrap; use [`enforce_range_unsigned_short`]
+/// instead.
 pub(crate) fn f64_to_uint16(n: f64) -> u16 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {
         return 0;
@@ -336,6 +341,36 @@ pub(crate) fn f64_to_uint16(n: f64) -> u16 {
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let result = int as u16;
     result
+}
+
+/// WebIDL `[EnforceRange] unsigned short` conversion (§3.2.4.7
+/// step 7).  NaN / ±∞ / out-of-`[0, 65535]` all throw `TypeError`
+/// rather than silently wrapping — the spec-mandated path for
+/// `ResponseInit.status`, `Response.redirect(..., status)`, and
+/// every other `[EnforceRange] unsigned short` Fetch attribute.
+///
+/// `error_prefix` is the caller's reporting context
+/// (e.g. `"Failed to construct 'Response'"` or
+/// `"Failed to execute 'redirect' on 'Response'"`) so the
+/// rejection message mirrors what the method would report on
+/// any other WebIDL conversion failure.
+#[cfg(feature = "engine")]
+pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result<u16, VmError> {
+    if !n.is_finite() {
+        return Err(VmError::type_error(format!(
+            "{error_prefix}: Value is not a finite number."
+        )));
+    }
+    // WebIDL §3.2.4.7 step 3: truncate toward zero (ToInteger).
+    let truncated = n.trunc();
+    if !(0.0..=65_535.0).contains(&truncated) {
+        return Err(VmError::type_error(format!(
+            "{error_prefix}: Value {n} is outside the range of unsigned short [0, 65535]."
+        )));
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let result = truncated as u16;
+    Ok(result)
 }
 
 // ---------------------------------------------------------------------------

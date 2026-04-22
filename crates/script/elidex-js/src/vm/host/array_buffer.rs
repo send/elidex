@@ -200,16 +200,22 @@ fn to_index_for_array_buffer(n: f64, what: &str) -> Result<usize, VmError> {
             "Failed to construct 'ArrayBuffer': {what} must be a non-negative safe integer"
         )));
     }
-    // `truncated` is in [0, 2^53-1]; cast to usize is infallible on
-    // 64-bit targets, but we still clamp to `usize::MAX` explicitly
-    // for 32-bit hosts.
+    // `truncated` is in [0, 2^53-1]; cast to `u64` is infallible.
+    // On 64-bit hosts the subsequent `usize` cast is also
+    // infallible.  On 32-bit hosts a length larger than
+    // `usize::MAX` cannot be allocated — silently clamping would
+    // hand `try_reserve` an `isize::MAX`-ish value that then
+    // panics / OOMs; instead reject up front with `RangeError`
+    // so JS observes a spec-shaped conversion failure.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let as_usize = if truncated as u64 > usize::MAX as u64 {
-        usize::MAX
-    } else {
-        truncated as usize
-    };
-    Ok(as_usize)
+    let as_u64 = truncated as u64;
+    if as_u64 > usize::MAX as u64 {
+        return Err(VmError::range_error(format!(
+            "Failed to construct 'ArrayBuffer': {what} exceeds the maximum supported length on this platform"
+        )));
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    Ok(as_u64 as usize)
 }
 
 // ---------------------------------------------------------------------------

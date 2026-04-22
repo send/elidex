@@ -191,3 +191,75 @@ fn request_ctor_rejects_invalid_url_with_type_error() {
         other => panic!("expected TypeError, got {other:?}"),
     }
 }
+
+#[test]
+fn response_ctor_rejects_nan_status_with_type_error() {
+    // WebIDL `[EnforceRange] unsigned short` rejects NaN before
+    // the [200, 599] RangeError path (spec §3.2.4.7 step 6).
+    // Crucially, the rejection is *TypeError* — conflating it
+    // with RangeError would hide the conversion failure behind
+    // a range-failure message.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r = ''; \
+         try { new Response('', {status: NaN}); } \
+         catch (e) { globalThis.r = e instanceof TypeError ? e.name : e.name + '-unexpected'; }",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "TypeError"),
+        other => panic!("expected TypeError, got {other:?}"),
+    }
+}
+
+#[test]
+fn response_ctor_rejects_out_of_uint16_status_with_type_error() {
+    // Regression: without [EnforceRange], a status of 65736 would
+    // wrap through `f64_to_uint16` into 200 and silently construct
+    // a 200 OK Response.  With enforce-range it must reject with
+    // TypeError at the WebIDL boundary, never reaching the
+    // 200..=599 check.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r = ''; \
+         globalThis.s = -1; \
+         try { \
+             var resp = new Response('', {status: 65736}); \
+             globalThis.s = resp.status; \
+         } catch (e) { \
+             globalThis.r = e instanceof TypeError ? e.name : e.name + '-unexpected'; \
+         }",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "TypeError"),
+        other => panic!("expected TypeError (no wrap-to-200), got {other:?}"),
+    }
+    match vm.get_global("s") {
+        Some(JsValue::Number(n)) => assert!(
+            (n - -1.0).abs() < f64::EPSILON,
+            "status must not have been observed — wrap-to-200 leaked through"
+        ),
+        other => panic!("expected s untouched, got {other:?}"),
+    }
+}
+
+#[test]
+fn response_redirect_type_is_opaque_redirect() {
+    // WHATWG Fetch §5.5 step 7: `Response.redirect(url, status)`
+    // produces an opaque-redirect response whose `type` is
+    // `"opaqueredirect"`.  Without this, consumer code that
+    // branches on `resp.type === 'opaqueredirect'` to detect
+    // redirect responses would silently miss them.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r = ''; \
+         var r = Response.redirect('http://example.com/target', 302); \
+         globalThis.r = r.type;",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "opaqueredirect"),
+        other => panic!("expected 'opaqueredirect', got {other:?}"),
+    }
+}

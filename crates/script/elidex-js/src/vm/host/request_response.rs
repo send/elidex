@@ -796,14 +796,16 @@ fn parse_response_init(
             let status = if matches!(status_val, JsValue::Undefined) {
                 None
             } else {
-                // WebIDL `unsigned short` with [EnforceRange] —
-                // Phase 2 implements the ToUint16 path and the
-                // 200..=599 range check below; [EnforceRange]
-                // rejection of out-of-bounds f64 before ToUint16
-                // lands when `[EnforceRange]` becomes a general
-                // coerce helper.
+                // WebIDL `[EnforceRange] unsigned short` — reject
+                // NaN / ±∞ / out-of-[0,65535] as TypeError *before*
+                // the spec's 200..=599 RangeError check (§5.5
+                // "initialize a response" step 1 implicitly relies
+                // on the earlier conversion rejecting wraps).
                 let n = super::super::coerce::to_number(ctx.vm, status_val)?;
-                let code = super::super::coerce::f64_to_uint16(n);
+                let code = super::super::coerce::enforce_range_unsigned_short(
+                    n,
+                    "Failed to construct 'Response'",
+                )?;
                 if !(200..=599).contains(&code) {
                     return Err(VmError::range_error(format!(
                         "Failed to construct 'Response': The status provided ({code}) is outside the range [200, 599]."
@@ -984,8 +986,14 @@ fn native_response_static_redirect(
         if matches!(s, JsValue::Undefined) {
             302
         } else {
+            // WebIDL `[EnforceRange] unsigned short` — NaN / ±∞ /
+            // out-of-[0,65535] is TypeError, the subsequent
+            // redirect-code membership check is RangeError.
             let n = super::super::coerce::to_number(ctx.vm, s)?;
-            let code = super::super::coerce::f64_to_uint16(n);
+            let code = super::super::coerce::enforce_range_unsigned_short(
+                n,
+                "Failed to execute 'redirect' on 'Response'",
+            )?;
             if !matches!(code, 301 | 302 | 303 | 307 | 308) {
                 return Err(VmError::range_error(format!(
                     "Failed to execute 'redirect' on 'Response': Invalid status code {code}"
@@ -1018,7 +1026,10 @@ fn native_response_static_redirect(
             status_text_sid: wk.empty,
             url_sid: wk.empty,
             headers_id,
-            response_type: ResponseType::Default,
+            // WHATWG Fetch §5.5 step 7: `Response.redirect(...)`
+            // produces an opaque-redirect response.  `type` must
+            // therefore expose `"opaqueredirect"`; not `"default"`.
+            response_type: ResponseType::OpaqueRedirect,
             redirected: false,
         },
     );
