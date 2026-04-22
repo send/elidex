@@ -57,9 +57,14 @@ use super::array_buffer::relative_index;
 
 /// Per-`Blob` out-of-band state, keyed in
 /// [`super::super::VmInner::blob_data`] by the instance's
-/// `ObjectId`.  Bytes are an `Arc<[u8]>` so `.slice()` and
-/// `.arrayBuffer()` can share the backing buffer across multiple
-/// Blob / ArrayBuffer instances without copying the whole blob.
+/// `ObjectId`.  Bytes are an `Arc<[u8]>` so whole-buffer ownership
+/// can be shared cheaply (e.g. `.arrayBuffer()` hands a cloned
+/// `Arc` to the new ArrayBuffer without copying).  `.slice()`
+/// currently materialises a fresh `Arc<[u8]>` for the selected
+/// sub-range rather than creating a shared offset/length view —
+/// same trade-off as `ArrayBuffer.prototype.slice` (copy-on-slice
+/// until the backing store is refactored to support shared
+/// sub-range references).
 ///
 /// `type_sid` holds the lowercased MIME type (or the empty
 /// `StringId` for `type === ""`).  The accessor returns it
