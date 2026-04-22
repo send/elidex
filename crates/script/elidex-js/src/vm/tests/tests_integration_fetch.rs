@@ -390,6 +390,56 @@ fn fetch_response_headers_go_through_normalisation() {
 }
 
 #[test]
+fn request_ctor_null_headers_clears_base_headers() {
+    // WHATWG Fetch + browsers: `new Request(existingReq,
+    // {headers: null})` discards the existing Request's headers
+    // and produces an empty header list.  This pins down the
+    // "null-as-override" semantics that `fetch(..., {headers:
+    // null})` (R7.1) needs to mirror.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.has_x = true; \
+         var seed = new Request('http://example.com/x', {method: 'POST', headers: {x: '1'}}); \
+         var merged = new Request(seed, {headers: null}); \
+         globalThis.has_x = merged.headers.has('x');",
+    )
+    .unwrap();
+    match vm.get_global("has_x") {
+        Some(JsValue::Boolean(b)) => {
+            assert!(!b, "null headers override must clear base headers");
+        }
+        other => panic!("expected bool, got {other:?}"),
+    }
+}
+
+#[test]
+fn fetch_null_headers_completes_without_crashing() {
+    // Regression for R7.1: `fetch(req, {headers: null})` must
+    // not crash and must produce a valid Response.  Mirrors the
+    // `new Request(req, {headers: null})` semantics above — both
+    // interpret null as "override to empty headers" rather than
+    // "preserve base".  The mock doesn't let us observe the
+    // outbound Request headers, so we assert the fetch resolves
+    // successfully and separately pin the semantic via the
+    // Request-ctor test.
+    let url = url::Url::parse("http://example.com/null-headers").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(json_response("http://example.com/null-headers", "ok")),
+    )]);
+    vm.eval(
+        "globalThis.r = 0; \
+         var req = new Request('http://example.com/null-headers', {headers: {x: '1'}}); \
+         fetch(req, {headers: null}).then(resp => { globalThis.r = resp.status; });",
+    )
+    .unwrap();
+    match vm.get_global("r") {
+        Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
+        other => panic!("expected r to be 200, got {other:?}"),
+    }
+}
+
+#[test]
 fn request_method_canonical_uppercase_is_normalised() {
     // WHATWG Fetch §5.3 step 24: a case-insensitive match against
     // the seven canonical methods is uppercased to the canonical

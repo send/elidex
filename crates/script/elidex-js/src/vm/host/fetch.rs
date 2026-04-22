@@ -388,29 +388,41 @@ fn parse_init_overrides(
             // entry waits for the next GC (R4.2).  Failure paths
             // also drop the companion — propagated via `?`
             // *after* the cleanup.
-            let headers_override = if matches!(headers_val, JsValue::Undefined | JsValue::Null) {
-                None
-            } else {
-                let companion = ctx.vm.create_headers(HeadersGuard::None);
-                let fill_result = super::headers::fill_headers_from_init(
-                    ctx,
-                    companion,
-                    headers_val,
-                    "Failed to execute 'fetch'",
-                );
-                let snapshot = ctx
-                    .vm
-                    .headers_states
-                    .remove(&companion)
-                    .map(|hs| {
-                        hs.list
-                            .into_iter()
-                            .map(|(n, v)| (ctx.vm.strings.get_utf8(n), ctx.vm.strings.get_utf8(v)))
-                            .collect::<Vec<(String, String)>>()
-                    })
-                    .unwrap_or_default();
-                fill_result?;
-                Some(snapshot)
+            //
+            // **Null vs undefined**: `undefined` (field absent)
+            // returns `None` → base headers preserved.  `null`
+            // returns `Some(empty)` → override to empty —
+            // matching `new Request(req, {headers: null})` which
+            // also clears the header list (R7.1).  Keeping the
+            // two surfaces in sync is what user code expects
+            // from the browser Fetch implementations.
+            let headers_override = match headers_val {
+                JsValue::Undefined => None,
+                JsValue::Null => Some(Vec::new()),
+                _ => {
+                    let companion = ctx.vm.create_headers(HeadersGuard::None);
+                    let fill_result = super::headers::fill_headers_from_init(
+                        ctx,
+                        companion,
+                        headers_val,
+                        "Failed to execute 'fetch'",
+                    );
+                    let snapshot = ctx
+                        .vm
+                        .headers_states
+                        .remove(&companion)
+                        .map(|hs| {
+                            hs.list
+                                .into_iter()
+                                .map(|(n, v)| {
+                                    (ctx.vm.strings.get_utf8(n), ctx.vm.strings.get_utf8(v))
+                                })
+                                .collect::<Vec<(String, String)>>()
+                        })
+                        .unwrap_or_default();
+                    fill_result?;
+                    Some(snapshot)
+                }
             };
 
             // Body — zero-copy handoff via `Bytes::from_owner`.
