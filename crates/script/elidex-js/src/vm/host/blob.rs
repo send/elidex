@@ -297,63 +297,115 @@ fn native_blob_constructor(
     Ok(JsValue::Object(inst_id))
 }
 
-/// Collect `blobParts` bytes into a single `Arc<[u8]>`.  Each
-/// part is one of:
-/// - Blob → bytes in order
-/// - ArrayBuffer → bytes in order
-/// - String → UTF-8 encoded bytes (no line-ending normalisation)
-/// - Other → ToString → UTF-8
+/// Convert a single `blobParts` element into bytes and append
+/// them to `out`.  Spec §3.2 step 2 maps each part per the
+/// `BlobPart = BufferSource or Blob or USVString` union:
+/// - `Blob` instance → stored bytes
+/// - `ArrayBuffer` → stored bytes
+/// - everything else (including String and arbitrary JS values)
+///   → `ToString` then UTF-8 bytes.
+fn append_blob_part_bytes(
+    ctx: &mut NativeContext<'_>,
+    out: &mut Vec<u8>,
+    part: JsValue,
+) -> Result<(), VmError> {
+    match part {
+        JsValue::String(sid) => {
+            let raw = ctx.vm.strings.get_utf8(sid);
+            out.extend_from_slice(raw.as_bytes());
+        }
+        JsValue::Object(part_id) => match ctx.vm.get_object(part_id).kind {
+            ObjectKind::ArrayBuffer => {
+                let bytes = super::array_buffer::array_buffer_bytes(ctx.vm, part_id);
+                out.extend_from_slice(&bytes);
+            }
+            ObjectKind::Blob => {
+                let bytes = blob_bytes(ctx.vm, part_id);
+                out.extend_from_slice(&bytes);
+            }
+            _ => {
+                // Fallback: stringify per WHATWG §3.2 step 2.3 (a
+                // non-BufferSource / non-Blob value becomes a
+                // USVString).
+                let sid = super::super::coerce::to_string(ctx.vm, part)?;
+                let raw = ctx.vm.strings.get_utf8(sid);
+                out.extend_from_slice(raw.as_bytes());
+            }
+        },
+        _ => {
+            let sid = super::super::coerce::to_string(ctx.vm, part)?;
+            let raw = ctx.vm.strings.get_utf8(sid);
+            out.extend_from_slice(raw.as_bytes());
+        }
+    }
+    Ok(())
+}
+
+/// Collect `blobParts` bytes into a single `Arc<[u8]>`.
 ///
-/// The spec requires `blobParts` to be iterable; Phase 2 only
-/// supports plain Arrays (matches typical fetch usage).  Non-Array
-/// objects produce `TypeError`.
+/// WebIDL types `blobParts` as `sequence<BlobPart>`, so conversion
+/// runs through the iterator protocol — any value with a callable
+/// `[Symbol.iterator]` is accepted (arrays, strings, user-defined
+/// iterables, Sets, Maps).  Non-iterable values produce TypeError.
+/// Abrupt completion (TypeError during `ToString` / `iter_next`
+/// throwing) calls `IteratorClose` on custom iterables to let
+/// `.return()` run cleanup, per ES §7.4.6 — same invariant we
+/// added to `HeadersInit` parsing in R17.1 / R18.1 (R21.1).
 fn collect_blob_parts_bytes(
     ctx: &mut NativeContext<'_>,
     parts: JsValue,
 ) -> Result<Arc<[u8]>, VmError> {
-    let JsValue::Object(obj_id) = parts else {
-        return Err(VmError::type_error(
-            "Failed to construct 'Blob': The provided value cannot be converted to a sequence",
-        ));
-    };
-    let elements: Vec<JsValue> = match &ctx.vm.get_object(obj_id).kind {
-        ObjectKind::Array { elements } => elements.clone(),
-        _ => {
+    // Array fast path: arrays have `@@iterator` on their prototype
+    // and iterating would yield the same sequence, but reading
+    // elements directly avoids the iterator protocol overhead.
+    // Matches the analogous fast path in
+    // `parse_headers_init_entries`.
+    if let JsValue::Object(obj_id) = parts {
+        if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
+            let snapshot = elements.clone();
+            let mut out: Vec<u8> = Vec::new();
+            for part in snapshot {
+                append_blob_part_bytes(ctx, &mut out, part)?;
+            }
+            return Ok(Arc::from(out));
+        }
+    }
+    // Generic iterator protocol: consume whatever `[Symbol.iterator]`
+    // yields.  `resolve_iterator` returns:
+    // - `Some(iter)` for strings (String.prototype[@@iterator]) and
+    //   any object whose `@@iterator` resolves to a callable.
+    // - `None` for primitives without @@iterator (null, undefined,
+    //   numbers, booleans) and for objects without an `@@iterator`
+    //   property.  Either case fails WebIDL sequence conversion.
+    let iter = match ctx.vm.resolve_iterator(parts)? {
+        Some(iter @ JsValue::Object(_)) => iter,
+        Some(_) => {
+            return Err(VmError::type_error(
+                "Failed to construct 'Blob': @@iterator must return an object",
+            ));
+        }
+        None => {
             return Err(VmError::type_error(
                 "Failed to construct 'Blob': The provided value cannot be converted to a sequence",
             ));
         }
     };
     let mut out: Vec<u8> = Vec::new();
-    for part in elements {
-        match part {
-            JsValue::String(sid) => {
-                let raw = ctx.vm.strings.get_utf8(sid);
-                out.extend_from_slice(raw.as_bytes());
-            }
-            JsValue::Object(part_id) => match ctx.vm.get_object(part_id).kind {
-                ObjectKind::ArrayBuffer => {
-                    let bytes = super::array_buffer::array_buffer_bytes(ctx.vm, part_id);
-                    out.extend_from_slice(&bytes);
-                }
-                ObjectKind::Blob => {
-                    let bytes = blob_bytes(ctx.vm, part_id);
-                    out.extend_from_slice(&bytes);
-                }
-                _ => {
-                    // Fallback: stringify per WHATWG §3.2 step 2.3 (a
-                    // non-BufferSource / non-Blob value becomes a
-                    // USVString).
-                    let sid = super::super::coerce::to_string(ctx.vm, part)?;
-                    let raw = ctx.vm.strings.get_utf8(sid);
-                    out.extend_from_slice(raw.as_bytes());
-                }
-            },
-            _ => {
-                let sid = super::super::coerce::to_string(ctx.vm, part)?;
-                let raw = ctx.vm.strings.get_utf8(sid);
-                out.extend_from_slice(raw.as_bytes());
-            }
+    loop {
+        // A throw from `iter_next` leaves the iterator already
+        // closed (§7.4.6).  Propagate without calling `.return()`.
+        let part = match ctx.vm.iter_next(iter)? {
+            Some(p) => p,
+            None => break,
+        };
+        // A throw during `append_blob_part_bytes` (e.g. `ToString`
+        // on a Symbol operand) is an abrupt completion of the
+        // for-of-like body; call `IteratorClose` before propagating.
+        // `.return()` throwing takes precedence over the triggering
+        // error (§7.4.6 step 6-7).
+        if let Err(err) = append_blob_part_bytes(ctx, &mut out, part) {
+            let close_err = ctx.vm.iter_close(iter).err();
+            return Err(close_err.unwrap_or(err));
         }
     }
     Ok(Arc::from(out))

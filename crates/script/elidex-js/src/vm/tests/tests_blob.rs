@@ -134,3 +134,73 @@ fn blob_ctor_requires_new_operator() {
          catch (e) { threw = e instanceof TypeError; } threw;"
     ));
 }
+
+#[test]
+fn ctor_accepts_custom_iterable_blob_parts() {
+    let mut vm = Vm::new();
+    // WebIDL `blobParts` is `sequence<BlobPart>` — any iterable is
+    // accepted, not only VM Array instances.  Custom
+    // `[Symbol.iterator]` yielding two strings → Blob contains
+    // their concatenated UTF-8 bytes (R21.1).  Previously this
+    // threw TypeError.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var src = { [Symbol.iterator]() { \
+                 var parts = ['hi', ' there']; \
+                 var i = 0; \
+                 return { next() { \
+                     return i < parts.length \
+                         ? { value: parts[i++], done: false } \
+                         : { value: undefined, done: true }; \
+                 } }; \
+             } }; \
+             new Blob(src).size;"
+        ),
+        8.0
+    );
+}
+
+#[test]
+fn ctor_rejects_non_iterable_blob_parts() {
+    let mut vm = Vm::new();
+    // A plain number has no `@@iterator` and fails WebIDL sequence
+    // conversion with TypeError (R21.1).  Contrasts with `new Blob()`
+    // (no args, empty Blob) and `new Blob([])` (empty iterable).
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; try { new Blob(42); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn ctor_blob_parts_abrupt_completion_closes_iterator() {
+    let mut vm = Vm::new();
+    // ES §7.4.6: when a yielded part fails conversion (here, a
+    // Symbol which `ToString` rejects), the iterator's `.return()`
+    // must be invoked before the TypeError propagates.  Mirrors
+    // R18.1's IteratorClose regression for `HeadersInit` (R21.1).
+    assert!(eval_bool(
+        &mut vm,
+        "globalThis.returnCalled = false; \
+         var src = { [Symbol.iterator]() { \
+             var step = 0; \
+             return { \
+                 next() { \
+                     step++; \
+                     if (step === 1) return { value: 'a', done: false }; \
+                     return { value: Symbol('x'), done: false }; \
+                 }, \
+                 return() { \
+                     globalThis.returnCalled = true; \
+                     return { value: undefined, done: true }; \
+                 } \
+             }; \
+         } }; \
+         var threw = false; \
+         try { new Blob(src); } \
+         catch (e) { threw = e instanceof TypeError; } \
+         threw && globalThis.returnCalled;"
+    ));
+}
