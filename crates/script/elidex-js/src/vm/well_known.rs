@@ -273,6 +273,31 @@ pub(crate) struct WellKnownStrings {
     pub(crate) blur: StringId,
     pub(crate) active_element: StringId,
     pub(crate) has_focus: StringId,
+    // HTMLElement IDL attribute names (PR5b §C2).  Each covers the
+    // IDL property identifier; the matching HTML content-attribute
+    // name is sometimes identical (lang / title / dir / hidden /
+    // nonce / translate / spellcheck / autofocus) and sometimes a
+    // case-folded variant (`accessKey` ↔ `accesskey`, `tabIndex` ↔
+    // `tabindex`, `inputMode` ↔ `inputmode`, `enterKeyHint` ↔
+    // `enterkeyhint`, `contentEditable` ↔ `contenteditable`).
+    // WHATWG §3.2.8 / §6.6 / §6.7.  `isContentEditable` is a
+    // readonly derived accessor with no backing content attribute.
+    pub(crate) access_key: StringId,
+    pub(crate) tab_index: StringId,
+    pub(crate) draggable: StringId,
+    pub(crate) hidden: StringId,
+    pub(crate) lang: StringId,
+    pub(crate) dir: StringId,
+    pub(crate) title: StringId,
+    pub(crate) translate: StringId,
+    pub(crate) spellcheck: StringId,
+    pub(crate) autocapitalize: StringId,
+    pub(crate) input_mode: StringId,
+    pub(crate) enter_key_hint: StringId,
+    pub(crate) nonce: StringId,
+    pub(crate) content_editable: StringId,
+    pub(crate) is_content_editable: StringId,
+    pub(crate) autofocus: StringId,
     // HTMLIFrameElement.prototype property names (PR4f C8).
     pub(crate) src: StringId,
     pub(crate) srcdoc: StringId,
@@ -636,6 +661,22 @@ impl WellKnownStrings {
             blur: strings.intern("blur"),
             active_element: strings.intern("activeElement"),
             has_focus: strings.intern("hasFocus"),
+            access_key: strings.intern("accessKey"),
+            tab_index: strings.intern("tabIndex"),
+            draggable: strings.intern("draggable"),
+            hidden: strings.intern("hidden"),
+            lang: strings.intern("lang"),
+            dir: strings.intern("dir"),
+            title: strings.intern("title"),
+            translate: strings.intern("translate"),
+            spellcheck: strings.intern("spellcheck"),
+            autocapitalize: strings.intern("autocapitalize"),
+            input_mode: strings.intern("inputMode"),
+            enter_key_hint: strings.intern("enterKeyHint"),
+            nonce: strings.intern("nonce"),
+            content_editable: strings.intern("contentEditable"),
+            is_content_editable: strings.intern("isContentEditable"),
+            autofocus: strings.intern("autofocus"),
             src: strings.intern("src"),
             srcdoc: strings.intern("srcdoc"),
             referrer_policy: strings.intern("referrerPolicy"),

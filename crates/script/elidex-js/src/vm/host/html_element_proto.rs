@@ -23,23 +23,39 @@
 //!         → …
 //! ```
 //!
-//! Members installed here in this commit (PR5b §C1):
+//! Members installed here (PR5b §C1 + §C2):
 //!
-//! - **`focus()`** / **`blur()`** — update `HostData::focused_entity`.
-//!   Phase 2 simplification: no `FocusEvent` dispatch, no focusable-area
-//!   check (follow-up commit adds `click()` which does dispatch).
-//!
-//! IDL attrs (accessKey / tabIndex / draggable / hidden / lang / dir /
-//! title / translate / spellcheck / autocapitalize / inputMode /
-//! enterKeyHint / nonce / contentEditable / isContentEditable /
-//! autofocus) and `click()` install in follow-up commits (PR5b §C2).
+//! - **Methods**: `focus()` / `blur()` — update
+//!   `HostData::focused_entity`.  Phase 2 simplification: no
+//!   `FocusEvent` dispatch, no focusable-area check.  `click()` (with
+//!   MouseEvent dispatch) lands with the PendingTask queue in PR5b §C6.
+//! - **Plain DOMString reflect**: `accessKey` / `lang` / `title` /
+//!   `nonce`.
+//! - **Enumerated (limited-to-known-values)**: `dir` (`ltr`/`rtl`/
+//!   `auto`), `autocapitalize`, `inputMode`, `enterKeyHint`,
+//!   `contentEditable` (`true`/`false`/`plaintext-only`/`inherit`).
+//! - **Boolean presence**: `hidden` (tri-state with `"until-found"`
+//!   surfacing as a DOMString), `autofocus`.
+//! - **Boolean with attr value mapping**: `draggable` (per-element
+//!   default for `<img>` / `<a href>` / `<area href>`), `translate`
+//!   (`"yes"`/`"no"`, default true), `spellcheck` (`"true"`/`"false"`,
+//!   default true).
+//! - **Long with per-element default**: `tabIndex` — 0 for link /
+//!   form-control / embed / contenteditable elements, -1 otherwise
+//!   (WHATWG §6.6.3).
+//! - **Readonly derived**: `isContentEditable` — walks ancestors for
+//!   the first explicit `contenteditable` state.
 //!
 //! ## Receiver brand check
 //!
-//! `focus` / `blur` route through [`super::event_target::require_receiver`]
-//! with a `PrototypeKind::Element` filter (every HTML-namespace element
-//! inhabits `NodeKind::Element`; non-HTML XML elements are rejected at
-//! `create_element_wrapper`'s dispatch step, never reaching this proto).
+//! Every installed accessor / method routes through
+//! [`require_html_element_receiver`], which wraps
+//! [`super::event_target::require_receiver`] with a
+//! `NodeKind::Element` filter and **promotes the non-host-object
+//! case to TypeError** (vanilla `require_receiver` silently no-ops
+//! for `{}` receivers, which is wrong for the WebIDL brand semantics
+//! HTMLElement attrs need).  Non-HTML XML elements are rejected at
+//! `create_element_wrapper`'s dispatch step, never reaching this proto.
 //!
 //! ## GC contract
 //!
@@ -57,7 +73,7 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError,
 };
-use super::super::{NativeFn, VmInner};
+use super::super::{NativeFn, StringId, VmInner};
 
 impl VmInner {
     /// Allocate `HTMLElement.prototype` with `Element.prototype` as
@@ -82,12 +98,12 @@ impl VmInner {
         });
         self.html_element_prototype = Some(proto_id);
         self.install_html_element_methods(proto_id);
+        self.install_html_element_idl_attrs(proto_id);
     }
 
-    /// Install `focus()` / `blur()` on `HTMLElement.prototype`.  Other
-    /// methods (`click`) and the 16 IDL attrs land in follow-up
-    /// commits — each as its own focused helper so review diffs stay
-    /// narrow.
+    /// Install `focus()` / `blur()` on `HTMLElement.prototype`.
+    /// `click()` follows in the PR5b §C6 MouseEvent dispatch
+    /// tranche.
     fn install_html_element_methods(&mut self, proto_id: ObjectId) {
         for (name_sid, func) in [
             (self.well_known.focus, native_html_element_focus as NativeFn),
@@ -102,6 +118,125 @@ impl VmInner {
                 shape::PropertyAttrs::METHOD,
             );
         }
+    }
+
+    /// Install the 16 HTMLElement IDL attribute accessors (§3.2.8 /
+    /// §6.6 / §6.7).  Read/write attrs install as `WEBIDL_RO_ACCESSOR`
+    /// (accessor pair, configurable=true, enumerable=true matching
+    /// WebIDL `[Unscopable]` defaults — same shape category as
+    /// HTMLIFrameElement attrs).  The single read-only derived
+    /// attribute (`isContentEditable`) installs with `setter: None`.
+    fn install_html_element_idl_attrs(&mut self, proto_id: ObjectId) {
+        // Plain DOMString reflect — getter returns the attribute
+        // value or `""` when absent; setter writes `ToString(v)`.
+        for (name_sid, getter, setter) in [
+            (
+                self.well_known.access_key,
+                native_access_key_get as NativeFn,
+                native_access_key_set as NativeFn,
+            ),
+            (self.well_known.lang, native_lang_get, native_lang_set),
+            (self.well_known.title, native_title_get, native_title_set),
+            (self.well_known.nonce, native_nonce_get, native_nonce_set),
+            // Enumerated / limited-to-known-values — getter
+            // canonicalises (empty / lowercase), setter is verbatim.
+            (self.well_known.dir, native_dir_get, native_dir_set),
+            (
+                self.well_known.autocapitalize,
+                native_autocapitalize_get,
+                native_autocapitalize_set,
+            ),
+            (
+                self.well_known.input_mode,
+                native_input_mode_get,
+                native_input_mode_set,
+            ),
+            (
+                self.well_known.enter_key_hint,
+                native_enter_key_hint_get,
+                native_enter_key_hint_set,
+            ),
+            (
+                self.well_known.content_editable,
+                native_content_editable_get,
+                native_content_editable_set,
+            ),
+            // Boolean reflect (attr presence ↔ IDL boolean).
+            (self.well_known.hidden, native_hidden_get, native_hidden_set),
+            (
+                self.well_known.autofocus,
+                native_autofocus_get,
+                native_autofocus_set,
+            ),
+            // Boolean attrs driven by content value (not presence).
+            (
+                self.well_known.draggable,
+                native_draggable_get,
+                native_draggable_set,
+            ),
+            (
+                self.well_known.translate,
+                native_translate_get,
+                native_translate_set,
+            ),
+            (
+                self.well_known.spellcheck,
+                native_spellcheck_get,
+                native_spellcheck_set,
+            ),
+            // Long reflect with per-element default (link / form
+            // controls / contenteditable → 0; others → −1).
+            (
+                self.well_known.tab_index,
+                native_tab_index_get,
+                native_tab_index_set,
+            ),
+        ] {
+            self.install_rw_accessor(proto_id, name_sid, getter, setter);
+        }
+        // Read-only derived attribute — no backing content attr.
+        self.install_ro_accessor(
+            proto_id,
+            self.well_known.is_content_editable,
+            native_is_content_editable_get,
+        );
+    }
+
+    /// Helper — install a getter/setter pair as a WebIDL RW accessor.
+    fn install_rw_accessor(
+        &mut self,
+        proto_id: ObjectId,
+        name_sid: StringId,
+        getter: NativeFn,
+        setter: NativeFn,
+    ) {
+        let display = self.strings.get_utf8(name_sid);
+        let gid = self.create_native_function(&format!("get {display}"), getter);
+        let sid = self.create_native_function(&format!("set {display}"), setter);
+        self.define_shaped_property(
+            proto_id,
+            PropertyKey::String(name_sid),
+            PropertyValue::Accessor {
+                getter: Some(gid),
+                setter: Some(sid),
+            },
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+    }
+
+    /// Helper — install a getter-only WebIDL accessor.
+    fn install_ro_accessor(&mut self, proto_id: ObjectId, name_sid: StringId, getter: NativeFn) {
+        let display = self.strings.get_utf8(name_sid);
+        let gid = self.create_native_function(&format!("get {display}"), getter);
+        self.define_shaped_property(
+            proto_id,
+            PropertyKey::String(name_sid),
+            PropertyValue::Accessor {
+                getter: Some(gid),
+                setter: None,
+            },
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
     }
 }
 
@@ -184,4 +319,583 @@ fn require_html_element_receiver(
 /// detach hook clears focus before the entity is removed).
 pub(super) fn focused_entity(ctx: &NativeContext<'_>) -> Option<elidex_ecs::Entity> {
     ctx.vm.host_data.as_deref()?.focused_entity()
+}
+
+// =========================================================================
+// IDL attributes — WHATWG HTML §3.2.8 / §6.6 / §6.7
+// =========================================================================
+//
+// Accessor naming convention: `native_<idl_property>_get` /
+// `native_<idl_property>_set`.  All receivers go through
+// [`require_html_element_receiver`] so `.call({})` uniformly throws
+// TypeError.  Empty-string return on missing attr matches the DOMString
+// reflect semantics every HTMLElement attr shares.
+
+/// Plain DOMString reflect — getter returns attr value or `""`.
+///
+/// Used for: `accessKey` / `lang` / `title` / `nonce`.
+fn string_reflect_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    idl_name: &'static str,
+    attr_name: &'static str,
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, idl_name)?;
+    let sid = match ctx.host().dom().get_attribute(entity, attr_name) {
+        Some(v) => ctx.vm.strings.intern(&v),
+        None => ctx.vm.well_known.empty,
+    };
+    Ok(JsValue::String(sid))
+}
+
+/// Plain DOMString reflect setter — writes `ToString(v)`.
+fn string_reflect_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    idl_name: &'static str,
+    attr_name: &'static str,
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, idl_name)?;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.host().dom().set_attribute(entity, attr_name, s);
+    Ok(JsValue::Undefined)
+}
+
+/// Limited-to-known-values DOMString reflect — getter lowercases
+/// and returns the attribute value when it matches one of
+/// `allowed`, otherwise `default` (typically `""`).  Setter is
+/// verbatim (spec §3.2.8.1: "On setting, the content attribute
+/// must be set to the specified value", i.e. no validation).
+fn enumerated_reflect_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    idl_name: &'static str,
+    attr_name: &'static str,
+    allowed: &[&str],
+    default: &'static str,
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, idl_name)?;
+    let raw = ctx.host().dom().get_attribute(entity, attr_name);
+    let resolved = raw
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .filter(|v| allowed.iter().any(|a| a == v))
+        .unwrap_or_else(|| default.to_string());
+    let sid = if resolved.is_empty() {
+        ctx.vm.well_known.empty
+    } else {
+        ctx.vm.strings.intern(&resolved)
+    };
+    Ok(JsValue::String(sid))
+}
+
+// ---- accessKey ----
+fn native_access_key_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_get(ctx, this, "accessKey", "accesskey")
+}
+fn native_access_key_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "accessKey", "accesskey")
+}
+
+// ---- lang ----
+fn native_lang_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_get(ctx, this, "lang", "lang")
+}
+fn native_lang_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "lang", "lang")
+}
+
+// ---- title ----
+fn native_title_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_get(ctx, this, "title", "title")
+}
+fn native_title_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "title", "title")
+}
+
+// ---- nonce ----
+fn native_nonce_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_get(ctx, this, "nonce", "nonce")
+}
+fn native_nonce_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "nonce", "nonce")
+}
+
+// ---- dir (limited to ltr/rtl/auto) ----
+//
+// WHATWG §3.2.8.1: getter returns the canonical form when attr is
+// set to one of the known values, otherwise `""`.  Setter stores
+// verbatim.
+fn native_dir_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    enumerated_reflect_get(ctx, this, "dir", "dir", &["ltr", "rtl", "auto"], "")
+}
+fn native_dir_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "dir", "dir")
+}
+
+// ---- autocapitalize ----
+//
+// WHATWG §6.8.7: allowed values `off` / `none` / `on` / `sentences`
+// / `words` / `characters`; `off` is the canonical form of the
+// "none" state (getter returns `"none"`) — kept as a separate
+// recognised token below and canonicalised via the `none` fallback.
+fn native_autocapitalize_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    enumerated_reflect_get(
+        ctx,
+        this,
+        "autocapitalize",
+        "autocapitalize",
+        &["off", "none", "on", "sentences", "words", "characters"],
+        "",
+    )
+}
+fn native_autocapitalize_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "autocapitalize", "autocapitalize")
+}
+
+// ---- inputMode ----
+fn native_input_mode_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    enumerated_reflect_get(
+        ctx,
+        this,
+        "inputMode",
+        "inputmode",
+        &[
+            "none", "text", "tel", "url", "email", "numeric", "decimal", "search",
+        ],
+        "",
+    )
+}
+fn native_input_mode_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "inputMode", "inputmode")
+}
+
+// ---- enterKeyHint ----
+fn native_enter_key_hint_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    enumerated_reflect_get(
+        ctx,
+        this,
+        "enterKeyHint",
+        "enterkeyhint",
+        &["enter", "done", "go", "next", "previous", "search", "send"],
+        "",
+    )
+}
+fn native_enter_key_hint_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "enterKeyHint", "enterkeyhint")
+}
+
+// ---- contentEditable / isContentEditable ----
+//
+// WHATWG §6.7.3: `contentEditable` is a DOMString enumerated
+// reflecting the content attribute; missing value is `"inherit"`,
+// invalid is also treated as the missing-state per spec (§6.7.3.2).
+// `isContentEditable` is a readonly boolean that resolves the
+// effective state by walking ancestors — spec inherits from
+// `<html>` (which defaults to `false`).
+fn native_content_editable_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    enumerated_reflect_get(
+        ctx,
+        this,
+        "contentEditable",
+        "contenteditable",
+        &["true", "false", "plaintext-only", "inherit"],
+        "inherit",
+    )
+}
+fn native_content_editable_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    string_reflect_set(ctx, this, args, "contentEditable", "contenteditable")
+}
+
+fn native_is_content_editable_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "isContentEditable")?;
+    // Walk ancestors looking for the first explicit contenteditable
+    // state: `true` or `plaintext-only` → true; `false` → false;
+    // anything else or no attribute → inherit from parent.  Root
+    // inherits `false` (spec §6.7.3 default).
+    let dom = ctx.host().dom();
+    let mut cur = Some(entity);
+    while let Some(e) = cur {
+        if let Some(raw) = dom.get_attribute(e, "contenteditable") {
+            let lower = raw.to_ascii_lowercase();
+            return Ok(JsValue::Boolean(matches!(
+                lower.as_str(),
+                "true" | "plaintext-only" | ""
+            )));
+        }
+        cur = dom.get_parent(e);
+    }
+    Ok(JsValue::Boolean(false))
+}
+
+// ---- hidden (tri-state) ----
+//
+// WHATWG §6.6: IDL type is `(boolean or DOMString)`.  Getter returns
+// `true` when the content attribute is present (except `until-found`
+// which surfaces as the string `"until-found"`), `false` when
+// absent.  Setter accepts `true` / `false` / `"until-found"` /
+// `""` — any non-string non-boolean coerces via ToBoolean.
+fn native_hidden_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "hidden")?;
+    let value = ctx.host().dom().get_attribute(entity, "hidden");
+    Ok(match value {
+        None => JsValue::Boolean(false),
+        Some(v) if v.eq_ignore_ascii_case("until-found") => {
+            let sid = ctx.vm.strings.intern("until-found");
+            JsValue::String(sid)
+        }
+        Some(_) => JsValue::Boolean(true),
+    })
+}
+fn native_hidden_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "hidden")?;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    // Distinguish `"until-found"` from other strings so that
+    // `el.hidden = "until-found"` sets the content attribute to
+    // that literal rather than the empty string (presence-only).
+    if let JsValue::String(sid) = val {
+        let s = ctx.vm.strings.get_utf8(sid);
+        if s.eq_ignore_ascii_case("until-found") {
+            ctx.host()
+                .dom()
+                .set_attribute(entity, "hidden", "until-found".into());
+            return Ok(JsValue::Undefined);
+        }
+        if s.is_empty() {
+            ctx.host().dom().remove_attribute(entity, "hidden");
+            return Ok(JsValue::Undefined);
+        }
+    }
+    let flag = super::super::coerce::to_boolean(ctx.vm, val);
+    if flag {
+        ctx.host()
+            .dom()
+            .set_attribute(entity, "hidden", String::new());
+    } else {
+        ctx.host().dom().remove_attribute(entity, "hidden");
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---- autofocus (boolean reflect, presence = true) ----
+fn native_autofocus_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "autofocus")?;
+    Ok(JsValue::Boolean(
+        ctx.host()
+            .dom()
+            .get_attribute(entity, "autofocus")
+            .is_some(),
+    ))
+}
+fn native_autofocus_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "autofocus")?;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    if super::super::coerce::to_boolean(ctx.vm, val) {
+        ctx.host()
+            .dom()
+            .set_attribute(entity, "autofocus", String::new());
+    } else {
+        ctx.host().dom().remove_attribute(entity, "autofocus");
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---- draggable (plain boolean IDL over tri-state content attr) ----
+//
+// WHATWG §6.11.1: IDL getter returns `true` if content is `"true"`,
+// `false` if `"false"`, otherwise per-element default.  Setter
+// writes `"true"` or `"false"` (never `"auto"` — spec-defined).
+fn native_draggable_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "draggable")?;
+    let (raw, tag_default) = {
+        let dom = ctx.host().dom();
+        let r = dom.get_attribute(entity, "draggable");
+        let default = draggable_default_for(dom, entity);
+        (r, default)
+    };
+    let result = match raw.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("true") => true,
+        Some("false") => false,
+        _ => tag_default,
+    };
+    Ok(JsValue::Boolean(result))
+}
+fn native_draggable_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "draggable")?;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let literal = if super::super::coerce::to_boolean(ctx.vm, val) {
+        "true"
+    } else {
+        "false"
+    };
+    ctx.host()
+        .dom()
+        .set_attribute(entity, "draggable", literal.into());
+    Ok(JsValue::Undefined)
+}
+
+/// Per-element `draggable` default (WHATWG §6.11.1 step 4).
+/// `<img>` and `<a href>` default to true; everything else false.
+fn draggable_default_for(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> bool {
+    let Some(tag) = dom.get_tag_name(entity) else {
+        return false;
+    };
+    if tag.eq_ignore_ascii_case("img") {
+        return true;
+    }
+    if (tag.eq_ignore_ascii_case("a") || tag.eq_ignore_ascii_case("area"))
+        && dom.get_attribute(entity, "href").is_some()
+    {
+        return true;
+    }
+    false
+}
+
+// ---- translate (yes / no, defaults to true) ----
+fn native_translate_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "translate")?;
+    let raw = ctx.host().dom().get_attribute(entity, "translate");
+    // §6.9 step 4: missing / "" / "yes" → true; "no" → false.
+    let result = !matches!(
+        raw.as_deref().map(str::to_ascii_lowercase).as_deref(),
+        Some("no")
+    );
+    Ok(JsValue::Boolean(result))
+}
+fn native_translate_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "translate")?;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let literal = if super::super::coerce::to_boolean(ctx.vm, val) {
+        "yes"
+    } else {
+        "no"
+    };
+    ctx.host()
+        .dom()
+        .set_attribute(entity, "translate", literal.into());
+    Ok(JsValue::Undefined)
+}
+
+// ---- spellcheck (true / false, defaults to true unless inherited false) ----
+fn native_spellcheck_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "spellcheck")?;
+    // §6.8.6 default-true: attr "true" / "" → true, "false" → false,
+    // missing / other → true (Phase 2 simplification; inheritance
+    // from ancestors is the spec rule but browsers diverge).
+    let raw = ctx.host().dom().get_attribute(entity, "spellcheck");
+    let result = !matches!(
+        raw.as_deref().map(str::to_ascii_lowercase).as_deref(),
+        Some("false")
+    );
+    Ok(JsValue::Boolean(result))
+}
+fn native_spellcheck_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "spellcheck")?;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let literal = if super::super::coerce::to_boolean(ctx.vm, val) {
+        "true"
+    } else {
+        "false"
+    };
+    ctx.host()
+        .dom()
+        .set_attribute(entity, "spellcheck", literal.into());
+    Ok(JsValue::Undefined)
+}
+
+// ---- tabIndex (long with per-element default) ----
+//
+// WHATWG §6.6.3: default depends on the element — link (`a[href]`
+// / `area[href]`), form control (`button`, `input:not([type=hidden])`,
+// `select`, `textarea`), iframe / object / embed, and elements with
+// `contenteditable` default to 0; everything else defaults to -1.
+fn native_tab_index_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "tabIndex")?;
+    let (raw, element_default) = {
+        let dom = ctx.host().dom();
+        (
+            dom.get_attribute(entity, "tabindex"),
+            tab_index_default_for(dom, entity),
+        )
+    };
+    let parsed = raw.as_deref().and_then(parse_tab_index_value);
+    let value = parsed.unwrap_or(element_default);
+    Ok(JsValue::Number(f64::from(value)))
+}
+fn native_tab_index_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "tabIndex")?;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    // WebIDL `long` — truncate via `ToInt32`.
+    let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    let s = n.to_string();
+    ctx.host().dom().set_attribute(entity, "tabindex", s);
+    Ok(JsValue::Undefined)
+}
+
+/// Parse a `tabindex` attribute value per HTML §2.4.4.1
+/// (signed integers).  Returns `None` for values that fail the
+/// spec's "valid integer" grammar so the getter falls back to the
+/// per-element default, matching browser behaviour.
+fn parse_tab_index_value(raw: &str) -> Option<i32> {
+    let trimmed = raw.trim();
+    trimmed.parse::<i32>().ok()
+}
+
+/// Per-element `tabIndex` default (WHATWG §6.6.3 step 2).
+fn tab_index_default_for(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> i32 {
+    let Some(tag) = dom.get_tag_name(entity) else {
+        return -1;
+    };
+    let lower_tag: String = tag.to_ascii_lowercase();
+    let has_href = dom.get_attribute(entity, "href").is_some();
+    let is_link = matches!(lower_tag.as_str(), "a" | "area") && has_href;
+    let is_form_control = match lower_tag.as_str() {
+        "button" | "select" | "textarea" => true,
+        "input" => {
+            // `<input type="hidden">` is unfocusable; everything else
+            // participates in sequential focus navigation.
+            !dom.get_attribute(entity, "type")
+                .is_some_and(|t| t.eq_ignore_ascii_case("hidden"))
+        }
+        _ => false,
+    };
+    let is_embedded = matches!(lower_tag.as_str(), "iframe" | "object" | "embed");
+    let has_contenteditable = dom
+        .get_attribute(entity, "contenteditable")
+        .is_some_and(|v| {
+            let lower = v.to_ascii_lowercase();
+            matches!(lower.as_str(), "" | "true" | "plaintext-only")
+        });
+    if is_link || is_form_control || is_embedded || has_contenteditable {
+        0
+    } else {
+        -1
+    }
 }
