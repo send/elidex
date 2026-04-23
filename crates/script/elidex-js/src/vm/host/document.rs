@@ -629,6 +629,75 @@ pub(super) fn native_document_get_images(
     })
 }
 
+/// `document.activeElement` (WHATWG HTML §6.6.3).
+///
+/// Returns the currently focused Element, or — when no element is
+/// focused (or the focused entity has since been detached) — the
+/// document's `<body>` per spec step 2.  If neither is available,
+/// returns `documentElement` (spec fallback for documents without a
+/// body, e.g. during parser construction of the HTML skeleton).
+pub(super) fn native_document_get_active_element(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "activeElement")? else {
+        return Ok(JsValue::Null);
+    };
+    // Resolve the focus target: focused_entity if set and still
+    // attached, else <body>, else <html> root (spec fallback for
+    // documents without a body).  Mirror `body` / `documentElement`
+    // accessors so the fallback chain stays consistent.
+    let focused = super::html_element_proto::focused_entity(ctx);
+    let target = {
+        let dom = ctx.host().dom();
+        // A focused element counts only when it remains connected
+        // to the document — walking up via `get_parent` must reach
+        // `doc`.  Detached (removed) subtrees fall through to the
+        // body / root fallback so stale `focused_entity` from a
+        // prior `focus()` + `remove()` does not leak.
+        let focused_connected = focused.and_then(|e| {
+            if !dom.contains(e) {
+                return None;
+            }
+            let mut cur = Some(e);
+            while let Some(c) = cur {
+                if c == doc {
+                    return Some(e);
+                }
+                cur = dom.get_parent(c);
+            }
+            None
+        });
+        focused_connected.or_else(|| {
+            let html = find_html_root_of(ctx, doc)?;
+            ctx.host()
+                .dom()
+                .first_child_with_tag(html, "body")
+                .or(Some(html))
+        })
+    };
+    Ok(wrap_entity_or_null(ctx.vm, target))
+}
+
+/// `document.hasFocus()` (WHATWG HTML §6.7).
+///
+/// Phase 2 approximation: returns whether any element is currently
+/// focused (`HostData::focused_entity.is_some()`).  A full spec
+/// implementation tracks system focus at the window level; same-
+/// origin Document vs top-level Window focus arbitration is deferred
+/// to the PR5d cross-window tranche.
+pub(super) fn native_document_has_focus(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = document_receiver(ctx, this, "hasFocus")?;
+    Ok(JsValue::Boolean(
+        super::html_element_proto::focused_entity(ctx).is_some(),
+    ))
+}
+
 /// `document.links` — snapshot of every `<a>` / `<area>` descendant
 /// carrying an `href` attribute (WHATWG §4.5: anchors without `href`
 /// are **excluded**).
@@ -734,6 +803,12 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
         "createDocumentFragment",
         native_document_create_document_fragment,
     ),
+    // PR5b §C1: focus-management readers.  `hasFocus()` returns
+    // whether any element is currently focused (Phase 2: whether
+    // `HostData::focused_entity` is `Some`).  Spec §6.7 defines
+    // hasFocus in terms of the system focus — we approximate as
+    // "some element inside this Document has focus".
+    ("hasFocus", native_document_has_focus),
 ];
 
 const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
@@ -752,6 +827,9 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("forms", native_document_get_forms),
     ("images", native_document_get_images),
     ("links", native_document_get_links),
+    // PR5b §C1 — `activeElement` returns the focused Element (or
+    // `body` when no element is focused, per WHATWG §6.6.3 step 2).
+    ("activeElement", native_document_get_active_element),
 ];
 
 /// Read/write Document accessors.  `title` is WHATWG-backed; `cookie`

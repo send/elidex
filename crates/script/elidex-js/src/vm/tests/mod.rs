@@ -40,6 +40,7 @@ mod tests_generator;
 mod tests_headers;
 mod tests_history;
 mod tests_host_object;
+mod tests_html_element_proto;
 mod tests_html_iframe;
 mod tests_insert_adjacent;
 mod tests_integration_fetch;

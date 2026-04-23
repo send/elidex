@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 41],
+    proto_roots: [Option<ObjectId>; 42],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -768,6 +768,16 @@ impl VmInner {
                 // 24 + 1 (HTMLIFrameElement, PR4f C8) = 25.
                 #[cfg(feature = "engine")]
                 self.html_iframe_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 25 + 1 (HTMLElement, PR5b §C1) = 26.  Spliced in
+                // between HTMLIFrameElement.prototype and
+                // Element.prototype so `iframe instanceof HTMLElement`
+                // holds true (WHATWG §3.2.8).  Follow-up tag-specific
+                // prototypes (HTMLDivElement, HTMLAnchorElement, …)
+                // will chain here via the same pattern.
+                #[cfg(feature = "engine")]
+                self.html_element_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
                 // 25 + 1 (DOMException) = 26.

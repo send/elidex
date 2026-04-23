@@ -243,14 +243,31 @@ pub(crate) struct VmInner {
     /// `register_globals()` (after `register_node_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) document_type_prototype: Option<ObjectId>,
+    /// `HTMLElement.prototype` — shared prototype for every HTML
+    /// namespace element wrapper (WHATWG HTML §3.2.8).  Chains to
+    /// `Element.prototype`, carrying focus / blur / click methods and
+    /// HTML-specific IDL attrs (accessKey, tabIndex, draggable,
+    /// hidden, lang, dir, title, translate, spellcheck,
+    /// autocapitalize, inputMode, enterKeyHint, nonce,
+    /// contentEditable, isContentEditable, autofocus).
+    ///
+    /// Tag-specific prototypes (e.g. `HTMLIFrameElement.prototype`)
+    /// chain here, so the runtime proto chain is
+    /// `HTMLIFrameElement.prototype → HTMLElement.prototype →
+    /// Element.prototype → Node.prototype → EventTarget.prototype`.
+    ///
+    /// `None` until `register_html_element_prototype()` runs during
+    /// `register_globals()` (after `register_element_prototype`,
+    /// before `register_html_iframe_prototype`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_element_prototype: Option<ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
-    /// `Element.prototype` today; PR5b will splice in
-    /// `HTMLElement.prototype` between the two as part of the wider
-    /// HTMLElement work (see plan §D2 for the migration invariant).
+    /// [`Self::html_element_prototype`] (after PR5b splice) so
+    /// `iframe instanceof HTMLElement === true`.
     ///
     /// `None` until `register_html_iframe_prototype()` runs during
-    /// `register_globals()` (after `register_element_prototype`).
+    /// `register_globals()` (after `register_html_element_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) html_iframe_prototype: Option<ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to

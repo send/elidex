@@ -77,6 +77,7 @@ fn element_wrapper_prototype_chain_element_node_event_target() {
     let doc = dom.create_document_root();
     let el = dom.create_element("div", Attributes::default());
 
+    let html_element_proto = vm.inner.html_element_prototype;
     let element_proto = vm.inner.element_prototype;
     let node_proto = vm.inner.node_prototype;
     let event_target_proto = vm.inner.event_target_prototype;
@@ -86,11 +87,20 @@ fn element_wrapper_prototype_chain_element_node_event_target() {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
 
+    // PR5b §C1: HTML-namespace elements chain through
+    // `HTMLElement.prototype` so `div instanceof HTMLElement === true`
+    // (WHATWG §3.2.8).  The chain now climbs
+    // `wrapper → HTMLElement → Element → Node → EventTarget`.
     let wrapper = vm.inner.create_element_wrapper(el);
     assert_eq!(
         vm.inner.get_object(wrapper).prototype,
+        html_element_proto,
+        "Element wrapper → HTMLElement.prototype"
+    );
+    assert_eq!(
+        vm.inner.get_object(html_element_proto.unwrap()).prototype,
         element_proto,
-        "Element wrapper → Element.prototype"
+        "HTMLElement.prototype → Element.prototype"
     );
     assert_eq!(
         vm.inner.get_object(element_proto.unwrap()).prototype,

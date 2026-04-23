@@ -264,6 +264,15 @@ pub(crate) struct WellKnownStrings {
     pub(crate) forms: StringId,
     pub(crate) images: StringId,
     pub(crate) links: StringId,
+    // HTMLElement.prototype method + accessor names (PR5b §C1).
+    // `focus` / `blur` install as methods; `activeElement` /
+    // `hasFocus` install as document accessor + method
+    // respectively.  Pre-interned here so install sites and
+    // receiver brand-check helpers share a single StringId.
+    pub(crate) focus: StringId,
+    pub(crate) blur: StringId,
+    pub(crate) active_element: StringId,
+    pub(crate) has_focus: StringId,
     // HTMLIFrameElement.prototype property names (PR4f C8).
     pub(crate) src: StringId,
     pub(crate) srcdoc: StringId,
@@ -623,6 +632,10 @@ impl WellKnownStrings {
             forms: strings.intern("forms"),
             images: strings.intern("images"),
             links: strings.intern("links"),
+            focus: strings.intern("focus"),
+            blur: strings.intern("blur"),
+            active_element: strings.intern("activeElement"),
+            has_focus: strings.intern("hasFocus"),
             src: strings.intern("src"),
             srcdoc: strings.intern("srcdoc"),
             referrer_policy: strings.intern("referrerPolicy"),

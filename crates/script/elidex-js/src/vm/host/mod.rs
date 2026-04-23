@@ -61,6 +61,7 @@ pub(crate) mod headers;
 #[cfg(feature = "engine")]
 pub(super) mod headers_validation;
 pub(super) mod history;
+pub(super) mod html_element_proto;
 pub(super) mod html_iframe_proto;
 pub(super) mod location;
 pub(super) mod navigation;

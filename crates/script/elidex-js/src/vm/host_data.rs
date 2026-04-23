@@ -91,6 +91,17 @@ mod engine_feature {
         pub(crate) document_methods_installed: HashSet<Entity>,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
         pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
+        /// Currently focused Element entity (WHATWG HTML §6.6.3).
+        ///
+        /// `None` when no Element is focused; `document.activeElement`
+        /// falls back to the `<body>` element in that case.  Phase 2
+        /// simplification: we track focus as a single Option (spec
+        /// models a focus chain, but single-frame VM covers the
+        /// primary use cases).
+        ///
+        /// Cleared automatically when the focused Entity is detached
+        /// from the document — see [`Self::invalidate_focus_if`].
+        pub(crate) focused_entity: Option<Entity>,
     }
 
     impl HostData {
@@ -103,7 +114,28 @@ mod engine_feature {
                 document_methods_installed: HashSet::new(),
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
+                focused_entity: None,
             }
+        }
+
+        /// Set the focused Element (called from `HTMLElement.focus()`).
+        pub(crate) fn set_focused_entity(&mut self, entity: Entity) {
+            self.focused_entity = Some(entity);
+        }
+
+        /// Clear focus if the currently-focused entity equals `entity`.
+        /// Called from `HTMLElement.blur()` and from the ECS detach
+        /// hook to maintain the invariant that `focused_entity` always
+        /// points to a live, connected Element.
+        pub(crate) fn invalidate_focus_if(&mut self, entity: Entity) {
+            if self.focused_entity == Some(entity) {
+                self.focused_entity = None;
+            }
+        }
+
+        /// Return the currently focused Element, if any.
+        pub(crate) fn focused_entity(&self) -> Option<Entity> {
+            self.focused_entity
         }
 
         /// # Panics
