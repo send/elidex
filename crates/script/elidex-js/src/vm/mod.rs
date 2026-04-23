@@ -460,6 +460,194 @@ pub(crate) struct VmInner {
     /// [`event_prototype`].  Adds `state` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) pop_state_event_prototype: Option<ObjectId>,
+    /// `Headers.prototype` (WHATWG Fetch §5.2).  Chains to
+    /// `Object.prototype` — Headers is a WebIDL interface with no
+    /// EventTarget ancestry.  Holds `append` / `set` / `delete` /
+    /// `get` / `has` / `getSetCookie` / `forEach` / `keys` /
+    /// `values` / `entries` methods plus `[Symbol.iterator]`.
+    /// Per-instance list and guard live in
+    /// [`Self::headers_states`], keyed by the instance's `ObjectId`.
+    ///
+    /// `None` until `register_headers_global()` runs during
+    /// `register_globals()` (after `register_prototypes` so
+    /// `object_prototype` is populated).  Engine-gated because every
+    /// consumer (Fetch API surface) is itself engine-only.
+    #[cfg(feature = "engine")]
+    pub(crate) headers_prototype: Option<ObjectId>,
+    /// Per-`Headers` out-of-band state, keyed by the instance's own
+    /// `ObjectId`.  Same pattern as [`Self::abort_signal_states`]:
+    /// payload lives here so [`ObjectKind::Headers`] stays
+    /// payload-free (preserves per-variant size discipline).
+    ///
+    /// Entries hold interned `StringId`s only (name / value are
+    /// pool-permanent), so the trace step has nothing to mark.
+    ///
+    /// GC contract: sweep tail prunes entries whose key `ObjectId`
+    /// was collected so a recycled slot can't observe a stale list
+    /// or guard — matching `abort_signal_states` /
+    /// `dom_exception_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) headers_states: HashMap<ObjectId, host::headers::HeadersState>,
+    /// `Request.prototype` (WHATWG Fetch §5.3).  Chains to
+    /// `Object.prototype` (no EventTarget / Node ancestry).  Holds
+    /// the IDL accessor suite (`method` / `url` / `headers` /
+    /// `body` / `bodyUsed` / `redirect` / `mode` / `credentials`
+    /// / `cache`) plus `clone`.
+    ///
+    /// `None` until `register_request_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) request_prototype: Option<ObjectId>,
+    /// Per-`Request` out-of-band state, keyed by the instance's
+    /// own `ObjectId`.  Payload lives here so
+    /// [`ObjectKind::Request`] stays payload-free.
+    ///
+    /// GC contract: trace marks `headers_id` (the paired Headers
+    /// instance) so it survives alongside the Request.  URL /
+    /// method are pool-permanent `StringId`s (no marking needed).
+    /// Sweep tail prunes entries whose key `ObjectId` was
+    /// collected so a recycled slot can't inherit stale state —
+    /// matching `headers_states` / `abort_signal_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) request_states: HashMap<ObjectId, host::request_response::RequestState>,
+    /// `Response.prototype` (WHATWG Fetch §5.5).  Chains to
+    /// `Object.prototype`.  Holds the IDL accessor suite
+    /// (`status` / `ok` / `statusText` / `url` / `type` /
+    /// `headers` / `body` / `bodyUsed` / `redirected`) plus
+    /// `clone`.
+    ///
+    /// The `Response` constructor function itself carries three
+    /// static factories — `Response.error` / `Response.redirect` /
+    /// `Response.json` — installed on the ctor in
+    /// `register_response_global`.
+    ///
+    /// `None` until `register_response_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) response_prototype: Option<ObjectId>,
+    /// Per-`Response` out-of-band state, keyed by the instance's
+    /// own `ObjectId`.  Payload lives here so
+    /// [`ObjectKind::Response`] stays payload-free and IDL
+    /// readonly attrs can read from the authoritative internal
+    /// slot rather than observable own-data (PR5a2 R7.1 lesson:
+    /// `delete resp.url` must not affect `resp.url` reads).
+    ///
+    /// GC contract: identical to `request_states` — mark
+    /// `headers_id`, prune dead keys in the sweep tail.
+    #[cfg(feature = "engine")]
+    pub(crate) response_states: HashMap<ObjectId, host::request_response::ResponseState>,
+    /// Shared body byte storage for `Request` / `Response` /
+    /// `ArrayBuffer` and the Body mixin read methods (`text` /
+    /// `json` / `arrayBuffer` / `blob`).  `Blob` payloads live in
+    /// the separate [`Self::blob_data`] table (R20.2); don't
+    /// conflate them — future zero-copy / GC-sweep decisions
+    /// pivot on which side table owns the bytes.  Keyed by the
+    /// owning object's `ObjectId`; the value is an `Arc<[u8]>`
+    /// so `clone()` can share the buffer across two objects
+    /// without copy (WHATWG §5 "body" cloning is reference-
+    /// counted).
+    ///
+    /// Requests / Responses without body bytes simply omit their
+    /// entry.  In Phase 2 the `.body` IDL getter is always `null`
+    /// because `ReadableStream` is deferred to the PR5-streams
+    /// tranche; the Body mixin read methods (`text` / `json` /
+    /// `arrayBuffer` / `blob`) read directly from this map, so
+    /// key presence is the "does this carry bytes?" signal rather
+    /// than the JS-visible `.body` getter.
+    ///
+    /// GC contract: the values hold no `ObjectId` references, so
+    /// the trace step skips them.  Sweep tail drops entries whose
+    /// key was collected (matching `headers_states`) so that a
+    /// recycled slot does not inherit stale bytes.
+    #[cfg(feature = "engine")]
+    pub(crate) body_data: HashMap<ObjectId, std::sync::Arc<[u8]>>,
+    /// One-shot "body already consumed" flag (WHATWG §5 `bodyUsed`).
+    /// Inserted by the Body mixin read methods (`text()` /
+    /// `.json()` / `.arrayBuffer()` / `.blob()`) the first time
+    /// any one of them runs on a given object; a second call on
+    /// the same object then rejects its returned Promise with
+    /// `TypeError`.  The `.bodyUsed` IDL getter reads membership
+    /// directly.
+    ///
+    /// GC contract: sweep tail prunes entries whose key was
+    /// collected, same as the other side tables.
+    #[cfg(feature = "engine")]
+    pub(crate) body_used: HashSet<ObjectId>,
+    /// `ArrayBuffer.prototype` (ES2020 §24.1, minimal Phase 2 form
+    /// — `byteLength` getter + `slice` method only; TypedArray
+    /// views are deferred to the next tranche).  Chains to
+    /// `Object.prototype`.
+    ///
+    /// `None` until `register_array_buffer_global()` runs during
+    /// `register_globals()`.  Per-instance byte storage shares the
+    /// [`Self::body_data`] map so ArrayBuffer / Request / Response
+    /// all prune through the same sweep path.
+    #[cfg(feature = "engine")]
+    pub(crate) array_buffer_prototype: Option<ObjectId>,
+    /// `Blob.prototype` (File API §3, minimal Phase 2 form).
+    /// Chains to `Object.prototype`.  Holds `size` / `type`
+    /// getters + `slice` / `text` / `arrayBuffer` methods.
+    ///
+    /// `None` until `register_blob_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) blob_prototype: Option<ObjectId>,
+    /// Per-`Blob` out-of-band state, keyed by the instance's own
+    /// `ObjectId`.  Separate from [`Self::body_data`] because a
+    /// Blob carries a `type_sid` alongside its bytes; folding both
+    /// into one map would force every Request / Response entry to
+    /// carry a phantom type slot.
+    ///
+    /// GC contract: bytes are plain `Arc<[u8]>` with no ObjectId
+    /// references, so the trace step does nothing.  Sweep tail
+    /// prunes entries whose key `ObjectId` was collected — same
+    /// pattern as `body_data` / `headers_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) blob_data: HashMap<ObjectId, host::blob::BlobData>,
+    /// Content-thread `NetworkHandle` used by the `fetch()` host
+    /// global.  `None` in test / standalone mode (`fetch()` then
+    /// rejects with `TypeError`); the embedding harness —
+    /// typically `elidex-shell` — installs a handle via
+    /// [`Vm::install_network_handle`] after VM construction.
+    ///
+    /// Wrapped in `Rc` because every [`NetworkHandle`](elidex_net::broker::NetworkHandle)
+    /// carries a [`RefCell<Vec<_>>`](std::cell::RefCell) of buffered
+    /// events and so is `!Send + !Sync`.  The content thread is
+    /// single-threaded (matches [`Vm`]'s own `!Send + !Sync`
+    /// invariant from `host_data.rs`), so `Rc` instead of `Arc`
+    /// is the tighter fit.  Each content thread owns its own
+    /// handle; worker threads (future) allocate sibling handles
+    /// via [`NetworkHandle::create_sibling_handle`].
+    ///
+    /// GC contract: this is Rust-owned, not a JS object — the GC
+    /// does not mark / sweep it, and dropping the `Rc` at `Vm`
+    /// teardown releases the handle.
+    #[cfg(feature = "engine")]
+    pub(crate) network_handle: Option<std::rc::Rc<elidex_net::broker::NetworkHandle>>,
+    /// Fan-out map for `AbortSignal` → in-flight `FetchId`s.  When a
+    /// signal aborts, [`host::abort::abort_signal`] drains the entry
+    /// for that signal's `ObjectId` and sends
+    /// [`elidex_net::broker::RendererToNetwork::CancelFetch`] for each
+    /// recorded fetch so the broker can discard the response.
+    ///
+    /// ## Phase 2 limitation (documented)
+    ///
+    /// `NetworkHandle::fetch_blocking` blocks the content thread, so
+    /// JS never runs between `fetch()` entry and the broker reply.
+    /// No user code can therefore fire an abort mid-flight — the
+    /// map stays empty for the lifetime of a blocking fetch and the
+    /// drain loop in `abort_signal` is dead code until the PR5-async-
+    /// fetch refactor lands.  The wire is in place so the async
+    /// refactor only has to populate on entry and prune on broker
+    /// reply.
+    ///
+    /// GC contract: sweep prunes entries whose key (signal) was
+    /// collected, matching [`Self::abort_signal_states`] /
+    /// [`Self::any_composite_map`].  Entries with live signal keys
+    /// are retained as-is; the `FetchId`s inside are plain `u64`s
+    /// that carry no GC obligations.
+    #[cfg(feature = "engine")]
+    pub(crate) fetch_abort_observers: HashMap<ObjectId, Vec<elidex_net::broker::FetchId>>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

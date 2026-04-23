@@ -18,10 +18,9 @@
 //! This deviates from WebIDL: the spec generates non-generic
 //! bindings that throw `TypeError: Illegal invocation` when `this`
 //! fails the [[Brand]] check.  Spec-correct enforcement is
-//! deferred to **PR5a** alongside the `Event` constructor + the
-//! rest of the Event prototype's strict bindings (also covers the
-//! `defaultPrevented` getter).  See `m4-12-pr3-plan.md` /simplify
-//! Quality #14 for the deferral rationale.
+//! deferred to a later M4-12 tranche that lands the `Event`
+//! constructor and the rest of the Event prototype's strict
+//! bindings (also covers the `defaultPrevented` getter).
 //!
 //! Until then, the no-op is a pragmatic choice: real-world code
 //! that escapes a method handle off an Event is exceedingly rare

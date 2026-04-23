@@ -31,6 +31,12 @@
 
 pub(crate) mod abort;
 pub(super) mod abort_statics;
+#[cfg(feature = "engine")]
+pub(crate) mod array_buffer;
+#[cfg(feature = "engine")]
+pub(crate) mod blob;
+#[cfg(feature = "engine")]
+pub(super) mod body_mixin;
 pub(super) mod character_data_proto;
 pub(super) mod childnode;
 pub(super) mod document;
@@ -47,7 +53,13 @@ pub(super) mod events;
 pub(super) mod events_extras;
 #[cfg(feature = "engine")]
 pub(super) mod events_ui;
+#[cfg(feature = "engine")]
+pub(super) mod fetch;
 pub(super) mod globals;
+#[cfg(feature = "engine")]
+pub(crate) mod headers;
+#[cfg(feature = "engine")]
+pub(super) mod headers_validation;
 pub(super) mod history;
 pub(super) mod html_iframe_proto;
 pub(super) mod location;
@@ -57,5 +69,9 @@ pub(super) mod node_methods_extras;
 pub(super) mod node_proto;
 pub(super) mod parentnode;
 pub(super) mod performance;
+#[cfg(feature = "engine")]
+pub(crate) mod request_response;
+#[cfg(feature = "engine")]
+pub(super) mod request_response_accessors;
 pub(super) mod text_proto;
 pub(super) mod window;

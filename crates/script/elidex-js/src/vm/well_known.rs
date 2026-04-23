@@ -337,6 +337,76 @@ pub(crate) struct WellKnownStrings {
     pub(crate) dom_exc_wrong_document_error: StringId,
     pub(crate) dom_exc_invalid_state_error: StringId,
     pub(crate) dom_exc_timeout_error: StringId,
+
+    // -- Headers (WHATWG Fetch §5.2) --
+    // Method and iteration-helper names.  `get` / `set` / `append` /
+    // `value` / `key` already live elsewhere and are reused here.
+    // `delete` is an ES keyword — field named `delete_str` to
+    // sidestep the `r#delete` raw-identifier contortion.
+    pub(crate) headers_global: StringId,
+    pub(crate) headers: StringId,
+    pub(crate) delete_str: StringId,
+    pub(crate) has: StringId,
+    pub(crate) get_set_cookie: StringId,
+    pub(crate) for_each: StringId,
+    pub(crate) entries: StringId,
+    pub(crate) keys: StringId,
+    pub(crate) values: StringId,
+    pub(crate) set_cookie_header: StringId,
+
+    // -- Request / Response (WHATWG Fetch §5.3 / §5.5) --
+    // Globals + IDL attr names + static factory method names +
+    // enum strings.  `url` / `headers` already live above and are
+    // reused here.
+    pub(crate) request: StringId,
+    pub(crate) response: StringId,
+    pub(crate) method: StringId,
+    pub(crate) body: StringId,
+    pub(crate) body_used: StringId,
+    pub(crate) ok: StringId,
+    pub(crate) status_text: StringId,
+    pub(crate) redirected: StringId,
+    pub(crate) redirect: StringId,
+    pub(crate) mode: StringId,
+    pub(crate) credentials: StringId,
+    pub(crate) cache: StringId,
+    pub(crate) clone: StringId,
+    pub(crate) json: StringId,
+    // Method / response-type string constants — pre-interned so
+    // per-instance `.type` / `.method` accessor reads return the
+    // pool entry directly.
+    pub(crate) http_get: StringId,
+    pub(crate) http_head: StringId,
+    pub(crate) http_post: StringId,
+    pub(crate) http_put: StringId,
+    pub(crate) http_delete: StringId,
+    pub(crate) http_options: StringId,
+    pub(crate) http_patch: StringId,
+    pub(crate) http_connect: StringId,
+    pub(crate) http_trace: StringId,
+    pub(crate) content_type: StringId,
+    pub(crate) application_json_utf8: StringId,
+    pub(crate) text_plain_charset_utf8: StringId,
+    pub(crate) response_type_default: StringId,
+    pub(crate) response_type_basic: StringId,
+    pub(crate) response_type_cors: StringId,
+    pub(crate) response_type_error: StringId,
+    pub(crate) response_type_opaque: StringId,
+    pub(crate) response_type_opaqueredirect: StringId,
+
+    // -- ArrayBuffer / Blob / Body mixin (ES2020 §24.1 / File API
+    // §3 / WHATWG Fetch §5 Body mixin) --
+    // Constructor global names are separate fields from the
+    // camelCase attribute / method names to sidestep the name
+    // collision the Headers ctor ran into (`"Headers"` ctor name
+    // vs `"headers"` attr name).
+    pub(crate) array_buffer_global: StringId,
+    pub(crate) blob_global: StringId,
+    pub(crate) byte_length: StringId,
+    pub(crate) size: StringId,
+    pub(crate) slice: StringId,
+    pub(crate) text: StringId,
+    pub(crate) array_buffer: StringId,
 }
 
 impl WellKnownStrings {
@@ -601,6 +671,61 @@ impl WellKnownStrings {
             dom_exc_wrong_document_error: strings.intern("WrongDocumentError"),
             dom_exc_invalid_state_error: strings.intern("InvalidStateError"),
             dom_exc_timeout_error: strings.intern("TimeoutError"),
+
+            // Headers (WHATWG Fetch §5.2).
+            headers_global: strings.intern("Headers"),
+            headers: strings.intern("headers"),
+            delete_str: strings.intern("delete"),
+            has: strings.intern("has"),
+            get_set_cookie: strings.intern("getSetCookie"),
+            for_each: strings.intern("forEach"),
+            entries: strings.intern("entries"),
+            keys: strings.intern("keys"),
+            values: strings.intern("values"),
+            set_cookie_header: strings.intern("set-cookie"),
+
+            // Request / Response (WHATWG Fetch §5.3 / §5.5).
+            request: strings.intern("Request"),
+            response: strings.intern("Response"),
+            method: strings.intern("method"),
+            body: strings.intern("body"),
+            body_used: strings.intern("bodyUsed"),
+            ok: strings.intern("ok"),
+            status_text: strings.intern("statusText"),
+            redirected: strings.intern("redirected"),
+            redirect: strings.intern("redirect"),
+            mode: strings.intern("mode"),
+            credentials: strings.intern("credentials"),
+            cache: strings.intern("cache"),
+            clone: strings.intern("clone"),
+            json: strings.intern("json"),
+            http_get: strings.intern("GET"),
+            http_head: strings.intern("HEAD"),
+            http_post: strings.intern("POST"),
+            http_put: strings.intern("PUT"),
+            http_delete: strings.intern("DELETE"),
+            http_options: strings.intern("OPTIONS"),
+            http_patch: strings.intern("PATCH"),
+            http_connect: strings.intern("CONNECT"),
+            http_trace: strings.intern("TRACE"),
+            content_type: strings.intern("content-type"),
+            application_json_utf8: strings.intern("application/json"),
+            text_plain_charset_utf8: strings.intern("text/plain;charset=UTF-8"),
+            response_type_default: strings.intern("default"),
+            response_type_basic: strings.intern("basic"),
+            response_type_cors: strings.intern("cors"),
+            response_type_error: strings.intern("error"),
+            response_type_opaque: strings.intern("opaque"),
+            response_type_opaqueredirect: strings.intern("opaqueredirect"),
+
+            // ArrayBuffer / Blob / Body mixin.
+            array_buffer_global: strings.intern("ArrayBuffer"),
+            blob_global: strings.intern("Blob"),
+            byte_length: strings.intern("byteLength"),
+            size: strings.intern("size"),
+            slice: strings.intern("slice"),
+            text: strings.intern("text"),
+            array_buffer: strings.intern("arrayBuffer"),
         }
     }
 }

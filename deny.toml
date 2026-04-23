@@ -9,6 +9,24 @@ ignore = [
     { id = "RUSTSEC-2026-0006", reason = "f64.copysign sandbox escape — Wasm modules are trusted in elidex Phase 3.5" },
     { id = "RUSTSEC-2026-0020", reason = "WASI resource exhaustion — WASI not used in elidex" },
     { id = "RUSTSEC-2026-0021", reason = "wasi:http/types.fields panic — WASI not used in elidex" },
+    # thin-vec v0.2.14 UAF triggers only when an element's Drop impl panics.
+    # Sole consumer is boa_engine (transitive: boa_gc / boa_ast / boa_parser /
+    # boa_interner), which is slated for removal in M4-12 PR7 (boa→VM cutover
+    # complete).  Boa stores its own GcRefCell-wrapped values whose Drop is
+    # infallible, so the panic precondition for the UAF is unreachable in
+    # our actual usage.
+    #
+    # Tracking: added in PR #86 (M4-12 PR5a-fetch); removed in the same
+    # commit that drops the last `boa_*` dependency (M4-12 PR7).  To
+    # validate the removal is complete, run:
+    #     cargo tree --workspace --edges normal -i thin-vec
+    # after the boa cutover lands — the command must print an error
+    # (`package ID specification ... did not match any packages`), which
+    # confirms thin-vec is no longer in the resolved dependency graph.
+    # If thin-vec is still pulled in (e.g. via a new transitive dep), do
+    # **not** re-add this ignore without a fresh analysis of its Drop
+    # preconditions in that caller.
+    { id = "RUSTSEC-2026-0103", reason = "thin-vec UAF — only via boa (removed in M4-12 PR7, tracked in PR #86); boa's stored values never panic in Drop" },
 ]
 
 [licenses]

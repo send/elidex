@@ -61,6 +61,12 @@ fn native_function_prototype_noop(
 impl VmInner {
     // -- Global registration -------------------------------------------------
 
+    // Flat sequence of intrinsic / host-global `register_*_global()` calls.
+    // Splitting into groups buys no clarity — the ordering constraints
+    // (Object.prototype before Array global, EventTarget.prototype before
+    // Window, …) are captured in the inline comments.  Sibling
+    // [`Self::register_prototypes`] carries the same allow.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn register_globals(&mut self) {
         // Allocate the global object (`globalThis` / `window`).  It is a
         // `HostObject` backed by the Window ECS entity so that
@@ -298,6 +304,52 @@ impl VmInner {
         // abort reason allocates against `error_prototype`).
         #[cfg(feature = "engine")]
         self.register_abort_signal_global();
+
+        // `Headers` constructor + `Headers.prototype` (WHATWG Fetch
+        // §5.2).  Chains to `Object.prototype` (no EventTarget /
+        // Node ancestry), so order-wise anywhere after
+        // `register_prototypes` is fine.  Engine-gated because the
+        // Fetch surface is itself engine-only.
+        #[cfg(feature = "engine")]
+        self.register_headers_global();
+
+        // `Request` / `Response` constructors + prototypes (WHATWG
+        // Fetch §5.3 / §5.5).  Must run after
+        // `register_headers_global` because both ctors allocate a
+        // companion Headers instance in their fill path.
+        #[cfg(feature = "engine")]
+        {
+            self.register_request_global();
+            self.register_response_global();
+        }
+
+        // `ArrayBuffer` (ES2020 §24.1) + `Blob` (File API §3) +
+        // Body-mixin methods (WHATWG Fetch §5 Body).  Must run
+        // after `register_request_global` / `register_response_global`
+        // so the `request_prototype` / `response_prototype`
+        // pointers exist when the Body-mixin install pass runs.
+        // `Blob.prototype.arrayBuffer()` also depends on
+        // `array_buffer_prototype`, so register ArrayBuffer first.
+        #[cfg(feature = "engine")]
+        {
+            self.register_array_buffer_global();
+            self.register_blob_global();
+            let request_proto = self
+                .request_prototype
+                .expect("request_prototype populated by register_request_global");
+            self.install_body_mixin_methods(request_proto);
+            let response_proto = self
+                .response_prototype
+                .expect("response_prototype populated by register_response_global");
+            self.install_body_mixin_methods(response_proto);
+        }
+
+        // `fetch()` global (WHATWG Fetch §5.1).  Must run after
+        // `register_response_global` so `response_prototype`
+        // exists when the first fetched Response is constructed
+        // on the broker response path.
+        #[cfg(feature = "engine")]
+        self.register_fetch_global();
 
         // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned

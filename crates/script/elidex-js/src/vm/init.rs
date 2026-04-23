@@ -127,6 +127,32 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 pop_state_event_prototype: None,
                 #[cfg(feature = "engine")]
+                headers_prototype: None,
+                #[cfg(feature = "engine")]
+                headers_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                request_prototype: None,
+                #[cfg(feature = "engine")]
+                request_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                response_prototype: None,
+                #[cfg(feature = "engine")]
+                response_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                body_data: HashMap::new(),
+                #[cfg(feature = "engine")]
+                body_used: HashSet::new(),
+                #[cfg(feature = "engine")]
+                array_buffer_prototype: None,
+                #[cfg(feature = "engine")]
+                blob_prototype: None,
+                #[cfg(feature = "engine")]
+                blob_data: HashMap::new(),
+                #[cfg(feature = "engine")]
+                network_handle: None,
+                #[cfg(feature = "engine")]
+                fetch_abort_observers: HashMap::new(),
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),

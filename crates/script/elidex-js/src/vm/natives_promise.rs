@@ -375,7 +375,7 @@ fn process_pending_rejections(vm: &mut VmInner) {
 /// avoids the cross-crate `EventPayload::PromiseRejection { ... }`
 /// variant that would be required to thread VM-specific `ObjectId`
 /// and `JsValue` through `elidex-plugin`'s engine-agnostic payload
-/// enum (design decision D6, m4-12-pr3-plan.md).
+/// enum.
 #[cfg(feature = "engine")]
 fn dispatch_unhandled_rejection_event(
     vm: &mut VmInner,

@@ -265,16 +265,6 @@ fn to_int16(n: f64) -> i16 {
     }
 }
 
-// ToUint16 (WebIDL §3.10.5).  Used by MouseEventInit.buttons.
-fn to_uint16(n: f64) -> u16 {
-    if n.is_nan() || n.is_infinite() || n == 0.0 {
-        return 0;
-    }
-    let int = n.trunc();
-    let m = int.rem_euclid(65_536.0);
-    m as u16
-}
-
 // ---------------------------------------------------------------------------
 // UIEvent ctor (UI Events §3.2)
 // ---------------------------------------------------------------------------
@@ -490,7 +480,7 @@ fn native_mouse_event_constructor(
         let button = f64::from(to_int16(button_num));
         // `buttons` is `unsigned short` (WebIDL §3.10.5 ToUint16); default 0.
         let buttons_num = read_number(ctx, opts_id, k_buttons, 0.0)?;
-        let buttons = f64::from(to_uint16(buttons_num));
+        let buttons = f64::from(super::super::coerce::f64_to_uint16(buttons_num));
         let related_raw = ctx
             .vm
             .get_property_value(opts_id, PropertyKey::String(k_related))?;

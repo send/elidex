@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 36],
+    proto_roots: [Option<ObjectId>; 41],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -150,6 +150,17 @@ struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     abort_signal_states:
         &'a std::collections::HashMap<ObjectId, super::host::abort::AbortSignalState>,
+    /// `Request` / `Response` companion-Headers pointers live in
+    /// these two side tables.  Passed through so `trace_work_list`
+    /// can mark the paired Headers when the owning Request /
+    /// Response is reachable — otherwise the Headers would be
+    /// collected despite being reachable via the state entry.
+    #[cfg(feature = "engine")]
+    request_states:
+        &'a std::collections::HashMap<ObjectId, super::host::request_response::RequestState>,
+    #[cfg(feature = "engine")]
+    response_states:
+        &'a std::collections::HashMap<ObjectId, super::host::request_response::ResponseState>,
     /// Pending `AbortSignal.timeout(ms)` registrations — the
     /// `ObjectId` values are signals that must survive until the
     /// timer fires (see `VmInner::pending_timeout_signals` for the
@@ -338,6 +349,14 @@ fn trace_work_list(
     #[cfg(feature = "engine")] abort_signal_states: &std::collections::HashMap<
         ObjectId,
         super::host::abort::AbortSignalState,
+    >,
+    #[cfg(feature = "engine")] request_states: &std::collections::HashMap<
+        ObjectId,
+        super::host::request_response::RequestState,
+    >,
+    #[cfg(feature = "engine")] response_states: &std::collections::HashMap<
+        ObjectId,
+        super::host::request_response::ResponseState,
     >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
@@ -542,6 +561,61 @@ fn trace_work_list(
             // there's nothing to trace through.
             #[cfg(not(feature = "engine"))]
             ObjectKind::AbortSignal => {}
+            // `Headers` payload (header list + guard) lives in
+            // `VmInner::headers_states`; entries hold interned
+            // `StringId`s only (pool-permanent), so there is
+            // nothing to `mark_value` / `mark_object` here.  The
+            // sweep tail prunes entries whose key is dead — same
+            // pattern as `dom_exception_states`.  Engine-only: the
+            // variant itself is gated behind `feature = "engine"`.
+            #[cfg(feature = "engine")]
+            ObjectKind::Headers => {}
+            // `Request` / `Response` carry their paired Headers
+            // as an `ObjectId` in `request_states` /
+            // `response_states`.  Without marking it here the
+            // companion Headers would be collected whenever the
+            // user code only retained the Request / Response
+            // itself.  Body bytes (`body_data[id]`) are plain
+            // `Arc<[u8]>` — no ObjectId fan-out, so no marking
+            // required.  URL / method / statusText are pool-
+            // permanent StringIds.
+            //
+            // Entries missing from `request_states` /
+            // `response_states` are treated as empty (matches a
+            // freshly allocated instance whose state was never
+            // installed — defensive, should not happen).
+            //
+            // `trace_work_list`'s immutable borrow on `objects`
+            // forbids us from also borrowing `VmInner` here, so
+            // the trace function takes the two state maps as
+            // explicit args (see the match signature below).
+            #[cfg(feature = "engine")]
+            ObjectKind::Request => {
+                if let Some(headers_id) =
+                    request_states.get(&ObjectId(obj_idx)).map(|s| s.headers_id)
+                {
+                    mark_object(headers_id, obj_marks, work);
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::Response => {
+                if let Some(headers_id) = response_states
+                    .get(&ObjectId(obj_idx))
+                    .map(|s| s.headers_id)
+                {
+                    mark_object(headers_id, obj_marks, work);
+                }
+            }
+            // `ArrayBuffer` / `Blob` payloads are bytes-only —
+            // the backing `Arc<[u8]>` holds no ObjectId
+            // references, so there is nothing to fan out here.
+            // The sweep tail prunes `body_data` (ArrayBuffer
+            // storage, shared with Request / Response) and
+            // `blob_data` (Blob storage) entries whose key was
+            // collected, mirroring `headers_states` /
+            // `abort_signal_states`.
+            #[cfg(feature = "engine")]
+            ObjectKind::ArrayBuffer | ObjectKind::Blob => {}
         }
     }
 }
@@ -744,6 +818,42 @@ impl VmInner {
                 self.pop_state_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 36 + 5 (Fetch surface: Headers / Request / Response
+                // / ArrayBuffer / Blob).  Slots past
+                // `headers_prototype` are `None` placeholders until
+                // the later Fetch prototypes install; the
+                // `.iter().flatten()` pattern in `mark_roots` skips
+                // them safely, so the array can grow in one step
+                // here without committing dead arms piecemeal.
+                // Every new trace entry added to a placeholder slot
+                // **must** keep the flatten pattern — direct
+                // indexing at a `None` slot would mark
+                // `ObjectId(0)` erroneously.
+                #[cfg(feature = "engine")]
+                self.headers_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // [37] request_prototype / [38] response_prototype
+                // land together with the Request / Response ctors.
+                #[cfg(feature = "engine")]
+                self.request_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.response_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // [39] array_buffer_prototype / [40] blob_prototype
+                // land together with the ArrayBuffer + Blob ctors
+                // (follow-up commit in the same tranche).
+                #[cfg(feature = "engine")]
+                self.array_buffer_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.blob_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
@@ -758,6 +868,10 @@ impl VmInner {
             navigation: &self.navigation,
             #[cfg(feature = "engine")]
             abort_signal_states: &self.abort_signal_states,
+            #[cfg(feature = "engine")]
+            request_states: &self.request_states,
+            #[cfg(feature = "engine")]
+            response_states: &self.response_states,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
         };
@@ -776,6 +890,10 @@ impl VmInner {
             roots.upvalues,
             #[cfg(feature = "engine")]
             roots.abort_signal_states,
+            #[cfg(feature = "engine")]
+            roots.request_states,
+            #[cfg(feature = "engine")]
+            roots.response_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -849,6 +967,38 @@ impl VmInner {
                 composites.retain(|composite_id| bit_get(marks, composite_id.0));
                 !composites.is_empty()
             });
+            // `headers_states` — prune entries whose key `Headers`
+            // instance was collected so a recycled slot does not
+            // inherit a stale list / guard.  Matches the
+            // `dom_exception_states` / `abort_signal_states`
+            // post-sweep pattern.
+            self.headers_states.retain(|id, _| bit_get(marks, id.0));
+            // `request_states` / `response_states` / `body_data` /
+            // `body_used` — companion-Headers pointers were rooted
+            // during mark for reachable keys, so surviving entries
+            // are intact.  Prune entries whose key was collected to
+            // avoid a recycled slot inheriting stale method /
+            // status / body bytes (same pattern as
+            // `abort_signal_states`).  `body_data` / `body_used`
+            // reach across both Request and Response keys — pruning
+            // by the key's mark bit handles both cases in one pass.
+            self.request_states.retain(|id, _| bit_get(marks, id.0));
+            self.response_states.retain(|id, _| bit_get(marks, id.0));
+            self.body_data.retain(|id, _| bit_get(marks, id.0));
+            self.body_used.retain(|id| bit_get(marks, id.0));
+            // `blob_data` — prune entries whose key `Blob`
+            // instance was collected so a recycled slot can't
+            // inherit stale bytes / type.  Matches `body_data` /
+            // `headers_states` pattern.
+            self.blob_data.retain(|id, _| bit_get(marks, id.0));
+            // `fetch_abort_observers` — prune entries whose key
+            // `AbortSignal` was collected so a recycled slot can't
+            // pick up stale fan-out `FetchId`s.  The values are
+            // plain `FetchId(u64)` and carry no GC obligation, so
+            // no per-entry filtering is needed.  Same pattern as
+            // `abort_signal_states`.
+            self.fetch_abort_observers
+                .retain(|id, _| bit_get(marks, id.0));
         }
 
         // 5. IC invalidation.

@@ -627,6 +627,86 @@ pub enum ObjectKind {
     /// GC contract: trace marks `signal_id` so the paired signal
     /// survives as long as the controller is reachable.
     AbortController { signal_id: ObjectId },
+    /// `Headers` instance (WHATWG Fetch §5.2) — the header list
+    /// backing `Request.headers` / `Response.headers` and also
+    /// constructible standalone via `new Headers(init)`.
+    ///
+    /// The actual header list (lowercased name → value strings) plus
+    /// the WebIDL `guard` (`none` / `immutable` / `request` /
+    /// `response` / `request-no-cors`) lives **out-of-band** in
+    /// `VmInner::headers_states`, keyed by this object's `ObjectId`.
+    /// Payload-free here so per-variant size discipline matches
+    /// [`Self::AbortSignal`].
+    ///
+    /// GC contract: the trace step looks up the entry in
+    /// `headers_states` — entries carry interned `StringId`s only
+    /// (pool-permanent), so no `mark_value` / `mark_object` pass is
+    /// needed for the payload.  Sweep tail prunes entries whose key
+    /// was collected so a recycled slot does not inherit stale
+    /// header lists.
+    #[cfg(feature = "engine")]
+    Headers,
+    /// `Request` instance (WHATWG Fetch §5.3).  Payload-free; the
+    /// `method` / `url` / `headers_id` state lives in
+    /// `VmInner::request_states`.  Body bytes (when present) live
+    /// in the shared `VmInner::body_data` map keyed by this
+    /// object's `ObjectId` — `clone()` uses `Arc::clone` on the
+    /// entry so two Requests can share a single backing buffer
+    /// without copy.
+    ///
+    /// GC contract: the trace step marks the `headers_id` Companion
+    /// from the state entry.  Body bytes are plain `Arc<[u8]>` (no
+    /// `ObjectId` references), so they need no marking.  Sweep
+    /// tail prunes `request_states` / `body_data` / `body_used`
+    /// entries whose key was collected.
+    #[cfg(feature = "engine")]
+    Request,
+    /// `Response` instance (WHATWG Fetch §5.5).  Payload-free;
+    /// `status` / `statusText` / `url` / `headers_id` /
+    /// `response_type` live in `VmInner::response_states`.  Body
+    /// bytes share `VmInner::body_data` with `Request` — the map
+    /// key is the Response's `ObjectId`.  IDL readonly attrs read
+    /// from the side-table state, not from own-data properties on
+    /// the instance, so `delete resp.status` is immune (PR5a2 R7.1
+    /// lesson: IDL attr internal slot is authoritative).
+    ///
+    /// GC contract: same shape as `Request` — mark the companion
+    /// `headers_id`, prune state / body entries in the sweep tail.
+    #[cfg(feature = "engine")]
+    Response,
+    /// `ArrayBuffer` instance (ES2020 §24.1, minimal Phase 2 form).
+    /// Payload-free; the backing bytes live in the shared
+    /// `VmInner::body_data` map keyed by this object's `ObjectId`.
+    /// `.slice()` allocates a fresh ArrayBuffer + `Arc<[u8]>` range
+    /// copy.  TypedArray views (Uint8Array / DataView / …) are
+    /// deferred to the next tranche; this variant's byte storage is
+    /// therefore not shared with any view object yet.
+    ///
+    /// IDL readonly `byteLength` reads the `Arc<[u8]>::len()` of
+    /// the `body_data` entry — authoritative internal slot (PR5a2
+    /// R7.1 lesson: `delete buf.byteLength` must not break reads).
+    ///
+    /// GC contract: payload-free — the trace step has nothing to
+    /// fan out (body bytes are plain `Arc<[u8]>`, no ObjectId
+    /// references).  Sweep tail pruning of `body_data` already
+    /// drops dead-key entries alongside Request / Response.
+    #[cfg(feature = "engine")]
+    ArrayBuffer,
+    /// `Blob` instance (File API §3, minimal Phase 2 form).
+    /// Payload-free; bytes plus MIME type live out-of-band in
+    /// `VmInner::blob_data` keyed by this object's `ObjectId`.
+    /// Body bytes are **not** shared with `body_data` — Blob has
+    /// its own side table because its state carries a `type_sid`
+    /// alongside the bytes.
+    ///
+    /// IDL readonly `size` / `type` read from the authoritative
+    /// side-table slot.
+    ///
+    /// GC contract: payload-free — blob bytes hold no ObjectId
+    /// references.  The sweep tail prunes `blob_data` entries whose
+    /// key was collected.
+    #[cfg(feature = "engine")]
+    Blob,
 }
 
 impl ObjectKind {
