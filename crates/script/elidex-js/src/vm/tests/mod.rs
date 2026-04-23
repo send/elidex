@@ -45,6 +45,7 @@ mod tests_html_element_proto;
 mod tests_html_iframe;
 mod tests_insert_adjacent;
 mod tests_integration_fetch;
+mod tests_integration_pr5b;
 mod tests_json;
 mod tests_location;
 mod tests_m4_10_2;
