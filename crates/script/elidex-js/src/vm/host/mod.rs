@@ -77,5 +77,7 @@ pub(super) mod performance;
 pub(crate) mod request_response;
 #[cfg(feature = "engine")]
 pub(super) mod request_response_accessors;
+#[cfg(feature = "engine")]
+pub(super) mod structured_clone;
 pub(super) mod text_proto;
 pub(super) mod window;

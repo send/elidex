@@ -64,6 +64,7 @@ mod tests_remove_event_listener;
 mod tests_request_response;
 mod tests_sparse_array;
 mod tests_string_complement;
+mod tests_structured_clone;
 mod tests_timer;
 mod tests_try_catch_finally;
 mod tests_ui_event_constructor;

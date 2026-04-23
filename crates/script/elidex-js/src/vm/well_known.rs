@@ -391,6 +391,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) dom_exc_wrong_document_error: StringId,
     pub(crate) dom_exc_invalid_state_error: StringId,
     pub(crate) dom_exc_timeout_error: StringId,
+    pub(crate) dom_exc_data_clone_error: StringId,
 
     // -- Headers (WHATWG Fetch §5.2) --
     // Method and iteration-helper names.  `get` / `set` / `append` /
@@ -763,6 +764,7 @@ impl WellKnownStrings {
             dom_exc_wrong_document_error: strings.intern("WrongDocumentError"),
             dom_exc_invalid_state_error: strings.intern("InvalidStateError"),
             dom_exc_timeout_error: strings.intern("TimeoutError"),
+            dom_exc_data_clone_error: strings.intern("DataCloneError"),
 
             // Headers (WHATWG Fetch §5.2).
             headers_global: strings.intern("Headers"),

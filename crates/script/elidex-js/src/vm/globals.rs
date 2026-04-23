@@ -379,6 +379,14 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_fetch_global();
 
+        // `structuredClone(value, options?)` (WHATWG HTML §2.9).
+        // Must run after `register_blob_global` / `register_array_buffer_global`
+        // because the clone path allocates fresh ArrayBuffer / Blob
+        // instances that read the target-realm prototypes from
+        // `array_buffer_prototype` / `blob_prototype`.
+        #[cfg(feature = "engine")]
+        self.register_structured_clone_global();
+
         // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the
