@@ -808,6 +808,19 @@ pub(crate) struct VmInner {
     /// Phase 2 defaults; shell pushes real values in PR6.
     #[cfg(feature = "engine")]
     pub(crate) viewport: host::window::ViewportState,
+    /// HTML §8.1.5 same-window task queue.  Currently populated only
+    /// by `window.postMessage`; drained at the end of every
+    /// `VmInner::eval` after the microtask flush.  See
+    /// [`host::pending_tasks`] for the full task shape and GC
+    /// contract.
+    #[cfg(feature = "engine")]
+    pub(crate) pending_tasks: VecDeque<host::pending_tasks::PendingTask>,
+    /// Reentrancy guard for [`Self::drain_tasks`] — nested drain
+    /// calls (triggered by a listener body that enqueued and
+    /// drained inline) are no-ops, matching the microtask queue's
+    /// drain-depth invariant.
+    #[cfg(feature = "engine")]
+    pub(crate) task_drain_depth: u32,
 }
 
 impl VmInner {

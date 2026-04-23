@@ -168,6 +168,12 @@ struct GcRoots<'a> {
     /// so they don't need tracing.
     #[cfg(feature = "engine")]
     pending_timeout_signals: &'a HashMap<u32, ObjectId>,
+    /// Queued same-window tasks (HTML §8.1.5).  Each task holds a
+    /// `JsValue` payload plus target / source `ObjectId`s that the
+    /// dispatch step will read — tracing them here keeps the payload
+    /// alive if GC triggers between `postMessage` and `drain_tasks`.
+    #[cfg(feature = "engine")]
+    pending_tasks: &'a std::collections::VecDeque<super::host::pending_tasks::PendingTask>,
     // `any_composite_map` is weak bookkeeping only — no GC roots
     // live there.  The sweep pass prunes dead ObjectIds post-GC
     // and `abort_signal`'s fan-out tolerates missing state — both
@@ -315,6 +321,30 @@ fn mark_roots(
     #[cfg(feature = "engine")]
     for &signal_id in roots.pending_timeout_signals.values() {
         mark_object(signal_id, obj_marks, work);
+    }
+
+    // (j.2) Queued same-window tasks — JsValue payload, target, and
+    // source ObjectIds must survive between `postMessage` enqueue
+    // and the `drain_tasks` dispatch at the end of eval.  An
+    // intermediate GC cycle (triggered by a user-script allocation
+    // burst, say) would otherwise collect a message payload whose
+    // only reference lives inside a `PendingTask::PostMessage`.
+    #[cfg(feature = "engine")]
+    for task in roots.pending_tasks {
+        match task {
+            super::host::pending_tasks::PendingTask::PostMessage {
+                target_window_id,
+                data,
+                source_window_id,
+                ..
+            } => {
+                mark_object(*target_window_id, obj_marks, work);
+                mark_value(*data, obj_marks, work);
+                if let Some(src) = source_window_id {
+                    mark_object(*src, obj_marks, work);
+                }
+            }
+        }
     }
 
     // (k) `AbortSignal.any` composite fan-out entries are weak
@@ -917,6 +947,8 @@ impl VmInner {
             response_states: &self.response_states,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
+            #[cfg(feature = "engine")]
+            pending_tasks: &self.pending_tasks,
         };
 
         self.gc_work_list.clear();

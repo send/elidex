@@ -72,6 +72,8 @@ pub(super) mod navigator;
 pub(super) mod node_methods_extras;
 pub(super) mod node_proto;
 pub(super) mod parentnode;
+#[cfg(feature = "engine")]
+pub(crate) mod pending_tasks;
 pub(super) mod performance;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;

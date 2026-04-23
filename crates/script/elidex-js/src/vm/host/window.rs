@@ -215,6 +215,10 @@ impl VmInner {
 const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
     ("scrollTo", native_window_scroll_to),
     ("scrollBy", native_window_scroll_by),
+    (
+        "postMessage",
+        super::pending_tasks::native_window_post_message,
+    ),
 ];
 
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /

@@ -58,6 +58,7 @@ mod tests_number;
 mod tests_object_complement;
 mod tests_parent_node_mixin;
 mod tests_performance;
+mod tests_post_message;
 mod tests_promise;
 mod tests_promise_rejection_event;
 mod tests_remove_event_listener;
