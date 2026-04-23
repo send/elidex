@@ -298,6 +298,10 @@ pub(crate) struct WellKnownStrings {
     pub(crate) content_editable: StringId,
     pub(crate) is_content_editable: StringId,
     pub(crate) autofocus: StringId,
+    // HTMLCollection / NodeList IDL members (PR5b §C3).
+    pub(crate) item: StringId,
+    pub(crate) named_item: StringId,
+    pub(crate) get_elements_by_name: StringId,
     // HTMLIFrameElement.prototype property names (PR4f C8).
     pub(crate) src: StringId,
     pub(crate) srcdoc: StringId,
@@ -677,6 +681,9 @@ impl WellKnownStrings {
             content_editable: strings.intern("contentEditable"),
             is_content_editable: strings.intern("isContentEditable"),
             autofocus: strings.intern("autofocus"),
+            item: strings.intern("item"),
+            named_item: strings.intern("namedItem"),
+            get_elements_by_name: strings.intern("getElementsByName"),
             src: strings.intern("src"),
             srcdoc: strings.intern("srcdoc"),
             referrer_policy: strings.intern("referrerPolicy"),

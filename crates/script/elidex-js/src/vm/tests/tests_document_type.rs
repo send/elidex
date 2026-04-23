@@ -157,9 +157,13 @@ fn document_links_include_a_and_area_with_href_only() {
 }
 
 #[test]
-fn document_forms_returns_new_array_each_call() {
-    // Snapshot semantics — each access allocates a fresh Array.
-    // `=== /* identity */` comparison must be false.
+fn document_forms_returns_new_collection_each_call() {
+    // Per-access allocation — `document.forms` is live, but the
+    // wrapper identity is still fresh on each read (the live
+    // filter state is shared via `live_collection_states` on the
+    // same `doc` Entity, but `alloc_collection` allocates a new
+    // `ObjectKind::HtmlCollection` wrapper every time).  Matches
+    // the no-cache design called out in PR5b §C3.
     let out = run_with(
         "document.forms === document.forms ? 'same' : 'new';",
         build_collections_fixture,

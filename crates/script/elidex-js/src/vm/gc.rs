@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 42],
+    proto_roots: [Option<ObjectId>; 44],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -616,6 +616,14 @@ fn trace_work_list(
             // `abort_signal_states`.
             #[cfg(feature = "engine")]
             ObjectKind::ArrayBuffer | ObjectKind::Blob => {}
+            // `HtmlCollection` / `NodeList` payloads (stored in
+            // `live_collection_states`) contain only `Entity`,
+            // `StringId`, `Vec<StringId>`, and `Vec<Entity>` — no
+            // `ObjectId` references, so the trace step has nothing
+            // to fan out.  The sweep tail prunes entries whose key
+            // `ObjectId` was collected (see sweep code below).
+            #[cfg(feature = "engine")]
+            ObjectKind::HtmlCollection | ObjectKind::NodeList => {}
         }
     }
 }
@@ -864,6 +872,15 @@ impl VmInner {
                 self.blob_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 42 + 2 (HTMLCollection + NodeList, PR5b §C3) = 44.
+                #[cfg(feature = "engine")]
+                self.html_collection_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.node_list_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
@@ -1001,6 +1018,13 @@ impl VmInner {
             // inherit stale bytes / type.  Matches `body_data` /
             // `headers_states` pattern.
             self.blob_data.retain(|id, _| bit_get(marks, id.0));
+            // `live_collection_states` — shared side-table backing
+            // every `ObjectKind::HtmlCollection` / `NodeList`
+            // wrapper.  Same prune-by-key-mark pattern: collected
+            // wrappers lose their filter entry so a recycled
+            // `ObjectId` slot doesn't inherit stale filter state.
+            self.live_collection_states
+                .retain(|id, _| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

@@ -240,6 +240,19 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_html_iframe_prototype();
 
+        // HTMLCollection.prototype / NodeList.prototype — shared
+        // DOM collection prototypes.  Chain directly to
+        // `Object.prototype` (WebIDL §3.10: legacy collection
+        // interfaces are not `EventTarget`s, so they skip the DOM
+        // proto chain).  Register here so subsequent document /
+        // element surface migration (still in this commit) can
+        // hand out collection wrappers.
+        #[cfg(feature = "engine")]
+        {
+            self.register_html_collection_prototype();
+            self.register_node_list_prototype();
+        }
+
         // Window.prototype — prototype for the `globalThis` `HostObject`
         // (WHATWG HTML §7.2).  Must run *after*
         // `register_event_target_prototype` because the Window prototype

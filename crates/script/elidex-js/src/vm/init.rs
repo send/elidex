@@ -101,6 +101,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 html_element_prototype: None,
                 #[cfg(feature = "engine")]
+                html_collection_prototype: None,
+                #[cfg(feature = "engine")]
+                node_list_prototype: None,
+                #[cfg(feature = "engine")]
+                live_collection_states: HashMap::new(),
+                #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,

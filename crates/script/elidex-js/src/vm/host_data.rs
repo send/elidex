@@ -199,6 +199,23 @@ mod engine_feature {
             unsafe { &mut *self.dom_ptr }
         }
 
+        /// Shared-reference view of the bound DOM — used from
+        /// property-lookup paths that hold a `&HostData` (through
+        /// `&VmInner.host_data`) and cannot upgrade to `&mut`.
+        ///
+        /// # Safety
+        ///
+        /// Only safe to call while bound (asserted).  The returned
+        /// reference aliases whatever exclusive borrow the caller
+        /// of [`bind`] promised to keep quiescent — see `bind`'s
+        /// safety contract.  Callers must not hold this `&EcsDom`
+        /// alongside any `&mut EcsDom` produced by [`Self::dom`].
+        #[allow(unsafe_code)]
+        pub fn dom_shared(&self) -> &elidex_ecs::EcsDom {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            unsafe { &*self.dom_ptr }
+        }
+
         /// Return `true` if this `HostData` is bound AND `entity` is
         /// an Element (has the `TagType` component) in the bound
         /// world.  Returns `false` when unbound so pre-bind or

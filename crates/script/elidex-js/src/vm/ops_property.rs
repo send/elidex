@@ -455,6 +455,43 @@ impl VmInner {
                     }
                 }
             }
+
+            // PR5b §C3: HTMLCollection / NodeList indexed + legacy
+            // named property access.  Delegates to a shared helper
+            // that re-traverses the backing filter and resolves
+            // both numeric indices and (HTMLCollection-only)
+            // `id` / tag-allowlisted `name` lookups.  Falls through
+            // to the standard property / prototype lookup on miss
+            // so that `.length` / `.item` still see the prototype
+            // accessor / method.
+            #[cfg(feature = "engine")]
+            if matches!(
+                self.get_object(id).kind,
+                ObjectKind::HtmlCollection | ObjectKind::NodeList
+            ) {
+                // Live-collection lookup needs a shared `&EcsDom`
+                // borrow alongside `&mut VmInner` (for the wrapper
+                // cache allocation that `create_element_wrapper`
+                // inside `try_indexed_get` may perform).  The DOM
+                // and the rest of `VmInner` live in disjoint fields
+                // (`host_data` vs everything else), so the borrow
+                // is sound under split-field rules — we materialise
+                // the shared `&EcsDom` through a raw pointer to
+                // bypass the stacked-borrow conservatism that
+                // cannot prove the disjointness through the
+                // `Box<HostData>` indirection.
+                if let Some(hd) = self.host_data.as_deref() {
+                    #[allow(unsafe_code)]
+                    let dom_ptr: *const elidex_ecs::EcsDom = hd.dom_shared();
+                    #[allow(unsafe_code)]
+                    let dom = unsafe { &*dom_ptr };
+                    if let Some(val) =
+                        super::host::dom_collection::try_indexed_get(self, dom, id, key)
+                    {
+                        return Ok(val);
+                    }
+                }
+            }
             // Symbol key -> direct property lookup.
             if let JsValue::Symbol(sid) = key {
                 let pk = PropertyKey::Symbol(sid);

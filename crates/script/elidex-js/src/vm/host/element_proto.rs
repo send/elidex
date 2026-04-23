@@ -46,9 +46,8 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{
-    coerce_first_arg_to_string, collect_descendants_by_class_name, collect_descendants_by_tag_name,
-    parse_dom_selector, query_selector_in_subtree_all, query_selector_in_subtree_first,
-    tree_nav_getter, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
+    query_selector_in_subtree_first, tree_nav_getter, wrap_entities_as_array, wrap_entity_or_null,
 };
 use super::event_target::entity_from_this;
 
@@ -267,29 +266,6 @@ impl VmInner {
 }
 
 // ---------------------------------------------------------------------------
-// Accessor helpers
-// ---------------------------------------------------------------------------
-
-/// Collect direct children into a `Vec<Entity>`, optionally filtering
-/// to elements only.  Returns a snapshot — mutations to the tree after
-/// the call do not affect the returned vec.
-fn collect_children(
-    ctx: &mut NativeContext<'_>,
-    entity: Entity,
-    elements_only: bool,
-) -> Vec<Entity> {
-    let dom = ctx.host().dom();
-    let mut out = Vec::new();
-    for c in dom.children_iter(entity) {
-        if elements_only && dom.world().get::<&TagType>(c).is_err() {
-            continue;
-        }
-        out.push(c);
-    }
-    out
-}
-
-// ---------------------------------------------------------------------------
 // Natives: tree-navigation accessors
 // ---------------------------------------------------------------------------
 
@@ -333,12 +309,13 @@ fn native_element_get_children(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let children = collect_children(ctx, entity, /*elements_only=*/ true);
-    let elements: Vec<JsValue> = children
-        .into_iter()
-        .map(|e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
-        .collect();
-    Ok(JsValue::Object(ctx.vm.create_array_object(elements)))
+    // `element.children` is a live `HTMLCollection` — every access
+    // re-traverses the parent's children to include concurrent
+    // mutations (WHATWG §4.2.10).
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::Children { parent: entity });
+    Ok(JsValue::Object(id))
 }
 
 fn native_element_get_child_element_count(
@@ -669,8 +646,13 @@ fn native_element_query_selector(
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
 
-/// `Element.prototype.querySelectorAll(selector)` — subtree-scoped,
-/// returns a snapshot Array (live NodeList lands with Observers).
+/// `Element.prototype.querySelectorAll(selector)` — subtree-scoped.
+///
+/// WHATWG §4.2.6: returns a **static** NodeList.  The selector is
+/// evaluated once, the matching entities are captured in a
+/// `Snapshot` kind, and subsequent reads serve from that frozen
+/// list.  Live collection kinds (ByTag / ByClass) are reserved for
+/// `getElementsBy*` and `element.children`.
 fn native_element_query_selector_all(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -681,18 +663,15 @@ fn native_element_query_selector_all(
             k == NodeKind::Element
         })?
     else {
-        // Unbound / non-HostObject receivers return `null`, matching
-        // the other Element-side object-returning helpers
-        // (`querySelector`, `closest`, `childNodes`).  HostObject
-        // receivers of the wrong kind (e.g. a Text or Document
-        // wrapper used via `Function.call`) throw TypeError via
-        // `require_receiver` above.
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
-    let matched = query_selector_in_subtree_all(ctx.host().dom(), entity, &selectors);
-    Ok(wrap_entities_as_array(ctx.vm, &matched))
+    let entities = query_selector_in_subtree_all(ctx.host().dom(), entity, &selectors);
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot { entities });
+    Ok(JsValue::Object(id))
 }
 
 fn native_element_closest(
@@ -756,8 +735,7 @@ pub(super) fn native_element_get_elements_by_tag_name(
     // WebIDL brand check runs BEFORE argument conversion — otherwise
     // `Element.prototype.getElementsByTagName.call({}, {toString(){ ... }})`
     // would trigger user code via ToString even though the invalid
-    // receiver should be a silent no-op.  Order matches
-    // `querySelector*` / `matches` / `closest` in this same file.
+    // receiver should be a silent no-op.
     let Some(root) =
         super::event_target::require_receiver(ctx, this, "Element", "getElementsByTagName", |k| {
             k == NodeKind::Element
@@ -766,21 +744,24 @@ pub(super) fn native_element_get_elements_by_tag_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let tag = coerce_first_arg_to_string(ctx, args)?;
-    let entities = collect_descendants_by_tag_name(ctx.host().dom(), root, &tag);
-    Ok(wrap_entities_as_array(ctx.vm, &entities))
+    let tag_sid = ctx.vm.strings.intern(&tag);
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::ByTag {
+            root,
+            tag: tag_sid,
+            all: tag == "*",
+        });
+    Ok(JsValue::Object(id))
 }
 
 /// `Element.prototype.getElementsByClassName(classNames)` —
-/// WHATWG §4.2.6.2.  Descendant-only; empty-token-set yields an empty
-/// array, and every class token must appear in the element's `class`
-/// attribute (WHATWG "all classes in classes" AND semantics).
+/// WHATWG §4.2.6.2.  Descendant-only, live.
 pub(super) fn native_element_get_elements_by_class_name(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Brand check before argument conversion — same WebIDL precedence
-    // rule as `getElementsByTagName` above.
     let Some(root) = super::event_target::require_receiver(
         ctx,
         this,
@@ -792,7 +773,12 @@ pub(super) fn native_element_get_elements_by_class_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let class_str = coerce_first_arg_to_string(ctx, args)?;
-    let target_classes: Vec<&str> = class_str.split_whitespace().collect();
-    let entities = collect_descendants_by_class_name(ctx.host().dom(), root, &target_classes);
-    Ok(wrap_entities_as_array(ctx.vm, &entities))
+    let class_names: Vec<_> = class_str
+        .split_whitespace()
+        .map(|c| ctx.vm.strings.intern(c))
+        .collect();
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::ByClass { root, class_names });
+    Ok(JsValue::Object(id))
 }

@@ -42,6 +42,7 @@ pub(super) mod childnode;
 pub(super) mod document;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;
+pub(super) mod dom_collection;
 pub(crate) mod dom_exception;
 pub(super) mod element_insert_adjacent;
 pub(super) mod element_proto;

@@ -261,6 +261,24 @@ pub(crate) struct VmInner {
     /// before `register_html_iframe_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) html_element_prototype: Option<ObjectId>,
+    /// `HTMLCollection.prototype` — shared prototype for every
+    /// `ObjectKind::HtmlCollection` wrapper (WHATWG DOM §4.2.10).
+    /// Chains to `Object.prototype`; carries `length` (getter),
+    /// `item`, `namedItem`, and `[Symbol.iterator]`.
+    ///
+    /// `None` until `register_html_collection_prototype()` runs
+    /// during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_collection_prototype: Option<ObjectId>,
+    /// `NodeList.prototype` — shared prototype for every
+    /// `ObjectKind::NodeList` wrapper (WHATWG DOM §4.2.10.1).
+    /// Chains to `Object.prototype`; carries `length`, `item`,
+    /// `forEach`, and `[Symbol.iterator]`.
+    ///
+    /// `None` until `register_node_list_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) node_list_prototype: Option<ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
     /// [`Self::html_element_prototype`] (after PR5b splice) so
@@ -621,6 +639,25 @@ pub(crate) struct VmInner {
     /// pattern as `body_data` / `headers_states`.
     #[cfg(feature = "engine")]
     pub(crate) blob_data: HashMap<ObjectId, host::blob::BlobData>,
+    /// Backing state for `ObjectKind::HtmlCollection` /
+    /// `ObjectKind::NodeList` wrappers (WHATWG DOM §4.2.10 / §4.2.10.1).
+    ///
+    /// Shared between both collection interfaces because the filter
+    /// discriminator already distinguishes HTMLCollection kinds
+    /// (tag / class / children / forms / …) from NodeList kinds
+    /// (childNodes / querySelectorAll snapshot / getElementsByName).
+    /// One `HashMap` keeps the GC sweep tail tidy and lets the
+    /// indexed / named property lookup in `ops_property::get_element`
+    /// hit a single side-table regardless of the wrapper kind.
+    ///
+    /// GC contract: the stored `LiveCollectionKind` holds only
+    /// `Entity`, `StringId`, `Vec<StringId>` (class names), and
+    /// `Vec<Entity>` (querySelectorAll snapshot) — **no `ObjectId`
+    /// references**, so the trace step does nothing.  The sweep
+    /// tail prunes entries whose key `ObjectId` was collected, same
+    /// pattern as `headers_states` / `blob_data`.
+    #[cfg(feature = "engine")]
+    pub(crate) live_collection_states: HashMap<ObjectId, host::dom_collection::LiveCollectionKind>,
     /// Content-thread `NetworkHandle` used by the `fetch()` host
     /// global.  `None` in test / standalone mode (`fetch()` then
     /// rejects with `TypeError`); the embedding harness —

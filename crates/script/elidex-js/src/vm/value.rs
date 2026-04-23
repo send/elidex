@@ -707,6 +707,40 @@ pub enum ObjectKind {
     /// key was collected.
     #[cfg(feature = "engine")]
     Blob,
+    /// `HTMLCollection` instance (WHATWG DOM §4.2.10).  A *live*
+    /// ordered collection of Element nodes matching one of several
+    /// filter kinds (by tag, by class, children, forms / images /
+    /// links).  Payload-free; the discriminator + filter parameters
+    /// (root Entity, tag StringId, …) live out-of-band in
+    /// `VmInner::live_collection_states` keyed by this object's
+    /// `ObjectId`.
+    ///
+    /// Live semantics: every read (`length`, `item(i)`, indexed
+    /// access, iterator) re-traverses the ECS from the stored root.
+    /// Callers that need a snapshot can spread into an Array.
+    ///
+    /// GC contract: the side-table holds only `Entity` and
+    /// `StringId` values (no `ObjectId`), so **no GC tracing is
+    /// required**; the sweep tail prunes `live_collection_states`
+    /// entries whose `ObjectId` key was collected.
+    #[cfg(feature = "engine")]
+    HtmlCollection,
+    /// `NodeList` instance (WHATWG DOM §4.2.10.1).  An ordered
+    /// collection of Node values — may be *live* (from
+    /// `Node.prototype.childNodes` or `document.getElementsByName`)
+    /// or *static* (from `querySelectorAll`, per §4.2.6).  Shares
+    /// the `live_collection_states` side-table with `HtmlCollection`;
+    /// the discriminator variant disambiguates between the two
+    /// interfaces.
+    ///
+    /// GC contract: identical to [`Self::HtmlCollection`] — the
+    /// side-table carries no `ObjectId` references; pruning alongside
+    /// HTMLCollection entries in the sweep tail is sufficient.  The
+    /// static `Snapshot` variant stores a `Vec<Entity>` whose entries
+    /// are plain ECS keys (no ObjectId), so the `Vec` likewise
+    /// needs no tracing.
+    #[cfg(feature = "engine")]
+    NodeList,
 }
 
 impl ObjectKind {
