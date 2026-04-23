@@ -251,6 +251,12 @@ impl VmInner {
         {
             self.register_html_collection_prototype();
             self.register_node_list_prototype();
+            // Attr.prototype must land BEFORE NamedNodeMap.prototype —
+            // NamedNodeMap methods allocate Attr wrappers via
+            // `alloc_attr`, which panics if `attr_prototype` is
+            // still `None`.
+            self.register_attr_prototype();
+            self.register_named_node_map_prototype();
         }
 
         // Window.prototype — prototype for the `globalThis` `HostObject`

@@ -50,6 +50,7 @@ mod tests_location;
 mod tests_m4_10_2;
 mod tests_m4_11;
 mod tests_math;
+mod tests_named_node_map;
 mod tests_navigator;
 mod tests_node_common;
 mod tests_normalize;

@@ -741,6 +741,47 @@ pub enum ObjectKind {
     /// needs no tracing.
     #[cfg(feature = "engine")]
     NodeList,
+    /// `NamedNodeMap` instance (WHATWG DOM §4.9.1) — the live
+    /// collection of an Element's attributes exposed via
+    /// `element.attributes`.  Payload-free; the backing Element
+    /// `Entity` lives in `VmInner::named_node_map_states` keyed by
+    /// this `ObjectId`.
+    ///
+    /// Per spec, NamedNodeMap reflects the element's current
+    /// attribute list on every read — add / remove / update through
+    /// `setAttribute` et al. are visible to a previously-obtained
+    /// NamedNodeMap instance.  Implemented by re-reading the ECS
+    /// `Attributes` component on each access, matching the
+    /// HTMLCollection / NodeList design (no cache, no invalidation
+    /// surface).
+    ///
+    /// GC contract: the side-table stores only an `Entity` — no
+    /// `ObjectId` references — so no trace fan-out.  Sweep tail
+    /// prunes entries whose key `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    NamedNodeMap,
+    /// `Attr` instance (WHATWG DOM §4.9.2) — the wrapper returned by
+    /// `getAttributeNode` / `setAttributeNode` / NamedNodeMap
+    /// indexed + named access.  Payload-free; the backing
+    /// (owner `Entity`, qualified-name `StringId`) tuple lives in
+    /// `VmInner::attr_states` keyed by this `ObjectId`.
+    ///
+    /// Phase 2 simplification: `namespaceURI` / `prefix` return
+    /// `null` for every Attr, `localName` equals the qualified
+    /// name — XML namespace support lands in Phase 3 alongside
+    /// full XML document handling (plan §Deferred #21).
+    ///
+    /// Identity is **not** preserved across calls: repeated
+    /// `getAttributeNode('id')` allocates a fresh wrapper.  This
+    /// mirrors HTMLCollection / NodeList's per-access allocation
+    /// and avoids the GC root machinery that a cache would demand.
+    ///
+    /// GC contract: `AttrState` holds an `Entity` and a `StringId`
+    /// — no `ObjectId` references — so no trace fan-out.  Sweep
+    /// tail prunes `attr_states` entries whose key `ObjectId` was
+    /// collected.
+    #[cfg(feature = "engine")]
+    Attr,
 }
 
 impl ObjectKind {

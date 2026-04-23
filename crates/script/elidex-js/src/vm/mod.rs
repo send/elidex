@@ -279,6 +279,38 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) node_list_prototype: Option<ObjectId>,
+    /// `NamedNodeMap.prototype` — shared prototype for every
+    /// `ObjectKind::NamedNodeMap` wrapper (WHATWG DOM §4.9.1).
+    /// Carries `length`, `item`, `getNamedItem` / `setNamedItem` /
+    /// `removeNamedItem` + the namespace-aware NS variants, and
+    /// `[Symbol.iterator]`.
+    #[cfg(feature = "engine")]
+    pub(crate) named_node_map_prototype: Option<ObjectId>,
+    /// Backing state for `ObjectKind::NamedNodeMap` wrappers — the
+    /// Element entity whose attributes the map reflects.  Shared
+    /// across repeated `element.attributes` reads because live
+    /// semantics mean every accessor re-reads the same backing
+    /// component regardless of which wrapper the caller holds.
+    ///
+    /// GC contract: `Entity` holds no `ObjectId` references, so no
+    /// trace fan-out; sweep tail prunes entries whose key
+    /// `ObjectId` was collected (pattern shared with
+    /// `live_collection_states`).
+    #[cfg(feature = "engine")]
+    pub(crate) named_node_map_states: HashMap<ObjectId, elidex_ecs::Entity>,
+    /// `Attr.prototype` — shared prototype for every
+    /// `ObjectKind::Attr` wrapper (WHATWG DOM §4.9.2).  Carries the
+    /// `name` / `value` / `ownerElement` / `namespaceURI` / `prefix`
+    /// / `localName` / `specified` accessor suite.
+    #[cfg(feature = "engine")]
+    pub(crate) attr_prototype: Option<ObjectId>,
+    /// Backing state for `ObjectKind::Attr` wrappers — the
+    /// (owner Element, qualified-name `StringId`) tuple that ties
+    /// each Attr back to its position in the owner's `Attributes`
+    /// component.  An Attr with owner detached (attribute removed)
+    /// surfaces `ownerElement === null` and `value === ""`.
+    #[cfg(feature = "engine")]
+    pub(crate) attr_states: HashMap<ObjectId, host::attr_proto::AttrState>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
     /// [`Self::html_element_prototype`] (after PR5b splice) so

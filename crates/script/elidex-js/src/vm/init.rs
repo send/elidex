@@ -107,6 +107,14 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 live_collection_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                named_node_map_prototype: None,
+                #[cfg(feature = "engine")]
+                named_node_map_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                attr_prototype: None,
+                #[cfg(feature = "engine")]
+                attr_states: HashMap::new(),
+                #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,

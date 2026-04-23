@@ -186,6 +186,25 @@ impl VmInner {
             );
         }
 
+        // `attributes` accessor — returns a live `NamedNodeMap`
+        // backed by the element's `Attributes` component
+        // (WHATWG §4.9).
+        let attrs_sid = self.well_known.attributes;
+        let attrs_display = self.strings.get_utf8(attrs_sid);
+        let attrs_getter = self.create_native_function(
+            &format!("get {attrs_display}"),
+            native_element_get_attributes,
+        );
+        self.define_shaped_property(
+            proto_id,
+            PropertyKey::String(attrs_sid),
+            PropertyValue::Accessor {
+                getter: Some(attrs_getter),
+                setter: None,
+            },
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+
         // Attribute methods.
         for (name_sid, func) in [
             (
@@ -205,6 +224,19 @@ impl VmInner {
             (
                 self.well_known.toggle_attribute,
                 native_element_toggle_attribute,
+            ),
+            // Attr-typed methods — WHATWG §4.9.2.
+            (
+                self.well_known.get_attribute_node,
+                native_element_get_attribute_node,
+            ),
+            (
+                self.well_known.set_attribute_node,
+                native_element_set_attribute_node,
+            ),
+            (
+                self.well_known.remove_attribute_node,
+                native_element_remove_attribute_node,
             ),
         ] {
             let name = self.strings.get_utf8(name_sid);
@@ -477,6 +509,150 @@ fn native_element_get_attribute_names(
         })
         .collect();
     Ok(JsValue::Object(ctx.vm.create_array_object(values)))
+}
+
+// --- Attr-typed helpers (WHATWG §4.9.2) ------------------------------
+
+/// `element.attributes` accessor — returns a live `NamedNodeMap`
+/// keyed by the receiver's Entity.  Per-access allocation matches
+/// the HTMLCollection pattern; identity is NOT preserved across
+/// reads (`el.attributes !== el.attributes`).  Live semantics come
+/// from the NamedNodeMap's re-resolution against the backing
+/// `Attributes` ECS component on each method / accessor call.
+fn native_element_get_attributes(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let id = ctx.vm.alloc_named_node_map(entity);
+    Ok(JsValue::Object(id))
+}
+
+/// `element.getAttributeNode(name)` — return an Attr wrapper for
+/// the named attribute, or `null` when absent.
+fn native_element_get_attribute_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let name = coerce_first_arg_to_string(ctx, args)?;
+    if ctx.host().dom().get_attribute(entity, &name).is_none() {
+        return Ok(JsValue::Null);
+    }
+    let qname_sid = ctx.vm.strings.intern(&name);
+    let attr_id = ctx.vm.alloc_attr(super::attr_proto::AttrState {
+        owner: entity,
+        qualified_name: qname_sid,
+    });
+    Ok(JsValue::Object(attr_id))
+}
+
+/// `element.setAttributeNode(attr)` — write the Attr's value onto
+/// the receiver under the Attr's name.  Returns the previous Attr
+/// (wrapper over the old value) or `null` when no attribute of
+/// that name existed.
+fn native_element_set_attribute_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let JsValue::Object(attr_id) = arg else {
+        return Err(VmError::type_error(
+            "Failed to execute 'setAttributeNode' on 'Element': argument is not an Attr"
+                .to_string(),
+        ));
+    };
+    if !matches!(ctx.vm.get_object(attr_id).kind, ObjectKind::Attr) {
+        return Err(VmError::type_error(
+            "Failed to execute 'setAttributeNode' on 'Element': argument is not an Attr"
+                .to_string(),
+        ));
+    }
+    let Some(state) = ctx.vm.attr_states.get(&attr_id) else {
+        return Err(VmError::type_error(
+            "Failed to execute 'setAttributeNode' on 'Element': Attr has no backing state"
+                .to_string(),
+        ));
+    };
+    let source_owner = state.owner;
+    let qname_sid = state.qualified_name;
+    let name_str = ctx.vm.strings.get_utf8(qname_sid);
+    let new_value = ctx
+        .host()
+        .dom()
+        .get_attribute(source_owner, &name_str)
+        .unwrap_or_default();
+    let prev_exists = ctx.host().dom().get_attribute(entity, &name_str).is_some();
+    ctx.host().dom().set_attribute(entity, &name_str, new_value);
+    Ok(if prev_exists {
+        let prev = ctx.vm.alloc_attr(super::attr_proto::AttrState {
+            owner: entity,
+            qualified_name: qname_sid,
+        });
+        JsValue::Object(prev)
+    } else {
+        JsValue::Null
+    })
+}
+
+/// `element.removeAttributeNode(attr)` — detach the attribute
+/// identified by the Attr from the receiver.  Throws
+/// `NotFoundError` when the receiver has no attribute with the
+/// matching qualified name (WHATWG §4.9.2 step 2).
+fn native_element_remove_attribute_node(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let JsValue::Object(attr_id) = arg else {
+        return Err(VmError::type_error(
+            "Failed to execute 'removeAttributeNode' on 'Element': argument is not an Attr"
+                .to_string(),
+        ));
+    };
+    if !matches!(ctx.vm.get_object(attr_id).kind, ObjectKind::Attr) {
+        return Err(VmError::type_error(
+            "Failed to execute 'removeAttributeNode' on 'Element': argument is not an Attr"
+                .to_string(),
+        ));
+    }
+    let Some(state) = ctx.vm.attr_states.get(&attr_id) else {
+        return Err(VmError::type_error(
+            "Failed to execute 'removeAttributeNode' on 'Element': Attr has no backing state"
+                .to_string(),
+        ));
+    };
+    let qname_sid = state.qualified_name;
+    let name_str = ctx.vm.strings.get_utf8(qname_sid);
+    if ctx.host().dom().get_attribute(entity, &name_str).is_none() {
+        let not_found = ctx.vm.well_known.dom_exc_not_found_error;
+        return Err(VmError::dom_exception(
+            not_found,
+            format!("Failed to execute 'removeAttributeNode' on 'Element': '{name_str}' not found"),
+        ));
+    }
+    ctx.host().dom().remove_attribute(entity, &name_str);
+    // Return a wrapper over the (now detached) attribute — the
+    // caller commonly stashes it for reinsertion.
+    let returned = ctx.vm.alloc_attr(super::attr_proto::AttrState {
+        owner: entity,
+        qualified_name: qname_sid,
+    });
+    Ok(JsValue::Object(returned))
 }
 
 fn native_element_toggle_attribute(

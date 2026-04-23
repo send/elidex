@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 44],
+    proto_roots: [Option<ObjectId>; 46],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -624,6 +624,13 @@ fn trace_work_list(
             // `ObjectId` was collected (see sweep code below).
             #[cfg(feature = "engine")]
             ObjectKind::HtmlCollection | ObjectKind::NodeList => {}
+            // `NamedNodeMap` / `Attr` payloads (stored in
+            // `named_node_map_states` / `attr_states`) carry only
+            // `Entity` and `StringId` — no `ObjectId` references —
+            // so the trace step has nothing to fan out.  Sweep tail
+            // prunes entries whose key `ObjectId` was collected.
+            #[cfg(feature = "engine")]
+            ObjectKind::NamedNodeMap | ObjectKind::Attr => {}
         }
     }
 }
@@ -881,6 +888,15 @@ impl VmInner {
                 self.node_list_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 44 + 2 (NamedNodeMap + Attr, PR5b §C4 / §C4.5) = 46.
+                #[cfg(feature = "engine")]
+                self.named_node_map_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.attr_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
@@ -1025,6 +1041,12 @@ impl VmInner {
             // `ObjectId` slot doesn't inherit stale filter state.
             self.live_collection_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // `named_node_map_states` / `attr_states` — side-tables
+            // for `ObjectKind::NamedNodeMap` / `ObjectKind::Attr`
+            // wrappers.  Same prune pattern as above.
+            self.named_node_map_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.attr_states.retain(|id, _| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

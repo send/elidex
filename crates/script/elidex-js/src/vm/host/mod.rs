@@ -34,6 +34,7 @@ pub(super) mod abort_statics;
 #[cfg(feature = "engine")]
 pub(crate) mod array_buffer;
 #[cfg(feature = "engine")]
+pub(crate) mod attr_proto;
 pub(crate) mod blob;
 #[cfg(feature = "engine")]
 pub(super) mod body_mixin;
@@ -65,6 +66,7 @@ pub(super) mod history;
 pub(super) mod html_element_proto;
 pub(super) mod html_iframe_proto;
 pub(super) mod location;
+pub(super) mod named_node_map;
 pub(super) mod navigation;
 pub(super) mod navigator;
 pub(super) mod node_methods_extras;

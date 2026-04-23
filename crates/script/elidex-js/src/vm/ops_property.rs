@@ -465,30 +465,38 @@ impl VmInner {
             // so that `.length` / `.item` still see the prototype
             // accessor / method.
             #[cfg(feature = "engine")]
-            if matches!(
-                self.get_object(id).kind,
-                ObjectKind::HtmlCollection | ObjectKind::NodeList
-            ) {
-                // Live-collection lookup needs a shared `&EcsDom`
-                // borrow alongside `&mut VmInner` (for the wrapper
-                // cache allocation that `create_element_wrapper`
-                // inside `try_indexed_get` may perform).  The DOM
-                // and the rest of `VmInner` live in disjoint fields
-                // (`host_data` vs everything else), so the borrow
-                // is sound under split-field rules — we materialise
-                // the shared `&EcsDom` through a raw pointer to
-                // bypass the stacked-borrow conservatism that
-                // cannot prove the disjointness through the
-                // `Box<HostData>` indirection.
-                if let Some(hd) = self.host_data.as_deref() {
-                    #[allow(unsafe_code)]
-                    let dom_ptr: *const elidex_ecs::EcsDom = hd.dom_shared();
-                    #[allow(unsafe_code)]
-                    let dom = unsafe { &*dom_ptr };
-                    if let Some(val) =
-                        super::host::dom_collection::try_indexed_get(self, dom, id, key)
-                    {
-                        return Ok(val);
+            {
+                let kind_snapshot = &self.get_object(id).kind;
+                let is_live_collection = matches!(
+                    kind_snapshot,
+                    ObjectKind::HtmlCollection | ObjectKind::NodeList
+                );
+                let is_named_node_map = matches!(kind_snapshot, ObjectKind::NamedNodeMap);
+                if is_live_collection || is_named_node_map {
+                    // Indexed / named property access needs a
+                    // shared `&EcsDom` borrow alongside the `&mut
+                    // VmInner` the helper runs on.  DOM and the rest
+                    // of `VmInner` live in disjoint fields
+                    // (`host_data` vs everything else) so the
+                    // borrow is sound under split-field rules — we
+                    // materialise the shared `&EcsDom` through a
+                    // raw pointer to bypass the stacked-borrow
+                    // conservatism that cannot prove the
+                    // disjointness through the `Box<HostData>`
+                    // indirection.
+                    if let Some(hd) = self.host_data.as_deref() {
+                        #[allow(unsafe_code)]
+                        let dom_ptr: *const elidex_ecs::EcsDom = hd.dom_shared();
+                        #[allow(unsafe_code)]
+                        let dom = unsafe { &*dom_ptr };
+                        let hit = if is_live_collection {
+                            super::host::dom_collection::try_indexed_get(self, dom, id, key)
+                        } else {
+                            super::host::named_node_map::try_indexed_get(self, dom, id, key)
+                        };
+                        if let Some(val) = hit {
+                            return Ok(val);
+                        }
                     }
                 }
             }
