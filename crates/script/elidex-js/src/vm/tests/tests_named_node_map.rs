@@ -261,3 +261,22 @@ fn attr_accessor_brand_check_rejects_plain_object() {
              ? 'ok' : 'bad:' + (e && e.message); }");
     assert_eq!(out, "ok");
 }
+
+// ---------------------------------------------------------------------------
+// Copilot R2 #5 regression — `attrs['0']` (numeric-string key) must
+// route through the indexed path, same as `attrs[0]`.  Previously
+// string keys were treated as attribute-name lookups only.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn named_node_map_numeric_string_index_returns_attr() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         d.setAttribute('data-y', 'z'); \
+         var attrs = d.attributes; \
+         var byNumber = attrs[0]; \
+         var byString = attrs['0']; \
+         (byNumber && byString && byNumber.name === byString.name) \
+           ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}

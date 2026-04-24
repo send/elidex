@@ -338,6 +338,84 @@ fn for_each_rejects_html_collection_receiver_with_illegal_invocation() {
     assert_eq!(out, "ok");
 }
 
+// ---------------------------------------------------------------------------
+// Copilot R2 #4 regression — `coll['0']` (numeric-string key) must
+// route through the indexed-get path for BOTH HTMLCollection and
+// NodeList, not just HTMLCollection.  Previously NodeList fell
+// through to prototype lookup and returned `undefined`.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Copilot R2 #1 regression — accessing an HTMLCollection / NodeList /
+// NamedNodeMap after `Vm::unbind()` must NOT panic.  Previously
+// `ops_property.rs::get_element` invoked `HostData::dom_shared()`
+// unconditionally, which asserts `is_bound()`.  Retained wrappers
+// must fall through to the prototype-chain path and return
+// `undefined` for indexed access after unbind.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn indexed_access_after_unbind_does_not_panic() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Create a live HTMLCollection / NodeList / NamedNodeMap and
+    // stash each on globalThis so the wrappers survive unbind.
+    vm.eval(
+        "var p = document.createElement('div'); \
+         var s = document.createElement('span'); \
+         s.setAttribute('id', 'x'); \
+         p.appendChild(s); \
+         document.body.appendChild(p); \
+         globalThis.hc = p.children; \
+         globalThis.nl = p.childNodes; \
+         globalThis.nnm = s.attributes;",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // Post-unbind indexed access must return `undefined` (falls
+    // through to prototype lookup) rather than panic.
+    let result = vm.eval("globalThis.hc[0];").unwrap();
+    assert!(matches!(result, JsValue::Undefined), "{result:?}");
+    let result = vm.eval("globalThis.nl[0];").unwrap();
+    assert!(matches!(result, JsValue::Undefined), "{result:?}");
+    let result = vm.eval("globalThis.nnm[0];").unwrap();
+    assert!(matches!(result, JsValue::Undefined), "{result:?}");
+}
+
+#[test]
+fn node_list_numeric_string_index_returns_element() {
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('span'); \
+         p.appendChild(a); \
+         document.body.appendChild(p); \
+         var nl = p.childNodes; \
+         var byNumber = nl[0]; \
+         var byString = nl['0']; \
+         (byNumber === a && byString === a) \
+           ? 'ok' : 'fail:' + (byNumber === a) + '/' + (byString === a);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn html_collection_numeric_string_index_still_works() {
+    // Regression — #4 fix must not break HTMLCollection's
+    // pre-existing numeric-string behaviour.
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('span'); \
+         p.appendChild(a); \
+         document.body.appendChild(p); \
+         (p.children['0'] === a) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
 #[test]
 fn shared_methods_accept_either_collection_receiver() {
     // `length` + `item` live on both prototypes and must work via

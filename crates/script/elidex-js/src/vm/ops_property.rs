@@ -484,7 +484,14 @@ impl VmInner {
                     // conservatism that cannot prove the
                     // disjointness through the `Box<HostData>`
                     // indirection.
-                    if let Some(hd) = self.host_data.as_deref() {
+                    // `dom_shared()` panics when `HostData` is
+                    // unbound; collection wrappers survive
+                    // `Vm::unbind()` (their `ObjectId` is GC-rooted
+                    // via `live_collection_states` / `named_node_map_states`),
+                    // so post-unbind property access on a retained
+                    // wrapper must fall through to normal prototype
+                    // lookup instead of panicking.
+                    if let Some(hd) = self.host_data.as_deref().filter(|h| h.is_bound()) {
                         #[allow(unsafe_code)]
                         let dom_ptr: *const elidex_ecs::EcsDom = hd.dom_shared();
                         #[allow(unsafe_code)]

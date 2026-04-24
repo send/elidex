@@ -488,6 +488,20 @@ pub(crate) fn try_indexed_get(
         }
         JsValue::String(sid) => {
             let key_str = vm.strings.get_utf8(sid);
+            // Numeric-string key → indexed path, mirroring the
+            // `JsValue::Number` arm.  `attrs['0']` /
+            // `Reflect.get(attrs, '0')` must return the same Attr
+            // as `attrs[0]`; otherwise the caller falls through to
+            // prototype lookup and sees `undefined`.
+            if let Ok(idx) = key_str.parse::<usize>() {
+                let name = names.get(idx)?;
+                let qname_sid = vm.strings.intern(name);
+                let attr_id = vm.alloc_attr(AttrState {
+                    owner,
+                    qualified_name: qname_sid,
+                });
+                return Some(JsValue::Object(attr_id));
+            }
             // Match by exact attribute name — HTML documents store
             // names lowercase via `EcsDom::set_attribute`, so a
             // lookup for `"id"` hits the normalised key.

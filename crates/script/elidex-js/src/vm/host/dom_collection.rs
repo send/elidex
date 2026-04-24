@@ -290,24 +290,18 @@ fn collect_descendants_with_tag(dom: &EcsDom, root: Entity, tag: &str) -> Vec<En
 /// step 2.2.  `id` matching applies to every Element regardless of
 /// tag; the `name` fallback is restricted to this list so
 /// `<div name="foo">` does NOT surface via `namedItem("foo")`.
+///
+/// Compared via `eq_ignore_ascii_case` against static literals — no
+/// owned lowercase copy is allocated per call (namedItem resolution
+/// invokes this in its inner loop on every indexed access).
 pub(super) fn tag_allows_name_lookup(tag: &str) -> bool {
-    matches!(
-        tag.to_ascii_lowercase().as_str(),
-        "a" | "area"
-            | "button"
-            | "form"
-            | "fieldset"
-            | "iframe"
-            | "img"
-            | "input"
-            | "object"
-            | "output"
-            | "select"
-            | "textarea"
-            | "map"
-            | "meta"
-            | "embed"
-    )
+    const NAMED_ITEM_TAGS: [&str; 15] = [
+        "a", "area", "button", "form", "fieldset", "iframe", "img", "input", "object", "output",
+        "select", "textarea", "map", "meta", "embed",
+    ];
+    NAMED_ITEM_TAGS
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(tag))
 }
 
 // -------------------------------------------------------------------------
@@ -724,20 +718,27 @@ pub(crate) fn try_indexed_get(
                 .get(idx)
                 .map(|&e| JsValue::Object(vm.create_element_wrapper(e)))
         }
-        JsValue::String(sid) if is_html_collection => {
-            // Legacy named property access — HTML spec §4.2.10.
-            // Non-numeric strings route into `namedItem` semantics.
+        JsValue::String(sid) => {
             let key_str = vm.strings.get_utf8(sid);
-            // Numeric string key — resolve via the index path.  The
-            // Array fast-path in `get_element` also catches these,
-            // but named-property access can land here directly
-            // (e.g. `coll['0']` via Reflect.get).
+            // Numeric-string key → indexed path for BOTH
+            // HTMLCollection AND NodeList (`coll['0']`,
+            // `Reflect.get(coll, '0')`, spread into a
+            // `Reflect.ownKeys` loop).  Without this, the caller
+            // would fall through to prototype lookup and observe
+            // `undefined` for a valid indexed entry.
             if let Ok(idx) = key_str.parse::<usize>() {
                 return entities
                     .get(idx)
                     .map(|&e| JsValue::Object(vm.create_element_wrapper(e)));
             }
-            // Named lookup — `id` then `name` (tag allowlist).
+            // Non-numeric string on HTMLCollection → legacy named
+            // property access (WHATWG HTML spec §4.2.10): `id`
+            // attribute first, then `name` restricted to the tag
+            // allowlist.  NodeList has no named-property path, so
+            // return None for it.
+            if !is_html_collection {
+                return None;
+            }
             let mut name_hit: Option<Entity> = None;
             for &e in &entities {
                 if dom.get_attribute(e, "id").as_deref() == Some(key_str.as_str()) {

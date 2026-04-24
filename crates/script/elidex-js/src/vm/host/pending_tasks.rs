@@ -429,7 +429,11 @@ fn compute_own_origin_sid(vm: &mut VmInner) -> StringId {
 /// Match `targetOrigin` against own origin.
 ///
 /// - `"*"` → always match.
-/// - `"/"` → match if identical to own origin.
+/// - `"/"` → spec: "restrict the message to the same origin as the
+///   source".  Phase 2 is same-window only (source and target
+///   share the settings object), so the comparison is trivially
+///   satisfied and we short-circuit to `true`.  Cross-window
+///   postMessage (PR5d) adds the actual own-vs-target comparison.
 /// - otherwise → parse as URL; `SyntaxError` on failure, then
 ///   compare the parsed URL's origin to own origin.
 fn match_target_origin(
