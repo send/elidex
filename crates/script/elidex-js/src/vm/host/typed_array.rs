@@ -930,9 +930,26 @@ fn init_from_iterable(
     // survives any intervening GC even when the outer `args` slice
     // no longer reaches it (the `@@iterator` call's return value is
     // freshly allocated and not transitively rooted via `source`).
+    // Every exit path — success, RangeError, or a `?` propagation
+    // from inside `iter_next` / `write_element_raw` — truncates
+    // back to `iter_slot` via the outer-scope helper call.
     let iter_slot = ctx.vm.stack.len();
     ctx.vm.stack.push(iter);
     let elem_start = iter_slot + 1;
+    let outcome = init_from_iterable_body(ctx, iter, elem_start, ek);
+    ctx.vm.stack.truncate(iter_slot);
+    outcome
+}
+
+/// Inner body of [`init_from_iterable`], extracted so the caller can
+/// truncate the GC-rooting stack prefix unconditionally on every
+/// exit (spec `?` throws + inlined RangeError short-circuits alike).
+fn init_from_iterable_body(
+    ctx: &mut NativeContext<'_>,
+    iter: JsValue,
+    elem_start: usize,
+    ek: ElementKind,
+) -> Result<(ObjectId, u32, u32), VmError> {
     loop {
         let next = ctx.vm.iter_next(iter)?;
         match next {
@@ -969,7 +986,6 @@ fn init_from_iterable(
         let elem = ctx.vm.stack[elem_start + i as usize];
         write_element_raw(ctx, buf_id, offset, i, ek, elem)?;
     }
-    ctx.vm.stack.truncate(iter_slot);
 
     Ok((buf_id, offset, byte_len))
 }

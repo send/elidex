@@ -417,13 +417,41 @@ pub(crate) fn native_typed_array_set(
     // indexed/length access proceeds uniformly; only null/undefined
     // TypeError.  The fresh wrapper (primitive source) is only
     // reachable via the returned `src_id` integer — push it onto
-    // `vm.stack` as a GC root for the duration of the read loop,
-    // since `get_element` / `write_element_raw` may execute user
-    // code under a future `gc_enabled` native-call setting.
+    // `vm.stack` as a GC root for the duration of the read loop
+    // and truncate unconditionally on every exit (early RangeError
+    // or fallible `?` throw inside `get_element` / `write_element_raw`).
     let src_id = super::super::coerce::to_object(ctx.vm, source)?;
     let src_obj = JsValue::Object(src_id);
     let src_root = ctx.vm.stack.len();
     ctx.vm.stack.push(src_obj);
+    let outcome = set_array_like_body(
+        ctx,
+        src_id,
+        src_obj,
+        buffer_id,
+        byte_offset,
+        target_offset,
+        dst_len,
+        dst_ek,
+    );
+    ctx.vm.stack.truncate(src_root);
+    outcome
+}
+
+/// Inner body of `TypedArray.prototype.set` array-like branch,
+/// extracted so the caller can truncate the GC-rooting stack entry
+/// on every exit (success + every fallible `?` propagation).
+#[allow(clippy::too_many_arguments)]
+fn set_array_like_body(
+    ctx: &mut NativeContext<'_>,
+    src_id: ObjectId,
+    src_obj: JsValue,
+    buffer_id: ObjectId,
+    byte_offset: u32,
+    target_offset: u32,
+    dst_len: u32,
+    dst_ek: ElementKind,
+) -> Result<JsValue, VmError> {
     let length_sid = ctx.vm.well_known.length;
     let len_val =
         ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;
@@ -431,7 +459,6 @@ pub(crate) fn native_typed_array_set(
     let src_len = {
         let truncated = if len_f.is_nan() { 0.0 } else { len_f.trunc() };
         if truncated < 0.0 || truncated > f64::from(u32::MAX) {
-            ctx.vm.stack.truncate(src_root);
             return Err(VmError::range_error(
                 "Failed to execute 'set' on 'TypedArray': source length out of range",
             ));
@@ -444,7 +471,6 @@ pub(crate) fn native_typed_array_set(
         .checked_add(src_len)
         .map_or(true, |end| end > dst_len)
     {
-        ctx.vm.stack.truncate(src_root);
         return Err(VmError::range_error(
             "Failed to execute 'set' on 'TypedArray': offset + length out of range",
         ));
@@ -459,7 +485,6 @@ pub(crate) fn native_typed_array_set(
         let val = ctx.vm.get_element(src_obj, key)?;
         write_element_raw(ctx, buffer_id, byte_offset, target_offset + i, dst_ek, val)?;
     }
-    ctx.vm.stack.truncate(src_root);
     Ok(JsValue::Undefined)
 }
 
