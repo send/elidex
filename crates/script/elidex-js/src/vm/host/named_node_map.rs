@@ -17,11 +17,16 @@
 //!
 //! ## Phase 2 simplification
 //!
-//! NS-aware variants (`getNamedItemNS` / `setNamedItemNS` /
-//! `removeNamedItemNS`) accept a `namespaceURI` argument but only
-//! the `null` namespace is supported — any other argument yields
-//! `null` / no-op / `false` respectively.  Full XML namespace
-//! handling lands in Phase 3 (plan §Deferred #21).
+//! NS-aware variants follow their WebIDL signatures:
+//! `getNamedItemNS(namespace, localName)` and
+//! `removeNamedItemNS(namespace, localName)` take an explicit
+//! `namespaceURI` string / `null`; only the `null` namespace is
+//! supported — any other `namespace` yields `null` / `NotFoundError`
+//! respectively.  `setNamedItemNS(attr)` takes only an `Attr` (the
+//! namespace lives on the Attr itself); since every Phase 2 Attr
+//! has `namespaceURI = null` it is a straight alias for
+//! `setNamedItem`.  Full XML namespace handling lands in Phase 3
+//! (plan §Deferred #21).
 //!
 //! ## Brand check
 //!
