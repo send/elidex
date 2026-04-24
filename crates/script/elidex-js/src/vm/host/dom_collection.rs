@@ -323,7 +323,10 @@ pub(super) fn tag_allows_name_lookup(tag: &str) -> bool {
 
 impl VmInner {
     /// Allocate `HTMLCollection.prototype` and install `length` /
-    /// `item` / `namedItem` / `[Symbol.iterator]`.
+    /// `item` / `namedItem` / `[Symbol.iterator]`.  Shared methods
+    /// (`length` / `item` / `@@iterator`) use HTMLCollection-tagged
+    /// wrappers so brand-check failures surface `"HTMLCollection"`
+    /// in the error message rather than the shared-native default.
     pub(in crate::vm) fn register_html_collection_prototype(&mut self) {
         let obj_proto = self.object_prototype;
         let proto_id = self.alloc_object(Object {
@@ -334,23 +337,20 @@ impl VmInner {
         });
         self.html_collection_prototype = Some(proto_id);
 
-        self.install_rw_accessor_once(
-            proto_id,
-            self.well_known.length,
-            native_collection_length_get,
-            None,
-        );
-        self.install_method(proto_id, self.well_known.item, native_collection_item);
+        self.install_rw_accessor_once(proto_id, self.well_known.length, native_hc_length_get, None);
+        self.install_method(proto_id, self.well_known.item, native_hc_item);
         self.install_method(
             proto_id,
             self.well_known.named_item,
             native_collection_named_item,
         );
-        self.install_symbol_iterator(proto_id);
+        self.install_symbol_iterator(proto_id, native_hc_iterator);
     }
 
     /// Allocate `NodeList.prototype` and install `length` / `item` /
-    /// `forEach` / `[Symbol.iterator]`.
+    /// `forEach` / `[Symbol.iterator]`.  Shared methods use
+    /// NodeList-tagged wrappers so brand-check error messages
+    /// say `"NodeList"` when reached via `NodeList.prototype.*`.
     pub(in crate::vm) fn register_node_list_prototype(&mut self) {
         let obj_proto = self.object_prototype;
         let proto_id = self.alloc_object(Object {
@@ -361,26 +361,21 @@ impl VmInner {
         });
         self.node_list_prototype = Some(proto_id);
 
-        self.install_rw_accessor_once(
-            proto_id,
-            self.well_known.length,
-            native_collection_length_get,
-            None,
-        );
-        self.install_method(proto_id, self.well_known.item, native_collection_item);
+        self.install_rw_accessor_once(proto_id, self.well_known.length, native_nl_length_get, None);
+        self.install_method(proto_id, self.well_known.item, native_nl_item);
         self.install_method(
             proto_id,
             self.well_known.for_each,
             native_node_list_for_each,
         );
-        self.install_symbol_iterator(proto_id);
+        self.install_symbol_iterator(proto_id, native_nl_iterator);
     }
 
-    /// Install `[Symbol.iterator]` pointing at
-    /// [`native_collection_iterator`], matching Array's iterator
-    /// installation pattern in `globals_primitives.rs`.
-    fn install_symbol_iterator(&mut self, proto_id: ObjectId) {
-        let fn_id = self.create_native_function("[Symbol.iterator]", native_collection_iterator);
+    /// Install `[Symbol.iterator]` pointing at the per-interface
+    /// iterator wrapper so brand-check errors reflect the prototype
+    /// the user reached through.
+    fn install_symbol_iterator(&mut self, proto_id: ObjectId, iter_fn: NativeFn) {
+        let fn_id = self.create_native_function("[Symbol.iterator]", iter_fn);
         let sym_key = PropertyKey::Symbol(self.well_known_symbols.iterator);
         self.define_shaped_property(
             proto_id,
@@ -455,72 +450,52 @@ impl VmInner {
 // Native methods
 // -------------------------------------------------------------------------
 
-/// Expected receiver variant for a collection prototype method.
-///
-/// Drives per-interface brand checks: `namedItem` is
-/// HTMLCollection-only, `forEach` is NodeList-only (WebIDL
-/// `iterable<Node>`), and the rest (length / item / `@@iterator`)
-/// accept either receiver since both prototypes install them.
-#[derive(Copy, Clone)]
-enum ExpectedCollectionReceiver {
-    Any,
-    HtmlCollection,
-    NodeList,
-}
-
-fn expected_collection_receiver(method: &str) -> ExpectedCollectionReceiver {
-    match method {
-        "namedItem" => ExpectedCollectionReceiver::HtmlCollection,
-        "forEach" => ExpectedCollectionReceiver::NodeList,
-        // length / item / `@@iterator` install on both prototypes.
-        _ => ExpectedCollectionReceiver::Any,
-    }
-}
-
-fn collection_interface_name(expected: ExpectedCollectionReceiver) -> &'static str {
-    match expected {
-        ExpectedCollectionReceiver::NodeList => "NodeList",
-        // Both `Any` and `HtmlCollection` report against HTMLCollection
-        // because the shared methods live on HTMLCollection's WebIDL
-        // interface historically — the error message picks the more
-        // user-facing name.
-        ExpectedCollectionReceiver::Any | ExpectedCollectionReceiver::HtmlCollection => {
-            "HTMLCollection"
-        }
-    }
-}
-
 /// Brand-check helper — recover the `ObjectId` + whether the
 /// receiver is an HTMLCollection (vs NodeList), enforcing per-method
-/// interface contracts.  Returns a TypeError for non-collection
-/// receivers or mismatched collection kinds so `.call({})` and
-/// cross-interface `.call(otherKind)` both throw "Illegal invocation"
-/// (matches browser behaviour).
+/// interface contracts.
+///
+/// `interface` is the name of the prototype the method was installed
+/// on (`"HTMLCollection"` or `"NodeList"`).  It drives both the
+/// error message AND the accepted receiver kinds: HTMLCollection's
+/// prototype accepts HTMLCollection receivers, NodeList's prototype
+/// accepts NodeList receivers.  Shared methods (`length` / `item` /
+/// `@@iterator`) are installed on BOTH prototypes via per-interface
+/// wrapper natives so the error message reflects the prototype the
+/// caller reached through — e.g.
+/// `NodeList.prototype.length.call({})` reports
+/// `"Failed to execute 'length' on 'NodeList'"`.
+///
+/// Returns a TypeError for non-collection receivers or mismatched
+/// collection kinds so `.call({})` and cross-interface
+/// `.call(otherKind)` both throw "Illegal invocation" (matches
+/// browser behaviour).
 fn require_collection_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &'static str,
+    interface: &'static str,
 ) -> Result<(ObjectId, bool), VmError> {
-    let expected = expected_collection_receiver(method);
-    let interface = collection_interface_name(expected);
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on '{interface}': Illegal invocation"
         )));
     };
-    let is_html_collection = matches!(ctx.vm.get_object(id).kind, ObjectKind::HtmlCollection);
-    let is_node_list = matches!(ctx.vm.get_object(id).kind, ObjectKind::NodeList);
-    let ok = match expected {
-        ExpectedCollectionReceiver::Any => is_html_collection || is_node_list,
-        ExpectedCollectionReceiver::HtmlCollection => is_html_collection,
-        ExpectedCollectionReceiver::NodeList => is_node_list,
+    let kind_is_html = matches!(ctx.vm.get_object(id).kind, ObjectKind::HtmlCollection);
+    let kind_is_node_list = matches!(ctx.vm.get_object(id).kind, ObjectKind::NodeList);
+    // `interface == "NodeList"` accepts only NodeList receivers;
+    // every other interface value (including the two wrapper-less
+    // HTMLCollection-only natives below) accepts only HTMLCollection.
+    let ok = if interface == "NodeList" {
+        kind_is_node_list
+    } else {
+        kind_is_html
     };
     if !ok {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on '{interface}': Illegal invocation"
         )));
     }
-    Ok((id, is_html_collection))
+    Ok((id, kind_is_html))
 }
 
 /// Resolve the backing entity list for a live collection receiver.
@@ -541,23 +516,59 @@ fn resolve_receiver_entities(ctx: &mut NativeContext<'_>, id: ObjectId) -> Vec<E
     entities
 }
 
-fn native_collection_length_get(
+// Per-interface `length` getter wrappers — shared body, per-
+// interface brand-failure message.
+fn native_hc_length_get(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, _) = require_collection_receiver(ctx, this, "length")?;
+    collection_length_get_impl(ctx, this, "HTMLCollection")
+}
+
+fn native_nl_length_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    collection_length_get_impl(ctx, this, "NodeList")
+}
+
+fn collection_length_get_impl(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    interface: &'static str,
+) -> Result<JsValue, VmError> {
+    let (id, _) = require_collection_receiver(ctx, this, "length", interface)?;
     let entities = resolve_receiver_entities(ctx, id);
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(entities.len() as f64))
 }
 
-fn native_collection_item(
+// Per-interface `item` wrappers.
+fn native_hc_item(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, _) = require_collection_receiver(ctx, this, "item")?;
+    collection_item_impl(ctx, this, args, "HTMLCollection")
+}
+
+fn native_nl_item(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    collection_item_impl(ctx, this, args, "NodeList")
+}
+
+fn collection_item_impl(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    interface: &'static str,
+) -> Result<JsValue, VmError> {
+    let (id, _) = require_collection_receiver(ctx, this, "item", interface)?;
     let index = match args.first() {
         Some(JsValue::Number(n)) if n.is_finite() => {
             let trunc = n.trunc();
@@ -593,7 +604,12 @@ fn native_collection_named_item(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, _is_html_collection) = require_collection_receiver(ctx, this, "namedItem")?;
+    // HTMLCollection-only method — unconditionally brand-check
+    // against HTMLCollection.  A NodeList receiver fails at the
+    // require_collection_receiver call since `interface`=HTMLCollection
+    // rejects non-HTMLCollection kinds.
+    let (id, _is_html_collection) =
+        require_collection_receiver(ctx, this, "namedItem", "HTMLCollection")?;
     let Some(arg) = args.first().copied() else {
         return Ok(JsValue::Null);
     };
@@ -626,12 +642,30 @@ fn native_collection_named_item(
     })
 }
 
-fn native_collection_iterator(
+// Per-interface `@@iterator` wrappers.
+fn native_hc_iterator(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    collection_iterator_impl(ctx, this, args, "HTMLCollection")
+}
+
+fn native_nl_iterator(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    collection_iterator_impl(ctx, this, args, "NodeList")
+}
+
+fn collection_iterator_impl(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
+    interface: &'static str,
 ) -> Result<JsValue, VmError> {
-    let (id, _) = require_collection_receiver(ctx, this, "@@iterator")?;
+    let (id, _) = require_collection_receiver(ctx, this, "@@iterator", interface)?;
     let entities = resolve_receiver_entities(ctx, id);
     let values: Vec<JsValue> = entities
         .into_iter()
@@ -665,7 +699,8 @@ fn native_node_list_for_each(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, _) = require_collection_receiver(ctx, this, "forEach")?;
+    // NodeList-only method — brand-check against NodeList.
+    let (id, _) = require_collection_receiver(ctx, this, "forEach", "NodeList")?;
     let callback = args.first().copied().unwrap_or(JsValue::Undefined);
     let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let callable = match callback {

@@ -496,22 +496,55 @@ fn html_collection_numeric_string_index_still_works() {
     assert_eq!(out, "ok");
 }
 
+// ---------------------------------------------------------------------------
+// Copilot R8 #1 — shared methods (`length` / `item` / `@@iterator`)
+// live on BOTH prototypes but per WebIDL they are separate
+// operations on separate interfaces; cross-interface `.call` must
+// throw "Illegal invocation" with the interface name reflecting
+// the prototype the method was fetched from.
+// ---------------------------------------------------------------------------
+
 #[test]
-fn shared_methods_accept_either_collection_receiver() {
-    // `length` + `item` live on both prototypes and must work via
-    // cross-receiver `.call`.
-    let out = run("var p = document.createElement('div'); \
-         p.appendChild(document.createElement('a')); \
-         var hcProto = Object.getPrototypeOf(document.body.children); \
-         var nlProto = Object.getPrototypeOf(document.body.childNodes); \
+fn shared_length_getter_rejects_cross_interface_receiver() {
+    // `HTMLCollection.prototype.length.call(nodeList)` must throw
+    // "Illegal invocation on HTMLCollection" — NodeList receivers
+    // don't pass the HTMLCollection brand check.
+    let out = run(
+        "var hcProto = Object.getPrototypeOf(document.body.children); \
          var hcLenDesc = Object.getOwnPropertyDescriptor(hcProto, 'length'); \
+         try { hcLenDesc.get.call(document.body.childNodes); 'no-throw'; } \
+         catch (e) { (e && e.message && e.message.indexOf('HTMLCollection') >= 0 \
+                       && e.message.indexOf('Illegal') >= 0) \
+                        ? 'ok' : 'bad:' + (e && e.message); }",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn shared_length_getter_error_message_reflects_node_list_prototype() {
+    // Conversely: `NodeList.prototype.length.call(htmlCollection)`
+    // must throw "Illegal invocation on NodeList" — the message
+    // reflects the prototype the method was fetched from.  Pre-R8
+    // the shared native returned "HTMLCollection" for both cases.
+    let out = run(
+        "var nlProto = Object.getPrototypeOf(document.body.childNodes); \
          var nlLenDesc = Object.getOwnPropertyDescriptor(nlProto, 'length'); \
-         var hcLenOnNl = hcLenDesc.get.call(p.childNodes); \
-         var nlLenOnHc = nlLenDesc.get.call(p.children); \
-         var hcItemOnNl = hcProto.item.call(p.childNodes, 0); \
-         var nlItemOnHc = nlProto.item.call(p.children, 0); \
-         (hcLenOnNl === 1 && nlLenOnHc === 1 \
-          && hcItemOnNl !== null && nlItemOnHc !== null) \
-           ? 'ok' : 'fail';");
+         try { nlLenDesc.get.call(document.body.children); 'no-throw'; } \
+         catch (e) { (e && e.message && e.message.indexOf('NodeList') >= 0 \
+                       && e.message.indexOf('Illegal') >= 0) \
+                        ? 'ok' : 'bad:' + (e && e.message); }",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn shared_item_method_rejects_cross_interface_receiver() {
+    let out = run(
+        "var hcProto = Object.getPrototypeOf(document.body.children); \
+         try { hcProto.item.call(document.body.childNodes, 0); 'no-throw'; } \
+         catch (e) { (e && e.message && e.message.indexOf('HTMLCollection') >= 0 \
+                       && e.message.indexOf('Illegal') >= 0) \
+                        ? 'ok' : 'bad:' + (e && e.message); }",
+    );
     assert_eq!(out, "ok");
 }
