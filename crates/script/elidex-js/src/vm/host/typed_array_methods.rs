@@ -343,26 +343,26 @@ pub(crate) fn native_typed_array_set(
 ) -> Result<JsValue, VmError> {
     let (_id, buffer_id, byte_offset, byte_length, dst_ek) =
         require_typed_array_parts(ctx, this, "set")?;
-    // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)`; RangeError
-    // when the result is negative.  (A separate range check below
-    // catches positive overflow.)
+    // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)`; step 8
+    // uses the result in a `targetOffset + len > ArrayLength`
+    // comparison which always fails for `±Infinity` / values beyond
+    // `u32::MAX`.  Reject those up-front rather than saturating —
+    // otherwise an empty `src` combined with a `u32::MAX`-sized
+    // destination would silently accept an unrepresentable offset.
     let target_offset: u32 = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => 0,
         other => {
             let n = ctx.to_number(other)?;
             let i = to_integer_or_infinity(n);
-            if i < 0.0 {
+            if i < 0.0 || !i.is_finite() || i > f64::from(u32::MAX) {
                 return Err(VmError::range_error(
                     "Failed to execute 'set' on 'TypedArray': offset is out of bounds",
                 ));
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let clamped = if i > f64::from(u32::MAX) {
-                u32::MAX
-            } else {
+            {
                 i as u32
-            };
-            clamped
+            }
         }
     };
     let dst_bpe = u32::from(dst_ek.bytes_per_element());

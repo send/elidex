@@ -1802,6 +1802,28 @@ fn last_index_of_too_negative_from_index_returns_minus_one() {
 }
 
 #[test]
+fn set_non_finite_offset_throws_range_error() {
+    let mut vm = Vm::new();
+    // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(Infinity) = +Infinity`,
+    // which step 8 always rejects via the `targetOffset + len >
+    // ArrayLength` guard.  Clamping to u32::MAX silently accepted
+    // the unrepresentable value for empty sources on u32::MAX-sized
+    // destinations; reject non-finite offsets up-front instead.
+    assert!(eval_bool(
+        &mut vm,
+        "var ok = false; \
+         try { new Uint8Array(4).set([], Infinity); } \
+         catch (e) { ok = e instanceof RangeError; } ok;"
+    ));
+    assert!(eval_bool(
+        &mut vm,
+        "var ok = false; \
+         try { new Uint8Array(4).set([1], 4294967296); } \
+         catch (e) { ok = e instanceof RangeError; } ok;"
+    ));
+}
+
+#[test]
 fn set_negative_offset_throws_range_error() {
     let mut vm = Vm::new();
     // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)` RangeErrors
