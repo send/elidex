@@ -301,15 +301,22 @@ fn native_nnm_set_named_item(
     };
     let source_owner = state.owner;
     let qname = state.qualified_name;
-    // Per §4.9.2, the Attr's current value is the owner's attribute
-    // value keyed by the qualified name.  Snapshot it before
-    // mutating.
+    let source_detached = state.detached_value;
+    // Per §4.9.2, the Attr's observable value is the detached
+    // snapshot when present (`Attr.prototype.value` returns that),
+    // otherwise the owner's current attribute value keyed by the
+    // qualified name.  Mirrors the `value` accessor precedence so
+    // `setNamedItem(detachedAttr)` writes the snapshot — not the
+    // former owner's empty/stale slot.
     let name_str = ctx.vm.strings.get_utf8(qname);
-    let value = ctx
-        .host()
-        .dom()
-        .get_attribute(source_owner, &name_str)
-        .unwrap_or_default();
+    let value = if let Some(snapshot_sid) = source_detached {
+        ctx.vm.strings.get_utf8(snapshot_sid)
+    } else {
+        ctx.host()
+            .dom()
+            .get_attribute(source_owner, &name_str)
+            .unwrap_or_default()
+    };
     // If the target already has an attribute with that name,
     // snapshot the prior VALUE into a *detached* Attr wrapper so
     // the return value observes the replaced value rather than

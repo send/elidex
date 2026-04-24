@@ -587,12 +587,21 @@ fn native_element_set_attribute_node(
     };
     let source_owner = state.owner;
     let qname_sid = state.qualified_name;
+    let source_detached = state.detached_value;
     let name_str = ctx.vm.strings.get_utf8(qname_sid);
-    let new_value = ctx
-        .host()
-        .dom()
-        .get_attribute(source_owner, &name_str)
-        .unwrap_or_default();
+    // Mirror `Attr.prototype.value`: detached snapshot first,
+    // else the owner's current attribute value.  Without the
+    // snapshot branch, `element.setAttributeNode(detachedAttr)`
+    // would write empty / stale data instead of the attribute
+    // value the author observed on the source Attr.
+    let new_value = if let Some(snapshot_sid) = source_detached {
+        ctx.vm.strings.get_utf8(snapshot_sid)
+    } else {
+        ctx.host()
+            .dom()
+            .get_attribute(source_owner, &name_str)
+            .unwrap_or_default()
+    };
     // Snapshot the prev value BEFORE overwriting so the returned
     // detached Attr observes the replaced value, not the
     // just-written one (WHATWG §4.9.2).

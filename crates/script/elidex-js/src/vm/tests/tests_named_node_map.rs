@@ -399,6 +399,40 @@ fn element_remove_attribute_node_detaches_input_attr() {
     assert_eq!(out, "ok");
 }
 
+// ---------------------------------------------------------------------------
+// Copilot R12 #1 regression — `setNamedItem(detachedAttr)` /
+// `setAttributeNode(detachedAttr)` must write the detached
+// snapshot as the attribute value, not re-read from the source
+// Attr's former owner (which would yield empty / stale data).
+// Mirrors `Attr.prototype.value` precedence.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_named_item_uses_detached_snapshot_as_value() {
+    // Source Attr is detached with value "snapshot".  Target has
+    // no prior 'id'.  Result must be target.id === 'snapshot'.
+    let out = run("var src = document.createElement('span'); \
+         src.setAttribute('id', 'snapshot'); \
+         var detached = src.removeAttributeNode(src.getAttributeNode('id')); \
+         var target = document.createElement('div'); \
+         target.attributes.setNamedItem(detached); \
+         (target.getAttribute('id') === 'snapshot') \
+           ? 'ok' : 'fail:' + target.getAttribute('id');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_set_attribute_node_uses_detached_snapshot_as_value() {
+    let out = run("var src = document.createElement('span'); \
+         src.setAttribute('data-v', 'kept'); \
+         var detached = src.removeAttributeNode(src.getAttributeNode('data-v')); \
+         var target = document.createElement('div'); \
+         target.setAttributeNode(detached); \
+         (target.getAttribute('data-v') === 'kept') \
+           ? 'ok' : 'fail:' + target.getAttribute('data-v');");
+    assert_eq!(out, "ok");
+}
+
 #[test]
 fn removed_attr_stays_detached_after_same_name_set() {
     let out = run("var d = document.createElement('div'); \
