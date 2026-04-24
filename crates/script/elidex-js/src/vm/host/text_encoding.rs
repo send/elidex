@@ -786,17 +786,18 @@ fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<Obj
     })?;
     let buffer_id =
         super::array_buffer::create_array_buffer_from_bytes(vm, std::sync::Arc::from(bytes));
-    // Temp-root `buffer_id` across the Uint8Array allocation.  GC
-    // is disabled inside every native call today
-    // (`gc_enabled = false`), so the second `alloc_object` cannot
-    // currently trigger a collection that would sweep the unrooted
-    // ArrayBuffer — but matching the invariant used by
-    // `wrap_in_array_iterator` / event constructors / the typed-
-    // array ctor keeps the helper safe if it's ever reached from
-    // a gc-enabled path.
-    vm.stack.push(JsValue::Object(buffer_id));
-    let proto = vm.uint8_array_prototype;
-    let view_id = vm.alloc_object(Object {
+    // Temp-root `buffer_id` across the Uint8Array allocation via
+    // the RAII `push_temp_root` guard so the stack is restored on
+    // every exit path (normal return and panic unwinding alike) —
+    // a bare `stack.push` / `stack.pop` pair would leak the root
+    // through any `catch_unwind` upstream.  GC is disabled inside
+    // native calls today (`gc_enabled = false`), so the second
+    // `alloc_object` cannot currently trigger a collection, but
+    // the rooting matches the invariant used by `wrap_in_array_-
+    // iterator` / event constructors / the typed-array ctor.
+    let mut g = vm.push_temp_root(JsValue::Object(buffer_id));
+    let proto = g.uint8_array_prototype;
+    let view_id = g.alloc_object(Object {
         kind: ObjectKind::TypedArray {
             buffer_id,
             byte_offset: 0,
@@ -807,7 +808,8 @@ fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<Obj
         prototype: proto,
         extensible: true,
     });
-    vm.stack.pop();
+    // Guard `g` is dropped here, restoring the stack — either
+    // cleanly (post-alloc return) or during panic unwinding.
     Ok(view_id)
 }
 
