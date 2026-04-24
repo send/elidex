@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 41],
+    proto_roots: [Option<ObjectId>; 46],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -168,6 +168,12 @@ struct GcRoots<'a> {
     /// so they don't need tracing.
     #[cfg(feature = "engine")]
     pending_timeout_signals: &'a HashMap<u32, ObjectId>,
+    /// Queued same-window tasks (HTML §8.1.5).  Each task holds a
+    /// `JsValue` payload plus target / source `ObjectId`s that the
+    /// dispatch step will read — tracing them here keeps the payload
+    /// alive if GC triggers between `postMessage` and `drain_tasks`.
+    #[cfg(feature = "engine")]
+    pending_tasks: &'a std::collections::VecDeque<super::host::pending_tasks::PendingTask>,
     // `any_composite_map` is weak bookkeeping only — no GC roots
     // live there.  The sweep pass prunes dead ObjectIds post-GC
     // and `abort_signal`'s fan-out tolerates missing state — both
@@ -315,6 +321,30 @@ fn mark_roots(
     #[cfg(feature = "engine")]
     for &signal_id in roots.pending_timeout_signals.values() {
         mark_object(signal_id, obj_marks, work);
+    }
+
+    // (j.2) Queued same-window tasks — JsValue payload, target, and
+    // source ObjectIds must survive between `postMessage` enqueue
+    // and the `drain_tasks` dispatch at the end of eval.  An
+    // intermediate GC cycle (triggered by a user-script allocation
+    // burst, say) would otherwise collect a message payload whose
+    // only reference lives inside a `PendingTask::PostMessage`.
+    #[cfg(feature = "engine")]
+    for task in roots.pending_tasks {
+        match task {
+            super::host::pending_tasks::PendingTask::PostMessage {
+                target_window_id,
+                data,
+                source_window_id,
+                ..
+            } => {
+                mark_object(*target_window_id, obj_marks, work);
+                mark_value(*data, obj_marks, work);
+                if let Some(src) = source_window_id {
+                    mark_object(*src, obj_marks, work);
+                }
+            }
+        }
     }
 
     // (k) `AbortSignal.any` composite fan-out entries are weak
@@ -616,6 +646,21 @@ fn trace_work_list(
             // `abort_signal_states`.
             #[cfg(feature = "engine")]
             ObjectKind::ArrayBuffer | ObjectKind::Blob => {}
+            // `HtmlCollection` / `NodeList` payloads (stored in
+            // `live_collection_states`) contain only `Entity`,
+            // `StringId`, `Vec<StringId>`, and `Vec<Entity>` — no
+            // `ObjectId` references, so the trace step has nothing
+            // to fan out.  The sweep tail prunes entries whose key
+            // `ObjectId` was collected (see sweep code below).
+            #[cfg(feature = "engine")]
+            ObjectKind::HtmlCollection | ObjectKind::NodeList => {}
+            // `NamedNodeMap` / `Attr` payloads (stored in
+            // `named_node_map_states` / `attr_states`) carry only
+            // `Entity` and `StringId` — no `ObjectId` references —
+            // so the trace step has nothing to fan out.  Sweep tail
+            // prunes entries whose key `ObjectId` was collected.
+            #[cfg(feature = "engine")]
+            ObjectKind::NamedNodeMap | ObjectKind::Attr => {}
         }
     }
 }
@@ -770,17 +815,27 @@ impl VmInner {
                 self.html_iframe_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 25 + 1 (DOMException) = 26.
+                // 25 + 1 (HTMLElement, PR5b §C1) = 26.  Spliced in
+                // between HTMLIFrameElement.prototype and
+                // Element.prototype so `iframe instanceof HTMLElement`
+                // holds true (WHATWG §3.2.8).  Follow-up tag-specific
+                // prototypes (HTMLDivElement, HTMLAnchorElement, …)
+                // will chain here via the same pattern.
+                #[cfg(feature = "engine")]
+                self.html_element_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 26 + 1 (DOMException) = 27.
                 #[cfg(feature = "engine")]
                 self.dom_exception_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 26 + 1 (CustomEvent) = 27.
+                // 27 + 1 (CustomEvent) = 28.
                 #[cfg(feature = "engine")]
                 self.custom_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 27 + 5 (UIEvent family) = 32.
+                // 28 + 5 (UIEvent family) = 33.
                 #[cfg(feature = "engine")]
                 self.ui_event_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -801,7 +856,7 @@ impl VmInner {
                 self.input_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 32 + 4 (non-UIEvent specialized ctors) = 36.
+                // 33 + 4 (non-UIEvent specialized ctors) = 37.
                 #[cfg(feature = "engine")]
                 self.promise_rejection_event_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -818,8 +873,8 @@ impl VmInner {
                 self.pop_state_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 36 + 5 (Fetch surface: Headers / Request / Response
-                // / ArrayBuffer / Blob).  Slots past
+                // 37 + 5 (Fetch surface: Headers / Request / Response
+                // / ArrayBuffer / Blob) = 42.  Slots past
                 // `headers_prototype` are `None` placeholders until
                 // the later Fetch prototypes install; the
                 // `.iter().flatten()` pattern in `mark_roots` skips
@@ -833,7 +888,7 @@ impl VmInner {
                 self.headers_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // [37] request_prototype / [38] response_prototype
+                // [39] request_prototype / [40] response_prototype
                 // land together with the Request / Response ctors.
                 #[cfg(feature = "engine")]
                 self.request_prototype,
@@ -843,7 +898,7 @@ impl VmInner {
                 self.response_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // [39] array_buffer_prototype / [40] blob_prototype
+                // [41] array_buffer_prototype / [42] blob_prototype
                 // land together with the ArrayBuffer + Blob ctors
                 // (follow-up commit in the same tranche).
                 #[cfg(feature = "engine")]
@@ -852,6 +907,24 @@ impl VmInner {
                 None,
                 #[cfg(feature = "engine")]
                 self.blob_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 42 + 2 (HTMLCollection + NodeList, PR5b §C3) = 44.
+                #[cfg(feature = "engine")]
+                self.html_collection_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.node_list_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 44 + 2 (NamedNodeMap + Attr, PR5b §C4 / §C4.5) = 46.
+                #[cfg(feature = "engine")]
+                self.named_node_map_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.attr_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],
@@ -874,6 +947,8 @@ impl VmInner {
             response_states: &self.response_states,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
+            #[cfg(feature = "engine")]
+            pending_tasks: &self.pending_tasks,
         };
 
         self.gc_work_list.clear();
@@ -991,6 +1066,19 @@ impl VmInner {
             // inherit stale bytes / type.  Matches `body_data` /
             // `headers_states` pattern.
             self.blob_data.retain(|id, _| bit_get(marks, id.0));
+            // `live_collection_states` — shared side-table backing
+            // every `ObjectKind::HtmlCollection` / `NodeList`
+            // wrapper.  Same prune-by-key-mark pattern: collected
+            // wrappers lose their filter entry so a recycled
+            // `ObjectId` slot doesn't inherit stale filter state.
+            self.live_collection_states
+                .retain(|id, _| bit_get(marks, id.0));
+            // `named_node_map_states` / `attr_states` — side-tables
+            // for `ObjectKind::NamedNodeMap` / `ObjectKind::Attr`
+            // wrappers.  Same prune pattern as above.
+            self.named_node_map_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.attr_states.retain(|id, _| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

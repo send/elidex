@@ -91,6 +91,20 @@ mod engine_feature {
         pub(crate) document_methods_installed: HashSet<Entity>,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
         pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
+        /// Currently focused Element entity (WHATWG HTML §6.6.3).
+        ///
+        /// `None` when no Element is focused; `document.activeElement`
+        /// falls back to the `<body>` element in that case.  Phase 2
+        /// simplification: we track focus as a single Option (spec
+        /// models a focus chain, but single-frame VM covers the
+        /// primary use cases).
+        ///
+        /// Explicitly cleared by `HTMLElement.blur()` via
+        /// [`Self::invalidate_focus_if`].  Detached entities may
+        /// remain stored here internally; `document.activeElement`
+        /// and `document.hasFocus()` filter them out at read time
+        /// (connectedness walk via `get_parent`).
+        pub(crate) focused_entity: Option<Entity>,
     }
 
     impl HostData {
@@ -103,7 +117,30 @@ mod engine_feature {
                 document_methods_installed: HashSet::new(),
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
+                focused_entity: None,
             }
+        }
+
+        /// Set the focused Element (called from `HTMLElement.focus()`).
+        pub(crate) fn set_focused_entity(&mut self, entity: Entity) {
+            self.focused_entity = Some(entity);
+        }
+
+        /// Clear focus if the currently-focused entity equals `entity`.
+        /// Called from `HTMLElement.blur()`.  `Document.activeElement`
+        /// enforces the "live, connected" side of the invariant at
+        /// read time by walking `get_parent` back to the document
+        /// root, so detached elements fall back to `<body>` without
+        /// needing an ECS-level detach hook.
+        pub(crate) fn invalidate_focus_if(&mut self, entity: Entity) {
+            if self.focused_entity == Some(entity) {
+                self.focused_entity = None;
+            }
+        }
+
+        /// Return the currently focused Element, if any.
+        pub(crate) fn focused_entity(&self) -> Option<Entity> {
+            self.focused_entity
         }
 
         /// # Panics
@@ -165,6 +202,23 @@ mod engine_feature {
         pub fn dom(&mut self) -> &mut elidex_ecs::EcsDom {
             assert!(self.is_bound(), "HostData accessed while unbound");
             unsafe { &mut *self.dom_ptr }
+        }
+
+        /// Shared-reference view of the bound DOM — used from
+        /// property-lookup paths that hold a `&HostData` (through
+        /// `&VmInner.host_data`) and cannot upgrade to `&mut`.
+        ///
+        /// # Safety
+        ///
+        /// Only safe to call while bound (asserted).  The returned
+        /// reference aliases whatever exclusive borrow the caller
+        /// of [`bind`] promised to keep quiescent — see `bind`'s
+        /// safety contract.  Callers must not hold this `&EcsDom`
+        /// alongside any `&mut EcsDom` produced by [`Self::dom`].
+        #[allow(unsafe_code)]
+        pub(crate) fn dom_shared(&self) -> &elidex_ecs::EcsDom {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            unsafe { &*self.dom_ptr }
         }
 
         /// Return `true` if this `HostData` is bound AND `entity` is

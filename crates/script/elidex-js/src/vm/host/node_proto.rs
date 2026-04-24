@@ -313,15 +313,15 @@ fn native_node_get_child_nodes(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    // Phase 2: return a plain JS array (static snapshot) rather than
-    // a live NodeList.  Full NodeList semantics land with Observers /
-    // CE lifecycle in a later PR.
-    let children: Vec<Entity> = ctx.host().dom().children_iter(entity).collect();
-    let elements: Vec<JsValue> = children
-        .into_iter()
-        .map(|e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
-        .collect();
-    Ok(JsValue::Object(ctx.vm.create_array_object(elements)))
+    // Live `NodeList` per WHATWG §4.2.5 — subsequent reads of
+    // `.length` / indexed access / iteration reflect child mutations
+    // made after the collection was obtained.  Shares the
+    // `live_collection_states` infrastructure with HTMLCollection
+    // (see `dom_collection.rs`).
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::ChildNodes { parent: entity });
+    Ok(JsValue::Object(id))
 }
 
 fn native_node_get_is_connected(

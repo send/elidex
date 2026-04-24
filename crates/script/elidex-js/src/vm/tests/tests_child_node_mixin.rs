@@ -209,7 +209,7 @@ fn element_replace_with_ancestor_cycle_preserves_tree() {
     // `a` must still be p's child: the throw happened before the
     // detach step, so the tree is unchanged.
     let JsValue::Boolean(a_still_child) = vm
-        .eval("Array.prototype.slice.call(p.childNodes).indexOf(a) !== -1;")
+        .eval("Array.from(p.childNodes).indexOf(a) !== -1;")
         .unwrap()
     else {
         panic!()

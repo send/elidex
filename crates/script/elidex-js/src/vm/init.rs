@@ -85,6 +85,10 @@ impl Vm {
                 promise_prototype: None,
                 microtask_queue: VecDeque::new(),
                 microtask_drain_depth: 0,
+                #[cfg(feature = "engine")]
+                pending_tasks: VecDeque::new(),
+                #[cfg(feature = "engine")]
+                task_drain_depth: 0,
                 pending_rejections: Vec::new(),
                 error_prototype: None,
                 aggregate_error_prototype: None,
@@ -98,6 +102,22 @@ impl Vm {
                 text_prototype: None,
                 #[cfg(feature = "engine")]
                 document_type_prototype: None,
+                #[cfg(feature = "engine")]
+                html_element_prototype: None,
+                #[cfg(feature = "engine")]
+                html_collection_prototype: None,
+                #[cfg(feature = "engine")]
+                node_list_prototype: None,
+                #[cfg(feature = "engine")]
+                live_collection_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                named_node_map_prototype: None,
+                #[cfg(feature = "engine")]
+                named_node_map_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                attr_prototype: None,
+                #[cfg(feature = "engine")]
+                attr_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]

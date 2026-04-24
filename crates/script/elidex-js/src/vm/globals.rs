@@ -223,13 +223,41 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_element_prototype();
 
+        // HTMLElement.prototype — shared intermediate layer for every
+        // HTML-namespace element wrapper (WHATWG HTML §3.2.8).  Must
+        // run *after* `register_element_prototype` (chains there)
+        // and *before* `register_html_iframe_prototype` (which
+        // re-parents the iframe prototype onto this one so that
+        // `iframe instanceof HTMLElement === true`).
+        #[cfg(feature = "engine")]
+        self.register_html_element_prototype();
+
         // HTMLIFrameElement.prototype — tag-specific layer for
-        // <iframe> wrappers.  PR5b will splice HTMLElement.prototype
-        // between HTMLIFrameElement.prototype and Element.prototype;
-        // see `html_iframe_proto.rs` "PR5b CHECKLIST" for the
-        // migration invariant that must be honoured at that point.
+        // <iframe> wrappers.  Chains to `HTMLElement.prototype`
+        // (spliced in by `register_html_element_prototype` above),
+        // so the runtime chain is `iframe → HTMLIFrameElement →
+        // HTMLElement → Element → Node → EventTarget → Object`.
         #[cfg(feature = "engine")]
         self.register_html_iframe_prototype();
+
+        // HTMLCollection.prototype / NodeList.prototype — shared
+        // DOM collection prototypes.  Chain directly to
+        // `Object.prototype` (WebIDL §3.10: legacy collection
+        // interfaces are not `EventTarget`s, so they skip the DOM
+        // proto chain).  Register here so subsequent document /
+        // element surface migration (still in this commit) can
+        // hand out collection wrappers.
+        #[cfg(feature = "engine")]
+        {
+            self.register_html_collection_prototype();
+            self.register_node_list_prototype();
+            // Attr.prototype must land BEFORE NamedNodeMap.prototype —
+            // NamedNodeMap methods allocate Attr wrappers via
+            // `alloc_attr`, which panics if `attr_prototype` is
+            // still `None`.
+            self.register_attr_prototype();
+            self.register_named_node_map_prototype();
+        }
 
         // Window.prototype — prototype for the `globalThis` `HostObject`
         // (WHATWG HTML §7.2).  Must run *after*
@@ -350,6 +378,14 @@ impl VmInner {
         // on the broker response path.
         #[cfg(feature = "engine")]
         self.register_fetch_global();
+
+        // `structuredClone(value, options?)` (WHATWG HTML §2.9).
+        // Must run after `register_blob_global` / `register_array_buffer_global`
+        // because the clone path allocates fresh ArrayBuffer / Blob
+        // instances that read the target-realm prototypes from
+        // `array_buffer_prototype` / `blob_prototype`.
+        #[cfg(feature = "engine")]
+        self.register_structured_clone_global();
 
         // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned

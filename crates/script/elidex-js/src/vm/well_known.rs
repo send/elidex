@@ -264,6 +264,57 @@ pub(crate) struct WellKnownStrings {
     pub(crate) forms: StringId,
     pub(crate) images: StringId,
     pub(crate) links: StringId,
+    // HTMLElement.prototype method + accessor names (PR5b §C1).
+    // `focus` / `blur` install as methods; `activeElement` /
+    // `hasFocus` install as document accessor + method
+    // respectively.  Pre-interned here so install sites and
+    // receiver brand-check helpers share a single StringId.
+    pub(crate) focus: StringId,
+    pub(crate) blur: StringId,
+    // HTMLElement IDL attribute names (PR5b §C2).  Each covers the
+    // IDL property identifier; the matching HTML content-attribute
+    // name is sometimes identical (lang / title / dir / hidden /
+    // nonce / translate / spellcheck / autofocus) and sometimes a
+    // case-folded variant (`accessKey` ↔ `accesskey`, `tabIndex` ↔
+    // `tabindex`, `inputMode` ↔ `inputmode`, `enterKeyHint` ↔
+    // `enterkeyhint`, `contentEditable` ↔ `contenteditable`).
+    // WHATWG §3.2.8 / §6.6 / §6.7.  `isContentEditable` is a
+    // readonly derived accessor with no backing content attribute.
+    pub(crate) access_key: StringId,
+    pub(crate) tab_index: StringId,
+    pub(crate) draggable: StringId,
+    pub(crate) hidden: StringId,
+    pub(crate) lang: StringId,
+    pub(crate) dir: StringId,
+    pub(crate) title: StringId,
+    pub(crate) translate: StringId,
+    pub(crate) spellcheck: StringId,
+    pub(crate) autocapitalize: StringId,
+    pub(crate) input_mode: StringId,
+    pub(crate) enter_key_hint: StringId,
+    pub(crate) nonce: StringId,
+    pub(crate) content_editable: StringId,
+    pub(crate) is_content_editable: StringId,
+    pub(crate) autofocus: StringId,
+    // HTMLCollection / NodeList IDL members (PR5b §C3).
+    pub(crate) item: StringId,
+    pub(crate) named_item: StringId,
+    // NamedNodeMap + Attr IDL members (PR5b §C4 + §C4.5).
+    pub(crate) attributes: StringId,
+    pub(crate) get_attribute_node: StringId,
+    pub(crate) set_attribute_node: StringId,
+    pub(crate) remove_attribute_node: StringId,
+    pub(crate) get_named_item: StringId,
+    pub(crate) set_named_item: StringId,
+    pub(crate) remove_named_item: StringId,
+    pub(crate) get_named_item_ns: StringId,
+    pub(crate) set_named_item_ns: StringId,
+    pub(crate) remove_named_item_ns: StringId,
+    pub(crate) owner_element: StringId,
+    pub(crate) namespace_uri: StringId,
+    pub(crate) local_name: StringId,
+    pub(crate) prefix: StringId,
+    pub(crate) specified: StringId,
     // HTMLIFrameElement.prototype property names (PR4f C8).
     pub(crate) src: StringId,
     pub(crate) srcdoc: StringId,
@@ -337,6 +388,7 @@ pub(crate) struct WellKnownStrings {
     pub(crate) dom_exc_wrong_document_error: StringId,
     pub(crate) dom_exc_invalid_state_error: StringId,
     pub(crate) dom_exc_timeout_error: StringId,
+    pub(crate) dom_exc_data_clone_error: StringId,
 
     // -- Headers (WHATWG Fetch §5.2) --
     // Method and iteration-helper names.  `get` / `set` / `append` /
@@ -623,6 +675,41 @@ impl WellKnownStrings {
             forms: strings.intern("forms"),
             images: strings.intern("images"),
             links: strings.intern("links"),
+            focus: strings.intern("focus"),
+            blur: strings.intern("blur"),
+            access_key: strings.intern("accessKey"),
+            tab_index: strings.intern("tabIndex"),
+            draggable: strings.intern("draggable"),
+            hidden: strings.intern("hidden"),
+            lang: strings.intern("lang"),
+            dir: strings.intern("dir"),
+            title: strings.intern("title"),
+            translate: strings.intern("translate"),
+            spellcheck: strings.intern("spellcheck"),
+            autocapitalize: strings.intern("autocapitalize"),
+            input_mode: strings.intern("inputMode"),
+            enter_key_hint: strings.intern("enterKeyHint"),
+            nonce: strings.intern("nonce"),
+            content_editable: strings.intern("contentEditable"),
+            is_content_editable: strings.intern("isContentEditable"),
+            autofocus: strings.intern("autofocus"),
+            item: strings.intern("item"),
+            named_item: strings.intern("namedItem"),
+            attributes: strings.intern("attributes"),
+            get_attribute_node: strings.intern("getAttributeNode"),
+            set_attribute_node: strings.intern("setAttributeNode"),
+            remove_attribute_node: strings.intern("removeAttributeNode"),
+            get_named_item: strings.intern("getNamedItem"),
+            set_named_item: strings.intern("setNamedItem"),
+            remove_named_item: strings.intern("removeNamedItem"),
+            get_named_item_ns: strings.intern("getNamedItemNS"),
+            set_named_item_ns: strings.intern("setNamedItemNS"),
+            remove_named_item_ns: strings.intern("removeNamedItemNS"),
+            owner_element: strings.intern("ownerElement"),
+            namespace_uri: strings.intern("namespaceURI"),
+            local_name: strings.intern("localName"),
+            prefix: strings.intern("prefix"),
+            specified: strings.intern("specified"),
             src: strings.intern("src"),
             srcdoc: strings.intern("srcdoc"),
             referrer_policy: strings.intern("referrerPolicy"),
@@ -671,6 +758,7 @@ impl WellKnownStrings {
             dom_exc_wrong_document_error: strings.intern("WrongDocumentError"),
             dom_exc_invalid_state_error: strings.intern("InvalidStateError"),
             dom_exc_timeout_error: strings.intern("TimeoutError"),
+            dom_exc_data_clone_error: strings.intern("DataCloneError"),
 
             // Headers (WHATWG Fetch §5.2).
             headers_global: strings.intern("Headers"),

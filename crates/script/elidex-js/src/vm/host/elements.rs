@@ -115,19 +115,26 @@ impl VmInner {
         let proto = match kind {
             super::super::host_data::PrototypeKind::Element => {
                 // Tag-specific secondary lookup: <iframe> routes
-                // through `HTMLIFrameElement.prototype`.  Additional
-                // per-tag prototypes will slot in the same way
-                // (PR5b: HTMLElement for click/focus/hidden/…).
+                // through `HTMLIFrameElement.prototype`.  All other
+                // HTML-namespace elements chain through the shared
+                // `HTMLElement.prototype` so `div instanceof
+                // HTMLElement === true` (WHATWG §3.2.8).  Additional
+                // per-tag prototypes (HTMLDivElement,
+                // HTMLAnchorElement, …) land in M4-12 cutover
+                // residual and plug in the same way between the
+                // wrapper and HTMLElement.prototype.
                 let is_iframe = self
                     .host_data
                     .as_deref()
                     .is_some_and(|hd| hd.tag_matches_ascii_case(entity, "iframe"));
                 if is_iframe {
                     self.html_iframe_prototype
+                        .or(self.html_element_prototype)
                         .or(self.element_prototype)
                         .expect("create_element_wrapper called before register_element_prototype")
                 } else {
-                    self.element_prototype
+                    self.html_element_prototype
+                        .or(self.element_prototype)
                         .expect("create_element_wrapper called before register_element_prototype")
                 }
             }

@@ -1,26 +1,22 @@
 //! `HTMLIFrameElement.prototype` intrinsic — per-tag prototype
 //! layer for `<iframe>` wrappers (HTML §4.8.5).
 //!
-//! Chain (PR4f):
+//! Chain (PR5b):
 //!
 //! ```text
 //! iframe wrapper
 //!   → HTMLIFrameElement.prototype    (this intrinsic)
-//!     → Element.prototype
-//!       → Node.prototype
-//!         → EventTarget.prototype
-//!           → Object.prototype
+//!     → HTMLElement.prototype
+//!       → Element.prototype
+//!         → Node.prototype
+//!           → EventTarget.prototype
+//!             → Object.prototype
 //! ```
 //!
-//! ## PR5b CHECKLIST — DO NOT REMOVE
-//!
-//! When `HTMLElement.prototype` lands in PR5b the chain **must** be
-//! rewritten to `HTMLIFrameElement → HTMLElement → Element → …`
-//! by updating the [`HTMLIFrameElement.prototype`][`VmInner::html_iframe_prototype`]
-//! internal `[[Prototype]]` slot inside `VmInner::init_htmlelement_prototype`.
-//! Forgetting this step leaves the runtime chain at `iframe →
-//! HTMLIFrameElement → Element`, so `iframe instanceof HTMLElement`
-//! silently evaluates to `false` (observable, user-reported bug).
+//! The parent link was re-pointed from `Element.prototype` to
+//! `HTMLElement.prototype` in PR5b §C1 so that
+//! `iframe instanceof HTMLElement === true`; the rest of the chain
+//! climbs unchanged through `Element → Node → EventTarget`.
 //!
 //! Members installed here:
 //!
@@ -50,12 +46,14 @@ use super::super::{NativeFn, VmInner};
 use elidex_ecs::{Entity, NodeKind};
 
 impl VmInner {
-    /// Allocate `HTMLIFrameElement.prototype` with `Element.prototype`
-    /// as its parent.  Must run after `register_element_prototype`.
+    /// Allocate `HTMLIFrameElement.prototype` with
+    /// `HTMLElement.prototype` as its parent so
+    /// `iframe instanceof HTMLElement === true` (WHATWG §4.8.5 / §3.2.8).
+    /// Must run after `register_html_element_prototype`.
     pub(in crate::vm) fn register_html_iframe_prototype(&mut self) {
         let parent = self
-            .element_prototype
-            .expect("register_html_iframe_prototype called before register_element_prototype");
+            .html_element_prototype
+            .expect("register_html_iframe_prototype called before register_html_element_prototype");
         let proto_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),

@@ -32,9 +32,8 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, collect_descendants_by_class_name, collect_descendants_by_tag_name,
-    parse_dom_selector, query_selector_in_subtree_all, query_selector_in_subtree_first,
-    wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
+    query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
 };
 
 use elidex_ecs::{Attributes, Entity, NodeKind};
@@ -132,7 +131,13 @@ pub(super) fn native_document_query_selector_all(
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
     let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
     let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
-    Ok(wrap_entities_as_array(ctx.vm, &entities))
+    // WHATWG §4.2.6: `querySelectorAll` returns a **static** NodeList.
+    // Store the snapshot entity vec; every read re-serves from the
+    // cached list (no re-traversal, no filter re-evaluation).
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot { entities });
+    Ok(JsValue::Object(id))
 }
 
 // ---------------------------------------------------------------------------
@@ -147,20 +152,19 @@ pub(super) fn native_document_get_elements_by_tag_name(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
-    // Brand-check before argument ToString (WebIDL precedence).
-    // Mirrors the Element.prototype sibling; an invalid / non-
-    // Document receiver returns an empty Array without running the
-    // caller-supplied toString.
-    let doc_opt = document_receiver(ctx, this, "getElementsByTagName")?;
-    let entities: Vec<Entity> = match doc_opt {
-        Some(d) => {
-            let tag = coerce_first_arg_to_string(ctx, args)?;
-            collect_descendants_by_tag_name(ctx.host().dom(), d, &tag)
-        }
-        None => Vec::new(),
+    let Some(doc) = document_receiver(ctx, this, "getElementsByTagName")? else {
+        return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
-    Ok(wrap_entities_as_array(ctx.vm, &entities))
+    let tag = coerce_first_arg_to_string(ctx, args)?;
+    let tag_sid = ctx.vm.strings.intern(&tag);
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::ByTag {
+            root: doc,
+            tag: tag_sid,
+            all: tag == "*",
+        });
+    Ok(JsValue::Object(id))
 }
 
 pub(super) fn native_document_get_elements_by_class_name(
@@ -171,18 +175,46 @@ pub(super) fn native_document_get_elements_by_class_name(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-
-    // Brand-check before argument ToString (WebIDL precedence).
-    let doc_opt = document_receiver(ctx, this, "getElementsByClassName")?;
-    let entities: Vec<Entity> = match doc_opt {
-        Some(d) => {
-            let class_str = coerce_first_arg_to_string(ctx, args)?;
-            let target_classes: Vec<&str> = class_str.split_whitespace().collect();
-            collect_descendants_by_class_name(ctx.host().dom(), d, &target_classes)
-        }
-        None => Vec::new(),
+    let Some(doc) = document_receiver(ctx, this, "getElementsByClassName")? else {
+        return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
-    Ok(wrap_entities_as_array(ctx.vm, &entities))
+    let class_str = coerce_first_arg_to_string(ctx, args)?;
+    let class_names: Vec<_> = class_str
+        .split_whitespace()
+        .map(|c| ctx.vm.strings.intern(c))
+        .collect();
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::ByClass {
+            root: doc,
+            class_names,
+        });
+    Ok(JsValue::Object(id))
+}
+
+/// `document.getElementsByName(name)` — WHATWG HTML §3.1.5.
+/// Returns a **live NodeList** matching every descendant whose
+/// `name` content attribute equals the argument (case-sensitive).
+pub(super) fn native_document_get_elements_by_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    let Some(doc) = document_receiver(ctx, this, "getElementsByName")? else {
+        return Ok(wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let name = coerce_first_arg_to_string(ctx, args)?;
+    let name_sid = ctx.vm.strings.intern(&name);
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::ByName {
+            doc,
+            name: name_sid,
+        });
+    Ok(JsValue::Object(id))
 }
 
 // ---------------------------------------------------------------------------
@@ -572,77 +604,140 @@ pub(super) fn native_document_get_referrer(
     Ok(JsValue::String(ctx.vm.well_known.empty))
 }
 
-/// Shared implementation of `forms` / `images` / `links` — a **snapshot
-/// Array** (not a live HTMLCollection) containing every descendant
-/// Element matching the supplied predicate.
-///
-/// Live HTMLCollection semantics (index names, DOM-mutation tracking)
-/// land with the `HTMLCollection` interface itself in PR5b.  Until
-/// then, `forms.length` is guaranteed to reflect the DOM state *at
-/// call time*; WPT tests asserting liveness over this API are
-/// therefore expected to fail.
-fn snapshot_descendants_matching(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    method: &str,
-    mut matches: impl FnMut(&elidex_ecs::EcsDom, Entity) -> bool,
-) -> Result<JsValue, VmError> {
-    let Some(doc) = document_receiver(ctx, this, method)? else {
-        return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
-    };
-    let entities: Vec<Entity> = {
-        let dom = ctx.host().dom();
-        let mut out = Vec::new();
-        dom.traverse_descendants(doc, |entity| {
-            if matches(dom, entity) {
-                out.push(entity);
-            }
-            true
-        });
-        out
-    };
-    Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &entities))
-}
-
-/// `document.forms` — snapshot of every `<form>` descendant.  See
-/// [`snapshot_descendants_matching`] for the liveness caveat.
+/// `document.forms` — live `HTMLCollection` of every `<form>`
+/// descendant (WHATWG §3.1.5).
 pub(super) fn native_document_get_forms(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    snapshot_descendants_matching(ctx, this, "forms", |dom, e| {
-        dom.get_tag_name(e)
-            .is_some_and(|t| t.eq_ignore_ascii_case("form"))
-    })
+    let Some(doc) = document_receiver(ctx, this, "forms")? else {
+        return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::Forms { doc });
+    Ok(JsValue::Object(id))
 }
 
-/// `document.images` — snapshot of every `<img>` descendant.
+/// `document.images` — live `HTMLCollection` of every `<img>`
+/// descendant.
 pub(super) fn native_document_get_images(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    snapshot_descendants_matching(ctx, this, "images", |dom, e| {
-        dom.get_tag_name(e)
-            .is_some_and(|t| t.eq_ignore_ascii_case("img"))
-    })
+    let Some(doc) = document_receiver(ctx, this, "images")? else {
+        return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::Images { doc });
+    Ok(JsValue::Object(id))
 }
 
-/// `document.links` — snapshot of every `<a>` / `<area>` descendant
-/// carrying an `href` attribute (WHATWG §4.5: anchors without `href`
-/// are **excluded**).
+/// `document.activeElement` (WHATWG HTML §6.6.3).
+///
+/// Returns the currently focused Element, or — when no element is
+/// focused (or the focused entity has since been detached) — the
+/// document's `<body>` per spec step 2.  If neither is available,
+/// returns `documentElement` (spec fallback for documents without a
+/// body, e.g. during parser construction of the HTML skeleton).
+pub(super) fn native_document_get_active_element(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "activeElement")? else {
+        return Ok(JsValue::Null);
+    };
+    // Resolve the focus target: focused_entity if set and still
+    // attached, else <body>, else <html> root (spec fallback for
+    // documents without a body).  Mirror `body` / `documentElement`
+    // accessors so the fallback chain stays consistent.
+    let focused = super::html_element_proto::focused_entity(ctx);
+    let target = {
+        let dom = ctx.host().dom();
+        // A focused element counts only when it remains connected
+        // to the document — walking up via `get_parent` must reach
+        // `doc`.  Detached (removed) subtrees fall through to the
+        // body / root fallback so stale `focused_entity` from a
+        // prior `focus()` + `remove()` does not leak.
+        let focused_connected = focused.and_then(|e| {
+            if !dom.contains(e) {
+                return None;
+            }
+            let mut cur = Some(e);
+            while let Some(c) = cur {
+                if c == doc {
+                    return Some(e);
+                }
+                cur = dom.get_parent(c);
+            }
+            None
+        });
+        focused_connected.or_else(|| {
+            let html = find_html_root_of(ctx, doc)?;
+            ctx.host()
+                .dom()
+                .first_child_with_tag(html, "body")
+                .or(Some(html))
+        })
+    };
+    Ok(wrap_entity_or_null(ctx.vm, target))
+}
+
+/// `document.hasFocus()` (WHATWG HTML §6.7).
+///
+/// Phase 2 approximation: returns whether an element is currently
+/// focused **and** still connected to this document.  Detached
+/// focused entities do not count — this mirrors `activeElement`'s
+/// connectedness filter so the two APIs agree (`hasFocus() === true`
+/// ⇒ `activeElement !== body`).  A full spec implementation tracks
+/// system focus at the window level; same-origin Document vs
+/// top-level Window focus arbitration is deferred to the PR5d
+/// cross-window tranche.
+pub(super) fn native_document_has_focus(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, "hasFocus")? else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let Some(focused) = super::html_element_proto::focused_entity(ctx) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let dom = ctx.host().dom();
+    if !dom.contains(focused) {
+        return Ok(JsValue::Boolean(false));
+    }
+    let mut cur = Some(focused);
+    while let Some(c) = cur {
+        if c == doc {
+            return Ok(JsValue::Boolean(true));
+        }
+        cur = dom.get_parent(c);
+    }
+    Ok(JsValue::Boolean(false))
+}
+
+/// `document.links` — live `HTMLCollection` of every `<a>` /
+/// `<area>` descendant carrying an `href` attribute (§4.5: anchors
+/// without `href` are **excluded** from the collection; the filter
+/// runs on read inside `resolve_entities_with_needles`).
 pub(super) fn native_document_get_links(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    snapshot_descendants_matching(ctx, this, "links", |dom, e| {
-        let tag_ok = dom
-            .get_tag_name(e)
-            .is_some_and(|t| t.eq_ignore_ascii_case("a") || t.eq_ignore_ascii_case("area"));
-        tag_ok && dom.get_attribute(e, "href").is_some()
-    })
+    let Some(doc) = document_receiver(ctx, this, "links")? else {
+        return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
+    };
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::Links { doc });
+    Ok(JsValue::Object(id))
 }
 
 // ---------------------------------------------------------------------------
@@ -727,6 +822,7 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
         "getElementsByClassName",
         native_document_get_elements_by_class_name,
     ),
+    ("getElementsByName", native_document_get_elements_by_name),
     ("createElement", native_document_create_element),
     ("createTextNode", native_document_create_text_node),
     ("createComment", native_document_create_comment),
@@ -734,6 +830,12 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
         "createDocumentFragment",
         native_document_create_document_fragment,
     ),
+    // PR5b §C1: focus-management readers.  `hasFocus()` returns
+    // whether any element is currently focused (Phase 2: whether
+    // `HostData::focused_entity` is `Some`).  Spec §6.7 defines
+    // hasFocus in terms of the system focus — we approximate as
+    // "some element inside this Document has focus".
+    ("hasFocus", native_document_has_focus),
 ];
 
 const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
@@ -752,6 +854,9 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("forms", native_document_get_forms),
     ("images", native_document_get_images),
     ("links", native_document_get_links),
+    // PR5b §C1 — `activeElement` returns the focused Element (or
+    // `body` when no element is focused, per WHATWG §6.6.3 step 2).
+    ("activeElement", native_document_get_active_element),
 ];
 
 /// Read/write Document accessors.  `title` is WHATWG-backed; `cookie`

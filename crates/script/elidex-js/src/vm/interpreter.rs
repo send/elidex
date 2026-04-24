@@ -24,6 +24,13 @@ impl VmInner {
     /// microtask queue.  Drain runs regardless of whether the script
     /// succeeded or threw, so that reactions attached inside a thrown-from
     /// try/catch still fire (spec parity with browser microtask semantics).
+    ///
+    /// After microtasks, drain the same-window task queue (HTML §8.1.5)
+    /// so `window.postMessage` listeners observe the event within the
+    /// same `eval` call instead of silently deferring to the next host
+    /// tick.  `drain_tasks` itself runs a microtask checkpoint between
+    /// tasks; the outer drain here clears any microtasks queued by
+    /// the tasks' listener bodies.
     pub fn eval(&mut self, source: &str) -> Result<JsValue, VmError> {
         let script = crate::compiler::compile_script(source).map_err(|e| VmError {
             kind: VmErrorKind::CompileError,
@@ -31,6 +38,8 @@ impl VmInner {
         })?;
         let result = self.run_script(script);
         self.drain_microtasks();
+        #[cfg(feature = "engine")]
+        self.drain_tasks();
         result
     }
 

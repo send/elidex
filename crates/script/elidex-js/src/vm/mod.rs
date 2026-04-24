@@ -243,14 +243,81 @@ pub(crate) struct VmInner {
     /// `register_globals()` (after `register_node_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) document_type_prototype: Option<ObjectId>,
+    /// `HTMLElement.prototype` — shared prototype for every HTML
+    /// namespace element wrapper (WHATWG HTML §3.2.8).  Chains to
+    /// `Element.prototype`, carrying focus / blur / click methods and
+    /// HTML-specific IDL attrs (accessKey, tabIndex, draggable,
+    /// hidden, lang, dir, title, translate, spellcheck,
+    /// autocapitalize, inputMode, enterKeyHint, nonce,
+    /// contentEditable, isContentEditable, autofocus).
+    ///
+    /// Tag-specific prototypes (e.g. `HTMLIFrameElement.prototype`)
+    /// chain here, so the runtime proto chain is
+    /// `HTMLIFrameElement.prototype → HTMLElement.prototype →
+    /// Element.prototype → Node.prototype → EventTarget.prototype`.
+    ///
+    /// `None` until `register_html_element_prototype()` runs during
+    /// `register_globals()` (after `register_element_prototype`,
+    /// before `register_html_iframe_prototype`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_element_prototype: Option<ObjectId>,
+    /// `HTMLCollection.prototype` — shared prototype for every
+    /// `ObjectKind::HtmlCollection` wrapper (WHATWG DOM §4.2.10).
+    /// Chains to `Object.prototype`; carries `length` (getter),
+    /// `item`, `namedItem`, and `[Symbol.iterator]`.
+    ///
+    /// `None` until `register_html_collection_prototype()` runs
+    /// during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_collection_prototype: Option<ObjectId>,
+    /// `NodeList.prototype` — shared prototype for every
+    /// `ObjectKind::NodeList` wrapper (WHATWG DOM §4.2.10.1).
+    /// Chains to `Object.prototype`; carries `length`, `item`,
+    /// `forEach`, and `[Symbol.iterator]`.
+    ///
+    /// `None` until `register_node_list_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) node_list_prototype: Option<ObjectId>,
+    /// `NamedNodeMap.prototype` — shared prototype for every
+    /// `ObjectKind::NamedNodeMap` wrapper (WHATWG DOM §4.9.1).
+    /// Carries `length`, `item`, `getNamedItem` / `setNamedItem` /
+    /// `removeNamedItem` + the namespace-aware NS variants, and
+    /// `[Symbol.iterator]`.
+    #[cfg(feature = "engine")]
+    pub(crate) named_node_map_prototype: Option<ObjectId>,
+    /// Backing state for `ObjectKind::NamedNodeMap` wrappers — the
+    /// Element entity whose attributes the map reflects.  Shared
+    /// across repeated `element.attributes` reads because live
+    /// semantics mean every accessor re-reads the same backing
+    /// component regardless of which wrapper the caller holds.
+    ///
+    /// GC contract: `Entity` holds no `ObjectId` references, so no
+    /// trace fan-out; sweep tail prunes entries whose key
+    /// `ObjectId` was collected (pattern shared with
+    /// `live_collection_states`).
+    #[cfg(feature = "engine")]
+    pub(crate) named_node_map_states: HashMap<ObjectId, elidex_ecs::Entity>,
+    /// `Attr.prototype` — shared prototype for every
+    /// `ObjectKind::Attr` wrapper (WHATWG DOM §4.9.2).  Carries the
+    /// `name` / `value` / `ownerElement` / `namespaceURI` / `prefix`
+    /// / `localName` / `specified` accessor suite.
+    #[cfg(feature = "engine")]
+    pub(crate) attr_prototype: Option<ObjectId>,
+    /// Backing state for `ObjectKind::Attr` wrappers — the
+    /// (owner Element, qualified-name `StringId`) tuple that ties
+    /// each Attr back to its position in the owner's `Attributes`
+    /// component.  An Attr with owner detached (attribute removed)
+    /// surfaces `ownerElement === null` and `value === ""`.
+    #[cfg(feature = "engine")]
+    pub(crate) attr_states: HashMap<ObjectId, host::attr_proto::AttrState>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
-    /// `Element.prototype` today; PR5b will splice in
-    /// `HTMLElement.prototype` between the two as part of the wider
-    /// HTMLElement work (see plan §D2 for the migration invariant).
+    /// [`Self::html_element_prototype`] (after PR5b splice) so
+    /// `iframe instanceof HTMLElement === true`.
     ///
     /// `None` until `register_html_iframe_prototype()` runs during
-    /// `register_globals()` (after `register_element_prototype`).
+    /// `register_globals()` (after `register_html_element_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) html_iframe_prototype: Option<ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
@@ -604,6 +671,25 @@ pub(crate) struct VmInner {
     /// pattern as `body_data` / `headers_states`.
     #[cfg(feature = "engine")]
     pub(crate) blob_data: HashMap<ObjectId, host::blob::BlobData>,
+    /// Backing state for `ObjectKind::HtmlCollection` /
+    /// `ObjectKind::NodeList` wrappers (WHATWG DOM §4.2.10 / §4.2.10.1).
+    ///
+    /// Shared between both collection interfaces because the filter
+    /// discriminator already distinguishes HTMLCollection kinds
+    /// (tag / class / children / forms / …) from NodeList kinds
+    /// (childNodes / querySelectorAll snapshot / getElementsByName).
+    /// One `HashMap` keeps the GC sweep tail tidy and lets the
+    /// indexed / named property lookup in `ops_property::get_element`
+    /// hit a single side-table regardless of the wrapper kind.
+    ///
+    /// GC contract: the stored `LiveCollectionKind` holds only
+    /// `Entity`, `StringId`, `Vec<StringId>` (class names), and
+    /// `Vec<Entity>` (querySelectorAll snapshot) — **no `ObjectId`
+    /// references**, so the trace step does nothing.  The sweep
+    /// tail prunes entries whose key `ObjectId` was collected, same
+    /// pattern as `headers_states` / `blob_data`.
+    #[cfg(feature = "engine")]
+    pub(crate) live_collection_states: HashMap<ObjectId, host::dom_collection::LiveCollectionKind>,
     /// Content-thread `NetworkHandle` used by the `fetch()` host
     /// global.  `None` in test / standalone mode (`fetch()` then
     /// rejects with `TypeError`); the embedding harness —
@@ -722,6 +808,19 @@ pub(crate) struct VmInner {
     /// Phase 2 defaults; shell pushes real values in PR6.
     #[cfg(feature = "engine")]
     pub(crate) viewport: host::window::ViewportState,
+    /// HTML §8.1.5 same-window task queue.  Currently populated only
+    /// by `window.postMessage`; drained at the end of every
+    /// `VmInner::eval` after the microtask flush.  See
+    /// [`host::pending_tasks`] for the full task shape and GC
+    /// contract.
+    #[cfg(feature = "engine")]
+    pub(crate) pending_tasks: VecDeque<host::pending_tasks::PendingTask>,
+    /// Reentrancy guard for [`Self::drain_tasks`] — nested drain
+    /// calls (triggered by a listener body that enqueued and
+    /// drained inline) are no-ops, matching the microtask queue's
+    /// drain-depth invariant.
+    #[cfg(feature = "engine")]
+    pub(crate) task_drain_depth: u32,
 }
 
 impl VmInner {

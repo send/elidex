@@ -241,7 +241,7 @@ fn element_prepend_ancestor_cycle_throws_before_mutation() {
     // `x` must NOT have been inserted. throw happened before
     // the first insertion.
     let JsValue::Boolean(x_in_p) = vm
-        .eval("Array.prototype.slice.call(p.childNodes).indexOf(x) !== -1;")
+        .eval("Array.from(p.childNodes).indexOf(x) !== -1;")
         .unwrap()
     else {
         panic!()
@@ -289,7 +289,7 @@ fn element_replace_children_does_not_clear_parent_on_ancestor_cycle() {
     // allows `a` to be moved into the ephemeral wrapper fragment as
     // a side effect of "convert nodes into a node".)
     let JsValue::Boolean(b_in_p) = vm
-        .eval("Array.prototype.slice.call(p.childNodes).indexOf(b) !== -1;")
+        .eval("Array.from(p.childNodes).indexOf(b) !== -1;")
         .unwrap()
     else {
         panic!()
