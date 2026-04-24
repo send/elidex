@@ -4,19 +4,23 @@
 //! Split from [`super::typed_array`] to keep both files below the
 //! 1000-line convention (cleanup tranche 2 lesson).
 //! [`super::typed_array::construct_typed_array`] dispatches on the
-//! `args[0]` shape into one of the five `init_from_*` arms here, each
-//! returning the `(buffer_id, byte_offset, byte_length)` triple that
-//! `construct_typed_array` then bakes into the receiver's
+//! `args[0]` shape into one of three public entry points here
+//! ([`init_from_array_buffer`] / [`init_from_typed_array`] /
+//! [`init_from_iterable`]); the iterable path then falls through to
+//! the array-like helper internally if `@@iterator` is missing or
+//! `null`/`undefined`.  Every entry point returns the
+//! `(buffer_id, byte_offset, byte_length)` triple that
+//! `construct_typed_array` bakes into the receiver's
 //! [`super::super::value::ObjectKind::TypedArray`] kind.
 //!
-//! ## Variant table
+//! ## Dispatch table
 //!
-//! | Variant                              | Spec ref                  | Entry point                  |
-//! |--------------------------------------|---------------------------|------------------------------|
-//! | `(ArrayBuffer, byteOffset?, length?)` | §23.2.5.1.3              | [`init_from_array_buffer`]   |
-//! | `(otherTypedArray)`                   | §23.2.5.1.2              | [`init_from_typed_array`]    |
-//! | `(iterable)` (callable `@@iterator`)  | §23.2.5.1.4              | [`init_from_iterable`]       |
-//! | array-like (no `@@iterator`)          | §23.2.5.1 steps 9-12     | [`init_from_array_like`]     |
+//! | `args[0]` shape                       | Spec ref                  | Entry point                  |
+//! |---------------------------------------|---------------------------|------------------------------|
+//! | `ArrayBuffer` (with `byteOffset?` / `length?`) | §23.2.5.1.3      | [`init_from_array_buffer`]   |
+//! | another `%TypedArray%`                | §23.2.5.1.2               | [`init_from_typed_array`]    |
+//! | iterable (callable `@@iterator`)      | §23.2.5.1.4               | [`init_from_iterable`]       |
+//! | other Object (array-like fallback)    | §23.2.5.1 steps 9-12      | reached via `init_from_iterable` → `init_from_array_like` |
 //!
 //! The fresh-zero-buffer arms (`()` / `(undefined)` / `(number)`) are
 //! handled inline in `construct_typed_array` because they don't
