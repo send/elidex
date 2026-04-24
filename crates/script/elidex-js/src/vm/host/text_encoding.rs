@@ -766,8 +766,17 @@ fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<Obj
     })?;
     let buffer_id =
         super::array_buffer::create_array_buffer_from_bytes(vm, std::sync::Arc::from(bytes));
+    // Temp-root `buffer_id` across the Uint8Array allocation.  GC
+    // is disabled inside every native call today
+    // (`gc_enabled = false`), so the second `alloc_object` cannot
+    // currently trigger a collection that would sweep the unrooted
+    // ArrayBuffer — but matching the invariant used by
+    // `wrap_in_array_iterator` / event constructors / the typed-
+    // array ctor keeps the helper safe if it's ever reached from
+    // a gc-enabled path.
+    vm.stack.push(JsValue::Object(buffer_id));
     let proto = vm.uint8_array_prototype;
-    Ok(vm.alloc_object(Object {
+    let view_id = vm.alloc_object(Object {
         kind: ObjectKind::TypedArray {
             buffer_id,
             byte_offset: 0,
@@ -777,7 +786,9 @@ fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<Obj
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
         prototype: proto,
         extensible: true,
-    }))
+    });
+    vm.stack.pop();
+    Ok(view_id)
 }
 
 fn intern_lowercase(vm: &mut VmInner, s: &str) -> StringId {
