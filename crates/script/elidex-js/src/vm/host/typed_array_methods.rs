@@ -440,10 +440,15 @@ pub(crate) fn native_typed_array_set(
             "Failed to execute 'set' on 'TypedArray': offset + length out of range",
         ));
     }
+    // §23.2.3.24 step 13 reads `src[ToString(k)]` against the
+    // wrapper object returned by `ToObject(source)`, not the raw
+    // primitive — receiver identity affects any prototype-installed
+    // getter that observes `this`.
+    let src_obj = JsValue::Object(src_id);
     for i in 0..src_len {
         #[allow(clippy::cast_precision_loss)]
         let key = JsValue::Number(f64::from(i));
-        let val = ctx.vm.get_element(source, key)?;
+        let val = ctx.vm.get_element(src_obj, key)?;
         write_element_raw(ctx, buffer_id, byte_offset, target_offset + i, dst_ek, val)?;
     }
     Ok(JsValue::Undefined)

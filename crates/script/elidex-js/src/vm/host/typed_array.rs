@@ -1187,11 +1187,12 @@ pub(crate) fn write_element_raw(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// `ToIndex` (ES §7.1.22) with `u32` target.  NaN → 0, negative
-/// / non-integer / > u32::MAX → RangeError.  Used by TypedArray
-/// ctor length / byteOffset / byteLength args (each spec'd as
-/// `unsigned long long` + `[EnforceRange]`, but the u32-bound
-/// byte_length slot constrains us to u32 here).
+/// `ToIndex` (ES §7.1.22) with `u32` target.  NaN → 0, fractional
+/// values truncate toward zero per `ToIntegerOrInfinity`, and
+/// negative / non-finite / > u32::MAX values throw `RangeError`.
+/// Used by TypedArray ctor length / byteOffset / byteLength args
+/// (each spec'd as `unsigned long long` + `[EnforceRange]`, but the
+/// u32-bound byte_length slot constrains us to u32 here).
 fn to_index_u32(n: f64, ctor_name: &str, what: &str) -> Result<u32, VmError> {
     if n.is_nan() {
         return Ok(0);
