@@ -2,7 +2,7 @@
 //! (ES2024 §23.2.5).
 //!
 //! Split from [`super::typed_array`] to keep both files below the
-//! 1000-line convention (cleanup tranche 2 lesson).
+//! 1000-line convention (cleanup tranche 2).
 //! [`super::typed_array::construct_typed_array`] dispatches on the
 //! `args[0]` shape into one of three public entry points here
 //! ([`init_from_array_buffer`] / [`init_from_typed_array`] /
