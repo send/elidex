@@ -124,10 +124,11 @@ impl VmInner {
     ///
     /// ```rust,ignore
     /// let mut frame = vm.push_stack_scope();
+    /// let iter_slot = frame.saved_len();
     /// frame.stack.push(JsValue::Object(iter));
     /// while let Some(v) = frame.iter_next(...)? { frame.stack.push(v); }
-    /// // … consume `stack[saved_len + 1 ..]` …
-    /// // guard drops here; stack restored to pre-snapshot length
+    /// // … consume `frame.stack[iter_slot + 1 ..]` …
+    /// // guard drops here; stack restored to `iter_slot`
     /// ```
     ///
     /// Unlike [`VmTempRoot`] there is no value-identity check —
@@ -184,13 +185,28 @@ impl std::ops::DerefMut for VmStackScope<'_> {
 
 impl Drop for VmStackScope<'_> {
     fn drop(&mut self) {
-        // Truncate unconditionally on every exit (clean return,
-        // `?` propagation, panic unwinding alike).  No length
-        // assertion: the scope's contract is "len at exit ≤ len at
-        // entry doesn't matter, just restore" — over-popping
-        // beyond `saved_len` is the only mistake possible, and a
-        // bare `truncate` simply caps at the existing length when
-        // the stack is shorter, which is the correct no-op.
-        self.vm.stack.truncate(self.saved_len);
+        let stack = &mut self.vm.stack;
+        if std::thread::panicking() {
+            // Avoid double-panic during unwinding; just restore
+            // unconditionally so any `catch_unwind` upstream sees a
+            // clean stack.  An assertion failure here would abort
+            // the process and lose the original panic's diagnostic.
+            stack.truncate(self.saved_len);
+            return;
+        }
+        // On clean drop, catch under-pops: scoped code that pops
+        // below `saved_len` would make a bare `truncate` silently
+        // no-op and hide the corruption.  Match `VmTempRoot`'s
+        // assertion style.  Over-pushes (stack.len() > saved_len)
+        // are fine — they're the expected shape (drained values,
+        // etc.) and `truncate` releases them.
+        assert!(
+            stack.len() >= self.saved_len,
+            "VmStackScope: stack underflow on drop (len={} < saved_len={}) \
+             — scoped region over-popped beyond the scope entry point",
+            stack.len(),
+            self.saved_len,
+        );
+        stack.truncate(self.saved_len);
     }
 }
