@@ -575,8 +575,33 @@ fn native_typed_array_to_tag_get(
     let ObjectKind::TypedArray { element_kind, .. } = ctx.vm.get_object(id).kind else {
         return Ok(JsValue::Undefined);
     };
-    let name_sid = ctx.vm.strings.intern(element_kind.name());
-    Ok(JsValue::String(name_sid))
+    Ok(JsValue::String(element_kind_name_sid(
+        &ctx.vm.well_known,
+        element_kind,
+    )))
+}
+
+/// Map `ElementKind` to its already-interned subclass-name `StringId`
+/// from [`WellKnownStrings`].  Avoids the `strings.intern` round-trip
+/// on every `@@toStringTag` read (the getter fires once per
+/// `Object.prototype.toString.call(ta)`).
+fn element_kind_name_sid(
+    wk: &super::super::well_known::WellKnownStrings,
+    ek: ElementKind,
+) -> StringId {
+    match ek {
+        ElementKind::Int8 => wk.int8_array_global,
+        ElementKind::Uint8 => wk.uint8_array_global,
+        ElementKind::Uint8Clamped => wk.uint8_clamped_array_global,
+        ElementKind::Int16 => wk.int16_array_global,
+        ElementKind::Uint16 => wk.uint16_array_global,
+        ElementKind::Int32 => wk.int32_array_global,
+        ElementKind::Uint32 => wk.uint32_array_global,
+        ElementKind::Float32 => wk.float32_array_global,
+        ElementKind::Float64 => wk.float64_array_global,
+        ElementKind::BigInt64 => wk.bigint64_array_global,
+        ElementKind::BigUint64 => wk.biguint64_array_global,
+    }
 }
 
 // ---------------------------------------------------------------------------
