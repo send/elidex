@@ -456,6 +456,50 @@ fn listener_with_aborted_signal_does_not_fire() {
 // `wrapper_cache`).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Copilot R4 #2 regression — `validate_transfer` must follow WebIDL
+// `sequence<object>` semantics.  A non-iterable object (e.g. `{}`)
+// raises TypeError, NOT DataCloneError.  An empty iterable (e.g. a
+// fresh `Set()`) passes.  A non-empty iterable raises
+// DataCloneError (Phase 2 transferables unsupported).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn post_message_transfer_non_iterable_object_throws_type_error() {
+    setup_bound_vm!(vm, session, dom, doc);
+    // `{}` has no `@@iterator`, so WebIDL §3.2.27 step 3 raises
+    // TypeError (not DataCloneError — the pre-R4 behavior).
+    let src = "
+        var caught = null;
+        try { window.postMessage('x', '*', {}); }
+        catch (e) { caught = (e instanceof TypeError) ? 'TypeError' : (e.name || 'other'); }
+        caught;";
+    assert_eq!(eval_string(&mut vm, src), "TypeError");
+    vm.unbind();
+}
+
+#[test]
+fn post_message_transfer_empty_iterable_non_array_accepted() {
+    setup_bound_vm!(vm, session, dom, doc);
+    // A user-defined empty iterable (not an Array) must pass the
+    // WebIDL `sequence<object>` check: the `@@iterator` probe
+    // succeeds and the first `next()` returns `done: true`.  VM
+    // does not ship `Set` yet, so roll our own iterable.
+    vm.eval(
+        "globalThis.hit = 0;
+         window.addEventListener('message', function(e){ globalThis.hit = e.data; });
+         var emptyIterable = {
+             [Symbol.iterator]: function(){
+                 return { next: function(){ return {value: undefined, done: true}; } };
+             }
+         };
+         window.postMessage(11, '*', emptyIterable);",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "globalThis.hit;"), 11.0);
+    vm.unbind();
+}
+
 #[test]
 fn message_event_target_is_canonical_window() {
     setup_bound_vm!(vm, session, dom, doc);

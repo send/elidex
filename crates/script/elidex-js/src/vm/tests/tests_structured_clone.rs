@@ -375,6 +375,44 @@ fn options_primitive_string_throws_type_error() {
 // object-valued `cause` shares identity with the source.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Copilot R4 #3 regression — `options.transfer` WebIDL
+// `sequence<object>` validation.  A non-iterable object triggers
+// TypeError; a non-Array empty iterable (`new Set()`) passes.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn structured_clone_transfer_non_iterable_object_throws_type_error() {
+    let mut vm = Vm::new();
+    // `{}` has no `@@iterator` → WebIDL §3.2.27 step 3 TypeError.
+    eval_throws(&mut vm, "structuredClone(1, {transfer: {}});");
+    // Confirm the error kind is TypeError, not DataCloneError.
+    let name = eval_string(
+        &mut vm,
+        "var caught = null; \
+         try { structuredClone(1, {transfer: {}}); } \
+         catch (e) { caught = (e instanceof TypeError) ? 'TypeError' : (e.name || 'other'); } \
+         caught;",
+    );
+    assert_eq!(name, "TypeError");
+}
+
+#[test]
+fn structured_clone_transfer_empty_iterable_non_array_accepted() {
+    let mut vm = Vm::new();
+    // A user-defined empty iterable (not an Array) must pass.
+    // VM doesn't ship `Set` yet, so construct the iterable
+    // manually via `@@iterator`.
+    let n = eval_number(
+        &mut vm,
+        "var it = { [Symbol.iterator]: function(){ \
+             return { next: function(){ return {value: undefined, done: true}; } }; \
+         } }; \
+         structuredClone(5, {transfer: it});",
+    );
+    assert!((n - 5.0).abs() < f64::EPSILON);
+}
+
 #[test]
 fn clone_error_breaks_cycles_via_memo() {
     let mut vm = Vm::new();

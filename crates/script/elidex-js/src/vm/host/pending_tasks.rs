@@ -399,23 +399,11 @@ fn coerce_to_string_or_default(
 }
 
 fn validate_transfer(ctx: &mut NativeContext<'_>, transfer: JsValue) -> Result<(), VmError> {
-    match transfer {
-        JsValue::Undefined | JsValue::Null => Ok(()),
-        JsValue::Object(arr_id) => {
-            if let ObjectKind::Array { elements } = &ctx.vm.get_object(arr_id).kind {
-                if elements.is_empty() {
-                    return Ok(());
-                }
-            }
-            Err(VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_data_clone_error,
-                "Failed to execute 'postMessage' on 'Window': Transferable objects are not yet supported.",
-            ))
-        }
-        _ => Err(VmError::type_error(
-            "Failed to execute 'postMessage' on 'Window': The provided transfer value is not iterable.",
-        )),
-    }
+    super::structured_clone::ensure_empty_transfer_list(
+        ctx,
+        transfer,
+        "Failed to execute 'postMessage' on 'Window'",
+    )
 }
 
 /// Current window's origin as a StringId.  WHATWG "Origin" serialisation

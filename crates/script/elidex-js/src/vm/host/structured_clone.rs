@@ -585,26 +585,93 @@ fn validate_transfer(ctx: &mut NativeContext<'_>, options: JsValue) -> Result<()
             // `transfer` entries.
             let transfer_key = PropertyKey::String(ctx.vm.strings.intern("transfer"));
             let transfer_val = ctx.vm.get_property_value(opts_id, transfer_key)?;
-            match transfer_val {
-                JsValue::Undefined | JsValue::Null => Ok(()),
-                JsValue::Object(arr_id) => {
-                    if let ObjectKind::Array { elements } = &ctx.vm.get_object(arr_id).kind {
-                        if elements.is_empty() {
-                            return Ok(());
-                        }
-                    }
-                    Err(VmError::dom_exception(
-                        ctx.vm.well_known.dom_exc_data_clone_error,
-                        "Transferable objects are not yet supported.",
-                    ))
-                }
-                _ => Err(VmError::type_error(
-                    "Failed to execute 'structuredClone' on 'Window': member transfer is not iterable.",
-                )),
-            }
+            ensure_empty_transfer_list(
+                ctx,
+                transfer_val,
+                "Failed to execute 'structuredClone' on 'Window'",
+            )
         }
         _ => Err(VmError::type_error(
             "Failed to execute 'structuredClone' on 'Window': The provided value is not of type 'StructuredSerializeOptions'.",
         )),
+    }
+}
+
+/// Validate a transfer-list argument as a WebIDL
+/// `sequence<object>` that resolves to an empty list.
+///
+/// Phase 2 restriction: real transferable objects are not yet
+/// supported, so a non-empty list throws `DataCloneError`.  A
+/// non-iterable Object (e.g. a plain `{}`, or an Object whose
+/// `@@iterator` is undefined) throws `TypeError` per WebIDL §3.2.27
+/// step 2-3, mirroring the TypeError thrown for non-Object
+/// primitives.  Shared by `structuredClone`'s
+/// `StructuredSerializeOptions.transfer` and
+/// `window.postMessage`'s transfer argument (legacy and dict form).
+pub(super) fn ensure_empty_transfer_list(
+    ctx: &mut NativeContext<'_>,
+    transfer: JsValue,
+    err_prefix: &str,
+) -> Result<(), VmError> {
+    match transfer {
+        JsValue::Undefined | JsValue::Null => Ok(()),
+        JsValue::Object(obj_id) => {
+            // Fast path: Array with empty elements (the common case).
+            if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
+                if elements.is_empty() {
+                    return Ok(());
+                }
+                return Err(VmError::dom_exception(
+                    ctx.vm.well_known.dom_exc_data_clone_error,
+                    format!("{err_prefix}: Transferable objects are not yet supported."),
+                ));
+            }
+            // Non-Array object → probe `@@iterator` (WebIDL §3.2.27
+            // step 2-3).  Missing `@@iterator` → TypeError, not
+            // DataCloneError.
+            let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
+            let iter_method = ctx.vm.get_property_value(obj_id, iter_key)?;
+            let iter_fn = match iter_method {
+                JsValue::Undefined | JsValue::Null => {
+                    return Err(VmError::type_error(format!(
+                        "{err_prefix}: transfer is not iterable"
+                    )));
+                }
+                JsValue::Object(id) if ctx.vm.get_object(id).kind.is_callable() => iter_method,
+                _ => {
+                    return Err(VmError::type_error(format!(
+                        "{err_prefix}: @@iterator is not callable"
+                    )));
+                }
+            };
+            // Invoke the iterator and probe just the first `next()`.
+            // Empty iterable → OK; non-empty → DataCloneError (Phase
+            // 2 does not support transferables).  A throw from
+            // `iter_next` keeps the iterator closed per §7.4.6.
+            let iter = ctx.vm.call_value(iter_fn, transfer, &[])?;
+            if !matches!(iter, JsValue::Object(_)) {
+                return Err(VmError::type_error(format!(
+                    "{err_prefix}: @@iterator must return an object"
+                )));
+            }
+            match ctx.vm.iter_next(iter)? {
+                None => Ok(()),
+                Some(_) => {
+                    // Close the iterator before surfacing the Phase
+                    // 2 limitation (§7.4.6 IteratorClose).  A
+                    // `.return()` throw takes precedence.
+                    if let Some(close_err) = ctx.vm.iter_close(iter).err() {
+                        return Err(close_err);
+                    }
+                    Err(VmError::dom_exception(
+                        ctx.vm.well_known.dom_exc_data_clone_error,
+                        format!("{err_prefix}: Transferable objects are not yet supported."),
+                    ))
+                }
+            }
+        }
+        _ => Err(VmError::type_error(format!(
+            "{err_prefix}: transfer is not iterable"
+        ))),
     }
 }

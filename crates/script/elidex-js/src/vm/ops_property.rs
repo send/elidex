@@ -485,12 +485,19 @@ impl VmInner {
                     // disjointness through the `Box<HostData>`
                     // indirection.
                     // `dom_shared()` panics when `HostData` is
-                    // unbound; collection wrappers survive
-                    // `Vm::unbind()` (their `ObjectId` is GC-rooted
-                    // via `live_collection_states` / `named_node_map_states`),
-                    // so post-unbind property access on a retained
-                    // wrapper must fall through to normal prototype
-                    // lookup instead of panicking.
+                    // unbound.  Collection wrappers can outlive
+                    // `Vm::unbind()` when they remain reachable from
+                    // ordinary JS roots (e.g. `globalThis.hc = ...`
+                    // or a live stack value).  The
+                    // `live_collection_states` /
+                    // `named_node_map_states` side tables are NOT
+                    // GC roots — they are pruned after the mark
+                    // phase based on whether the key `ObjectId`
+                    // was itself marked.  So post-unbind indexed
+                    // access on a retained wrapper must fall
+                    // through to normal prototype lookup rather
+                    // than panicking inside `dom_shared`'s
+                    // `is_bound()` assertion.
                     if let Some(hd) = self.host_data.as_deref().filter(|h| h.is_bound()) {
                         #[allow(unsafe_code)]
                         let dom_ptr: *const elidex_ecs::EcsDom = hd.dom_shared();
