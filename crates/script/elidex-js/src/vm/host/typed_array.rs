@@ -891,26 +891,33 @@ fn init_from_typed_array(
     Ok((dst_buf_id, dst_offset, dst_byte_len))
 }
 
-/// Variant 5: `new Xxx(iterable)`.  Consumes the iterator protocol
-/// (§23.2.5.1.4), accumulates elements into a `Vec<JsValue>`
-/// (rooted on the VM stack via `push_temp_root` around each push),
-/// then writes them into a freshly allocated buffer.
+/// Variant 5: `new Xxx(object)`.  ES §23.2.5.1 steps 7-12: if the
+/// source has a callable `@@iterator`, iterate; otherwise fall back
+/// to the array-like path (`length` + integer-indexed `[[Get]]`s).
 fn init_from_iterable(
     ctx: &mut NativeContext<'_>,
     source: JsValue,
     ek: ElementKind,
 ) -> Result<(ObjectId, u32, u32), VmError> {
-    let iter = match ctx.vm.resolve_iterator(source)? {
-        Some(it @ JsValue::Object(_)) => it,
-        Some(_) => {
+    let JsValue::Object(src_id) = source else {
+        unreachable!("init_from_iterable called on non-Object");
+    };
+    // §23.2.5.1 step 7 / GetMethod(object, @@iterator): an absent
+    // or `undefined` / `null` value for `@@iterator` falls through
+    // to the array-like branch rather than throwing.
+    let iter_key = super::super::value::PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
+    let using_iter = match super::super::coerce::get_property(ctx.vm, src_id, iter_key) {
+        Some(pr) => ctx.vm.resolve_property(pr, source)?,
+        None => JsValue::Undefined,
+    };
+    if matches!(using_iter, JsValue::Null | JsValue::Undefined) {
+        return init_from_array_like(ctx, src_id, ek);
+    }
+    let iter = match ctx.vm.call_value(using_iter, source, &[])? {
+        it @ JsValue::Object(_) => it,
+        _ => {
             return Err(VmError::type_error(format!(
                 "Failed to construct '{}': @@iterator must return an object",
-                ek.name()
-            )));
-        }
-        None => {
-            return Err(VmError::type_error(format!(
-                "Failed to construct '{}': The provided value cannot be converted to a sequence",
                 ek.name()
             )));
         }
@@ -960,6 +967,41 @@ fn init_from_iterable(
     }
     ctx.vm.stack.truncate(stack_root);
 
+    Ok((buf_id, offset, byte_len))
+}
+
+/// Variant 5b: §23.2.5.1 array-like fallback when `source` has no
+/// callable `@@iterator`.  Reads `source.length` → `ToIndex` →
+/// allocates buffer → drains `source[i]` through the shared property
+/// path (§23.2.5.1 steps 9-12).
+fn init_from_array_like(
+    ctx: &mut NativeContext<'_>,
+    src_id: ObjectId,
+    ek: ElementKind,
+) -> Result<(ObjectId, u32, u32), VmError> {
+    let length_sid = ctx.vm.well_known.length;
+    let len_val =
+        ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;
+    let len_f = ctx.to_number(len_val)?;
+    let length = to_index_u32(len_f, ek.name(), "length")?;
+    let byte_len = length
+        .checked_mul(u32::from(ek.bytes_per_element()))
+        .ok_or_else(|| {
+            VmError::range_error(format!(
+                "Failed to construct '{}': length too large",
+                ek.name()
+            ))
+        })?;
+    let (buf_id, offset, _) = allocate_fresh_buffer(ctx, byte_len)?;
+    let source = JsValue::Object(src_id);
+    for i in 0..length {
+        // `get_element` dispatches through the full element-get
+        // pipeline (Array dense, TypedArray integer-indexed,
+        // prototype chain), matching what a plain `source[i]` would
+        // see from user code.
+        let elem = ctx.vm.get_element(source, JsValue::Number(f64::from(i)))?;
+        write_element_raw(ctx, buf_id, offset, i, ek, elem)?;
+    }
     Ok((buf_id, offset, byte_len))
 }
 

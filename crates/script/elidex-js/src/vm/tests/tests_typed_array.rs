@@ -1824,6 +1824,100 @@ fn structured_clone_preserves_data_view_identity() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn data_view_nan_offset_still_bounds_checks() {
+    let mut vm = Vm::new();
+    // ES §25.3.1 GetViewValue step 3-8: `ToIndex(NaN) = 0`, but the
+    // `requestIndex + elementSize > viewSize` bounds check still
+    // runs — `new DataView(new ArrayBuffer(1)).getInt16(NaN)` must
+    // throw RangeError because `0 + 2 > 1`.
+    assert!(eval_bool(
+        &mut vm,
+        "var dv = new DataView(new ArrayBuffer(1)); \
+         var ok = false; \
+         try { dv.getInt16(NaN); } \
+         catch (e) { ok = e instanceof RangeError; } ok;"
+    ));
+    // And for undefined offset (also ToIndex(undefined) = 0):
+    assert!(eval_bool(
+        &mut vm,
+        "var dv = new DataView(new ArrayBuffer(1)); \
+         var ok = false; \
+         try { dv.setInt32(undefined, 0); } \
+         catch (e) { ok = e instanceof RangeError; } ok;"
+    ));
+    // Sanity: NaN offset with enough room still returns 0 bytes.
+    assert_eq!(
+        eval_number(&mut vm, "new DataView(new ArrayBuffer(8)).getInt16(NaN);"),
+        0.0
+    );
+}
+
+#[test]
+fn typed_array_set_accepts_primitive_source_via_to_object() {
+    let mut vm = Vm::new();
+    // ES §23.2.3.24 TypedArraySetArrayElements step 3: `ToObject(source)`.
+    // Primitive strings become StringWrapper whose length + indexed
+    // access drive the write loop (each 1-char string ToNumber's to
+    // NaN → 0 for Uint8Array).
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var u = new Uint8Array(3); u.set('abc'); \
+             u[0] + u[1] + u[2];"
+        ),
+        0.0
+    );
+    // Null / undefined still TypeError (§7.1.18 ToObject).
+    assert!(eval_bool(
+        &mut vm,
+        "var u = new Uint8Array(1); var ok = false; \
+         try { u.set(null); } catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn typed_array_ctor_accepts_array_like_without_iterator() {
+    let mut vm = Vm::new();
+    // ES §23.2.5.1 steps 9-12: when `usingIterator` is undefined
+    // (no `@@iterator` / explicitly nulled), the ctor walks
+    // `source.length` + `source[i]` as an array-like.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array({ length: 3, 0: 1, 1: 2, 2: 3 }); \
+             a.length * 100 + a[0] * 10 + a[2];"
+        ),
+        313.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var src = [10, 20]; src[Symbol.iterator] = undefined; \
+             var a = new Uint16Array(src); a[0] + a[1];"
+        ),
+        30.0
+    );
+}
+
+#[test]
+fn bigint_ctor_applies_to_primitive_on_object() {
+    let mut vm = Vm::new();
+    // ES §21.2.1.1 step 2: `BigInt(Object(1n))` unwraps via
+    // `@@toPrimitive`/`valueOf` through `ToPrimitive(value, number)`.
+    assert!(eval_bool(
+        &mut vm,
+        "var hook = {}; hook[Symbol.toPrimitive] = function () { return 7n; }; \
+         BigInt(hook) === 7n;"
+    ));
+    // Same audit applies to BigInt.asIntN / asUintN arguments.
+    assert!(eval_bool(
+        &mut vm,
+        "var hook = {}; hook[Symbol.toPrimitive] = function () { return 5n; }; \
+         BigInt.asIntN(64, hook) === 5n;"
+    ));
+}
+
+#[test]
 fn to_bigint_strict_honors_at_to_primitive_on_object() {
     let mut vm = Vm::new();
     // ES §7.1.13 ToBigInt step 1 runs ToPrimitive(argument, number).

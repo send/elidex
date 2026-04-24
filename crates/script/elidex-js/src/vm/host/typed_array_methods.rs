@@ -412,15 +412,11 @@ pub(crate) fn native_typed_array_set(
         }
     }
 
-    // Array-like branch: read `source.length` + `source[i]`
-    // through the standard property path (dispatches to the
-    // TypedArray-indexed / Array-element fast paths transparently
-    // when `source` is itself dense).
-    let JsValue::Object(src_id) = source else {
-        return Err(VmError::type_error(
-            "Failed to execute 'set' on 'TypedArray': source must be an object",
-        ));
-    };
+    // Array-like branch: §23.2.3.24 runs `ToObject(source)` so
+    // primitives (strings, numbers, booleans) are wrapped and their
+    // indexed/length access proceeds uniformly; only null/undefined
+    // TypeError.
+    let src_id = super::super::coerce::to_object(ctx.vm, source)?;
     let length_sid = ctx.vm.well_known.length;
     let len_val =
         ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;

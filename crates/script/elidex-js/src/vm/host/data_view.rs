@@ -368,10 +368,12 @@ fn write_bytes<const N: usize>(
 /// Validate that `offset + size ≤ dv_len` and return the unsigned
 /// `byte_offset`.  Throws RangeError on out-of-range.  `n` is the
 /// already-coerced `ToNumber(offsetArg)` from the caller.
+///
+/// NaN / undefined coerce to `0` (per `ToIndex` §7.1.22) but still
+/// participate in the bounds check — e.g. `new DataView(buf_len_1).
+/// getInt16(NaN)` must throw RangeError because `0 + 2 > 1`.
 fn ensure_in_range(n: f64, dv_len: u32, size: u32, method: &str) -> Result<u32, VmError> {
-    if n.is_nan() {
-        return Ok(0);
-    }
+    let n = if n.is_nan() { 0.0 } else { n };
     let truncated = n.trunc();
     if !truncated.is_finite() || truncated < 0.0 {
         return Err(VmError::range_error(format!(

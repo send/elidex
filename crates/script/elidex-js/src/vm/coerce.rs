@@ -392,7 +392,7 @@ pub(crate) fn f64_to_uint8(n: f64) -> u8 {
 #[cfg(feature = "engine")]
 #[inline]
 #[must_use]
-pub fn f64_to_uint8_clamp(n: f64) -> u8 {
+pub(crate) fn f64_to_uint8_clamp(n: f64) -> u8 {
     if n.is_nan() || n <= 0.0 {
         return 0;
     }

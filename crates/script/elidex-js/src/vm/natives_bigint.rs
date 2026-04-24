@@ -11,7 +11,16 @@ pub(super) fn native_bigint_constructor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let raw = args.first().copied().unwrap_or(JsValue::Undefined);
+    // §21.2.1.1 step 2: if `value` is Object, run `ToPrimitive(value,
+    // number)`.  BigIntWrapper's `@@toPrimitive`/`valueOf` returns
+    // the primitive BigInt; any user-defined hook likewise has its
+    // result coerced through the primitive switch below.
+    let val = if matches!(raw, JsValue::Object(_)) {
+        ctx.vm.to_primitive(raw, "number")?
+    } else {
+        raw
+    };
     let bi = match val {
         JsValue::BigInt(_) => return Ok(val),
         JsValue::Boolean(b) => BigIntValue::from(i64::from(b)),
