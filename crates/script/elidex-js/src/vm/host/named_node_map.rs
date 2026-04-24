@@ -487,13 +487,14 @@ pub(crate) fn try_indexed_get(
             Some(JsValue::Object(attr_id))
         }
         JsValue::String(sid) => {
-            let key_str = vm.strings.get_utf8(sid);
-            // Numeric-string key → indexed path, mirroring the
-            // `JsValue::Number` arm.  `attrs['0']` /
-            // `Reflect.get(attrs, '0')` must return the same Attr
-            // as `attrs[0]`; otherwise the caller falls through to
-            // prototype lookup and sees `undefined`.
-            if let Ok(idx) = key_str.parse::<usize>() {
+            // Canonical array-index parse (ES §6.1.7 / §7.1.21):
+            // rejects "01" / "+1" / "1.0" so `attrs['01']` falls
+            // through to attribute-name lookup rather than aliasing
+            // `attrs[1]`.  Mirrors the HTMLCollection / NodeList
+            // indexed-string path in `dom_collection.rs`.
+            let key_units = vm.strings.get(sid);
+            if let Some(idx_u32) = super::super::coerce_format::parse_array_index_u32(key_units) {
+                let idx = idx_u32 as usize;
                 let name = names.get(idx)?;
                 let qname_sid = vm.strings.intern(name);
                 let attr_id = vm.alloc_attr(AttrState {
@@ -502,6 +503,7 @@ pub(crate) fn try_indexed_get(
                 });
                 return Some(JsValue::Object(attr_id));
             }
+            let key_str = vm.strings.get_utf8(sid);
             // Match by exact attribute name — HTML documents store
             // names lowercase via `EcsDom::set_attribute`, so a
             // lookup for `"id"` hits the normalised key.

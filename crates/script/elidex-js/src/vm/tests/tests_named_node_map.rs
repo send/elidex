@@ -280,3 +280,25 @@ fn named_node_map_numeric_string_index_returns_attr() {
            ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
+
+// ---------------------------------------------------------------------------
+// Copilot R3 #1 regression — non-canonical numeric strings ("01" /
+// "+1" / "1.0") MUST NOT alias attribute indices.  ES §7.1.21
+// canonical-numeric-index-string parsing rejects leading zeros
+// (except "0"), so `attrs['01']` must fall through to
+// attribute-name lookup.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn named_node_map_non_canonical_numeric_string_does_not_alias_index() {
+    // Two attrs: `id` at index 0, `data-y` at index 1.  `attrs[1]`
+    // returns the `data-y` Attr; `attrs['01']` must NOT — it's a
+    // non-canonical index, and no attribute is literally named
+    // `"01"`, so lookup returns undefined.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         d.setAttribute('data-y', 'z'); \
+         var attrs = d.attributes; \
+         (attrs['01'] === undefined) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}

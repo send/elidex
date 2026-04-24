@@ -404,6 +404,42 @@ fn node_list_numeric_string_index_returns_element() {
     assert_eq!(out, "ok");
 }
 
+// ---------------------------------------------------------------------------
+// Copilot R3 #3 regression — non-canonical numeric strings ("01" /
+// "+1" / "1.0") MUST NOT route through the indexed path.  ES §7.1.21
+// only treats canonical array-index strings as indices; others fall
+// through to the named / prototype lookup.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn html_collection_non_canonical_numeric_string_falls_through_to_named() {
+    // "01" is not a canonical array index.  HTMLCollection must
+    // attempt the `id` / `name` named-lookup with that literal
+    // string (which finds nothing here) → null.  If the old
+    // `parse::<usize>()` code path were still in effect, "01" would
+    // alias index 1 and return the `<b>` element.
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('span'); \
+         var b = document.createElement('span'); \
+         p.appendChild(a); p.appendChild(b); \
+         document.body.appendChild(p); \
+         var hit = p.children['01']; \
+         (hit === undefined) ? 'ok' : 'fail:' + (hit === b);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn node_list_non_canonical_numeric_string_does_not_alias_index() {
+    // Same invariant on NodeList — "01" MUST NOT alias `[1]`.
+    let out = run("var p = document.createElement('div'); \
+         p.appendChild(document.createElement('span')); \
+         p.appendChild(document.createElement('span')); \
+         document.body.appendChild(p); \
+         var nl = p.childNodes; \
+         (nl['01'] === undefined) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
 #[test]
 fn html_collection_numeric_string_index_still_works() {
     // Regression — #4 fix must not break HTMLCollection's

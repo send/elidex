@@ -624,18 +624,14 @@ fn native_collection_iterator(
         .into_iter()
         .map(|e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
         .collect();
-    // `ArrayIterKind::Values` is the `0` discriminant (see
-    // `natives_array_hof::native_array_values`) — the alias is a
-    // `u8`, so we spell it as the literal here.  Kept at module
-    // scope rather than inside the function to satisfy clippy's
-    // `items_after_statements`.
-    //
     // Wrap the snapshot Array in an `ArrayIterator` so standard
-    // `for ... of` consumption walks the snapshot.  Note: this
-    // iterator reflects the *snapshot* at `@@iterator` time, not
-    // live DOM changes that occur during iteration — consistent
-    // with WHATWG §4.2.10 where the collection is live on access
-    // but iteration uses IteratorProtocol over a captured Array.
+    // `for ... of` consumption walks the snapshot.  The
+    // `ARRAY_ITER_KIND_VALUES` discriminant selects the values-
+    // yielding iterator (vs keys / entries).  Note: this iterator
+    // reflects the *snapshot* at `@@iterator` time, not live DOM
+    // changes that occur during iteration — consistent with
+    // WHATWG §4.2.10 where the collection is live on access but
+    // iteration uses IteratorProtocol over a captured Array.
     let array_id = ctx.vm.create_array_object(values);
     let proto = ctx.vm.array_iterator_prototype;
     let iter_obj = ctx.vm.alloc_object(Object {
@@ -719,20 +715,22 @@ pub(crate) fn try_indexed_get(
                 .map(|&e| JsValue::Object(vm.create_element_wrapper(e)))
         }
         JsValue::String(sid) => {
-            let key_str = vm.strings.get_utf8(sid);
-            // Numeric-string key → indexed path for BOTH
-            // HTMLCollection AND NodeList (`coll['0']`,
-            // `Reflect.get(coll, '0')`, spread into a
-            // `Reflect.ownKeys` loop).  Without this, the caller
-            // would fall through to prototype lookup and observe
-            // `undefined` for a valid indexed entry.
-            if let Ok(idx) = key_str.parse::<usize>() {
+            // Canonical array-index parse (ES §6.1.7 "array index" /
+            // §7.1.21 CanonicalNumericIndexString): rejects
+            // non-canonical forms like "01" / "+1" / "1.0" so
+            // `coll['01']` does NOT alias `coll[1]`.  Reuses the
+            // shared `parse_array_index_u32` helper that already
+            // enforces the leading-zero + length constraints.
+            let key_units = vm.strings.get(sid);
+            if let Some(idx_u32) = super::super::coerce_format::parse_array_index_u32(key_units) {
+                let idx = idx_u32 as usize;
                 return entities
                     .get(idx)
                     .map(|&e| JsValue::Object(vm.create_element_wrapper(e)));
             }
-            // Non-numeric string on HTMLCollection → legacy named
-            // property access (WHATWG HTML spec §4.2.10): `id`
+            let key_str = vm.strings.get_utf8(sid);
+            // Non-canonical-index string on HTMLCollection → legacy
+            // named property access (WHATWG HTML spec §4.2.10): `id`
             // attribute first, then `name` restricted to the tag
             // allowlist.  NodeList has no named-property path, so
             // return None for it.
