@@ -45,6 +45,15 @@ fn eval_global_string(source: &str, name: &str) -> String {
     }
 }
 
+fn eval_global_number(source: &str, name: &str) -> f64 {
+    let mut vm = Vm::new();
+    vm.eval(source).unwrap();
+    match vm.get_global(name) {
+        Some(JsValue::Number(n)) => n,
+        other => panic!("expected global {name} to be a number, got {other:?}"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Constructor — basic shapes
 // ---------------------------------------------------------------------------
@@ -1649,4 +1658,114 @@ fn buffer_getter_brand_check_rejects_foreign() {
          try { getter.call({}); } \
          catch (e) { ok = e instanceof TypeError; } ok;"
     ));
+}
+
+// ---------------------------------------------------------------------------
+// C7 — integration: TypedArray ↔ ArrayBuffer ↔ Blob ↔ Request/Response
+// ---------------------------------------------------------------------------
+
+#[test]
+fn request_body_typed_array_round_trips_via_array_buffer() {
+    // Full body pipeline: Uint8Array → Request({ body }) →
+    // `.arrayBuffer()` → re-wrap Uint8Array → indexed read.
+    // Exercises C2 ctor (ArrayBuffer form), C3 indexed access, and
+    // WHATWG Fetch §5 `arrayBuffer()` chain.
+    assert_eq!(
+        eval_global_number(
+            "globalThis.r = 0; \
+             var u = new Uint8Array([7, 11, 13, 17, 19]); \
+             new Request('http://example.com/', { method: 'POST', body: u }) \
+                 .arrayBuffer() \
+                 .then(ab => { var v = new Uint8Array(ab); \
+                               globalThis.r = v[0] + v[1] + v[2] + v[3] + v[4]; });",
+            "r",
+        ),
+        67.0
+    );
+}
+
+#[test]
+fn typed_array_method_chain_fill_subarray_hof() {
+    let mut vm = Vm::new();
+    // Combined method coverage: `fill` writes, `subarray` shares
+    // buffer, `forEach` iterates, closure captures accumulate —
+    // verifies the C4a/C4b surfaces compose correctly.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Int32Array(6); a.fill(3); \
+             var sub = a.subarray(1, 5); \
+             sub[0] = 10; sub[3] = 40; \
+             var sum = 0; sub.forEach(function(v) { sum += v; }); \
+             sum;"
+        ),
+        56.0
+    );
+}
+
+#[test]
+fn blob_array_buffer_read_via_data_view() {
+    // Blob init from TypedArray → `.arrayBuffer()` → DataView
+    // readback.  Exercises C6 Blob part acceptance + C5 DataView
+    // read path in one pipeline.  Big-endian default (spec §25.3.4)
+    // verified by writing LE and reading BE (swapped bytes).
+    assert_eq!(
+        eval_global_number(
+            "globalThis.r = 0; \
+             var src = new Uint8Array([0x01, 0x02, 0x03, 0x04]); \
+             new Blob([src]).arrayBuffer().then(ab => { \
+                 var dv = new DataView(ab); \
+                 globalThis.r = dv.getUint32(0); \
+             });",
+            "r",
+        ),
+        0x0102_0304 as f64
+    );
+}
+
+#[test]
+fn structured_clone_nested_views_preserve_sharing_and_isolation() {
+    let mut vm = Vm::new();
+    // Clone a plain Object containing two views that share one
+    // backing buffer, then mutate the original.  Clone must:
+    //   (a) preserve shared-buffer identity (spec §2.9 memory map),
+    //   (b) be isolated from subsequent mutation of the source.
+    assert!(eval_bool(
+        &mut vm,
+        "var buf = new ArrayBuffer(8); \
+         var u = new Uint8Array(buf); \
+         var dv = new DataView(buf); \
+         u[0] = 0xAA; dv.setUint8(4, 0xBB); \
+         var wrap = { a: u, b: dv }; \
+         var clone = structuredClone(wrap); \
+         u[0] = 0x11; dv.setUint8(4, 0x22); \
+         var sharing = clone.a.buffer === clone.b.buffer; \
+         var isolated = clone.a[0] === 0xAA && clone.b.getUint8(4) === 0xBB; \
+         sharing && isolated;"
+    ));
+}
+
+#[test]
+fn overlapping_views_on_shared_buffer_method_composition() {
+    let mut vm = Vm::new();
+    // Multiple overlapping views on one ArrayBuffer.  Mutations via
+    // `set` / indexed assignment on any view are visible through
+    // every other view over the same bytes — validates the
+    // whole-buffer replace semantics (D3) without detached tracking.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var buf = new ArrayBuffer(8); \
+             var u8 = new Uint8Array(buf); \
+             var u16 = new Uint16Array(buf); \
+             u8.set([0x34, 0x12, 0x78, 0x56, 0, 0, 0, 0]); \
+             var lo = u16[0]; \
+             u16[1] = 0xCAFE; \
+             var hi_byte = u8[2]; \
+             var copied = new Uint8Array(buf.slice(0, 4)); \
+             copied[0] + lo + hi_byte;"
+        ),
+        // u8[0] via copy = 0x34 ; lo = 0x1234 (LE) ; hi_byte = u8[2] post-write = 0xFE
+        (0x34 + 0x1234 + 0xFE) as f64
+    );
 }
