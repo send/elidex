@@ -549,6 +549,7 @@ fn native_element_get_attribute_node(
     let attr_id = ctx.vm.alloc_attr(super::attr_proto::AttrState {
         owner: entity,
         qualified_name: qname_sid,
+        detached_value: None,
     });
     Ok(JsValue::Object(attr_id))
 }
@@ -592,12 +593,21 @@ fn native_element_set_attribute_node(
         .dom()
         .get_attribute(source_owner, &name_str)
         .unwrap_or_default();
-    let prev_exists = ctx.host().dom().get_attribute(entity, &name_str).is_some();
+    // Snapshot the prev value BEFORE overwriting so the returned
+    // detached Attr observes the replaced value, not the
+    // just-written one (WHATWG §4.9.2).
+    let prev_value: Option<String> = ctx.host().dom().get_attribute(entity, &name_str);
     ctx.host().dom().set_attribute(entity, &name_str, new_value);
-    Ok(if prev_exists {
+    Ok(if let Some(prev_val) = prev_value {
+        let prev_sid = if prev_val.is_empty() {
+            ctx.vm.well_known.empty
+        } else {
+            ctx.vm.strings.intern(&prev_val)
+        };
         let prev = ctx.vm.alloc_attr(super::attr_proto::AttrState {
             owner: entity,
             qualified_name: qname_sid,
+            detached_value: Some(prev_sid),
         });
         JsValue::Object(prev)
     } else {
@@ -636,23 +646,49 @@ fn native_element_remove_attribute_node(
                 .to_string(),
         ));
     };
+    let attr_owner = state.owner;
     let qname_sid = state.qualified_name;
+    // WHATWG §4.9.2 step 1: the Attr must be attached to THIS
+    // element.  Without the owner check, passing an Attr from a
+    // different Element that happens to share a qualified name
+    // would remove the wrong attribute.
     let name_str = ctx.vm.strings.get_utf8(qname_sid);
-    if ctx.host().dom().get_attribute(entity, &name_str).is_none() {
+    if attr_owner != entity {
+        let not_found = ctx.vm.well_known.dom_exc_not_found_error;
+        return Err(VmError::dom_exception(
+            not_found,
+            format!(
+                "Failed to execute 'removeAttributeNode' on 'Element': \
+                 '{name_str}' is not an attribute of this element"
+            ),
+        ));
+    }
+    let Some(prev_value) = ctx.host().dom().get_attribute(entity, &name_str) else {
         let not_found = ctx.vm.well_known.dom_exc_not_found_error;
         return Err(VmError::dom_exception(
             not_found,
             format!("Failed to execute 'removeAttributeNode' on 'Element': '{name_str}' not found"),
         ));
+    };
+    // Detach-snapshot the prior value + update the passed Attr's
+    // state to detached before mutating the element, so the
+    // passed-in wrapper itself sees the detached view afterward
+    // (WHATWG §4.9.2 "remove an attribute" mutates the Attr being
+    // removed).
+    let prev_sid = if prev_value.is_empty() {
+        ctx.vm.well_known.empty
+    } else {
+        ctx.vm.strings.intern(&prev_value)
+    };
+    if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
+        state_mut.detached_value = Some(prev_sid);
     }
     ctx.host().dom().remove_attribute(entity, &name_str);
-    // Return a wrapper over the (now detached) attribute — the
-    // caller commonly stashes it for reinsertion.
-    let returned = ctx.vm.alloc_attr(super::attr_proto::AttrState {
-        owner: entity,
-        qualified_name: qname_sid,
-    });
-    Ok(JsValue::Object(returned))
+    // Return the same Attr — now detached with a snapshot of the
+    // value at removal time.  Caller-side stashing for
+    // reinsertion continues to work because `attr.value` reads
+    // the snapshot.
+    Ok(JsValue::Object(attr_id))
 }
 
 fn native_element_toggle_attribute(

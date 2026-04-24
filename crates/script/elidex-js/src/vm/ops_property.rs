@@ -533,6 +533,7 @@ impl VmInner {
                         let attr_id = self.alloc_attr(super::host::attr_proto::AttrState {
                             owner,
                             qualified_name: qname_sid,
+                            detached_value: None,
                         });
                         return Ok(JsValue::Object(attr_id));
                     }

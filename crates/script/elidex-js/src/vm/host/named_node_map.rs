@@ -238,6 +238,7 @@ fn native_nnm_item(
     let attr_id = ctx.vm.alloc_attr(AttrState {
         owner,
         qualified_name: qname_sid,
+        detached_value: None,
     });
     Ok(JsValue::Object(attr_id))
 }
@@ -263,6 +264,7 @@ fn native_nnm_get_named_item(
     let attr_id = ctx.vm.alloc_attr(AttrState {
         owner,
         qualified_name: qname_sid,
+        detached_value: None,
     });
     Ok(JsValue::Object(attr_id))
 }
@@ -309,16 +311,23 @@ fn native_nnm_set_named_item(
         .get_attribute(source_owner, &name_str)
         .unwrap_or_default();
     // If the target already has an attribute with that name,
-    // snapshot the prior Attr for the return value (step 5).
-    let prev_exists = ctx.host().dom().get_attribute(owner, &name_str).is_some();
+    // snapshot the prior VALUE into a *detached* Attr wrapper so
+    // the return value observes the replaced value rather than
+    // the newly-written one (WHATWG §4.9.1.2 step 5 — the
+    // returned Attr represents the previous attribute, not the
+    // one that just replaced it).
+    let prev_value: Option<String> = ctx.host().dom().get_attribute(owner, &name_str);
     ctx.host().dom().set_attribute(owner, &name_str, value);
-    Ok(if prev_exists {
-        // Return a fresh Attr wrapper over the old value for the
-        // caller — identity is not preserved, matching the per-
-        // access allocation policy.
+    Ok(if let Some(prev_val) = prev_value {
+        let prev_sid = if prev_val.is_empty() {
+            ctx.vm.well_known.empty
+        } else {
+            ctx.vm.strings.intern(&prev_val)
+        };
         let prev = ctx.vm.alloc_attr(AttrState {
             owner,
             qualified_name: qname,
+            detached_value: Some(prev_sid),
         });
         JsValue::Object(prev)
     } else {
@@ -335,7 +344,11 @@ fn native_nnm_remove_named_item(
     let key_value = args.first().copied().unwrap_or(JsValue::Undefined);
     let key_sid = super::super::coerce::to_string(ctx.vm, key_value)?;
     let key = ctx.vm.strings.get_utf8(key_sid);
-    if ctx.host().dom().get_attribute(owner, &key).is_none() {
+    // Snapshot current value before removing — the returned Attr
+    // is detached with this value (so a later same-name
+    // `setAttribute` on the owner cannot make it appear to
+    // re-attach; WHATWG §4.9.2 detached-Attr semantics).
+    let Some(prev_value) = ctx.host().dom().get_attribute(owner, &key) else {
         // Spec §4.9.1.2 step 3: throw NotFoundError when the
         // attribute is absent.  Our current DOMException surface
         // covers this via the well-known name; reuse the same
@@ -345,14 +358,19 @@ fn native_nnm_remove_named_item(
             not_found,
             format!("Failed to execute 'removeNamedItem' on 'NamedNodeMap': '{key}' not found"),
         ));
-    }
-    // Snapshot the soon-to-be-removed Attr for the return value.
+    };
     let qname_sid = ctx.vm.strings.intern(&key);
+    let prev_sid = if prev_value.is_empty() {
+        ctx.vm.well_known.empty
+    } else {
+        ctx.vm.strings.intern(&prev_value)
+    };
+    ctx.host().dom().remove_attribute(owner, &key);
     let returned = ctx.vm.alloc_attr(AttrState {
         owner,
         qualified_name: qname_sid,
+        detached_value: Some(prev_sid),
     });
-    ctx.host().dom().remove_attribute(owner, &key);
     Ok(JsValue::Object(returned))
 }
 
@@ -439,6 +457,7 @@ fn native_nnm_symbol_iterator(
         let attr_id = ctx.vm.alloc_attr(AttrState {
             owner,
             qualified_name: qname_sid,
+            detached_value: None,
         });
         values.push(JsValue::Object(attr_id));
     }

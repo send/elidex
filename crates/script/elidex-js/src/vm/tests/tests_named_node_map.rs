@@ -302,3 +302,115 @@ fn named_node_map_non_canonical_numeric_string_does_not_alias_index() {
          (attrs['01'] === undefined) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
+
+// ---------------------------------------------------------------------------
+// Copilot R10 #3 regression — `setNamedItem(attr)` returned "prev"
+// must be a detached snapshot of the REPLACED value, not a live
+// view that observes the just-written value.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_named_item_returns_detached_previous_value() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'old'); \
+         var src = document.createElement('span'); \
+         src.setAttribute('id', 'new'); \
+         var srcAttr = src.getAttributeNode('id'); \
+         var prev = d.attributes.setNamedItem(srcAttr); \
+         var prevValue = prev.value; \
+         var currentValue = d.getAttribute('id'); \
+         var prevOwner = prev.ownerElement; \
+         (prevValue === 'old' && currentValue === 'new' && prevOwner === null) \
+           ? 'ok' : 'fail:' + prevValue + '/' + currentValue + '/' + (prevOwner === null);");
+    assert_eq!(out, "ok");
+}
+
+// ---------------------------------------------------------------------------
+// Copilot R10 #4 regression — a detached Attr (returned by
+// removeNamedItem / removeAttributeNode / setNamedItem-prev) MUST
+// stay detached: subsequent same-name `setAttribute` on the former
+// owner must NOT make the Attr appear to re-attach.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Copilot R10 #1 regression — `element.setAttributeNode(new)`
+// returned "prev" Attr must be a detached snapshot of the
+// REPLACED value, parallel to R10 #3 (setNamedItem).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn element_set_attribute_node_returns_detached_previous_value() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'old'); \
+         var src = document.createElement('span'); \
+         src.setAttribute('id', 'new'); \
+         var srcAttr = src.getAttributeNode('id'); \
+         var prev = d.setAttributeNode(srcAttr); \
+         (prev.value === 'old' && d.getAttribute('id') === 'new' \
+          && prev.ownerElement === null) \
+           ? 'ok' : 'fail:' + prev.value + '/' + d.getAttribute('id');");
+    assert_eq!(out, "ok");
+}
+
+// ---------------------------------------------------------------------------
+// Copilot R10 #2 regression — `element.removeAttributeNode(attr)`
+// must throw `NotFoundError` when `attr` is not attached to the
+// receiver, even if the receiver has a same-named attribute of
+// its own.  Pre-R10 the owner check was missing and the wrong
+// attribute was removed.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn element_remove_attribute_node_rejects_cross_element_attr() {
+    let out = run("var a = document.createElement('div'); \
+         a.setAttribute('id', 'a-id'); \
+         var b = document.createElement('div'); \
+         b.setAttribute('id', 'b-id'); \
+         var attrA = a.getAttributeNode('id'); \
+         var caught = null; \
+         try { b.removeAttributeNode(attrA); } \
+         catch (e) { caught = e.name; } \
+         var aStillHas = a.getAttribute('id'); \
+         var bStillHas = b.getAttribute('id'); \
+         (caught === 'NotFoundError' \
+          && aStillHas === 'a-id' && bStillHas === 'b-id') \
+           ? 'ok' : 'fail:' + caught + '/' + aStillHas + '/' + bStillHas;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_remove_attribute_node_detaches_input_attr() {
+    // The passed Attr itself becomes detached after
+    // `removeAttributeNode` — subsequent `.value` returns the
+    // snapshot captured at removal time, `ownerElement` returns
+    // null, and a same-name `setAttribute` on the former owner
+    // does NOT re-attach.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'initial'); \
+         var attr = d.getAttributeNode('id'); \
+         var removed = d.removeAttributeNode(attr); \
+         var sameObject = removed === attr; \
+         var afterRemove = attr.value; \
+         d.setAttribute('id', 'later'); \
+         var afterReset = attr.value; \
+         (sameObject && afterRemove === 'initial' && afterReset === 'initial' \
+          && attr.ownerElement === null) \
+           ? 'ok' : 'fail:' + afterRemove + '/' + afterReset;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn removed_attr_stays_detached_after_same_name_set() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'first'); \
+         var removed = d.attributes.removeNamedItem('id'); \
+         var snapshotBefore = removed.value; \
+         var ownerBefore = removed.ownerElement; \
+         d.setAttribute('id', 'second'); \
+         var snapshotAfter = removed.value; \
+         var ownerAfter = removed.ownerElement; \
+         (snapshotBefore === 'first' && ownerBefore === null \
+          && snapshotAfter === 'first' && ownerAfter === null) \
+           ? 'ok' : 'fail:' + snapshotBefore + '/' + snapshotAfter;");
+    assert_eq!(out, "ok");
+}

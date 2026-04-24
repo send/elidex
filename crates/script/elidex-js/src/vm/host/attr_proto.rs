@@ -42,21 +42,48 @@ use super::super::value::{
 };
 use super::super::{NativeFn, StringId, VmInner};
 
-/// `(owner Element, qualified-name StringId)` tuple identifying a
-/// single attribute.  Qualified-name storage is the caller's
-/// responsibility — `NamedNodeMap` normalises on HTML documents to
-/// lowercase via `EcsDom::get_attribute` before insertion here.
+/// `(owner Element, qualified-name StringId, detached snapshot)`
+/// tuple identifying a single attribute.  Qualified-name storage
+/// is the caller's responsibility — `NamedNodeMap` normalises on
+/// HTML documents to lowercase via `EcsDom::get_attribute` before
+/// insertion here.
+///
+/// ## Live vs detached
+///
+/// An `AttrState` with `detached_value == None` is *live*: accessors
+/// read the current value from the owner Element's `Attributes`
+/// component on each call, and `ownerElement` returns the owner as
+/// long as the attribute is still present.
+///
+/// An `AttrState` with `detached_value == Some(sid)` is *detached*:
+/// `value` returns the snapshot `sid` and `ownerElement` returns
+/// `null`.  Detached wrappers are produced by operations that
+/// return the "previous / removed" Attr —
+/// `Element.removeAttributeNode(attr)`,
+/// `Element.setAttributeNode(new)` when replacing,
+/// `NamedNodeMap.setNamedItem(new)` when replacing,
+/// `NamedNodeMap.removeNamedItem(name)`.  Detaching captures the
+/// value at detach-time so a subsequent same-name `setAttribute` on
+/// the former owner cannot make the detached wrapper appear to
+/// "re-attach" (WHATWG §4.9.2 semantics).
 pub(crate) struct AttrState {
     /// The Element that owned this attribute when the wrapper was
-    /// allocated.  May have since had the attribute removed — the
-    /// `ownerElement` accessor treats a missing entry in the
-    /// Element's `Attributes` component as "detached" and reports
-    /// `null` per WHATWG §4.9.2.
+    /// allocated.  For live wrappers, `ownerElement` returns this
+    /// entity when the attribute is still present on the owner;
+    /// otherwise `null` (the attribute was removed via an API that
+    /// did not flow through this wrapper's detachment path).  For
+    /// detached wrappers, `ownerElement` unconditionally returns
+    /// `null` regardless of the owner's current attribute set.
     pub(crate) owner: Entity,
     /// The qualified attribute name (e.g. `"id"`, `"data-foo"`).
     /// Pre-interned so `name` / `localName` / `NamedNodeMap`
     /// round-trips hit the same pool entry.
     pub(crate) qualified_name: StringId,
+    /// Snapshot value captured at detach time.  `None` → live
+    /// wrapper (accessors read the owner's current attribute
+    /// value).  `Some(sid)` → detached wrapper (accessors return
+    /// the snapshot; `ownerElement` returns `null`).
+    pub(crate) detached_value: Option<StringId>,
 }
 
 impl VmInner {
@@ -240,6 +267,12 @@ fn native_attr_get_owner_element(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let (_, state) = require_attr_receiver(ctx, this, "ownerElement")?;
+    // Detached wrappers always report `null` — the snapshot is
+    // frozen and ignores any subsequent same-name mutations on
+    // the former owner.
+    if state.detached_value.is_some() {
+        return Ok(JsValue::Null);
+    }
     let owner = state.owner;
     let qname = state.qualified_name;
     // Resolve the attribute name outside the ECS borrow.
@@ -258,6 +291,12 @@ fn native_attr_get_value(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let (_, state) = require_attr_receiver(ctx, this, "value")?;
+    // Detached wrappers return the snapshot captured at detach
+    // time, regardless of any post-detachment state on the former
+    // owner.
+    if let Some(snapshot_sid) = state.detached_value {
+        return Ok(JsValue::String(snapshot_sid));
+    }
     let owner = state.owner;
     let qname = state.qualified_name;
     let name_str = ctx.vm.strings.get_utf8(qname);
@@ -279,14 +318,25 @@ fn native_attr_set_value(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_, state) = require_attr_receiver(ctx, this, "value")?;
+    let (attr_id, state) = require_attr_receiver(ctx, this, "value")?;
     let owner = state.owner;
     let qname = state.qualified_name;
+    let is_detached = state.detached_value.is_some();
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let value_sid = super::super::coerce::to_string(ctx.vm, val)?;
-    // Write only when the attribute is still on the element — per
-    // §4.9.2 an Attr with `ownerElement === null` ignores `value`
-    // writes.  This avoids silently re-attaching a removed attr.
+    // Detached wrappers update the snapshot in place (WHATWG §4.9.2
+    // "change an attribute" on a detached Attr mutates the Attr's
+    // value but does NOT reach the former owner).  Live wrappers
+    // with a still-attached backing attribute write through to the
+    // owner's `Attributes` component.  Live wrappers whose
+    // attribute was already removed are ignored — this avoids
+    // silently re-attaching a removed attr.
+    if is_detached {
+        if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
+            state_mut.detached_value = Some(value_sid);
+        }
+        return Ok(JsValue::Undefined);
+    }
     let name_str = ctx.vm.strings.get_utf8(qname);
     let attached = ctx.host().dom().get_attribute(owner, &name_str).is_some();
     if attached {
