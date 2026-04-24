@@ -236,12 +236,12 @@ fn to_index_u32(ctx: &mut NativeContext<'_>, val: JsValue, what: &str) -> Result
     let truncated = n.trunc();
     if !truncated.is_finite() || truncated < 0.0 {
         return Err(VmError::range_error(format!(
-            "Failed to execute 'DataView' operation: {what} must be a non-negative safe integer"
+            "Failed to construct 'DataView': {what} must be a non-negative safe integer"
         )));
     }
     if truncated > f64::from(u32::MAX) {
         return Err(VmError::range_error(format!(
-            "Failed to execute 'DataView' operation: {what} exceeds the supported maximum"
+            "Failed to construct 'DataView': {what} exceeds the supported maximum"
         )));
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

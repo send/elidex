@@ -567,7 +567,9 @@ fn float32_roundtrip_lossy() {
 #[test]
 fn float64_roundtrip_exact() {
     let mut vm = Vm::new();
-    // f64 can represent 1.1 exactly (via round-trip).
+    // f64 stores an approximation of 0.1-family decimals, but the
+    // stored binary64 value round-trips bit-identically, so the
+    // readback compares equal to the source literal.
     assert_eq!(
         eval_number(&mut vm, "var a = new Float64Array(1); a[0] = 1.1; a[0];"),
         1.1
@@ -1713,6 +1715,27 @@ fn typed_array_accepts_u32_max_boundary_index_string() {
 }
 
 #[test]
+fn canonical_numeric_number_keys_set_is_silent_no_op() {
+    let mut vm = Vm::new();
+    // Number-key direct path (bytecode may bypass ToPropertyKey):
+    // NaN / ±Infinity / negative integer / fractional / out-of-
+    // u32-range Number keys must be treated as canonical numeric
+    // non-integer — silent no-op on Set, NOT ordinary property
+    // creation.  Ordinary property would survive as
+    // `u['-1']`/`u['NaN']`/etc. and pollute the TypedArray with
+    // user-visible named own keys.
+    assert!(eval_bool(
+        &mut vm,
+        "var u = new Uint8Array([5, 6]); \
+         u[-1] = 99; u[NaN] = 99; u[Infinity] = 99; u[-Infinity] = 99; \
+         u[1.5] = 99; u[4294967295] = 99; \
+         u[0] === 5 && u[1] === 6 && \
+         u[-1] === undefined && u[NaN] === undefined && \
+         u[Infinity] === undefined && u[4294967295] === undefined;"
+    ));
+}
+
+#[test]
 fn non_canonical_string_keys_fall_through_to_ordinary() {
     let mut vm = Vm::new();
     // `"01"` / `"foo"` are NOT canonical (ToString round-trip fails) —
@@ -1799,6 +1822,23 @@ fn structured_clone_preserves_data_view_identity() {
 // ---------------------------------------------------------------------------
 // BigInt element equality — pool-based compare (SP-coerce strict_eq)
 // ---------------------------------------------------------------------------
+
+#[test]
+fn to_bigint_strict_honors_at_to_primitive_on_object() {
+    let mut vm = Vm::new();
+    // ES §7.1.13 ToBigInt step 1 runs ToPrimitive(argument, number).
+    // A `@@toPrimitive` method returning a BigInt must be accepted
+    // by TypedArray BigInt element writes — readback verifies via
+    // the BigInt64Array's own bit-width-preserving round-trip
+    // (BigInt `42n` encodes as the 8-byte little-endian integer 42).
+    assert!(eval_bool(
+        &mut vm,
+        "var hook = {}; \
+         hook[Symbol.toPrimitive] = function () { return 42n; }; \
+         var a = new BigInt64Array(1); a[0] = hook; \
+         a[0] === 42n;"
+    ));
+}
 
 #[test]
 fn big_int64_includes_compares_by_value_not_handle() {

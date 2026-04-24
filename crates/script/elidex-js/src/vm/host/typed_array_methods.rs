@@ -153,9 +153,10 @@ pub(super) fn subclass_prototype_for(vm: &VmInner, ek: ElementKind) -> Option<Ob
 // ---------------------------------------------------------------------------
 
 /// `%TypedArray%.prototype.fill(value, start?, end?)` (ES §23.2.3.11).
-/// Coerces `value` to the receiver's element kind once, then writes
-/// the encoded bytes repeatedly across `[start, end)`.  Returns the
-/// receiver for chaining.
+/// Writes `value` to each element across `[start, end)` and returns
+/// the receiver for chaining.  Current impl delegates to
+/// `write_element_raw` per element, so coercion runs once per
+/// iteration; a pre-coerced byte-level helper lands with SP9.
 pub(crate) fn native_typed_array_fill(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -829,7 +830,7 @@ pub(crate) fn native_typed_array_find(
     )
 }
 
-/// `%TypedArray%.prototype.findIndex(cb, thisArg?)` (ES §23.2.3.11).
+/// `%TypedArray%.prototype.findIndex(cb, thisArg?)` (ES §23.2.3.12).
 pub(crate) fn native_typed_array_find_index(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

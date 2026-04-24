@@ -35,6 +35,26 @@ enum TypedArrayStringKey {
     NotNumeric,
 }
 
+/// Classify a Number key against the TypedArray integer-indexed
+/// exotic contract.  A Number key `n` is treated as if ToString'd —
+/// non-negative integers up to `u32::MAX` map to their index; all
+/// other numeric forms (`NaN`, ±`Infinity`, negative, fractional,
+/// out-of-u32-range) are canonical-numeric-but-not-integer, which
+/// §10.4.5.15/16 short-circuit to `undefined` / silent no-op.
+#[cfg(feature = "engine")]
+fn classify_typed_array_number_key(n: f64) -> TypedArrayStringKey {
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    {
+        if n.is_finite() && n >= 0.0 && n <= f64::from(u32::MAX) {
+            let as_u32 = n as u32;
+            if f64::from(as_u32) == n {
+                return TypedArrayStringKey::IntegerIndex(as_u32);
+            }
+        }
+    }
+    TypedArrayStringKey::CanonicalNonInteger
+}
+
 /// Parse a WTF-16 string as a TypedArray integer index (0..=u32::MAX).
 /// Distinct from `parse_array_index_u16` (capped at 2^32−2 per the
 /// Array `[[HasOwnProperty]]` contract); TypedArray permits the full
@@ -853,14 +873,18 @@ impl VmInner {
             } => (buffer_id, byte_offset, byte_length, element_kind),
             _ => return None,
         };
-        // Resolve a canonical integer index from either a Number
-        // key or a numeric-string key.  Non-canonical strings
+        // Resolve a canonical integer index.  Non-canonical strings
         // (`"01"`, `"1.5e2"`) fall through to ordinary property
-        // storage; canonical strings that are NOT valid integer
-        // indices (`"-0"`, `"Infinity"`, `"NaN"`, negative, fractional)
-        // are silent no-ops per §10.4.5.16 step 1.
+        // storage; canonical forms that are NOT valid integer
+        // indices — `NaN` / ±`Infinity` / negative / fractional /
+        // out-of-u32-range — are silent no-ops per §10.4.5.16 step 1
+        // and must NOT surface as ordinary own properties.
         let idx: u32 = match key {
-            JsValue::Number(n) => try_as_array_index(n).and_then(|u| u32::try_from(u).ok())?,
+            JsValue::Number(n) => match classify_typed_array_number_key(n) {
+                TypedArrayStringKey::IntegerIndex(i) => i,
+                TypedArrayStringKey::CanonicalNonInteger => return Some(Ok(())),
+                TypedArrayStringKey::NotNumeric => return None,
+            },
             JsValue::String(sid) => match classify_typed_array_string_key(self, sid) {
                 TypedArrayStringKey::IntegerIndex(i) => i,
                 TypedArrayStringKey::CanonicalNonInteger => return Some(Ok(())),

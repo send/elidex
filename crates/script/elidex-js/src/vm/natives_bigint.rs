@@ -129,10 +129,21 @@ fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmErr
 /// paths: `bi64[0] = 1` must throw TypeError per spec §10.4.5.16
 /// step 1 (ToBigInt rejects the Number argument), even though
 /// `BigInt(1) === 1n` succeeds.
+///
+/// Step 1 of the abstract operation runs `ToPrimitive(argument,
+/// number)` — so `BigInt64Array`-style writes accept a
+/// `BigIntWrapper` (whose `@@toPrimitive` / `valueOf` returns the
+/// primitive BigInt) and any custom object whose hook returns a
+/// BigInt.
 #[cfg(feature = "engine")]
 fn to_bigint_strict(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmError> {
-    match val {
-        JsValue::BigInt(_) => Ok(val),
+    let prim = if matches!(val, JsValue::Object(_)) {
+        ctx.vm.to_primitive(val, "number")?
+    } else {
+        val
+    };
+    match prim {
+        JsValue::BigInt(_) => Ok(prim),
         JsValue::Number(_) => Err(VmError::type_error("Cannot convert a Number to a BigInt")),
         other => to_bigint(ctx, other),
     }
