@@ -371,6 +371,12 @@ impl VmInner {
             // installed here for registration locality (both view
             // types over ArrayBuffer).  PR5-typed-array §C5.
             self.register_data_view_global();
+            // `ArrayBuffer.isView` static — must run AFTER both
+            // TypedArray and DataView prototypes exist, so the
+            // isView function body's brand check observes real
+            // instances rather than an always-false universe.
+            // PR5-typed-array §C6.
+            self.install_array_buffer_is_view();
             let request_proto = self
                 .request_prototype
                 .expect("request_prototype populated by register_request_global");

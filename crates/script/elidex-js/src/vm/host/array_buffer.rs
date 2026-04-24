@@ -96,6 +96,39 @@ impl VmInner {
         self.globals.insert(name_sid, JsValue::Object(ctor));
     }
 
+    /// Install `ArrayBuffer.isView` static on the `ArrayBuffer`
+    /// constructor (ES §25.1.4.3).  Returns `true` for
+    /// `ObjectKind::TypedArray` / `ObjectKind::DataView` instances,
+    /// `false` for everything else (including plain ArrayBuffers —
+    /// the spec is deliberate: `isView(ab)` is `false`).  No throw,
+    /// no coerce.
+    ///
+    /// Must run **after** `register_typed_array_prototype_global`
+    /// and `register_data_view_global` — the function body's
+    /// brand check pattern-matches both variants, which exist
+    /// unconditionally (inline in `ObjectKind`), but callers of
+    /// this getter expect to observe real TypedArray / DataView
+    /// instances in the runtime.  Registration-order independence
+    /// is enforced by looking up the `ArrayBuffer` ctor via
+    /// `globals` rather than an explicit argument.
+    pub(in crate::vm) fn install_array_buffer_is_view(&mut self) {
+        let Some(JsValue::Object(ctor)) = self
+            .globals
+            .get(&self.well_known.array_buffer_global)
+            .copied()
+        else {
+            return;
+        };
+        let is_view_sid = self.strings.intern("isView");
+        let is_view_fn = self.create_native_function("isView", native_array_buffer_is_view);
+        self.define_shaped_property(
+            ctor,
+            PropertyKey::String(is_view_sid),
+            PropertyValue::Data(JsValue::Object(is_view_fn)),
+            PropertyAttrs::METHOD,
+        );
+    }
+
     fn install_array_buffer_members(&mut self, proto_id: ObjectId) {
         // Snapshot StringIds up front so the subsequent `&mut self`
         // calls don't conflict with a live `&self.well_known`
@@ -258,6 +291,29 @@ fn native_array_buffer_constructor(
         ctx.vm.body_data.insert(inst_id, bytes);
     }
     Ok(JsValue::Object(inst_id))
+}
+
+// ---------------------------------------------------------------------------
+// Statics
+// ---------------------------------------------------------------------------
+
+/// `ArrayBuffer.isView(arg)` (ES §25.1.4.3).  Returns `true` for
+/// TypedArray / DataView instances, `false` otherwise.  Never
+/// throws; never coerces.
+fn native_array_buffer_is_view(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let result = matches!(
+        arg,
+        JsValue::Object(id) if matches!(
+            ctx.vm.get_object(id).kind,
+            ObjectKind::TypedArray { .. } | ObjectKind::DataView { .. }
+        )
+    );
+    Ok(JsValue::Boolean(result))
 }
 
 // ---------------------------------------------------------------------------

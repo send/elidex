@@ -33,6 +33,18 @@ fn eval_string(vm: &mut Vm, source: &str) -> String {
     }
 }
 
+/// Run `source` in a fresh VM and read a global String back out —
+/// matches the `tests_body_mixin` pattern for Promise-consumer
+/// tests (microtask drain happens during `vm.eval`).
+fn eval_global_string(source: &str, name: &str) -> String {
+    let mut vm = Vm::new();
+    vm.eval(source).unwrap();
+    match vm.get_global(name) {
+        Some(JsValue::String(id)) => vm.get_string(id),
+        other => panic!("expected global {name} to be a string, got {other:?}"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Constructor — basic shapes
 // ---------------------------------------------------------------------------
@@ -1423,6 +1435,203 @@ fn data_view_bigint_set_number_throws_type_error() {
          try { dv.setBigInt64(0, 1); } \
          catch (e) { ok = e instanceof TypeError; } ok;"
     ));
+}
+
+// ---------------------------------------------------------------------------
+// C6: ArrayBuffer.isView + body init + structured_clone
+// ---------------------------------------------------------------------------
+
+#[test]
+fn array_buffer_is_view_on_typed_array() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(&mut vm, "ArrayBuffer.isView(new Uint8Array(4));"));
+    assert!(eval_bool(
+        &mut vm,
+        "ArrayBuffer.isView(new Float64Array(2));"
+    ));
+}
+
+#[test]
+fn array_buffer_is_view_on_data_view() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "ArrayBuffer.isView(new DataView(new ArrayBuffer(8)));"
+    ));
+}
+
+#[test]
+fn array_buffer_is_view_on_non_views() {
+    let mut vm = Vm::new();
+    // Plain ArrayBuffer is NOT a view (spec §25.1.4.3 step 2).
+    assert!(!eval_bool(
+        &mut vm,
+        "ArrayBuffer.isView(new ArrayBuffer(4));"
+    ));
+    assert!(!eval_bool(&mut vm, "ArrayBuffer.isView({});"));
+    assert!(!eval_bool(&mut vm, "ArrayBuffer.isView(null);"));
+    assert!(!eval_bool(&mut vm, "ArrayBuffer.isView(42);"));
+    assert!(!eval_bool(&mut vm, "ArrayBuffer.isView();"));
+}
+
+#[test]
+fn request_body_accepts_typed_array() {
+    // `new Request(url, { body: typedArray })` + `.text()` returns
+    // the UTF-8 decoded byte sequence of the view's bytes.  Promise
+    // settle observed via `globalThis.r` after microtask drain.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.r = ''; \
+             var u = new Uint8Array([72, 105]); \
+             new Request('http://example.com/', { method: 'POST', body: u }).text() \
+                 .then(function(s) { globalThis.r = s; });",
+            "r",
+        ),
+        "Hi"
+    );
+}
+
+#[test]
+fn request_body_respects_typed_array_view_range() {
+    // Only the view's byte range is consumed, not the whole buffer.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.r = ''; \
+             var b = new ArrayBuffer(10); var u = new Uint8Array(b); \
+             for (var i = 0; i < 10; i++) u[i] = 65 + i; \
+             var sub = new Uint8Array(b, 2, 3); \
+             new Request('http://example.com/', { method: 'POST', body: sub }).text() \
+                 .then(function(s) { globalThis.r = s; });",
+            "r",
+        ),
+        "CDE"
+    );
+}
+
+#[test]
+fn request_body_accepts_data_view() {
+    assert_eq!(
+        eval_global_string(
+            "globalThis.r = ''; \
+             var b = new ArrayBuffer(3); var u = new Uint8Array(b); \
+             u[0] = 65; u[1] = 66; u[2] = 67; \
+             var dv = new DataView(b); \
+             new Request('http://example.com/', { method: 'POST', body: dv }).text() \
+                 .then(function(s) { globalThis.r = s; });",
+            "r",
+        ),
+        "ABC"
+    );
+}
+
+#[test]
+fn blob_accepts_typed_array_part() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var u = new Uint8Array([1, 2, 3, 4, 5]); \
+             var b = new Blob([u]); b.size;"
+        ),
+        5.0
+    );
+}
+
+#[test]
+fn blob_accepts_typed_array_view_subrange() {
+    let mut vm = Vm::new();
+    // Only the view's slice is included, not the full backing buffer.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var buf = new ArrayBuffer(10); \
+             var sub = new Uint8Array(buf, 2, 3); \
+             var b = new Blob([sub]); b.size;"
+        ),
+        3.0
+    );
+}
+
+#[test]
+fn structured_clone_typed_array_round_trip() {
+    let mut vm = Vm::new();
+    // Clone Uint8Array, then read via indexed access on the clone.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([10, 20, 30]); \
+             var c = structuredClone(a); \
+             c[0] * 10000 + c[1] * 100 + c[2];"
+        ),
+        10.0 * 10000.0 + 20.0 * 100.0 + 30.0
+    );
+}
+
+#[test]
+fn structured_clone_typed_array_preserves_subclass() {
+    let mut vm = Vm::new();
+    // Cloning a Uint16Array yields a Uint16Array (not Uint8Array).
+    // Check via @@toStringTag.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var p = Object.getPrototypeOf(Uint16Array.prototype); \
+             var g = Object.getOwnPropertyDescriptor(p, Symbol.toStringTag).get; \
+             g.call(structuredClone(new Uint16Array(3)));"
+        ),
+        "Uint16Array"
+    );
+}
+
+#[test]
+fn structured_clone_typed_array_fresh_buffer() {
+    let mut vm = Vm::new();
+    // Clone does NOT share the source's buffer — mutations on the
+    // clone's buffer must not reach the source.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([1, 2, 3]); \
+         var c = structuredClone(a); \
+         c.buffer !== a.buffer;"
+    ));
+}
+
+#[test]
+fn structured_clone_two_views_share_cloned_buffer() {
+    let mut vm = Vm::new();
+    // Critical spec invariant (memo threading): two views over the
+    // same source ArrayBuffer must clone to two views over the
+    // SAME cloned ArrayBuffer.  Mutations through one cloned view
+    // must be visible through the other.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var buf = new ArrayBuffer(4); \
+             var v1 = new Uint8Array(buf); \
+             var v2 = new Uint8Array(buf); \
+             v1[0] = 10; v2[1] = 20; \
+             var cloned = structuredClone([v1, v2]); \
+             cloned[0].buffer === cloned[1].buffer ? 1 : 0;"
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn structured_clone_data_view() {
+    let mut vm = Vm::new();
+    // DataView clone preserves offset/length + shares a cloned buffer
+    // with any TypedArray sibling view (spec §2.9).
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var buf = new ArrayBuffer(8); var dv = new DataView(buf, 2, 4); \
+             dv.setInt32(0, 12345, true); \
+             var clone = structuredClone(dv); \
+             clone.getInt32(0, true);"
+        ),
+        12345.0
+    );
 }
 
 #[test]

@@ -715,6 +715,30 @@ pub(super) fn extract_body_bytes(
                 ctx.vm, obj_id,
             ))),
             ObjectKind::Blob => Ok(Some(super::blob::blob_bytes(ctx.vm, obj_id))),
+            // TypedArray / DataView as BufferSource (WHATWG Fetch
+            // §5 — BodyInit union accepts any BufferSource).  We
+            // extract the view's byte range from the underlying
+            // ArrayBuffer via `Arc::from(&slice)` — a fresh Arc
+            // sub-range copy, since `body_data` is keyed per
+            // ArrayBuffer (sub-Arc zero-copy sharing deferred to
+            // PR-spec-polish SP9).
+            ObjectKind::TypedArray {
+                buffer_id,
+                byte_offset,
+                byte_length,
+                ..
+            }
+            | ObjectKind::DataView {
+                buffer_id,
+                byte_offset,
+                byte_length,
+            } => {
+                let backing = super::array_buffer::array_buffer_bytes(ctx.vm, buffer_id);
+                let start = byte_offset as usize;
+                let end = start + byte_length as usize;
+                let slice: &[u8] = backing.get(start..end).unwrap_or(&[]);
+                Ok(Some(Arc::from(slice)))
+            }
             _ => {
                 // Generic fallback: stringify.  Covers plain
                 // objects / Arrays / numbers once wrapped.

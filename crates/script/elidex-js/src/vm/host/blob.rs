@@ -328,6 +328,27 @@ fn append_blob_part_bytes(
                 let bytes = blob_bytes(ctx.vm, part_id);
                 out.extend_from_slice(&bytes);
             }
+            // TypedArray / DataView: WHATWG §3.2 BlobPart accepts
+            // any BufferSource.  Append only the view's byte
+            // range, not the full underlying buffer.
+            ObjectKind::TypedArray {
+                buffer_id,
+                byte_offset,
+                byte_length,
+                ..
+            }
+            | ObjectKind::DataView {
+                buffer_id,
+                byte_offset,
+                byte_length,
+            } => {
+                let backing = super::array_buffer::array_buffer_bytes(ctx.vm, buffer_id);
+                let start = byte_offset as usize;
+                let end = start + byte_length as usize;
+                if let Some(slice) = backing.get(start..end) {
+                    out.extend_from_slice(slice);
+                }
+            }
             _ => {
                 // Fallback: stringify per WHATWG §3.2 step 2.3 (a
                 // non-BufferSource / non-Blob value becomes a
