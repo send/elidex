@@ -84,4 +84,6 @@ pub(super) mod structured_clone;
 pub(super) mod text_proto;
 #[cfg(feature = "engine")]
 pub(crate) mod typed_array;
+#[cfg(feature = "engine")]
+pub(super) mod typed_array_methods;
 pub(super) mod window;

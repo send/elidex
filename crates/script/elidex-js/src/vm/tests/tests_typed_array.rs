@@ -679,6 +679,216 @@ fn uint16_view_over_uint8_buffer_reads_little_endian() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// %TypedArray%.prototype methods (C4a)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fill_basic() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(4); a.fill(7); a[0] + a[1] + a[2] + a[3];"
+        ),
+        28.0
+    );
+}
+
+#[test]
+fn fill_returns_receiver() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array(3); a.fill(9) === a;"
+    ));
+}
+
+#[test]
+fn fill_with_start_and_end() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(4); a.fill(5, 1, 3); \
+             a[0] + '-' + a[1] + '-' + a[2] + '-' + a[3]; (a[0] << 0) * 1000 + a[1] * 100 + a[2] * 10 + a[3];"
+        ),
+        0.0_f64 * 1000.0 + 5.0_f64 * 100.0 + 5.0_f64 * 10.0 + 0.0_f64
+    );
+}
+
+#[test]
+fn fill_negative_indices() {
+    let mut vm = Vm::new();
+    // a.fill(9, -2) — start counts from end: indices 2, 3 in a 4-length.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(4); a.fill(9, -2); \
+             a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3];"
+        ),
+        99.0
+    );
+}
+
+#[test]
+fn subarray_shares_buffer() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array(4); var sub = a.subarray(1, 3); \
+         sub.buffer === a.buffer;"
+    ));
+}
+
+#[test]
+fn subarray_writes_propagate_to_original() {
+    let mut vm = Vm::new();
+    // Write through the subarray view — original sees the change
+    // since both views share the backing buffer.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(4); var sub = a.subarray(1, 3); \
+             sub[0] = 42; a[1];"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn subarray_length_and_byte_offset() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(10); var sub = a.subarray(2, 7); sub.length;"
+        ),
+        5.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(10); var sub = a.subarray(2, 7); sub.byteOffset;"
+        ),
+        2.0
+    );
+}
+
+#[test]
+fn slice_fresh_buffer() {
+    let mut vm = Vm::new();
+    // slice returns a new TypedArray over a NEW buffer.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array(4); a[0] = 1; a[1] = 2; \
+         var cp = a.slice(); cp.buffer !== a.buffer;"
+    ));
+}
+
+#[test]
+fn slice_copies_values() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(3); a[0] = 10; a[1] = 20; a[2] = 30; \
+             var cp = a.slice(1); cp[0] + cp[1];"
+        ),
+        50.0
+    );
+}
+
+#[test]
+fn slice_writes_do_not_propagate() {
+    let mut vm = Vm::new();
+    // Writing to the slice must NOT affect the original.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(3); a[0] = 10; var cp = a.slice(); \
+             cp[0] = 99; a[0];"
+        ),
+        10.0
+    );
+}
+
+#[test]
+fn iterator_values_round_trip() {
+    let mut vm = Vm::new();
+    // Use a for-of loop to verify the iterator protocol.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(3); a[0] = 1; a[1] = 2; a[2] = 3; \
+             var sum = 0; for (var v of a) sum += v; sum;"
+        ),
+        6.0
+    );
+}
+
+#[test]
+fn iterator_keys() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(3); var keys = []; \
+             for (var k of a.keys()) keys.push(k); \
+             keys[0] + keys[1] + keys[2];"
+        ),
+        3.0
+    );
+}
+
+#[test]
+fn iterator_entries() {
+    let mut vm = Vm::new();
+    // Entries are [idx, val] pairs: for a = Uint8Array([10, 20]),
+    // iter yields [0, 10] then [1, 20].  Flat push into `e` gives
+    // e = [0, 10, 1, 20].  Encode as 0*1000 + 10*100 + 1*10 + 20
+    // = 1030.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(2); a[0] = 10; a[1] = 20; \
+             var e = []; for (var x of a.entries()) { e.push(x[0], x[1]); } \
+             e[0] * 1000 + e[1] * 100 + e[2] * 10 + e[3];"
+        ),
+        1030.0
+    );
+}
+
+#[test]
+fn symbol_iterator_identity_to_values() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var p = Object.getPrototypeOf(Uint8Array.prototype); \
+         p[Symbol.iterator] === p.values;"
+    ));
+}
+
+#[test]
+fn to_string_identity_to_array_prototype() {
+    let mut vm = Vm::new();
+    // Spec §23.2.3.31: the initial value of
+    // `%TypedArray%.prototype.toString` is the same built-in
+    // function object as `Array.prototype.toString`.
+    assert!(eval_bool(
+        &mut vm,
+        "var p = Object.getPrototypeOf(Uint8Array.prototype); \
+         p.toString === Array.prototype.toString;"
+    ));
+}
+
+// `to_string_comma_separates_values` test deferred to C4b when
+// `%TypedArray%.prototype.join` lands — `Array.prototype.toString`
+// (which we alias to) internally calls `this.join(",")`, which
+// falls through to `Object.prototype.toString` (`"[object Uint8Array]"`)
+// while `.join` is absent.  The identity link itself is exercised
+// by `to_string_identity_to_array_prototype` above.
+
 #[test]
 fn buffer_getter_brand_check_rejects_foreign() {
     let mut vm = Vm::new();

@@ -192,6 +192,87 @@ impl VmInner {
             },
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
+
+        // Core method suite.  See `typed_array_methods` for the
+        // spec-aligned bodies; each method is installed on
+        // `%TypedArray%.prototype` (shared across all 11 subclasses
+        // via prototype chain).
+        let methods: [(StringId, NativeFn); 6] = [
+            (
+                self.strings.intern("fill"),
+                super::typed_array_methods::native_typed_array_fill as NativeFn,
+            ),
+            (
+                self.strings.intern("subarray"),
+                super::typed_array_methods::native_typed_array_subarray as NativeFn,
+            ),
+            (
+                self.strings.intern("slice"),
+                super::typed_array_methods::native_typed_array_slice as NativeFn,
+            ),
+            (
+                self.strings.intern("values"),
+                super::typed_array_methods::native_typed_array_values as NativeFn,
+            ),
+            (
+                self.strings.intern("keys"),
+                super::typed_array_methods::native_typed_array_keys as NativeFn,
+            ),
+            (
+                self.strings.intern("entries"),
+                super::typed_array_methods::native_typed_array_entries as NativeFn,
+            ),
+        ];
+        for (name_sid, fn_ptr) in methods {
+            let name = self.strings.get_utf8(name_sid);
+            let fn_id = self.create_native_function(&name, fn_ptr);
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::String(name_sid),
+                PropertyValue::Data(JsValue::Object(fn_id)),
+                PropertyAttrs::METHOD,
+            );
+        }
+
+        // `%TypedArray%.prototype[Symbol.iterator]` — spec-mandated
+        // identity-equal to `.values` (ES §23.2.3.33).  Install
+        // after `values` so we can reuse the same function id.
+        let values_sid = self.strings.intern("values");
+        let values_slot =
+            super::super::coerce::get_property(self, proto_id, PropertyKey::String(values_sid));
+        if let Some(super::super::coerce::PropertyResult::Data(JsValue::Object(values_fn))) =
+            values_slot
+        {
+            self.define_shaped_property(
+                proto_id,
+                PropertyKey::Symbol(self.well_known_symbols.iterator),
+                PropertyValue::Data(JsValue::Object(values_fn)),
+                PropertyAttrs::METHOD,
+            );
+        }
+
+        // `%TypedArray%.prototype.toString` — identity-equal to
+        // `Array.prototype.toString` (ES §23.2.3.31 "same built-in
+        // function object").  Install by copying the existing
+        // function id rather than creating a new native, so
+        // `Uint8Array.prototype.toString === Array.prototype.toString`.
+        if let Some(array_proto) = self.array_prototype {
+            let to_string_sid = self.strings.intern("toString");
+            if let Some(super::super::coerce::PropertyResult::Data(JsValue::Object(
+                array_to_string,
+            ))) = super::super::coerce::get_property(
+                self,
+                array_proto,
+                PropertyKey::String(to_string_sid),
+            ) {
+                self.define_shaped_property(
+                    proto_id,
+                    PropertyKey::String(to_string_sid),
+                    PropertyValue::Data(JsValue::Object(array_to_string)),
+                    PropertyAttrs::METHOD,
+                );
+            }
+        }
     }
 
     /// Allocate one subclass `Xxx.prototype → %TypedArray%.prototype`
