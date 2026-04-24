@@ -398,6 +398,70 @@ fn for_each_rejects_html_collection_receiver_with_illegal_invocation() {
 // `undefined` for indexed access after unbind.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Copilot R16 #1 regression — HTMLCollection / NodeList METHOD
+// and accessor natives (`.length`, `.item(i)`, `.forEach`,
+// `@@iterator`, `namedItem`) must not panic when invoked on a
+// wrapper retained across `Vm::unbind()`.  Earlier R2 fixed the
+// indexed-property `ops_property::get_element` path; R16 extends
+// the same guarantee to prototype-method paths via
+// `resolve_entities_for`'s `host_if_bound()` check.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn collection_methods_after_unbind_return_safe_defaults() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "var p = document.createElement('div'); \
+         p.appendChild(document.createElement('span')); \
+         document.body.appendChild(p); \
+         globalThis.hc = p.children; \
+         globalThis.nl = p.childNodes;",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // `.length` getter returns 0 instead of panicking.
+    let result = vm.eval("globalThis.hc.length;").unwrap();
+    assert!(
+        matches!(result, JsValue::Number(n) if n == 0.0),
+        "{result:?}"
+    );
+    let result = vm.eval("globalThis.nl.length;").unwrap();
+    assert!(
+        matches!(result, JsValue::Number(n) if n == 0.0),
+        "{result:?}"
+    );
+    // `.item(0)` returns null.
+    let result = vm.eval("globalThis.hc.item(0);").unwrap();
+    assert!(matches!(result, JsValue::Null), "{result:?}");
+    // `.forEach(cb)` is a no-op — no callback invocations.
+    vm.eval(
+        "globalThis.forEachCalls = 0;
+         globalThis.nl.forEach(function(){ globalThis.forEachCalls += 1; });",
+    )
+    .unwrap();
+    let result = vm.eval("globalThis.forEachCalls;").unwrap();
+    assert!(
+        matches!(result, JsValue::Number(n) if n == 0.0),
+        "{result:?}"
+    );
+    // `@@iterator` yields no elements.
+    let result = vm.eval("Array.from(globalThis.nl).length;").unwrap();
+    assert!(
+        matches!(result, JsValue::Number(n) if n == 0.0),
+        "{result:?}"
+    );
+}
+
 #[test]
 fn indexed_access_after_unbind_does_not_panic() {
     let mut vm = Vm::new();

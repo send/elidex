@@ -273,7 +273,14 @@ pub(super) fn resolve_entities_for(
     kind: &LiveCollectionKind,
 ) -> Vec<Entity> {
     let needles = resolve_needles(ctx.vm, kind);
-    resolve_entities_with_needles(ctx.host().dom(), kind, &needles)
+    // Post-unbind access to a retained collection wrapper must
+    // not panic; return an empty list so `.length` reads 0,
+    // `.item(i)` returns null, and `@@iterator` yields no
+    // elements.  `HostData::dom()` asserts `is_bound()`.
+    let Some(host) = ctx.host_if_bound() else {
+        return Vec::new();
+    };
+    resolve_entities_with_needles(host.dom(), kind, &needles)
 }
 
 /// Helper — collect every descendant Element with a given tag.

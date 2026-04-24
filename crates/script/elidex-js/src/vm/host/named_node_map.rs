@@ -183,6 +183,18 @@ fn attribute_names_snapshot(dom: &EcsDom, owner: Entity) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Unbind-safe variant of [`attribute_names_snapshot`]: returns an
+/// empty `Vec` when the VM has no bound `HostData`.  Required by
+/// natives invoked on NamedNodeMap wrappers retained across
+/// `Vm::unbind()` — `HostData::dom()` would otherwise assert
+/// `is_bound()` and panic.
+fn attribute_names_snapshot_if_bound(ctx: &mut NativeContext<'_>, owner: Entity) -> Vec<String> {
+    let Some(host) = ctx.host_if_bound() else {
+        return Vec::new();
+    };
+    attribute_names_snapshot(host.dom(), owner)
+}
+
 // -------------------------------------------------------------------------
 // length
 // -------------------------------------------------------------------------
@@ -193,12 +205,14 @@ fn native_nnm_length_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let (_, owner) = require_named_node_map_receiver(ctx, this, "length")?;
-    let count = ctx
-        .host()
-        .dom()
-        .world()
-        .get::<&Attributes>(owner)
-        .map_or(0, |a| a.iter().count());
+    // Post-unbind access returns `0` — `HostData::dom()` would
+    // otherwise assert `is_bound()` and panic.
+    let count = ctx.host_if_bound().map_or(0, |host| {
+        host.dom()
+            .world()
+            .get::<&Attributes>(owner)
+            .map_or(0, |a| a.iter().count())
+    });
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(count as f64))
 }
@@ -230,7 +244,7 @@ fn native_nnm_item(
         }
         None => return Ok(JsValue::Null),
     };
-    let names = attribute_names_snapshot(ctx.host().dom(), owner);
+    let names = attribute_names_snapshot_if_bound(ctx, owner);
     let Some(name) = names.get(index).cloned() else {
         return Ok(JsValue::Null);
     };
@@ -256,7 +270,10 @@ fn native_nnm_get_named_item(
     let key_value = args.first().copied().unwrap_or(JsValue::Undefined);
     let key_sid = super::super::coerce::to_string(ctx.vm, key_value)?;
     let key = ctx.vm.strings.get_utf8(key_sid);
-    let exists = ctx.host().dom().get_attribute(owner, &key).is_some();
+    // Post-unbind lookup returns null — no attribute visible.
+    let exists = ctx
+        .host_if_bound()
+        .is_some_and(|host| host.dom().get_attribute(owner, &key).is_some());
     if !exists {
         return Ok(JsValue::Null);
     }
@@ -312,9 +329,11 @@ fn native_nnm_set_named_item(
     let value = if let Some(snapshot_sid) = source_detached {
         ctx.vm.strings.get_utf8(snapshot_sid)
     } else {
-        ctx.host()
-            .dom()
-            .get_attribute(source_owner, &name_str)
+        // Live Attr: read from the source's owner.  If unbound,
+        // fall back to empty string so the write still produces a
+        // deterministic result without panicking.
+        ctx.host_if_bound()
+            .and_then(|host| host.dom().get_attribute(source_owner, &name_str))
             .unwrap_or_default()
     };
     // If the target already has an attribute with that name,
@@ -322,9 +341,13 @@ fn native_nnm_set_named_item(
     // the return value observes the replaced value rather than
     // the newly-written one (WHATWG §4.9.1.2 step 5 — the
     // returned Attr represents the previous attribute, not the
-    // one that just replaced it).
-    let prev_value: Option<String> = ctx.host().dom().get_attribute(owner, &name_str);
-    ctx.host().dom().set_attribute(owner, &name_str, value);
+    // one that just replaced it).  Unbound receivers: no write
+    // possible, return null (no previous Attr).
+    let Some(host) = ctx.host_if_bound() else {
+        return Ok(JsValue::Null);
+    };
+    let prev_value: Option<String> = host.dom().get_attribute(owner, &name_str);
+    host.dom().set_attribute(owner, &name_str, value);
     Ok(if let Some(prev_val) = prev_value {
         let prev_sid = if prev_val.is_empty() {
             ctx.vm.well_known.empty
@@ -351,11 +374,13 @@ fn native_nnm_remove_named_item(
     let key_value = args.first().copied().unwrap_or(JsValue::Undefined);
     let key_sid = super::super::coerce::to_string(ctx.vm, key_value)?;
     let key = ctx.vm.strings.get_utf8(key_sid);
-    // Snapshot current value before removing — the returned Attr
-    // is detached with this value (so a later same-name
-    // `setAttribute` on the owner cannot make it appear to
-    // re-attach; WHATWG §4.9.2 detached-Attr semantics).
-    let Some(prev_value) = ctx.host().dom().get_attribute(owner, &key) else {
+    // Post-unbind: the attribute is not visible → NotFoundError
+    // (treat as absent per spec step 3 rather than panicking via
+    // `HostData::dom()` is_bound assert).
+    let prev_value = ctx
+        .host_if_bound()
+        .and_then(|host| host.dom().get_attribute(owner, &key));
+    let Some(prev_value) = prev_value else {
         // Spec §4.9.1.2 step 3: throw NotFoundError when the
         // attribute is absent.  Our current DOMException surface
         // covers this via the well-known name; reuse the same
@@ -372,7 +397,13 @@ fn native_nnm_remove_named_item(
     } else {
         ctx.vm.strings.intern(&prev_value)
     };
-    ctx.host().dom().remove_attribute(owner, &key);
+    // `prev_value` existed → `host_if_bound()` returned `Some`
+    // earlier — the second call is guaranteed to succeed too since
+    // rebind between the two calls is impossible inside one native
+    // invocation.
+    if let Some(host) = ctx.host_if_bound() {
+        host.dom().remove_attribute(owner, &key);
+    }
     let returned = ctx.vm.alloc_attr(AttrState {
         owner,
         qualified_name: qname_sid,
@@ -457,7 +488,7 @@ fn native_nnm_symbol_iterator(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let (_, owner) = require_named_node_map_receiver(ctx, this, "@@iterator")?;
-    let names = attribute_names_snapshot(ctx.host().dom(), owner);
+    let names = attribute_names_snapshot_if_bound(ctx, owner);
     let mut values = Vec::with_capacity(names.len());
     for name in names {
         let qname_sid = ctx.vm.strings.intern(&name);

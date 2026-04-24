@@ -277,7 +277,11 @@ fn native_attr_get_owner_element(
     let qname = state.qualified_name;
     // Resolve the attribute name outside the ECS borrow.
     let name_str = ctx.vm.strings.get_utf8(qname);
-    let still_attached = ctx.host().dom().get_attribute(owner, &name_str).is_some();
+    // Post-unbind: treat as detached — return `null` rather than
+    // panicking via `HostData::dom()` is_bound assert.
+    let still_attached = ctx
+        .host_if_bound()
+        .is_some_and(|host| host.dom().get_attribute(owner, &name_str).is_some());
     if still_attached {
         Ok(JsValue::Object(ctx.vm.create_element_wrapper(owner)))
     } else {
@@ -300,10 +304,11 @@ fn native_attr_get_value(
     let owner = state.owner;
     let qname = state.qualified_name;
     let name_str = ctx.vm.strings.get_utf8(qname);
+    // Post-unbind live Attr: report empty string rather than
+    // panicking via `HostData::dom()` is_bound assert.
     let value = ctx
-        .host()
-        .dom()
-        .get_attribute(owner, &name_str)
+        .host_if_bound()
+        .and_then(|host| host.dom().get_attribute(owner, &name_str))
         .unwrap_or_default();
     let sid = if value.is_empty() {
         ctx.vm.well_known.empty
@@ -338,10 +343,20 @@ fn native_attr_set_value(
         return Ok(JsValue::Undefined);
     }
     let name_str = ctx.vm.strings.get_utf8(qname);
-    let attached = ctx.host().dom().get_attribute(owner, &name_str).is_some();
+    // Post-unbind live Attr: setter is a no-op — matches the
+    // detached-Attr doc ("setter does not reach the former
+    // owner") and avoids panicking via `HostData::dom()`.
+    let Some(host) = ctx.host_if_bound() else {
+        return Ok(JsValue::Undefined);
+    };
+    let attached = host.dom().get_attribute(owner, &name_str).is_some();
     if attached {
         let new_value = ctx.vm.strings.get_utf8(value_sid);
-        ctx.host().dom().set_attribute(owner, &name_str, new_value);
+        // Re-borrow `ctx.host_if_bound()` since we need a fresh
+        // `&mut` after the shared-read above.
+        if let Some(host) = ctx.host_if_bound() {
+            host.dom().set_attribute(owner, &name_str, new_value);
+        }
     }
     Ok(JsValue::Undefined)
 }

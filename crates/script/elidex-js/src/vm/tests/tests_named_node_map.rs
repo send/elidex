@@ -268,6 +268,60 @@ fn attr_accessor_brand_check_rejects_plain_object() {
 // string keys were treated as attribute-name lookups only.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Copilot R16 #2+#3 regression — NamedNodeMap methods and Attr
+// accessors must not panic when invoked on wrappers retained
+// across `Vm::unbind()`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn named_node_map_methods_after_unbind_return_safe_defaults() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         globalThis.nnm = d.attributes; \
+         globalThis.attr = d.getAttributeNode('id');",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // NamedNodeMap `.length` → 0
+    let r = vm.eval("globalThis.nnm.length;").unwrap();
+    assert!(matches!(r, JsValue::Number(n) if n == 0.0), "{r:?}");
+    // `.item(0)` → null
+    let r = vm.eval("globalThis.nnm.item(0);").unwrap();
+    assert!(matches!(r, JsValue::Null), "{r:?}");
+    // `.getNamedItem('id')` → null
+    let r = vm.eval("globalThis.nnm.getNamedItem('id');").unwrap();
+    assert!(matches!(r, JsValue::Null), "{r:?}");
+    // Attr `.ownerElement` → null
+    let r = vm.eval("globalThis.attr.ownerElement;").unwrap();
+    assert!(matches!(r, JsValue::Null), "{r:?}");
+    // Attr `.value` → empty string (live Attr, former owner now
+    // unbound)
+    let r = vm.eval("globalThis.attr.value;").unwrap();
+    if let JsValue::String(sid) = r {
+        assert_eq!(vm.inner.strings.get_utf8(sid), "");
+    } else {
+        panic!("expected String, got {r:?}");
+    }
+    // Attr setter is a no-op (does not panic, does not crash)
+    vm.eval("globalThis.attr.value = 'newval';").unwrap();
+}
+
 #[test]
 fn named_node_map_numeric_string_index_returns_attr() {
     let out = run("var d = document.createElement('div'); \
