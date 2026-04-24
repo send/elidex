@@ -216,7 +216,7 @@ mod engine_feature {
         /// safety contract.  Callers must not hold this `&EcsDom`
         /// alongside any `&mut EcsDom` produced by [`Self::dom`].
         #[allow(unsafe_code)]
-        pub fn dom_shared(&self) -> &elidex_ecs::EcsDom {
+        pub(crate) fn dom_shared(&self) -> &elidex_ecs::EcsDom {
             assert!(self.is_bound(), "HostData accessed while unbound");
             unsafe { &*self.dom_ptr }
         }
