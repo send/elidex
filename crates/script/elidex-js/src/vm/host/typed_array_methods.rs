@@ -660,14 +660,19 @@ pub(crate) fn native_typed_array_at(
         require_typed_array_parts(ctx, this, "at")?;
     let bpe = u32::from(ek.bytes_per_element());
     let len_elem = byte_length / bpe;
+    // §23.2.3.3 step 3: `ToIntegerOrInfinity(index)` — NaN → 0,
+    // ±Infinity preserved.  Bounds are applied uniformly below so
+    // `at(NaN)` returns the first element (unless empty) and
+    // `at(±Infinity)` returns `undefined`.
     let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    if n.is_nan() || !n.is_finite() {
-        return Ok(JsValue::Undefined);
-    }
-    let trunc = n.trunc();
+    let relative_index = to_integer_or_infinity(n);
     #[allow(clippy::cast_precision_loss)]
     let len_f = f64::from(len_elem);
-    let idx_f = if trunc < 0.0 { len_f + trunc } else { trunc };
+    let idx_f = if relative_index < 0.0 {
+        len_f + relative_index
+    } else {
+        relative_index
+    };
     if idx_f < 0.0 || idx_f >= len_f {
         return Ok(JsValue::Undefined);
     }

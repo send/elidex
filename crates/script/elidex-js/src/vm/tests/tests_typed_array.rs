@@ -1747,6 +1747,31 @@ fn non_canonical_string_keys_fall_through_to_ordinary() {
     ));
 }
 
+#[test]
+fn at_nan_maps_to_zero_per_to_integer_or_infinity() {
+    let mut vm = Vm::new();
+    // ES §23.2.3.3 step 3: `ToIntegerOrInfinity(NaN) = 0`, so
+    // `ta.at(NaN)` resolves to index 0 (unless the receiver is
+    // empty).  Used to return `undefined` via a premature NaN
+    // short-circuit.
+    assert_eq!(
+        eval_number(&mut vm, "new Uint8Array([7, 8, 9]).at(NaN);"),
+        7.0
+    );
+    // ±Infinity should still return undefined (out-of-range after
+    // the final bounds check, not because of the early-return).
+    assert!(eval_bool(
+        &mut vm,
+        "new Uint8Array([7, 8, 9]).at(Infinity) === undefined && \
+         new Uint8Array([7, 8, 9]).at(-Infinity) === undefined;"
+    ));
+    // NaN on an empty TypedArray → undefined (post-bounds-check).
+    assert!(eval_bool(
+        &mut vm,
+        "new Uint8Array(0).at(NaN) === undefined;"
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // set(source, offset?) — negative offset → RangeError (§23.2.3.24)
 // ---------------------------------------------------------------------------
