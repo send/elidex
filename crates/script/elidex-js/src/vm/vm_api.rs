@@ -143,64 +143,82 @@ impl Vm {
         dom: *mut elidex_ecs::EcsDom,
         document: elidex_ecs::Entity,
     ) {
-        if let Some(hd) = self.inner.host_data.as_deref_mut() {
+        // Snapshot `global_object` once up front (Copy) so the
+        // inner `hd` scope can use it without a re-borrow of
+        // `self.inner` that would conflict with the active
+        // `host_data` borrow.
+        let global_id = self.inner.global_object;
+
+        // Scope the `HostData` borrow to the bind + window-entity
+        // resolution + wrapper-cache population.  All three
+        // operations live under the same `hd` binding so the
+        // cache-populate call does not need a second
+        // `as_deref_mut` re-borrow (which would rely on NLL to
+        // end the first borrow — fragile across future edits).
+        let window_entity = {
+            let Some(hd) = self.inner.host_data.as_deref_mut() else {
+                return;
+            };
             unsafe { hd.bind(session, dom, document) };
             // Resolve the Window ECS entity backing `globalThis`.
             // First bind allocates via `dom().create_window_root()`;
-            // subsequent binds reuse the stored entity so identity (and
-            // the entity's `EventListeners` component) survives across
-            // bind → unbind → bind cycles — see
+            // subsequent binds reuse the stored entity so identity
+            // (and the entity's `EventListeners` component)
+            // survives across bind → unbind → bind cycles — see
             // `HostData::window_entity`.
-            let window_entity = if let Some(e) = hd.window_entity() {
+            let we = if let Some(e) = hd.window_entity() {
                 e
             } else {
                 let e = hd.dom().create_window_root();
                 hd.set_window_entity(e);
                 e
             };
-            // Thread the Window entity through to the `globalThis`
-            // `HostObject`.  `entity_from_this` reads `entity_bits` and
-            // passes it to `Entity::from_bits` — non-zero values
-            // reconstruct the Window entity so
-            // `window.addEventListener(...)` records the listener
-            // against the correct ECS target (distinct from document).
-            //
-            // Skip the write on rebinds when `entity_bits` already
-            // equals the target — saves a (very cheap) store but also
-            // keeps the object's storage cache-line clean for the
-            // common rebind path.
-            let global_id = self.inner.global_object;
-            let target_bits = window_entity.to_bits().get();
-            if let super::value::ObjectKind::HostObject {
-                ref mut entity_bits,
-            } = self.inner.get_object_mut(global_id).kind
-            {
-                if *entity_bits != target_bits {
-                    *entity_bits = target_bits;
-                }
-            }
-            // Cache (window_entity → global_object) in wrapper_cache so
-            // any later `create_element_wrapper(window_entity)` call
-            // returns the canonical Window wrapper instead of allocating
-            // a fresh `HostObject` via the `OtherNode` prototype path.
-            // Without this, `dispatch_script_event` at a Window target
-            // (e.g. `window.postMessage` / `window.dispatchEvent`) seeds
-            // `event.target` with a distinct wrapper and breaks
-            // `event.target === window`.  Idempotent across bind→unbind→
-            // bind cycles: the first bind populates, subsequent binds
+            // Cache (window_entity → global_object) in
+            // wrapper_cache so any later
+            // `create_element_wrapper(window_entity)` call returns
+            // the canonical Window wrapper instead of allocating a
+            // fresh `HostObject` via the `OtherNode` prototype
+            // path.  Without this, `dispatch_script_event` at a
+            // Window target (e.g. `window.postMessage` /
+            // `window.dispatchEvent`) seeds `event.target` with a
+            // distinct wrapper and breaks `event.target ===
+            // window`.  Idempotent across bind→unbind→bind
+            // cycles: the first bind populates, subsequent binds
             // skip via the pre-check.
-            if let Some(hd) = self.inner.host_data.as_deref_mut() {
-                if hd.get_cached_wrapper(window_entity).is_none() {
-                    hd.cache_wrapper(window_entity, global_id);
-                }
+            if hd.get_cached_wrapper(we).is_none() {
+                hd.cache_wrapper(we, global_id);
             }
-            // Refresh the `document` global so JS code (and listener
-            // bodies) sees the just-bound document entity.  Wrapper
-            // identity is preserved across bind/unbind cycles via
-            // `HostData::wrapper_cache` — repeated binds with the
-            // same document entity return the same ObjectId.
-            self.install_document_global();
+            we
+            // `hd` drops here so the subsequent
+            // `self.inner.get_object_mut` does not conflict.
+        };
+
+        // Thread the Window entity through to the `globalThis`
+        // `HostObject`.  `entity_from_this` reads `entity_bits`
+        // and passes it to `Entity::from_bits` — non-zero values
+        // reconstruct the Window entity so
+        // `window.addEventListener(...)` records the listener
+        // against the correct ECS target (distinct from document).
+        //
+        // Skip the write on rebinds when `entity_bits` already
+        // equals the target — saves a (very cheap) store but
+        // also keeps the object's storage cache-line clean for
+        // the common rebind path.
+        let target_bits = window_entity.to_bits().get();
+        if let super::value::ObjectKind::HostObject {
+            ref mut entity_bits,
+        } = self.inner.get_object_mut(global_id).kind
+        {
+            if *entity_bits != target_bits {
+                *entity_bits = target_bits;
+            }
         }
+        // Refresh the `document` global so JS code (and listener
+        // bodies) sees the just-bound document entity.  Wrapper
+        // identity is preserved across bind/unbind cycles via
+        // `HostData::wrapper_cache` — repeated binds with the
+        // same document entity return the same ObjectId.
+        self.install_document_global();
     }
 
     /// Resolve an ECS `Entity` to its shared JS wrapper `ObjectId`,
