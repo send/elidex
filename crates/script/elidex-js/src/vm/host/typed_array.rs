@@ -924,11 +924,15 @@ fn init_from_iterable(
     };
 
     // Collect elements using the stack as GC-safe scratch: each
-    // `iter_next` may execute user code that triggers GC, so Rust
-    // locals holding `JsValue`s are not safe.  `stack.push`
-    // before the call, `pop` after — values survive any
-    // intervening GC.
-    let stack_root = ctx.vm.stack.len();
+    // `iter_next` may execute user code that triggers GC, and Rust
+    // locals holding `JsValue`s are invisible to the scanner.  The
+    // iterator itself lives on the stack below the elements so it
+    // survives any intervening GC even when the outer `args` slice
+    // no longer reaches it (the `@@iterator` call's return value is
+    // freshly allocated and not transitively rooted via `source`).
+    let iter_slot = ctx.vm.stack.len();
+    ctx.vm.stack.push(iter);
+    let elem_start = iter_slot + 1;
     loop {
         let next = ctx.vm.iter_next(iter)?;
         match next {
@@ -936,7 +940,7 @@ fn init_from_iterable(
             None => break,
         }
     }
-    let count = ctx.vm.stack.len() - stack_root;
+    let count = ctx.vm.stack.len() - elem_start;
     let count_u32 = u32::try_from(count).map_err(|_| {
         VmError::range_error(format!(
             "Failed to construct '{}': too many elements in source iterable",
@@ -962,10 +966,10 @@ fn init_from_iterable(
     // throw is spec-exempt per §7.4.7, and the full-drain
     // pattern here never leaves the iterator open.)
     for i in 0..count_u32 {
-        let elem = ctx.vm.stack[stack_root + i as usize];
+        let elem = ctx.vm.stack[elem_start + i as usize];
         write_element_raw(ctx, buf_id, offset, i, ek, elem)?;
     }
-    ctx.vm.stack.truncate(stack_root);
+    ctx.vm.stack.truncate(iter_slot);
 
     Ok((buf_id, offset, byte_len))
 }

@@ -415,8 +415,15 @@ pub(crate) fn native_typed_array_set(
     // Array-like branch: §23.2.3.24 runs `ToObject(source)` so
     // primitives (strings, numbers, booleans) are wrapped and their
     // indexed/length access proceeds uniformly; only null/undefined
-    // TypeError.
+    // TypeError.  The fresh wrapper (primitive source) is only
+    // reachable via the returned `src_id` integer — push it onto
+    // `vm.stack` as a GC root for the duration of the read loop,
+    // since `get_element` / `write_element_raw` may execute user
+    // code under a future `gc_enabled` native-call setting.
     let src_id = super::super::coerce::to_object(ctx.vm, source)?;
+    let src_obj = JsValue::Object(src_id);
+    let src_root = ctx.vm.stack.len();
+    ctx.vm.stack.push(src_obj);
     let length_sid = ctx.vm.well_known.length;
     let len_val =
         ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;
@@ -424,6 +431,7 @@ pub(crate) fn native_typed_array_set(
     let src_len = {
         let truncated = if len_f.is_nan() { 0.0 } else { len_f.trunc() };
         if truncated < 0.0 || truncated > f64::from(u32::MAX) {
+            ctx.vm.stack.truncate(src_root);
             return Err(VmError::range_error(
                 "Failed to execute 'set' on 'TypedArray': source length out of range",
             ));
@@ -436,6 +444,7 @@ pub(crate) fn native_typed_array_set(
         .checked_add(src_len)
         .map_or(true, |end| end > dst_len)
     {
+        ctx.vm.stack.truncate(src_root);
         return Err(VmError::range_error(
             "Failed to execute 'set' on 'TypedArray': offset + length out of range",
         ));
@@ -444,13 +453,13 @@ pub(crate) fn native_typed_array_set(
     // wrapper object returned by `ToObject(source)`, not the raw
     // primitive — receiver identity affects any prototype-installed
     // getter that observes `this`.
-    let src_obj = JsValue::Object(src_id);
     for i in 0..src_len {
         #[allow(clippy::cast_precision_loss)]
         let key = JsValue::Number(f64::from(i));
         let val = ctx.vm.get_element(src_obj, key)?;
         write_element_raw(ctx, buffer_id, byte_offset, target_offset + i, dst_ek, val)?;
     }
+    ctx.vm.stack.truncate(src_root);
     Ok(JsValue::Undefined)
 }
 
