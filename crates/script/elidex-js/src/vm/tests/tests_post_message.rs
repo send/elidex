@@ -500,6 +500,48 @@ fn post_message_transfer_empty_iterable_non_array_accepted() {
     vm.unbind();
 }
 
+// ---------------------------------------------------------------------------
+// Copilot R6 #1 regression — the message `data` payload must be
+// temp-rooted across the event allocation in `dispatch_post_message`.
+// `drain_tasks` runs with `gc_enabled = true` (unlike native
+// dispatch which pins it to false), so an `alloc_object` for the
+// event object CAN trigger GC before `data` is installed into the
+// event's slot-9.  Without rooting, the cloned payload Object is
+// collected and the listener reads a dangling ObjectId.
+//
+// Forces a `collect_garbage()` cycle between enqueue and drain to
+// exercise the same risk window from the outside.  Under the fix
+// the rooted payload survives; pre-fix regression would surface as
+// a panic or wrong-type read on `e.data.val`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn message_event_data_payload_survives_gc_during_dispatch() {
+    setup_bound_vm!(vm, session, dom, doc);
+    // Queue the task WITHOUT triggering the implicit drain — split
+    // into two evals.  The queued `PendingTask::PostMessage.data`
+    // is GC-rooted via `mark_pending_tasks`; the risk is AFTER
+    // drain_tasks extracts `data` and passes it to
+    // `dispatch_post_message`, where it's only in a Rust local
+    // until the slot install.  An explicit `collect_garbage()`
+    // just before drain amplifies the normal threshold-driven
+    // collection path.
+    vm.eval(
+        "globalThis.received = null;
+         window.addEventListener('message', function(e){
+             globalThis.received = (e.data && e.data.val);
+         });",
+    )
+    .unwrap();
+    // First eval queued no messages; now post + drain in one tick.
+    // Pre-collect to push heap state forward before the dispatch
+    // alloc inside `dispatch_post_message` runs.
+    vm.inner.collect_garbage();
+    vm.eval("window.postMessage({val: 42}, '*');").unwrap();
+    assert_eq!(eval_number(&mut vm, "globalThis.received;"), 42.0);
+    vm.unbind();
+}
+
 #[test]
 fn message_event_target_is_canonical_window() {
     setup_bound_vm!(vm, session, dom, doc);

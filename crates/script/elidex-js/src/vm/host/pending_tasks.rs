@@ -178,12 +178,23 @@ fn dispatch_post_message(
 
     let message_type_sid = vm.well_known.message;
 
+    // Root `data` BEFORE allocating the event.  Between this call
+    // and the slot-install that stores `data` on the event, the
+    // payload is only reachable from this Rust local — which the
+    // GC cannot see.  `drain_tasks` runs at eval boundaries with
+    // `gc_enabled = true` (unlike inside native dispatch where the
+    // interpreter pins it to false), so any intervening
+    // `alloc_object` may trigger a cycle that collects the data
+    // Object.
+    let mut g_data = vm.push_temp_root(data);
+
     // Allocate the Event with the authoritative internal slots.
     // `cancelable = false` makes `preventDefault()` a spec-visible
     // no-op per MessageEvent's §2.2 default.  `is_trusted = true`
     // because UA is the synthesizer (postMessage is a browser-
     // initiated dispatch, not a user script `dispatchEvent(...)` call).
-    let event_id = vm.alloc_object(Object {
+    let event_proto = g_data.event_prototype;
+    let event_id = g_data.alloc_object(Object {
         kind: ObjectKind::Event {
             default_prevented: false,
             propagation_stopped: false,
@@ -196,15 +207,15 @@ fn dispatch_post_message(
             composed_path: None,
         },
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: vm.event_prototype,
+        prototype: event_proto,
         extensible: true,
     });
 
-    // Root the event across the subsequent slot installs + dispatch
-    // — the MessageEvent's `data` payload holds arbitrary user
-    // objects that would otherwise be only reachable from the Rust
-    // locals here, and the precomputed-shape install below allocates.
-    let mut g = vm.push_temp_root(JsValue::Object(event_id));
+    // Root the event across the subsequent slot installs + dispatch.
+    // Nested under `g_data` so the data payload stays rooted until
+    // slot 9 of the event holds it (see `define_with_precomputed_shape`
+    // call below).
+    let mut g = g_data.push_temp_root(JsValue::Object(event_id));
 
     // Install core-9 + MessageEvent payload via the precomputed
     // `shapes.message` terminal shape.  Slot order MUST match
@@ -255,15 +266,20 @@ fn dispatch_post_message(
     );
     // `ports` — fresh empty Array until MessagePort lands (plan
     // §Deferred #16).  Allocating per dispatch keeps identity fresh
-    // per event, matching browser behaviour.
+    // per event, matching browser behaviour.  Root the fresh Array
+    // before `define_shaped_property` since the shape transition
+    // inside define may itself allocate; without the root,
+    // `ports_arr` is a dangling ObjectId in that window.
     let ports_arr = g.create_array_object(Vec::new());
-    let ports_key = PropertyKey::String(g.strings.intern("ports"));
-    g.define_shaped_property(
+    let mut g_ports = g.push_temp_root(JsValue::Object(ports_arr));
+    let ports_key = PropertyKey::String(g_ports.strings.intern("ports"));
+    g_ports.define_shaped_property(
         event_id,
         ports_key,
         PropertyValue::Data(JsValue::Object(ports_arr)),
         PropertyAttrs::WEBIDL_RO,
     );
+    drop(g_ports);
 
     // Bracket `dispatched_events` membership around the dispatch.
     // `dispatch_script_event`'s doc contract requires the event to
