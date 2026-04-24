@@ -161,19 +161,20 @@ pub(super) fn init_from_typed_array(
         })?;
     let (dst_buf_id, dst_offset, _) = allocate_fresh_buffer(ctx, dst_byte_len)?;
 
-    // Root `dst_buf_id` on the value stack so an intervening GC —
-    // triggered by `write_element_raw`'s `ToBigInt` / `valueOf` /
-    // `[Symbol.toPrimitive]` user-code path — can't sweep the
-    // freshly allocated buffer before the caller installs it on
-    // the receiver TypedArray.  `read_element_raw` itself only
-    // allocates a BigInt id (no GC trigger), but the same stack
-    // root covers it for free.  Use the RAII `push_temp_root`
-    // guard (rather than bare `stack.push` / `stack.truncate`) so
-    // the root is restored on every exit — including panic
-    // unwinding past a `catch_unwind` boundary upstream.  The
-    // write loop's `?` propagation drops the guard via stack
-    // unwinding, which truncates the stack just like a clean
-    // return.
+    // Root `dst_buf_id` while we populate it.  In the current VM,
+    // GC is disabled for the duration of native calls (and any
+    // nested JS entered from them), so `write_element_raw`'s
+    // `ToBigInt` / `valueOf` / `[Symbol.toPrimitive]` user-code
+    // paths can't actually trigger a collection today.  We still
+    // temp-root the freshly allocated buffer to preserve the
+    // standard rooting invariant until the caller installs it on
+    // the receiver TypedArray, and to future-proof the helper if
+    // native-call GC behavior ever changes.  `read_element_raw`
+    // itself allocates only a BigInt id, but the same stack root
+    // covers it for free.  Use the RAII `push_temp_root` guard
+    // (rather than bare `stack.push` / `stack.truncate`) so the
+    // root is restored on every exit — including panic unwinding
+    // past a `catch_unwind` boundary upstream.
     {
         let mut g = ctx.vm.push_temp_root(JsValue::Object(dst_buf_id));
         for i in 0..src_len_elem {
@@ -221,37 +222,30 @@ pub(super) fn init_from_iterable(
     };
 
     // Collect elements using the stack as GC-safe scratch: each
-    // `iter_next` may execute user code that triggers GC, and Rust
-    // locals holding `JsValue`s are invisible to the scanner.  The
-    // iterator itself lives on the stack below the elements so it
-    // survives any intervening GC even when the outer `args` slice
-    // no longer reaches it (the `@@iterator` call's return value is
-    // freshly allocated and not transitively rooted via `source`).
-    // Every exit path — success, RangeError, or a `?` propagation
-    // from inside `iter_next` / `write_element_raw` — truncates
-    // back to `iter_slot` via the outer-scope helper call.
+    // `iter_next` may execute user code, and Rust locals holding
+    // `JsValue`s are invisible to the GC scanner.  The iterator
+    // itself lives on the stack at `iter_slot`, with drained
+    // elements pushed above it; both are released by the
+    // [`super::super::VmInner::push_stack_scope`] guard's
+    // `truncate(saved_len)` on every exit path (success, `?`
+    // propagation, or panic unwinding).
     //
-    // Why bare `stack.push` / `stack.truncate` rather than the RAII
-    // [`super::super::VmInner::push_temp_root`] guard used in the
-    // sibling `init_from_*` helpers: that guard enforces a
-    // single-push invariant (`stack.len() == saved_len + 1` on
-    // drop), but `init_from_iterable_body` pushes N drained
-    // elements on top of the rooted iter slot — an arbitrary-N
-    // drain that the single-value guard can't express.  Designing
-    // a separate "stack-frame scope" guard (saves+restores `len`
-    // without value-identity check) is tracked as part of the
-    // 1000-line cleanup follow-up; the panic-unsafety risk here
-    // is the one Copilot flagged on R4 line 234, and it persists
-    // until that follow-up lands.  In practice the only panic
-    // sources here are VM internal-invariant `assert!`s, which
-    // already abort the host process; the catch_unwind path is
-    // not exercised in production.
-    let iter_slot = ctx.vm.stack.len();
-    ctx.vm.stack.push(iter);
+    // [`super::super::VmInner::push_temp_root`] doesn't fit here:
+    // it asserts `stack.len() == saved_len + 1` on clean drop
+    // (single rooted value), but `init_from_iterable_body` pushes
+    // an arbitrary (data-dependent) number of drained elements on
+    // top of the iter slot.  The looser stack-scope guard exists
+    // for exactly this shape and gives the same panic-safe
+    // restore semantics without the value-identity check.
+    let mut frame = ctx.vm.push_stack_scope();
+    let iter_slot = frame.saved_len();
+    frame.stack.push(iter);
     let elem_start = iter_slot + 1;
-    let outcome = init_from_iterable_body(ctx, iter, elem_start, ek);
-    ctx.vm.stack.truncate(iter_slot);
-    outcome
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+    init_from_iterable_body(&mut sub_ctx, iter, elem_start, ek)
+    // `frame` drops here, restoring `stack.len()` to `iter_slot`
+    // (releases the rooted iter + any drained elements remaining
+    // above it).
 }
 
 /// Inner body of [`init_from_iterable`], extracted so the caller can
@@ -289,14 +283,17 @@ fn init_from_iterable_body(
 
     // Root `buf_id` on the stack TOP (above the already-rooted
     // iterator + drained elements at `elem_start..`) via the RAII
-    // `push_temp_root` guard so the write loop's `ToBigInt` /
-    // `valueOf` user-code path can't trigger a GC that sweeps the
-    // freshly allocated buffer.  Index reads `stack[elem_start +
-    // i]` are unaffected because `i < count_u32` and the buffer
-    // root sits at `elem_start + count_u32`.  The guard restores
-    // the stack on every exit (success, `?` propagation, panic
-    // unwinding); the parent `init_from_iterable`'s `truncate(
-    // iter_slot)` then drops the iterator + drained elements.
+    // `push_temp_root` guard.  GC is currently disabled inside
+    // native calls (and any nested JS entered from them), so the
+    // write loop's `ToBigInt` / `valueOf` user-code path can't
+    // actually trigger a sweep today; the rooting preserves the
+    // standard invariant and future-proofs the helper.  Index
+    // reads `stack[elem_start + i]` are unaffected because `i <
+    // count_u32` and the buffer root sits at `elem_start +
+    // count_u32`.  The guard restores the stack on every exit
+    // (success, `?` propagation, panic unwinding); the parent
+    // `init_from_iterable`'s stack-scope drop then releases the
+    // iterator + any remaining drained elements.
     //
     // A throw during element write (e.g. `ToBigInt` on a Number
     // for a BigInt64Array) is a body-level abrupt completion —
@@ -362,9 +359,12 @@ fn init_from_array_like(
     // Root `buf_id` via the RAII `push_temp_root` guard for the
     // duration of the get/write loop.  `get_element` runs
     // user-defined getters / proxies, and `write_element_raw`'s
-    // `ToBigInt` / `valueOf` path runs user code too — either can
-    // trigger GC and sweep the freshly allocated buffer before the
-    // caller installs it on the receiver TypedArray.  The guard
+    // `ToBigInt` / `valueOf` path runs user code too.  GC is
+    // currently disabled inside native calls (and any nested JS
+    // entered from them), so neither of those paths can actually
+    // sweep the freshly allocated buffer today; the rooting
+    // preserves the standard invariant and future-proofs the
+    // helper if native-call GC behavior ever changes.  The guard
     // restores the stack on every exit including panic unwinding.
     {
         let mut g = ctx.vm.push_temp_root(JsValue::Object(buf_id));

@@ -106,3 +106,91 @@ impl Drop for VmTempRoot<'_> {
         stack.truncate(self.saved_len);
     }
 }
+
+impl VmInner {
+    /// Begin a stack-scope: snapshot `stack.len()` and return an
+    /// RAII guard that truncates back on drop.
+    ///
+    /// Companion to [`Self::push_temp_root`].  Use a stack scope
+    /// when the rooted region pushes an arbitrary number of values
+    /// (e.g. draining an iterator into the stack) — the
+    /// single-value identity check on [`VmTempRoot`] doesn't fit
+    /// that shape, but the same panic-safe restore semantics are
+    /// still required to avoid leaking GC roots through a
+    /// `catch_unwind` boundary upstream.
+    ///
+    /// The guard derefs to `&mut VmInner` so the rooted region is
+    /// written as method calls / field accesses on the guard:
+    ///
+    /// ```rust,ignore
+    /// let mut frame = vm.push_stack_scope();
+    /// frame.stack.push(JsValue::Object(iter));
+    /// while let Some(v) = frame.iter_next(...)? { frame.stack.push(v); }
+    /// // … consume `stack[saved_len + 1 ..]` …
+    /// // guard drops here; stack restored to pre-snapshot length
+    /// ```
+    ///
+    /// Unlike [`VmTempRoot`] there is no value-identity check —
+    /// the guard only enforces the `len` invariant.  Code that
+    /// roots a single known value should prefer
+    /// [`Self::push_temp_root`] for the stronger contract.
+    pub(crate) fn push_stack_scope(&mut self) -> VmStackScope<'_> {
+        let saved_len = self.stack.len();
+        VmStackScope {
+            vm: self,
+            saved_len,
+        }
+    }
+}
+
+/// RAII guard for a stack-scope region created via
+/// [`VmInner::push_stack_scope`].
+///
+/// Truncates the VM stack back to the saved length on drop —
+/// **including during panic unwinding** — so any rooted values
+/// pushed during the scope are released regardless of exit path.
+/// Unlike [`VmTempRoot`] no value-identity is asserted on clean
+/// drop; the guard is only useful when the rooted region pushes
+/// an arbitrary (data-dependent) number of values.
+pub(crate) struct VmStackScope<'a> {
+    vm: &'a mut VmInner,
+    saved_len: usize,
+}
+
+impl VmStackScope<'_> {
+    /// The stack length captured at scope entry.  Useful when the
+    /// scope body needs to compute index offsets relative to the
+    /// snapshot point.
+    #[inline]
+    pub(crate) fn saved_len(&self) -> usize {
+        self.saved_len
+    }
+}
+
+impl std::ops::Deref for VmStackScope<'_> {
+    type Target = VmInner;
+    #[inline]
+    fn deref(&self) -> &VmInner {
+        self.vm
+    }
+}
+
+impl std::ops::DerefMut for VmStackScope<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut VmInner {
+        self.vm
+    }
+}
+
+impl Drop for VmStackScope<'_> {
+    fn drop(&mut self) {
+        // Truncate unconditionally on every exit (clean return,
+        // `?` propagation, panic unwinding alike).  No length
+        // assertion: the scope's contract is "len at exit ≤ len at
+        // entry doesn't matter, just restore" — over-popping
+        // beyond `saved_len` is the only mistake possible, and a
+        // bare `truncate` simply caps at the existing length when
+        // the stack is shorter, which is the correct no-op.
+        self.vm.stack.truncate(self.saved_len);
+    }
+}
