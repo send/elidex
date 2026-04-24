@@ -431,10 +431,10 @@ impl PropertyStorage {
 ///
 /// Each variant identifies both the in-memory byte layout (`bytes_per_element`)
 /// and the JS-visible element-value domain (integer / float / BigInt, signed /
-/// unsigned / clamped).  The enum is unconditional (no `#[cfg]` gate) so the
-/// `ObjectKind::TypedArray` variant can be defined unconditionally too — the
-/// trace handler in `gc.rs` carries the feature gate instead, following the
-/// `AbortSignal` / `Headers` precedent.
+/// unsigned / clamped).  The enum is unconditional (no `#[cfg]` gate) so
+/// `ObjectKind::TypedArray` stays in the always-available value model as
+/// well.  TypedArray-specific feature-flagged logic (host methods, Fetch
+/// body init, etc.) gates at its own call sites, not on this type.
 ///
 /// Byte ordering for TypedArray indexed reads / writes is **little-endian
 /// unconditionally** — an elidex implementation choice for cross-platform

@@ -102,10 +102,13 @@ fn to_integer_or_infinity(n: f64) -> f64 {
 }
 
 /// Allocate a new TypedArray wrapper of the given `ElementKind` over
-/// `buffer_id` at `byte_offset` / `byte_length`.  Uses the abstract
-/// `%TypedArray%.prototype` chain via the ctor's own prototype
-/// (identity constructor — same subclass as receiver; SpeciesConstructor
-/// support deferred to PR-spec-polish SP8).
+/// `buffer_id` at `byte_offset` / `byte_length`.  Picks the built-in
+/// subclass prototype associated with `ek` (`Uint8Array.prototype`,
+/// etc.) and does NOT consult the receiver's constructor,
+/// `new.target`, or `@@species` — current callers
+/// (`subarray` / `slice`) pass their own `element_kind`, so the
+/// result matches a same-ElementKind built-in subclass.  Full
+/// `SpeciesConstructor` dispatch lands with PR-spec-polish SP8.
 fn alloc_typed_array_view(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
@@ -228,9 +231,11 @@ pub(crate) fn native_typed_array_subarray(
 // ---------------------------------------------------------------------------
 
 /// `%TypedArray%.prototype.slice(begin?, end?)` (ES §23.2.3.25).
-/// Returns a new TypedArray of the same subclass **over a fresh
-/// buffer** — mutations do not propagate between receiver and
-/// slice.  Identity constructor (SpeciesConstructor deferred).
+/// Returns a new TypedArray of the same built-in subclass **over a
+/// fresh buffer** — mutations do not propagate between receiver and
+/// slice.  Uses the receiver's `element_kind` as the allocation
+/// ElementKind; `SpeciesConstructor` / user-subclass dispatch is
+/// deferred to PR-spec-polish SP8.
 pub(crate) fn native_typed_array_slice(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
