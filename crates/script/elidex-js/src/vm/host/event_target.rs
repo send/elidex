@@ -716,7 +716,7 @@ pub(super) fn native_event_target_dispatch_event(
 /// ignored (spec §2.10 "report the exception") so the walk
 /// advances past them.
 #[cfg(feature = "engine")]
-fn dispatch_script_event(
+pub(super) fn dispatch_script_event(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
     target_entity: elidex_ecs::Entity,

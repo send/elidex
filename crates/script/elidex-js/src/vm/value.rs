@@ -1110,6 +1110,10 @@ pub struct ForInState {
 /// 0 = Values (default), 1 = Keys, 2 = Entries.
 pub type ArrayIterKind = u8;
 
+/// `ArrayIterKind::Values` discriminant. See [`ArrayIterKind`] for
+/// variant encoding.
+pub const ARRAY_ITER_KIND_VALUES: ArrayIterKind = 0;
+
 /// State for an array/iterable iterator.
 pub struct ArrayIterState {
     /// The array being iterated.

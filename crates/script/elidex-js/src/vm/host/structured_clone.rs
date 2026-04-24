@@ -481,9 +481,10 @@ fn clone_array_buffer(vm: &mut VmInner, src: ObjectId) -> ObjectId {
         .get(&src)
         .cloned()
         .unwrap_or_else(|| Arc::from(&[][..]));
-    // `to_vec()` is the deep-copy step — it allocates a fresh `Vec<u8>`
-    // backed by independent memory, which we then wrap in a new `Arc`.
-    let new_bytes: Arc<[u8]> = Arc::from(src_bytes.to_vec().into_boxed_slice());
+    // `Arc::<[u8]>::from(&[u8])` performs a single allocation + memcpy
+    // straight into the Arc payload — independent memory, no shared
+    // refcount with the source (StructuredSerialize §2.9 step 12).
+    let new_bytes: Arc<[u8]> = Arc::<[u8]>::from(&src_bytes[..]);
     super::array_buffer::create_array_buffer_from_bytes(vm, new_bytes)
 }
 
@@ -495,7 +496,7 @@ fn clone_blob(vm: &mut VmInner, src: ObjectId) -> ObjectId {
         Some(BlobData { bytes, type_sid }) => (Arc::clone(bytes), *type_sid),
         None => (Arc::from(&[][..]), vm.well_known.empty),
     };
-    let new_bytes: Arc<[u8]> = Arc::from(bytes.to_vec().into_boxed_slice());
+    let new_bytes: Arc<[u8]> = Arc::<[u8]>::from(&bytes[..]);
     super::blob::create_blob_from_bytes(vm, new_bytes, type_sid)
 }
 

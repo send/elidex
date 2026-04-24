@@ -47,15 +47,9 @@ use elidex_ecs::{EcsDom, Entity, NodeKind};
 use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    PropertyValue, VmError, ARRAY_ITER_KIND_VALUES,
 };
 use super::super::{NativeFn, StringId, VmInner};
-
-/// `ArrayIterKind::Values` discriminant — the alias is a `u8`
-/// (see `natives_array_hof::create_array_iterator`), so we spell
-/// out the literal here rather than forcing a strongly-typed
-/// enum variant import.
-const ARRAY_ITER_KIND_VALUES: super::super::value::ArrayIterKind = 0;
 
 // -------------------------------------------------------------------------
 // Filter discriminator
@@ -695,16 +689,14 @@ pub(crate) fn try_indexed_get(
             // Legacy named property access — HTML spec §4.2.10.
             // Non-numeric strings route into `namedItem` semantics.
             let key_str = vm.strings.get_utf8(sid);
-            if key_str.parse::<usize>().is_ok() {
-                // Numeric strings already handled by the Array
-                // fast-path in get_element; if we reach here, the
-                // caller asked for it after the numeric check
-                // bypassed our arm.  Resolve via the index path.
-                if let Ok(idx) = key_str.parse::<usize>() {
-                    return entities
-                        .get(idx)
-                        .map(|&e| JsValue::Object(vm.create_element_wrapper(e)));
-                }
+            // Numeric string key — resolve via the index path.  The
+            // Array fast-path in `get_element` also catches these,
+            // but named-property access can land here directly
+            // (e.g. `coll['0']` via Reflect.get).
+            if let Ok(idx) = key_str.parse::<usize>() {
+                return entities
+                    .get(idx)
+                    .map(|&e| JsValue::Object(vm.create_element_wrapper(e)));
             }
             // Named lookup — `id` then `name` (tag allowlist).
             let mut name_hit: Option<Entity> = None;

@@ -45,13 +45,6 @@ fn eval_number(vm: &mut Vm, source: &str) -> f64 {
     }
 }
 
-fn eval_bool(vm: &mut Vm, source: &str) -> bool {
-    match vm.eval(source).unwrap() {
-        JsValue::Boolean(b) => b,
-        other => panic!("expected bool, got {other:?}"),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // postMessage + structuredClone — cycle payload survives round-trip
 // with Element references stripped (HostObject is unclonable, so a

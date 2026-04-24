@@ -271,8 +271,6 @@ pub(crate) struct WellKnownStrings {
     // receiver brand-check helpers share a single StringId.
     pub(crate) focus: StringId,
     pub(crate) blur: StringId,
-    pub(crate) active_element: StringId,
-    pub(crate) has_focus: StringId,
     // HTMLElement IDL attribute names (PR5b §C2).  Each covers the
     // IDL property identifier; the matching HTML content-attribute
     // name is sometimes identical (lang / title / dir / hidden /
@@ -301,7 +299,6 @@ pub(crate) struct WellKnownStrings {
     // HTMLCollection / NodeList IDL members (PR5b §C3).
     pub(crate) item: StringId,
     pub(crate) named_item: StringId,
-    pub(crate) get_elements_by_name: StringId,
     // NamedNodeMap + Attr IDL members (PR5b §C4 + §C4.5).
     pub(crate) attributes: StringId,
     pub(crate) get_attribute_node: StringId,
@@ -680,8 +677,6 @@ impl WellKnownStrings {
             links: strings.intern("links"),
             focus: strings.intern("focus"),
             blur: strings.intern("blur"),
-            active_element: strings.intern("activeElement"),
-            has_focus: strings.intern("hasFocus"),
             access_key: strings.intern("accessKey"),
             tab_index: strings.intern("tabIndex"),
             draggable: strings.intern("draggable"),
@@ -700,7 +695,6 @@ impl WellKnownStrings {
             autofocus: strings.intern("autofocus"),
             item: strings.intern("item"),
             named_item: strings.intern("namedItem"),
-            get_elements_by_name: strings.intern("getElementsByName"),
             attributes: strings.intern("attributes"),
             get_attribute_node: strings.intern("getAttributeNode"),
             set_attribute_node: strings.intern("setAttributeNode"),

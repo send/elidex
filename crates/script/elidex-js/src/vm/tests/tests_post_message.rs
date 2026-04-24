@@ -397,3 +397,79 @@ fn stop_immediate_propagation_halts_further_listeners() {
     assert_eq!(eval_number(&mut vm, "globalThis.second;"), 0.0);
     vm.unbind();
 }
+
+// ---------------------------------------------------------------------------
+// Listener option semantics — {once} / {signal} / {passive}
+//
+// These exercise the listener-option state that was silently ignored
+// by PR5b's initial manual-walk dispatch.  Routing MessageEvents
+// through `dispatch_script_event` makes them observable.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn once_listener_fires_only_once() {
+    // `{once: true}` listeners MUST auto-remove after their first
+    // invocation (WHATWG DOM §2.10 step 15).
+    setup_bound_vm!(vm, session, dom, doc);
+    vm.eval(
+        "globalThis.count = 0;
+         window.addEventListener(
+             'message',
+             function(){ globalThis.count += 1; },
+             { once: true });
+         window.postMessage('a', '*');
+         window.postMessage('b', '*');",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "globalThis.count;"), 1.0);
+    vm.unbind();
+}
+
+#[test]
+fn listener_with_aborted_signal_does_not_fire() {
+    // Passing an already-aborted `AbortSignal` via
+    // `addEventListener(..., {signal})` MUST skip registration
+    // entirely (WHATWG DOM §2.10 step 4) — no invocation on
+    // subsequent dispatch.
+    setup_bound_vm!(vm, session, dom, doc);
+    vm.eval(
+        "globalThis.count = 0;
+         var ctl = new AbortController();
+         ctl.abort();
+         window.addEventListener(
+             'message',
+             function(){ globalThis.count += 1; },
+             { signal: ctl.signal });
+         window.postMessage('x', '*');",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "globalThis.count;"), 0.0);
+    vm.unbind();
+}
+
+#[test]
+fn signal_abort_during_listener_body_removes_remaining() {
+    // Aborting the signal mid-dispatch MUST remove the still-pending
+    // listener paired with that signal (WHATWG DOM §2.10 step 15
+    // + remove-listener side of §3 AbortSignal "removed listeners").
+    // Here A and B are paired with the same signal; A calls
+    // `ctl.abort()`, which must unregister B so it does not fire.
+    setup_bound_vm!(vm, session, dom, doc);
+    vm.eval(
+        "globalThis.first = 0;
+         globalThis.second = 0;
+         var ctl = new AbortController();
+         window.addEventListener('message', function(){
+             globalThis.first = 1;
+             ctl.abort();
+         }, { signal: ctl.signal });
+         window.addEventListener('message', function(){
+             globalThis.second = 1;
+         }, { signal: ctl.signal });
+         window.postMessage(0, '*');",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "globalThis.first;"), 1.0);
+    assert_eq!(eval_number(&mut vm, "globalThis.second;"), 0.0);
+    vm.unbind();
+}

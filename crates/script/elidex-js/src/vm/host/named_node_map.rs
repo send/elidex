@@ -35,16 +35,13 @@
 use elidex_ecs::{Attributes, EcsDom, Entity};
 
 use super::super::shape;
+use super::super::value::ARRAY_ITER_KIND_VALUES;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError,
 };
 use super::super::{NativeFn, StringId, VmInner};
 use super::attr_proto::AttrState;
-
-/// `ArrayIterKind::Values` discriminant — `u8` alias literal.
-/// Matches the constant in `dom_collection.rs`.
-const ARRAY_ITER_KIND_VALUES: super::super::value::ArrayIterKind = 0;
 
 impl VmInner {
     /// Allocate `NamedNodeMap.prototype` with `Object.prototype`

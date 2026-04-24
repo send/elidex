@@ -124,9 +124,11 @@ mod engine_feature {
         }
 
         /// Clear focus if the currently-focused entity equals `entity`.
-        /// Called from `HTMLElement.blur()` and from the ECS detach
-        /// hook to maintain the invariant that `focused_entity` always
-        /// points to a live, connected Element.
+        /// Called from `HTMLElement.blur()`.  `Document.activeElement`
+        /// enforces the "live, connected" side of the invariant at
+        /// read time by walking `get_parent` back to the document
+        /// root, so detached elements fall back to `<body>` without
+        /// needing an ECS-level detach hook.
         pub(crate) fn invalidate_focus_if(&mut self, entity: Entity) {
             if self.focused_entity == Some(entity) {
                 self.focused_entity = None;

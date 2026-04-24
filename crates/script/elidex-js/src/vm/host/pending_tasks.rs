@@ -35,8 +35,6 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_script_session::event_listener::EventListeners;
-
 use super::super::coerce;
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -44,6 +42,7 @@ use super::super::value::{
     PropertyValue, StringId, VmError,
 };
 use super::super::VmInner;
+use super::event_target::dispatch_script_event;
 use super::structured_clone::clone_value;
 
 // ---------------------------------------------------------------------------
@@ -133,12 +132,15 @@ impl VmInner {
 // postMessage dispatch
 // ---------------------------------------------------------------------------
 
-/// Build a message Event object and invoke every `message` listener
-/// registered on `target_window_id`'s backing entity.
+/// Build a MessageEvent and dispatch it at `target_window_id`'s
+/// backing entity through the shared `dispatch_script_event` walker.
 ///
 /// Matches WHATWG HTML §9.4.3 step 14 + §2.9 "fire a trusted event
-/// with name `message` at a Window".  Phase 2 simplification: no
-/// capture / bubble walk (Window is a leaf target).
+/// with name `message` at a Window".  Routing through
+/// `dispatch_script_event` gives correct per-listener `{once}` /
+/// `{signal}` / `{passive}` handling for free — the manual walk
+/// that predated this path leaked `{once}` entries and ignored
+/// aborted signals.
 fn dispatch_post_message(
     vm: &mut VmInner,
     target_window_id: ObjectId,
@@ -167,34 +169,13 @@ fn dispatch_post_message(
         return;
     };
 
-    // Collect matching listener IDs up front; we then invoke them
-    // outside the DOM borrow so the listener body can mutate ECS /
-    // allocate / dispatch further events without aliasing.  Both
-    // `capture` and non-capture listeners are collected — Window is
-    // the leaf, so capture-phase listeners fire with the same event
-    // object as the bubble-phase ones.
-    let listener_ids: Vec<elidex_script_session::event_listener::ListenerId> = {
-        let dom = vm.host_data.as_mut().expect("host_data check above").dom();
-        let Ok(listeners) = dom.world().get::<&EventListeners>(target_entity) else {
-            return;
-        };
-        listeners.matching_all_ids("message")
-    };
-    if listener_ids.is_empty() {
-        return;
-    }
+    let message_type_sid = vm.well_known.message;
 
-    // Intern `"message"` for the `type` data property.  The single
-    // string is pool-permanent; subsequent dispatches hit the dedup
-    // fast path in `StringPool::intern`.
-    let message_type_sid = vm.strings.intern("message");
-
-    // Build a MessageEvent-like Event object: the ObjectKind::Event
-    // internal slots (type_sid / bubbles / composed / etc.) are
-    // authoritative for dispatch; own data properties mirror the
-    // WebIDL attrs for JS visibility.  `cancelable = false` so
-    // `preventDefault()` is a spec-visible no-op matching browser
-    // MessageEvent semantics (§2.2 `cancelable` default).
+    // Allocate the Event with the authoritative internal slots.
+    // `cancelable = false` makes `preventDefault()` a spec-visible
+    // no-op per MessageEvent's §2.2 default.  `is_trusted = true`
+    // because UA is the synthesizer (postMessage is a browser-
+    // initiated dispatch, not a user script `dispatchEvent(...)` call).
     let event_id = vm.alloc_object(Object {
         kind: ObjectKind::Event {
             default_prevented: false,
@@ -212,114 +193,85 @@ fn dispatch_post_message(
         extensible: true,
     });
 
-    // Own data properties mirroring the MessageEvent WebIDL attrs +
-    // core Event attrs.  Walked via shape transition so every
-    // MessageEvent dispatched during one VM lifetime shares the
-    // same terminal shape (IC-friendly).
-    let type_key = PropertyKey::String(vm.well_known.event_type);
-    vm.define_shaped_property(
-        event_id,
-        type_key,
+    // Root the event across the subsequent slot installs + dispatch
+    // — the MessageEvent's `data` payload holds arbitrary user
+    // objects that would otherwise be only reachable from the Rust
+    // locals here, and the precomputed-shape install below allocates.
+    let mut g = vm.push_temp_root(JsValue::Object(event_id));
+
+    // Install core-9 + MessageEvent payload via the precomputed
+    // `shapes.message` terminal shape.  Slot order MUST match
+    // `build_precomputed_event_shapes`'s `core_keys` ordering so
+    // `set_event_slot_raw(event_id, EVENT_SLOT_TARGET=4, ...)` from
+    // inside `dispatch_script_event` hits the `target` slot.
+    let message_shape = g
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .message;
+    let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
+    // Slot order MUST match the `core_keys` ordering in
+    // `build_precomputed_event_shapes` + the `message` payload
+    // extension (`data` / `origin` / `lastEventId`).
+    let slots: Vec<PropertyValue> = vec![
         PropertyValue::Data(JsValue::String(message_type_sid)),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    let bubbles_key = PropertyKey::String(vm.well_known.bubbles);
-    vm.define_shaped_property(
-        event_id,
-        bubbles_key,
         PropertyValue::Data(JsValue::Boolean(false)),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    let target_key = PropertyKey::String(vm.well_known.target);
-    vm.define_shaped_property(
-        event_id,
-        target_key,
+        PropertyValue::Data(JsValue::Boolean(false)),
+        PropertyValue::Data(JsValue::Number(0.0)),
         PropertyValue::Data(JsValue::Object(target_window_id)),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    let current_target_key = PropertyKey::String(vm.well_known.current_target);
-    vm.define_shaped_property(
-        event_id,
-        current_target_key,
         PropertyValue::Data(JsValue::Object(target_window_id)),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    let data_key = PropertyKey::String(vm.strings.intern("data"));
-    vm.define_shaped_property(
-        event_id,
-        data_key,
+        PropertyValue::Data(JsValue::Number(timestamp_ms)),
+        PropertyValue::Data(JsValue::Boolean(false)),
+        PropertyValue::Data(JsValue::Boolean(true)),
         PropertyValue::Data(data),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    let origin_key = PropertyKey::String(vm.strings.intern("origin"));
-    vm.define_shaped_property(
-        event_id,
-        origin_key,
         PropertyValue::Data(JsValue::String(origin_sid)),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    let last_event_id_key = PropertyKey::String(vm.strings.intern("lastEventId"));
-    vm.define_shaped_property(
-        event_id,
-        last_event_id_key,
         PropertyValue::Data(JsValue::String(last_event_id_sid)),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    // `source` is the Window that posted the message; `null` when
-    // the producer did not identify one (WHATWG HTML §9.4.3 step 8).
-    let source_key = PropertyKey::String(vm.strings.intern("source"));
+    ];
+    g.define_with_precomputed_shape(event_id, message_shape, slots);
+
+    // `source` + `ports` extend past the precomputed shape (the
+    // shell-side MessageEvent shape doesn't carry them; see
+    // `event_shapes::dispatch_payload` Message arm).  Installed as
+    // ordinary shape-transition properties — only the core-9 slot
+    // indices matter for dispatch, the rest are JS-visible own
+    // data.  `source` is `null` when the producer did not identify
+    // a window (WHATWG HTML §9.4.3 step 8).
     let source_val = source_window_id
         .map(JsValue::Object)
         .unwrap_or(JsValue::Null);
-    vm.define_shaped_property(
+    let source_key = PropertyKey::String(g.well_known.source);
+    g.define_shaped_property(
         event_id,
         source_key,
         PropertyValue::Data(source_val),
         PropertyAttrs::WEBIDL_RO,
     );
-    // `ports` — empty Array until MessagePort lands (plan §Deferred
-    // #16).  Allocating per dispatch keeps identity fresh per
-    // event, matching browser behaviour.
-    let ports_arr = vm.create_array_object(Vec::new());
-    let ports_key = PropertyKey::String(vm.strings.intern("ports"));
-    vm.define_shaped_property(
+    // `ports` — fresh empty Array until MessagePort lands (plan
+    // §Deferred #16).  Allocating per dispatch keeps identity fresh
+    // per event, matching browser behaviour.
+    let ports_arr = g.create_array_object(Vec::new());
+    let ports_key = PropertyKey::String(g.strings.intern("ports"));
+    g.define_shaped_property(
         event_id,
         ports_key,
         PropertyValue::Data(JsValue::Object(ports_arr)),
         PropertyAttrs::WEBIDL_RO,
     );
 
-    // Root the event object across the listener invocations —
-    // listener bodies may trigger GC before the event goes out of
-    // scope on the VM stack.  `push_temp_root` returns an RAII
-    // guard that derefs to `&mut VmInner`; writing through `g`
-    // keeps the root alive for the whole walk.
-    let mut g = vm.push_temp_root(JsValue::Object(event_id));
-    let target_this = JsValue::Object(target_window_id);
-    let event_arg = [JsValue::Object(event_id)];
-    for listener_id in listener_ids {
-        // `immediate_propagation_stopped` short-circuits remaining
-        // listeners — spec-mandated for `stopImmediatePropagation`.
-        if let ObjectKind::Event {
-            immediate_propagation_stopped: true,
-            ..
-        } = g.get_object(event_id).kind
-        {
-            break;
-        }
-        let Some(callback) = g
-            .host_data
-            .as_deref()
-            .and_then(|h| h.get_listener(listener_id))
-        else {
-            continue;
-        };
-        // Listener-body throws are caught and dropped (WHATWG §2.10
-        // step 10 "report the exception").  We have no window to
-        // forward the error to yet — `onerror` dispatch lands with
-        // the error-reporting tranche.
-        let _ = g.call(callback, target_this, &event_arg);
-    }
+    // Bracket `dispatched_events` membership around the dispatch.
+    // `dispatch_script_event`'s doc contract requires the event to
+    // already be present; the outer `native_event_target_dispatch_event`
+    // does the same insert/remove dance.
+    g.dispatched_events.insert(event_id);
+    let mut ctx = NativeContext { vm: &mut g };
+    let dispatch_result = dispatch_script_event(&mut ctx, event_id, target_entity);
+    g.dispatched_events.remove(&event_id);
+    // VM-level errors (allocation failure etc.) are very rare and
+    // swallowed here — the dispatch has already advanced through
+    // as many listeners as possible, and postMessage has no
+    // observable error channel to the enqueuing caller (the task
+    // is an async point, §9.4.3 step 13).
+    let _ = dispatch_result;
 }
 
 // ---------------------------------------------------------------------------
