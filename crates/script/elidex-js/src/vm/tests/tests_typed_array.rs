@@ -1729,6 +1729,31 @@ fn non_canonical_string_keys_fall_through_to_ordinary() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn last_index_of_too_negative_from_index_returns_minus_one() {
+    let mut vm = Vm::new();
+    // ES §23.2.3.17 step 5: when `len + fromIndex` < 0, the scan
+    // has nothing to inspect → return -1.  Must NOT wrap to
+    // `max(len + fromIndex, 0)` (the indexOf semantics) — that
+    // would surface a false positive at index 0.
+    assert_eq!(
+        eval_number(&mut vm, "new Uint8Array([9, 1, 2]).lastIndexOf(9, -10);"),
+        -1.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "new Uint8Array([9, 1, 2]).lastIndexOf(9, -Infinity);"
+        ),
+        -1.0
+    );
+    // Sanity: within-range negative still matches.
+    assert_eq!(
+        eval_number(&mut vm, "new Uint8Array([9, 1, 9]).lastIndexOf(9, -1);"),
+        2.0
+    );
+}
+
+#[test]
 fn set_negative_offset_throws_range_error() {
     let mut vm = Vm::new();
     // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)` RangeErrors

@@ -578,15 +578,30 @@ pub(crate) fn native_typed_array_last_index_of(
     if len_elem == 0 {
         return Ok(JsValue::Number(-1.0));
     }
-    let from = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined => len_elem - 1,
+    // ES §23.2.3.17 step 5: if the adjusted fromIndex (`len +
+    // relativeIndex` when negative) is still < 0, return -1 — the
+    // reverse scan has nothing to inspect.  Mirrors
+    // `Array.prototype.lastIndexOf`.
+    #[allow(clippy::cast_possible_truncation)]
+    let from: i64 = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => i64::from(len_elem) - 1,
         other => {
-            let n = ctx.to_number(other)?;
-            relative_index_u32(n, len_elem).min(len_elem - 1)
+            let k = to_integer_or_infinity(ctx.to_number(other)?);
+            if k == f64::NEG_INFINITY {
+                return Ok(JsValue::Number(-1.0));
+            }
+            if k < 0.0 {
+                let adjusted = f64::from(len_elem) + k;
+                if adjusted < 0.0 {
+                    return Ok(JsValue::Number(-1.0));
+                }
+                adjusted as i64
+            } else {
+                (k as i64).min(i64::from(len_elem) - 1)
+            }
         }
     };
-    // Scan from `from` down to 0 inclusive.
-    let mut i: i64 = i64::from(from);
+    let mut i: i64 = from;
     while i >= 0 {
         let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i as u32, ek);
         if coerce::strict_eq(ctx.vm, v, search) {
