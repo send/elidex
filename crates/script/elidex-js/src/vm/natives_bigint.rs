@@ -11,7 +11,16 @@ pub(super) fn native_bigint_constructor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let raw = args.first().copied().unwrap_or(JsValue::Undefined);
+    // §21.2.1.1 step 2: if `value` is Object, run `ToPrimitive(value,
+    // number)`.  BigIntWrapper's `@@toPrimitive`/`valueOf` returns
+    // the primitive BigInt; any user-defined hook likewise has its
+    // result coerced through the primitive switch below.
+    let val = if matches!(raw, JsValue::Object(_)) {
+        ctx.vm.to_primitive(raw, "number")?
+    } else {
+        raw
+    };
     let bi = match val {
         JsValue::BigInt(_) => return Ok(val),
         JsValue::Boolean(b) => BigIntValue::from(i64::from(b)),
@@ -119,6 +128,107 @@ fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmErr
     match val {
         JsValue::BigInt(_) => Ok(val),
         other => native_bigint_constructor(ctx, JsValue::Undefined, &[other]),
+    }
+}
+
+/// ES §7.1.13 `ToBigInt` — strict variant that rejects `Number`
+/// input with TypeError (vs the inner `to_bigint` helper above
+/// which mirrors the `BigInt()` constructor and coerces integer
+/// numbers).  Required by TypedArray / DataView BigInt setter
+/// paths: `bi64[0] = 1` must throw TypeError per spec §10.4.5.16
+/// step 1 (ToBigInt rejects the Number argument), even though
+/// `BigInt(1) === 1n` succeeds.
+///
+/// Step 1 of the abstract operation runs `ToPrimitive(argument,
+/// number)` — so `BigInt64Array`-style writes accept a
+/// `BigIntWrapper` (whose `@@toPrimitive` / `valueOf` returns the
+/// primitive BigInt) and any custom object whose hook returns a
+/// BigInt.
+#[cfg(feature = "engine")]
+fn to_bigint_strict(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmError> {
+    let prim = if matches!(val, JsValue::Object(_)) {
+        ctx.vm.to_primitive(val, "number")?
+    } else {
+        val
+    };
+    match prim {
+        JsValue::BigInt(_) => Ok(prim),
+        JsValue::Number(_) => Err(VmError::type_error("Cannot convert a Number to a BigInt")),
+        other => to_bigint(ctx, other),
+    }
+}
+
+/// ES §7.1.15 `ToBigInt64` — coerce `val` to BigInt (strict, so
+/// Number rejects), then reduce modulo 2^64 and reinterpret the
+/// high-bit-set half as negative.  Used by `BigInt64Array` indexed
+/// writes + `DataView.setBigInt64`.  Strings / booleans / bigints
+/// coerce successfully; numbers / null / undefined / symbols
+/// throw TypeError.
+#[cfg(feature = "engine")]
+pub(crate) fn to_bigint64(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<i64, VmError> {
+    let bi_val = to_bigint_strict(ctx, val)?;
+    let JsValue::BigInt(bi_id) = bi_val else {
+        unreachable!("to_bigint_strict always returns a BigInt");
+    };
+    let bi = ctx.vm.bigints.get(bi_id);
+    let modulus = BigIntValue::from(1u64) << 64u32;
+    let half = BigIntValue::from(1u64) << 63u32;
+    // Fold `bi` into `[0, 2^64)` then, if the high bit is set,
+    // subtract 2^64 to recover the signed representation in
+    // `[-2^63, 2^63)`.  `signed` then fits exactly in `i64`.
+    let folded = ((bi % &modulus) + &modulus) % &modulus;
+    let signed = if folded >= half {
+        folded - modulus
+    } else {
+        folded
+    };
+    Ok(signed_to_i64(&signed))
+}
+
+/// ES §7.1.16 `ToBigUint64` — coerce `val` to BigInt (strict, so
+/// Number rejects) then reduce modulo 2^64.  Used by
+/// `BigUint64Array` indexed writes + `DataView.setBigUint64`.
+#[cfg(feature = "engine")]
+pub(crate) fn to_biguint64(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {
+    let bi_val = to_bigint_strict(ctx, val)?;
+    let JsValue::BigInt(bi_id) = bi_val else {
+        unreachable!("to_bigint_strict always returns a BigInt");
+    };
+    let bi = ctx.vm.bigints.get(bi_id);
+    let modulus = BigIntValue::from(1u64) << 64u32;
+    let folded = ((bi % &modulus) + &modulus) % &modulus;
+    // folded ∈ [0, 2^64) — take low 8 bytes big-endian.
+    let (_, bytes_be) = folded.to_bytes_be();
+    let mut buf = [0u8; 8];
+    let copy_len = bytes_be.len().min(8);
+    if copy_len > 0 {
+        buf[8 - copy_len..].copy_from_slice(&bytes_be[bytes_be.len() - copy_len..]);
+    }
+    Ok(u64::from_be_bytes(buf))
+}
+
+/// Convert a `BigIntValue` known to fit in `i64` into its raw i64.
+/// Uses the signed two's-complement representation: magnitude via
+/// big-endian bytes, then sign-negate.
+#[cfg(feature = "engine")]
+fn signed_to_i64(bi: &BigIntValue) -> i64 {
+    use num_bigint::Sign;
+    let (sign, bytes_be) = bi.to_bytes_be();
+    let mut buf = [0u8; 8];
+    let copy_len = bytes_be.len().min(8);
+    if copy_len > 0 {
+        buf[8 - copy_len..].copy_from_slice(&bytes_be[bytes_be.len() - copy_len..]);
+    }
+    let magnitude = u64::from_be_bytes(buf);
+    match sign {
+        Sign::Minus => {
+            // `magnitude` is the absolute value, ≤ 2^63 (caller
+            // guarantees the fold keeps `bi` in [-2^63, 2^63)).
+            // -2^63 is the only case where negation overflows; handle
+            // via wrapping.
+            (magnitude as i64).wrapping_neg()
+        }
+        _ => magnitude as i64,
     }
 }
 

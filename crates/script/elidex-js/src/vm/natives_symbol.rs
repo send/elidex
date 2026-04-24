@@ -156,6 +156,21 @@ pub(super) fn native_array_iterator_next(
     };
     let len = match &ctx.get_object(array_id).kind {
         ObjectKind::Array { elements } => Some(elements.len()),
+        #[cfg(feature = "engine")]
+        &ObjectKind::TypedArray {
+            byte_length,
+            element_kind,
+            ..
+        } => {
+            // TypedArray iteration reuses `ArrayIterState` with
+            // `array_id` pointing at the TypedArray instance.  The
+            // element count is byte_length / bpe — computed here
+            // so the value-fetch path below (`get_element`) sees
+            // the correct length and defers to the TypedArray
+            // integer-indexed get (installed in C3).
+            let bpe = u32::from(element_kind.bytes_per_element());
+            Some((byte_length / bpe) as usize)
+        }
         _ => None,
     };
     let (value, done) = if let Some(len) = len {

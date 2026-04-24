@@ -13,6 +13,109 @@ use super::VmInner;
 
 use super::ops::{parse_array_index_u16, try_as_array_index, DENSE_ARRAY_LEN_LIMIT};
 
+/// Classification of a WTF-16 string key against the TypedArray
+/// integer-indexed exotic object contract (ES §10.4.5 + §7.1.16.1
+/// `CanonicalNumericIndexString`).
+#[cfg(feature = "engine")]
+enum TypedArrayStringKey {
+    /// Non-negative integer in [0, u32::MAX].  Dispatches to
+    /// `read_element_raw` / `write_element_raw`.  If the caller's
+    /// length check fails, Get returns `undefined` and Set is a
+    /// silent no-op.
+    IntegerIndex(u32),
+    /// Canonical numeric string that is NOT a valid integer index
+    /// (`"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"`, negative
+    /// integer, fractional, exponential with canonical round-trip).
+    /// TypedArray Get returns `undefined`; Set is a silent no-op;
+    /// neither creates an ordinary property (§10.4.5.15 step 3 /
+    /// §10.4.5.16 step 1).
+    CanonicalNonInteger,
+    /// Not a canonical numeric string — falls through to ordinary
+    /// property storage.
+    NotNumeric,
+}
+
+/// Classify a Number key against the TypedArray integer-indexed
+/// exotic contract.  A Number key `n` is treated as if ToString'd —
+/// non-negative integers up to `u32::MAX` map to their index; all
+/// other numeric forms (`NaN`, ±`Infinity`, negative, fractional,
+/// out-of-u32-range) are canonical-numeric-but-not-integer, which
+/// §10.4.5.15/16 short-circuit to `undefined` / silent no-op.
+#[cfg(feature = "engine")]
+fn classify_typed_array_number_key(n: f64) -> TypedArrayStringKey {
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    {
+        if n.is_finite() && n >= 0.0 && n <= f64::from(u32::MAX) {
+            let as_u32 = n as u32;
+            if f64::from(as_u32) == n {
+                return TypedArrayStringKey::IntegerIndex(as_u32);
+            }
+        }
+    }
+    TypedArrayStringKey::CanonicalNonInteger
+}
+
+/// Parse a WTF-16 string as a TypedArray integer index (0..=u32::MAX).
+/// Distinct from `parse_array_index_u16` (capped at 2^32−2 per the
+/// Array `[[HasOwnProperty]]` contract); TypedArray permits the full
+/// u32 range.
+#[cfg(feature = "engine")]
+fn parse_typed_array_index_u32(units: &[u16]) -> Option<u32> {
+    if units.is_empty() {
+        return None;
+    }
+    if units.len() > 1 && units[0] == u16::from(b'0') {
+        return None;
+    }
+    let mut n: u64 = 0;
+    for &u in units {
+        let digit = u.wrapping_sub(u16::from(b'0'));
+        if digit > 9 {
+            return None;
+        }
+        n = n.checked_mul(10)?.checked_add(u64::from(digit))?;
+    }
+    u32::try_from(n).ok()
+}
+
+#[cfg(feature = "engine")]
+fn classify_typed_array_string_key(vm: &VmInner, sid: StringId) -> TypedArrayStringKey {
+    let units = vm.strings.get(sid);
+    if let Some(idx) = parse_typed_array_index_u32(units) {
+        return TypedArrayStringKey::IntegerIndex(idx);
+    }
+    // ES §7.1.16.1 step 1 hard-codes `"-0"` as canonical numeric
+    // (returns -0) even though ToString(-0) = "0" — the round-trip
+    // check below would otherwise miss it.
+    if units == [u16::from(b'-'), u16::from(b'0')] {
+        return TypedArrayStringKey::CanonicalNonInteger;
+    }
+    // Slow path: round-trip via ES Number::toString.  If
+    // ToString(ToNumber(key)) == key, the key is canonical numeric
+    // (the fast path above already handles non-negative integers, so
+    // any remaining canonical form — `"Infinity"`, `"NaN"`, negative
+    // integer, fractional — is non-integer-valid).
+    let n = super::coerce::to_number(vm, JsValue::String(sid)).unwrap_or(f64::NAN);
+    let mut roundtrip = String::new();
+    if n.is_nan() {
+        roundtrip.push_str("NaN");
+    } else if n.is_infinite() {
+        roundtrip.push_str(if n > 0.0 { "Infinity" } else { "-Infinity" });
+    } else {
+        super::coerce_format::write_number_es(n, &mut roundtrip);
+    }
+    if units.len() == roundtrip.len()
+        && units
+            .iter()
+            .zip(roundtrip.as_bytes())
+            .all(|(&u, &b)| u == u16::from(b))
+    {
+        TypedArrayStringKey::CanonicalNonInteger
+    } else {
+        TypedArrayStringKey::NotNumeric
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Property access
 // ---------------------------------------------------------------------------
@@ -430,7 +533,43 @@ impl VmInner {
         // §6.2.4.5 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
-            // Numeric index for arrays.
+            // TypedArray integer-indexed get (ES §10.4.5.15).  Must
+            // run ahead of the generic numeric fast path so any
+            // CanonicalNumericIndexString Number key — including
+            // `NaN` / ±`Infinity` / negative / fractional /
+            // out-of-u32-range values rejected by `try_as_array_index`
+            // — short-circuits to `undefined` without consulting
+            // ordinary properties or the prototype chain.
+            #[cfg(feature = "engine")]
+            if let JsValue::Number(n) = key {
+                if let ObjectKind::TypedArray {
+                    buffer_id,
+                    byte_offset,
+                    byte_length,
+                    element_kind,
+                } = self.get_object(id).kind
+                {
+                    match classify_typed_array_number_key(n) {
+                        TypedArrayStringKey::IntegerIndex(i) => {
+                            let len_elem =
+                                byte_length / u32::from(element_kind.bytes_per_element());
+                            if i < len_elem {
+                                return Ok(super::host::typed_array::read_element_raw(
+                                    self,
+                                    buffer_id,
+                                    byte_offset,
+                                    i,
+                                    element_kind,
+                                ));
+                            }
+                            return Ok(JsValue::Undefined);
+                        }
+                        TypedArrayStringKey::CanonicalNonInteger => return Ok(JsValue::Undefined),
+                        TypedArrayStringKey::NotNumeric => {}
+                    }
+                }
+            }
+            // Numeric index for arrays / Arguments / StringWrapper.
             if let JsValue::Number(n) = key {
                 if let Some(idx) = try_as_array_index(n) {
                     let obj_ref = self.get_object(id);
@@ -564,6 +703,43 @@ impl VmInner {
                     }
                 }
             }
+            // String numeric key on TypedArray — ES §10.4.5 integer-
+            // indexed exotic dispatch.  Any CanonicalNumericIndexString
+            // (§7.1.16.1) — including `"-0"` / `"Infinity"` / `"NaN"` /
+            // negative integer / fractional — short-circuits to
+            // `undefined` rather than falling through to ordinary
+            // property access.
+            #[cfg(feature = "engine")]
+            {
+                if let ObjectKind::TypedArray {
+                    buffer_id,
+                    byte_offset,
+                    byte_length,
+                    element_kind,
+                } = self.get_object(id).kind
+                {
+                    match classify_typed_array_string_key(self, key_id) {
+                        TypedArrayStringKey::IntegerIndex(i) => {
+                            let len_elem =
+                                byte_length / u32::from(element_kind.bytes_per_element());
+                            if i < len_elem {
+                                return Ok(super::host::typed_array::read_element_raw(
+                                    self,
+                                    buffer_id,
+                                    byte_offset,
+                                    i,
+                                    element_kind,
+                                ));
+                            }
+                            return Ok(JsValue::Undefined);
+                        }
+                        TypedArrayStringKey::CanonicalNonInteger => {
+                            return Ok(JsValue::Undefined);
+                        }
+                        TypedArrayStringKey::NotNumeric => {}
+                    }
+                }
+            }
             // String key that parses as array index → check elements first.
             if matches!(self.get_object(id).kind, ObjectKind::Array { .. }) {
                 let key_units = self.strings.get(key_id);
@@ -682,6 +858,85 @@ impl VmInner {
         None
     }
 
+    /// TypedArray integer-indexed-write fast path (ES §10.4.5.16
+    /// `IntegerIndexedElementSet`).  Returns `Some(Ok(()))` when the
+    /// receiver is a TypedArray and `key` resolves to a canonical
+    /// integer index (in-range write or silent out-of-range no-op);
+    /// `Some(Err(…))` on coercion failure; `None` to defer to the
+    /// ordinary property path.  Keeps `set_element` under the
+    /// 100-line clippy limit while preserving the required
+    /// precedence ahead of Array / Arguments dispatch.
+    #[cfg(feature = "engine")]
+    fn try_typed_array_element_set(
+        &mut self,
+        id: super::value::ObjectId,
+        key: JsValue,
+        val: JsValue,
+    ) -> Option<Result<(), VmError>> {
+        let (buffer_id, byte_offset, byte_length, element_kind) = match self.get_object(id).kind {
+            ObjectKind::TypedArray {
+                buffer_id,
+                byte_offset,
+                byte_length,
+                element_kind,
+            } => (buffer_id, byte_offset, byte_length, element_kind),
+            _ => return None,
+        };
+        // Resolve a canonical integer index.  Non-canonical strings
+        // (`"01"`, `"1.5e2"`) fall through to ordinary property
+        // storage; canonical forms that are NOT valid integer
+        // indices — `NaN` / ±`Infinity` / negative / fractional /
+        // out-of-u32-range — are silent no-ops per §10.4.5.16 step 1
+        // and must NOT surface as ordinary own properties.  Objects
+        // with a custom `toString` routing to a canonical numeric
+        // index string flow through the generic `ToString` branch
+        // below; Symbols bypass the TypedArray exotic path and land
+        // on ordinary own properties (§10.4.5 only specialises
+        // Strings).
+        let idx: u32 = match key {
+            JsValue::Number(n) => match classify_typed_array_number_key(n) {
+                TypedArrayStringKey::IntegerIndex(i) => i,
+                TypedArrayStringKey::CanonicalNonInteger => return Some(Ok(())),
+                TypedArrayStringKey::NotNumeric => return None,
+            },
+            JsValue::String(sid) => match classify_typed_array_string_key(self, sid) {
+                TypedArrayStringKey::IntegerIndex(i) => i,
+                TypedArrayStringKey::CanonicalNonInteger => return Some(Ok(())),
+                TypedArrayStringKey::NotNumeric => return None,
+            },
+            JsValue::Symbol(_) => return None,
+            other => {
+                let sid = match to_string(self, other) {
+                    Ok(sid) => sid,
+                    Err(err) => return Some(Err(err)),
+                };
+                match classify_typed_array_string_key(self, sid) {
+                    TypedArrayStringKey::IntegerIndex(i) => i,
+                    TypedArrayStringKey::CanonicalNonInteger => return Some(Ok(())),
+                    TypedArrayStringKey::NotNumeric => return None,
+                }
+            }
+        };
+        let len_elem = byte_length / u32::from(element_kind.bytes_per_element());
+        if idx >= len_elem {
+            // Canonical integer but out-of-range → silent no-op
+            // (§10.4.5.16 step 1).  Does NOT create an own
+            // ordinary property.
+            return Some(Ok(()));
+        }
+        // In-range: coerce through `write_element_raw` (handles
+        // ToBigInt / ToInt* / float encoding per `element_kind`).
+        let mut ctx = super::value::NativeContext { vm: self };
+        Some(super::host::typed_array::write_element_raw(
+            &mut ctx,
+            buffer_id,
+            byte_offset,
+            idx,
+            element_kind,
+            val,
+        ))
+    }
+
     pub(crate) fn set_element(
         &mut self,
         obj: JsValue,
@@ -691,6 +946,13 @@ impl VmInner {
         // §6.2.4.5 RequireObjectCoercible: `null[k] = v` / `undefined[k] = v` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
+            // TypedArray integer-indexed write dispatches ahead of
+            // the Array / Arguments fast path — see
+            // `try_typed_array_element_set` for rationale.
+            #[cfg(feature = "engine")]
+            if let Some(result) = self.try_typed_array_element_set(id, key, val) {
+                return result;
+            }
             // Numeric key → Array/Arguments dense-storage fast path.
             if let JsValue::Number(n) = key {
                 if let Some(idx) = try_as_array_index(n) {

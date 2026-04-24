@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 46],
+    proto_roots: [Option<ObjectId>; 59],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -661,6 +661,16 @@ fn trace_work_list(
             // prunes entries whose key `ObjectId` was collected.
             #[cfg(feature = "engine")]
             ObjectKind::NamedNodeMap | ObjectKind::Attr => {}
+            // `TypedArray` / `DataView` each carry the backing
+            // `ArrayBuffer`'s `ObjectId` inline — the trace step
+            // keeps the buffer alive while any view is reachable.
+            // No side table: all other fields (`byte_offset` /
+            // `byte_length` / `element_kind`) are plain `Copy`
+            // values, and the buffer's own bytes live in
+            // `body_data` (pruned alongside ArrayBuffer itself).
+            ObjectKind::TypedArray { buffer_id, .. } | ObjectKind::DataView { buffer_id, .. } => {
+                mark_object(*buffer_id, obj_marks, work);
+            }
         }
     }
 }
@@ -925,6 +935,64 @@ impl VmInner {
                 None,
                 #[cfg(feature = "engine")]
                 self.attr_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 46 + 13 (PR5-typed-array §C1/C2: %TypedArray% abstract
+                // + DataView + 11 concrete subclass prototypes) = 59.
+                // Ordered: abstract parent first (`%TypedArray%` +
+                // DataView are independent; `%TypedArray%` precedes so
+                // subclass rooting folds inside the abstract's reach),
+                // then subclasses in `ElementKind` declaration order.
+                #[cfg(feature = "engine")]
+                self.typed_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.data_view_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.int8_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.uint8_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.uint8_clamped_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.int16_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.uint16_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.int32_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.uint32_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.float32_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.float64_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.bigint64_array_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.biguint64_array_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],

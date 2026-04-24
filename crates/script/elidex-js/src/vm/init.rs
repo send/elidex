@@ -169,6 +169,32 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 blob_data: HashMap::new(),
                 #[cfg(feature = "engine")]
+                typed_array_prototype: None,
+                #[cfg(feature = "engine")]
+                data_view_prototype: None,
+                #[cfg(feature = "engine")]
+                int8_array_prototype: None,
+                #[cfg(feature = "engine")]
+                uint8_array_prototype: None,
+                #[cfg(feature = "engine")]
+                uint8_clamped_array_prototype: None,
+                #[cfg(feature = "engine")]
+                int16_array_prototype: None,
+                #[cfg(feature = "engine")]
+                uint16_array_prototype: None,
+                #[cfg(feature = "engine")]
+                int32_array_prototype: None,
+                #[cfg(feature = "engine")]
+                uint32_array_prototype: None,
+                #[cfg(feature = "engine")]
+                float32_array_prototype: None,
+                #[cfg(feature = "engine")]
+                float64_array_prototype: None,
+                #[cfg(feature = "engine")]
+                bigint64_array_prototype: None,
+                #[cfg(feature = "engine")]
+                biguint64_array_prototype: None,
+                #[cfg(feature = "engine")]
                 network_handle: None,
                 #[cfg(feature = "engine")]
                 fetch_abort_observers: HashMap::new(),

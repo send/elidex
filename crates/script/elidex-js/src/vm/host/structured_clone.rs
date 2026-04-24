@@ -134,32 +134,64 @@ fn clone_recursive(
         }
         CloneKind::Ordinary => clone_ordinary(vm, src_id, memo),
         CloneKind::Array => clone_array(vm, src_id, memo),
-        CloneKind::RegExp => clone_regexp(vm, src_id),
+        CloneKind::RegExp => {
+            let new_id = clone_regexp(vm, src_id)?;
+            if let JsValue::Object(id) = new_id {
+                memo.insert(src_id, id);
+            }
+            Ok(new_id)
+        }
         CloneKind::Error => clone_error(vm, src_id, src_proto, memo),
-        CloneKind::NumberWrapper(n) => Ok(JsValue::Object(alloc_wrapper(
+        CloneKind::NumberWrapper(n) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
+            src_id,
             ObjectKind::NumberWrapper(n),
             vm.number_prototype,
+            memo,
         ))),
-        CloneKind::StringWrapper(sid) => Ok(JsValue::Object(alloc_wrapper(
+        CloneKind::StringWrapper(sid) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
+            src_id,
             ObjectKind::StringWrapper(sid),
             vm.string_prototype,
+            memo,
         ))),
-        CloneKind::BooleanWrapper(b) => Ok(JsValue::Object(alloc_wrapper(
+        CloneKind::BooleanWrapper(b) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
+            src_id,
             ObjectKind::BooleanWrapper(b),
             vm.boolean_prototype,
+            memo,
         ))),
-        CloneKind::BigIntWrapper(id) => Ok(JsValue::Object(alloc_wrapper(
+        CloneKind::BigIntWrapper(id) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
+            src_id,
             ObjectKind::BigIntWrapper(id),
             vm.bigint_prototype,
+            memo,
         ))),
-        CloneKind::ArrayBuffer => Ok(JsValue::Object(clone_array_buffer(vm, src_id))),
-        CloneKind::Blob => Ok(JsValue::Object(clone_blob(vm, src_id))),
+        CloneKind::ArrayBuffer => Ok(JsValue::Object(clone_array_buffer(vm, src_id, memo))),
+        CloneKind::Blob => Ok(JsValue::Object(clone_blob(vm, src_id, memo))),
+        CloneKind::TypedArray => Ok(JsValue::Object(clone_typed_array(vm, src_id, memo))),
+        CloneKind::DataView => Ok(JsValue::Object(clone_data_view(vm, src_id, memo))),
         CloneKind::Unclonable(label) => Err(data_clone_error(vm, label)),
     }
+}
+
+/// Allocate a primitive-wrapper clone and record `src → new_id` in
+/// `memo` so subsequent references to the same wrapper in the
+/// source graph resolve to the same cloned wrapper (spec §2.9
+/// StructuredSerialize memory-map identity).
+fn alloc_memoized_wrapper(
+    vm: &mut VmInner,
+    src: ObjectId,
+    kind: ObjectKind,
+    proto: Option<ObjectId>,
+    memo: &mut HashMap<ObjectId, ObjectId>,
+) -> ObjectId {
+    let new_id = alloc_wrapper(vm, kind, proto);
+    memo.insert(src, new_id);
+    new_id
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +214,8 @@ enum CloneKind {
     BigIntWrapper(super::super::value::BigIntId),
     ArrayBuffer,
     Blob,
+    TypedArray,
+    DataView,
     Unclonable(&'static str),
 }
 
@@ -226,6 +260,13 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::NodeList => CloneKind::Unclonable("NodeList"),
         ObjectKind::NamedNodeMap => CloneKind::Unclonable("NamedNodeMap"),
         ObjectKind::Attr => CloneKind::Unclonable("Attr"),
+        // TypedArray / DataView clone via shared underlying
+        // buffer — see `clone_typed_array` / `clone_data_view`
+        // for the memo-threaded handling that preserves
+        // shared-buffer identity across two views of the same
+        // source.
+        ObjectKind::TypedArray { .. } => CloneKind::TypedArray,
+        ObjectKind::DataView { .. } => CloneKind::DataView,
     }
 }
 
@@ -490,7 +531,21 @@ fn alloc_wrapper(vm: &mut VmInner, kind: ObjectKind, proto: Option<ObjectId>) ->
 /// be observed through the other — the defining contract of
 /// StructuredSerialize for transferable ArrayBuffers when no
 /// `transfer` list is present (spec §2.9 step 12).
-fn clone_array_buffer(vm: &mut VmInner, src: ObjectId) -> ObjectId {
+///
+/// Memo-threaded: two TypedArray / DataView views over the same
+/// underlying ArrayBuffer must clone to two views over the SAME
+/// cloned ArrayBuffer (spec §2.9 step 4: "If memory[value] exists,
+/// return memory[value]").  Callers insert `(src → new_id)` into
+/// the memo after construction — this function does it once, so
+/// later siblings hit the memo lookup in `clone_recursive`.
+fn clone_array_buffer(
+    vm: &mut VmInner,
+    src: ObjectId,
+    memo: &mut HashMap<ObjectId, ObjectId>,
+) -> ObjectId {
+    if let Some(&cached) = memo.get(&src) {
+        return cached;
+    }
     let src_bytes: Arc<[u8]> = vm
         .body_data
         .get(&src)
@@ -500,19 +555,105 @@ fn clone_array_buffer(vm: &mut VmInner, src: ObjectId) -> ObjectId {
     // straight into the Arc payload — independent memory, no shared
     // refcount with the source (StructuredSerialize §2.9 step 12).
     let new_bytes: Arc<[u8]> = Arc::<[u8]>::from(&src_bytes[..]);
-    super::array_buffer::create_array_buffer_from_bytes(vm, new_bytes)
+    let new_id = super::array_buffer::create_array_buffer_from_bytes(vm, new_bytes);
+    memo.insert(src, new_id);
+    new_id
 }
 
 /// Deep-copy a Blob.  Bytes are `to_vec()`-copied for the same
 /// independence guarantee as ArrayBuffer; `type` is a pool-interned
 /// `StringId` and so survives the clone without re-interning.
-fn clone_blob(vm: &mut VmInner, src: ObjectId) -> ObjectId {
+/// Memo-threaded for the same reason as `clone_array_buffer` —
+/// two references to the same Blob clone to the same cloned Blob.
+fn clone_blob(vm: &mut VmInner, src: ObjectId, memo: &mut HashMap<ObjectId, ObjectId>) -> ObjectId {
+    if let Some(&cached) = memo.get(&src) {
+        return cached;
+    }
     let (bytes, type_sid) = match vm.blob_data.get(&src) {
         Some(BlobData { bytes, type_sid }) => (Arc::clone(bytes), *type_sid),
         None => (Arc::from(&[][..]), vm.well_known.empty),
     };
     let new_bytes: Arc<[u8]> = Arc::<[u8]>::from(&bytes[..]);
-    super::blob::create_blob_from_bytes(vm, new_bytes, type_sid)
+    let new_id = super::blob::create_blob_from_bytes(vm, new_bytes, type_sid);
+    memo.insert(src, new_id);
+    new_id
+}
+
+/// Clone a `TypedArray` view.  First clones the underlying
+/// ArrayBuffer (or reuses the memo-cached clone if another view
+/// already triggered the buffer clone), then allocates a fresh
+/// `ObjectKind::TypedArray { ... }` with the same `byte_offset` /
+/// `byte_length` / `element_kind` pointing at the cloned buffer.
+/// Two views of the same source buffer observably share the same
+/// cloned buffer (identity preserved).
+fn clone_typed_array(
+    vm: &mut VmInner,
+    src: ObjectId,
+    memo: &mut HashMap<ObjectId, ObjectId>,
+) -> ObjectId {
+    if let Some(&cached) = memo.get(&src) {
+        return cached;
+    }
+    let (buffer_id, byte_offset, byte_length, element_kind) = match vm.get_object(src).kind {
+        ObjectKind::TypedArray {
+            buffer_id,
+            byte_offset,
+            byte_length,
+            element_kind,
+        } => (buffer_id, byte_offset, byte_length, element_kind),
+        _ => unreachable!("clone_typed_array called on non-TypedArray"),
+    };
+    let cloned_buffer = clone_array_buffer(vm, buffer_id, memo);
+    // Pick the subclass-specific prototype.  Falls back to the
+    // abstract `%TypedArray%.prototype` if any subclass field is
+    // unexpectedly missing.
+    let proto = super::typed_array_methods::subclass_prototype_for(vm, element_kind);
+    let new_id = vm.alloc_object(Object {
+        kind: ObjectKind::TypedArray {
+            buffer_id: cloned_buffer,
+            byte_offset,
+            byte_length,
+            element_kind,
+        },
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: proto,
+        extensible: true,
+    });
+    memo.insert(src, new_id);
+    new_id
+}
+
+/// Clone a `DataView` — same pattern as `clone_typed_array`, no
+/// `element_kind` slot.
+fn clone_data_view(
+    vm: &mut VmInner,
+    src: ObjectId,
+    memo: &mut HashMap<ObjectId, ObjectId>,
+) -> ObjectId {
+    if let Some(&cached) = memo.get(&src) {
+        return cached;
+    }
+    let (buffer_id, byte_offset, byte_length) = match vm.get_object(src).kind {
+        ObjectKind::DataView {
+            buffer_id,
+            byte_offset,
+            byte_length,
+        } => (buffer_id, byte_offset, byte_length),
+        _ => unreachable!("clone_data_view called on non-DataView"),
+    };
+    let cloned_buffer = clone_array_buffer(vm, buffer_id, memo);
+    let new_id = vm.alloc_object(Object {
+        kind: ObjectKind::DataView {
+            buffer_id: cloned_buffer,
+            byte_offset,
+            byte_length,
+        },
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: vm.data_view_prototype,
+        extensible: true,
+    });
+    memo.insert(src, new_id);
+    new_id
 }
 
 // ---------------------------------------------------------------------------
