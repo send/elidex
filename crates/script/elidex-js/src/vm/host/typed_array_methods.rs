@@ -6,22 +6,27 @@
 //! wires each native into `%TypedArray%.prototype`, shared across
 //! all 11 subclasses via the prototype chain.
 //!
-//! ## Scope (C4a)
+//! ## Scope (C4a + C4b)
 //!
 //! - `fill(value, start?, end?)` (§23.2.3.11)
 //! - `subarray(begin?, end?)` (§23.2.3.27) — shares backing buffer
 //! - `slice(begin?, end?)` (§23.2.3.25) — fresh buffer copy
 //! - `values()` / `keys()` / `entries()` (§23.2.3.34 / .20 / .8) —
-//!   reuse `ObjectKind::ArrayIterator` infra (natives_symbol.rs
-//!   `native_array_iterator_next` extended to read TypedArray
-//!   byte-level elements).
+//!   reuse `ObjectKind::ArrayIterator` infra
+//! - `set(source, offset?)` (§23.2.3.24)
+//! - `copyWithin(target, start, end?)` (§23.2.3.6)
+//! - `reverse()` (§23.2.3.23)
+//! - `indexOf` / `lastIndexOf` / `includes` / `at`
+//! - `join(separator?)` (§23.2.3.19)
+//! - `forEach` / `every` / `some` / `find` / `findIndex`
 //!
-//! ## Deferred (C4b / PR-spec-polish)
+//! ## Deferred (PR-spec-polish SP8)
 //!
-//! `set` / `copyWithin` / `reverse` / `indexOf` / `lastIndexOf` /
-//! `includes` / `at` / `forEach` / `every` / `some` / `find` /
-//! `findIndex` / `sort` / `map` / `filter` / `reduce` / `toLocaleString`
-//! land in follow-up commits.
+//! `sort` / `map` / `filter` / `reduce` / `reduceRight` / `flatMap` /
+//! `findLast` / `findLastIndex` / `toLocaleString` — all rely on
+//! SpeciesConstructor or ICU.  Per-subclass `.of` / `.from` also
+//! deferred (use identity ctor, don't need species, but require
+//! ctor-ObjectId → ElementKind registry — adds state to VmInner).
 
 #![cfg(feature = "engine")]
 
@@ -314,4 +319,554 @@ fn create_typed_array_iterator(
         extensible: true,
     });
     Ok(JsValue::Object(iter_id))
+}
+
+// ---------------------------------------------------------------------------
+// set(source, offset?)
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.set(source, offset?)` (ES §23.2.3.24).
+///
+/// Two branches:
+/// - If `source` is a TypedArray, copy its elements into `this`
+///   starting at `offset`, with per-element type conversion and
+///   overlap-aware copy (same-buffer case uses a scratch Vec).
+/// - Otherwise treat `source` as array-like: iterate `[0, src.length)`
+///   and copy via `ToNumber` / `ToBigInt`.
+///
+/// RangeError when `offset + sourceLength > this.length`.
+pub(crate) fn native_typed_array_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (_id, buffer_id, byte_offset, byte_length, dst_ek) =
+        require_typed_array_parts(ctx, this, "set")?;
+    let target_offset = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => 0_u32,
+        other => {
+            let n = ctx.to_number(other)?;
+            relative_index_u32(n, u32::MAX)
+        }
+    };
+    let dst_bpe = u32::from(dst_ek.bytes_per_element());
+    let dst_len = byte_length / dst_bpe;
+
+    let source = args.first().copied().unwrap_or(JsValue::Undefined);
+    if let JsValue::Object(src_id) = source {
+        if let ObjectKind::TypedArray {
+            buffer_id: src_buf,
+            byte_offset: src_off,
+            byte_length: src_bytelen,
+            element_kind: src_ek,
+        } = ctx.vm.get_object(src_id).kind
+        {
+            if src_ek.is_bigint() != dst_ek.is_bigint() {
+                return Err(VmError::type_error(
+                    "Failed to execute 'set' on 'TypedArray': Cannot mix BigInt and other types",
+                ));
+            }
+            let src_bpe = u32::from(src_ek.bytes_per_element());
+            let src_len = src_bytelen / src_bpe;
+            if target_offset
+                .checked_add(src_len)
+                .map_or(true, |end| end > dst_len)
+            {
+                return Err(VmError::range_error(
+                    "Failed to execute 'set' on 'TypedArray': offset + length out of range",
+                ));
+            }
+            // Source and destination MAY share the backing buffer
+            // (e.g. `ta.set(ta.subarray(0))`).  Read every source
+            // element upfront so the write pass doesn't observe
+            // its own output — spec §23.2.3.24 step 26 handles
+            // this via an explicit same-buffer check + scratch
+            // copy.  Our simpler full-read-then-write serialises
+            // correctly for all cases.
+            let mut scratch: Vec<JsValue> = Vec::with_capacity(src_len as usize);
+            for i in 0..src_len {
+                scratch.push(read_element_raw(ctx.vm, src_buf, src_off, i, src_ek));
+            }
+            for (i, val) in scratch.into_iter().enumerate() {
+                #[allow(clippy::cast_possible_truncation)]
+                let dst_i = target_offset + i as u32;
+                write_element_raw(ctx, buffer_id, byte_offset, dst_i, dst_ek, val)?;
+            }
+            return Ok(JsValue::Undefined);
+        }
+    }
+
+    // Array-like branch: read `source.length` + `source[i]`
+    // through the standard property path (dispatches to the
+    // TypedArray-indexed / Array-element fast paths transparently
+    // when `source` is itself dense).
+    let JsValue::Object(src_id) = source else {
+        return Err(VmError::type_error(
+            "Failed to execute 'set' on 'TypedArray': source must be an object",
+        ));
+    };
+    let length_sid = ctx.vm.well_known.length;
+    let len_val =
+        ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;
+    let len_f = ctx.to_number(len_val)?;
+    let src_len = {
+        let truncated = if len_f.is_nan() { 0.0 } else { len_f.trunc() };
+        if truncated < 0.0 || truncated > f64::from(u32::MAX) {
+            return Err(VmError::range_error(
+                "Failed to execute 'set' on 'TypedArray': source length out of range",
+            ));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let l = truncated as u32;
+        l
+    };
+    if target_offset
+        .checked_add(src_len)
+        .map_or(true, |end| end > dst_len)
+    {
+        return Err(VmError::range_error(
+            "Failed to execute 'set' on 'TypedArray': offset + length out of range",
+        ));
+    }
+    for i in 0..src_len {
+        #[allow(clippy::cast_precision_loss)]
+        let key = JsValue::Number(f64::from(i));
+        let val = ctx.vm.get_element(source, key)?;
+        write_element_raw(ctx, buffer_id, byte_offset, target_offset + i, dst_ek, val)?;
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// copyWithin(target, start, end?)
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.copyWithin(target, start, end?)`
+/// (ES §23.2.3.6).  In-place byte copy with correct overlap
+/// handling via an intermediate read-all-then-write-all pass.
+/// Returns receiver for chaining.
+pub(crate) fn native_typed_array_copy_within(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (id, buffer_id, byte_offset, byte_length, ek) =
+        require_typed_array_parts(ctx, this, "copyWithin")?;
+    let bpe = u32::from(ek.bytes_per_element());
+    let len_elem = byte_length / bpe;
+    let target = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => 0,
+        other => relative_index_u32(ctx.to_number(other)?, len_elem),
+    };
+    let start = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => 0,
+        other => relative_index_u32(ctx.to_number(other)?, len_elem),
+    };
+    let end = match args.get(2).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => len_elem,
+        other => relative_index_u32(ctx.to_number(other)?, len_elem),
+    };
+    let count = end
+        .saturating_sub(start)
+        .min(len_elem.saturating_sub(target));
+    if count > 0 {
+        let mut scratch: Vec<JsValue> = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            scratch.push(read_element_raw(
+                ctx.vm,
+                buffer_id,
+                byte_offset,
+                start + i,
+                ek,
+            ));
+        }
+        for (i, v) in scratch.into_iter().enumerate() {
+            #[allow(clippy::cast_possible_truncation)]
+            let dst_i = target + i as u32;
+            write_element_raw(ctx, buffer_id, byte_offset, dst_i, ek, v)?;
+        }
+    }
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// reverse()
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.reverse()` (ES §23.2.3.23).  In-place
+/// element swap, returns receiver.
+pub(crate) fn native_typed_array_reverse(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (id, buffer_id, byte_offset, byte_length, ek) =
+        require_typed_array_parts(ctx, this, "reverse")?;
+    let bpe = u32::from(ek.bytes_per_element());
+    let len_elem = byte_length / bpe;
+    let mut lo = 0_u32;
+    let mut hi = len_elem.saturating_sub(1);
+    while lo < hi {
+        let a = read_element_raw(ctx.vm, buffer_id, byte_offset, lo, ek);
+        let b = read_element_raw(ctx.vm, buffer_id, byte_offset, hi, ek);
+        write_element_raw(ctx, buffer_id, byte_offset, lo, ek, b)?;
+        write_element_raw(ctx, buffer_id, byte_offset, hi, ek, a)?;
+        lo += 1;
+        hi -= 1;
+    }
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// Search: indexOf / lastIndexOf / includes / at
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.indexOf(searchElement, fromIndex?)`
+/// (ES §23.2.3.15).  Strict equality (NaN is never equal to
+/// NaN — unlike `includes`).  Returns `-1` on miss.
+pub(crate) fn native_typed_array_index_of(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (_id, buffer_id, byte_offset, byte_length, ek) =
+        require_typed_array_parts(ctx, this, "indexOf")?;
+    let search = args.first().copied().unwrap_or(JsValue::Undefined);
+    let bpe = u32::from(ek.bytes_per_element());
+    let len_elem = byte_length / bpe;
+    let from = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => 0,
+        other => relative_index_u32(ctx.to_number(other)?, len_elem),
+    };
+    for i in from..len_elem {
+        let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
+        if strict_equals(v, search) {
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(JsValue::Number(f64::from(i)));
+        }
+    }
+    Ok(JsValue::Number(-1.0))
+}
+
+/// `%TypedArray%.prototype.lastIndexOf(searchElement, fromIndex?)`
+/// (ES §23.2.3.17).  Strict equality, reverse scan.
+pub(crate) fn native_typed_array_last_index_of(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (_id, buffer_id, byte_offset, byte_length, ek) =
+        require_typed_array_parts(ctx, this, "lastIndexOf")?;
+    let search = args.first().copied().unwrap_or(JsValue::Undefined);
+    let bpe = u32::from(ek.bytes_per_element());
+    let len_elem = byte_length / bpe;
+    if len_elem == 0 {
+        return Ok(JsValue::Number(-1.0));
+    }
+    let from = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => len_elem - 1,
+        other => {
+            let n = ctx.to_number(other)?;
+            // lastIndexOf clamps to len-1 (inclusive) for positive
+            // `from`, and wraps negatives (relative_index_u32 does
+            // this — but clamped at len, so subtract 1 if it lands
+            // at len).
+            let idx = relative_index_u32(n, len_elem);
+            if idx >= len_elem {
+                len_elem - 1
+            } else {
+                idx
+            }
+        }
+    };
+    // Scan from `from` down to 0 inclusive.
+    let mut i: i64 = i64::from(from);
+    while i >= 0 {
+        let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i as u32, ek);
+        if strict_equals(v, search) {
+            #[allow(clippy::cast_precision_loss)]
+            return Ok(JsValue::Number(i as f64));
+        }
+        i -= 1;
+    }
+    Ok(JsValue::Number(-1.0))
+}
+
+/// `%TypedArray%.prototype.includes(searchElement, fromIndex?)`
+/// (ES §23.2.3.16).  SameValueZero (NaN equals NaN).
+pub(crate) fn native_typed_array_includes(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (_id, buffer_id, byte_offset, byte_length, ek) =
+        require_typed_array_parts(ctx, this, "includes")?;
+    let search = args.first().copied().unwrap_or(JsValue::Undefined);
+    let bpe = u32::from(ek.bytes_per_element());
+    let len_elem = byte_length / bpe;
+    let from = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => 0,
+        other => relative_index_u32(ctx.to_number(other)?, len_elem),
+    };
+    for i in from..len_elem {
+        let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
+        if same_value_zero(v, search) {
+            return Ok(JsValue::Boolean(true));
+        }
+    }
+    Ok(JsValue::Boolean(false))
+}
+
+/// `%TypedArray%.prototype.at(index)` (ES §23.2.3.3).  Negative
+/// index wraps.  Out-of-range → `undefined`.
+pub(crate) fn native_typed_array_at(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (_id, buffer_id, byte_offset, byte_length, ek) =
+        require_typed_array_parts(ctx, this, "at")?;
+    let bpe = u32::from(ek.bytes_per_element());
+    let len_elem = byte_length / bpe;
+    let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    if n.is_nan() || !n.is_finite() {
+        return Ok(JsValue::Undefined);
+    }
+    let trunc = n.trunc();
+    #[allow(clippy::cast_precision_loss)]
+    let len_f = f64::from(len_elem);
+    let idx_f = if trunc < 0.0 { len_f + trunc } else { trunc };
+    if idx_f < 0.0 || idx_f >= len_f {
+        return Ok(JsValue::Undefined);
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let idx = idx_f as u32;
+    Ok(read_element_raw(ctx.vm, buffer_id, byte_offset, idx, ek))
+}
+
+// ---------------------------------------------------------------------------
+// join(separator?)
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.join(separator?)` (ES §23.2.3.19).
+/// `separator` defaults to `","`; `undefined` also `,`.  Elements
+/// are coerced via `ToString` (per-subclass number / bigint
+/// formatting — BigInts stringify without the `n` suffix).
+pub(crate) fn native_typed_array_join(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (_id, buffer_id, byte_offset, byte_length, ek) =
+        require_typed_array_parts(ctx, this, "join")?;
+    let sep = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => ",".to_string(),
+        other => {
+            let sid = ctx.to_string_val(other)?;
+            ctx.vm.strings.get_utf8(sid)
+        }
+    };
+    let bpe = u32::from(ek.bytes_per_element());
+    let len_elem = byte_length / bpe;
+    let mut out = String::new();
+    for i in 0..len_elem {
+        if i > 0 {
+            out.push_str(&sep);
+        }
+        let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
+        // §23.2.3.19 step 6: `undefined` / `null` formats as
+        // empty string (happens only theoretically — TypedArray
+        // elements are always Number or BigInt, so this branch
+        // is defensive).
+        if !matches!(v, JsValue::Undefined | JsValue::Null) {
+            let sid = ctx.to_string_val(v)?;
+            out.push_str(&ctx.vm.strings.get_utf8(sid));
+        }
+    }
+    let out_sid = ctx.vm.strings.intern(&out);
+    Ok(JsValue::String(out_sid))
+}
+
+// ---------------------------------------------------------------------------
+// HOFs: forEach / every / some / find / findIndex
+// ---------------------------------------------------------------------------
+
+/// Per-HOF short-circuit verdict.  `Short` returns the given value
+/// immediately; `Continue` lets the loop advance to the next index.
+enum HofDecision {
+    Continue,
+    Short(JsValue),
+}
+
+/// Iterate with callback.  `decide(i, elem, cb_result_is_truthy)`
+/// is called once per element with ToBoolean already applied to
+/// the callback result; it decides whether to short-circuit and
+/// with what value.  Returns the final fallback on full drain.
+fn iterate_with_callback(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    method: &str,
+    fallback: JsValue,
+    mut decide: impl FnMut(u32, JsValue, bool) -> HofDecision,
+) -> Result<JsValue, VmError> {
+    let (_id, buffer_id, byte_offset, byte_length, ek) =
+        require_typed_array_parts(ctx, this, method)?;
+    let cb = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Object(id) if ctx.get_object(id).kind.is_callable() => id,
+        _ => {
+            return Err(VmError::type_error(format!(
+                "Failed to execute '{method}' on 'TypedArray': callback is not a function"
+            )));
+        }
+    };
+    let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let bpe = u32::from(ek.bytes_per_element());
+    let len_elem = byte_length / bpe;
+    for i in 0..len_elem {
+        let elem = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
+        #[allow(clippy::cast_precision_loss)]
+        let idx_val = JsValue::Number(f64::from(i));
+        let cb_args = [elem, idx_val, this];
+        let result = ctx.call_function(cb, this_arg, &cb_args)?;
+        let truthy = ctx.to_boolean(result);
+        if let HofDecision::Short(v) = decide(i, elem, truthy) {
+            return Ok(v);
+        }
+    }
+    Ok(fallback)
+}
+
+/// `%TypedArray%.prototype.forEach(cb, thisArg?)` (ES §23.2.3.13).
+pub(crate) fn native_typed_array_for_each(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    iterate_with_callback(ctx, this, args, "forEach", JsValue::Undefined, |_, _, _| {
+        HofDecision::Continue
+    })
+}
+
+/// `%TypedArray%.prototype.every(cb, thisArg?)` (ES §23.2.3.7).
+pub(crate) fn native_typed_array_every(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    iterate_with_callback(
+        ctx,
+        this,
+        args,
+        "every",
+        JsValue::Boolean(true),
+        |_, _, truthy| {
+            if truthy {
+                HofDecision::Continue
+            } else {
+                HofDecision::Short(JsValue::Boolean(false))
+            }
+        },
+    )
+}
+
+/// `%TypedArray%.prototype.some(cb, thisArg?)` (ES §23.2.3.26).
+pub(crate) fn native_typed_array_some(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    iterate_with_callback(
+        ctx,
+        this,
+        args,
+        "some",
+        JsValue::Boolean(false),
+        |_, _, truthy| {
+            if truthy {
+                HofDecision::Short(JsValue::Boolean(true))
+            } else {
+                HofDecision::Continue
+            }
+        },
+    )
+}
+
+/// `%TypedArray%.prototype.find(cb, thisArg?)` (ES §23.2.3.10).
+pub(crate) fn native_typed_array_find(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    iterate_with_callback(
+        ctx,
+        this,
+        args,
+        "find",
+        JsValue::Undefined,
+        |_, elem, truthy| {
+            if truthy {
+                HofDecision::Short(elem)
+            } else {
+                HofDecision::Continue
+            }
+        },
+    )
+}
+
+/// `%TypedArray%.prototype.findIndex(cb, thisArg?)` (ES §23.2.3.11).
+pub(crate) fn native_typed_array_find_index(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    iterate_with_callback(
+        ctx,
+        this,
+        args,
+        "findIndex",
+        JsValue::Number(-1.0),
+        |i, _, truthy| {
+            if truthy {
+                #[allow(clippy::cast_precision_loss)]
+                HofDecision::Short(JsValue::Number(f64::from(i)))
+            } else {
+                HofDecision::Continue
+            }
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Comparison helpers
+// ---------------------------------------------------------------------------
+
+/// Strict equality (ES §7.2.15) — used by `indexOf` / `lastIndexOf`.
+/// NaN is never equal to NaN (unlike SameValueZero).
+fn strict_equals(a: JsValue, b: JsValue) -> bool {
+    match (a, b) {
+        (JsValue::Number(x), JsValue::Number(y)) => {
+            if x.is_nan() || y.is_nan() {
+                false
+            } else {
+                x == y
+            }
+        }
+        _ => a == b,
+    }
+}
+
+/// SameValueZero (ES §7.2.12) — used by `includes`.  NaN equals
+/// NaN; `+0` equals `-0`.
+fn same_value_zero(a: JsValue, b: JsValue) -> bool {
+    match (a, b) {
+        (JsValue::Number(x), JsValue::Number(y)) => {
+            if x.is_nan() && y.is_nan() {
+                true
+            } else {
+                x == y
+            }
+        }
+        _ => a == b,
+    }
 }

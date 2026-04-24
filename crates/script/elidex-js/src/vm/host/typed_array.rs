@@ -197,7 +197,7 @@ impl VmInner {
         // spec-aligned bodies; each method is installed on
         // `%TypedArray%.prototype` (shared across all 11 subclasses
         // via prototype chain).
-        let methods: [(StringId, NativeFn); 6] = [
+        let methods: [(StringId, NativeFn); 19] = [
             (
                 self.strings.intern("fill"),
                 super::typed_array_methods::native_typed_array_fill as NativeFn,
@@ -221,6 +221,58 @@ impl VmInner {
             (
                 self.strings.intern("entries"),
                 super::typed_array_methods::native_typed_array_entries as NativeFn,
+            ),
+            (
+                self.strings.intern("set"),
+                super::typed_array_methods::native_typed_array_set as NativeFn,
+            ),
+            (
+                self.strings.intern("copyWithin"),
+                super::typed_array_methods::native_typed_array_copy_within as NativeFn,
+            ),
+            (
+                self.strings.intern("reverse"),
+                super::typed_array_methods::native_typed_array_reverse as NativeFn,
+            ),
+            (
+                self.strings.intern("indexOf"),
+                super::typed_array_methods::native_typed_array_index_of as NativeFn,
+            ),
+            (
+                self.strings.intern("lastIndexOf"),
+                super::typed_array_methods::native_typed_array_last_index_of as NativeFn,
+            ),
+            (
+                self.strings.intern("includes"),
+                super::typed_array_methods::native_typed_array_includes as NativeFn,
+            ),
+            (
+                self.strings.intern("at"),
+                super::typed_array_methods::native_typed_array_at as NativeFn,
+            ),
+            (
+                self.strings.intern("join"),
+                super::typed_array_methods::native_typed_array_join as NativeFn,
+            ),
+            (
+                self.strings.intern("forEach"),
+                super::typed_array_methods::native_typed_array_for_each as NativeFn,
+            ),
+            (
+                self.strings.intern("every"),
+                super::typed_array_methods::native_typed_array_every as NativeFn,
+            ),
+            (
+                self.strings.intern("some"),
+                super::typed_array_methods::native_typed_array_some as NativeFn,
+            ),
+            (
+                self.strings.intern("find"),
+                super::typed_array_methods::native_typed_array_find as NativeFn,
+            ),
+            (
+                self.strings.intern("findIndex"),
+                super::typed_array_methods::native_typed_array_find_index as NativeFn,
             ),
         ];
         for (name_sid, fn_ptr) in methods {

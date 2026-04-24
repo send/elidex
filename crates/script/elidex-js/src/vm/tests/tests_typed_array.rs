@@ -341,24 +341,32 @@ fn abstract_typed_array_species_is_identity() {
 }
 
 #[test]
-fn to_string_tag_returns_subclass_name() {
+fn to_string_tag_readable_via_direct_getter() {
     let mut vm = Vm::new();
-    // Use method-call form (not `.call()`) — `ta.toString()`
-    // resolves to `Object.prototype.toString` via the prototype
-    // chain (C2 has not installed a TypedArray-level toString
-    // yet — that lands with C4 as the identity-equal
-    // `Array.prototype.toString`).
+    // `%TypedArray%.prototype.toString` is identity-equal to
+    // `Array.prototype.toString`, which now routes through
+    // `.join` (installed in C4b) — so `.toString()` produces
+    // comma-separated element output (tested separately in
+    // `to_string_invokes_join`).  To observe @@toStringTag
+    // directly, fetch the getter off `%TypedArray%.prototype`
+    // and invoke it on the instance.
     assert_eq!(
-        eval_string(&mut vm, "var u = new Uint8Array(); u.toString();"),
-        "[object Uint8Array]"
+        eval_string(
+            &mut vm,
+            "var p = Object.getPrototypeOf(Uint8Array.prototype); \
+             var g = Object.getOwnPropertyDescriptor(p, Symbol.toStringTag).get; \
+             g.call(new Uint8Array());"
+        ),
+        "Uint8Array"
     );
     assert_eq!(
-        eval_string(&mut vm, "var b = new BigInt64Array(); b.toString();"),
-        "[object BigInt64Array]"
-    );
-    assert_eq!(
-        eval_string(&mut vm, "var c = new Uint8ClampedArray(); c.toString();"),
-        "[object Uint8ClampedArray]"
+        eval_string(
+            &mut vm,
+            "var p = Object.getPrototypeOf(BigInt64Array.prototype); \
+             var g = Object.getOwnPropertyDescriptor(p, Symbol.toStringTag).get; \
+             g.call(new BigInt64Array());"
+        ),
+        "BigInt64Array"
     );
 }
 
@@ -882,12 +890,296 @@ fn to_string_identity_to_array_prototype() {
     ));
 }
 
-// `to_string_comma_separates_values` test deferred to C4b when
-// `%TypedArray%.prototype.join` lands — `Array.prototype.toString`
-// (which we alias to) internally calls `this.join(",")`, which
-// falls through to `Object.prototype.toString` (`"[object Uint8Array]"`)
-// while `.join` is absent.  The identity link itself is exercised
-// by `to_string_identity_to_array_prototype` above.
+#[test]
+fn to_string_invokes_join() {
+    let mut vm = Vm::new();
+    // With `.join` installed (C4b), `.toString()` produces comma-
+    // separated element output by delegating through
+    // `Array.prototype.toString` → `this.join(",")`.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var a = new Uint8Array(3); a[0] = 1; a[1] = 2; a[2] = 3; \
+             a.toString();"
+        ),
+        "1,2,3"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// C4b methods: set / copyWithin / reverse / search / at / join / HOFs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_typed_array_source() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var dst = new Uint8Array(5); \
+             var src = new Uint8Array([10, 20, 30]); \
+             dst.set(src, 1); \
+             dst[0] * 10000 + dst[1] * 1000 + dst[2] * 100 + dst[3] * 10 + dst[4];"
+        ),
+        // [0, 10, 20, 30, 0]
+        0.0 * 10000.0 + 10.0 * 1000.0 + 20.0 * 100.0 + 30.0 * 10.0 + 0.0
+    );
+}
+
+#[test]
+fn set_array_source() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var dst = new Uint8Array(3); dst.set([7, 8, 9]); \
+             dst[0] * 100 + dst[1] * 10 + dst[2];"
+        ),
+        789.0
+    );
+}
+
+#[test]
+fn set_out_of_range_throws_range_error() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var dst = new Uint8Array(2); var ok = false; \
+         try { dst.set([1, 2, 3]); } \
+         catch (e) { ok = e instanceof RangeError; } ok;"
+    ));
+}
+
+#[test]
+fn set_mixed_bigint_throws_type_error() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var dst = new BigInt64Array(2); \
+         var src = new Uint8Array([1, 2]); \
+         var ok = false; \
+         try { dst.set(src); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn copy_within_basic() {
+    let mut vm = Vm::new();
+    // [1,2,3,4,5].copyWithin(0, 3) → [4,5,3,4,5]
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 4, 5]); a.copyWithin(0, 3); \
+             a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4];"
+        ),
+        4.0 * 10000.0 + 5.0 * 1000.0 + 3.0 * 100.0 + 4.0 * 10.0 + 5.0
+    );
+}
+
+#[test]
+fn copy_within_overlap_forward() {
+    let mut vm = Vm::new();
+    // [1,2,3,4,5].copyWithin(1, 0, 4) → [1,1,2,3,4]
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 4, 5]); a.copyWithin(1, 0, 4); \
+             a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4];"
+        ),
+        1.0 * 10000.0 + 1.0 * 1000.0 + 2.0 * 100.0 + 3.0 * 10.0 + 4.0
+    );
+}
+
+#[test]
+fn reverse_in_place() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 4]); a.reverse(); \
+             a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3];"
+        ),
+        4.0 * 1000.0 + 3.0 * 100.0 + 2.0 * 10.0 + 1.0
+    );
+}
+
+#[test]
+fn reverse_returns_receiver() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array(3); a.reverse() === a;"
+    ));
+}
+
+#[test]
+fn index_of_hit_and_miss() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([10, 20, 30]); a.indexOf(20);"
+        ),
+        1.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([10, 20, 30]); a.indexOf(99);"
+        ),
+        -1.0
+    );
+}
+
+#[test]
+fn index_of_nan_never_matches() {
+    let mut vm = Vm::new();
+    // indexOf uses strict equality (NaN !== NaN), unlike includes.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Float64Array([1, NaN, 3]); a.indexOf(NaN);"
+        ),
+        -1.0
+    );
+}
+
+#[test]
+fn last_index_of_scans_in_reverse() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 2, 1]); a.lastIndexOf(2);"
+        ),
+        3.0
+    );
+}
+
+#[test]
+fn includes_finds_nan_in_float_arrays() {
+    let mut vm = Vm::new();
+    // includes uses SameValueZero — NaN matches NaN.
+    assert!(eval_bool(
+        &mut vm,
+        "new Float64Array([1, NaN, 3]).includes(NaN);"
+    ));
+}
+
+#[test]
+fn at_negative_index_wraps() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Uint8Array([10, 20, 30]); a.at(-1);"),
+        30.0
+    );
+    assert!(eval_bool(
+        &mut vm,
+        "new Uint8Array([1, 2, 3]).at(99) === undefined;"
+    ));
+}
+
+#[test]
+fn join_default_separator() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new Uint8Array([1, 2, 3]).join();"),
+        "1,2,3"
+    );
+}
+
+#[test]
+fn join_custom_separator() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new Uint8Array([1, 2, 3]).join(\"-\");"),
+        "1-2-3"
+    );
+}
+
+#[test]
+fn for_each_invokes_callback_per_element() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([10, 20, 30]); var sum = 0; \
+             a.forEach(function(v) { sum += v; }); sum;"
+        ),
+        60.0
+    );
+}
+
+#[test]
+fn for_each_receives_index_and_this() {
+    let mut vm = Vm::new();
+    // Callback receives (element, index, typedArray).
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([10, 20]); \
+         var ok = true; \
+         a.forEach(function(v, i, arr) { if (arr !== a) ok = false; if (arr[i] !== v) ok = false; }); \
+         ok;"
+    ));
+}
+
+#[test]
+fn every_short_circuits_on_false() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "new Uint8Array([2, 4, 6]).every(function(v) { return v % 2 === 0; });"
+    ));
+    assert!(!eval_bool(
+        &mut vm,
+        "new Uint8Array([2, 3, 6]).every(function(v) { return v % 2 === 0; });"
+    ));
+}
+
+#[test]
+fn some_short_circuits_on_true() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "new Uint8Array([1, 2, 3]).some(function(v) { return v === 2; });"
+    ));
+    assert!(!eval_bool(
+        &mut vm,
+        "new Uint8Array([1, 3, 5]).some(function(v) { return v === 2; });"
+    ));
+}
+
+#[test]
+fn find_returns_element() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "new Uint8Array([1, 4, 9, 16]).find(function(v) { return v > 5; });"
+        ),
+        9.0
+    );
+}
+
+#[test]
+fn find_index_returns_index() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "new Uint8Array([1, 4, 9, 16]).findIndex(function(v) { return v > 5; });"
+        ),
+        2.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "new Uint8Array([1, 2, 3]).findIndex(function(v) { return v > 99; });"
+        ),
+        -1.0
+    );
+}
 
 #[test]
 fn buffer_getter_brand_check_rejects_foreign() {
