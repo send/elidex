@@ -82,4 +82,6 @@ pub(super) mod request_response_accessors;
 #[cfg(feature = "engine")]
 pub(super) mod structured_clone;
 pub(super) mod text_proto;
+#[cfg(feature = "engine")]
+pub(crate) mod typed_array;
 pub(super) mod window;

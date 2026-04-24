@@ -427,6 +427,89 @@ impl PropertyStorage {
     }
 }
 
+/// Element type discriminator for `ObjectKind::TypedArray` (ES2024 §23.2).
+///
+/// Each variant identifies both the in-memory byte layout (`bytes_per_element`)
+/// and the JS-visible element-value domain (integer / float / BigInt, signed /
+/// unsigned / clamped).  The enum is unconditional (no `#[cfg]` gate) so the
+/// `ObjectKind::TypedArray` variant can be defined unconditionally too — the
+/// trace handler in `gc.rs` carries the feature gate instead, following the
+/// `AbortSignal` / `Headers` precedent.
+///
+/// Byte ordering for TypedArray indexed reads / writes is **little-endian
+/// unconditionally** — an elidex implementation choice for cross-platform
+/// determinism.  `IsLittleEndian()` (ES §25.1.3.1) is implementation-defined
+/// and spec-compliant for any constant choice.  `DataView` exposes both
+/// endiannesses explicitly via the `littleEndian` argument (ES §25.3.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElementKind {
+    Int8,
+    Uint8,
+    Uint8Clamped,
+    Int16,
+    Uint16,
+    Int32,
+    Uint32,
+    Float32,
+    Float64,
+    BigInt64,
+    BigUint64,
+}
+
+impl ElementKind {
+    /// Byte width of one element — `[[ElementSize]]` per ES §23.2.1 table.
+    #[inline]
+    #[must_use]
+    pub const fn bytes_per_element(self) -> u8 {
+        match self {
+            Self::Int8 | Self::Uint8 | Self::Uint8Clamped => 1,
+            Self::Int16 | Self::Uint16 => 2,
+            Self::Int32 | Self::Uint32 | Self::Float32 => 4,
+            Self::Float64 | Self::BigInt64 | Self::BigUint64 => 8,
+        }
+    }
+
+    /// `true` when elements are BigInt (i.e. `BigInt64Array` /
+    /// `BigUint64Array`).  Used at the indexed-write call site to route
+    /// coercion through `ToBigInt64` / `ToBigUint64` instead of `ToIntXx`
+    /// (ES §7.1.15 / .16 vs §7.1.6-.11).
+    #[inline]
+    #[must_use]
+    pub const fn is_bigint(self) -> bool {
+        matches!(self, Self::BigInt64 | Self::BigUint64)
+    }
+
+    /// `true` when elements are `Float32` / `Float64`.  Callers that
+    /// implement SameValueZero comparison (`includes`, `indexOf`) use
+    /// this to enable the float-specific NaN-equal branch.
+    #[inline]
+    #[must_use]
+    pub const fn is_float(self) -> bool {
+        matches!(self, Self::Float32 | Self::Float64)
+    }
+
+    /// Spec-shaped subclass name (e.g. `"Uint8Array"`) used as the
+    /// `[[TypedArrayName]]` slot value returned by
+    /// `%TypedArray%.prototype[@@toStringTag]` (ES §23.2.3.32).
+    #[inline]
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Int8 => "Int8Array",
+            Self::Uint8 => "Uint8Array",
+            Self::Uint8Clamped => "Uint8ClampedArray",
+            Self::Int16 => "Int16Array",
+            Self::Uint16 => "Uint16Array",
+            Self::Int32 => "Int32Array",
+            Self::Uint32 => "Uint32Array",
+            Self::Float32 => "Float32Array",
+            Self::Float64 => "Float64Array",
+            Self::BigInt64 => "BigInt64Array",
+            Self::BigUint64 => "BigUint64Array",
+        }
+    }
+}
+
 /// The internal kind of an object.
 pub enum ObjectKind {
     /// Plain `{}` object.
@@ -782,6 +865,49 @@ pub enum ObjectKind {
     /// collected.
     #[cfg(feature = "engine")]
     Attr,
+    /// `TypedArray` instance view over an `ArrayBuffer` (ES2024 §23.2) —
+    /// one of the 11 concrete subclasses identified by `element_kind`.
+    /// The `[[ViewedArrayBuffer]]` / `[[ByteOffset]]` / `[[ByteLength]]` /
+    /// `[[ArrayLength]]` / `[[TypedArrayName]]` / `[[ContentType]]` spec
+    /// slots are all derived from the four fields carried here:
+    /// - `[[ViewedArrayBuffer]]` ← `buffer_id`
+    /// - `[[ByteOffset]]` ← `byte_offset`
+    /// - `[[ByteLength]]` ← `byte_length`
+    /// - `[[ArrayLength]]` ← `byte_length / element_kind.bytes_per_element()`
+    /// - `[[TypedArrayName]]` ← `element_kind.name()`
+    /// - `[[ContentType]]` ← `element_kind.is_bigint() ? BigInt : Number`
+    ///
+    /// All four fields are **immutable after construction** in this PR —
+    /// `ArrayBuffer.prototype.transfer` / `resize` / `detached` tracking
+    /// (ES2024) are deferred to the M4-12 cutover-residual PR along with
+    /// transferable integration.  Matches the `Event` variant precedent
+    /// of immutable spec slots inline in the enum.
+    ///
+    /// GC contract: the trace step marks `buffer_id` so the backing
+    /// ArrayBuffer survives as long as any view is reachable.  No
+    /// side-table — there is nothing to prune post-sweep.
+    TypedArray {
+        buffer_id: ObjectId,
+        byte_offset: u32,
+        byte_length: u32,
+        element_kind: ElementKind,
+    },
+    /// `DataView` instance view over an `ArrayBuffer` (ES2024 §25.3) —
+    /// endian-aware read / write at byte-level granularity.  Unlike
+    /// `TypedArray`, has no element-kind: callers pick the type per
+    /// call via `getInt8` / `getFloat64` etc., with an optional
+    /// `littleEndian` boolean (default `false` per §25.3.4).
+    ///
+    /// `[[ViewedArrayBuffer]]` / `[[ByteOffset]]` / `[[ByteLength]]`
+    /// live inline as for `TypedArray`.
+    ///
+    /// GC contract: identical to `TypedArray` — mark `buffer_id`, no
+    /// side table to prune.
+    DataView {
+        buffer_id: ObjectId,
+        byte_offset: u32,
+        byte_length: u32,
+    },
 }
 
 impl ObjectKind {

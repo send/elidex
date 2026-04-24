@@ -459,6 +459,28 @@ pub(crate) struct WellKnownStrings {
     pub(crate) slice: StringId,
     pub(crate) text: StringId,
     pub(crate) array_buffer: StringId,
+
+    // -- TypedArray + DataView (ES2024 §23.2 / §25.3) --
+    // Ctor global names + common IDL attr / method names.  The 11
+    // subclass ctor globals are interned eagerly so the per-subclass
+    // `register_typed_array_subclass` call can fetch them without a
+    // per-call `strings.intern(...)` round-trip.
+    pub(crate) typed_array_global: StringId,
+    pub(crate) data_view_global: StringId,
+    pub(crate) int8_array_global: StringId,
+    pub(crate) uint8_array_global: StringId,
+    pub(crate) uint8_clamped_array_global: StringId,
+    pub(crate) int16_array_global: StringId,
+    pub(crate) uint16_array_global: StringId,
+    pub(crate) int32_array_global: StringId,
+    pub(crate) uint32_array_global: StringId,
+    pub(crate) float32_array_global: StringId,
+    pub(crate) float64_array_global: StringId,
+    pub(crate) bigint64_array_global: StringId,
+    pub(crate) biguint64_array_global: StringId,
+    pub(crate) buffer: StringId,
+    pub(crate) byte_offset: StringId,
+    pub(crate) bytes_per_element: StringId,
 }
 
 impl WellKnownStrings {
@@ -814,6 +836,24 @@ impl WellKnownStrings {
             slice: strings.intern("slice"),
             text: strings.intern("text"),
             array_buffer: strings.intern("arrayBuffer"),
+
+            // TypedArray + DataView.
+            typed_array_global: strings.intern("TypedArray"),
+            data_view_global: strings.intern("DataView"),
+            int8_array_global: strings.intern("Int8Array"),
+            uint8_array_global: strings.intern("Uint8Array"),
+            uint8_clamped_array_global: strings.intern("Uint8ClampedArray"),
+            int16_array_global: strings.intern("Int16Array"),
+            uint16_array_global: strings.intern("Uint16Array"),
+            int32_array_global: strings.intern("Int32Array"),
+            uint32_array_global: strings.intern("Uint32Array"),
+            float32_array_global: strings.intern("Float32Array"),
+            float64_array_global: strings.intern("Float64Array"),
+            bigint64_array_global: strings.intern("BigInt64Array"),
+            biguint64_array_global: strings.intern("BigUint64Array"),
+            buffer: strings.intern("buffer"),
+            byte_offset: strings.intern("byteOffset"),
+            bytes_per_element: strings.intern("BYTES_PER_ELEMENT"),
         }
     }
 }

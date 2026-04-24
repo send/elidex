@@ -659,6 +659,50 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) blob_prototype: Option<ObjectId>,
+    /// Abstract `%TypedArray%.prototype` (ES2024 §23.2.3).  Shared
+    /// parent of all 11 concrete subclass prototypes
+    /// (`Uint8Array.prototype` et al., each of which chains here via
+    /// `register_typed_array_subclass`).  Chains to `Object.prototype`.
+    /// Carries the generic `buffer` / `byteOffset` / `byteLength` /
+    /// `length` accessors + `@@toStringTag` getter — instance-method
+    /// suite lands with PR5-typed-array §C4.
+    ///
+    /// `None` until `register_typed_array_prototype_global()` runs
+    /// during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) typed_array_prototype: Option<ObjectId>,
+    /// `DataView.prototype` (ES2024 §25.3).  Chains directly to
+    /// `Object.prototype` (DataView does NOT inherit from
+    /// `%TypedArray%.prototype` — it's a sibling view type).  Method
+    /// suite lands with PR5-typed-array §C5.
+    #[cfg(feature = "engine")]
+    pub(crate) data_view_prototype: Option<ObjectId>,
+    /// Per-subclass TypedArray prototypes (ES §23.2.7).  Each chains
+    /// to [`Self::typed_array_prototype`].  `None` until
+    /// `register_typed_array_subclass()` runs for the corresponding
+    /// `ElementKind` during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) int8_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) uint8_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) uint8_clamped_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) int16_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) uint16_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) int32_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) uint32_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) float32_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) float64_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) bigint64_array_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) biguint64_array_prototype: Option<ObjectId>,
     /// Per-`Blob` out-of-band state, keyed by the instance's own
     /// `ObjectId`.  Separate from [`Self::body_data`] because a
     /// Blob carries a `type_sid` alongside its bytes; folding both

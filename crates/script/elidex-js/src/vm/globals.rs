@@ -362,6 +362,13 @@ impl VmInner {
         {
             self.register_array_buffer_global();
             self.register_blob_global();
+            // `%TypedArray%.prototype` scaffold.  Must land after
+            // `register_array_buffer_global` (ArrayBuffer backs the
+            // TypedArray's bytes) and before any subclass / DataView
+            // registration would run — C1 only installs the abstract
+            // prototype; the 11 subclasses + DataView land in
+            // PR5-typed-array §C2 / §C5.
+            self.register_typed_array_prototype_global();
             let request_proto = self
                 .request_prototype
                 .expect("request_prototype populated by register_request_global");

@@ -226,6 +226,14 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::NodeList => CloneKind::Unclonable("NodeList"),
         ObjectKind::NamedNodeMap => CloneKind::Unclonable("NamedNodeMap"),
         ObjectKind::Attr => CloneKind::Unclonable("Attr"),
+        // TypedArray / DataView clone support lands in PR5-typed-array
+        // §C6 (along with `clone_array_buffer` memo-threading refactor
+        // so shared-buffer identity survives the walk).  The C1
+        // scaffolding commit keeps them Unclonable so the compiler-
+        // enforced exhaustive match passes while the ctor / proto
+        // registration is still in-flight.
+        ObjectKind::TypedArray { .. } => CloneKind::Unclonable("TypedArray"),
+        ObjectKind::DataView { .. } => CloneKind::Unclonable("DataView"),
     }
 }
 
