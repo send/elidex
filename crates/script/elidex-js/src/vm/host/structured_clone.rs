@@ -134,27 +134,41 @@ fn clone_recursive(
         }
         CloneKind::Ordinary => clone_ordinary(vm, src_id, memo),
         CloneKind::Array => clone_array(vm, src_id, memo),
-        CloneKind::RegExp => clone_regexp(vm, src_id),
+        CloneKind::RegExp => {
+            let new_id = clone_regexp(vm, src_id)?;
+            if let JsValue::Object(id) = new_id {
+                memo.insert(src_id, id);
+            }
+            Ok(new_id)
+        }
         CloneKind::Error => clone_error(vm, src_id, src_proto, memo),
-        CloneKind::NumberWrapper(n) => Ok(JsValue::Object(alloc_wrapper(
+        CloneKind::NumberWrapper(n) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
+            src_id,
             ObjectKind::NumberWrapper(n),
             vm.number_prototype,
+            memo,
         ))),
-        CloneKind::StringWrapper(sid) => Ok(JsValue::Object(alloc_wrapper(
+        CloneKind::StringWrapper(sid) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
+            src_id,
             ObjectKind::StringWrapper(sid),
             vm.string_prototype,
+            memo,
         ))),
-        CloneKind::BooleanWrapper(b) => Ok(JsValue::Object(alloc_wrapper(
+        CloneKind::BooleanWrapper(b) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
+            src_id,
             ObjectKind::BooleanWrapper(b),
             vm.boolean_prototype,
+            memo,
         ))),
-        CloneKind::BigIntWrapper(id) => Ok(JsValue::Object(alloc_wrapper(
+        CloneKind::BigIntWrapper(id) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
+            src_id,
             ObjectKind::BigIntWrapper(id),
             vm.bigint_prototype,
+            memo,
         ))),
         CloneKind::ArrayBuffer => Ok(JsValue::Object(clone_array_buffer(vm, src_id, memo))),
         CloneKind::Blob => Ok(JsValue::Object(clone_blob(vm, src_id, memo))),
@@ -162,6 +176,22 @@ fn clone_recursive(
         CloneKind::DataView => Ok(JsValue::Object(clone_data_view(vm, src_id, memo))),
         CloneKind::Unclonable(label) => Err(data_clone_error(vm, label)),
     }
+}
+
+/// Allocate a primitive-wrapper clone and record `src → new_id` in
+/// `memo` so subsequent references to the same wrapper in the
+/// source graph resolve to the same cloned wrapper (spec §2.9
+/// StructuredSerialize memory-map identity).
+fn alloc_memoized_wrapper(
+    vm: &mut VmInner,
+    src: ObjectId,
+    kind: ObjectKind,
+    proto: Option<ObjectId>,
+    memo: &mut HashMap<ObjectId, ObjectId>,
+) -> ObjectId {
+    let new_id = alloc_wrapper(vm, kind, proto);
+    memo.insert(src, new_id);
+    new_id
 }
 
 // ---------------------------------------------------------------------------

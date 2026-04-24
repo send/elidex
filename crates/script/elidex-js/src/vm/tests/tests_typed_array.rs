@@ -1842,6 +1842,30 @@ fn set_negative_offset_throws_range_error() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn structured_clone_preserves_wrapper_and_regexp_identity() {
+    // ES §2.9 StructuredSerialize memory-map: every Object in the
+    // input graph must share a single clone even if referenced
+    // multiple times.  Wrapper kinds (Number / String / Boolean /
+    // BigInt) and RegExp were missing their `memo.insert(src, new)`
+    // step — repeated references cloned to distinct Objects.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var n = new String('hi'); \
+         var cloned = structuredClone({ a: n, b: n }); \
+         cloned.a === cloned.b;"
+    ));
+    // RegExp literal exercises the `clone_regexp` arm.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var n = /abc/g; \
+         var cloned = structuredClone({ a: n, b: n }); \
+         cloned.a === cloned.b;"
+    ));
+}
+
+#[test]
 fn structured_clone_preserves_typed_array_identity() {
     let mut vm = Vm::new();
     // Same TypedArray referenced twice in the source graph → single
