@@ -370,7 +370,7 @@ fn native_text_encoder_encode(
     // `get_utf8` allocates a fresh `String`; take its backing
     // `Vec<u8>` directly instead of copying via `.to_vec()`.
     let bytes: Vec<u8> = ctx.vm.strings.get_utf8(sid).into_bytes();
-    let id = create_uint8_array_from_bytes(ctx.vm, bytes);
+    let id = create_uint8_array_from_bytes(ctx.vm, bytes)?;
     Ok(JsValue::Object(id))
 }
 
@@ -554,15 +554,22 @@ fn native_text_decoder_get_encoding(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_text_decoder_this(ctx, this, "encoding")?;
-    // `encoding_rs::Encoding::name()` returns the canonical name
-    // (Pascal-Case like "UTF-8"); WHATWG §8.1 requires lowercase.
-    let name = ctx
-        .vm
-        .text_decoder_states
-        .get(&id)
-        .map_or("utf-8", |s| s.decoder.encoding().name());
-    let lower_sid = intern_lowercase(ctx.vm, name);
-    Ok(JsValue::String(lower_sid))
+    // `encoding_rs::Encoding::name()` returns the canonical
+    // Pascal-Case name (e.g. "UTF-8"); WHATWG §8.1 requires lower-
+    // case.  Fast-path the three interned names so the common case
+    // skips both the `to_ascii_lowercase` allocation and the
+    // `intern` hashmap probe.  Other encodings fall through to the
+    // per-call intern.
+    let encoding_sid = match ctx.vm.text_decoder_states.get(&id) {
+        None => ctx.vm.well_known.utf_8,
+        Some(state) => match state.decoder.encoding().name() {
+            "UTF-8" => ctx.vm.well_known.utf_8,
+            "UTF-16LE" => ctx.vm.well_known.utf_16le,
+            "UTF-16BE" => ctx.vm.well_known.utf_16be,
+            name => intern_lowercase(ctx.vm, name),
+        },
+    };
+    Ok(JsValue::String(encoding_sid))
 }
 
 fn native_text_decoder_get_fatal(
@@ -729,13 +736,21 @@ fn extract_buffer_source_bytes(
 /// `bytes`.  Uses the shared `body_data` / `array_buffer_prototype`
 /// + `uint8_array_prototype` so GC sweep prunes it like any
 /// other view allocation.
-fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> ObjectId {
-    #[allow(clippy::cast_possible_truncation)]
-    let byte_length = bytes.len() as u32;
+///
+/// Returns `RangeError` if `bytes.len()` exceeds `u32::MAX` — the
+/// TypedArray `[[ByteLength]]` slot is `u32` so a silent truncation
+/// would produce a view with a length inconsistent with the
+/// backing buffer.
+fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<ObjectId, VmError> {
+    let byte_length = u32::try_from(bytes.len()).map_err(|_| {
+        VmError::range_error(
+            "Failed to execute 'encode' on 'TextEncoder': encoded byte length exceeds 4 GiB",
+        )
+    })?;
     let buffer_id =
         super::array_buffer::create_array_buffer_from_bytes(vm, std::sync::Arc::from(bytes));
     let proto = vm.uint8_array_prototype;
-    vm.alloc_object(Object {
+    Ok(vm.alloc_object(Object {
         kind: ObjectKind::TypedArray {
             buffer_id,
             byte_offset: 0,
@@ -745,7 +760,7 @@ fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> ObjectId {
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
         prototype: proto,
         extensible: true,
-    })
+    }))
 }
 
 fn intern_lowercase(vm: &mut VmInner, s: &str) -> StringId {
