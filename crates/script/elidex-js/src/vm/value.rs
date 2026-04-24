@@ -904,7 +904,7 @@ pub enum ObjectKind {
     /// is the sole reason a dedicated variant exists rather than
     /// reusing `Ordinary`.  Lets `encode` / `encodeInto` reject
     /// `{encode: TextEncoder.prototype.encode}.encode()` with
-    /// TypeError instead of silently mis-behaving.
+    /// TypeError instead of silently misbehaving.
     ///
     /// GC contract: payload-free — nothing to trace or prune.
     #[cfg(feature = "engine")]

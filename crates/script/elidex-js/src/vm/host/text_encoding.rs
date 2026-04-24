@@ -47,13 +47,22 @@
 //! rebuilt on each non-stream `decode()` call so the next call
 //! starts fresh.
 //!
-//! ## Deferred
+//! ## Encoding coverage
 //!
-//! - Additional encodings beyond `utf-8` / `utf-16le` / `utf-16be`
-//!   land implicitly — `encoding_rs` already resolves every WHATWG
-//!   label — but only the three above appear in the WellKnownStrings
-//!   table.  Other labels work correctly; their canonical names are
-//!   returned via a per-call intern.
+//! Labels beyond `utf-8` / `utf-16le` / `utf-16be` resolve via
+//! `encoding_rs::Encoding::for_label` and decode correctly; only
+//! the three above are pre-interned in `WellKnownStrings` for
+//! accessor fast-pathing.  Canonical names for other encodings
+//! are interned per-call (lowercase) when the `encoding` getter
+//! fires.
+//!
+//! **Intentionally rejected**: the WHATWG "replacement" encoding
+//! is filtered out in `resolve_encoding_label` per Encoding
+//! §10.2.1 step 2 ("if encoding is failure **or replacement**,
+//! then throw a RangeError") — labels like `iso-2022-kr` /
+//! `hz-gb-2312` / `iso-2022-cn` that map to "replacement" are a
+//! cross-site scripting defence surface and TextDecoder is
+//! explicitly barred from exposing them.
 
 #![cfg(feature = "engine")]
 
@@ -513,9 +522,13 @@ fn resolve_encoding_label(
         other => super::super::coerce::to_string(ctx.vm, other)?,
     };
     let raw = ctx.vm.strings.get_utf8(label);
-    // WHATWG §4.2 "get an encoding": strip leading/trailing ASCII
-    // whitespace, then case-insensitive match via `for_label`.
-    // `encoding_rs` already does the normalisation internally.
+    // WHATWG §4.2 "get an encoding" normalisation (ASCII
+    // whitespace strip + case fold) runs inside `for_label`.
+    // Encoding §10.2.1 step 2 rejects both `failure` (unknown
+    // label) *and* `replacement` — the latter covers labels like
+    // `iso-2022-kr` that map to the XSS-defence `replacement`
+    // encoder, which TextDecoder is explicitly forbidden from
+    // exposing.
     match Encoding::for_label(raw.as_bytes()) {
         Some(enc) if enc != encoding_rs::REPLACEMENT => Ok(enc),
         _ => Err(VmError::range_error(format!(

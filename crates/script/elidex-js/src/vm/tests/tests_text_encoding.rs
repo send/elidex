@@ -233,6 +233,24 @@ fn text_decoder_invalid_label_throws_range_error() {
 }
 
 #[test]
+fn text_decoder_replacement_encoding_rejected() {
+    let mut vm = Vm::new();
+    // Encoding §10.2.1 step 2: labels that map to the "replacement"
+    // encoder (used as an XSS defence for e.g. `iso-2022-kr`,
+    // `hz-gb-2312`, `iso-2022-cn`) must be rejected with RangeError.
+    for label in ["replacement", "iso-2022-kr", "hz-gb-2312", "iso-2022-cn"] {
+        let src = format!(
+            "var r = false; try {{ new TextDecoder('{label}'); }} \
+             catch (e) {{ r = e instanceof RangeError; }} r;"
+        );
+        assert!(
+            eval_bool(&mut vm, &src),
+            "expected RangeError for label {label}"
+        );
+    }
+}
+
+#[test]
 fn text_decoder_options_flags() {
     let mut vm = Vm::new();
     assert!(eval_bool(
