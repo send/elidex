@@ -825,17 +825,17 @@ impl VmInner {
                 self.html_element_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 25 + 1 (DOMException) = 26.
+                // 26 + 1 (DOMException) = 27.
                 #[cfg(feature = "engine")]
                 self.dom_exception_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 26 + 1 (CustomEvent) = 27.
+                // 27 + 1 (CustomEvent) = 28.
                 #[cfg(feature = "engine")]
                 self.custom_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 27 + 5 (UIEvent family) = 32.
+                // 28 + 5 (UIEvent family) = 33.
                 #[cfg(feature = "engine")]
                 self.ui_event_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -856,7 +856,7 @@ impl VmInner {
                 self.input_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 32 + 4 (non-UIEvent specialized ctors) = 36.
+                // 33 + 4 (non-UIEvent specialized ctors) = 37.
                 #[cfg(feature = "engine")]
                 self.promise_rejection_event_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -873,8 +873,8 @@ impl VmInner {
                 self.pop_state_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 36 + 5 (Fetch surface: Headers / Request / Response
-                // / ArrayBuffer / Blob).  Slots past
+                // 37 + 5 (Fetch surface: Headers / Request / Response
+                // / ArrayBuffer / Blob) = 42.  Slots past
                 // `headers_prototype` are `None` placeholders until
                 // the later Fetch prototypes install; the
                 // `.iter().flatten()` pattern in `mark_roots` skips
@@ -888,7 +888,7 @@ impl VmInner {
                 self.headers_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // [37] request_prototype / [38] response_prototype
+                // [39] request_prototype / [40] response_prototype
                 // land together with the Request / Response ctors.
                 #[cfg(feature = "engine")]
                 self.request_prototype,
@@ -898,7 +898,7 @@ impl VmInner {
                 self.response_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // [39] array_buffer_prototype / [40] blob_prototype
+                // [41] array_buffer_prototype / [42] blob_prototype
                 // land together with the ArrayBuffer + Blob ctors
                 // (follow-up commit in the same tranche).
                 #[cfg(feature = "engine")]
