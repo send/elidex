@@ -703,7 +703,10 @@ fn blob_array_buffer_read_via_data_view() {
     // Blob init from TypedArray → `.arrayBuffer()` → DataView
     // readback.  Exercises C6 Blob part acceptance + C5 DataView
     // read path in one pipeline.  Big-endian default (spec §25.3.4)
-    // verified by writing LE and reading BE (swapped bytes).
+    // is verified by reading the fixed byte sequence
+    // [0x01, 0x02, 0x03, 0x04] with `getUint32(0)` (no
+    // `littleEndian` arg → BE) and asserting against the
+    // BE-interpreted u32 `0x0102_0304`.
     assert_eq!(
         eval_global_number(
             "globalThis.r = 0; \

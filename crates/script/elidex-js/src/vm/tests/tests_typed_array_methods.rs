@@ -763,9 +763,11 @@ fn data_view_out_of_range_set_throws() {
 #[test]
 fn data_view_shares_backing_with_typed_array() {
     let mut vm = Vm::new();
-    // TypedArray always writes little-endian (elidex choice).
-    // Reading the same bytes via DataView with littleEndian=true
-    // must round-trip the value.
+    // Uint8Array writes the explicit byte sequence into the
+    // shared ArrayBuffer (no endianness — byte-level access).
+    // Reading those same backing bytes via DataView with
+    // `littleEndian=true` must reconstruct the expected u32,
+    // proving the view shares memory with the TypedArray.
     assert_eq!(
         eval_number(
             &mut vm,
