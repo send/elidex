@@ -1,20 +1,30 @@
-//! DataView + ArrayBuffer.isView + body init + structured clone + BigInt
-//! equality + integration tests (ES2024 §25.3 + WHATWG HTML §2.9 + Fetch §5).
+//! Cross-interface TypedArray tests
+//! (ES2024 §23.2.3 / §23.2.5 + WHATWG HTML §2.9 + Fetch §5).
 //!
-//! Covers the cross-interface surface: DataView accessors, C6 isView +
-//! body-init + structuredClone identity preservation, CanonicalNumericIndexString
-//! exotic dispatch, `set(source, offset?)` negative-offset RangeError, BigInt
-//! element equality (pool-based strict_eq), and C7 integration
-//! (TypedArray ↔ ArrayBuffer ↔ Blob ↔ Request/Response).
+//! Covers the cross-interface surface that doesn't belong with
+//! the per-instance constructor or method tests: C6
+//! `ArrayBuffer.isView` + Fetch body init via TypedArray + Blob
+//! init via TypedArray + `structuredClone` identity preservation,
+//! CanonicalNumericIndexString exotic dispatch on string-keyed
+//! reads / writes, `set(source, offset?)` negative-offset
+//! RangeError (§23.2.3.24), BigInt element equality (pool-based
+//! `strict_eq`), and C7 integration (TypedArray ↔ ArrayBuffer ↔
+//! Blob ↔ Request/Response).
 //!
 //! Constructor + prototype tests live in
-//! [`super::tests_typed_array`]; prototype method tests in
+//! [`super::tests_typed_array`]; prototype method tests + DataView
+//! (C5) accessors / getters / setters in
 //! [`super::tests_typed_array_methods`].
 
 #![cfg(feature = "engine")]
 
 use super::super::value::JsValue;
 use super::super::Vm;
+// `eval_global_string` / `eval_global_number` are identical to the
+// helpers in the parent test module — reuse them here so behaviour
+// (microtask drain order, fresh-Vm allocation) stays in lockstep
+// as the harness evolves.
+use super::{eval_global_number, eval_global_string};
 
 fn eval_bool(vm: &mut Vm, source: &str) -> bool {
     match vm.eval(source).unwrap() {
@@ -34,24 +44,6 @@ fn eval_string(vm: &mut Vm, source: &str) -> String {
     match vm.eval(source).unwrap() {
         JsValue::String(sid) => vm.inner.strings.get_utf8(sid),
         other => panic!("expected string, got {other:?}"),
-    }
-}
-
-fn eval_global_string(source: &str, name: &str) -> String {
-    let mut vm = Vm::new();
-    vm.eval(source).unwrap();
-    match vm.get_global(name) {
-        Some(JsValue::String(id)) => vm.get_string(id),
-        other => panic!("expected global {name} to be a string, got {other:?}"),
-    }
-}
-
-fn eval_global_number(source: &str, name: &str) -> f64 {
-    let mut vm = Vm::new();
-    vm.eval(source).unwrap();
-    match vm.get_global(name) {
-        Some(JsValue::Number(n)) => n,
-        other => panic!("expected global {name} to be a number, got {other:?}"),
     }
 }
 

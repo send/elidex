@@ -1,14 +1,28 @@
-//! `%TypedArray%.prototype` method tests (ES2024 §23.2.4, C4a + C4b).
+//! `%TypedArray%.prototype` method tests (ES2024 §23.2.4, C4a + C4b)
+//! plus DataView accessor / getter / setter tests (ES2024 §25.3, C5).
 //!
-//! Covers the prototype method suite: `fill` / `slice` / `subarray` /
-//! `indexOf` / `lastIndexOf` / `includes` / `find` / `findIndex` / `map` /
-//! `filter` / `forEach` / `every` / `some` / `reduce` / `reduceRight` /
-//! `set` / `copyWithin` / `reverse` / `at` / `join` / `toString` /
-//! `toLocaleString` / `entries` / `keys` / `values` / `@@iterator`.
+//! C4a — `fill` / `slice` / `subarray` / `indexOf` / `lastIndexOf` /
+//! `includes` / `find` / `findIndex`.
+//!
+//! C4b — `set(source, offset?)` / `copyWithin` / `reverse` /
+//! `at` / `join` plus the higher-order method suite (`map` /
+//! `filter` / `forEach` / `every` / `some` / `reduce` /
+//! `reduceRight` / `entries` / `keys` / `values` / `@@iterator`).
+//!
+//! C5 — `DataView` ctor + `buffer` / `byteOffset` / `byteLength`
+//! accessors + per-type getters / setters (`getInt8` / `getUint8`
+//! / `getInt16` / `getUint16` / `getInt32` / `getUint32` /
+//! `getFloat32` / `getFloat64` / `getBigInt64` / `getBigUint64`
+//! and the matching setters), endian handling, range / offset
+//! validation.  Co-located with the C4 suite — moving them to
+//! [`super::tests_typed_array_extras`] would push that module
+//! back over the 1000-line convention.
 //!
 //! Constructor + prototype-chain-identity tests live in
-//! [`super::tests_typed_array`]; DataView + structured-clone +
-//! `ArrayBuffer.isView` tests in
+//! [`super::tests_typed_array`]; cross-interface tests (C6
+//! `ArrayBuffer.isView` + body init + structuredClone identity,
+//! CanonicalNumericIndexString, `set` negative-offset, BigInt
+//! equality, C7 Fetch-body integration) in
 //! [`super::tests_typed_array_extras`].
 
 #![cfg(feature = "engine")]
