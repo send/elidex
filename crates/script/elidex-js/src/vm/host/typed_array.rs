@@ -499,11 +499,9 @@ static SUBCLASS_TABLE: &[SubclassEntry] = &[
 // Per-subclass constructor thin wrappers
 // ---------------------------------------------------------------------------
 
-// Each thin wrapper forwards to `construct_typed_array` with its
-// subclass's `ElementKind`.  Per-subclass wrappers (vs a single
-// generic ctor with a lookup) give Copilot-friendly error messages
-// like `"Failed to construct 'Uint8Array': …"`.
-
+// Per-subclass wrappers (vs a single generic ctor with a lookup) are
+// what surfaces interface-specific error messages like
+// `"Failed to construct 'Uint8Array': …"`.
 macro_rules! typed_array_ctor_wrapper {
     ($fn_name:ident, $ek:expr) => {
         fn $fn_name(
@@ -732,9 +730,8 @@ fn construct_typed_array(
         }
     };
 
-    // Promote the pre-allocated Ordinary instance to the
-    // appropriate TypedArray kind.  Leave `prototype` untouched
-    // (PR5a2 R7.2/R7.3).
+    // Preserve `prototype` on the pre-allocated instance so
+    // `new.target.prototype` chains work for subclasses (PR5a2 R7.2/R7.3).
     ctx.vm.get_object_mut(inst_id).kind = ObjectKind::TypedArray {
         buffer_id,
         byte_offset,
@@ -748,7 +745,7 @@ fn construct_typed_array(
 /// return its `(ObjectId, byte_offset=0, byte_length)` triple.
 /// Uses the shared `body_data` store so GC sweep prunes it
 /// alongside other ArrayBuffers.
-fn allocate_fresh_buffer(
+pub(super) fn allocate_fresh_buffer(
     ctx: &mut NativeContext<'_>,
     byte_len: u32,
 ) -> Result<(ObjectId, u32, u32), VmError> {
@@ -996,12 +993,6 @@ pub(crate) fn read_element_raw(
     if let Some(bytes) = vm.body_data.get(&buffer_id) {
         if let Some(slice) = bytes.get(abs..abs + scratch_len) {
             scratch[..scratch_len].copy_from_slice(slice);
-        } else if abs < bytes.len() {
-            // Partial read near end-of-buffer — defensive fallback,
-            // normally unreachable because the caller's index
-            // range-check keeps us in bounds.
-            let avail = bytes.len() - abs;
-            scratch[..avail].copy_from_slice(&bytes[abs..abs + avail]);
         }
     }
     match ek {

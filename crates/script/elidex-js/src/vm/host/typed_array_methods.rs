@@ -30,11 +30,13 @@
 
 #![cfg(feature = "engine")]
 
+use super::super::coerce;
 use super::super::shape;
 use super::super::value::{
     ArrayIterState, ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind,
     PropertyStorage, VmError,
 };
+use super::super::VmInner;
 use super::typed_array::{read_element_raw, write_element_raw};
 
 // ---------------------------------------------------------------------------
@@ -118,7 +120,7 @@ fn alloc_typed_array_view(
 /// back to the abstract `%TypedArray%.prototype` if the subclass
 /// field is unexpectedly `None` (shouldn't happen — all 11 fields
 /// populate during `register_typed_array_prototype_global`).
-fn subclass_prototype_for(vm: &super::super::VmInner, ek: ElementKind) -> Option<ObjectId> {
+pub(super) fn subclass_prototype_for(vm: &VmInner, ek: ElementKind) -> Option<ObjectId> {
     let sub = match ek {
         ElementKind::Int8 => vm.int8_array_prototype,
         ElementKind::Uint8 => vm.uint8_array_prototype,
@@ -165,10 +167,9 @@ pub(crate) fn native_typed_array_fill(
         other => relative_index_u32(ctx.to_number(other)?, len_elem),
     };
 
-    // Coerce + encode once, then replicate the scratch bytes.
-    // Delegating to `write_element_raw` on every iteration would
-    // re-coerce the value N times and re-clone the whole buffer
-    // N times; instead we coerce once and replicate.
+    // O(N²) in bytes — coerces per iteration and re-clones the
+    // whole backing Arc per write.  Deferred to SP9 (byte-level
+    // fill helper) to keep the C4a change minimal.
     for i in start_idx..end_idx {
         write_element_raw(ctx, buffer_id, byte_offset, i, ek, value)?;
     }
@@ -240,24 +241,12 @@ pub(crate) fn native_typed_array_slice(
     let new_len = end.saturating_sub(begin);
     let new_byte_length = new_len * bpe;
 
-    // Allocate a fresh ArrayBuffer of the right size, then
-    // element-copy through the shared read_element / write_element
-    // path (same element_kind on both sides → no coercion).
-    use std::sync::Arc;
-    let bytes: Arc<[u8]> = if new_byte_length == 0 {
-        Arc::from(&[][..])
-    } else {
-        vec![0_u8; new_byte_length as usize].into()
-    };
-    let new_buffer_id = super::array_buffer::create_array_buffer_from_bytes(ctx.vm, bytes);
+    let (new_buffer_id, _, _) = super::typed_array::allocate_fresh_buffer(ctx, new_byte_length)?;
     let new_view_id = alloc_typed_array_view(ctx, ek, new_buffer_id, 0, new_byte_length);
     for i in 0..new_len {
         let elem = read_element_raw(ctx.vm, buffer_id, byte_offset, begin + i, ek);
         write_element_raw(ctx, new_buffer_id, 0, i, ek, elem)?;
     }
-    // Drop unused id (caller sees `new_view_id`).  Prevents the
-    // temporary variable from being seen as unused.
-    let _ = new_view_id;
     Ok(JsValue::Object(new_view_id))
 }
 
@@ -540,7 +529,7 @@ pub(crate) fn native_typed_array_index_of(
     };
     for i in from..len_elem {
         let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
-        if strict_equals(v, search) {
+        if coerce::strict_eq(ctx.vm, v, search) {
             #[allow(clippy::cast_precision_loss)]
             return Ok(JsValue::Number(f64::from(i)));
         }
@@ -567,23 +556,14 @@ pub(crate) fn native_typed_array_last_index_of(
         JsValue::Undefined => len_elem - 1,
         other => {
             let n = ctx.to_number(other)?;
-            // lastIndexOf clamps to len-1 (inclusive) for positive
-            // `from`, and wraps negatives (relative_index_u32 does
-            // this — but clamped at len, so subtract 1 if it lands
-            // at len).
-            let idx = relative_index_u32(n, len_elem);
-            if idx >= len_elem {
-                len_elem - 1
-            } else {
-                idx
-            }
+            relative_index_u32(n, len_elem).min(len_elem - 1)
         }
     };
     // Scan from `from` down to 0 inclusive.
     let mut i: i64 = i64::from(from);
     while i >= 0 {
         let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i as u32, ek);
-        if strict_equals(v, search) {
+        if coerce::strict_eq(ctx.vm, v, search) {
             #[allow(clippy::cast_precision_loss)]
             return Ok(JsValue::Number(i as f64));
         }
@@ -610,7 +590,7 @@ pub(crate) fn native_typed_array_includes(
     };
     for i in from..len_elem {
         let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
-        if same_value_zero(v, search) {
+        if same_value_zero(ctx.vm, v, search) {
             return Ok(JsValue::Boolean(true));
         }
     }
@@ -674,14 +654,8 @@ pub(crate) fn native_typed_array_join(
             out.push_str(&sep);
         }
         let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
-        // §23.2.3.19 step 6: `undefined` / `null` formats as
-        // empty string (happens only theoretically — TypedArray
-        // elements are always Number or BigInt, so this branch
-        // is defensive).
-        if !matches!(v, JsValue::Undefined | JsValue::Null) {
-            let sid = ctx.to_string_val(v)?;
-            out.push_str(&ctx.vm.strings.get_utf8(sid));
-        }
+        let sid = ctx.to_string_val(v)?;
+        out.push_str(&ctx.vm.strings.get_utf8(sid));
     }
     let out_sid = ctx.vm.strings.intern(&out);
     Ok(JsValue::String(out_sid))
@@ -841,32 +815,15 @@ pub(crate) fn native_typed_array_find_index(
 // Comparison helpers
 // ---------------------------------------------------------------------------
 
-/// Strict equality (ES §7.2.15) — used by `indexOf` / `lastIndexOf`.
-/// NaN is never equal to NaN (unlike SameValueZero).
-fn strict_equals(a: JsValue, b: JsValue) -> bool {
-    match (a, b) {
-        (JsValue::Number(x), JsValue::Number(y)) => {
-            if x.is_nan() || y.is_nan() {
-                false
-            } else {
-                x == y
-            }
-        }
-        _ => a == b,
-    }
-}
-
 /// SameValueZero (ES §7.2.12) — used by `includes`.  NaN equals
-/// NaN; `+0` equals `-0`.
-fn same_value_zero(a: JsValue, b: JsValue) -> bool {
+/// NaN; `+0` equals `-0`.  BigInt comparison goes through the pool so
+/// freshly-allocated handles with equal mathematical value match
+/// (every TypedArray read for `BigInt64Array`/`BigUint64Array` mints
+/// a new `BigIntId`).
+fn same_value_zero(vm: &VmInner, a: JsValue, b: JsValue) -> bool {
     match (a, b) {
-        (JsValue::Number(x), JsValue::Number(y)) => {
-            if x.is_nan() && y.is_nan() {
-                true
-            } else {
-                x == y
-            }
-        }
+        (JsValue::Number(x), JsValue::Number(y)) => x.is_nan() && y.is_nan() || x == y,
+        (JsValue::BigInt(ai), JsValue::BigInt(bi)) => vm.bigints.get(ai) == vm.bigints.get(bi),
         _ => a == b,
     }
 }

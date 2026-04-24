@@ -479,15 +479,6 @@ impl ElementKind {
         matches!(self, Self::BigInt64 | Self::BigUint64)
     }
 
-    /// `true` when elements are `Float32` / `Float64`.  Callers that
-    /// implement SameValueZero comparison (`includes`, `indexOf`) use
-    /// this to enable the float-specific NaN-equal branch.
-    #[inline]
-    #[must_use]
-    pub const fn is_float(self) -> bool {
-        matches!(self, Self::Float32 | Self::Float64)
-    }
-
     /// Spec-shaped subclass name (e.g. `"Uint8Array"`) used as the
     /// `[[TypedArrayName]]` slot value returned by
     /// `%TypedArray%.prototype[@@toStringTag]` (ES §23.2.3.32).

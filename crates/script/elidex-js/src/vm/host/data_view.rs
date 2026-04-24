@@ -319,10 +319,10 @@ fn read_bytes<const N: usize>(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &str,
-    offset_arg: JsValue,
+    offset_f: f64,
 ) -> Result<[u8; N], VmError> {
     let (buffer_id, dv_offset, dv_len) = require_data_view_parts(ctx, this, method)?;
-    let rel_offset = ensure_in_range(offset_arg, dv_len, N as u32, method)?;
+    let rel_offset = ensure_in_range(offset_f, dv_len, N as u32, method)?;
     let abs = (dv_offset + rel_offset) as usize;
     let mut out = [0_u8; N];
     if let Some(bytes) = ctx.vm.body_data.get(&buffer_id) {
@@ -342,11 +342,11 @@ fn write_bytes<const N: usize>(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,
-    offset_arg: JsValue,
+    offset_f: f64,
     bytes: [u8; N],
 ) -> Result<(), VmError> {
     let (buffer_id, dv_offset, dv_len) = require_data_view_parts(ctx, this, method)?;
-    let rel_offset = ensure_in_range(offset_arg, dv_len, N as u32, method)?;
+    let rel_offset = ensure_in_range(offset_f, dv_len, N as u32, method)?;
     let abs = (dv_offset + rel_offset) as usize;
     let needed = abs + N;
     let current: &[u8] = ctx
@@ -365,27 +365,10 @@ fn write_bytes<const N: usize>(
     Ok(())
 }
 
-/// Validate that `offset_arg + size ≤ dv_len` and return the
-/// unsigned `byte_offset`.  Throws RangeError on out-of-range.
-fn ensure_in_range(
-    offset_arg: JsValue,
-    dv_len: u32,
-    size: u32,
-    method: &str,
-) -> Result<u32, VmError> {
-    // Inline ToIndex — we can't rely on to_index_u32 here because
-    // this helper has only `&NativeContext` on the read path
-    // (immutable borrow conflicts with `body_data.get`).  The
-    // to_number semantics for the byte_offset arg are simple
-    // enough to inline.
-    let n = match offset_arg {
-        JsValue::Number(n) => n,
-        JsValue::Undefined => 0.0,
-        // Non-number: caller already validated via to_number
-        // earlier in the call chain — in the DataView method
-        // entry points we always to_number before calling here.
-        _ => 0.0,
-    };
+/// Validate that `offset + size ≤ dv_len` and return the unsigned
+/// `byte_offset`.  Throws RangeError on out-of-range.  `n` is the
+/// already-coerced `ToNumber(offsetArg)` from the caller.
+fn ensure_in_range(n: f64, dv_len: u32, size: u32, method: &str) -> Result<u32, VmError> {
     if n.is_nan() {
         return Ok(0);
     }
@@ -431,7 +414,7 @@ fn native_data_view_get_int8(
 ) -> Result<JsValue, VmError> {
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
-    let bytes = read_bytes::<1>(ctx, this, "getInt8", JsValue::Number(n))?;
+    let bytes = read_bytes::<1>(ctx, this, "getInt8", n)?;
     Ok(JsValue::Number(f64::from(bytes[0] as i8)))
 }
 
@@ -442,7 +425,7 @@ fn native_data_view_get_uint8(
 ) -> Result<JsValue, VmError> {
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
-    let bytes = read_bytes::<1>(ctx, this, "getUint8", JsValue::Number(n))?;
+    let bytes = read_bytes::<1>(ctx, this, "getUint8", n)?;
     Ok(JsValue::Number(f64::from(bytes[0])))
 }
 
@@ -454,7 +437,7 @@ fn native_data_view_get_int16(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
     let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<2>(ctx, this, "getInt16", JsValue::Number(n))?;
+    let bytes = read_bytes::<2>(ctx, this, "getInt16", n)?;
     let v = if little_endian {
         i16::from_le_bytes(bytes)
     } else {
@@ -471,7 +454,7 @@ fn native_data_view_get_uint16(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
     let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<2>(ctx, this, "getUint16", JsValue::Number(n))?;
+    let bytes = read_bytes::<2>(ctx, this, "getUint16", n)?;
     let v = if little_endian {
         u16::from_le_bytes(bytes)
     } else {
@@ -488,7 +471,7 @@ fn native_data_view_get_int32(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
     let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<4>(ctx, this, "getInt32", JsValue::Number(n))?;
+    let bytes = read_bytes::<4>(ctx, this, "getInt32", n)?;
     let v = if little_endian {
         i32::from_le_bytes(bytes)
     } else {
@@ -505,7 +488,7 @@ fn native_data_view_get_uint32(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
     let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<4>(ctx, this, "getUint32", JsValue::Number(n))?;
+    let bytes = read_bytes::<4>(ctx, this, "getUint32", n)?;
     let v = if little_endian {
         u32::from_le_bytes(bytes)
     } else {
@@ -522,7 +505,7 @@ fn native_data_view_get_float32(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
     let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<4>(ctx, this, "getFloat32", JsValue::Number(n))?;
+    let bytes = read_bytes::<4>(ctx, this, "getFloat32", n)?;
     let v = if little_endian {
         f32::from_le_bytes(bytes)
     } else {
@@ -539,7 +522,7 @@ fn native_data_view_get_float64(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
     let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<8>(ctx, this, "getFloat64", JsValue::Number(n))?;
+    let bytes = read_bytes::<8>(ctx, this, "getFloat64", n)?;
     let v = if little_endian {
         f64::from_le_bytes(bytes)
     } else {
@@ -556,7 +539,7 @@ fn native_data_view_get_bigint64(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
     let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<8>(ctx, this, "getBigInt64", JsValue::Number(n))?;
+    let bytes = read_bytes::<8>(ctx, this, "getBigInt64", n)?;
     let v = if little_endian {
         i64::from_le_bytes(bytes)
     } else {
@@ -574,7 +557,7 @@ fn native_data_view_get_biguint64(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = ctx.to_number(offset_arg)?;
     let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<8>(ctx, this, "getBigUint64", JsValue::Number(n))?;
+    let bytes = read_bytes::<8>(ctx, this, "getBigUint64", n)?;
     let v = if little_endian {
         u64::from_le_bytes(bytes)
     } else {
@@ -597,7 +580,7 @@ fn native_data_view_set_int8(
     let n = ctx.to_number(offset_arg)?;
     let v =
         super::super::coerce::to_int8(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    write_bytes::<1>(ctx, this, "setInt8", JsValue::Number(n), [v as u8])?;
+    write_bytes::<1>(ctx, this, "setInt8", n, [v as u8])?;
     Ok(JsValue::Undefined)
 }
 
@@ -610,7 +593,7 @@ fn native_data_view_set_uint8(
     let n = ctx.to_number(offset_arg)?;
     let v =
         super::super::coerce::to_uint8(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    write_bytes::<1>(ctx, this, "setUint8", JsValue::Number(n), [v])?;
+    write_bytes::<1>(ctx, this, "setUint8", n, [v])?;
     Ok(JsValue::Undefined)
 }
 
@@ -629,7 +612,7 @@ fn native_data_view_set_int16(
     } else {
         v.to_be_bytes()
     };
-    write_bytes::<2>(ctx, this, "setInt16", JsValue::Number(n), bytes)?;
+    write_bytes::<2>(ctx, this, "setInt16", n, bytes)?;
     Ok(JsValue::Undefined)
 }
 
@@ -650,7 +633,7 @@ fn native_data_view_set_uint16(
     } else {
         v.to_be_bytes()
     };
-    write_bytes::<2>(ctx, this, "setUint16", JsValue::Number(n), bytes)?;
+    write_bytes::<2>(ctx, this, "setUint16", n, bytes)?;
     Ok(JsValue::Undefined)
 }
 
@@ -669,7 +652,7 @@ fn native_data_view_set_int32(
     } else {
         v.to_be_bytes()
     };
-    write_bytes::<4>(ctx, this, "setInt32", JsValue::Number(n), bytes)?;
+    write_bytes::<4>(ctx, this, "setInt32", n, bytes)?;
     Ok(JsValue::Undefined)
 }
 
@@ -690,7 +673,7 @@ fn native_data_view_set_uint32(
     } else {
         v.to_be_bytes()
     };
-    write_bytes::<4>(ctx, this, "setUint32", JsValue::Number(n), bytes)?;
+    write_bytes::<4>(ctx, this, "setUint32", n, bytes)?;
     Ok(JsValue::Undefined)
 }
 
@@ -711,7 +694,7 @@ fn native_data_view_set_float32(
     } else {
         v.to_be_bytes()
     };
-    write_bytes::<4>(ctx, this, "setFloat32", JsValue::Number(n), bytes)?;
+    write_bytes::<4>(ctx, this, "setFloat32", n, bytes)?;
     Ok(JsValue::Undefined)
 }
 
@@ -730,7 +713,7 @@ fn native_data_view_set_float64(
     } else {
         v.to_be_bytes()
     };
-    write_bytes::<8>(ctx, this, "setFloat64", JsValue::Number(n), bytes)?;
+    write_bytes::<8>(ctx, this, "setFloat64", n, bytes)?;
     Ok(JsValue::Undefined)
 }
 
@@ -749,7 +732,7 @@ fn native_data_view_set_bigint64(
     } else {
         v.to_be_bytes()
     };
-    write_bytes::<8>(ctx, this, "setBigInt64", JsValue::Number(n), bytes)?;
+    write_bytes::<8>(ctx, this, "setBigInt64", n, bytes)?;
     Ok(JsValue::Undefined)
 }
 
@@ -768,6 +751,6 @@ fn native_data_view_set_biguint64(
     } else {
         v.to_be_bytes()
     };
-    write_bytes::<8>(ctx, this, "setBigUint64", JsValue::Number(n), bytes)?;
+    write_bytes::<8>(ctx, this, "setBigUint64", n, bytes)?;
     Ok(JsValue::Undefined)
 }

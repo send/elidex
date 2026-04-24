@@ -574,7 +574,7 @@ fn clone_typed_array(
     // Pick the subclass-specific prototype.  Falls back to the
     // abstract `%TypedArray%.prototype` if any subclass field is
     // unexpectedly missing.
-    let proto = typed_array_subclass_prototype(vm, element_kind);
+    let proto = super::typed_array_methods::subclass_prototype_for(vm, element_kind);
     vm.alloc_object(Object {
         kind: ObjectKind::TypedArray {
             buffer_id: cloned_buffer,
@@ -614,30 +614,6 @@ fn clone_data_view(
         prototype: vm.data_view_prototype,
         extensible: true,
     })
-}
-
-/// Per-subclass prototype for a cloned TypedArray.  Keeps this
-/// file's dependency on `typed_array_methods` minimal by
-/// pattern-matching ElementKind directly.
-fn typed_array_subclass_prototype(
-    vm: &VmInner,
-    ek: super::super::value::ElementKind,
-) -> Option<ObjectId> {
-    use super::super::value::ElementKind;
-    let sub = match ek {
-        ElementKind::Int8 => vm.int8_array_prototype,
-        ElementKind::Uint8 => vm.uint8_array_prototype,
-        ElementKind::Uint8Clamped => vm.uint8_clamped_array_prototype,
-        ElementKind::Int16 => vm.int16_array_prototype,
-        ElementKind::Uint16 => vm.uint16_array_prototype,
-        ElementKind::Int32 => vm.int32_array_prototype,
-        ElementKind::Uint32 => vm.uint32_array_prototype,
-        ElementKind::Float32 => vm.float32_array_prototype,
-        ElementKind::Float64 => vm.float64_array_prototype,
-        ElementKind::BigInt64 => vm.bigint64_array_prototype,
-        ElementKind::BigUint64 => vm.biguint64_array_prototype,
-    };
-    sub.or(vm.typed_array_prototype)
 }
 
 // ---------------------------------------------------------------------------

@@ -1661,6 +1661,37 @@ fn buffer_getter_brand_check_rejects_foreign() {
 }
 
 // ---------------------------------------------------------------------------
+// BigInt element equality — pool-based compare (SP-coerce strict_eq)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn big_int64_includes_compares_by_value_not_handle() {
+    let mut vm = Vm::new();
+    // Every read on a BigInt TypedArray allocates a fresh BigIntId,
+    // so handle-equality (`a == b` on JsValue::BigInt) would always
+    // miss.  `includes` / `indexOf` / `lastIndexOf` must compare the
+    // mathematical value through the BigInt pool.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new BigInt64Array([1n, 2n, 3n]); a.includes(2n);"
+    ));
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new BigInt64Array([1n, 2n, 3n, 2n]); a.indexOf(2n);"
+        ),
+        1.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new BigInt64Array([1n, 2n, 3n, 2n]); a.lastIndexOf(2n);"
+        ),
+        3.0
+    );
+}
+
+// ---------------------------------------------------------------------------
 // C7 — integration: TypedArray ↔ ArrayBuffer ↔ Blob ↔ Request/Response
 // ---------------------------------------------------------------------------
 
