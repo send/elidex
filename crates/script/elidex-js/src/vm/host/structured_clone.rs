@@ -561,6 +561,9 @@ fn clone_typed_array(
     src: ObjectId,
     memo: &mut HashMap<ObjectId, ObjectId>,
 ) -> ObjectId {
+    if let Some(&cached) = memo.get(&src) {
+        return cached;
+    }
     let (buffer_id, byte_offset, byte_length, element_kind) = match vm.get_object(src).kind {
         ObjectKind::TypedArray {
             buffer_id,
@@ -575,7 +578,7 @@ fn clone_typed_array(
     // abstract `%TypedArray%.prototype` if any subclass field is
     // unexpectedly missing.
     let proto = super::typed_array_methods::subclass_prototype_for(vm, element_kind);
-    vm.alloc_object(Object {
+    let new_id = vm.alloc_object(Object {
         kind: ObjectKind::TypedArray {
             buffer_id: cloned_buffer,
             byte_offset,
@@ -585,7 +588,9 @@ fn clone_typed_array(
         storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
         prototype: proto,
         extensible: true,
-    })
+    });
+    memo.insert(src, new_id);
+    new_id
 }
 
 /// Clone a `DataView` — same pattern as `clone_typed_array`, no
@@ -595,6 +600,9 @@ fn clone_data_view(
     src: ObjectId,
     memo: &mut HashMap<ObjectId, ObjectId>,
 ) -> ObjectId {
+    if let Some(&cached) = memo.get(&src) {
+        return cached;
+    }
     let (buffer_id, byte_offset, byte_length) = match vm.get_object(src).kind {
         ObjectKind::DataView {
             buffer_id,
@@ -604,7 +612,7 @@ fn clone_data_view(
         _ => unreachable!("clone_data_view called on non-DataView"),
     };
     let cloned_buffer = clone_array_buffer(vm, buffer_id, memo);
-    vm.alloc_object(Object {
+    let new_id = vm.alloc_object(Object {
         kind: ObjectKind::DataView {
             buffer_id: cloned_buffer,
             byte_offset,
@@ -613,7 +621,9 @@ fn clone_data_view(
         storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
         prototype: vm.data_view_prototype,
         extensible: true,
-    })
+    });
+    memo.insert(src, new_id);
+    new_id
 }
 
 // ---------------------------------------------------------------------------

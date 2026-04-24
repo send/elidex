@@ -1661,6 +1661,117 @@ fn buffer_getter_brand_check_rejects_foreign() {
 }
 
 // ---------------------------------------------------------------------------
+// CanonicalNumericIndexString — string-key TypedArray exotic dispatch
+// ---------------------------------------------------------------------------
+
+#[test]
+fn canonical_numeric_keys_return_undefined_not_ordinary() {
+    let mut vm = Vm::new();
+    // ES §7.1.16.1: `"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"` are
+    // canonical numeric index strings.  On a TypedArray integer-
+    // indexed exotic they must return `undefined` (§10.4.5.15
+    // step 3), NOT fall through to ordinary [[Get]] lookup.
+    assert!(eval_bool(
+        &mut vm,
+        "var u = new Uint8Array([1, 2]); \
+         u['-0'] === undefined && u['Infinity'] === undefined && \
+         u['-Infinity'] === undefined && u['NaN'] === undefined && \
+         u['1.5'] === undefined && u['-1'] === undefined;"
+    ));
+}
+
+#[test]
+fn canonical_numeric_keys_set_is_silent_no_op() {
+    let mut vm = Vm::new();
+    // ES §10.4.5.16 step 1: storing on a canonical numeric index
+    // that is not a valid integer index is a silent no-op — the
+    // write doesn't create an own property, so a subsequent read
+    // still returns `undefined`.  The in-range integer elements
+    // stay untouched.
+    assert!(eval_bool(
+        &mut vm,
+        "var u = new Uint8Array([5, 6]); \
+         u['-0'] = 99; u['NaN'] = 99; u['Infinity'] = 99; u['-1'] = 99; \
+         u[0] === 5 && u[1] === 6 && \
+         u['-0'] === undefined && u['NaN'] === undefined;"
+    ));
+}
+
+#[test]
+fn typed_array_accepts_u32_max_boundary_index_string() {
+    let mut vm = Vm::new();
+    // `"4294967295"` = u32::MAX is a valid CanonicalNumericIndexString.
+    // Out-of-range integer index → Get returns `undefined`, Set is
+    // a silent no-op (§10.4.5.15/16); must not fall through to
+    // ordinary property storage.
+    assert!(eval_bool(
+        &mut vm,
+        "var u = new Uint8Array(1); \
+         u['4294967295'] === undefined && \
+         (u['4294967295'] = 42, u['4294967295'] === undefined);"
+    ));
+}
+
+#[test]
+fn non_canonical_string_keys_fall_through_to_ordinary() {
+    let mut vm = Vm::new();
+    // `"01"` / `"foo"` are NOT canonical (ToString round-trip fails) —
+    // they DO create ordinary own properties observable via Get.
+    assert!(eval_bool(
+        &mut vm,
+        "var u = new Uint8Array(2); u['01'] = 1; u['foo'] = 2; \
+         u['01'] === 1 && u['foo'] === 2;"
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// set(source, offset?) — negative offset → RangeError (§23.2.3.24)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_negative_offset_throws_range_error() {
+    let mut vm = Vm::new();
+    // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)` RangeErrors
+    // on any negative result.  Must not silently wrap via `length +
+    // offset` (old `relative_index_u32` behavior).
+    assert!(eval_bool(
+        &mut vm,
+        "var ok = false; \
+         try { new Uint8Array(4).set([1], -1); } \
+         catch (e) { ok = e instanceof RangeError; } ok;"
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// structuredClone — preserves TypedArray / DataView identity in graph
+// ---------------------------------------------------------------------------
+
+#[test]
+fn structured_clone_preserves_typed_array_identity() {
+    let mut vm = Vm::new();
+    // Same TypedArray referenced twice in the source graph → single
+    // cloned TypedArray observed at both sites (§2.9 memory map +
+    // graph identity).
+    assert!(eval_bool(
+        &mut vm,
+        "var u = new Uint8Array([1, 2, 3]); \
+         var cloned = structuredClone({ a: u, b: u }); \
+         cloned.a === cloned.b;"
+    ));
+}
+
+#[test]
+fn structured_clone_preserves_data_view_identity() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var dv = new DataView(new ArrayBuffer(4)); \
+         var cloned = structuredClone({ a: dv, b: dv }); \
+         cloned.a === cloned.b;"
+    ));
+}
+
+// ---------------------------------------------------------------------------
 // BigInt element equality — pool-based compare (SP-coerce strict_eq)
 // ---------------------------------------------------------------------------
 

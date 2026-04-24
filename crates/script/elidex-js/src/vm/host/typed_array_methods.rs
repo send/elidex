@@ -90,6 +90,17 @@ fn relative_index_u32(n: f64, len: u32) -> u32 {
     out
 }
 
+/// ES §7.1.5 `ToIntegerOrInfinity`.  NaN → 0; ±Infinity preserved;
+/// otherwise truncate toward zero.  Caller applies additional range
+/// checks (e.g. "RangeError on negative") as needed.
+fn to_integer_or_infinity(n: f64) -> f64 {
+    if n.is_nan() {
+        0.0
+    } else {
+        n.trunc()
+    }
+}
+
 /// Allocate a new TypedArray wrapper of the given `ElementKind` over
 /// `buffer_id` at `byte_offset` / `byte_length`.  Uses the abstract
 /// `%TypedArray%.prototype` chain via the ctor's own prototype
@@ -331,11 +342,26 @@ pub(crate) fn native_typed_array_set(
 ) -> Result<JsValue, VmError> {
     let (_id, buffer_id, byte_offset, byte_length, dst_ek) =
         require_typed_array_parts(ctx, this, "set")?;
-    let target_offset = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined => 0_u32,
+    // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)`; RangeError
+    // when the result is negative.  (A separate range check below
+    // catches positive overflow.)
+    let target_offset: u32 = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => 0,
         other => {
             let n = ctx.to_number(other)?;
-            relative_index_u32(n, u32::MAX)
+            let i = to_integer_or_infinity(n);
+            if i < 0.0 {
+                return Err(VmError::range_error(
+                    "Failed to execute 'set' on 'TypedArray': offset is out of bounds",
+                ));
+            }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let clamped = if i > f64::from(u32::MAX) {
+                u32::MAX
+            } else {
+                i as u32
+            };
+            clamped
         }
     };
     let dst_bpe = u32::from(dst_ek.bytes_per_element());

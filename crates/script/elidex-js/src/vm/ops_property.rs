@@ -13,6 +13,89 @@ use super::VmInner;
 
 use super::ops::{parse_array_index_u16, try_as_array_index, DENSE_ARRAY_LEN_LIMIT};
 
+/// Classification of a WTF-16 string key against the TypedArray
+/// integer-indexed exotic object contract (ES §10.4.5 + §7.1.16.1
+/// `CanonicalNumericIndexString`).
+#[cfg(feature = "engine")]
+enum TypedArrayStringKey {
+    /// Non-negative integer in [0, u32::MAX].  Dispatches to
+    /// `read_element_raw` / `write_element_raw`.  If the caller's
+    /// length check fails, Get returns `undefined` and Set is a
+    /// silent no-op.
+    IntegerIndex(u32),
+    /// Canonical numeric string that is NOT a valid integer index
+    /// (`"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"`, negative
+    /// integer, fractional, exponential with canonical round-trip).
+    /// TypedArray Get returns `undefined`; Set is a silent no-op;
+    /// neither creates an ordinary property (§10.4.5.15 step 3 /
+    /// §10.4.5.16 step 1).
+    CanonicalNonInteger,
+    /// Not a canonical numeric string — falls through to ordinary
+    /// property storage.
+    NotNumeric,
+}
+
+/// Parse a WTF-16 string as a TypedArray integer index (0..=u32::MAX).
+/// Distinct from `parse_array_index_u16` (capped at 2^32−2 per the
+/// Array `[[HasOwnProperty]]` contract); TypedArray permits the full
+/// u32 range.
+#[cfg(feature = "engine")]
+fn parse_typed_array_index_u32(units: &[u16]) -> Option<u32> {
+    if units.is_empty() {
+        return None;
+    }
+    if units.len() > 1 && units[0] == u16::from(b'0') {
+        return None;
+    }
+    let mut n: u64 = 0;
+    for &u in units {
+        let digit = u.wrapping_sub(u16::from(b'0'));
+        if digit > 9 {
+            return None;
+        }
+        n = n.checked_mul(10)?.checked_add(u64::from(digit))?;
+    }
+    u32::try_from(n).ok()
+}
+
+#[cfg(feature = "engine")]
+fn classify_typed_array_string_key(vm: &VmInner, sid: StringId) -> TypedArrayStringKey {
+    let units = vm.strings.get(sid);
+    if let Some(idx) = parse_typed_array_index_u32(units) {
+        return TypedArrayStringKey::IntegerIndex(idx);
+    }
+    // ES §7.1.16.1 step 1 hard-codes `"-0"` as canonical numeric
+    // (returns -0) even though ToString(-0) = "0" — the round-trip
+    // check below would otherwise miss it.
+    if units == [u16::from(b'-'), u16::from(b'0')] {
+        return TypedArrayStringKey::CanonicalNonInteger;
+    }
+    // Slow path: round-trip via ES Number::toString.  If
+    // ToString(ToNumber(key)) == key, the key is canonical numeric
+    // (the fast path above already handles non-negative integers, so
+    // any remaining canonical form — `"Infinity"`, `"NaN"`, negative
+    // integer, fractional — is non-integer-valid).
+    let n = super::coerce::to_number(vm, JsValue::String(sid)).unwrap_or(f64::NAN);
+    let mut roundtrip = String::new();
+    if n.is_nan() {
+        roundtrip.push_str("NaN");
+    } else if n.is_infinite() {
+        roundtrip.push_str(if n > 0.0 { "Infinity" } else { "-Infinity" });
+    } else {
+        super::coerce_format::write_number_es(n, &mut roundtrip);
+    }
+    if units.len() == roundtrip.len()
+        && units
+            .iter()
+            .zip(roundtrip.as_bytes())
+            .all(|(&u, &b)| u == u16::from(b))
+    {
+        TypedArrayStringKey::CanonicalNonInteger
+    } else {
+        TypedArrayStringKey::NotNumeric
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Property access
 // ---------------------------------------------------------------------------
@@ -591,12 +674,12 @@ impl VmInner {
                     }
                 }
             }
-            // String numeric key on TypedArray — canonical-integer
-            // string resolves to an integer-indexed element.  Mirrors
-            // the Number-key branch above; the §23.2.2 Canonical
-            // Numeric Index String algorithm allows "0".."4294967295"
-            // (parse_array_index_u16 enforces leading-zero rejection
-            // + non-integer rejection).
+            // String numeric key on TypedArray — ES §10.4.5 integer-
+            // indexed exotic dispatch.  Any CanonicalNumericIndexString
+            // (§7.1.16.1) — including `"-0"` / `"Infinity"` / `"NaN"` /
+            // negative integer / fractional — short-circuits to
+            // `undefined` rather than falling through to ordinary
+            // property access.
             #[cfg(feature = "engine")]
             {
                 if let ObjectKind::TypedArray {
@@ -606,10 +689,10 @@ impl VmInner {
                     element_kind,
                 } = self.get_object(id).kind
                 {
-                    let key_units = self.strings.get(key_id);
-                    if let Some(idx) = parse_array_index_u16(key_units) {
-                        let len_elem = byte_length / u32::from(element_kind.bytes_per_element());
-                        if let Ok(i) = u32::try_from(idx) {
+                    match classify_typed_array_string_key(self, key_id) {
+                        TypedArrayStringKey::IntegerIndex(i) => {
+                            let len_elem =
+                                byte_length / u32::from(element_kind.bytes_per_element());
                             if i < len_elem {
                                 return Ok(super::host::typed_array::read_element_raw(
                                     self,
@@ -619,11 +702,12 @@ impl VmInner {
                                     element_kind,
                                 ));
                             }
+                            return Ok(JsValue::Undefined);
                         }
-                        // Canonical string that IS numeric but out-
-                        // of-range: returns undefined, NOT prototype
-                        // lookup (ES §10.4.5.15 step 3).
-                        return Ok(JsValue::Undefined);
+                        TypedArrayStringKey::CanonicalNonInteger => {
+                            return Ok(JsValue::Undefined);
+                        }
+                        TypedArrayStringKey::NotNumeric => {}
                     }
                 }
             }
@@ -770,15 +854,18 @@ impl VmInner {
             _ => return None,
         };
         // Resolve a canonical integer index from either a Number
-        // key or a numeric-string key.  Non-canonical forms ("01",
-        // "1.5") fall through to ordinary property storage per
-        // §23.2.2 CanonicalNumericIndexString.
+        // key or a numeric-string key.  Non-canonical strings
+        // (`"01"`, `"1.5e2"`) fall through to ordinary property
+        // storage; canonical strings that are NOT valid integer
+        // indices (`"-0"`, `"Infinity"`, `"NaN"`, negative, fractional)
+        // are silent no-ops per §10.4.5.16 step 1.
         let idx: u32 = match key {
             JsValue::Number(n) => try_as_array_index(n).and_then(|u| u32::try_from(u).ok())?,
-            JsValue::String(sid) => {
-                let units = self.strings.get(sid);
-                parse_array_index_u16(units).and_then(|u| u32::try_from(u).ok())?
-            }
+            JsValue::String(sid) => match classify_typed_array_string_key(self, sid) {
+                TypedArrayStringKey::IntegerIndex(i) => i,
+                TypedArrayStringKey::CanonicalNonInteger => return Some(Ok(())),
+                TypedArrayStringKey::NotNumeric => return None,
+            },
             _ => return None,
         };
         let len_elem = byte_length / u32::from(element_kind.bytes_per_element());
