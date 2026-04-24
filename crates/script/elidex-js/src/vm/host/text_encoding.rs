@@ -422,17 +422,21 @@ fn native_text_encoder_encode_into(
     // O(N·B) work and allocations for an N-char source over a
     // B-byte buffer.
     let source = ctx.vm.strings.get_utf8(source_sid);
+    let source_bytes = source.as_bytes();
     let mut read: usize = 0;
     let mut written: usize = 0;
     let mut scratch: Vec<u8> = Vec::with_capacity(dest_len.min(source.len()));
-    let mut utf8_buf = [0_u8; 4];
-    for ch in source.chars() {
-        let encoded = ch.encode_utf8(&mut utf8_buf).as_bytes();
-        if written + encoded.len() > dest_len {
+    // `source` is already UTF-8; re-encoding each char via
+    // `encode_utf8` would be redundant.  Walk `char_indices()` to
+    // get `(byte_offset, char)` pairs and copy the matching byte
+    // slice from `source_bytes` directly.
+    for (byte_idx, ch) in source.char_indices() {
+        let ch_len = ch.len_utf8();
+        if written + ch_len > dest_len {
             break;
         }
-        scratch.extend_from_slice(encoded);
-        written += encoded.len();
+        scratch.extend_from_slice(&source_bytes[byte_idx..byte_idx + ch_len]);
+        written += ch_len;
         read += ch.len_utf16();
     }
     if written > 0 {
