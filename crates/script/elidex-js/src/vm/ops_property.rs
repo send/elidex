@@ -451,6 +451,33 @@ impl VmInner {
                                 return Ok(JsValue::String(ch_id));
                             }
                         }
+                        #[cfg(feature = "engine")]
+                        &ObjectKind::TypedArray {
+                            buffer_id,
+                            byte_offset,
+                            byte_length,
+                            element_kind,
+                        } => {
+                            // ES §10.4.5.15 IntegerIndexedElementGet:
+                            // in-range index reads through the backing
+                            // ArrayBuffer; out-of-range returns
+                            // `undefined` (NOT prototype chain walk,
+                            // spec diverges from Array here).
+                            let len_elem =
+                                byte_length / u32::from(element_kind.bytes_per_element());
+                            if let Ok(i) = u32::try_from(idx) {
+                                if i < len_elem {
+                                    return Ok(super::host::typed_array::read_element_raw(
+                                        self,
+                                        buffer_id,
+                                        byte_offset,
+                                        i,
+                                        element_kind,
+                                    ));
+                                }
+                            }
+                            return Ok(JsValue::Undefined);
+                        }
                         _ => {}
                     }
                 }
@@ -561,6 +588,42 @@ impl VmInner {
                     if let Some(&unit) = self.strings.get(sid).get(idx) {
                         let ch_id = self.strings.intern_utf16(&[unit]);
                         return Ok(JsValue::String(ch_id));
+                    }
+                }
+            }
+            // String numeric key on TypedArray — canonical-integer
+            // string resolves to an integer-indexed element.  Mirrors
+            // the Number-key branch above; the §23.2.2 Canonical
+            // Numeric Index String algorithm allows "0".."4294967295"
+            // (parse_array_index_u16 enforces leading-zero rejection
+            // + non-integer rejection).
+            #[cfg(feature = "engine")]
+            {
+                if let ObjectKind::TypedArray {
+                    buffer_id,
+                    byte_offset,
+                    byte_length,
+                    element_kind,
+                } = self.get_object(id).kind
+                {
+                    let key_units = self.strings.get(key_id);
+                    if let Some(idx) = parse_array_index_u16(key_units) {
+                        let len_elem = byte_length / u32::from(element_kind.bytes_per_element());
+                        if let Ok(i) = u32::try_from(idx) {
+                            if i < len_elem {
+                                return Ok(super::host::typed_array::read_element_raw(
+                                    self,
+                                    buffer_id,
+                                    byte_offset,
+                                    i,
+                                    element_kind,
+                                ));
+                            }
+                        }
+                        // Canonical string that IS numeric but out-
+                        // of-range: returns undefined, NOT prototype
+                        // lookup (ES §10.4.5.15 step 3).
+                        return Ok(JsValue::Undefined);
                     }
                 }
             }
@@ -682,6 +745,62 @@ impl VmInner {
         None
     }
 
+    /// TypedArray integer-indexed-write fast path (ES §10.4.5.16
+    /// `IntegerIndexedElementSet`).  Returns `Some(Ok(()))` when the
+    /// receiver is a TypedArray and `key` resolves to a canonical
+    /// integer index (in-range write or silent out-of-range no-op);
+    /// `Some(Err(…))` on coercion failure; `None` to defer to the
+    /// ordinary property path.  Keeps `set_element` under the
+    /// 100-line clippy limit while preserving the required
+    /// precedence ahead of Array / Arguments dispatch.
+    #[cfg(feature = "engine")]
+    fn try_typed_array_element_set(
+        &mut self,
+        id: super::value::ObjectId,
+        key: JsValue,
+        val: JsValue,
+    ) -> Option<Result<(), VmError>> {
+        let (buffer_id, byte_offset, byte_length, element_kind) = match self.get_object(id).kind {
+            ObjectKind::TypedArray {
+                buffer_id,
+                byte_offset,
+                byte_length,
+                element_kind,
+            } => (buffer_id, byte_offset, byte_length, element_kind),
+            _ => return None,
+        };
+        // Resolve a canonical integer index from either a Number
+        // key or a numeric-string key.  Non-canonical forms ("01",
+        // "1.5") fall through to ordinary property storage per
+        // §23.2.2 CanonicalNumericIndexString.
+        let idx: u32 = match key {
+            JsValue::Number(n) => try_as_array_index(n).and_then(|u| u32::try_from(u).ok())?,
+            JsValue::String(sid) => {
+                let units = self.strings.get(sid);
+                parse_array_index_u16(units).and_then(|u| u32::try_from(u).ok())?
+            }
+            _ => return None,
+        };
+        let len_elem = byte_length / u32::from(element_kind.bytes_per_element());
+        if idx >= len_elem {
+            // Canonical integer but out-of-range → silent no-op
+            // (§10.4.5.16 step 1).  Does NOT create an own
+            // ordinary property.
+            return Some(Ok(()));
+        }
+        // In-range: coerce through `write_element_raw` (handles
+        // ToBigInt / ToInt* / float encoding per `element_kind`).
+        let mut ctx = super::value::NativeContext { vm: self };
+        Some(super::host::typed_array::write_element_raw(
+            &mut ctx,
+            buffer_id,
+            byte_offset,
+            idx,
+            element_kind,
+            val,
+        ))
+    }
+
     pub(crate) fn set_element(
         &mut self,
         obj: JsValue,
@@ -691,6 +810,13 @@ impl VmInner {
         // §6.2.4.5 RequireObjectCoercible: `null[k] = v` / `undefined[k] = v` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
+            // TypedArray integer-indexed write dispatches ahead of
+            // the Array / Arguments fast path — see
+            // `try_typed_array_element_set` for rationale.
+            #[cfg(feature = "engine")]
+            if let Some(result) = self.try_typed_array_element_set(id, key, val) {
+                return result;
+            }
             // Numeric key → Array/Arguments dense-storage fast path.
             if let JsValue::Number(n) = key {
                 if let Some(idx) = try_as_array_index(n) {

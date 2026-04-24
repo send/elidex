@@ -382,6 +382,303 @@ fn to_string_tag_undefined_on_foreign_receiver() {
 // Getter brand-check
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Indexed element access (C3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn uint8_write_and_read_roundtrip() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(3); a[0] = 10; a[1] = 20; a[2] = 30; \
+             a[0] + a[1] + a[2];"
+        ),
+        60.0
+    );
+}
+
+#[test]
+fn int8_wraps_overflow() {
+    let mut vm = Vm::new();
+    // Int8Array wraps via ToInt8 modular: 128 → -128.
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Int8Array(1); a[0] = 128; a[0];"),
+        -128.0
+    );
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Int8Array(1); a[0] = 255; a[0];"),
+        -1.0
+    );
+}
+
+#[test]
+fn uint8_wraps_overflow() {
+    let mut vm = Vm::new();
+    // Uint8Array wraps via ToUint8 modular: 256 → 0.
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Uint8Array(1); a[0] = 256; a[0];"),
+        0.0
+    );
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Uint8Array(1); a[0] = -1; a[0];"),
+        255.0
+    );
+}
+
+#[test]
+fn uint8_clamped_rounds_ties_to_even() {
+    let mut vm = Vm::new();
+    // IEEE 754 roundTiesToEven per §7.1.11 — NOT round-half-up.
+    //   0.5 → 0, 1.5 → 2, 2.5 → 2, 3.5 → 4, 4.5 → 4.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8ClampedArray(1); a[0] = 0.5; a[0];"
+        ),
+        0.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8ClampedArray(1); a[0] = 1.5; a[0];"
+        ),
+        2.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8ClampedArray(1); a[0] = 2.5; a[0];"
+        ),
+        2.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8ClampedArray(1); a[0] = 3.5; a[0];"
+        ),
+        4.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8ClampedArray(1); a[0] = 4.5; a[0];"
+        ),
+        4.0
+    );
+}
+
+#[test]
+fn uint8_clamped_clamps_extremes() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8ClampedArray(1); a[0] = -10; a[0];"
+        ),
+        0.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8ClampedArray(1); a[0] = 1000; a[0];"
+        ),
+        255.0
+    );
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8ClampedArray(1); a[0] = NaN; a[0];"
+        ),
+        0.0
+    );
+}
+
+#[test]
+fn int16_uint16_roundtrip() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Int16Array(1); a[0] = 32768; a[0];"),
+        -32768.0
+    );
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Uint16Array(1); a[0] = 65536; a[0];"),
+        0.0
+    );
+}
+
+#[test]
+fn int32_uint32_roundtrip() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Int32Array(1); a[0] = 2147483648; a[0];"
+        ),
+        -2_147_483_648.0
+    );
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Uint32Array(1); a[0] = -1; a[0];"),
+        4_294_967_295.0
+    );
+}
+
+#[test]
+fn float32_roundtrip_lossy() {
+    let mut vm = Vm::new();
+    // f32 has 23 bits of mantissa; 1.1 doesn't round-trip exactly
+    // but 1.0 / 2.0 do.
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Float32Array(1); a[0] = 1.0; a[0];"),
+        1.0
+    );
+}
+
+#[test]
+fn float64_roundtrip_exact() {
+    let mut vm = Vm::new();
+    // f64 can represent 1.1 exactly (via round-trip).
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Float64Array(1); a[0] = 1.1; a[0];"),
+        1.1
+    );
+}
+
+#[test]
+fn bigint64_write_number_throws_type_error() {
+    let mut vm = Vm::new();
+    // Writing a Number to BigInt64Array throws per strict ToBigInt
+    // (§7.1.13 / §10.4.5.16 step 1).
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new BigInt64Array(1); var ok = false; \
+         try { a[0] = 1; } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn bigint64_write_bigint_ok() {
+    let mut vm = Vm::new();
+    // `bi[0] = 5n` → readback `5n`.  BigInt bracket-read returns
+    // `JsValue::BigInt`, not a number — we observe via string-coerce.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var a = new BigInt64Array(1); a[0] = 5n; \
+             String(a[0]);"
+        ),
+        "5"
+    );
+}
+
+#[test]
+fn bigint64_write_string_coerces() {
+    let mut vm = Vm::new();
+    // String "123" → ToBigInt → 123n (ES §7.1.13 accepts strings).
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var a = new BigInt64Array(1); a[0] = \"123\"; \
+             String(a[0]);"
+        ),
+        "123"
+    );
+}
+
+#[test]
+fn out_of_range_read_returns_undefined() {
+    let mut vm = Vm::new();
+    // `u8[5]` on a length-3 array returns undefined, does NOT
+    // walk the prototype chain (ES §10.4.5.15 step 3).
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array(3); a[5] === undefined;"
+    ));
+}
+
+#[test]
+fn out_of_range_write_is_no_op() {
+    let mut vm = Vm::new();
+    // `u8[5] = 99` on a length-3 array silently no-ops (ES
+    // §10.4.5.16) — does NOT create an own property, does NOT
+    // throw.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array(3); a[5] = 99; \
+         a[5] === undefined;"
+    ));
+}
+
+#[test]
+fn non_canonical_string_key_falls_through_to_prototype() {
+    let mut vm = Vm::new();
+    // Leading-zero numeric string "01" is NOT a Canonical Numeric
+    // Index String per §23.2.2, so falls through to prototype
+    // lookup.  Writing stores an ordinary own property; reading
+    // sees it.  No indexed-element interception.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array(3); a[\"01\"] = 99; a[\"01\"];"
+        ),
+        99.0
+    );
+    // Confirm the write did NOT touch the indexed storage at
+    // canonical index 1.
+    assert_eq!(
+        eval_number(&mut vm, "var a = new Uint8Array(3); a[\"01\"] = 99; a[1];"),
+        0.0
+    );
+}
+
+#[test]
+fn views_over_same_buffer_share_bytes() {
+    let mut vm = Vm::new();
+    // Two Uint8Arrays over the same ArrayBuffer: writing through
+    // one is visible on the other.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var buf = new ArrayBuffer(4); \
+             var v1 = new Uint8Array(buf); \
+             var v2 = new Uint8Array(buf); \
+             v1[0] = 42; v2[0];"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn uint16_view_over_uint8_buffer_reads_little_endian() {
+    let mut vm = Vm::new();
+    // Uint8Array [1, 0] = Uint16 value 1 under LE encoding
+    // (elidex choice per module header — IsLittleEndian() = true).
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var buf = new ArrayBuffer(2); \
+             var u8 = new Uint8Array(buf); \
+             u8[0] = 1; u8[1] = 0; \
+             var u16 = new Uint16Array(buf); u16[0];"
+        ),
+        1.0
+    );
+    // Sanity: [0x80, 0x3f] = 1.0 as f32 (IEEE 754 LE) — ties
+    // the written spec-divergence disclaimer.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var buf = new ArrayBuffer(4); \
+             var u8 = new Uint8Array(buf); \
+             u8[0] = 0; u8[1] = 0; u8[2] = 0x80; u8[3] = 0x3f; \
+             var f32 = new Float32Array(buf); f32[0];"
+        ),
+        1.0
+    );
+}
+
 #[test]
 fn buffer_getter_brand_check_rejects_foreign() {
     let mut vm = Vm::new();
