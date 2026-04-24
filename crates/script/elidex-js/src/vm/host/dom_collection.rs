@@ -207,6 +207,19 @@ fn resolve_entities_with_needles(
             let needle = resolved_needles.primary.as_deref().unwrap_or("");
             let mut out = Vec::new();
             dom.traverse_descendants(*doc, |e| {
+                // Skip the doc root itself — `getElementsByName` is
+                // a descendant-only query — and restrict to Element
+                // nodes per WHATWG HTML §3.1.5 step 1 ("list of
+                // elements with the given name").  Non-Element
+                // nodes that happen to carry a `name` attribute
+                // (possible via direct `EcsDom::set_attribute` on
+                // any entity) must not leak into the result.
+                if e == *doc {
+                    return true;
+                }
+                if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
+                    return true;
+                }
                 if dom.get_attribute(e, "name").is_some_and(|v| v == needle) {
                     out.push(e);
                 }

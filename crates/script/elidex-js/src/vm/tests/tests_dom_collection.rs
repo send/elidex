@@ -234,6 +234,50 @@ fn get_elements_by_name_is_live_node_list() {
     assert_eq!(out, "ok");
 }
 
+// ---------------------------------------------------------------------------
+// Copilot R5 #1 regression — `document.getElementsByName` MUST
+// return Element nodes only, even when non-Element entities carry a
+// matching `name` attribute (WHATWG HTML §3.1.5 step 1 "list of
+// elements").  The only way to attach a `name` attribute to a
+// non-Element from VM-accessible APIs is via direct `EcsDom`
+// manipulation (test setup), which the fix must still filter out.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn get_elements_by_name_filters_non_element_nodes() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+
+    // Attach `name="x"` directly to the Document root (non-Element).
+    // Without R5 #1's filter, `traverse_descendants` + attribute
+    // check would leak the Document into the result.  With the
+    // filter (`node_kind_inferred == Element` + `e != doc`), only
+    // the real `<input>` element is returned.
+    dom.set_attribute(doc, "name", "x".to_string());
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm
+        .eval(
+            "var el = document.createElement('input'); \
+             el.setAttribute('name', 'x'); \
+             document.body.appendChild(el); \
+             var nl = document.getElementsByName('x'); \
+             (nl.length === 1 && nl[0] === el) ? 'ok' : 'fail:' + nl.length;",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}");
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    vm.unbind();
+    assert_eq!(out, "ok");
+}
+
 // --- Iterator protocol -------------------------------------------
 
 #[test]
