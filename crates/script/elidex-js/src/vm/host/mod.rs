@@ -40,6 +40,8 @@ pub(crate) mod blob;
 pub(super) mod body_mixin;
 pub(super) mod character_data_proto;
 pub(super) mod childnode;
+#[cfg(feature = "engine")]
+pub(crate) mod data_view;
 pub(super) mod document;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;
