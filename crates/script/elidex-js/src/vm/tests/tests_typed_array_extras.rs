@@ -372,7 +372,8 @@ fn at_nan_maps_to_zero_per_to_integer_or_infinity() {
 }
 
 // ---------------------------------------------------------------------------
-// set(source, offset?) — negative offset → RangeError (§23.2.3.24)
+// fromIndex / offset coercion edge cases
+// (lastIndexOf §23.2.3.17 + set §23.2.3.24)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -490,7 +491,9 @@ fn structured_clone_preserves_data_view_identity() {
 }
 
 // ---------------------------------------------------------------------------
-// BigInt element equality — pool-based compare (SP-coerce strict_eq)
+// TypedArray ctor / set ToObject + ToLength coercion (§23.2.5.1) +
+// DataView NaN/undefined offset bounds (§25.3.1) +
+// BigInt element equality (pool-based compare, SP-coerce strict_eq)
 // ---------------------------------------------------------------------------
 
 #[test]

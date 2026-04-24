@@ -9,9 +9,9 @@
 //! accessors.  Split out of `element_proto.rs` so that module
 //! stays under the project's 1000-line convention.
 //!
-//! `install_element_attributes` on [`VmInner`] (defined in
-//! `element_proto.rs`) walks the native-fn table exposed here via
-//! `pub(super)` visibility.
+//! `install_element_attributes` on [`crate::vm::VmInner`] (defined
+//! in `element_proto.rs`) walks the native-fn table exposed here
+//! via `pub(super)` visibility.
 
 #![cfg(feature = "engine")]
 
