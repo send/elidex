@@ -577,14 +577,28 @@ fn native_text_decoder_get_encoding(
     // skips both the `to_ascii_lowercase` allocation and the
     // `intern` hashmap probe.  Other encodings fall through to the
     // per-call intern.
-    let encoding_sid = match ctx.vm.text_decoder_states.get(&id) {
-        None => ctx.vm.well_known.utf_8,
-        Some(state) => match state.decoder.encoding().name() {
-            "UTF-8" => ctx.vm.well_known.utf_8,
-            "UTF-16LE" => ctx.vm.well_known.utf_16le,
-            "UTF-16BE" => ctx.vm.well_known.utf_16be,
-            name => intern_lowercase(ctx.vm, name),
-        },
+    // `require_text_decoder_this` already asserted `kind ==
+    // TextDecoder`, and `text_decoder_states` is populated
+    // atomically with that kind promotion in the ctor — a missing
+    // entry here is an internal invariant violation, not a
+    // user-observable state.
+    //
+    // `Encoding::name()` is `&'static str`, so extracting it
+    // before the fast-path match + fallback drops the side-table
+    // borrow and lets `intern_lowercase` take `&mut ctx.vm`.
+    let name: &'static str = ctx
+        .vm
+        .text_decoder_states
+        .get(&id)
+        .expect("internal invariant: TextDecoder kind without state entry")
+        .decoder
+        .encoding()
+        .name();
+    let encoding_sid = match name {
+        "UTF-8" => ctx.vm.well_known.utf_8,
+        "UTF-16LE" => ctx.vm.well_known.utf_16le,
+        "UTF-16BE" => ctx.vm.well_known.utf_16be,
+        _ => intern_lowercase(ctx.vm, name),
     };
     Ok(JsValue::String(encoding_sid))
 }
@@ -595,7 +609,12 @@ fn native_text_decoder_get_fatal(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_text_decoder_this(ctx, this, "fatal")?;
-    let fatal = ctx.vm.text_decoder_states.get(&id).is_some_and(|s| s.fatal);
+    let fatal = ctx
+        .vm
+        .text_decoder_states
+        .get(&id)
+        .expect("internal invariant: TextDecoder kind without state entry")
+        .fatal;
     Ok(JsValue::Boolean(fatal))
 }
 
@@ -609,7 +628,8 @@ fn native_text_decoder_get_ignore_bom(
         .vm
         .text_decoder_states
         .get(&id)
-        .is_some_and(|s| s.ignore_bom);
+        .expect("internal invariant: TextDecoder kind without state entry")
+        .ignore_bom;
     Ok(JsValue::Boolean(ignore_bom))
 }
 
@@ -630,7 +650,7 @@ fn native_text_decoder_decode(
             .vm
             .text_decoder_states
             .get_mut(&id)
-            .ok_or_else(|| VmError::type_error("TextDecoder state missing"))?;
+            .expect("internal invariant: TextDecoder kind without state entry");
         let fatal = state.fatal;
         // Size the output buffer so the decoder can write every
         // output byte in a single call — `decode_to_string*`
