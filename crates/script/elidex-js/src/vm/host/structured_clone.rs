@@ -646,20 +646,32 @@ pub(super) fn ensure_empty_transfer_list(
             };
             // Invoke the iterator and probe just the first `next()`.
             // Empty iterable → OK; non-empty → DataCloneError (Phase
-            // 2 does not support transferables).  A throw from
-            // `iter_next` keeps the iterator closed per §7.4.6.
+            // 2 does not support transferables).
             let iter = ctx.vm.call_value(iter_fn, transfer, &[])?;
             if !matches!(iter, JsValue::Object(_)) {
                 return Err(VmError::type_error(format!(
                     "{err_prefix}: @@iterator must return an object"
                 )));
             }
+            // A throw from `iter_next` itself means the iterator's
+            // own `.next()` raised — per ES §7.4.5 / §7.4.7
+            // (IteratorStep / IteratorStepValue), the spec sets
+            // `iteratorRecord.[[Done]] = true` and propagates the
+            // completion WITHOUT invoking `IteratorClose`.  WebIDL
+            // §3.2.27 "Creating a sequence from iterable" inherits
+            // that behaviour via `?`.  Same convention documented
+            // in `headers.rs` (`parse_init`) and `blob.rs`
+            // (`blob_ctor_parts`); propagating the error via `?`
+            // is spec-compliant.
             match ctx.vm.iter_next(iter)? {
                 None => Ok(()),
                 Some(_) => {
-                    // Close the iterator before surfacing the Phase
-                    // 2 limitation (§7.4.6 IteratorClose).  A
-                    // `.return()` throw takes precedence.
+                    // Non-empty iteration is an abrupt completion
+                    // from OUR loop body (not the iterator
+                    // itself), so `IteratorClose` must run before
+                    // surfacing the Phase 2 limitation (§7.4.8
+                    // IteratorClose).  A `.return()` throw takes
+                    // precedence over the triggering abrupt.
                     if let Some(close_err) = ctx.vm.iter_close(iter).err() {
                         return Err(close_err);
                     }
