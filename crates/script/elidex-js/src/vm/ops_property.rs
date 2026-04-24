@@ -878,7 +878,12 @@ impl VmInner {
         // storage; canonical forms that are NOT valid integer
         // indices — `NaN` / ±`Infinity` / negative / fractional /
         // out-of-u32-range — are silent no-ops per §10.4.5.16 step 1
-        // and must NOT surface as ordinary own properties.
+        // and must NOT surface as ordinary own properties.  Objects
+        // with a custom `toString` routing to a canonical numeric
+        // index string flow through the generic `ToString` branch
+        // below; Symbols bypass the TypedArray exotic path and land
+        // on ordinary own properties (§10.4.5 only specialises
+        // Strings).
         let idx: u32 = match key {
             JsValue::Number(n) => match classify_typed_array_number_key(n) {
                 TypedArrayStringKey::IntegerIndex(i) => i,
@@ -890,7 +895,18 @@ impl VmInner {
                 TypedArrayStringKey::CanonicalNonInteger => return Some(Ok(())),
                 TypedArrayStringKey::NotNumeric => return None,
             },
-            _ => return None,
+            JsValue::Symbol(_) => return None,
+            other => {
+                let sid = match to_string(self, other) {
+                    Ok(sid) => sid,
+                    Err(err) => return Some(Err(err)),
+                };
+                match classify_typed_array_string_key(self, sid) {
+                    TypedArrayStringKey::IntegerIndex(i) => i,
+                    TypedArrayStringKey::CanonicalNonInteger => return Some(Ok(())),
+                    TypedArrayStringKey::NotNumeric => return None,
+                }
+            }
         };
         let len_elem = byte_length / u32::from(element_kind.bytes_per_element());
         if idx >= len_elem {
