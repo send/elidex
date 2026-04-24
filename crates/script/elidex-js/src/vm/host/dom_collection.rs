@@ -693,18 +693,25 @@ fn native_node_list_for_each(
 // -------------------------------------------------------------------------
 
 /// Try to resolve `collection[index]` for HTMLCollection / NodeList
-/// receivers.  Returns `Some(result)` when the key is a valid
+/// receivers.  Returns `Some(entity)` when the key is a valid
 /// numeric index (or a numeric-string for HTMLCollection's legacy
 /// named property fallback).  Returns `None` when the caller
 /// should fall through to the regular property / prototype lookup
 /// path (so non-index lookups like `coll.length` still see the
 /// prototype accessor).
+///
+/// Returns the backing `Entity` rather than a wrapped `JsValue`
+/// so the caller can drop the `&EcsDom` borrow before invoking
+/// `create_element_wrapper`.  The wrapper path mutably borrows
+/// `VmInner::host_data::wrapper_cache`, which aliases the shared
+/// reborrow chain used to obtain this `&EcsDom` from `HostData`;
+/// splitting the phases eliminates the Stacked-Borrows violation.
 pub(crate) fn try_indexed_get(
     vm: &mut VmInner,
     dom: &EcsDom,
     id: ObjectId,
     key: JsValue,
-) -> Option<JsValue> {
+) -> Option<Entity> {
     let is_html_collection = matches!(vm.get_object(id).kind, ObjectKind::HtmlCollection);
     // Remove / re-insert mirrors `resolve_receiver_entities` so we
     // can take concurrent borrows of `vm.strings` (for the needle
@@ -723,9 +730,7 @@ pub(crate) fn try_indexed_get(
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let idx = trunc as usize;
-            entities
-                .get(idx)
-                .map(|&e| JsValue::Object(vm.create_element_wrapper(e)))
+            entities.get(idx).copied()
         }
         JsValue::String(sid) => {
             // Canonical array-index parse (ES §6.1.7 "array index" /
@@ -737,9 +742,7 @@ pub(crate) fn try_indexed_get(
             let key_units = vm.strings.get(sid);
             if let Some(idx_u32) = super::super::coerce_format::parse_array_index_u32(key_units) {
                 let idx = idx_u32 as usize;
-                return entities
-                    .get(idx)
-                    .map(|&e| JsValue::Object(vm.create_element_wrapper(e)));
+                return entities.get(idx).copied();
             }
             let key_str = vm.strings.get_utf8(sid);
             // Non-canonical-index string on HTMLCollection → legacy
@@ -753,7 +756,7 @@ pub(crate) fn try_indexed_get(
             let mut name_hit: Option<Entity> = None;
             for &e in &entities {
                 if dom.get_attribute(e, "id").as_deref() == Some(key_str.as_str()) {
-                    return Some(JsValue::Object(vm.create_element_wrapper(e)));
+                    return Some(e);
                 }
                 if name_hit.is_none() {
                     if let Some(tag) = dom.get_tag_name(e) {
@@ -765,7 +768,7 @@ pub(crate) fn try_indexed_get(
                     }
                 }
             }
-            name_hit.map(|e| JsValue::Object(vm.create_element_wrapper(e)))
+            name_hit
         }
         _ => None,
     }

@@ -457,16 +457,24 @@ fn native_nnm_symbol_iterator(
 // -------------------------------------------------------------------------
 
 /// Try to resolve `nnm[key]` for a NamedNodeMap receiver.
-/// Returns `Some(result)` when the key is a valid numeric index
-/// or a string matching an attribute name; `None` when the caller
-/// should fall through to the prototype chain (so `.length` /
-/// `.getNamedItem` still see the prototype accessor / method).
+/// Returns `Some((owner, qname_sid))` when the key is a valid
+/// numeric index or a string matching an attribute name; `None`
+/// when the caller should fall through to the prototype chain
+/// (so `.length` / `.getNamedItem` still see the prototype
+/// accessor / method).
+///
+/// Returns pre-wrapper data (owner Entity + qualified-name
+/// `StringId`) rather than allocating the `Attr` wrapper inline.
+/// `alloc_attr` mutably borrows `VmInner::attr_states`, which
+/// aliases through the same `VmInner` that owns the shared
+/// reborrow chain backing the caller's `&EcsDom` — splitting the
+/// phases lets the caller drop the DOM borrow before allocation.
 pub(crate) fn try_indexed_get(
     vm: &mut VmInner,
     dom: &EcsDom,
     id: ObjectId,
     key: JsValue,
-) -> Option<JsValue> {
+) -> Option<(Entity, StringId)> {
     let owner = *vm.named_node_map_states.get(&id)?;
     let names = attribute_names_snapshot(dom, owner);
 
@@ -480,11 +488,7 @@ pub(crate) fn try_indexed_get(
             let idx = trunc as usize;
             let name = names.get(idx)?;
             let qname_sid = vm.strings.intern(name);
-            let attr_id = vm.alloc_attr(AttrState {
-                owner,
-                qualified_name: qname_sid,
-            });
-            Some(JsValue::Object(attr_id))
+            Some((owner, qname_sid))
         }
         JsValue::String(sid) => {
             // Canonical array-index parse (ES §6.1.7 / §7.1.21):
@@ -497,11 +501,7 @@ pub(crate) fn try_indexed_get(
                 let idx = idx_u32 as usize;
                 let name = names.get(idx)?;
                 let qname_sid = vm.strings.intern(name);
-                let attr_id = vm.alloc_attr(AttrState {
-                    owner,
-                    qualified_name: qname_sid,
-                });
-                return Some(JsValue::Object(attr_id));
+                return Some((owner, qname_sid));
             }
             let key_str = vm.strings.get_utf8(sid);
             // Match by exact attribute name — HTML documents store
@@ -511,11 +511,7 @@ pub(crate) fn try_indexed_get(
                 return None;
             }
             let qname_sid = vm.strings.intern(&key_str);
-            let attr_id = vm.alloc_attr(AttrState {
-                owner,
-                qualified_name: qname_sid,
-            });
-            Some(JsValue::Object(attr_id))
+            Some((owner, qname_sid))
         }
         _ => None,
     }

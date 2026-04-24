@@ -473,44 +473,68 @@ impl VmInner {
                 );
                 let is_named_node_map = matches!(kind_snapshot, ObjectKind::NamedNodeMap);
                 if is_live_collection || is_named_node_map {
-                    // Indexed / named property access needs a
-                    // shared `&EcsDom` borrow alongside the `&mut
-                    // VmInner` the helper runs on.  DOM and the rest
-                    // of `VmInner` live in disjoint fields
-                    // (`host_data` vs everything else) so the
-                    // borrow is sound under split-field rules — we
-                    // materialise the shared `&EcsDom` through a
-                    // raw pointer to bypass the stacked-borrow
-                    // conservatism that cannot prove the
-                    // disjointness through the `Box<HostData>`
-                    // indirection.
+                    // Two-phase lookup:
+                    //
+                    //   1. With a shared `&EcsDom` borrow (obtained
+                    //      through a raw-pointer detach from
+                    //      `HostData::dom_shared`), call the typed
+                    //      helper to produce an `Entity` (for live
+                    //      collections) or `(owner, qname_sid)`
+                    //      (for NamedNodeMap).  The helper must not
+                    //      itself allocate wrappers — doing so
+                    //      would mutably reborrow `host_data`
+                    //      (`wrapper_cache` / `attr_states`) while
+                    //      the `&EcsDom` derived from the same
+                    //      `HostData` reborrow chain is still live,
+                    //      a Stacked Borrows violation.
+                    //   2. Drop the `&EcsDom` borrow, then allocate
+                    //      the wrapper on the clean `&mut VmInner`.
+                    //
                     // `dom_shared()` panics when `HostData` is
                     // unbound.  Collection wrappers can outlive
-                    // `Vm::unbind()` when they remain reachable from
-                    // ordinary JS roots (e.g. `globalThis.hc = ...`
-                    // or a live stack value).  The
-                    // `live_collection_states` /
-                    // `named_node_map_states` side tables are NOT
-                    // GC roots — they are pruned after the mark
-                    // phase based on whether the key `ObjectId`
-                    // was itself marked.  So post-unbind indexed
-                    // access on a retained wrapper must fall
-                    // through to normal prototype lookup rather
-                    // than panicking inside `dom_shared`'s
-                    // `is_bound()` assertion.
+                    // `Vm::unbind()` when they remain reachable
+                    // from ordinary JS roots (e.g. `globalThis.hc
+                    // = ...`); the side tables
+                    // (`live_collection_states` /
+                    // `named_node_map_states`) are NOT GC roots —
+                    // they are pruned after the mark phase based on
+                    // whether the key `ObjectId` was itself marked.
+                    // Post-unbind indexed access on a retained
+                    // wrapper therefore falls through to normal
+                    // prototype lookup rather than panicking.
+                    let entity_hit: Option<elidex_ecs::Entity>;
+                    let nnm_hit: Option<(elidex_ecs::Entity, super::value::StringId)>;
                     if let Some(hd) = self.host_data.as_deref().filter(|h| h.is_bound()) {
                         #[allow(unsafe_code)]
                         let dom_ptr: *const elidex_ecs::EcsDom = hd.dom_shared();
                         #[allow(unsafe_code)]
                         let dom = unsafe { &*dom_ptr };
-                        let hit = if is_live_collection {
-                            super::host::dom_collection::try_indexed_get(self, dom, id, key)
+                        if is_live_collection {
+                            entity_hit =
+                                super::host::dom_collection::try_indexed_get(self, dom, id, key);
+                            nnm_hit = None;
                         } else {
-                            super::host::named_node_map::try_indexed_get(self, dom, id, key)
-                        };
-                        if let Some(val) = hit {
-                            return Ok(val);
+                            entity_hit = None;
+                            nnm_hit =
+                                super::host::named_node_map::try_indexed_get(self, dom, id, key);
                         }
+                        // `dom` / `dom_ptr` fall out of scope here
+                        // — subsequent wrapper allocation runs with
+                        // no outstanding DOM borrow aliasing
+                        // `host_data`.
+                    } else {
+                        entity_hit = None;
+                        nnm_hit = None;
+                    }
+                    if let Some(e) = entity_hit {
+                        return Ok(JsValue::Object(self.create_element_wrapper(e)));
+                    }
+                    if let Some((owner, qname_sid)) = nnm_hit {
+                        let attr_id = self.alloc_attr(super::host::attr_proto::AttrState {
+                            owner,
+                            qualified_name: qname_sid,
+                        });
+                        return Ok(JsValue::Object(attr_id));
                     }
                 }
             }
