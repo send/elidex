@@ -343,6 +343,126 @@ pub(crate) fn f64_to_uint16(n: f64) -> u16 {
     result
 }
 
+// ---------------------------------------------------------------------------
+// ToInt8 / ToUint8 / ToUint8Clamp / ToInt16 (ES2020 §7.1.8-.11)
+// ---------------------------------------------------------------------------
+//
+// Engine-feature-only: the helpers below are used exclusively by
+// TypedArray (`vm::host::typed_array` — engine-gated).  Gating them
+// behind the same feature keeps non-engine builds dead-code-warning
+// free, matching the sibling `enforce_range_unsigned_short` above.
+
+/// The modulo-2^8 signed conversion from f64 to i8 (ES §7.1.9).
+/// Used by `Int8Array` indexed element writes.  NaN / ±∞ / ±0 → 0.
+#[cfg(feature = "engine")]
+#[inline]
+pub(crate) fn f64_to_int8(n: f64) -> i8 {
+    if n.is_nan() || n.is_infinite() || n == 0.0 {
+        return 0;
+    }
+    let int = n.trunc().rem_euclid(256.0);
+    // rem_euclid result is in [0, 256); fold the upper half back into
+    // negative range (`[128, 256) -> [-128, 0)`) to complete ToInt8.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let as_u8 = int as u8;
+    as_u8 as i8
+}
+
+/// The modulo-2^8 unsigned conversion from f64 to u8 (ES §7.1.10).
+/// Used by `Uint8Array` indexed element writes.
+#[cfg(feature = "engine")]
+#[inline]
+pub(crate) fn f64_to_uint8(n: f64) -> u8 {
+    if n.is_nan() || n.is_infinite() || n == 0.0 {
+        return 0;
+    }
+    let int = n.trunc().rem_euclid(256.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let result = int as u8;
+    result
+}
+
+/// `ToUint8Clamp` (ES §7.1.11) — **not** a modular conversion.
+/// NaN → 0, n ≤ 0 → 0, n ≥ 255 → 255, else round with
+/// **roundTiesToEven** (IEEE 754 banker's rounding).  Used by
+/// `Uint8ClampedArray` indexed element writes; diverges from
+/// `ToUint8` on both the clamping and the rounding-mode choice
+/// (`ToUint8` truncates toward zero and wraps; `ToUint8Clamp`
+/// clamps at the domain edge and rounds ties to even).
+#[cfg(feature = "engine")]
+#[inline]
+#[must_use]
+pub fn f64_to_uint8_clamp(n: f64) -> u8 {
+    if n.is_nan() || n <= 0.0 {
+        return 0;
+    }
+    if n >= 255.0 {
+        return 255;
+    }
+    // `f64::round_ties_even` stabilised Rust 1.77 — project pins
+    // 1.95 per `rust-toolchain.toml`, so the unconditional call
+    // is safe.  Produces 2.5 → 2, 3.5 → 4, 4.5 → 4, -0.5 → 0,
+    // 255.5 → 255 (already clamped) behaviour.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let rounded = n.round_ties_even() as u8;
+    rounded
+}
+
+/// The modulo-2^16 signed conversion from f64 to i16 (ES §7.1.11
+/// ToInt16).  Used by `Int16Array` indexed element writes.
+#[cfg(feature = "engine")]
+#[inline]
+pub(crate) fn f64_to_int16(n: f64) -> i16 {
+    if n.is_nan() || n.is_infinite() || n == 0.0 {
+        return 0;
+    }
+    let int = n.trunc().rem_euclid(65_536.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let as_u16 = int as u16;
+    as_u16 as i16
+}
+
+/// ToInt8 wrapper — coerces `val` via `ToNumber` then folds into i8.
+#[cfg(feature = "engine")]
+#[inline]
+pub(crate) fn to_int8(vm: &VmInner, val: JsValue) -> Result<i8, VmError> {
+    let n = to_number(vm, val)?;
+    Ok(f64_to_int8(n))
+}
+
+/// ToUint8 wrapper — coerces `val` via `ToNumber` then folds into u8.
+#[cfg(feature = "engine")]
+#[inline]
+pub(crate) fn to_uint8(vm: &VmInner, val: JsValue) -> Result<u8, VmError> {
+    let n = to_number(vm, val)?;
+    Ok(f64_to_uint8(n))
+}
+
+/// ToUint8Clamp wrapper — coerces `val` via `ToNumber` then clamps
+/// (ES §7.1.11).
+#[cfg(feature = "engine")]
+#[inline]
+pub(crate) fn to_uint8_clamp(vm: &VmInner, val: JsValue) -> Result<u8, VmError> {
+    let n = to_number(vm, val)?;
+    Ok(f64_to_uint8_clamp(n))
+}
+
+/// ToInt16 wrapper — coerces `val` via `ToNumber` then folds into i16.
+#[cfg(feature = "engine")]
+#[inline]
+pub(crate) fn to_int16(vm: &VmInner, val: JsValue) -> Result<i16, VmError> {
+    let n = to_number(vm, val)?;
+    Ok(f64_to_int16(n))
+}
+
+/// ToUint16 wrapper — coerces `val` via `ToNumber` then folds into u16.
+#[cfg(feature = "engine")]
+#[inline]
+pub(crate) fn to_uint16(vm: &VmInner, val: JsValue) -> Result<u16, VmError> {
+    let n = to_number(vm, val)?;
+    Ok(f64_to_uint16(n))
+}
+
 /// WebIDL `[EnforceRange] unsigned short` conversion (§3.2.4.7
 /// step 7).  NaN / ±∞ / out-of-`[0, 65535]` all throw `TypeError`
 /// rather than silently wrapping — the spec-mandated path for
