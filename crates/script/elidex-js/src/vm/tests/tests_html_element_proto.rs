@@ -155,6 +155,26 @@ fn has_focus_reflects_focused_entity_presence() {
     assert_eq!(out, "ok");
 }
 
+// Regression guard for Copilot R1 #1: `hasFocus()` must treat a
+// detached focused entity as "not focused", mirroring
+// `activeElement`'s connectedness filter.  Without the filter, the
+// stale `HostData::focused_entity` remained `Some(...)` after
+// `removeChild` and `hasFocus()` returned `true` while
+// `activeElement` correctly fell back to `<body>`.
+#[test]
+fn has_focus_returns_false_after_focused_element_detached() {
+    let out = run("var d = document.createElement('div'); \
+         document.body.appendChild(d); \
+         d.focus(); \
+         var before = document.hasFocus(); \
+         document.body.removeChild(d); \
+         var after = document.hasFocus(); \
+         var activeIsBody = document.activeElement === document.body; \
+         (before === true && after === false && activeIsBody) \
+           ? 'ok' : ('fail:' + before + ',' + after + ',' + activeIsBody);");
+    assert_eq!(out, "ok");
+}
+
 // --- Brand checks ------------------------------------------------
 
 #[test]

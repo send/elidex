@@ -99,8 +99,11 @@ mod engine_feature {
         /// models a focus chain, but single-frame VM covers the
         /// primary use cases).
         ///
-        /// Cleared automatically when the focused Entity is detached
-        /// from the document — see [`Self::invalidate_focus_if`].
+        /// Explicitly cleared by `HTMLElement.blur()` via
+        /// [`Self::invalidate_focus_if`].  Detached entities may
+        /// remain stored here internally; `document.activeElement`
+        /// and `document.hasFocus()` filter them out at read time
+        /// (connectedness walk via `get_parent`).
         pub(crate) focused_entity: Option<Entity>,
     }
 

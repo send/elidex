@@ -307,3 +307,53 @@ fn item_out_of_range_returns_null() {
          ok ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
+
+// ---------------------------------------------------------------------------
+// Cross-interface brand checks (Copilot R1 #3 regression guard).
+// HTMLCollection-only methods (`namedItem`) must reject NodeList
+// receivers; NodeList-only methods (`forEach`) must reject
+// HTMLCollection receivers.  Shared methods (`length` / `item`)
+// remain accepted on both.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn named_item_rejects_node_list_receiver_with_illegal_invocation() {
+    let out = run("var nl = document.body.childNodes; \
+         var hcProto = Object.getPrototypeOf(document.body.children); \
+         var named = hcProto.namedItem; \
+         try { named.call(nl, 'x'); 'no-throw'; } \
+         catch (e) { (e && e.message && e.message.indexOf('Illegal') >= 0) \
+                        ? 'ok' : 'bad:' + (e && e.message); }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn for_each_rejects_html_collection_receiver_with_illegal_invocation() {
+    let out = run("var hc = document.body.children; \
+         var nlProto = Object.getPrototypeOf(document.body.childNodes); \
+         var forEach = nlProto.forEach; \
+         try { forEach.call(hc, function(){}); 'no-throw'; } \
+         catch (e) { (e && e.message && e.message.indexOf('Illegal') >= 0) \
+                        ? 'ok' : 'bad:' + (e && e.message); }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn shared_methods_accept_either_collection_receiver() {
+    // `length` + `item` live on both prototypes and must work via
+    // cross-receiver `.call`.
+    let out = run("var p = document.createElement('div'); \
+         p.appendChild(document.createElement('a')); \
+         var hcProto = Object.getPrototypeOf(document.body.children); \
+         var nlProto = Object.getPrototypeOf(document.body.childNodes); \
+         var hcLenDesc = Object.getOwnPropertyDescriptor(hcProto, 'length'); \
+         var nlLenDesc = Object.getOwnPropertyDescriptor(nlProto, 'length'); \
+         var hcLenOnNl = hcLenDesc.get.call(p.childNodes); \
+         var nlLenOnHc = nlLenDesc.get.call(p.children); \
+         var hcItemOnNl = hcProto.item.call(p.childNodes, 0); \
+         var nlItemOnHc = nlProto.item.call(p.children, 0); \
+         (hcLenOnNl === 1 && nlLenOnHc === 1 \
+          && hcItemOnNl !== null && nlItemOnHc !== null) \
+           ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}

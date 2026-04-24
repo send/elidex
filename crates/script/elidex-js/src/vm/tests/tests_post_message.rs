@@ -447,6 +447,78 @@ fn listener_with_aborted_signal_does_not_fire() {
     vm.unbind();
 }
 
+// ---------------------------------------------------------------------------
+// MessageEvent.target identity — must be canonical `window`, not a
+// fresh HostObject wrapper allocated off the Window ECS entity.
+// Regression guard for Copilot R1 #2 (Window wrapper identity bug
+// introduced when C8 routed dispatch through `dispatch_script_event`
+// without caching `(window_entity → global_object)` in
+// `wrapper_cache`).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn message_event_target_is_canonical_window() {
+    setup_bound_vm!(vm, session, dom, doc);
+    vm.eval(
+        "globalThis.targetIsWindow = null;
+         globalThis.currentTargetIsWindow = null;
+         window.addEventListener('message', function(e){
+             globalThis.targetIsWindow = (e.target === window);
+             globalThis.currentTargetIsWindow = (e.currentTarget === window);
+         });
+         window.postMessage('x', '*');",
+    )
+    .unwrap();
+    assert!(eval_bool(&mut vm, "globalThis.targetIsWindow;"));
+    assert!(eval_bool(&mut vm, "globalThis.currentTargetIsWindow;"));
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Dict-form options read through WebIDL `Get` (§7.3.1), not the
+// inner `storage.get` fast path — inherited / accessor-defined
+// `targetOrigin` / `transfer` entries must be observable.
+// Regression guard for Copilot R1 #5.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn post_message_dict_target_origin_inherited_from_prototype() {
+    setup_bound_vm!(vm, session, dom, doc);
+    // `targetOrigin` lives on the prototype, not the own object.
+    // WebIDL conversion walks the proto chain → delivery should
+    // succeed (star match).
+    vm.eval(
+        "globalThis.hit = 0;
+         window.addEventListener('message', function(e){ globalThis.hit = e.data; });
+         var proto = { targetOrigin: '*' };
+         var opts = Object.create(proto);
+         window.postMessage(7, opts);",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "globalThis.hit;"), 7.0);
+    vm.unbind();
+}
+
+#[test]
+fn post_message_dict_target_origin_via_getter_is_observed() {
+    setup_bound_vm!(vm, session, dom, doc);
+    // `targetOrigin` is an accessor — the getter must fire, and its
+    // side effect (globalThis.gets incremented) must be observable.
+    vm.eval(
+        "globalThis.gets = 0;
+         globalThis.hit = 0;
+         window.addEventListener('message', function(e){ globalThis.hit = e.data; });
+         var opts = Object.defineProperty({}, 'targetOrigin', {
+             get: function(){ globalThis.gets += 1; return '*'; }
+         });
+         window.postMessage(9, opts);",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "globalThis.gets;"), 1.0);
+    assert_eq!(eval_number(&mut vm, "globalThis.hit;"), 9.0);
+    vm.unbind();
+}
+
 #[test]
 fn signal_abort_during_listener_body_removes_remaining() {
     // Aborting the signal mid-dispatch MUST remove the still-pending

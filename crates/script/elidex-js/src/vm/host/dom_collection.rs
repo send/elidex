@@ -448,27 +448,72 @@ impl VmInner {
 // Native methods
 // -------------------------------------------------------------------------
 
+/// Expected receiver variant for a collection prototype method.
+///
+/// Drives per-interface brand checks: `namedItem` is
+/// HTMLCollection-only, `forEach` is NodeList-only (WebIDL
+/// `iterable<Node>`), and the rest (length / item / `@@iterator`)
+/// accept either receiver since both prototypes install them.
+#[derive(Copy, Clone)]
+enum ExpectedCollectionReceiver {
+    Any,
+    HtmlCollection,
+    NodeList,
+}
+
+fn expected_collection_receiver(method: &str) -> ExpectedCollectionReceiver {
+    match method {
+        "namedItem" => ExpectedCollectionReceiver::HtmlCollection,
+        "forEach" => ExpectedCollectionReceiver::NodeList,
+        // length / item / `@@iterator` install on both prototypes.
+        _ => ExpectedCollectionReceiver::Any,
+    }
+}
+
+fn collection_interface_name(expected: ExpectedCollectionReceiver) -> &'static str {
+    match expected {
+        ExpectedCollectionReceiver::NodeList => "NodeList",
+        // Both `Any` and `HtmlCollection` report against HTMLCollection
+        // because the shared methods live on HTMLCollection's WebIDL
+        // interface historically — the error message picks the more
+        // user-facing name.
+        ExpectedCollectionReceiver::Any | ExpectedCollectionReceiver::HtmlCollection => {
+            "HTMLCollection"
+        }
+    }
+}
+
 /// Brand-check helper — recover the `ObjectId` + whether the
-/// receiver is an HTMLCollection (vs NodeList).  Returns a
-/// TypeError for non-collection receivers so `.call({})` throws
-/// "Illegal invocation" (matches browser behaviour).
+/// receiver is an HTMLCollection (vs NodeList), enforcing per-method
+/// interface contracts.  Returns a TypeError for non-collection
+/// receivers or mismatched collection kinds so `.call({})` and
+/// cross-interface `.call(otherKind)` both throw "Illegal invocation"
+/// (matches browser behaviour).
 fn require_collection_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &'static str,
 ) -> Result<(ObjectId, bool), VmError> {
+    let expected = expected_collection_receiver(method);
+    let interface = collection_interface_name(expected);
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'HTMLCollection': Illegal invocation"
+            "Failed to execute '{method}' on '{interface}': Illegal invocation"
         )));
     };
-    match ctx.vm.get_object(id).kind {
-        ObjectKind::HtmlCollection => Ok((id, true)),
-        ObjectKind::NodeList => Ok((id, false)),
-        _ => Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'HTMLCollection': Illegal invocation"
-        ))),
+    let is_html_collection = matches!(ctx.vm.get_object(id).kind, ObjectKind::HtmlCollection);
+    let is_node_list = matches!(ctx.vm.get_object(id).kind, ObjectKind::NodeList);
+    let ok = match expected {
+        ExpectedCollectionReceiver::Any => is_html_collection || is_node_list,
+        ExpectedCollectionReceiver::HtmlCollection => is_html_collection,
+        ExpectedCollectionReceiver::NodeList => is_node_list,
+    };
+    if !ok {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': Illegal invocation"
+        )));
     }
+    Ok((id, is_html_collection))
 }
 
 /// Resolve the backing entity list for a live collection receiver.
@@ -541,13 +586,7 @@ fn native_collection_named_item(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, is_html_collection) = require_collection_receiver(ctx, this, "namedItem")?;
-    if !is_html_collection {
-        return Err(VmError::type_error(
-            "Failed to execute 'namedItem' on 'NodeList': not implemented (NodeList has no namedItem)"
-                .to_string(),
-        ));
-    }
+    let (id, _is_html_collection) = require_collection_receiver(ctx, this, "namedItem")?;
     let Some(arg) = args.first().copied() else {
         return Ok(JsValue::Null);
     };

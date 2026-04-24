@@ -179,6 +179,21 @@ impl Vm {
                     *entity_bits = target_bits;
                 }
             }
+            // Cache (window_entity → global_object) in wrapper_cache so
+            // any later `create_element_wrapper(window_entity)` call
+            // returns the canonical Window wrapper instead of allocating
+            // a fresh `HostObject` via the `OtherNode` prototype path.
+            // Without this, `dispatch_script_event` at a Window target
+            // (e.g. `window.postMessage` / `window.dispatchEvent`) seeds
+            // `event.target` with a distinct wrapper and breaks
+            // `event.target === window`.  Idempotent across bind→unbind→
+            // bind cycles: the first bind populates, subsequent binds
+            // skip via the pre-check.
+            if let Some(hd) = self.inner.host_data.as_deref_mut() {
+                if hd.get_cached_wrapper(window_entity).is_none() {
+                    hd.cache_wrapper(window_entity, global_id);
+                }
+            }
             // Refresh the `document` global so JS code (and listener
             // bodies) sees the just-bound document entity.  Wrapper
             // identity is preserved across bind/unbind cycles via

@@ -366,3 +366,60 @@ fn options_primitive_string_throws_type_error() {
     // WebIDL dictionary conversion rejects a non-nullish primitive.
     eval_throws(&mut vm, "structuredClone(1, 'bogus');");
 }
+
+// ---------------------------------------------------------------------------
+// Copilot R1 #4 regression — `clone_error` must install its
+// `src → new_id` cycle memo BEFORE walking properties AND
+// recursively clone each data property's value.  Without the memo
+// insert, cyclic Errors diverge; without the value recurse,
+// object-valued `cause` shares identity with the source.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn clone_error_breaks_cycles_via_memo() {
+    let mut vm = Vm::new();
+    let ok = eval_bool(
+        &mut vm,
+        "var err = new TypeError('boom'); \
+         err.cause = err; \
+         var clone = structuredClone(err); \
+         clone !== err && clone.cause === clone && clone instanceof TypeError;",
+    );
+    assert!(ok);
+}
+
+#[test]
+fn clone_error_recurses_into_cause_value() {
+    let mut vm = Vm::new();
+    let ok = eval_bool(
+        &mut vm,
+        "var inner = {n: 1}; \
+         var err = new Error('x'); \
+         err.cause = inner; \
+         var clone = structuredClone(err); \
+         clone.cause !== inner && clone.cause.n === 1;",
+    );
+    assert!(ok);
+}
+
+// ---------------------------------------------------------------------------
+// Copilot R1 #6 regression — `structuredClone` options.transfer
+// must go through WebIDL `Get` (proto chain + getter) rather than
+// own-property lookup.  Accessor-defined `transfer` returning
+// undefined passes validation; the getter side effect is the proof.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn structured_clone_options_transfer_via_getter_is_observed() {
+    let mut vm = Vm::new();
+    let gets = eval_number(
+        &mut vm,
+        "globalThis.gets = 0; \
+         var opts = Object.defineProperty({}, 'transfer', { \
+             get: function(){ globalThis.gets += 1; return undefined; } \
+         }); \
+         structuredClone(42, opts); \
+         globalThis.gets;",
+    );
+    assert!((gets - 1.0).abs() < f64::EPSILON);
+}

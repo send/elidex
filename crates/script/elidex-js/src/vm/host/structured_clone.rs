@@ -130,12 +130,12 @@ fn clone_recursive(
         // on the clone; a plain `{}` still falls through to
         // `clone_ordinary`.
         CloneKind::Ordinary if is_error_like_proto(vm, src_proto) => {
-            clone_error(vm, src_id, src_proto)
+            clone_error(vm, src_id, src_proto, memo)
         }
         CloneKind::Ordinary => clone_ordinary(vm, src_id, memo),
         CloneKind::Array => clone_array(vm, src_id, memo),
         CloneKind::RegExp => clone_regexp(vm, src_id),
-        CloneKind::Error => clone_error(vm, src_id, src_proto),
+        CloneKind::Error => clone_error(vm, src_id, src_proto, memo),
         CloneKind::NumberWrapper(n) => Ok(JsValue::Object(alloc_wrapper(
             vm,
             ObjectKind::NumberWrapper(n),
@@ -402,10 +402,19 @@ fn clone_regexp(vm: &mut VmInner, src: ObjectId) -> Result<JsValue, VmError> {
 /// payload and the source `.prototype` (so `new TypeError(...)`
 /// round-trips as a TypeError).  `stack` is non-standard and is
 /// deliberately dropped.
+///
+/// The `memo` is threaded the same way as `clone_ordinary` /
+/// `clone_array`: the `src → new_id` entry is installed **before**
+/// recursive value walks, so an Error participating in a cycle
+/// (`err.cause === err`, or `obj.err = err; err.obj = obj`) resolves
+/// to the just-allocated placeholder rather than re-cloning.  Own
+/// data property values (notably `cause`) are recursively cloned so
+/// the clone graph shares no object references with the source.
 fn clone_error(
     vm: &mut VmInner,
     src: ObjectId,
     src_proto: Option<ObjectId>,
+    memo: &mut HashMap<ObjectId, ObjectId>,
 ) -> Result<JsValue, VmError> {
     // `new TypeError(...)` allocates an Ordinary with
     // `error_prototype`; the VM-internal thrown path allocates
@@ -422,9 +431,14 @@ fn clone_error(
         prototype: src_proto.or(vm.error_prototype),
         extensible: true,
     });
+    // Install memo BEFORE recursive walks so self-referencing Errors
+    // (`err.cause = err`) resolve to `new_id` instead of re-cloning.
+    memo.insert(src, new_id);
     // §19.5.1.1 replicates: copy own `.name` and `.message` data
     // properties with METHOD attrs, matching the ctor.  Any other
-    // own data properties (incl. `cause`) also copy through.
+    // own data properties (incl. `cause`) also copy through —
+    // recursively cloned so object values do not leak references
+    // back to the source graph.
     let entries: Vec<(PropertyKey, JsValue, PropertyAttrs)> = vm
         .get_object(src)
         .storage
@@ -444,7 +458,8 @@ fn clone_error(
         if matches!(key, PropertyKey::String(sid) if sid == stack_sid) {
             continue;
         }
-        vm.define_shaped_property(new_id, key, PropertyValue::Data(v), attrs);
+        let cloned = clone_recursive(vm, v, memo)?;
+        vm.define_shaped_property(new_id, key, PropertyValue::Data(cloned), attrs);
     }
     Ok(JsValue::Object(new_id))
 }
@@ -564,17 +579,12 @@ fn validate_transfer(ctx: &mut NativeContext<'_>, options: JsValue) -> Result<()
     match options {
         JsValue::Undefined | JsValue::Null => Ok(()),
         JsValue::Object(opts_id) => {
+            // WebIDL dictionary conversion: ordinary `Get` walks
+            // proto chain and fires getters — a `storage.get` direct
+            // read would silently skip accessor-defined / inherited
+            // `transfer` entries.
             let transfer_key = PropertyKey::String(ctx.vm.strings.intern("transfer"));
-            let transfer_val = ctx
-                .vm
-                .get_object(opts_id)
-                .storage
-                .get(transfer_key, &ctx.vm.shapes)
-                .and_then(|(pv, _)| match pv {
-                    PropertyValue::Data(v) => Some(*v),
-                    PropertyValue::Accessor { .. } => None,
-                })
-                .unwrap_or(JsValue::Undefined);
+            let transfer_val = ctx.vm.get_property_value(opts_id, transfer_key)?;
             match transfer_val {
                 JsValue::Undefined | JsValue::Null => Ok(()),
                 JsValue::Object(arr_id) => {

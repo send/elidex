@@ -11,18 +11,25 @@
 //! unwinds, after all microtasks have been flushed, matching the
 //! spec's "perform a microtask checkpoint" step between each task.
 //!
-//! ## Dispatch model (Phase 2 simplification)
+//! ## Dispatch model
 //!
-//! The `postMessage` path constructs a minimal `MessageEvent`-shaped
-//! Event object and walks the listeners registered on the target
-//! window entity for `"message"` directly — no capture / bubble
-//! tree walk, because `Window` is a leaf target and
-//! `MessageEvent.bubbles === false` per spec.  The listeners are
-//! invoked in registration order, the Event identity is shared
-//! across every handler (WHATWG DOM §2.9 "same Event object"), and
-//! stopImmediatePropagation short-circuits remaining handlers.
-//! Full three-phase dispatch lands with the cross-window / Worker
-//! postMessage wiring (plan §Deferred #15 / PR5d).
+//! The `postMessage` path constructs a MessageEvent-shaped Event
+//! object (core-9 layout + `data` / `origin` / `lastEventId` /
+//! `source` / `ports` slots) and routes it through
+//! [`super::event_target::dispatch_script_event`].  That helper
+//! builds the dispatch plan via the session crate's
+//! `build_dispatch_plan` and applies standard per-listener option
+//! semantics: registration order walk, shared Event identity across
+//! handlers (WHATWG DOM §2.9 "same Event object"),
+//! `stopImmediatePropagation`, plus `{once}` auto-removal,
+//! `{signal}` back-ref cleanup, and the `passive` flag toggle.
+//!
+//! For `Window` targets, the propagation path is target-only in
+//! practice: Window is a leaf in the composed-path walk and
+//! `MessageEvent.bubbles === false` per spec, so capture / bubble
+//! phases have no listeners.  The shared machinery still handles
+//! future non-leaf dispatch (cross-window / Worker, plan §Deferred
+//! #15 / PR5d) without further rewiring.
 //!
 //! ## GC contract
 //!
@@ -361,29 +368,15 @@ fn extract_signature(
         let JsValue::Object(opts_id) = arg1 else {
             unreachable!()
         };
+        // WebIDL dictionary conversion uses ordinary `Get` (§7.3.1):
+        // walks the prototype chain and fires accessor getters.
+        // `storage.get` alone would silently ignore inherited /
+        // accessor-defined `targetOrigin` / `transfer` entries.
         let target_origin_key = PropertyKey::String(ctx.vm.strings.intern("targetOrigin"));
-        let target_origin_val = ctx
-            .vm
-            .get_object(opts_id)
-            .storage
-            .get(target_origin_key, &ctx.vm.shapes)
-            .and_then(|(pv, _)| match pv {
-                PropertyValue::Data(v) => Some(*v),
-                PropertyValue::Accessor { .. } => None,
-            })
-            .unwrap_or(JsValue::Undefined);
+        let target_origin_val = ctx.vm.get_property_value(opts_id, target_origin_key)?;
         let target_origin_sid = coerce_to_string_or_default(ctx, target_origin_val, "/")?;
         let transfer_key = PropertyKey::String(ctx.vm.strings.intern("transfer"));
-        let transfer_val = ctx
-            .vm
-            .get_object(opts_id)
-            .storage
-            .get(transfer_key, &ctx.vm.shapes)
-            .and_then(|(pv, _)| match pv {
-                PropertyValue::Data(v) => Some(*v),
-                PropertyValue::Accessor { .. } => None,
-            })
-            .unwrap_or(JsValue::Undefined);
+        let transfer_val = ctx.vm.get_property_value(opts_id, transfer_key)?;
         Ok((target_origin_sid, transfer_val))
     } else {
         // Legacy: arg1 is `targetOrigin` (ToString-coerced; default

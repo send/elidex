@@ -689,20 +689,37 @@ pub(super) fn native_document_get_active_element(
 
 /// `document.hasFocus()` (WHATWG HTML §6.7).
 ///
-/// Phase 2 approximation: returns whether any element is currently
-/// focused (`HostData::focused_entity.is_some()`).  A full spec
-/// implementation tracks system focus at the window level; same-
-/// origin Document vs top-level Window focus arbitration is deferred
-/// to the PR5d cross-window tranche.
+/// Phase 2 approximation: returns whether an element is currently
+/// focused **and** still connected to this document.  Detached
+/// focused entities do not count — this mirrors `activeElement`'s
+/// connectedness filter so the two APIs agree (`hasFocus() === true`
+/// ⇒ `activeElement !== body`).  A full spec implementation tracks
+/// system focus at the window level; same-origin Document vs
+/// top-level Window focus arbitration is deferred to the PR5d
+/// cross-window tranche.
 pub(super) fn native_document_has_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = document_receiver(ctx, this, "hasFocus")?;
-    Ok(JsValue::Boolean(
-        super::html_element_proto::focused_entity(ctx).is_some(),
-    ))
+    let Some(doc) = document_receiver(ctx, this, "hasFocus")? else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let Some(focused) = super::html_element_proto::focused_entity(ctx) else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let dom = ctx.host().dom();
+    if !dom.contains(focused) {
+        return Ok(JsValue::Boolean(false));
+    }
+    let mut cur = Some(focused);
+    while let Some(c) = cur {
+        if c == doc {
+            return Ok(JsValue::Boolean(true));
+        }
+        cur = dom.get_parent(c);
+    }
+    Ok(JsValue::Boolean(false))
 }
 
 /// `document.links` — live `HTMLCollection` of every `<a>` /
