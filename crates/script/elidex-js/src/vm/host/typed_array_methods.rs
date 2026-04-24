@@ -456,15 +456,23 @@ fn set_array_like_body(
     let len_val =
         ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;
     let len_f = ctx.to_number(len_val)?;
+    // §23.2.3.24 step 11 runs `LengthOfArrayLike`/`ToLength`, which
+    // clamps NaN and negative lengths to `0` (so `set({length: -1})`
+    // is a no-op rather than a RangeError).  Only values larger than
+    // `u32::MAX` exceed the engine's byte_length cap.
     let src_len = {
-        let truncated = if len_f.is_nan() { 0.0 } else { len_f.trunc() };
-        if truncated < 0.0 || truncated > f64::from(u32::MAX) {
+        let clamped = if len_f.is_nan() || len_f <= 0.0 {
+            0.0
+        } else {
+            len_f.trunc()
+        };
+        if clamped > f64::from(u32::MAX) {
             return Err(VmError::range_error(
-                "Failed to execute 'set' on 'TypedArray': source length out of range",
+                "Failed to execute 'set' on 'TypedArray': source length exceeds the supported maximum",
             ));
         }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let l = truncated as u32;
+        let l = clamped as u32;
         l
     };
     if target_offset

@@ -1923,6 +1923,30 @@ fn typed_array_set_accepts_primitive_source_via_to_object() {
 }
 
 #[test]
+fn typed_array_ctor_and_set_use_to_length_for_array_like_length() {
+    let mut vm = Vm::new();
+    // ES §23.2.5.1 array-like path uses `LengthOfArrayLike`/`ToLength`,
+    // which clamps NaN / negative / -Infinity lengths to `0` — a
+    // `{length: -1}` source must yield an empty TypedArray, not a
+    // RangeError.
+    assert_eq!(
+        eval_number(&mut vm, "new Uint8Array({ length: -1 }).length;"),
+        0.0
+    );
+    assert_eq!(
+        eval_number(&mut vm, "new Uint8Array({ length: NaN, 0: 1 }).length;"),
+        0.0
+    );
+    // `%TypedArray%.prototype.set` array-like branch follows the
+    // same ToLength rule — `u.set({length: -1})` is a silent no-op.
+    assert!(eval_bool(
+        &mut vm,
+        "var u = new Uint8Array([1, 2, 3]); u.set({ length: -1 }); \
+         u[0] === 1 && u[1] === 2 && u[2] === 3;"
+    ));
+}
+
+#[test]
 fn typed_array_ctor_accepts_array_like_without_iterator() {
     let mut vm = Vm::new();
     // ES §23.2.5.1 steps 9-12: when `usingIterator` is undefined

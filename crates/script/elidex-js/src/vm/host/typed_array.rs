@@ -1013,9 +1013,11 @@ fn init_from_iterable_body(
 }
 
 /// Variant 5b: §23.2.5.1 array-like fallback when `source` has no
-/// callable `@@iterator`.  Reads `source.length` → `ToIndex` →
+/// callable `@@iterator`.  Reads `source.length` → `ToLength` →
 /// allocates buffer → drains `source[i]` through the shared property
-/// path (§23.2.5.1 steps 9-12).
+/// path (§23.2.5.1 steps 9-12).  `ToLength` clamps negative / NaN
+/// lengths to `0` (an empty TypedArray) rather than throwing —
+/// `{length: -1}` / `{length: NaN}` produce `new Uint8Array(0)`.
 fn init_from_array_like(
     ctx: &mut NativeContext<'_>,
     src_id: ObjectId,
@@ -1025,7 +1027,22 @@ fn init_from_array_like(
     let len_val =
         ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;
     let len_f = ctx.to_number(len_val)?;
-    let length = to_index_u32(len_f, ek.name(), "length")?;
+    let length = {
+        let clamped = if len_f.is_nan() || len_f <= 0.0 {
+            0.0
+        } else {
+            len_f.trunc()
+        };
+        if clamped > f64::from(u32::MAX) {
+            return Err(VmError::range_error(format!(
+                "Failed to construct '{}': source length exceeds the supported maximum",
+                ek.name()
+            )));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let l = clamped as u32;
+        l
+    };
     let byte_len = length
         .checked_mul(u32::from(ek.bytes_per_element()))
         .ok_or_else(|| {
