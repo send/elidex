@@ -83,6 +83,8 @@ pub(crate) mod request_response;
 pub(super) mod request_response_accessors;
 #[cfg(feature = "engine")]
 pub(super) mod structured_clone;
+#[cfg(feature = "engine")]
+pub(crate) mod text_encoding;
 pub(super) mod text_proto;
 #[cfg(feature = "engine")]
 pub(crate) mod typed_array;

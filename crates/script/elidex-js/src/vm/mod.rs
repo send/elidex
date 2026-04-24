@@ -703,6 +703,17 @@ pub(crate) struct VmInner {
     pub(crate) bigint64_array_prototype: Option<ObjectId>,
     #[cfg(feature = "engine")]
     pub(crate) biguint64_array_prototype: Option<ObjectId>,
+    /// `TextEncoder.prototype` (WHATWG Encoding §8.2).  Chains
+    /// directly to `Object.prototype`.  `None` until
+    /// `register_text_encoder_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) text_encoder_prototype: Option<ObjectId>,
+    /// `TextDecoder.prototype` (WHATWG Encoding §8.1).  Chains
+    /// directly to `Object.prototype`.  `None` until
+    /// `register_text_decoder_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) text_decoder_prototype: Option<ObjectId>,
     /// Per-`Blob` out-of-band state, keyed by the instance's own
     /// `ObjectId`.  Separate from [`Self::body_data`] because a
     /// Blob carries a `type_sid` alongside its bytes; folding both
@@ -715,6 +726,20 @@ pub(crate) struct VmInner {
     /// pattern as `body_data` / `headers_states`.
     #[cfg(feature = "engine")]
     pub(crate) blob_data: HashMap<ObjectId, host::blob::BlobData>,
+    /// Per-`TextDecoder` out-of-band state (WHATWG Encoding §8.1).
+    /// Keyed by the instance's own `ObjectId`.  Holds the resolved
+    /// encoding, the user-chosen `fatal` / `ignoreBOM` flags, and
+    /// the live `encoding_rs::Decoder` whose `BOM` handling + partial
+    /// sequence state persist across streaming `decode(..., {stream:
+    /// true})` calls.
+    ///
+    /// GC contract: the payload holds no `ObjectId` references
+    /// (`encoding` is `&'static`, `Decoder` is opaque to us), so
+    /// the trace step does nothing.  Sweep tail prunes entries
+    /// whose key `ObjectId` was collected — same pattern as
+    /// `blob_data` / `headers_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) text_decoder_states: HashMap<ObjectId, host::text_encoding::TextDecoderState>,
     /// Backing state for `ObjectKind::HtmlCollection` /
     /// `ObjectKind::NodeList` wrappers (WHATWG DOM §4.2.10 / §4.2.10.1).
     ///

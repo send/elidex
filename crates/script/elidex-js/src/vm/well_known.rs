@@ -482,6 +482,26 @@ pub(crate) struct WellKnownStrings {
     pub(crate) buffer: StringId,
     pub(crate) byte_offset: StringId,
     pub(crate) bytes_per_element: StringId,
+
+    // -- TextEncoder / TextDecoder (WHATWG Encoding §8) --
+    // Constructor globals use the `*_global` suffix convention.
+    // Method / attribute names are separate fields: `encoding`
+    // doubles as the `TextDecoder.prototype.encoding` getter name
+    // and an options-bag key, so the StringId is shared.
+    pub(crate) text_encoder_global: StringId,
+    pub(crate) text_decoder_global: StringId,
+    pub(crate) encode: StringId,
+    pub(crate) encode_into: StringId,
+    pub(crate) decode: StringId,
+    pub(crate) encoding: StringId,
+    pub(crate) fatal: StringId,
+    pub(crate) ignore_bom: StringId,
+    pub(crate) read: StringId,
+    pub(crate) written: StringId,
+    pub(crate) stream: StringId,
+    pub(crate) utf_8: StringId,
+    pub(crate) utf_16le: StringId,
+    pub(crate) utf_16be: StringId,
 }
 
 impl WellKnownStrings {
@@ -854,6 +874,22 @@ impl WellKnownStrings {
             buffer: strings.intern("buffer"),
             byte_offset: strings.intern("byteOffset"),
             bytes_per_element: strings.intern("BYTES_PER_ELEMENT"),
+
+            // TextEncoder / TextDecoder.
+            text_encoder_global: strings.intern("TextEncoder"),
+            text_decoder_global: strings.intern("TextDecoder"),
+            encode: strings.intern("encode"),
+            encode_into: strings.intern("encodeInto"),
+            decode: strings.intern("decode"),
+            encoding: strings.intern("encoding"),
+            fatal: strings.intern("fatal"),
+            ignore_bom: strings.intern("ignoreBOM"),
+            read: strings.intern("read"),
+            written: strings.intern("written"),
+            stream: strings.intern("stream"),
+            utf_8: strings.intern("utf-8"),
+            utf_16le: strings.intern("utf-16le"),
+            utf_16be: strings.intern("utf-16be"),
         }
     }
 }

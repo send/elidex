@@ -377,6 +377,13 @@ impl VmInner {
             // instances rather than an always-false universe.
             // PR5-typed-array §C6.
             self.install_array_buffer_is_view();
+            // `TextEncoder` / `TextDecoder` (WHATWG Encoding §8).
+            // Must run after `register_typed_array_prototype_global`
+            // because `TextEncoder.encode` allocates `Uint8Array`
+            // instances and reads the `uint8_array_prototype`.
+            // PR5a-fetch2.
+            self.register_text_encoder_global();
+            self.register_text_decoder_global();
             let request_proto = self
                 .request_prototype
                 .expect("request_prototype populated by register_request_global");

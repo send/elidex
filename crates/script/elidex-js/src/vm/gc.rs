@@ -111,7 +111,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 59],
+    proto_roots: [Option<ObjectId>; 61],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -671,6 +671,16 @@ fn trace_work_list(
             ObjectKind::TypedArray { buffer_id, .. } | ObjectKind::DataView { buffer_id, .. } => {
                 mark_object(*buffer_id, obj_marks, work);
             }
+            // `TextEncoder` is stateless (payload-free variant, no
+            // side table).  `TextDecoder`'s state
+            // (`text_decoder_states`) holds no `ObjectId`
+            // references — `encoding: &'static Encoding` and the
+            // opaque `encoding_rs::Decoder` are entirely non-GC —
+            // so the trace step has nothing to fan out.  Sweep
+            // tail prunes `text_decoder_states` entries whose key
+            // `ObjectId` was collected.
+            #[cfg(feature = "engine")]
+            ObjectKind::TextEncoder | ObjectKind::TextDecoder => {}
         }
     }
 }
@@ -995,6 +1005,17 @@ impl VmInner {
                 self.biguint64_array_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 59 + 2 (PR5a-fetch2: TextEncoder + TextDecoder) = 61.
+                // WHATWG Encoding §8 surface; both chain directly to
+                // Object.prototype (no shared abstract parent).
+                #[cfg(feature = "engine")]
+                self.text_encoder_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.text_decoder_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             global_object: self.global_object,
             upvalues: &self.upvalues,
@@ -1134,6 +1155,13 @@ impl VmInner {
             // inherit stale bytes / type.  Matches `body_data` /
             // `headers_states` pattern.
             self.blob_data.retain(|id, _| bit_get(marks, id.0));
+            // `text_decoder_states` — prune entries whose key
+            // `TextDecoder` instance was collected.  The payload
+            // holds no `ObjectId` references, so no per-entry
+            // fan-out tracing is needed.  Same pattern as
+            // `blob_data` / `headers_states`.
+            self.text_decoder_states
+                .retain(|id, _| bit_get(marks, id.0));
             // `live_collection_states` — shared side-table backing
             // every `ObjectKind::HtmlCollection` / `NodeList`
             // wrapper.  Same prune-by-key-mark pattern: collected
