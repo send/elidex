@@ -112,7 +112,7 @@ impl VmInner {
                     getter: Some(gid),
                     setter: None,
                 },
-                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+                PropertyAttrs::ES_BUILTIN_ACCESSOR,
             );
         }
 

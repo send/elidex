@@ -107,6 +107,20 @@ impl PropertyAttrs {
         configurable: true,
         is_accessor: true,
     };
+
+    /// ES-spec built-in accessor (non-WebIDL) — matches
+    /// `%TypedArray%.prototype.buffer` / `.byteOffset` / `.byteLength`
+    /// / `.length`, `DataView.prototype` accessors, `@@toStringTag`,
+    /// and `@@species`.  All specify `{ Enumerable: false,
+    /// Configurable: true }` (e.g. §23.2.3.1 / §23.2.3.32 /
+    /// §23.2.2.4 / §25.3.4.1-3) — distinct from the enumerable
+    /// WebIDL interface-member accessor default.
+    pub const ES_BUILTIN_ACCESSOR: Self = Self {
+        writable: false,
+        enumerable: false,
+        configurable: true,
+        is_accessor: true,
+    };
 }
 
 /// Key for the transition table.

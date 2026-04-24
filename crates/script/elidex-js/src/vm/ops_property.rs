@@ -533,7 +533,43 @@ impl VmInner {
         // §6.2.4.5 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
-            // Numeric index for arrays.
+            // TypedArray integer-indexed get (ES §10.4.5.15).  Must
+            // run ahead of the generic numeric fast path so any
+            // CanonicalNumericIndexString Number key — including
+            // `NaN` / ±`Infinity` / negative / fractional /
+            // out-of-u32-range values rejected by `try_as_array_index`
+            // — short-circuits to `undefined` without consulting
+            // ordinary properties or the prototype chain.
+            #[cfg(feature = "engine")]
+            if let JsValue::Number(n) = key {
+                if let ObjectKind::TypedArray {
+                    buffer_id,
+                    byte_offset,
+                    byte_length,
+                    element_kind,
+                } = self.get_object(id).kind
+                {
+                    match classify_typed_array_number_key(n) {
+                        TypedArrayStringKey::IntegerIndex(i) => {
+                            let len_elem =
+                                byte_length / u32::from(element_kind.bytes_per_element());
+                            if i < len_elem {
+                                return Ok(super::host::typed_array::read_element_raw(
+                                    self,
+                                    buffer_id,
+                                    byte_offset,
+                                    i,
+                                    element_kind,
+                                ));
+                            }
+                            return Ok(JsValue::Undefined);
+                        }
+                        TypedArrayStringKey::CanonicalNonInteger => return Ok(JsValue::Undefined),
+                        TypedArrayStringKey::NotNumeric => {}
+                    }
+                }
+            }
+            // Numeric index for arrays / Arguments / StringWrapper.
             if let JsValue::Number(n) = key {
                 if let Some(idx) = try_as_array_index(n) {
                     let obj_ref = self.get_object(id);
@@ -553,33 +589,6 @@ impl VmInner {
                                 let ch_id = self.strings.intern_utf16(&[unit]);
                                 return Ok(JsValue::String(ch_id));
                             }
-                        }
-                        #[cfg(feature = "engine")]
-                        &ObjectKind::TypedArray {
-                            buffer_id,
-                            byte_offset,
-                            byte_length,
-                            element_kind,
-                        } => {
-                            // ES §10.4.5.15 IntegerIndexedElementGet:
-                            // in-range index reads through the backing
-                            // ArrayBuffer; out-of-range returns
-                            // `undefined` (NOT prototype chain walk,
-                            // spec diverges from Array here).
-                            let len_elem =
-                                byte_length / u32::from(element_kind.bytes_per_element());
-                            if let Ok(i) = u32::try_from(idx) {
-                                if i < len_elem {
-                                    return Ok(super::host::typed_array::read_element_raw(
-                                        self,
-                                        buffer_id,
-                                        byte_offset,
-                                        i,
-                                        element_kind,
-                                    ));
-                                }
-                            }
-                            return Ok(JsValue::Undefined);
                         }
                         _ => {}
                     }

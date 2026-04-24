@@ -122,7 +122,7 @@ impl VmInner {
                 getter: Some(species_getter),
                 setter: None,
             },
-            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            PropertyAttrs::ES_BUILTIN_ACCESSOR,
         );
 
         // Register each of the 11 concrete subclass prototypes +
@@ -170,7 +170,7 @@ impl VmInner {
                     getter: Some(gid),
                     setter: None,
                 },
-                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+                PropertyAttrs::ES_BUILTIN_ACCESSOR,
             );
         }
 
@@ -190,7 +190,7 @@ impl VmInner {
                 getter: Some(tag_getter),
                 setter: None,
             },
-            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            PropertyAttrs::ES_BUILTIN_ACCESSOR,
         );
 
         // Core method suite.  See `typed_array_methods` for the
