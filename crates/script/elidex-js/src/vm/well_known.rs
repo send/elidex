@@ -461,15 +461,12 @@ pub(crate) struct WellKnownStrings {
     pub(crate) array_buffer: StringId,
 
     // -- TypedArray + DataView (ES2024 §23.2 / §25.3) --
-    // Constructor name StringIds.  `typed_array_global` backs the
-    // abstract `%TypedArray%` intrinsic (NOT installed on
-    // `globalThis` per §23.2.2 — reachable only via
-    // `Object.getPrototypeOf(Uint8Array)`); `data_view_global` and
-    // the 11 concrete-subclass entries back the real globals.  All
-    // are interned eagerly so the per-subclass
-    // `register_typed_array_subclass` call can fetch them without a
-    // per-call `strings.intern(...)` round-trip.
-    pub(crate) typed_array_global: StringId,
+    // Constructor name StringIds.  `data_view_global` and the 11
+    // concrete-subclass entries back the real globals; the abstract
+    // `%TypedArray%` intrinsic has no globalThis binding per
+    // §23.2.2 so no StringId is needed for it.  All are interned
+    // eagerly so `register_typed_array_subclass` can fetch them
+    // without a per-call `strings.intern(...)` round-trip.
     pub(crate) data_view_global: StringId,
     pub(crate) int8_array_global: StringId,
     pub(crate) uint8_array_global: StringId,
@@ -842,7 +839,6 @@ impl WellKnownStrings {
             array_buffer: strings.intern("arrayBuffer"),
 
             // TypedArray + DataView.
-            typed_array_global: strings.intern("TypedArray"),
             data_view_global: strings.intern("DataView"),
             int8_array_global: strings.intern("Int8Array"),
             uint8_array_global: strings.intern("Uint8Array"),
