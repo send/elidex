@@ -461,8 +461,12 @@ pub(crate) struct WellKnownStrings {
     pub(crate) array_buffer: StringId,
 
     // -- TypedArray + DataView (ES2024 §23.2 / §25.3) --
-    // Ctor global names + common IDL attr / method names.  The 11
-    // subclass ctor globals are interned eagerly so the per-subclass
+    // Constructor name StringIds.  `typed_array_global` backs the
+    // abstract `%TypedArray%` intrinsic (NOT installed on
+    // `globalThis` per §23.2.2 — reachable only via
+    // `Object.getPrototypeOf(Uint8Array)`); `data_view_global` and
+    // the 11 concrete-subclass entries back the real globals.  All
+    // are interned eagerly so the per-subclass
     // `register_typed_array_subclass` call can fetch them without a
     // per-call `strings.intern(...)` round-trip.
     pub(crate) typed_array_global: StringId,

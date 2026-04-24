@@ -652,11 +652,8 @@ fn native_typed_array_get_length(
     else {
         unreachable!("brand-check passed");
     };
-    let len = u32::from(element_kind.bytes_per_element())
-        .max(1)
-        .try_into()
-        .map(|bpe: u32| byte_length / bpe)
-        .unwrap_or(0);
+    let bpe = u32::from(element_kind.bytes_per_element());
+    let len = byte_length / bpe;
     Ok(JsValue::Number(f64::from(len)))
 }
 
