@@ -195,6 +195,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 biguint64_array_prototype: None,
                 #[cfg(feature = "engine")]
+                text_encoder_prototype: None,
+                #[cfg(feature = "engine")]
+                text_decoder_prototype: None,
+                #[cfg(feature = "engine")]
+                text_decoder_states: HashMap::new(),
+                #[cfg(feature = "engine")]
                 network_handle: None,
                 #[cfg(feature = "engine")]
                 fetch_abort_observers: HashMap::new(),

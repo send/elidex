@@ -2011,6 +2011,7 @@ dependencies = [
  "elidex-net",
  "elidex-plugin",
  "elidex-script-session",
+ "encoding_rs",
  "hashbrown 0.15.5",
  "num-bigint",
  "num-traits",

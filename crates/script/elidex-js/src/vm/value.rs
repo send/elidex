@@ -899,6 +899,28 @@ pub enum ObjectKind {
         byte_offset: u32,
         byte_length: u32,
     },
+    /// `TextEncoder` instance (WHATWG Encoding §8.2).  Stateless
+    /// (encoding is always `"utf-8"`), payload-free — brand check
+    /// is the sole reason a dedicated variant exists rather than
+    /// reusing `Ordinary`.  Lets `encode` / `encodeInto` reject
+    /// `{encode: TextEncoder.prototype.encode}.encode()` with
+    /// TypeError instead of silently misbehaving.
+    ///
+    /// GC contract: payload-free — nothing to trace or prune.
+    #[cfg(feature = "engine")]
+    TextEncoder,
+    /// `TextDecoder` instance (WHATWG Encoding §8.1).  Payload-free;
+    /// the encoder handle + `fatal` / `ignoreBOM` flags live in
+    /// `VmInner::text_decoder_states`.  Same model as `Headers` /
+    /// `Request` / `Response` / `Blob` — keeping the variant
+    /// payload-free preserves per-variant size discipline.
+    ///
+    /// GC contract: the state entry holds no `ObjectId` references
+    /// (encoding is `&'static`, decoder state is opaque
+    /// `encoding_rs::Decoder`), so the trace step does nothing.
+    /// Sweep tail prunes entries whose key `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    TextDecoder,
 }
 
 impl ObjectKind {

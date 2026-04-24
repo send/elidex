@@ -256,6 +256,8 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::Headers => CloneKind::Unclonable("Headers"),
         ObjectKind::Request => CloneKind::Unclonable("Request"),
         ObjectKind::Response => CloneKind::Unclonable("Response"),
+        ObjectKind::TextEncoder => CloneKind::Unclonable("TextEncoder"),
+        ObjectKind::TextDecoder => CloneKind::Unclonable("TextDecoder"),
         ObjectKind::HtmlCollection => CloneKind::Unclonable("HTMLCollection"),
         ObjectKind::NodeList => CloneKind::Unclonable("NodeList"),
         ObjectKind::NamedNodeMap => CloneKind::Unclonable("NamedNodeMap"),

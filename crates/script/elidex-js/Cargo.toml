@@ -19,6 +19,7 @@ engine = [
     "elidex-css",
     "elidex-net",
     "bytes",
+    "encoding_rs",
 ]
 
 [dependencies]
@@ -44,6 +45,11 @@ elidex-net = { workspace = true, optional = true }
 # directly, so the workspace-shared crate is pulled in when
 # `engine` is enabled.
 bytes = { workspace = true, optional = true }
+# Encoding label resolution + streaming decoder state backing
+# `TextEncoder` / `TextDecoder` (WHATWG Encoding §8).  Optional +
+# engine-gated because the surface depends on the engine-only
+# `Uint8Array` + `ArrayBuffer` wrappers.
+encoding_rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -67,6 +67,7 @@ mod tests_request_response;
 mod tests_sparse_array;
 mod tests_string_complement;
 mod tests_structured_clone;
+mod tests_text_encoding;
 mod tests_timer;
 mod tests_try_catch_finally;
 mod tests_typed_array;
