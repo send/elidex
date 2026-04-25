@@ -440,13 +440,12 @@ macro_rules! dv_get {
             let n = ctx.to_number(offset_arg)?;
             let little_endian = decode_little_endian(ctx, args.get(1).copied());
             let bytes = read_bytes::<$size>(ctx, this, $method, n)?;
-            let typed: $ty = if little_endian {
+            let $v: $ty = if little_endian {
                 <$ty>::from_le_bytes(bytes)
             } else {
                 <$ty>::from_be_bytes(bytes)
             };
             let $ctx = &mut *ctx;
-            let $v: $ty = typed;
             $wrap
         }
     };
@@ -608,10 +607,10 @@ dv_set!(native_data_view_set_uint32, "setUint32", 4, |ctx, val| {
     super::super::coerce::to_uint32(ctx.vm, val)?
 });
 dv_set!(native_data_view_set_float32, "setFloat32", 4, |ctx, val| {
-    let f = ctx.to_number(val)?;
     #[allow(clippy::cast_possible_truncation)]
-    let truncated = f as f32;
-    truncated
+    {
+        ctx.to_number(val)? as f32
+    }
 });
 dv_set!(native_data_view_set_float64, "setFloat64", 8, |ctx, val| {
     ctx.to_number(val)?
