@@ -771,8 +771,8 @@ fn extract_buffer_source_bytes(
 
 /// Allocate a fresh `Uint8Array` whose underlying buffer owns
 /// `bytes`.  Uses the shared `body_data` / `array_buffer_prototype`
-/// + `uint8_array_prototype` so GC sweep prunes it like any
-/// other view allocation.
+/// + `subclass_array_prototypes[ElementKind::Uint8.index()]` slot
+/// (SP14) so GC sweep prunes it like any other view allocation.
 ///
 /// Returns `RangeError` if `bytes.len()` exceeds `u32::MAX` — the
 /// TypedArray `[[ByteLength]]` slot is `u32` so a silent truncation

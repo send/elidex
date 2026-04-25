@@ -418,11 +418,11 @@ struct SubclassEntry {
     global_name: fn(&super::super::well_known::WellKnownStrings) -> StringId,
 }
 
-/// Sized to `ElementKind::COUNT` so a misaligned table (a missing
-/// entry, or a duplicate after re-ordering) refuses to compile —
-/// the array literal below MUST contain exactly one entry per
-/// `ElementKind` variant in declaration order, matching
-/// `ElementKind::index()`.
+/// Sized to `ElementKind::COUNT` so a missing or extra entry fails
+/// to compile via the array length.  The const-time check below the
+/// literal then enforces that each entry's `element_kind` matches
+/// its position via `ElementKind::index()`, which makes duplicates
+/// or out-of-order entries also refuse to compile.
 static SUBCLASS_TABLE: [SubclassEntry; ElementKind::COUNT] = [
     SubclassEntry {
         name: "Int8Array",
@@ -491,6 +491,24 @@ static SUBCLASS_TABLE: [SubclassEntry; ElementKind::COUNT] = [
         global_name: |w| w.biguint64_array_global,
     },
 ];
+
+// Compile-time check that every entry's `element_kind` matches its
+// position via `ElementKind::index()`.  Together with the table's
+// `[_; ElementKind::COUNT]` length, this rejects a missing entry, a
+// duplicate variant, or an out-of-order entry — anything that would
+// otherwise leave the install loop's `subclass_array_prototypes[index]`
+// write pointing at the wrong slot.
+const _: () = {
+    let mut i = 0;
+    while i < ElementKind::COUNT {
+        assert!(
+            SUBCLASS_TABLE[i].element_kind.index() == i,
+            "SUBCLASS_TABLE entry index does not match ElementKind::index() — \
+             check that entries appear in ElementKind variant order without duplicates"
+        );
+        i += 1;
+    }
+};
 
 // ---------------------------------------------------------------------------
 // Per-subclass constructor thin wrappers
