@@ -50,6 +50,7 @@ mod natives_string_ext;
 mod natives_symbol;
 mod natives_timer;
 mod ops;
+mod ops_element;
 mod ops_property;
 pub mod pools;
 pub(crate) mod shape;
