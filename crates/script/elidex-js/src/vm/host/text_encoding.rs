@@ -796,7 +796,7 @@ fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<Obj
     // the rooting matches the invariant used by `wrap_in_array_-
     // iterator` / event constructors / the typed-array ctor.
     let mut g = vm.push_temp_root(JsValue::Object(buffer_id));
-    let proto = g.uint8_array_prototype;
+    let proto = g.subclass_array_prototypes[ElementKind::Uint8.index()];
     let view_id = g.alloc_object(Object {
         kind: ObjectKind::TypedArray {
             buffer_id,

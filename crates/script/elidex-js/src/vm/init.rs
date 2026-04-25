@@ -177,27 +177,7 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 data_view_prototype: None,
                 #[cfg(feature = "engine")]
-                int8_array_prototype: None,
-                #[cfg(feature = "engine")]
-                uint8_array_prototype: None,
-                #[cfg(feature = "engine")]
-                uint8_clamped_array_prototype: None,
-                #[cfg(feature = "engine")]
-                int16_array_prototype: None,
-                #[cfg(feature = "engine")]
-                uint16_array_prototype: None,
-                #[cfg(feature = "engine")]
-                int32_array_prototype: None,
-                #[cfg(feature = "engine")]
-                uint32_array_prototype: None,
-                #[cfg(feature = "engine")]
-                float32_array_prototype: None,
-                #[cfg(feature = "engine")]
-                float64_array_prototype: None,
-                #[cfg(feature = "engine")]
-                bigint64_array_prototype: None,
-                #[cfg(feature = "engine")]
-                biguint64_array_prototype: None,
+                subclass_array_prototypes: [None; super::value::ElementKind::COUNT],
                 #[cfg(feature = "engine")]
                 text_encoder_prototype: None,
                 #[cfg(feature = "engine")]

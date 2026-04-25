@@ -109,7 +109,13 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 61],
+    proto_roots: [Option<ObjectId>; 50],
+    /// Per-subclass TypedArray prototype slots, addressed by
+    /// [`super::value::ElementKind::index`].  Held as a borrowed
+    /// slice rather than inlined into `proto_roots` so all eleven
+    /// subclass entries fold into a single iter step in the mark
+    /// phase (SP14).  Empty in non-engine builds.
+    subclass_array_proto_roots: &'a [Option<ObjectId>],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -235,8 +241,16 @@ fn mark_roots(
     mark_value(roots.completion_value, obj_marks, work);
     mark_value(roots.current_exception, obj_marks, work);
 
-    // (e) Prototype ObjectIds + global object
-    for &id in roots.proto_roots.iter().flatten() {
+    // (e) Prototype ObjectIds + global object.  Subclass TypedArray
+    // prototypes share the same mark step via the chained slice so
+    // adding a 12th subclass is a single VmInner array bump rather
+    // than a per-entry edit here.
+    for &id in roots
+        .proto_roots
+        .iter()
+        .chain(roots.subclass_array_proto_roots.iter())
+        .flatten()
+    {
         mark_object(id, obj_marks, work);
     }
     mark_object(roots.global_object, obj_marks, work);
@@ -598,12 +612,13 @@ impl VmInner {
                 self.attr_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 46 + 13 (PR5-typed-array §C1/C2: %TypedArray% abstract
-                // + DataView + 11 concrete subclass prototypes) = 59.
-                // Ordered: abstract parent first (`%TypedArray%` +
-                // DataView are independent; `%TypedArray%` precedes so
-                // subclass rooting folds inside the abstract's reach),
-                // then subclasses in `ElementKind` declaration order.
+                // 46 + 2 (PR5-typed-array §C1/C2: %TypedArray% abstract
+                // + DataView) = 48.  The 11 concrete subclass
+                // prototypes used to live here as cfg-gated slots; SP14
+                // moved them into the chained
+                // `subclass_array_proto_roots` slice below so adding a
+                // 12th subclass is a single `VmInner::subclass_array_prototypes`
+                // array bump rather than 22 lines of cfg-gating.
                 #[cfg(feature = "engine")]
                 self.typed_array_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -612,51 +627,7 @@ impl VmInner {
                 self.data_view_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                #[cfg(feature = "engine")]
-                self.int8_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.uint8_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.uint8_clamped_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.int16_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.uint16_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.int32_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.uint32_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.float32_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.float64_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.bigint64_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                #[cfg(feature = "engine")]
-                self.biguint64_array_prototype,
-                #[cfg(not(feature = "engine"))]
-                None,
-                // 59 + 2 (PR5a-fetch2: TextEncoder + TextDecoder) = 61.
+                // 48 + 2 (PR5a-fetch2: TextEncoder + TextDecoder) = 50.
                 // WHATWG Encoding §8 surface; both chain directly to
                 // Object.prototype (no shared abstract parent).
                 #[cfg(feature = "engine")]
@@ -668,6 +639,10 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
             ],
+            #[cfg(feature = "engine")]
+            subclass_array_proto_roots: &self.subclass_array_prototypes,
+            #[cfg(not(feature = "engine"))]
+            subclass_array_proto_roots: &[],
             global_object: self.global_object,
             upvalues: &self.upvalues,
             objects: &self.objects,
