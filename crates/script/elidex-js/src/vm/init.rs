@@ -231,6 +231,8 @@ impl Vm {
                 navigation: host::navigation::NavigationState::new(),
                 #[cfg(feature = "engine")]
                 viewport: host::window::ViewportState::new(),
+                #[cfg(feature = "engine")]
+                window_name: String::new(),
             },
         };
 

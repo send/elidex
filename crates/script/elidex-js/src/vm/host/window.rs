@@ -20,15 +20,15 @@
 //!
 //! `Window.prototype` carries the viewport accessors
 //! (`innerWidth` / `scrollX` / `devicePixelRatio` / …), the scroll
-//! methods (`scrollTo` / `scrollBy`), and the WindowProxy iframe
+//! methods (`scrollTo` / `scrollBy`), the WindowProxy iframe
 //! accessors (`self` / `parent` / `top` / `frames` / `frameElement` /
-//! `opener` / `length` / `closed`, WHATWG HTML §7.3) so every
-//! `globalThis` reads them from the shared prototype rather than each
-//! wrapper holding its own copy.  Global singletons that are values
-//! rather than prototype-shared behaviour (`navigator`, `location`,
-//! `history`, `performance`, `document`) live on `globalThis` itself
-//! and are installed by their respective `register_*_global()`
-//! helpers.
+//! `opener` / `length` / `closed`, WHATWG HTML §7.3), and the
+//! writable `name` accessor pair so every `globalThis` reads them
+//! from the shared prototype rather than each wrapper holding its
+//! own copy.  Global singletons that are values rather than
+//! prototype-shared behaviour (`navigator`, `location`, `history`,
+//! `performance`, `document`) live on `globalThis` itself and are
+//! installed by their respective `register_*_global()` helpers.
 
 #![cfg(feature = "engine")]
 
@@ -252,6 +252,34 @@ pub(super) fn native_window_get_closed(
     Ok(JsValue::Boolean(false))
 }
 
+/// `window.name` (WHATWG HTML §7.3.3.5) — DOMString attribute that
+/// survives same-document reloads.  The setter coerces with
+/// `ToString` per WebIDL and stores into `VmInner::window_name`; the
+/// cross-document reset described in §7.10.4 step 7 is enforced by
+/// the navigation pipeline (it clears the field on a top-level
+/// navigation that crosses origins) and is not part of the getter /
+/// setter protocol here.
+pub(super) fn native_window_get_name(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let sid = ctx.vm.strings.intern(&ctx.vm.window_name);
+    Ok(JsValue::String(sid))
+}
+
+pub(super) fn native_window_set_name(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.vm.window_name = s;
+    Ok(JsValue::Undefined)
+}
+
 impl VmInner {
     /// Populate `self.window_prototype` with the window-specific
     /// own-property suite (viewport accessors + scrollTo/scrollBy)
@@ -285,6 +313,10 @@ impl VmInner {
         // `scrollX` / `scrollY`; the native bodies all read the shared
         // `ViewportState` so any pair points at the same slot.
         self.install_ro_accessors(proto_id, WINDOW_RO_ACCESSORS);
+        // `name` is the only writable Window attribute the VM exposes;
+        // its backing field (`VmInner::window_name`) is initialised to
+        // an empty string and updated by the setter.
+        self.install_rw_accessors(proto_id, WINDOW_RW_ACCESSORS);
 
         self.window_prototype = Some(proto_id);
     }
@@ -337,3 +369,6 @@ const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("length", native_window_get_length),
     ("closed", native_window_get_closed),
 ];
+
+const WINDOW_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] =
+    &[("name", native_window_get_name, native_window_set_name)];

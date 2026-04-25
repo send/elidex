@@ -881,6 +881,13 @@ pub(crate) struct VmInner {
     /// Phase 2 defaults; shell pushes real values in PR6.
     #[cfg(feature = "engine")]
     pub(crate) viewport: host::window::ViewportState,
+    /// Backing storage for `window.name` (WHATWG HTML §7.3).
+    /// Persists across `eval` calls and survives navigation that
+    /// keeps the same browsing context.  Initialised empty per spec.
+    /// Cross-document navigation reset (§7.10.4 step 7) is handled by
+    /// the navigation pipeline, not this VM field.
+    #[cfg(feature = "engine")]
+    pub(crate) window_name: String,
     /// HTML §8.1.5 same-window task queue.  Currently populated only
     /// by `window.postMessage`; drained at the end of every
     /// `VmInner::eval` after the microtask flush.  See
