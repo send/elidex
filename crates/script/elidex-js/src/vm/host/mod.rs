@@ -82,7 +82,7 @@ pub(super) mod parentnode;
 pub(crate) mod pending_tasks;
 pub(super) mod performance;
 #[cfg(feature = "engine")]
-pub(super) mod request_ctor;
+mod request_ctor;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;
 #[cfg(feature = "engine")]
