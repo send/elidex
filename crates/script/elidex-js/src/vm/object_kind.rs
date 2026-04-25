@@ -20,7 +20,7 @@
 //! - **Built-in primitives**: `Ordinary`, `Array`, `Function`,
 //!   `BoundFunction`, `NativeFunction`, `Arguments`,
 //!   `BooleanWrapper` / `NumberWrapper` / `StringWrapper` /
-//!   `BigIntWrapper`.
+//!   `BigIntWrapper` / `SymbolWrapper`.
 //! - **Iterator state**: `ArrayIterator`, `StringIterator`,
 //!   `ForInIterator`.
 //! - **Async machinery**: `Promise`, `PromiseResolver`,
