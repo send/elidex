@@ -105,6 +105,18 @@ mod engine_feature {
         /// and `document.hasFocus()` filter them out at read time
         /// (connectedness walk via `get_parent`).
         pub(crate) focused_entity: Option<Entity>,
+        /// Shared cookie storage owned by the embedding shell
+        /// (PR6).  Populated via [`Self::install_cookie_jar`]
+        /// (typically reached from the shell as
+        /// `vm.host_data().install_cookie_jar(...)`) once at startup
+        /// and persists across bind/unbind cycles — browsing
+        /// contexts share the same cookie jar across navigations
+        /// within a profile.  `None` in tests and standalone
+        /// harnesses that have not opted into cookie storage;
+        /// `document.cookie` getter returns the empty string and
+        /// the setter is a no-op in that case (the
+        /// "cookie-averse" path of WHATWG §6.5.2).
+        cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
     }
 
     impl HostData {
@@ -118,7 +130,25 @@ mod engine_feature {
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
                 focused_entity: None,
+                cookie_jar: None,
             }
+        }
+
+        /// Install the shell-owned cookie jar.  Idempotent —
+        /// installing the same `Arc` twice is fine; replacing an
+        /// existing jar swaps the pointer (cookies in the previous
+        /// jar are not migrated).  Tests typically call this with a
+        /// fresh `CookieJar::new()` after `bind_vm` so
+        /// `document.cookie` round-trips can be observed.
+        pub fn install_cookie_jar(&mut self, jar: std::sync::Arc<elidex_net::CookieJar>) {
+            self.cookie_jar = Some(jar);
+        }
+
+        /// Borrow the installed cookie jar, or `None` when the shell
+        /// did not call [`Self::install_cookie_jar`] (cookie-averse
+        /// fallback, WHATWG §6.5.2).
+        pub(crate) fn cookie_jar(&self) -> Option<&std::sync::Arc<elidex_net::CookieJar>> {
+            self.cookie_jar.as_ref()
         }
 
         /// Set the focused Element (called from `HTMLElement.focus()`).

@@ -342,12 +342,14 @@ fn build_net_request(
                 Some(Some(b)) => Some(b),
             };
             reject_get_head_with_body(&method, final_body.is_some())?;
-            return Ok(elidex_net::Request {
+            let mut request = elidex_net::Request {
                 method,
                 url,
                 headers,
                 body: final_body.unwrap_or_else(Bytes::new),
-            });
+            };
+            attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
+            return Ok(request);
         }
     }
 
@@ -367,12 +369,75 @@ fn build_net_request(
         Some(Some(b)) => Some(b),
     };
     reject_get_head_with_body(&method, final_body.is_some())?;
-    Ok(elidex_net::Request {
+    let mut request = elidex_net::Request {
         method,
         url,
         headers: headers_override.unwrap_or_default(),
         body: final_body.unwrap_or_else(Bytes::new),
-    })
+    };
+    attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
+    Ok(request)
+}
+
+/// Attach the `Referer` header that WHATWG Fetch's default referrer
+/// policy (`strict-origin-when-cross-origin`) would produce, but only
+/// if the caller has not already supplied one.
+///
+/// Phase 2 is opportunistic: forbidden-header enforcement (which
+/// would normally drop a script-supplied `Referer` per WHATWG Fetch
+/// §4.6) lives in PR5-async-fetch.  Until that lands we leave a
+/// caller-set value alone — that is the worst case for spec
+/// strictness but matches existing test expectations and never
+/// produces a duplicate header.
+///
+/// Policy `strict-origin-when-cross-origin` (Fetch §3.2.5):
+///
+/// - Same-origin → full URL with fragment + userinfo stripped.
+/// - Cross-origin without TLS downgrade → origin only.
+/// - HTTPS → HTTP (TLS downgrade) → no header.
+/// - Non-HTTP/HTTPS source or target → no header.
+fn attach_default_referer(source: &Url, request: &mut elidex_net::Request) {
+    const REFERER: &str = "Referer";
+    let already_set = request
+        .headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case(REFERER));
+    if already_set {
+        return;
+    }
+    if let Some(value) = compute_default_referer(source, &request.url) {
+        request.headers.push((REFERER.to_string(), value));
+    }
+}
+
+fn compute_default_referer(source: &Url, target: &Url) -> Option<String> {
+    if !matches!(source.scheme(), "http" | "https") {
+        return None;
+    }
+    if !matches!(target.scheme(), "http" | "https") {
+        return None;
+    }
+    if source.scheme() == "https" && target.scheme() == "http" {
+        // TLS downgrade — strict-origin-when-cross-origin strips.
+        return None;
+    }
+    if source.origin() == target.origin() {
+        // Same-origin: strip fragment + userinfo and serialise the
+        // full URL.  The clones cannot fail because the `set_*`
+        // calls all clear data without re-parsing.
+        let mut clean = source.clone();
+        clean.set_fragment(None);
+        let _ = clean.set_username("");
+        let _ = clean.set_password(None);
+        Some(clean.to_string())
+    } else {
+        // Cross-origin: serialise the source's origin only.  Opaque
+        // origins (would be unreachable here because we filtered
+        // schemes above, but defensive in case of future
+        // refactoring) cannot produce a tuple serialisation.
+        let origin = source.origin();
+        origin.is_tuple().then(|| origin.ascii_serialization())
+    }
 }
 
 /// WHATWG Fetch §5.3 step 40: if method is `GET` / `HEAD` and the

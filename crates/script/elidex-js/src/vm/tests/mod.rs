@@ -17,6 +17,7 @@ mod tests_child_node_mixin;
 mod tests_clone_node;
 mod tests_coerce;
 mod tests_console;
+mod tests_cookie_referrer;
 mod tests_create_event_object;
 mod tests_dispatch_event;
 mod tests_document_global;

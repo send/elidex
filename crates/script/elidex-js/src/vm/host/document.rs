@@ -563,45 +563,118 @@ pub(super) fn native_document_get_doctype(
 // cookie / referrer (stubs) + forms / images / links (snapshot arrays)
 // ---------------------------------------------------------------------------
 
-/// `document.cookie` getter — **stub** (empty string).
-///
-/// WHATWG §6.5.2 explicitly permits returning `""` for a cookie-averse
-/// Document; elidex treats every Document as cookie-averse until the
-/// real cookie jar integration lands in PR6 / PR-Cookie-Store.  Scripts
-/// that read `document.cookie` therefore observe an empty string
-/// rather than a misleading partial implementation.
+/// `document.cookie` getter (WHATWG §6.5.2).  Delegates to
+/// [`elidex_net::CookieJar::cookies_for_script`], which is the
+/// canonical script-visible filter (`HttpOnly` and Secure-on-non-HTTPS
+/// suppression both live there).  When no jar is installed (test
+/// harness, standalone VM) we fall back to the cookie-averse path
+/// and return `""`.
 pub(super) fn native_document_get_cookie(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = document_receiver(ctx, this, "cookie")?;
-    Ok(JsValue::String(ctx.vm.well_known.empty))
+    // `document_receiver` returns `Ok(None)` for unbound VMs and
+    // non-HostObject receivers (e.g. `getter.call({})`); the
+    // brand-bypass cases must observe the cookie-averse fallback.
+    // `Ok(Some(doc))` for a non-bound Document (e.g. a clone made
+    // by `document.cloneNode(true)`) must also fall back, because
+    // browsing-context cookie state belongs to the active Document
+    // alone — see the `defaultView` accessor for the same guard.
+    let Some(doc) = document_receiver(ctx, this, "cookie")? else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    if bound_doc != Some(doc) {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    // `host_if_bound` borrows `ctx` mutably, but
+    // `cookies_for_script(&current_url)` needs `&ctx.vm` at the
+    // same time — we release the host borrow by `Arc::clone`'ing
+    // the jar (single atomic refcount bump, no heap copy) before
+    // reaching back into `ctx.vm`.
+    let jar = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).cloned();
+    let value = jar
+        .map(|jar| jar.cookies_for_script(&ctx.vm.navigation.current_url))
+        .unwrap_or_default();
+    if value.is_empty() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    let sid = ctx.vm.strings.intern(&value);
+    Ok(JsValue::String(sid))
 }
 
-/// `document.cookie = x` — **stub** (no-op).  Real storage arrives
-/// with PR6 / PR-Cookie-Store.
+/// `document.cookie = value` (WHATWG §6.5.2).  Forwards a single
+/// `Set-Cookie`-syntax string to
+/// [`elidex_net::CookieJar::set_cookie_from_script`], which is the
+/// canonical attribute parser (rejecting `HttpOnly` and
+/// Secure-over-HTTP per RFC 6265 §5.3).  When no jar is installed
+/// the assignment silently no-ops, matching the cookie-averse
+/// Document path the spec permits.
 pub(super) fn native_document_set_cookie(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = document_receiver(ctx, this, "cookie")?;
-    // Silently drop the write — spec allows no-op on cookie-averse
-    // Documents.  See `native_document_get_cookie` docstring.
+    // Mirror the getter's two-stage guard — non-Document receivers
+    // *and* non-bound Document receivers (clones made by
+    // `document.cloneNode(true)`) must be unable to mutate the
+    // bound browsing context's cookie jar.
+    let Some(doc) = document_receiver(ctx, this, "cookie")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    if bound_doc != Some(doc) {
+        return Ok(JsValue::Undefined);
+    }
+    // Resolve the jar BEFORE coercing the assigned value: the
+    // cookie-averse contract is "silent no-op on assignment", so
+    // `document.cookie = Symbol()` must not throw on a VM with no
+    // jar installed.  Coercing first would surface `to_string`'s
+    // `Symbol → USVString` TypeError where the previous stub was
+    // intentionally non-throwing.
+    //
+    // Cloning the `Arc` (cheap atomic bump) lets the jar outlive
+    // the `host_if_bound` mutable borrow so we can read
+    // `ctx.vm.navigation` afterwards.
+    let Some(jar) = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).cloned() else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let value = ctx.vm.strings.get_utf8(sid);
+    jar.set_cookie_from_script(&ctx.vm.navigation.current_url, &value);
     Ok(JsValue::Undefined)
 }
 
-/// `document.referrer` — **stub** (empty string).  Surfacing the real
-/// navigation referrer requires `NavigationState::referrer`, which is
-/// added in PR6 / PR-Navigation.
+/// `document.referrer` (WHATWG HTML §3.1.5).  Returns the URL of
+/// the previous Document if the embedding shell has populated
+/// `NavigationState::referrer` via
+/// [`super::super::Vm::set_navigation_referrer`]; otherwise the empty
+/// string.  The VM does **not** derive a referrer automatically —
+/// the shell is the only writer of this slot today.
 pub(super) fn native_document_get_referrer(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = document_receiver(ctx, this, "referrer")?;
-    Ok(JsValue::String(ctx.vm.well_known.empty))
+    // Two-stage guard, matching the cookie accessors and
+    // `defaultView`: brand-bypass (non-HostObject `this`) and
+    // detached Document clones must both fall back to the empty
+    // string.  `NavigationState::referrer` is browsing-context
+    // state, owned by the bound Document alone.
+    let Some(doc) = document_receiver(ctx, this, "referrer")? else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    if bound_doc != Some(doc) {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    let Some(url) = ctx.vm.navigation.referrer.as_ref() else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let sid = ctx.vm.strings.intern(url.as_str());
+    Ok(JsValue::String(sid))
 }
 
 /// `document.forms` — live `HTMLCollection` of every `<form>`

@@ -68,6 +68,15 @@ pub(crate) struct NavigationState {
     /// Always a valid index (invariant: `history_entries` is non-empty
     /// after construction).
     pub(crate) history_index: usize,
+    /// URL of the previous Document, used to back
+    /// `document.referrer` (WHATWG HTML §3.1.5).  `None` when no
+    /// previous Document is recorded — the spec maps this to the
+    /// empty string at the JS surface (directly-loaded top-level
+    /// navigations, opened-without-opener windows, and reloads
+    /// where the referrer policy stripped the previous URL).
+    /// [`super::super::Vm::set_navigation_referrer`] is the only
+    /// writer; the VM never populates this field on its own.
+    pub(crate) referrer: Option<Url>,
 }
 
 /// Parse `"about:blank"` once at construction — a panic here would
@@ -87,6 +96,7 @@ impl NavigationState {
                 state: JsValue::Null,
             }],
             history_index: 0,
+            referrer: None,
         }
     }
 
