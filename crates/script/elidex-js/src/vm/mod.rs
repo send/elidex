@@ -885,9 +885,11 @@ pub(crate) struct VmInner {
     /// as a `StringId` so the getter is a single field read and the
     /// setter stores `coerce::to_string`'s result directly without
     /// the round-trip through `String`.  Initialised to the
-    /// well-known empty-string id per spec.  Cross-document
-    /// navigation reset (§7.10.4 step 7) is handled by the
-    /// navigation pipeline, not this VM field.
+    /// well-known empty-string id per spec.  The §7.10.4 step 7
+    /// cross-document navigation reset is **not** currently applied
+    /// to this field (only init and the setter write to it); a
+    /// future navigation-pipeline change must clear this slot when
+    /// that step lands.
     #[cfg(feature = "engine")]
     pub(crate) window_name: StringId,
     /// HTML §8.1.5 same-window task queue.  Currently populated only

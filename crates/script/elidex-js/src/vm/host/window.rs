@@ -254,11 +254,12 @@ pub(super) fn native_window_get_closed(
 
 /// `window.name` (WHATWG HTML §7.3.3.5) — DOMString attribute that
 /// survives same-document reloads.  The setter coerces with
-/// `ToString` per WebIDL and stores into `VmInner::window_name`; the
-/// cross-document reset described in §7.10.4 step 7 is enforced by
-/// the navigation pipeline (it clears the field on a top-level
-/// navigation that crosses origins) and is not part of the getter /
-/// setter protocol here.
+/// `ToString` per WebIDL and stores into `VmInner::window_name`.
+/// The cross-document reset described in §7.10.4 step 7 is **not**
+/// applied by the current codebase (a repo-wide search shows only
+/// init + setter writes touch the field); when navigation gains
+/// that responsibility, the clear belongs in the navigation
+/// pipeline rather than the getter / setter protocol here.
 pub(super) fn native_window_get_name(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
