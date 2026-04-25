@@ -170,6 +170,8 @@ impl NetworkProcessHandle {
             buffered: std::cell::RefCell::new(Vec::new()),
             #[cfg(feature = "test-hooks")]
             mock_responses: None,
+            #[cfg(feature = "test-hooks")]
+            recorded_requests: None,
         }
     }
 
@@ -246,6 +248,14 @@ pub struct NetworkHandle {
     #[cfg(feature = "test-hooks")]
     mock_responses:
         Option<std::cell::RefCell<std::collections::HashMap<String, Result<Response, String>>>>,
+    /// Test-only: log of every [`Request`] handed to
+    /// [`Self::fetch_blocking`] on a mock handle.  Populated only
+    /// when `mock_responses` is `Some` (i.e. the handle came from
+    /// [`Self::mock_with_responses`]); production handles leave this
+    /// `None` so we do not pay for the clone on the hot path.  Read
+    /// out via [`Self::drain_recorded_requests`].
+    #[cfg(feature = "test-hooks")]
+    recorded_requests: Option<std::cell::RefCell<Vec<Request>>>,
 }
 
 impl NetworkHandle {
@@ -269,6 +279,8 @@ impl NetworkHandle {
             buffered: std::cell::RefCell::new(Vec::new()),
             #[cfg(feature = "test-hooks")]
             mock_responses: None,
+            #[cfg(feature = "test-hooks")]
+            recorded_requests: None,
         }
     }
 
@@ -297,6 +309,8 @@ impl NetworkHandle {
             buffered: std::cell::RefCell::new(Vec::new()),
             #[cfg(feature = "test-hooks")]
             mock_responses: None,
+            #[cfg(feature = "test-hooks")]
+            recorded_requests: None,
         }
     }
 
@@ -323,7 +337,20 @@ impl NetworkHandle {
             .collect();
         let mut handle = Self::disconnected();
         handle.mock_responses = Some(std::cell::RefCell::new(map));
+        handle.recorded_requests = Some(std::cell::RefCell::new(Vec::new()));
         handle
+    }
+
+    /// Drain and return the [`Request`]s observed by this mock
+    /// handle since the last drain.  Returns `Vec::new()` for
+    /// non-mock handles.  Test-only.
+    #[cfg(feature = "test-hooks")]
+    #[must_use]
+    pub fn drain_recorded_requests(&self) -> Vec<Request> {
+        self.recorded_requests
+            .as_ref()
+            .map(|log| log.borrow_mut().drain(..).collect())
+            .unwrap_or_default()
     }
 
     /// Send a blocking fetch request.
@@ -339,6 +366,12 @@ impl NetworkHandle {
         // live path from the caller's perspective.
         #[cfg(feature = "test-hooks")]
         if let Some(ref map) = self.mock_responses {
+            // Record the request for later inspection (Referer
+            // header verification, etc.).  Cloned because the
+            // request itself is consumed below by the URL lookup.
+            if let Some(ref log) = self.recorded_requests {
+                log.borrow_mut().push(request.clone());
+            }
             let url_str = request.url.to_string();
             let mut guard = map.borrow_mut();
             return guard
