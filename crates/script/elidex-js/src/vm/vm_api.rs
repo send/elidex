@@ -134,9 +134,20 @@ impl Vm {
     /// The shell calls this once before each post-navigation `bind`
     /// cycle when a previous Document URL is known and the referrer
     /// policy permits its disclosure to script.
+    ///
+    /// The argument is sanitised before storage — fragment + userinfo
+    /// are stripped to match the WHATWG Fetch §3.2.5 referrer
+    /// serialisation rules (Referer header and `document.referrer`
+    /// share the same exposure surface).  Callers therefore do not
+    /// need to pre-strip the URL themselves.
     #[cfg(feature = "engine")]
     pub fn set_navigation_referrer(&mut self, referrer: Option<url::Url>) {
-        self.inner.navigation.referrer = referrer;
+        self.inner.navigation.referrer = referrer.map(|mut url| {
+            url.set_fragment(None);
+            let _ = url.set_username("");
+            let _ = url.set_password(None);
+            url
+        });
     }
 
     /// Bind host pointers for a JS execution call.  No-op if `HostData` is absent.

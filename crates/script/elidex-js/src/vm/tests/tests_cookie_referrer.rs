@@ -324,6 +324,43 @@ fn referrer_returns_set_url_after_set_navigation_referrer() {
 }
 
 #[test]
+fn referrer_setter_strips_fragment_and_userinfo() {
+    // `document.referrer` shares the WHATWG Fetch §3.2.5 referrer
+    // serialisation surface with the Referer header, which never
+    // exposes fragments or basic-auth credentials.  Verify the
+    // setter strips both before storing.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let _ = unsafe {
+        bind_at_url(
+            &mut vm,
+            &mut session,
+            &mut dom,
+            "https://example.com/",
+            false,
+        )
+    };
+
+    vm.set_navigation_referrer(Some(
+        url::Url::parse("https://user:pw@prev.example.com/path?q=1#secret").unwrap(),
+    ));
+
+    let v = vm.eval("document.referrer").unwrap();
+    let JsValue::String(id) = v else {
+        panic!("expected string");
+    };
+    assert_eq!(
+        vm.get_string(id),
+        "https://prev.example.com/path?q=1",
+        "fragment and userinfo must not leak through document.referrer"
+    );
+
+    vm.unbind();
+}
+
+#[test]
 fn referrer_clears_back_to_empty_on_none() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
