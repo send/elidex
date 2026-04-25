@@ -4,6 +4,8 @@
 //! ToInt32, ToUint32, and the equality/relational/arithmetic operators.
 
 use super::coerce_format::write_number_es;
+#[cfg(feature = "engine")]
+use super::value::NativeContext;
 use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, StringId, VmError};
 use super::VmInner;
 use num_bigint::BigInt as BigIntValue;
@@ -491,6 +493,89 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let result = truncated as u16;
     Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Slice / index abstract ops (ES §7.1.5 ToIntegerOrInfinity, §7.1.22 ToIndex)
+// ---------------------------------------------------------------------------
+
+/// ES §7.1.5 `ToIntegerOrInfinity`, **starting from a number**.
+/// `NaN → 0`; `±Infinity` is preserved; otherwise truncate toward
+/// zero.  Returns `f64` so the caller picks the final width.
+///
+/// This is the cheap pure-arithmetic tail of the spec algorithm —
+/// the spec also runs `ToNumber` on the input before truncating, so
+/// callers receiving a non-number `JsValue` must coerce via
+/// [`to_number`] (or [`NativeContext::to_number`]) themselves.  For
+/// the full `ToIndex`-with-coercion-and-range-check pipeline used by
+/// TypedArray / DataView constructors see [`to_index_u32`].
+pub(crate) fn to_integer_or_infinity(n: f64) -> f64 {
+    if n.is_nan() {
+        0.0
+    } else {
+        n.trunc()
+    }
+}
+
+/// Clamp a relative index `n` to `[0, len_f]` after applying
+/// [`to_integer_or_infinity`].  Negative values count from the end.
+/// Returns `f64`; the caller picks the final width with a single
+/// `as u32` / `as usize` cast — the returned value satisfies
+/// `0.0 <= result <= len_f`, so when `len_f` originated from a
+/// `u32` / `usize` value the cast is exact (the Rust 1.45+
+/// saturating-cast fallback for out-of-range / non-finite inputs is
+/// not exercised).
+///
+/// Shared by `Array.prototype.{slice, copyWithin, fill, splice}`,
+/// `%TypedArray%.prototype.*`, `ArrayBuffer.prototype.slice`, and
+/// `Blob.prototype.slice`.  Each caller knows its own length type
+/// and chooses the cast — we keep thin typed wrappers
+/// (`relative_index_u32` / `relative_index` / `resolve_index`) at
+/// the call sites so the per-method ergonomics stay typed.
+pub(crate) fn relative_index_f64(n: f64, len_f: f64) -> f64 {
+    let trunc = to_integer_or_infinity(n);
+    if trunc < 0.0 {
+        (len_f + trunc).max(0.0)
+    } else {
+        trunc.min(len_f)
+    }
+}
+
+/// ES §7.1.22 `ToIndex`, narrowed to `u32`.  Coerces `val` via
+/// `ToNumber`, truncates toward zero per `ToIntegerOrInfinity`, and
+/// rejects negative / non-finite / `> u32::MAX` results with a
+/// `RangeError`.  Used by the TypedArray and DataView constructors
+/// where the spec specifies `unsigned long long`-with-`ToIndex` but
+/// our `[[ByteLength]]` slot is `u32`, so the upper bound has to
+/// drop from `2^53 − 1` down to `u32::MAX`.
+///
+/// Error messages mirror V8's
+/// `"Failed to construct '{ctor_name}': {what} ..."` shape so
+/// browser-compat tests do not regress.  The returned value
+/// satisfies `0 <= result <= u32::MAX`, so the `truncated as u32`
+/// cast at the bottom is exact.
+#[cfg(feature = "engine")]
+pub(crate) fn to_index_u32(
+    ctx: &mut NativeContext<'_>,
+    val: JsValue,
+    ctor_name: &str,
+    what: &str,
+) -> Result<u32, VmError> {
+    let n = ctx.to_number(val)?;
+    let truncated = to_integer_or_infinity(n);
+    if !truncated.is_finite() || truncated < 0.0 {
+        return Err(VmError::range_error(format!(
+            "Failed to construct '{ctor_name}': {what} must be a non-negative safe integer"
+        )));
+    }
+    if truncated > f64::from(u32::MAX) {
+        return Err(VmError::range_error(format!(
+            "Failed to construct '{ctor_name}': {what} exceeds the supported maximum"
+        )));
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let as_u32 = truncated as u32;
+    Ok(as_u32)
 }
 
 // ---------------------------------------------------------------------------

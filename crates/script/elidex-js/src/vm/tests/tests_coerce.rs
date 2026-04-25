@@ -10,8 +10,8 @@
 //! convention (cleanup tranche 2).
 
 use super::super::coerce::{
-    abstract_eq, strict_eq, string_to_number, to_boolean, to_display_string, to_int32, to_number,
-    to_string, typeof_str,
+    abstract_eq, relative_index_f64, strict_eq, string_to_number, to_boolean, to_display_string,
+    to_int32, to_integer_or_infinity, to_number, to_string, typeof_str,
 };
 use super::super::coerce_ops::*;
 use super::super::value::{JsValue, ObjectId, StringId};
@@ -346,4 +346,76 @@ fn unary_operators() {
         JsValue::Number(-6.0)
     );
     assert_eq!(op_void(), JsValue::Undefined);
+}
+
+// ---------------------------------------------------------------------------
+// `to_integer_or_infinity` (ES §7.1.5) and `relative_index_f64` (the §7.1.5
+// + clamp pipeline used by Array / TypedArray / ArrayBuffer / Blob slice
+// methods).  Pure-arithmetic helpers, no Vm setup needed.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn to_integer_or_infinity_nan_returns_zero() {
+    assert_eq!(to_integer_or_infinity(f64::NAN), 0.0);
+}
+
+#[test]
+fn to_integer_or_infinity_preserves_infinities() {
+    assert_eq!(to_integer_or_infinity(f64::INFINITY), f64::INFINITY);
+    assert_eq!(to_integer_or_infinity(f64::NEG_INFINITY), f64::NEG_INFINITY);
+}
+
+#[test]
+fn to_integer_or_infinity_truncates_toward_zero() {
+    assert_eq!(to_integer_or_infinity(3.9), 3.0);
+    assert_eq!(to_integer_or_infinity(-3.9), -3.0);
+    assert_eq!(to_integer_or_infinity(0.0), 0.0);
+    assert_eq!(to_integer_or_infinity(-0.0), 0.0);
+}
+
+#[test]
+fn relative_index_f64_nan_is_zero() {
+    assert_eq!(relative_index_f64(f64::NAN, 10.0), 0.0);
+}
+
+/// Lock the spec equivalence `−∞ + len = −∞ → max(0) = 0`.  The pre-PR
+/// `natives_array::resolve_index` carried an explicit `int.is_infinite() &&
+/// int < 0.0 → 0` arm; the canonical helper folds it into the negative
+/// clamp.  Without this assertion, future readers can't tell whether the
+/// canonical helper still covers the explicit branch the wrapper used to
+/// have.
+#[test]
+fn relative_index_f64_neg_infinity_is_zero() {
+    assert_eq!(relative_index_f64(f64::NEG_INFINITY, 10.0), 0.0);
+}
+
+/// Lock the spec equivalence `+∞.min(len) = len`.  Sister assertion to
+/// [`relative_index_f64_neg_infinity_is_zero`] — together they prove the
+/// clamp algebra subsumes the pre-PR explicit `±Infinity` arm.
+#[test]
+fn relative_index_f64_pos_infinity_is_len() {
+    assert_eq!(relative_index_f64(f64::INFINITY, 10.0), 10.0);
+}
+
+#[test]
+fn relative_index_f64_negative_counts_from_end() {
+    assert_eq!(relative_index_f64(-3.0, 10.0), 7.0);
+    assert_eq!(relative_index_f64(-1.5, 10.0), 9.0); // trunc(-1.5) = -1
+    assert_eq!(relative_index_f64(-100.0, 10.0), 0.0); // clamps at 0
+}
+
+#[test]
+fn relative_index_f64_positive_clamps_at_len() {
+    assert_eq!(relative_index_f64(0.0, 10.0), 0.0);
+    assert_eq!(relative_index_f64(5.7, 10.0), 5.0);
+    assert_eq!(relative_index_f64(10.0, 10.0), 10.0);
+    assert_eq!(relative_index_f64(100.0, 10.0), 10.0); // clamps at len
+}
+
+#[test]
+fn relative_index_f64_zero_length() {
+    assert_eq!(relative_index_f64(5.0, 0.0), 0.0);
+    assert_eq!(relative_index_f64(-5.0, 0.0), 0.0);
+    assert_eq!(relative_index_f64(f64::INFINITY, 0.0), 0.0);
+    assert_eq!(relative_index_f64(f64::NEG_INFINITY, 0.0), 0.0);
 }

@@ -72,33 +72,14 @@ fn require_typed_array_parts(
 
 /// Clamp `n` to `[0, len]`, applying `ToIntegerOrInfinity`
 /// truncation first (ES §7.1.5).  Negative indices count from the
-/// end.  Shared by `fill` / `subarray` / `slice`.
+/// end.  Shared by `fill` / `subarray` / `slice`.  Thin u32-typed
+/// wrapper around [`coerce::relative_index_f64`]; the clamp at the
+/// canonical helper guarantees `0.0 <= clamped <= f64::from(len)`,
+/// so the final `as u32` cast is exact (no Rust 1.45+ saturating
+/// fallback exercised).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn relative_index_u32(n: f64, len: u32) -> u32 {
-    if n.is_nan() {
-        return 0;
-    }
-    let trunc = n.trunc();
-    #[allow(clippy::cast_precision_loss)]
-    let len_f = f64::from(len);
-    let clamped = if trunc < 0.0 {
-        (len_f + trunc).max(0.0)
-    } else {
-        trunc.min(len_f)
-    };
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let out = clamped as u32;
-    out
-}
-
-/// ES §7.1.5 `ToIntegerOrInfinity`.  NaN → 0; ±Infinity preserved;
-/// otherwise truncate toward zero.  Caller applies additional range
-/// checks (e.g. "RangeError on negative") as needed.
-fn to_integer_or_infinity(n: f64) -> f64 {
-    if n.is_nan() {
-        0.0
-    } else {
-        n.trunc()
-    }
+    coerce::relative_index_f64(n, f64::from(len)) as u32
 }
 
 /// Allocate a new TypedArray wrapper of the given `ElementKind` over
@@ -348,7 +329,7 @@ pub(crate) fn native_typed_array_set(
         JsValue::Undefined => 0,
         other => {
             let n = ctx.to_number(other)?;
-            let i = to_integer_or_infinity(n);
+            let i = coerce::to_integer_or_infinity(n);
             if i < 0.0 || !i.is_finite() || i > f64::from(u32::MAX) {
                 return Err(VmError::range_error(
                     "Failed to execute 'set' on 'TypedArray': offset is out of bounds",
@@ -625,7 +606,7 @@ pub(crate) fn native_typed_array_last_index_of(
     let from: i64 = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => i64::from(len_elem) - 1,
         other => {
-            let k = to_integer_or_infinity(ctx.to_number(other)?);
+            let k = coerce::to_integer_or_infinity(ctx.to_number(other)?);
             if k == f64::NEG_INFINITY {
                 return Ok(JsValue::Number(-1.0));
             }
@@ -693,7 +674,7 @@ pub(crate) fn native_typed_array_at(
     // `at(NaN)` returns the first element (unless empty) and
     // `at(±Infinity)` returns `undefined`.
     let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let relative_index = to_integer_or_infinity(n);
+    let relative_index = coerce::to_integer_or_infinity(n);
     #[allow(clippy::cast_precision_loss)]
     let len_f = f64::from(len_elem);
     let idx_f = if relative_index < 0.0 {
