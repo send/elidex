@@ -45,6 +45,7 @@
 
 use std::sync::Arc;
 
+use super::super::coerce;
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
     ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
@@ -753,8 +754,7 @@ fn construct_typed_array(
         // → length form.  Strings like `"5"` coerce too; this
         // matches V8 / SpiderMonkey.  NaN → 0-length per ToIndex.
         _ => {
-            let n = ctx.to_number(arg0)?;
-            let length = to_index_u32(n, ek.name(), "length")?;
+            let length = coerce::to_index_u32(ctx, arg0, ek.name(), "length")?;
             let byte_len = length
                 .checked_mul(u32::from(ek.bytes_per_element()))
                 .ok_or_else(|| {
@@ -971,34 +971,4 @@ pub(crate) fn write_element_raw(
     new_bytes[abs..abs + written_len].copy_from_slice(&scratch[..written_len]);
     ctx.vm.body_data.insert(buffer_id, Arc::from(new_bytes));
     Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// `ToIndex` (ES §7.1.22) with `u32` target.  NaN → 0, fractional
-/// values truncate toward zero per `ToIntegerOrInfinity`, and
-/// negative / non-finite / > u32::MAX values throw `RangeError`.
-/// Used by TypedArray ctor length / byteOffset / byteLength args
-/// (each spec'd as `unsigned long long` + `[EnforceRange]`, but the
-/// u32-bound byte_length slot constrains us to u32 here).
-pub(super) fn to_index_u32(n: f64, ctor_name: &str, what: &str) -> Result<u32, VmError> {
-    if n.is_nan() {
-        return Ok(0);
-    }
-    let truncated = n.trunc();
-    if !truncated.is_finite() || truncated < 0.0 {
-        return Err(VmError::range_error(format!(
-            "Failed to construct '{ctor_name}': {what} must be a non-negative safe integer"
-        )));
-    }
-    if truncated > f64::from(u32::MAX) {
-        return Err(VmError::range_error(format!(
-            "Failed to construct '{ctor_name}': {what} exceeds the supported maximum"
-        )));
-    }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let as_u32 = truncated as u32;
-    Ok(as_u32)
 }
