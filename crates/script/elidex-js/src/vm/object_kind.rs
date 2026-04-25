@@ -26,14 +26,16 @@
 //! - **Async machinery**: `Promise`, `PromiseResolver`,
 //!   `PromiseCombinatorState`, `PromiseCombinatorStep`,
 //!   `PromiseFinallyStep`, `Generator`, `AsyncDriverStep`.
-//! - **Engine-only DOM / Web types** (gated on
-//!   `feature = "engine"`): `Event`, `HostObject`,
+//! - **DOM / Web-related types**: `Event`, `HostObject`,
 //!   `AbortController` / `AbortSignal`, the Fetch family
 //!   (`Headers` / `Request` / `Response` / `Blob`), the typed-array
 //!   family (`ArrayBuffer` / `TypedArray` / `DataView`), live DOM
 //!   collections (`HtmlCollection` / `NodeList` / `NamedNodeMap` /
 //!   `Attr`), the structured-clone helpers
 //!   (`TextEncoder` / `TextDecoder`), and `Error`.
+//!   Some of these variants are additionally gated on
+//!   `feature = "engine"`; see the individual enum variants for the
+//!   exact `cfg` boundaries.
 
 use super::coroutine_types::{
     GeneratorState, PromiseCombinatorState, PromiseCombinatorStep, PromiseState,
