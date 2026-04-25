@@ -464,7 +464,9 @@ pub enum ElementKind {
 impl ElementKind {
     /// Total number of TypedArray subclasses (ES §23.2 table).
     /// Sized for the per-subclass prototype array stored on
-    /// `VmInner` and the `proto_roots` GC slice that mirrors it.
+    /// `VmInner` (`subclass_array_prototypes`); GC roots reach those
+    /// slots via a borrowed slice (`subclass_array_proto_roots`),
+    /// not the fixed-size `proto_roots` array.
     pub const COUNT: usize = 11;
 
     /// Stable 0-based index in [`Self::COUNT`] range, used to

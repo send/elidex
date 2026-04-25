@@ -682,13 +682,13 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) data_view_prototype: Option<ObjectId>,
     /// Per-subclass TypedArray prototypes (ES §23.2.7), addressed
-    /// by [`ElementKind::index`].  Each entry chains to
+    /// by [`value::ElementKind::index`].  Each entry chains to
     /// [`Self::typed_array_prototype`].  Slots stay `None` until
     /// `register_typed_array_subclass()` runs for the corresponding
-    /// `ElementKind` during `register_globals()`.  Stored as a
-    /// fixed-size array so the GC trace can fold all eleven
+    /// [`value::ElementKind`] during `register_globals()`.  Stored
+    /// as a fixed-size array so the GC trace can fold all eleven
     /// subclasses behind a single iterator (see `gc.rs`
-    /// `proto_roots`/`subclass_array_proto_roots` split).
+    /// `proto_roots` / `subclass_array_proto_roots` split).
     #[cfg(feature = "engine")]
     pub(crate) subclass_array_prototypes: [Option<ObjectId>; value::ElementKind::COUNT],
     /// `TextEncoder.prototype` (WHATWG Encoding §8.2).  Chains
