@@ -106,13 +106,15 @@ mod engine_feature {
         /// (connectedness walk via `get_parent`).
         pub(crate) focused_entity: Option<Entity>,
         /// Shared cookie storage owned by the embedding shell
-        /// (PR6).  Populated via [`super::Vm::install_cookie_jar`]
-        /// once at startup and persists across bind/unbind cycles —
-        /// browsing contexts share the same cookie jar across
-        /// navigations within a profile.  `None` in tests and
-        /// standalone harnesses that have not opted into cookie
-        /// storage; `document.cookie` getter returns the empty
-        /// string and the setter is a no-op in that case (the
+        /// (PR6).  Populated via [`Self::install_cookie_jar`]
+        /// (typically reached from the shell as
+        /// `vm.host_data().install_cookie_jar(...)`) once at startup
+        /// and persists across bind/unbind cycles — browsing
+        /// contexts share the same cookie jar across navigations
+        /// within a profile.  `None` in tests and standalone
+        /// harnesses that have not opted into cookie storage;
+        /// `document.cookie` getter returns the empty string and
+        /// the setter is a no-op in that case (the
         /// "cookie-averse" path of WHATWG §6.5.2).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
     }

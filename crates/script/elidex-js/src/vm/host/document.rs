@@ -574,7 +574,14 @@ pub(super) fn native_document_get_cookie(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = document_receiver(ctx, this, "cookie")?;
+    // `document_receiver` returns `Ok(None)` for unbound VMs and
+    // non-HostObject receivers (e.g. `getter.call({})`); both must
+    // observe the cookie-averse fallback so detached calls cannot
+    // leak the bound document's cookie jar.  An invalid HostObject
+    // receiver still throws via the `Err(TypeError)` arm.
+    if document_receiver(ctx, this, "cookie")?.is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
     // `host_if_bound` borrows `ctx` mutably, but
     // `cookies_for_script(&current_url)` needs `&ctx.vm` at the
     // same time — we release the host borrow by `Arc::clone`'ing
@@ -603,7 +610,14 @@ pub(super) fn native_document_set_cookie(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = document_receiver(ctx, this, "cookie")?;
+    // Mirror the getter — a non-Document receiver (or unbound VM)
+    // must not be able to mutate the bound document's cookie jar
+    // through `setter.call({}, '...')`; the brand check rejects
+    // wrong-kind HostObjects with TypeError and falls through here
+    // for the silent no-op cases.
+    if document_receiver(ctx, this, "cookie")?.is_none() {
+        return Ok(JsValue::Undefined);
+    }
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let value = ctx.vm.strings.get_utf8(sid);
@@ -630,7 +644,12 @@ pub(super) fn native_document_get_referrer(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = document_receiver(ctx, this, "referrer")?;
+    // Same brand-bypass guard as the cookie accessors — a detached
+    // call (`getter.call({})`) must not surface the bound document's
+    // navigation referrer.
+    if document_receiver(ctx, this, "referrer")?.is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
     let Some(url) = ctx.vm.navigation.referrer.as_ref() else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
