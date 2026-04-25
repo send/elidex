@@ -264,8 +264,7 @@ pub(super) fn native_window_get_name(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let sid = ctx.vm.strings.intern(&ctx.vm.window_name);
-    Ok(JsValue::String(sid))
+    Ok(JsValue::String(ctx.vm.window_name))
 }
 
 pub(super) fn native_window_set_name(
@@ -274,9 +273,7 @@ pub(super) fn native_window_set_name(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    ctx.vm.window_name = s;
+    ctx.vm.window_name = coerce::to_string(ctx.vm, val)?;
     Ok(JsValue::Undefined)
 }
 

@@ -24,6 +24,10 @@ impl Vm {
         let mut strings = StringPool::new();
 
         let well_known = WellKnownStrings::intern_all(&mut strings);
+        // Captured before the struct literal moves `well_known`; used
+        // to seed `window_name` to the empty-string id.
+        #[cfg(feature = "engine")]
+        let initial_window_name = well_known.empty;
         let (well_known_symbols, symbols) = WellKnownSymbols::alloc_all(&mut strings);
 
         let mut vm = Vm {
@@ -232,7 +236,7 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 viewport: host::window::ViewportState::new(),
                 #[cfg(feature = "engine")]
-                window_name: String::new(),
+                window_name: initial_window_name,
             },
         };
 
