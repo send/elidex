@@ -385,353 +385,245 @@ fn decode_little_endian(ctx: &NativeContext<'_>, arg: Option<JsValue>) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Getter / setter macro pair
+// ---------------------------------------------------------------------------
+//
+// Each `DataView.prototype.{get,set}<Type>` shares the same shape:
+// extract `byteOffset` from `args[0]`, optionally read the
+// `littleEndian` boolean from `args[N-1]`, dispatch through
+// `read_bytes`/`write_bytes` with a compile-time `N` size, and
+// (de)serialise the active byte window via `<T>::from_le_bytes` /
+// `<T>::from_be_bytes` / `<T>::to_le_bytes` / `<T>::to_be_bytes`.
+// `setInt8` and `setUint8` (and the matching getters) carry no
+// `littleEndian` arg because a single byte is endian-agnostic; they
+// take the one-byte arms below.
+//
+// The two macros expand into the per-method `fn native_data_view_*`
+// plumbing.  Each invocation provides a closure-shaped `|$ctx, $v|
+// $expr` block that picks the per-type wrap (getters: pack into
+// `JsValue::Number`/`JsValue::BigInt`) or coerce (setters: ToNumber
+// / `coerce::to_int*` / `natives_bigint::to_*`).  Macro-bound
+// identifiers (`$ctx` / `$v`) follow the caller's hygiene context so
+// the closure body can reach `ctx`, `val_arg`, `?`, etc. just like a
+// hand-written body.
+
+macro_rules! dv_get {
+    // Single-byte arm: no `littleEndian` argument.  The wrap closure
+    // sees the raw byte (`$b: u8`) and decides whether to sign-extend
+    // (`getInt8`) or lift directly (`getUint8`).
+    ($fn_name:ident, $method:literal, byte, |$ctx:ident, $b:ident| $wrap:expr) => {
+        fn $fn_name(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+            let n = ctx.to_number(offset_arg)?;
+            let bytes = read_bytes::<1>(ctx, this, $method, n)?;
+            let $ctx = &mut *ctx;
+            let $b: u8 = bytes[0];
+            $wrap
+        }
+    };
+    // Multi-byte arm: reads `args[1]` as `littleEndian` and decodes
+    // via `<$ty>::from_{le,be}_bytes`.  The wrap closure sees the
+    // typed value (`$v: $ty`) and picks the `JsValue` shape
+    // (`Number` for ints/floats, `BigInt` for 64-bit big-int
+    // variants).
+    ($fn_name:ident, $method:literal, $ty:ty, $size:literal, |$ctx:ident, $v:ident| $wrap:expr) => {
+        fn $fn_name(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+            let n = ctx.to_number(offset_arg)?;
+            let little_endian = decode_little_endian(ctx, args.get(1).copied());
+            let bytes = read_bytes::<$size>(ctx, this, $method, n)?;
+            let $v: $ty = if little_endian {
+                <$ty>::from_le_bytes(bytes)
+            } else {
+                <$ty>::from_be_bytes(bytes)
+            };
+            let $ctx = &mut *ctx;
+            $wrap
+        }
+    };
+}
+
+macro_rules! dv_set {
+    // Single-byte arm: no `littleEndian` argument.  The coerce
+    // closure takes (`$ctx`, `$val: JsValue`) and yields the
+    // single-byte payload (`u8`), so callers either return the
+    // unsigned coercion directly (`setUint8`) or cast through `as
+    // u8` (`setInt8`'s i8 → u8).
+    ($fn_name:ident, $method:literal, byte, |$ctx:ident, $val:ident| $coerce:expr) => {
+        fn $fn_name(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+            let n = ctx.to_number(offset_arg)?;
+            let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+            let byte: u8 = {
+                let $ctx = &mut *ctx;
+                let $val: JsValue = val_arg;
+                $coerce
+            };
+            write_bytes::<1>(ctx, this, $method, n, [byte])?;
+            Ok(JsValue::Undefined)
+        }
+    };
+    // Multi-byte arm: reads `args[2]` as `littleEndian`, dispatches
+    // through `<T>::to_{le,be}_bytes` after the coerce closure
+    // produces the typed value.  `coerce::to_int*` / `to_uint*` cover
+    // 16/32-bit ints, `ctx.to_number` handles f32/f64 (with a single
+    // `as f32` truncation for `setFloat32`), and
+    // `natives_bigint::to_{,u}bigint64` covers the 64-bit BigInt
+    // variants.
+    ($fn_name:ident, $method:literal, $size:literal, |$ctx:ident, $val:ident| $coerce:expr) => {
+        fn $fn_name(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+            let n = ctx.to_number(offset_arg)?;
+            let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+            let v = {
+                let $ctx = &mut *ctx;
+                let $val: JsValue = val_arg;
+                $coerce
+            };
+            let little_endian = decode_little_endian(ctx, args.get(2).copied());
+            let bytes = if little_endian {
+                v.to_le_bytes()
+            } else {
+                v.to_be_bytes()
+            };
+            write_bytes::<$size>(ctx, this, $method, n, bytes)?;
+            Ok(JsValue::Undefined)
+        }
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Getters
 // ---------------------------------------------------------------------------
 
-fn native_data_view_get_int8(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let bytes = read_bytes::<1>(ctx, this, "getInt8", n)?;
-    Ok(JsValue::Number(f64::from(bytes[0] as i8)))
-}
+dv_get!(native_data_view_get_int8, "getInt8", byte, |_ctx, b| Ok(
+    JsValue::Number(f64::from(b as i8))
+));
+dv_get!(native_data_view_get_uint8, "getUint8", byte, |_ctx, b| Ok(
+    JsValue::Number(f64::from(b))
+));
 
-fn native_data_view_get_uint8(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let bytes = read_bytes::<1>(ctx, this, "getUint8", n)?;
-    Ok(JsValue::Number(f64::from(bytes[0])))
-}
-
-fn native_data_view_get_int16(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<2>(ctx, this, "getInt16", n)?;
-    let v = if little_endian {
-        i16::from_le_bytes(bytes)
-    } else {
-        i16::from_be_bytes(bytes)
-    };
-    Ok(JsValue::Number(f64::from(v)))
-}
-
-fn native_data_view_get_uint16(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<2>(ctx, this, "getUint16", n)?;
-    let v = if little_endian {
-        u16::from_le_bytes(bytes)
-    } else {
-        u16::from_be_bytes(bytes)
-    };
-    Ok(JsValue::Number(f64::from(v)))
-}
-
-fn native_data_view_get_int32(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<4>(ctx, this, "getInt32", n)?;
-    let v = if little_endian {
-        i32::from_le_bytes(bytes)
-    } else {
-        i32::from_be_bytes(bytes)
-    };
-    Ok(JsValue::Number(f64::from(v)))
-}
-
-fn native_data_view_get_uint32(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<4>(ctx, this, "getUint32", n)?;
-    let v = if little_endian {
-        u32::from_le_bytes(bytes)
-    } else {
-        u32::from_be_bytes(bytes)
-    };
-    Ok(JsValue::Number(f64::from(v)))
-}
-
-fn native_data_view_get_float32(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<4>(ctx, this, "getFloat32", n)?;
-    let v = if little_endian {
-        f32::from_le_bytes(bytes)
-    } else {
-        f32::from_be_bytes(bytes)
-    };
-    Ok(JsValue::Number(f64::from(v)))
-}
-
-fn native_data_view_get_float64(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<8>(ctx, this, "getFloat64", n)?;
-    let v = if little_endian {
-        f64::from_le_bytes(bytes)
-    } else {
-        f64::from_be_bytes(bytes)
-    };
-    Ok(JsValue::Number(v))
-}
-
-fn native_data_view_get_bigint64(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<8>(ctx, this, "getBigInt64", n)?;
-    let v = if little_endian {
-        i64::from_le_bytes(bytes)
-    } else {
-        i64::from_be_bytes(bytes)
-    };
-    let bi = num_bigint::BigInt::from(v);
-    Ok(JsValue::BigInt(ctx.vm.bigints.alloc(bi)))
-}
-
-fn native_data_view_get_biguint64(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(1).copied());
-    let bytes = read_bytes::<8>(ctx, this, "getBigUint64", n)?;
-    let v = if little_endian {
-        u64::from_le_bytes(bytes)
-    } else {
-        u64::from_be_bytes(bytes)
-    };
-    let bi = num_bigint::BigInt::from(v);
-    Ok(JsValue::BigInt(ctx.vm.bigints.alloc(bi)))
-}
+dv_get!(
+    native_data_view_get_int16,
+    "getInt16",
+    i16,
+    2,
+    |_ctx, v| Ok(JsValue::Number(f64::from(v)))
+);
+dv_get!(
+    native_data_view_get_uint16,
+    "getUint16",
+    u16,
+    2,
+    |_ctx, v| Ok(JsValue::Number(f64::from(v)))
+);
+dv_get!(
+    native_data_view_get_int32,
+    "getInt32",
+    i32,
+    4,
+    |_ctx, v| Ok(JsValue::Number(f64::from(v)))
+);
+dv_get!(
+    native_data_view_get_uint32,
+    "getUint32",
+    u32,
+    4,
+    |_ctx, v| Ok(JsValue::Number(f64::from(v)))
+);
+dv_get!(
+    native_data_view_get_float32,
+    "getFloat32",
+    f32,
+    4,
+    |_ctx, v| Ok(JsValue::Number(f64::from(v)))
+);
+dv_get!(
+    native_data_view_get_float64,
+    "getFloat64",
+    f64,
+    8,
+    |_ctx, v| Ok(JsValue::Number(v))
+);
+dv_get!(
+    native_data_view_get_bigint64,
+    "getBigInt64",
+    i64,
+    8,
+    |ctx, v| Ok(JsValue::BigInt(
+        ctx.vm.bigints.alloc(num_bigint::BigInt::from(v))
+    ))
+);
+dv_get!(
+    native_data_view_get_biguint64,
+    "getBigUint64",
+    u64,
+    8,
+    |ctx, v| Ok(JsValue::BigInt(
+        ctx.vm.bigints.alloc(num_bigint::BigInt::from(v))
+    ))
+);
 
 // ---------------------------------------------------------------------------
 // Setters
 // ---------------------------------------------------------------------------
 
-fn native_data_view_set_int8(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let v =
-        super::super::coerce::to_int8(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    write_bytes::<1>(ctx, this, "setInt8", n, [v as u8])?;
-    Ok(JsValue::Undefined)
-}
+dv_set!(
+    native_data_view_set_int8,
+    "setInt8",
+    byte,
+    |ctx, val| super::super::coerce::to_int8(ctx.vm, val)? as u8
+);
+dv_set!(native_data_view_set_uint8, "setUint8", byte, |ctx, val| {
+    super::super::coerce::to_uint8(ctx.vm, val)?
+});
 
-fn native_data_view_set_uint8(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let v =
-        super::super::coerce::to_uint8(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    write_bytes::<1>(ctx, this, "setUint8", n, [v])?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_data_view_set_int16(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let v =
-        super::super::coerce::to_int16(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    let little_endian = decode_little_endian(ctx, args.get(2).copied());
-    let bytes = if little_endian {
-        v.to_le_bytes()
-    } else {
-        v.to_be_bytes()
-    };
-    write_bytes::<2>(ctx, this, "setInt16", n, bytes)?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_data_view_set_uint16(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let v = super::super::coerce::to_uint16(
-        ctx.vm,
-        args.get(1).copied().unwrap_or(JsValue::Undefined),
-    )?;
-    let little_endian = decode_little_endian(ctx, args.get(2).copied());
-    let bytes = if little_endian {
-        v.to_le_bytes()
-    } else {
-        v.to_be_bytes()
-    };
-    write_bytes::<2>(ctx, this, "setUint16", n, bytes)?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_data_view_set_int32(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let v =
-        super::super::coerce::to_int32(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    let little_endian = decode_little_endian(ctx, args.get(2).copied());
-    let bytes = if little_endian {
-        v.to_le_bytes()
-    } else {
-        v.to_be_bytes()
-    };
-    write_bytes::<4>(ctx, this, "setInt32", n, bytes)?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_data_view_set_uint32(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let v = super::super::coerce::to_uint32(
-        ctx.vm,
-        args.get(1).copied().unwrap_or(JsValue::Undefined),
-    )?;
-    let little_endian = decode_little_endian(ctx, args.get(2).copied());
-    let bytes = if little_endian {
-        v.to_le_bytes()
-    } else {
-        v.to_be_bytes()
-    };
-    write_bytes::<4>(ctx, this, "setUint32", n, bytes)?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_data_view_set_float32(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let val_f64 = ctx.to_number(val_arg)?;
+dv_set!(native_data_view_set_int16, "setInt16", 2, |ctx, val| {
+    super::super::coerce::to_int16(ctx.vm, val)?
+});
+dv_set!(native_data_view_set_uint16, "setUint16", 2, |ctx, val| {
+    super::super::coerce::to_uint16(ctx.vm, val)?
+});
+dv_set!(native_data_view_set_int32, "setInt32", 4, |ctx, val| {
+    super::super::coerce::to_int32(ctx.vm, val)?
+});
+dv_set!(native_data_view_set_uint32, "setUint32", 4, |ctx, val| {
+    super::super::coerce::to_uint32(ctx.vm, val)?
+});
+dv_set!(native_data_view_set_float32, "setFloat32", 4, |ctx, val| {
     #[allow(clippy::cast_possible_truncation)]
-    let v = val_f64 as f32;
-    let little_endian = decode_little_endian(ctx, args.get(2).copied());
-    let bytes = if little_endian {
-        v.to_le_bytes()
-    } else {
-        v.to_be_bytes()
-    };
-    write_bytes::<4>(ctx, this, "setFloat32", n, bytes)?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_data_view_set_float64(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let v = ctx.to_number(val_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(2).copied());
-    let bytes = if little_endian {
-        v.to_le_bytes()
-    } else {
-        v.to_be_bytes()
-    };
-    write_bytes::<8>(ctx, this, "setFloat64", n, bytes)?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_data_view_set_bigint64(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let v = super::super::natives_bigint::to_bigint64(ctx, val_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(2).copied());
-    let bytes = if little_endian {
-        v.to_le_bytes()
-    } else {
-        v.to_be_bytes()
-    };
-    write_bytes::<8>(ctx, this, "setBigInt64", n, bytes)?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_data_view_set_biguint64(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(offset_arg)?;
-    let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let v = super::super::natives_bigint::to_biguint64(ctx, val_arg)?;
-    let little_endian = decode_little_endian(ctx, args.get(2).copied());
-    let bytes = if little_endian {
-        v.to_le_bytes()
-    } else {
-        v.to_be_bytes()
-    };
-    write_bytes::<8>(ctx, this, "setBigUint64", n, bytes)?;
-    Ok(JsValue::Undefined)
-}
+    {
+        ctx.to_number(val)? as f32
+    }
+});
+dv_set!(native_data_view_set_float64, "setFloat64", 8, |ctx, val| {
+    ctx.to_number(val)?
+});
+dv_set!(
+    native_data_view_set_bigint64,
+    "setBigInt64",
+    8,
+    |ctx, val| super::super::natives_bigint::to_bigint64(ctx, val)?
+);
+dv_set!(
+    native_data_view_set_biguint64,
+    "setBigUint64",
+    8,
+    |ctx, val| super::super::natives_bigint::to_biguint64(ctx, val)?
+);
