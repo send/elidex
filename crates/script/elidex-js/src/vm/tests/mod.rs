@@ -77,6 +77,7 @@ mod tests_typed_array_methods;
 mod tests_ui_event_constructor;
 mod tests_value_types;
 mod tests_window_global;
+mod tests_window_iframe_props;
 
 use super::value::{JsValue, Object, ObjectKind, VmError};
 use super::Vm;

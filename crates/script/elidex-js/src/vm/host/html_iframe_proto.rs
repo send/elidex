@@ -29,10 +29,15 @@
 //! - **Boolean reflect** (WHATWG "boolean reflect" — attribute
 //!   presence ↔ IDL boolean): `allowFullscreen`.
 //! - **Parity null stubs** — `contentDocument`, `contentWindow`.
-//!   Real cross-context proxies land in a later M4-12 tranche
-//!   (PR5d); the `null` return today matches the existing boa
-//!   stub, and that tranche must land before the boa → VM
-//!   cut-over completes.
+//!   The legacy boa binding returns `null` here too because each
+//!   iframe runs in its own `JsRuntime` and objects do not cross
+//!   `Context` boundaries (`elidex-js-boa/src/globals/iframe.rs`).
+//!   Real cross-context Document / Window proxies require multi-
+//!   document support inside one VM (a separate sub-frame
+//!   browsing-context entity model) and are tracked in the M4-12
+//!   cutover residual roadmap, not this PR.  The `null` return
+//!   here keeps the JS surface stable across the boa removal in
+//!   PR7.
 
 #![cfg(feature = "engine")]
 
@@ -315,10 +320,13 @@ fn native_iframe_set_allow_fullscreen(
     Ok(JsValue::Undefined)
 }
 
-/// `contentDocument` — parity stub.  PR5d upgrades to the real
-/// cross-VM Document proxy; until then the getter returns `null` so
-/// feature-detection code (`if (iframe.contentDocument)`) does not
-/// false-positive onto the bound document.
+/// `contentDocument` — parity stub matching the legacy boa binding.
+/// A real cross-context Document proxy needs the VM to host the
+/// child frame's document in its own browsing context (see the
+/// module docstring); until that lands the getter returns `null`,
+/// which is also what the spec requires for cross-origin frames so
+/// feature-detection code (`if (iframe.contentDocument)`) keeps
+/// working.
 fn native_iframe_get_content_document(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -328,7 +336,8 @@ fn native_iframe_get_content_document(
     Ok(JsValue::Null)
 }
 
-/// `contentWindow` — parity stub.  See `native_iframe_get_content_document`.
+/// `contentWindow` — parity stub matching the legacy boa binding.
+/// See `native_iframe_get_content_document`.
 fn native_iframe_get_content_window(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

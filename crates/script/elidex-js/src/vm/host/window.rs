@@ -19,8 +19,11 @@
 //! ECS entity (distinct from the Document).
 //!
 //! `Window.prototype` carries the viewport accessors
-//! (`innerWidth` / `scrollX` / `devicePixelRatio` / …) and the scroll
-//! methods (`scrollTo` / `scrollBy`) so every `globalThis` reads them
+//! (`innerWidth` / `scrollX` / `devicePixelRatio` / …), the scroll
+//! methods (`scrollTo` / `scrollBy`), the WindowProxy iframe
+//! accessors (`self` / `parent` / `top` / `frames` / `frameElement` /
+//! `opener` / `length` / `closed`, WHATWG HTML §7.3), and the
+//! writable `name` accessor pair so every `globalThis` reads them
 //! from the shared prototype rather than each wrapper holding its
 //! own copy.  Global singletons that are values rather than
 //! prototype-shared behaviour (`navigator`, `location`, `history`,
@@ -162,6 +165,119 @@ pub(super) fn native_window_get_device_pixel_ratio(
     Ok(JsValue::Number(ctx.vm.viewport.device_pixel_ratio))
 }
 
+// ---------------------------------------------------------------------------
+// Iframe-related WindowProxy getters (WHATWG HTML §7.3)
+// ---------------------------------------------------------------------------
+//
+// `parent`, `top`, `frames`, and `self` all return WindowProxy values
+// per spec.  The VM currently models a single top-level browsing
+// context, so the only WindowProxy we have is `globalThis` itself —
+// every getter resolves to it.  This matches the legacy boa
+// registration (`elidex-js-boa/src/globals/window/mod.rs`
+// `register_iframe_window_props`) so the JS surface does not regress
+// when boa is removed in PR7.
+//
+// `frameElement` and `opener` return `null`: there is no parent
+// browsing context to point at, and no `window.open(...)` opener
+// chain — both await sub-frame wiring (PR6 / Phase 3) before they
+// can become non-null.  `length` is `0` because the VM tracks zero
+// child frames.  `closed` is `false` for the same single-context
+// reason.
+//
+// All getters use the `_this` argument because they read VM-wide
+// state that is independent of the receiver — `Window.prototype.parent`
+// invoked with any receiver still resolves to the unique globalThis.
+
+pub(super) fn native_window_get_self(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Object(ctx.vm.global_object))
+}
+
+pub(super) fn native_window_get_parent(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Object(ctx.vm.global_object))
+}
+
+pub(super) fn native_window_get_top(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Object(ctx.vm.global_object))
+}
+
+pub(super) fn native_window_get_frames(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Object(ctx.vm.global_object))
+}
+
+pub(super) fn native_window_get_frame_element(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Null)
+}
+
+pub(super) fn native_window_get_opener(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Null)
+}
+
+pub(super) fn native_window_get_length(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Number(0.0))
+}
+
+pub(super) fn native_window_get_closed(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::Boolean(false))
+}
+
+/// `window.name` (WHATWG HTML §7.3.3.5) — DOMString attribute that
+/// survives same-document reloads.  The setter coerces with
+/// `ToString` per WebIDL and stores into `VmInner::window_name`.
+/// The cross-document reset described in §7.10.4 step 7 is **not**
+/// applied by the current codebase (a repo-wide search shows only
+/// init + setter writes touch the field); when navigation gains
+/// that responsibility, the clear belongs in the navigation
+/// pipeline rather than the getter / setter protocol here.
+pub(super) fn native_window_get_name(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Ok(JsValue::String(ctx.vm.window_name))
+}
+
+pub(super) fn native_window_set_name(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    ctx.vm.window_name = coerce::to_string(ctx.vm, val)?;
+    Ok(JsValue::Undefined)
+}
+
 impl VmInner {
     /// Populate `self.window_prototype` with the window-specific
     /// own-property suite (viewport accessors + scrollTo/scrollBy)
@@ -195,6 +311,10 @@ impl VmInner {
         // `scrollX` / `scrollY`; the native bodies all read the shared
         // `ViewportState` so any pair points at the same slot.
         self.install_ro_accessors(proto_id, WINDOW_RO_ACCESSORS);
+        // `name` is the only writable Window attribute the VM exposes;
+        // its backing field (`VmInner::window_name`) is initialised to
+        // an empty string and updated by the setter.
+        self.install_rw_accessors(proto_id, WINDOW_RW_ACCESSORS);
 
         self.window_prototype = Some(proto_id);
     }
@@ -223,6 +343,13 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
 
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /
 // `scrollY`; they share the same underlying native fn.
+//
+// The iframe WindowProxy accessors (`self` / `parent` / `top` /
+// `frames` / `frameElement` / `opener` / `length` / `closed`) live on
+// `Window.prototype` per WHATWG HTML §7.3.  All return single-context
+// stubs today (see the comment block on `native_window_get_self`); a
+// future PR can replace the bodies with real cross-frame lookups
+// without disturbing the install order.
 const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("innerWidth", native_window_get_inner_width),
     ("innerHeight", native_window_get_inner_height),
@@ -231,4 +358,15 @@ const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("pageXOffset", native_window_get_scroll_x),
     ("pageYOffset", native_window_get_scroll_y),
     ("devicePixelRatio", native_window_get_device_pixel_ratio),
+    ("self", native_window_get_self),
+    ("parent", native_window_get_parent),
+    ("top", native_window_get_top),
+    ("frames", native_window_get_frames),
+    ("frameElement", native_window_get_frame_element),
+    ("opener", native_window_get_opener),
+    ("length", native_window_get_length),
+    ("closed", native_window_get_closed),
 ];
+
+const WINDOW_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] =
+    &[("name", native_window_get_name, native_window_set_name)];
