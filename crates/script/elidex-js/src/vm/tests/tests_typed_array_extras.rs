@@ -12,9 +12,10 @@
 //! Blob ↔ Request/Response).
 //!
 //! Constructor + prototype tests live in
-//! [`super::tests_typed_array`]; prototype method tests + DataView
-//! (C5) accessors / getters / setters in
-//! [`super::tests_typed_array_methods`].
+//! [`super::tests_typed_array`]; prototype method tests in
+//! [`super::tests_typed_array_methods`]; `DataView` (C5) ctor /
+//! accessor / getter / setter tests in
+//! [`super::tests_data_view`].
 
 #![cfg(feature = "engine")]
 

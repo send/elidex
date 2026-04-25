@@ -19,6 +19,7 @@ mod tests_coerce;
 mod tests_console;
 mod tests_cookie_referrer;
 mod tests_create_event_object;
+mod tests_data_view;
 mod tests_dispatch_event;
 mod tests_document_global;
 mod tests_document_members;
