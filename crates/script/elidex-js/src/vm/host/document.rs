@@ -627,18 +627,23 @@ pub(super) fn native_document_set_cookie(
     if bound_doc != Some(doc) {
         return Ok(JsValue::Undefined);
     }
+    // Resolve the jar BEFORE coercing the assigned value: the
+    // cookie-averse contract is "silent no-op on assignment", so
+    // `document.cookie = Symbol()` must not throw on a VM with no
+    // jar installed.  Coercing first would surface `to_string`'s
+    // `Symbol → USVString` TypeError where the previous stub was
+    // intentionally non-throwing.
+    //
+    // Cloning the `Arc` (cheap atomic bump) lets the jar outlive
+    // the `host_if_bound` mutable borrow so we can read
+    // `ctx.vm.navigation` afterwards.
+    let Some(jar) = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).cloned() else {
+        return Ok(JsValue::Undefined);
+    };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let value = ctx.vm.strings.get_utf8(sid);
-    // Clone the `Arc` (cheap atomic bump) so the jar lives past the
-    // `host_if_bound` mutable borrow on `ctx` — we need the jar and a
-    // fresh `&ctx.vm.navigation` borrow simultaneously, which the
-    // borrow checker disallows without releasing the `host_if_bound`
-    // borrow first.  The clone is the cheapest way to do that.
-    let jar = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).cloned();
-    if let Some(jar) = jar {
-        jar.set_cookie_from_script(&ctx.vm.navigation.current_url, &value);
-    }
+    jar.set_cookie_from_script(&ctx.vm.navigation.current_url, &value);
     Ok(JsValue::Undefined)
 }
 

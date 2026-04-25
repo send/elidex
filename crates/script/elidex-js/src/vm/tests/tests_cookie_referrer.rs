@@ -131,6 +131,35 @@ fn cookie_setter_no_op_when_no_jar() {
 }
 
 #[test]
+fn cookie_setter_no_jar_does_not_throw_on_symbol() {
+    // Cookie-averse Documents must silently ignore assignments
+    // even when the value is a Symbol — the spec's no-op contract
+    // wins over WebIDL's USVString coercion-throws-TypeError step
+    // for our self-hosted setter, mirroring the original PR4f
+    // stub's non-throwing behaviour.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let _ = unsafe {
+        bind_at_url(
+            &mut vm,
+            &mut session,
+            &mut dom,
+            "https://example.com/",
+            false,
+        )
+    };
+
+    // Must not throw — `Symbol()` would otherwise fail USVString
+    // coercion if we coerced before checking the jar.
+    vm.eval("document.cookie = Symbol('s'); document.cookie")
+        .unwrap();
+
+    vm.unbind();
+}
+
+#[test]
 fn cookie_setter_writes_to_jar_and_getter_reads_back() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
@@ -590,6 +619,21 @@ fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a s
         .map(|(_, v)| v.as_str())
 }
 
+/// Drain the mock handle's request log and assert that exactly one
+/// request was sent, returning it.  Tests that expect a single
+/// `fetch()` call use this so a missing or duplicated request fails
+/// with a clear message instead of an out-of-bounds index panic.
+fn single_logged_request(handle: &NetworkHandle) -> elidex_net::Request {
+    let mut logged = handle.drain_recorded_requests();
+    assert_eq!(
+        logged.len(),
+        1,
+        "expected exactly one fetch request, got {}",
+        logged.len()
+    );
+    logged.remove(0)
+}
+
 #[test]
 fn fetch_same_origin_attaches_full_referer() {
     let (mut vm, handle) = vm_with_url_and_mock(
@@ -597,9 +641,8 @@ fn fetch_same_origin_attaches_full_referer() {
         vec!["https://example.com/api"],
     );
     vm.eval("fetch('https://example.com/api');").unwrap();
-    let logged = handle.drain_recorded_requests();
-    assert_eq!(logged.len(), 1);
-    let referer = header_value(&logged[0].headers, "referer").expect("referer present");
+    let req = single_logged_request(&handle);
+    let referer = header_value(&req.headers, "referer").expect("referer present");
     // Same-origin: full URL with fragment stripped.
     assert_eq!(referer, "https://example.com/page");
 }
@@ -609,8 +652,8 @@ fn fetch_cross_origin_attaches_origin_only_referer() {
     let (mut vm, handle) =
         vm_with_url_and_mock("https://example.com/page", vec!["https://other.com/api"]);
     vm.eval("fetch('https://other.com/api');").unwrap();
-    let logged = handle.drain_recorded_requests();
-    let referer = header_value(&logged[0].headers, "referer").expect("referer present");
+    let req = single_logged_request(&handle);
+    let referer = header_value(&req.headers, "referer").expect("referer present");
     // Cross-origin same-TLS: origin only.
     assert_eq!(referer, "https://example.com");
 }
@@ -620,9 +663,9 @@ fn fetch_https_to_http_omits_referer() {
     let (mut vm, handle) =
         vm_with_url_and_mock("https://example.com/page", vec!["http://other.com/api"]);
     vm.eval("fetch('http://other.com/api');").unwrap();
-    let logged = handle.drain_recorded_requests();
+    let req = single_logged_request(&handle);
     assert!(
-        header_value(&logged[0].headers, "referer").is_none(),
+        header_value(&req.headers, "referer").is_none(),
         "TLS downgrade must strip the Referer header"
     );
 }
@@ -631,9 +674,9 @@ fn fetch_https_to_http_omits_referer() {
 fn fetch_about_blank_source_omits_referer() {
     let (mut vm, handle) = vm_with_url_and_mock("about:blank", vec!["https://example.com/api"]);
     vm.eval("fetch('https://example.com/api');").unwrap();
-    let logged = handle.drain_recorded_requests();
+    let req = single_logged_request(&handle);
     assert!(
-        header_value(&logged[0].headers, "referer").is_none(),
+        header_value(&req.headers, "referer").is_none(),
         "non-network source schemes must not produce a Referer"
     );
 }
@@ -645,8 +688,8 @@ fn fetch_strips_userinfo_and_fragment_from_referer() {
         vec!["https://example.com/api"],
     );
     vm.eval("fetch('https://example.com/api');").unwrap();
-    let logged = handle.drain_recorded_requests();
-    let referer = header_value(&logged[0].headers, "referer").expect("referer present");
+    let req = single_logged_request(&handle);
+    let referer = header_value(&req.headers, "referer").expect("referer present");
     // Userinfo and fragment stripped per the policy; query preserved.
     assert_eq!(referer, "https://example.com/page?q=1");
 }
@@ -661,8 +704,8 @@ fn fetch_user_set_referer_is_left_alone_in_phase_2() {
         vm_with_url_and_mock("https://example.com/page", vec!["https://other.com/api"]);
     vm.eval("fetch('https://other.com/api', {headers: {'Referer': 'https://manual.example/'}});")
         .unwrap();
-    let logged = handle.drain_recorded_requests();
-    let referer = header_value(&logged[0].headers, "referer").expect("referer present");
+    let req = single_logged_request(&handle);
+    let referer = header_value(&req.headers, "referer").expect("referer present");
     assert_eq!(referer, "https://manual.example/");
 }
 
@@ -671,8 +714,8 @@ fn fetch_http_to_http_attaches_origin_referer() {
     let (mut vm, handle) =
         vm_with_url_and_mock("http://example.com/page", vec!["http://other.com/api"]);
     vm.eval("fetch('http://other.com/api');").unwrap();
-    let logged = handle.drain_recorded_requests();
-    let referer = header_value(&logged[0].headers, "referer").expect("referer present");
+    let req = single_logged_request(&handle);
+    let referer = header_value(&req.headers, "referer").expect("referer present");
     // Cross-origin HTTP→HTTP: no TLS downgrade, send origin.
     assert_eq!(referer, "http://example.com");
 }
@@ -682,8 +725,8 @@ fn fetch_http_source_to_https_target_attaches_origin_referer() {
     let (mut vm, handle) =
         vm_with_url_and_mock("http://example.com/page", vec!["https://other.com/api"]);
     vm.eval("fetch('https://other.com/api');").unwrap();
-    let logged = handle.drain_recorded_requests();
-    let referer = header_value(&logged[0].headers, "referer").expect("referer present");
+    let req = single_logged_request(&handle);
+    let referer = header_value(&req.headers, "referer").expect("referer present");
     // HTTP → HTTPS is a "TLS upgrade" (not downgrade); cross-origin
     // → origin only.
     assert_eq!(referer, "http://example.com");
