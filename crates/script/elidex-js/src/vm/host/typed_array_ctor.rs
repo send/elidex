@@ -28,19 +28,17 @@
 //! [`super::typed_array::allocate_fresh_buffer`] directly.
 //!
 //! Low-level [`super::typed_array::read_element_raw`] /
-//! [`super::typed_array::write_element_raw`] /
-//! [`super::typed_array::to_index_u32`] live in the parent module
-//! because they're also reused by the indexed read/write path and by
-//! [`super::typed_array_methods`].
+//! [`super::typed_array::write_element_raw`] live in the parent
+//! module because they're also reused by the indexed read/write path
+//! and by [`super::typed_array_methods`].
 
 #![cfg(feature = "engine")]
 
+use super::super::coerce;
 use super::super::value::{
     ElementKind, JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, VmError,
 };
-use super::typed_array::{
-    allocate_fresh_buffer, read_element_raw, to_index_u32, write_element_raw,
-};
+use super::typed_array::{allocate_fresh_buffer, read_element_raw, write_element_raw};
 
 /// Variant 3: share an existing `ArrayBuffer`.  Validates
 /// `byteOffset % bpe === 0` (RangeError) and range coverage
@@ -67,10 +65,7 @@ pub(super) fn init_from_array_buffer(
 
     let byte_offset = match byte_offset_arg {
         JsValue::Undefined => 0,
-        other => {
-            let n = ctx.to_number(other)?;
-            to_index_u32(n, ek.name(), "byteOffset")?
-        }
+        other => coerce::to_index_u32(ctx, other, ek.name(), "byteOffset")?,
     };
     if byte_offset % bpe != 0 {
         return Err(VmError::range_error(format!(
@@ -99,8 +94,7 @@ pub(super) fn init_from_array_buffer(
             remainder
         }
         other => {
-            let n = ctx.to_number(other)?;
-            let length = to_index_u32(n, ek.name(), "length")?;
+            let length = coerce::to_index_u32(ctx, other, ek.name(), "length")?;
             let byte_len = length.checked_mul(bpe).ok_or_else(|| {
                 VmError::range_error(format!(
                     "Failed to construct '{}': length too large",

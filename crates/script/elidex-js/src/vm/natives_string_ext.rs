@@ -1,5 +1,6 @@
 //! String.prototype complement methods (P2 additions).
 
+use super::coerce;
 use super::natives_string::coerce_this_string;
 use super::ops::STRING_LEN_LIMIT;
 use super::value::{JsValue, NativeContext, VmError};
@@ -13,8 +14,7 @@ pub(super) fn native_string_repeat(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let count_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = ctx.to_number(count_arg)?;
-    let n = if n.is_nan() { 0.0 } else { n.trunc() };
+    let n = coerce::to_integer_or_infinity(ctx.to_number(count_arg)?);
     if n < 0.0 || n.is_infinite() {
         return Err(VmError::range_error("Invalid count value"));
     }
@@ -56,13 +56,8 @@ fn pad_string(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let max_len_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let max_len_f = ctx.to_number(max_len_arg)?;
     // ToLength: NaN/negative → 0, clamp to STRING_LEN_LIMIT
-    let max_len_f = if max_len_f.is_nan() || max_len_f < 0.0 {
-        0.0
-    } else {
-        max_len_f.trunc()
-    };
+    let max_len_f = coerce::to_integer_or_infinity(ctx.to_number(max_len_arg)?).max(0.0);
     #[allow(clippy::cast_sign_loss)]
     let max_len = (max_len_f as usize).min(STRING_LEN_LIMIT);
     let s_len = ctx.get_u16(sid).len();
@@ -186,8 +181,7 @@ pub(super) fn native_string_code_point_at(
     let sid = coerce_this_string(ctx, this)?;
     let s = ctx.get_u16(sid);
     let pos_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let pos = ctx.to_number(pos_arg)?;
-    let pos = if pos.is_nan() { 0.0 } else { pos.trunc() };
+    let pos = coerce::to_integer_or_infinity(ctx.to_number(pos_arg)?);
     #[allow(clippy::cast_sign_loss)]
     let idx = pos as usize;
     if pos < 0.0 || idx >= s.len() {

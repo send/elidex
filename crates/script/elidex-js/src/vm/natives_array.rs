@@ -6,6 +6,7 @@
 //! All methods operate on `ObjectKind::Array` only (generic array-like
 //! objects are not supported in P0 — see plan).
 
+use super::coerce;
 use super::ops::DENSE_ARRAY_LEN_LIMIT;
 use super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 
@@ -41,38 +42,23 @@ pub(super) fn array_len(ctx: &NativeContext<'_>, id: ObjectId) -> Result<usize, 
     }
 }
 
-/// Resolve a relative start index (ES2020 §7.1.22 + clamp).
-/// Negative → max(len + val, 0), positive → min(val, len).
+/// Resolve a relative start index, applying ES §7.1.5
+/// `ToIntegerOrInfinity` and then clamping: negative wraps as
+/// `max(len + val, 0)`, positive saturates as `min(val, len)`.
+/// Thin usize-typed wrapper around
+/// [`super::coerce::relative_index_f64`]; the clamp at the canonical
+/// helper guarantees `0.0 <= clamped <= len_f`, so the final `as
+/// usize` cast is exact.  The `±Infinity` branches are subsumed by
+/// the clamp algebra rather than carried as explicit arms
+/// (negative-infinity-plus-len saturates to zero and
+/// positive-infinity caps at len).
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
 )]
 pub(super) fn resolve_index(n: f64, len: usize) -> usize {
-    if n.is_nan() {
-        return 0;
-    }
-    // ES2020 §7.1.22 ToIntegerOrInfinity: truncate toward zero first.
-    let int = n.trunc();
-    if int.is_infinite() && int < 0.0 {
-        0
-    } else if int < 0.0 {
-        let adjusted = len as f64 + int;
-        if adjusted <= 0.0 {
-            0
-        } else {
-            adjusted as usize
-        }
-    } else if int.is_infinite() {
-        len
-    } else {
-        let i = int as usize;
-        if i > len {
-            len
-        } else {
-            i
-        }
-    }
+    coerce::relative_index_f64(n, len as f64) as usize
 }
 
 /// Create a new Array object with given elements.

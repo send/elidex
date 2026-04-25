@@ -29,6 +29,7 @@
 
 #![cfg(feature = "engine")]
 
+use super::super::coerce;
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
@@ -193,7 +194,7 @@ fn native_data_view_constructor(
 
     let byte_offset = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => 0,
-        other => to_index_u32(ctx, other, "byteOffset")?,
+        other => coerce::to_index_u32(ctx, other, "DataView", "byteOffset")?,
     };
     if byte_offset > buf_len {
         return Err(VmError::range_error(format!(
@@ -204,7 +205,7 @@ fn native_data_view_constructor(
     let byte_length = match args.get(2).copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => buf_len - byte_offset,
         other => {
-            let len = to_index_u32(ctx, other, "byteLength")?;
+            let len = coerce::to_index_u32(ctx, other, "DataView", "byteLength")?;
             if byte_offset
                 .checked_add(len)
                 .map_or(true, |end| end > buf_len)
@@ -225,28 +226,6 @@ fn native_data_view_constructor(
         byte_length,
     };
     Ok(JsValue::Object(inst_id))
-}
-
-/// ES §7.1.22 `ToIndex` as `u32`.
-fn to_index_u32(ctx: &mut NativeContext<'_>, val: JsValue, what: &str) -> Result<u32, VmError> {
-    let n = ctx.to_number(val)?;
-    if n.is_nan() {
-        return Ok(0);
-    }
-    let truncated = n.trunc();
-    if !truncated.is_finite() || truncated < 0.0 {
-        return Err(VmError::range_error(format!(
-            "Failed to construct 'DataView': {what} must be a non-negative safe integer"
-        )));
-    }
-    if truncated > f64::from(u32::MAX) {
-        return Err(VmError::range_error(format!(
-            "Failed to construct 'DataView': {what} exceeds the supported maximum"
-        )));
-    }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let as_u32 = truncated as u32;
-    Ok(as_u32)
 }
 
 // ---------------------------------------------------------------------------
