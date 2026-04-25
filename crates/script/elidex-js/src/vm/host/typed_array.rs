@@ -131,7 +131,7 @@ impl VmInner {
         // prototype and the ctor to `%TypedArray%`.
         // Iteration order matches `ElementKind` declaration for
         // predictable global-install ordering.
-        for entry in SUBCLASS_TABLE {
+        for entry in &SUBCLASS_TABLE {
             self.register_typed_array_subclass(entry, proto_id, abstract_ctor);
         }
     }
@@ -418,7 +418,12 @@ struct SubclassEntry {
     global_name: fn(&super::super::well_known::WellKnownStrings) -> StringId,
 }
 
-static SUBCLASS_TABLE: &[SubclassEntry] = &[
+/// Sized to `ElementKind::COUNT` so a misaligned table (a missing
+/// entry, or a duplicate after re-ordering) refuses to compile —
+/// the array literal below MUST contain exactly one entry per
+/// `ElementKind` variant in declaration order, matching
+/// `ElementKind::index()`.
+static SUBCLASS_TABLE: [SubclassEntry; ElementKind::COUNT] = [
     SubclassEntry {
         name: "Int8Array",
         element_kind: ElementKind::Int8,

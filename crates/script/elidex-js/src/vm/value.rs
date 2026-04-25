@@ -470,9 +470,13 @@ impl ElementKind {
     /// Stable 0-based index in [`Self::COUNT`] range, used to
     /// address per-subclass tables (per-subclass prototypes,
     /// future per-subclass install flags) without relying on the
-    /// implicit enum discriminant.  The mapping is fixed: any
-    /// future variant must be appended at the end and bump
-    /// [`Self::COUNT`].
+    /// implicit enum discriminant.  Mapping is by convention only —
+    /// the explicit match is what guarantees stability across
+    /// reorderings; nothing here is layout-dependent.  When a new
+    /// variant is added, bump [`Self::COUNT`] and add the matching
+    /// arm; the static `SUBCLASS_TABLE` declared as
+    /// `[SubclassEntry; ElementKind::COUNT]` then refuses to
+    /// compile until its length matches.
     #[inline]
     #[must_use]
     pub const fn index(self) -> usize {

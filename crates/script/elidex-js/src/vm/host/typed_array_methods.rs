@@ -130,10 +130,15 @@ fn alloc_typed_array_view(
     })
 }
 
-/// Resolve the per-subclass prototype stored on `VmInner`.  Falls
+/// Resolve the per-subclass prototype stored on `VmInner`, falling
 /// back to the abstract `%TypedArray%.prototype` if the subclass
-/// slot is unexpectedly `None` (shouldn't happen — every entry
-/// populates during `register_typed_array_prototype_global`).
+/// slot is `None`.  In normal engine builds every slot is populated
+/// by `register_typed_array_prototype_global`, so the fallback
+/// triggers only at very early construction (before
+/// `register_globals` finishes), or — in the limit case — in
+/// non-engine builds where the array stays initialised to
+/// `[None; …]`.  The `or` chain keeps both paths sound without a
+/// callsite-level guard.
 pub(super) fn subclass_prototype_for(vm: &VmInner, ek: ElementKind) -> Option<ObjectId> {
     vm.subclass_array_prototypes[ek.index()].or(vm.typed_array_prototype)
 }
