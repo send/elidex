@@ -303,8 +303,8 @@ pub(super) fn trace_work_list(
             // `live_collection_states`) contain only `Entity`,
             // `StringId`, `Vec<StringId>`, and `Vec<Entity>` — no
             // `ObjectId` references, so the trace step has nothing
-            // to fan out.  The sweep tail prunes entries whose key
-            // `ObjectId` was collected (see sweep code below).
+            // to fan out.  The sweep tail in `super::gc` prunes
+            // entries whose key `ObjectId` was collected.
             #[cfg(feature = "engine")]
             ObjectKind::HtmlCollection | ObjectKind::NodeList => {}
             // `NamedNodeMap` / `Attr` payloads (stored in
