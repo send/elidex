@@ -51,6 +51,7 @@ mod natives_string;
 mod natives_string_ext;
 mod natives_symbol;
 mod natives_timer;
+mod object_kind;
 mod ops;
 mod ops_element;
 mod ops_property;
