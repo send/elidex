@@ -1,8 +1,8 @@
 //! Tests for the type-coercion module ([`super::super::coerce`]).
 //!
 //! Covers ES2020 abstract operations (`ToBoolean` / `ToNumber` /
-//! `ToString` / `ToInt32` / `ToUint32`) and the
-//! equality / relational / arithmetic operator helpers.
+//! `ToString` / `ToInt32`) and the equality / relational /
+//! arithmetic operator helpers.
 //!
 //! Originally an inline `#[cfg(test)] mod tests { ... }` block at
 //! the bottom of `vm/coerce.rs`; extracted into the standard
