@@ -98,4 +98,6 @@ pub(crate) mod typed_array;
 pub(super) mod typed_array_ctor;
 #[cfg(feature = "engine")]
 pub(super) mod typed_array_methods;
+#[cfg(feature = "engine")]
+pub(super) mod typed_array_parts;
 pub(super) mod window;
