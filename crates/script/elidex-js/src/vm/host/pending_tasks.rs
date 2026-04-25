@@ -16,7 +16,7 @@
 //! The `postMessage` path constructs a MessageEvent-shaped Event
 //! object (core-9 layout + `data` / `origin` / `lastEventId` /
 //! `source` / `ports` slots) and routes it through
-//! [`super::event_target::dispatch_script_event`].  That helper
+//! [`super::event_target_dispatch::dispatch_script_event`].  That helper
 //! builds the dispatch plan via the session crate's
 //! `build_dispatch_plan` and applies standard per-listener option
 //! semantics: registration order walk, shared Event identity across
@@ -49,7 +49,7 @@ use super::super::value::{
     PropertyValue, StringId, VmError,
 };
 use super::super::VmInner;
-use super::event_target::dispatch_script_event;
+use super::event_target_dispatch::dispatch_script_event;
 use super::structured_clone::clone_value;
 
 // ---------------------------------------------------------------------------
