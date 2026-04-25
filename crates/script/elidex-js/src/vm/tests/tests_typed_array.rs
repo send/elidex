@@ -5,8 +5,10 @@
 //! prototype, prototype chain identity, `@@species` / `@@toStringTag`,
 //! generic accessor (`buffer` / `byteOffset` / `byteLength` / `length`) brand
 //! checks, and C3 indexed element access.  Prototype method tests live in
-//! [`super::tests_typed_array_methods`]; DataView + structured-clone +
-//! integration tests in [`super::tests_typed_array_extras`].
+//! [`super::tests_typed_array_methods`]; `DataView` ctor / accessor /
+//! getter / setter tests in [`super::tests_data_view`];
+//! `structuredClone` + integration tests in
+//! [`super::tests_typed_array_extras`].
 
 #![cfg(feature = "engine")]
 
