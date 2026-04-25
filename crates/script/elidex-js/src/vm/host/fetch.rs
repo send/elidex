@@ -397,15 +397,16 @@ fn build_net_request(
 /// - HTTPS → HTTP (TLS downgrade) → no header.
 /// - Non-HTTP/HTTPS source or target → no header.
 fn attach_default_referer(source: &Url, request: &mut elidex_net::Request) {
+    const REFERER: &str = "Referer";
     let already_set = request
         .headers
         .iter()
-        .any(|(name, _)| name.eq_ignore_ascii_case("referer"));
+        .any(|(name, _)| name.eq_ignore_ascii_case(REFERER));
     if already_set {
         return;
     }
     if let Some(value) = compute_default_referer(source, &request.url) {
-        request.headers.push(("Referer".to_string(), value));
+        request.headers.push((REFERER.to_string(), value));
     }
 }
 

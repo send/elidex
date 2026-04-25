@@ -253,7 +253,9 @@ pub struct NetworkHandle {
     /// when `mock_responses` is `Some` (i.e. the handle came from
     /// [`Self::mock_with_responses`]); production handles leave this
     /// `None` so we do not pay for the clone on the hot path.  Read
-    /// out via [`Self::drain_recorded_requests`].
+    /// out via [`Self::drain_recorded_requests`] — long-running
+    /// tests should call that periodically because the log is
+    /// unbounded.
     #[cfg(feature = "test-hooks")]
     recorded_requests: Option<std::cell::RefCell<Vec<Request>>>,
 }

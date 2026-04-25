@@ -114,7 +114,7 @@ mod engine_feature {
         /// storage; `document.cookie` getter returns the empty
         /// string and the setter is a no-op in that case (the
         /// "cookie-averse" path of WHATWG §6.5.2).
-        pub(crate) cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+        cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
     }
 
     impl HostData {

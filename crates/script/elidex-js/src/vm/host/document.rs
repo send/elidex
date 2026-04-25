@@ -563,22 +563,25 @@ pub(super) fn native_document_get_doctype(
 // cookie / referrer (stubs) + forms / images / links (snapshot arrays)
 // ---------------------------------------------------------------------------
 
-/// `document.cookie` getter (WHATWG §6.5.2).  Reads the script-
-/// visible cookie set for `navigation.current_url` from the shell-
-/// owned [`elidex_net::CookieJar`].  The jar already filters out
-/// `HttpOnly` cookies and `Secure` cookies on non-HTTPS origins, so
-/// the value returned here is exactly what the spec exposes to
-/// scripts.  When no jar is installed (test harness, standalone
-/// VM) we fall back to the cookie-averse path and return `""`.
+/// `document.cookie` getter (WHATWG §6.5.2).  Delegates to
+/// [`elidex_net::CookieJar::cookies_for_script`], which is the
+/// canonical script-visible filter (`HttpOnly` and Secure-on-non-HTTPS
+/// suppression both live there).  When no jar is installed (test
+/// harness, standalone VM) we fall back to the cookie-averse path
+/// and return `""`.
 pub(super) fn native_document_get_cookie(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let _ = document_receiver(ctx, this, "cookie")?;
-    let value = ctx
-        .host_if_bound()
-        .and_then(|hd| hd.cookie_jar().cloned())
+    // `host_if_bound` borrows `ctx` mutably, but
+    // `cookies_for_script(&current_url)` needs `&ctx.vm` at the
+    // same time — we release the host borrow by `Arc::clone`'ing
+    // the jar (single atomic refcount bump, no heap copy) before
+    // reaching back into `ctx.vm`.
+    let jar = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).cloned();
+    let value = jar
         .map(|jar| jar.cookies_for_script(&ctx.vm.navigation.current_url))
         .unwrap_or_default();
     if value.is_empty() {
@@ -590,11 +593,11 @@ pub(super) fn native_document_get_cookie(
 
 /// `document.cookie = value` (WHATWG §6.5.2).  Forwards a single
 /// `Set-Cookie`-syntax string to
-/// [`elidex_net::CookieJar::set_cookie_from_script`], which parses
-/// the attribute list and rejects `HttpOnly` cookies (scripts cannot
-/// set those) and `Secure` cookies on non-HTTPS pages.  When no jar
-/// is installed the assignment silently no-ops, matching the
-/// cookie-averse Document path the spec permits.
+/// [`elidex_net::CookieJar::set_cookie_from_script`], which is the
+/// canonical attribute parser (rejecting `HttpOnly` and
+/// Secure-over-HTTP per RFC 6265 §5.3).  When no jar is installed
+/// the assignment silently no-ops, matching the cookie-averse
+/// Document path the spec permits.
 pub(super) fn native_document_set_cookie(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -604,7 +607,13 @@ pub(super) fn native_document_set_cookie(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let value = ctx.vm.strings.get_utf8(sid);
-    if let Some(jar) = ctx.host_if_bound().and_then(|hd| hd.cookie_jar().cloned()) {
+    // Clone the `Arc` (cheap atomic bump) so the jar lives past the
+    // `host_if_bound` mutable borrow on `ctx` — we need the jar and a
+    // fresh `&ctx.vm.navigation` borrow simultaneously, which the
+    // borrow checker disallows without releasing the `host_if_bound`
+    // borrow first.  The clone is the cheapest way to do that.
+    let jar = ctx.host_if_bound().and_then(|hd| hd.cookie_jar()).cloned();
+    if let Some(jar) = jar {
         jar.set_cookie_from_script(&ctx.vm.navigation.current_url, &value);
     }
     Ok(JsValue::Undefined)
@@ -614,9 +623,8 @@ pub(super) fn native_document_set_cookie(
 /// the previous Document if the embedding shell has populated
 /// `NavigationState::referrer` via
 /// [`super::super::Vm::set_navigation_referrer`]; otherwise the empty
-/// string.  Phase 2 surfaces the slot but does not yet derive a
-/// referrer automatically — that lives in the navigation pipeline
-/// alongside the §7.10.4 step 7 `window.name` reset.
+/// string.  The VM does **not** derive a referrer automatically —
+/// the shell is the only writer of this slot today.
 pub(super) fn native_document_get_referrer(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
