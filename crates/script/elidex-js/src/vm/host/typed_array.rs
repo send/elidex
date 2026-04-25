@@ -131,7 +131,7 @@ impl VmInner {
         // prototype and the ctor to `%TypedArray%`.
         // Iteration order matches `ElementKind` declaration for
         // predictable global-install ordering.
-        for entry in SUBCLASS_TABLE {
+        for entry in &SUBCLASS_TABLE {
             self.register_typed_array_subclass(entry, proto_id, abstract_ctor);
         }
     }
@@ -351,7 +351,7 @@ impl VmInner {
             prototype: Some(abstract_proto),
             extensible: true,
         });
-        (entry.set_prototype)(self, sub_proto);
+        self.subclass_array_prototypes[entry.element_kind.index()] = Some(sub_proto);
 
         let ctor = self.create_constructable_function(entry.name, entry.ctor_fn);
         // Prototype chain between subclass ctor and abstract ctor —
@@ -407,94 +407,108 @@ impl VmInner {
 /// functions (`native_uint8_array_ctor` et al.) in a compact table
 /// rather than a match arm soup in `register_typed_array_prototype_global`.
 /// Every field is `Copy` so the static array can live in `.rodata`.
+/// The per-subclass prototype slot is addressed via
+/// `element_kind.index()` against `VmInner::subclass_array_prototypes`,
+/// so the table no longer carries a per-entry write closure.
 #[derive(Clone, Copy)]
 struct SubclassEntry {
     name: &'static str,
     element_kind: ElementKind,
     ctor_fn: NativeFn,
-    set_prototype: fn(&mut VmInner, ObjectId),
     global_name: fn(&super::super::well_known::WellKnownStrings) -> StringId,
 }
 
-static SUBCLASS_TABLE: &[SubclassEntry] = &[
+/// Sized to `ElementKind::COUNT` so a missing or extra entry fails
+/// to compile via the array length.  The const-time check below the
+/// literal then enforces that each entry's `element_kind` matches
+/// its position via `ElementKind::index()`, which makes duplicates
+/// or out-of-order entries also refuse to compile.
+static SUBCLASS_TABLE: [SubclassEntry; ElementKind::COUNT] = [
     SubclassEntry {
         name: "Int8Array",
         element_kind: ElementKind::Int8,
         ctor_fn: native_int8_array_ctor,
-        set_prototype: |vm, id| vm.int8_array_prototype = Some(id),
         global_name: |w| w.int8_array_global,
     },
     SubclassEntry {
         name: "Uint8Array",
         element_kind: ElementKind::Uint8,
         ctor_fn: native_uint8_array_ctor,
-        set_prototype: |vm, id| vm.uint8_array_prototype = Some(id),
         global_name: |w| w.uint8_array_global,
     },
     SubclassEntry {
         name: "Uint8ClampedArray",
         element_kind: ElementKind::Uint8Clamped,
         ctor_fn: native_uint8_clamped_array_ctor,
-        set_prototype: |vm, id| vm.uint8_clamped_array_prototype = Some(id),
         global_name: |w| w.uint8_clamped_array_global,
     },
     SubclassEntry {
         name: "Int16Array",
         element_kind: ElementKind::Int16,
         ctor_fn: native_int16_array_ctor,
-        set_prototype: |vm, id| vm.int16_array_prototype = Some(id),
         global_name: |w| w.int16_array_global,
     },
     SubclassEntry {
         name: "Uint16Array",
         element_kind: ElementKind::Uint16,
         ctor_fn: native_uint16_array_ctor,
-        set_prototype: |vm, id| vm.uint16_array_prototype = Some(id),
         global_name: |w| w.uint16_array_global,
     },
     SubclassEntry {
         name: "Int32Array",
         element_kind: ElementKind::Int32,
         ctor_fn: native_int32_array_ctor,
-        set_prototype: |vm, id| vm.int32_array_prototype = Some(id),
         global_name: |w| w.int32_array_global,
     },
     SubclassEntry {
         name: "Uint32Array",
         element_kind: ElementKind::Uint32,
         ctor_fn: native_uint32_array_ctor,
-        set_prototype: |vm, id| vm.uint32_array_prototype = Some(id),
         global_name: |w| w.uint32_array_global,
     },
     SubclassEntry {
         name: "Float32Array",
         element_kind: ElementKind::Float32,
         ctor_fn: native_float32_array_ctor,
-        set_prototype: |vm, id| vm.float32_array_prototype = Some(id),
         global_name: |w| w.float32_array_global,
     },
     SubclassEntry {
         name: "Float64Array",
         element_kind: ElementKind::Float64,
         ctor_fn: native_float64_array_ctor,
-        set_prototype: |vm, id| vm.float64_array_prototype = Some(id),
         global_name: |w| w.float64_array_global,
     },
     SubclassEntry {
         name: "BigInt64Array",
         element_kind: ElementKind::BigInt64,
         ctor_fn: native_bigint64_array_ctor,
-        set_prototype: |vm, id| vm.bigint64_array_prototype = Some(id),
         global_name: |w| w.bigint64_array_global,
     },
     SubclassEntry {
         name: "BigUint64Array",
         element_kind: ElementKind::BigUint64,
         ctor_fn: native_biguint64_array_ctor,
-        set_prototype: |vm, id| vm.biguint64_array_prototype = Some(id),
         global_name: |w| w.biguint64_array_global,
     },
 ];
+
+// Compile-time check that every entry's `element_kind` matches its
+// position via `ElementKind::index()`.  Together with the table's
+// `[_; ElementKind::COUNT]` length, this rejects a missing entry, a
+// duplicate variant, or an out-of-order entry — anything that would
+// otherwise leave the install loop's `subclass_array_prototypes[index]`
+// write pointing at the wrong slot.
+const _: () = {
+    let mut i = 0;
+    while i < ElementKind::COUNT {
+        assert!(
+            SUBCLASS_TABLE[i].element_kind.index() == i,
+            "SUBCLASS_TABLE entry index does not match ElementKind::index() — \
+             check that entries appear in ElementKind variant order without duplicates"
+        );
+        i += 1;
+    }
+};
 
 // ---------------------------------------------------------------------------
 // Per-subclass constructor thin wrappers

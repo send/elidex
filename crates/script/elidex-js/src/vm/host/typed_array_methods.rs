@@ -130,25 +130,15 @@ fn alloc_typed_array_view(
     })
 }
 
-/// Resolve the per-subclass prototype stored on `VmInner`.  Falls
+/// Resolve the per-subclass prototype stored on `VmInner`, falling
 /// back to the abstract `%TypedArray%.prototype` if the subclass
-/// field is unexpectedly `None` (shouldn't happen — all 11 fields
-/// populate during `register_typed_array_prototype_global`).
+/// slot is `None`.  Every slot is populated by
+/// `register_typed_array_prototype_global`, so the fallback only
+/// triggers at very early construction (before `register_globals`
+/// finishes); the `or` chain keeps that startup window sound without
+/// a callsite-level guard.
 pub(super) fn subclass_prototype_for(vm: &VmInner, ek: ElementKind) -> Option<ObjectId> {
-    let sub = match ek {
-        ElementKind::Int8 => vm.int8_array_prototype,
-        ElementKind::Uint8 => vm.uint8_array_prototype,
-        ElementKind::Uint8Clamped => vm.uint8_clamped_array_prototype,
-        ElementKind::Int16 => vm.int16_array_prototype,
-        ElementKind::Uint16 => vm.uint16_array_prototype,
-        ElementKind::Int32 => vm.int32_array_prototype,
-        ElementKind::Uint32 => vm.uint32_array_prototype,
-        ElementKind::Float32 => vm.float32_array_prototype,
-        ElementKind::Float64 => vm.float64_array_prototype,
-        ElementKind::BigInt64 => vm.bigint64_array_prototype,
-        ElementKind::BigUint64 => vm.biguint64_array_prototype,
-    };
-    sub.or(vm.typed_array_prototype)
+    vm.subclass_array_prototypes[ek.index()].or(vm.typed_array_prototype)
 }
 
 // ---------------------------------------------------------------------------

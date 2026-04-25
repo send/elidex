@@ -681,32 +681,16 @@ pub(crate) struct VmInner {
     /// suite lands with PR5-typed-array §C5.
     #[cfg(feature = "engine")]
     pub(crate) data_view_prototype: Option<ObjectId>,
-    /// Per-subclass TypedArray prototypes (ES §23.2.7).  Each chains
-    /// to [`Self::typed_array_prototype`].  `None` until
+    /// Per-subclass TypedArray prototypes (ES §23.2.7), addressed
+    /// by [`value::ElementKind::index`].  Each entry chains to
+    /// [`Self::typed_array_prototype`].  Slots stay `None` until
     /// `register_typed_array_subclass()` runs for the corresponding
-    /// `ElementKind` during `register_globals()`.
+    /// [`value::ElementKind`] during `register_globals()`.  Stored
+    /// as a fixed-size array so the GC trace can fold all eleven
+    /// subclasses behind a single iterator (see `gc.rs`
+    /// `proto_roots` / `subclass_array_proto_roots` split).
     #[cfg(feature = "engine")]
-    pub(crate) int8_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) uint8_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) uint8_clamped_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) int16_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) uint16_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) int32_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) uint32_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) float32_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) float64_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) bigint64_array_prototype: Option<ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(crate) biguint64_array_prototype: Option<ObjectId>,
+    pub(crate) subclass_array_prototypes: [Option<ObjectId>; value::ElementKind::COUNT],
     /// `TextEncoder.prototype` (WHATWG Encoding §8.2).  Chains
     /// directly to `Object.prototype`.  `None` until
     /// `register_text_encoder_global()` runs during

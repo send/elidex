@@ -771,8 +771,8 @@ fn extract_buffer_source_bytes(
 
 /// Allocate a fresh `Uint8Array` whose underlying buffer owns
 /// `bytes`.  Uses the shared `body_data` / `array_buffer_prototype`
-/// + `uint8_array_prototype` so GC sweep prunes it like any
-/// other view allocation.
+/// + `subclass_array_prototypes[ElementKind::Uint8.index()]` slot
+/// (SP14) so GC sweep prunes it like any other view allocation.
 ///
 /// Returns `RangeError` if `bytes.len()` exceeds `u32::MAX` — the
 /// TypedArray `[[ByteLength]]` slot is `u32` so a silent truncation
@@ -796,7 +796,7 @@ fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<Obj
     // the rooting matches the invariant used by `wrap_in_array_-
     // iterator` / event constructors / the typed-array ctor.
     let mut g = vm.push_temp_root(JsValue::Object(buffer_id));
-    let proto = g.uint8_array_prototype;
+    let proto = g.subclass_array_prototypes[ElementKind::Uint8.index()];
     let view_id = g.alloc_object(Object {
         kind: ObjectKind::TypedArray {
             buffer_id,
