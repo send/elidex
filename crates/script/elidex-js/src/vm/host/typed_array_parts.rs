@@ -10,8 +10,7 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::value::{ElementKind, JsValue, ObjectId, ObjectKind, VmError};
-use super::super::NativeContext;
+use super::super::value::{ElementKind, JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 
 /// Snapshot of the four immutable [`ObjectKind::TypedArray`] spec
 /// slots plus the receiver's `ObjectId`, returned by
