@@ -506,9 +506,9 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
 /// This is the cheap pure-arithmetic tail of the spec algorithm —
 /// the spec also runs `ToNumber` on the input before truncating, so
 /// callers receiving a non-number `JsValue` must coerce via
-/// [`to_number`] (or [`NativeContext::to_number`]) themselves.  For
-/// the full `ToIndex`-with-coercion-and-range-check pipeline used by
-/// TypedArray / DataView constructors see [`to_index_u32`].
+/// [`to_number`] (or `NativeContext::to_number`) themselves.  For
+/// the full `ToIndex`-with-coercion-and-range-check pipeline used
+/// by TypedArray / DataView constructors, see `to_index_u32`.
 pub(crate) fn to_integer_or_infinity(n: f64) -> f64 {
     if n.is_nan() {
         0.0
