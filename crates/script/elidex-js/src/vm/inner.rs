@@ -1,6 +1,6 @@
 //! VM heap allocation + object access methods on [`super::VmInner`].
 //!
-//! Split from [`super::mod`] (the file `vm/mod.rs` itself) to keep
+//! Split from [`super`] (the file `vm/mod.rs` itself) to keep
 //! that file below the 1000-line convention (cleanup tranche 2).
 //! `vm/mod.rs` retains the [`super::VmInner`] / [`super::Vm`]
 //! struct definitions, the module-tree wiring, and the
