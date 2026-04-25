@@ -41,13 +41,24 @@ use super::typed_array::{read_element_raw, write_element_raw};
 
 /// Snapshot of the four immutable [`ObjectKind::TypedArray`] spec
 /// slots plus the receiver's `ObjectId`, returned by
-/// [`require_typed_array_parts`].  Implemented as a struct (rather
-/// than the original 5-tuple) so methods that skip a slot can write
-/// `let TypedArrayParts { buffer_id, byte_offset, element_kind: ek,
-/// .. } = parts;` instead of the tuple form's `_id` / `_buffer_id`
-/// placeholder noise; and so the [`Self::len_elem`] / [`Self::bpe`]
-/// derivations live in one place rather than open-coded at every
-/// caller.
+/// [`require_typed_array_parts`].  Held as a struct so callers can
+/// pick the destructure shape that matches what they consume:
+///
+/// ```ignore
+/// // Methods that mutate or return the receiver:
+/// let TypedArrayParts { id, buffer_id, byte_offset, element_kind: ek, .. } = parts;
+/// // Methods that only need to read/write into the backing buffer:
+/// let TypedArrayParts { buffer_id, byte_offset, element_kind: ek, .. } = parts;
+/// // Single-field readers (e.g. iterator construction) skip the destructure:
+/// let iter = ArrayIterState { array_id: parts.id, .. };
+/// ```
+///
+/// The `..` syntax drops fields the caller doesn't reference,
+/// replacing the original 5-tuple form's `_id` / `_buffer_id` /
+/// `_byte_offset` / `_byte_length` placeholders.
+/// [`Self::len_elem`] and [`Self::bpe`] centralise the
+/// `byte_length / bytes_per_element` derivations so each prototype
+/// method stops open-coding the same two-line preamble.
 #[derive(Clone, Copy)]
 struct TypedArrayParts {
     /// Receiver of the prototype call (the TypedArray instance
@@ -80,7 +91,11 @@ impl TypedArrayParts {
         self.byte_length / u32::from(self.element_kind.bytes_per_element())
     }
 
-    /// Bytes per element — convenience accessor for the cast.
+    /// Bytes per element widened to `u32`.  Matches the width of
+    /// `byte_length` / `byte_offset` / index arithmetic everywhere
+    /// in this module so multiplications such as `len_elem * bpe`
+    /// (in `subarray` / `slice`) stay in `u32` without an
+    /// intermediate `u8` overflow.
     #[inline]
     fn bpe(&self) -> u32 {
         u32::from(self.element_kind.bytes_per_element())
