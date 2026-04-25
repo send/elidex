@@ -54,6 +54,8 @@ pub(super) mod element_proto;
 pub(super) mod elements;
 pub(super) mod event_shapes;
 pub(super) mod event_target;
+#[cfg(feature = "engine")]
+pub(super) mod event_target_dispatch;
 pub(super) mod events;
 #[cfg(feature = "engine")]
 pub(super) mod events_extras;
