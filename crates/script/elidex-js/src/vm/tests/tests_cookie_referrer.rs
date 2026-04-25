@@ -409,6 +409,124 @@ fn cookie_setter_call_with_plain_object_does_not_mutate_jar() {
 }
 
 #[test]
+fn cookie_getter_on_cloned_document_returns_empty_string() {
+    // `document.cloneNode(true)` produces a HostObject whose kind is
+    // `Document` — it passes `document_receiver`'s brand check but
+    // is not the bound browsing-context document.  The accessor
+    // must treat it as cookie-averse so cookies cannot leak through
+    // a detached clone.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let jar = unsafe {
+        bind_at_url(
+            &mut vm,
+            &mut session,
+            &mut dom,
+            "https://example.com/",
+            true,
+        )
+        .expect("install_jar=true returns Some")
+    };
+    let url = url::Url::parse("https://example.com/").unwrap();
+    jar.store_from_response(
+        &url,
+        &[("Set-Cookie".to_string(), "leaked=yes".to_string())],
+    );
+
+    let v = vm
+        .eval(
+            "var clone = document.cloneNode(true);
+             var get = Object.getOwnPropertyDescriptor(document, 'cookie').get;
+             get.call(clone);",
+        )
+        .unwrap();
+    let JsValue::String(id) = v else {
+        panic!("expected string");
+    };
+    assert_eq!(
+        vm.get_string(id),
+        "",
+        "cloned Document receiver must not leak the bound document's cookies"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn cookie_setter_on_cloned_document_does_not_mutate_jar() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let jar = unsafe {
+        bind_at_url(
+            &mut vm,
+            &mut session,
+            &mut dom,
+            "https://example.com/",
+            true,
+        )
+        .expect("install_jar=true returns Some")
+    };
+
+    vm.eval(
+        "var clone = document.cloneNode(true);
+         var set = Object.getOwnPropertyDescriptor(document, 'cookie').set;
+         set.call(clone, 'leak=1');",
+    )
+    .unwrap();
+
+    let url = url::Url::parse("https://example.com/").unwrap();
+    let cookies = jar.cookies_for_script(&url);
+    assert_eq!(
+        cookies, "",
+        "cloned Document receiver must not mutate the bound document's cookie jar"
+    );
+
+    vm.unbind();
+}
+
+#[test]
+fn referrer_getter_on_cloned_document_returns_empty_string() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    #[allow(unsafe_code)]
+    let _ = unsafe {
+        bind_at_url(
+            &mut vm,
+            &mut session,
+            &mut dom,
+            "https://example.com/",
+            false,
+        )
+    };
+    vm.set_navigation_referrer(Some(
+        url::Url::parse("https://leaked-referrer.example/").unwrap(),
+    ));
+
+    let v = vm
+        .eval(
+            "var clone = document.cloneNode(true);
+             var get = Object.getOwnPropertyDescriptor(document, 'referrer').get;
+             get.call(clone);",
+        )
+        .unwrap();
+    let JsValue::String(id) = v else {
+        panic!("expected string");
+    };
+    assert_eq!(
+        vm.get_string(id),
+        "",
+        "cloned Document receiver must not leak NavigationState.referrer"
+    );
+
+    vm.unbind();
+}
+
+#[test]
 fn referrer_getter_call_with_plain_object_returns_empty_string() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

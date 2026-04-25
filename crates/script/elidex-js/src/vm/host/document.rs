@@ -575,11 +575,17 @@ pub(super) fn native_document_get_cookie(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // `document_receiver` returns `Ok(None)` for unbound VMs and
-    // non-HostObject receivers (e.g. `getter.call({})`); both must
-    // observe the cookie-averse fallback so detached calls cannot
-    // leak the bound document's cookie jar.  An invalid HostObject
-    // receiver still throws via the `Err(TypeError)` arm.
-    if document_receiver(ctx, this, "cookie")?.is_none() {
+    // non-HostObject receivers (e.g. `getter.call({})`); the
+    // brand-bypass cases must observe the cookie-averse fallback.
+    // `Ok(Some(doc))` for a non-bound Document (e.g. a clone made
+    // by `document.cloneNode(true)`) must also fall back, because
+    // browsing-context cookie state belongs to the active Document
+    // alone — see the `defaultView` accessor for the same guard.
+    let Some(doc) = document_receiver(ctx, this, "cookie")? else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    if bound_doc != Some(doc) {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
     // `host_if_bound` borrows `ctx` mutably, but
@@ -610,12 +616,15 @@ pub(super) fn native_document_set_cookie(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Mirror the getter — a non-Document receiver (or unbound VM)
-    // must not be able to mutate the bound document's cookie jar
-    // through `setter.call({}, '...')`; the brand check rejects
-    // wrong-kind HostObjects with TypeError and falls through here
-    // for the silent no-op cases.
-    if document_receiver(ctx, this, "cookie")?.is_none() {
+    // Mirror the getter's two-stage guard — non-Document receivers
+    // *and* non-bound Document receivers (clones made by
+    // `document.cloneNode(true)`) must be unable to mutate the
+    // bound browsing context's cookie jar.
+    let Some(doc) = document_receiver(ctx, this, "cookie")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    if bound_doc != Some(doc) {
         return Ok(JsValue::Undefined);
     }
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
@@ -644,10 +653,16 @@ pub(super) fn native_document_get_referrer(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Same brand-bypass guard as the cookie accessors — a detached
-    // call (`getter.call({})`) must not surface the bound document's
-    // navigation referrer.
-    if document_receiver(ctx, this, "referrer")?.is_none() {
+    // Two-stage guard, matching the cookie accessors and
+    // `defaultView`: brand-bypass (non-HostObject `this`) and
+    // detached Document clones must both fall back to the empty
+    // string.  `NavigationState::referrer` is browsing-context
+    // state, owned by the bound Document alone.
+    let Some(doc) = document_receiver(ctx, this, "referrer")? else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    if bound_doc != Some(doc) {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
     let Some(url) = ctx.vm.navigation.referrer.as_ref() else {
