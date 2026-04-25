@@ -3,14 +3,17 @@
 //!
 //! Covers: ctor argument validation (non-buffer / out-of-range
 //! offset+length → TypeError / RangeError), default-byte-length
-//! computation, all 10 per-type getter / setter pairs (`getInt8` /
-//! `getUint8` / `getInt16` / `getUint16` / `getInt32` / `getUint32` /
-//! `getFloat32` / `getFloat64` / `getBigInt64` / `getBigUint64` and
-//! the matching setters), default big-endian decoding, the
+//! computation, representative per-type getter / setter
+//! round-trips (`Int8` / `Uint8` / `Int32` / `Uint32` / `Float32` /
+//! `Float64` / `BigInt64` / `BigUint64`), default big-endian
+//! decoding via `setInt16` + `getUint8` cross-call, the
 //! `littleEndian` flag, range / offset bounds, BigInt-only payload
 //! enforcement on `setBigInt64`, and the shared-buffer invariant
 //! between `DataView` and `Uint8Array` views over the same
-//! `ArrayBuffer`.
+//! `ArrayBuffer`.  `Int16` / `Uint16` round-trips and the matching
+//! BigInt-payload-only check on `setBigUint64` rely on the
+//! macro-generated coverage in `vm/host/data_view.rs` and aren't
+//! repeated here.
 //!
 //! Sibling-extracted from [`super::tests_typed_array_methods`] —
 //! the pre-split file noted "moving them to
