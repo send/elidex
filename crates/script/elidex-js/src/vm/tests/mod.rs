@@ -15,6 +15,7 @@ mod tests_body_mixin;
 mod tests_character_data;
 mod tests_child_node_mixin;
 mod tests_clone_node;
+mod tests_coerce;
 mod tests_console;
 mod tests_create_event_object;
 mod tests_dispatch_event;
