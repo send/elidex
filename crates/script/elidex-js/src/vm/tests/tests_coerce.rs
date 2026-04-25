@@ -369,8 +369,25 @@ fn to_integer_or_infinity_preserves_infinities() {
 fn to_integer_or_infinity_truncates_toward_zero() {
     assert_eq!(to_integer_or_infinity(3.9), 3.0);
     assert_eq!(to_integer_or_infinity(-3.9), -3.0);
-    assert_eq!(to_integer_or_infinity(0.0), 0.0);
-    assert_eq!(to_integer_or_infinity(-0.0), 0.0);
+}
+
+/// `f64::trunc` would leak the input's IEEE 754 sign bit (`(-0.0).trunc()
+/// == -0.0`); ES §7.1.5 returns the mathematical value 0 for both `+0` and
+/// `-0`.  `assert_eq!` compares `±0` as equal, so use `is_sign_negative`
+/// to lock the canonicalisation.
+#[test]
+fn to_integer_or_infinity_canonicalises_negative_zero() {
+    let from_pos_zero = to_integer_or_infinity(0.0);
+    assert_eq!(from_pos_zero, 0.0);
+    assert!(!from_pos_zero.is_sign_negative());
+
+    let from_neg_zero = to_integer_or_infinity(-0.0);
+    assert_eq!(from_neg_zero, 0.0);
+    assert!(!from_neg_zero.is_sign_negative());
+
+    // NaN-fast-path also returns +0.
+    let from_nan = to_integer_or_infinity(f64::NAN);
+    assert!(!from_nan.is_sign_negative());
 }
 
 #[test]

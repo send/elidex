@@ -500,8 +500,11 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
 // ---------------------------------------------------------------------------
 
 /// ES §7.1.5 `ToIntegerOrInfinity`, **starting from a number**.
-/// `NaN → 0`; `±Infinity` is preserved; otherwise truncate toward
-/// zero.  Returns `f64` so the caller picks the final width.
+/// `NaN → +0`; `±0 → +0` (canonicalised — the spec returns the
+/// mathematical value 0 regardless of input sign, so we don't leak
+/// IEEE 754's sign-preserving zero through `f64::trunc`); `±Infinity`
+/// preserved; otherwise truncate toward zero.  Returns `f64` so the
+/// caller picks the final width.
 ///
 /// This is the cheap pure-arithmetic tail of the spec algorithm —
 /// the spec also runs `ToNumber` on the input before truncating, so
@@ -511,10 +514,17 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
 /// by TypedArray / DataView constructors, see `to_index_u32`.
 pub(crate) fn to_integer_or_infinity(n: f64) -> f64 {
     if n.is_nan() {
-        0.0
-    } else {
-        n.trunc()
+        return 0.0;
     }
+    let trunc = n.trunc();
+    if trunc == 0.0 {
+        // `f64::trunc` is sign-preserving on ±0 (`(-0.0).trunc() ==
+        // -0.0`), but ES §7.1.5 returns mathematical 0 for both
+        // signs.  Canonicalise so downstream equality / serialisation
+        // sees +0 regardless of input sign.
+        return 0.0;
+    }
+    trunc
 }
 
 /// Clamp a relative index `n` to `[0, len_f]` after applying
