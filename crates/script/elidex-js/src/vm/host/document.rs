@@ -610,16 +610,24 @@ pub(super) fn native_document_set_cookie(
     Ok(JsValue::Undefined)
 }
 
-/// `document.referrer` — **stub** (empty string).  Surfacing the real
-/// navigation referrer requires `NavigationState::referrer`, which is
-/// added in PR6 / PR-Navigation.
+/// `document.referrer` (WHATWG HTML §3.1.5).  Returns the URL of
+/// the previous Document if the embedding shell has populated
+/// `NavigationState::referrer` via
+/// [`super::super::Vm::set_navigation_referrer`]; otherwise the empty
+/// string.  Phase 2 surfaces the slot but does not yet derive a
+/// referrer automatically — that lives in the navigation pipeline
+/// alongside the §7.10.4 step 7 `window.name` reset.
 pub(super) fn native_document_get_referrer(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let _ = document_receiver(ctx, this, "referrer")?;
-    Ok(JsValue::String(ctx.vm.well_known.empty))
+    let Some(url) = ctx.vm.navigation.referrer.as_ref() else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    let sid = ctx.vm.strings.intern(url.as_str());
+    Ok(JsValue::String(sid))
 }
 
 /// `document.forms` — live `HTMLCollection` of every `<form>`

@@ -129,6 +129,16 @@ impl Vm {
         self.inner.host_data.as_deref_mut()
     }
 
+    /// Set the URL surfaced by `document.referrer` (WHATWG HTML §3.1.5).
+    /// Pass `None` to clear the slot back to the empty-string default.
+    /// The shell calls this once before each post-navigation `bind`
+    /// cycle when a previous Document URL is known and the referrer
+    /// policy permits its disclosure to script.
+    #[cfg(feature = "engine")]
+    pub fn set_navigation_referrer(&mut self, referrer: Option<url::Url>) {
+        self.inner.navigation.referrer = referrer;
+    }
+
     /// Bind host pointers for a JS execution call.  No-op if `HostData` is absent.
     ///
     /// # Safety
