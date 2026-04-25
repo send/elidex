@@ -73,10 +73,10 @@ fn require_typed_array_parts(
 /// Clamp `n` to `[0, len]`, applying `ToIntegerOrInfinity`
 /// truncation first (ES §7.1.5).  Negative indices count from the
 /// end.  Shared by `fill` / `subarray` / `slice`.  Thin u32-typed
-/// wrapper around [`coerce::relative_index_f64`]; the clamp at the
-/// canonical helper guarantees `0.0 <= clamped <= f64::from(len)`,
-/// so the final `as u32` cast is exact (no Rust 1.45+ saturating
-/// fallback exercised).
+/// wrapper around [`super::super::coerce::relative_index_f64`]; the
+/// clamp at the canonical helper guarantees `0.0 <= clamped <=
+/// f64::from(len)`, so the final `as u32` cast is exact (no Rust
+/// 1.45+ saturating fallback exercised).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn relative_index_u32(n: f64, len: u32) -> u32 {
     coerce::relative_index_f64(n, f64::from(len)) as u32

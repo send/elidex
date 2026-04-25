@@ -396,9 +396,10 @@ fn native_array_buffer_slice(
 /// `Blob.prototype.slice` (File API §3.2.3).  Shared here so
 /// `blob.rs` doesn't re-implement the same function — both
 /// callers live under `vm::host` (R24.1).  Thin usize-typed wrapper
-/// around [`coerce::relative_index_f64`]; the clamp at the canonical
-/// helper guarantees `0.0 <= clamped <= len`, so the final `as
-/// usize` cast is exact when `len` originated from a `usize` value.
+/// around [`super::super::coerce::relative_index_f64`]; the clamp at
+/// the canonical helper guarantees `0.0 <= clamped <= len`, so the
+/// final `as usize` cast is exact when `len` originated from a
+/// `usize` value.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(super) fn relative_index(n: f64, len: f64) -> usize {
     coerce::relative_index_f64(n, len) as usize

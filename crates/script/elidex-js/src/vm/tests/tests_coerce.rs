@@ -378,20 +378,18 @@ fn relative_index_f64_nan_is_zero() {
     assert_eq!(relative_index_f64(f64::NAN, 10.0), 0.0);
 }
 
-/// Lock the spec equivalence `−∞ + len = −∞ → max(0) = 0`.  The pre-PR
-/// `natives_array::resolve_index` carried an explicit `int.is_infinite() &&
-/// int < 0.0 → 0` arm; the canonical helper folds it into the negative
-/// clamp.  Without this assertion, future readers can't tell whether the
-/// canonical helper still covers the explicit branch the wrapper used to
-/// have.
+/// Lock the spec equivalence `(−∞) + len = −∞`, then `max(0) = 0`, so
+/// `relative_index_f64(−∞, len) = 0` for every finite non-negative `len`.
+/// Sister of [`relative_index_f64_pos_infinity_is_len`] — together they
+/// prove the clamp algebra subsumes any explicit `±Infinity` arm.
 #[test]
 fn relative_index_f64_neg_infinity_is_zero() {
     assert_eq!(relative_index_f64(f64::NEG_INFINITY, 10.0), 0.0);
 }
 
-/// Lock the spec equivalence `+∞.min(len) = len`.  Sister assertion to
-/// [`relative_index_f64_neg_infinity_is_zero`] — together they prove the
-/// clamp algebra subsumes the pre-PR explicit `±Infinity` arm.
+/// Lock the spec equivalence `(+∞).min(len) = len`, so
+/// `relative_index_f64(+∞, len) = len` for every finite non-negative `len`.
+/// Sister of [`relative_index_f64_neg_infinity_is_zero`].
 #[test]
 fn relative_index_f64_pos_infinity_is_len() {
     assert_eq!(relative_index_f64(f64::INFINITY, 10.0), 10.0);

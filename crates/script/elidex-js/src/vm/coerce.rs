@@ -529,9 +529,10 @@ pub(crate) fn to_integer_or_infinity(n: f64) -> f64 {
 /// Shared by `Array.prototype.{slice, copyWithin, fill, splice}`,
 /// `%TypedArray%.prototype.*`, `ArrayBuffer.prototype.slice`, and
 /// `Blob.prototype.slice`.  Each caller knows its own length type
-/// and chooses the cast — we keep thin typed wrappers
-/// (`relative_index_u32` / `relative_index` / `resolve_index`) at
-/// the call sites so the per-method ergonomics stay typed.
+/// and chooses the cast — thin typed wrappers
+/// (`relative_index_u32` in `vm::host::typed_array_methods`,
+/// `relative_index` in `vm::host::array_buffer`, `resolve_index` in
+/// `vm::natives_array`) keep the per-method ergonomics typed.
 pub(crate) fn relative_index_f64(n: f64, len_f: f64) -> f64 {
     let trunc = to_integer_or_infinity(n);
     if trunc < 0.0 {

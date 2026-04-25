@@ -45,12 +45,13 @@ pub(super) fn array_len(ctx: &NativeContext<'_>, id: ObjectId) -> Result<usize, 
 /// Resolve a relative start index, applying ES §7.1.5
 /// `ToIntegerOrInfinity` and then clamping: negative wraps as
 /// `max(len + val, 0)`, positive saturates as `min(val, len)`.
-/// Thin usize-typed wrapper around [`coerce::relative_index_f64`];
-/// the clamp at the canonical helper guarantees `0.0 <= clamped <=
-/// len_f`, so the final `as usize` cast is exact.  The `±Infinity`
-/// branches are subsumed by the clamp algebra rather than carried
-/// as explicit arms (negative-infinity-plus-len saturates to zero
-/// and positive-infinity caps at len).
+/// Thin usize-typed wrapper around
+/// [`super::coerce::relative_index_f64`]; the clamp at the canonical
+/// helper guarantees `0.0 <= clamped <= len_f`, so the final `as
+/// usize` cast is exact.  The `±Infinity` branches are subsumed by
+/// the clamp algebra rather than carried as explicit arms
+/// (negative-infinity-plus-len saturates to zero and
+/// positive-infinity caps at len).
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
