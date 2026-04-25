@@ -348,15 +348,16 @@ pub enum ObjectKind {
     /// `Node.prototype.childNodes` or `document.getElementsByName`)
     /// or *static* (from `querySelectorAll`, per §4.2.6).  Shares
     /// the `live_collection_states` side-table with `HtmlCollection`;
-    /// the discriminator variant disambiguates between the two
-    /// interfaces.
+    /// the side-table's discriminator disambiguates between the two
+    /// interfaces, and also records whether a `NodeList` is live or
+    /// snapshot-backed.
     ///
     /// GC contract: identical to [`Self::HtmlCollection`] — the
     /// side-table carries no `ObjectId` references; pruning alongside
-    /// HTMLCollection entries in the sweep tail is sufficient.  The
-    /// static `Snapshot` variant stores a `Vec<Entity>` whose entries
-    /// are plain ECS keys (no ObjectId), so the `Vec` likewise
-    /// needs no tracing.
+    /// HTMLCollection entries in the sweep tail is sufficient.  For
+    /// static NodeLists, the `VmInner::live_collection_states` entry's
+    /// snapshot state stores a `Vec<Entity>` whose entries are plain
+    /// ECS keys (no ObjectId), so the `Vec` likewise needs no tracing.
     #[cfg(feature = "engine")]
     NodeList,
     /// `NamedNodeMap` instance (WHATWG DOM §4.9.1) — the live
