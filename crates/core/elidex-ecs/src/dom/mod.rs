@@ -17,6 +17,7 @@
 
 mod shadow;
 mod tree;
+mod tree_clone;
 
 use crate::components::{
     AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowRoot,
