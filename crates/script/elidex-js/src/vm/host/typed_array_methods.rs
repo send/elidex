@@ -39,19 +39,67 @@ use super::super::value::{
 use super::super::VmInner;
 use super::typed_array::{read_element_raw, write_element_raw};
 
+/// Snapshot of the four immutable [`ObjectKind::TypedArray`] spec
+/// slots plus the receiver's `ObjectId`, returned by
+/// [`require_typed_array_parts`].  Implemented as a struct (rather
+/// than the original 5-tuple) so methods that skip a slot can write
+/// `let TypedArrayParts { buffer_id, byte_offset, element_kind: ek,
+/// .. } = parts;` instead of the tuple form's `_id` / `_buffer_id`
+/// placeholder noise; and so the [`Self::len_elem`] / [`Self::bpe`]
+/// derivations live in one place rather than open-coded at every
+/// caller.
+#[derive(Clone, Copy)]
+struct TypedArrayParts {
+    /// Receiver of the prototype call (the TypedArray instance
+    /// itself), used by methods that need to allocate iterators
+    /// (`values` / `keys` / `entries`) or self-mutate (`copyWithin`
+    /// / `reverse`).
+    id: ObjectId,
+    /// Backing `ArrayBuffer` whose `body_data` holds the bytes that
+    /// `read_element_raw` / `write_element_raw` index into.
+    buffer_id: ObjectId,
+    /// First byte the view covers within `body_data[buffer_id]`.
+    byte_offset: u32,
+    /// Total number of bytes the view covers (always a multiple of
+    /// `element_kind.bytes_per_element()`).
+    byte_length: u32,
+    /// Element type — fixes the per-index width and the
+    /// (un)signedness / float / BigInt coercion rules used by the
+    /// indexed access path.
+    element_kind: ElementKind,
+}
+
+impl TypedArrayParts {
+    /// Length in elements: `byte_length / bytes_per_element`.  The
+    /// constructors guarantee `byte_length % bpe == 0` so the
+    /// division is exact.  Most prototype methods immediately
+    /// derive `bpe` and `len_elem` from `byte_length` + `ek`; this
+    /// helper centralises both.
+    #[inline]
+    fn len_elem(&self) -> u32 {
+        self.byte_length / u32::from(self.element_kind.bytes_per_element())
+    }
+
+    /// Bytes per element — convenience accessor for the cast.
+    #[inline]
+    fn bpe(&self) -> u32 {
+        u32::from(self.element_kind.bytes_per_element())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shared brand-check helper
 // ---------------------------------------------------------------------------
 
-/// WebIDL brand-check for `%TypedArray%.prototype` methods.  Extracts
-/// the four immutable spec slots inline from
-/// [`ObjectKind::TypedArray`] in one pattern-match, so callers don't
-/// repeat the destructuring five ways.
+/// WebIDL brand-check for `%TypedArray%.prototype` methods.
+/// Extracts the four immutable [`ObjectKind::TypedArray`] spec
+/// slots inline in one pattern-match and returns them alongside
+/// the receiver's id as a [`TypedArrayParts`] snapshot.
 fn require_typed_array_parts(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &str,
-) -> Result<(ObjectId, ObjectId, u32, u32, ElementKind), VmError> {
+) -> Result<TypedArrayParts, VmError> {
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
             "TypedArray.prototype.{method} called on non-TypedArray"
@@ -63,7 +111,13 @@ fn require_typed_array_parts(
             byte_offset,
             byte_length,
             element_kind,
-        } => Ok((id, buffer_id, byte_offset, byte_length, element_kind)),
+        } => Ok(TypedArrayParts {
+            id,
+            buffer_id,
+            byte_offset,
+            byte_length,
+            element_kind,
+        }),
         _ => Err(VmError::type_error(format!(
             "TypedArray.prototype.{method} called on non-TypedArray"
         ))),
@@ -136,11 +190,16 @@ pub(crate) fn native_typed_array_fill(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "fill")?;
+    let parts = require_typed_array_parts(ctx, this, "fill")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        id,
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
 
     let start_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let end_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
@@ -176,10 +235,15 @@ pub(crate) fn native_typed_array_subarray(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "subarray")?;
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
+    let parts = require_typed_array_parts(ctx, this, "subarray")?;
+    let len_elem = parts.len_elem();
+    let bpe = parts.bpe();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let begin_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let end_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let begin = match begin_arg {
@@ -212,10 +276,15 @@ pub(crate) fn native_typed_array_slice(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "slice")?;
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
+    let parts = require_typed_array_parts(ctx, this, "slice")?;
+    let len_elem = parts.len_elem();
+    let bpe = parts.bpe();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let begin_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let end_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let begin = match begin_arg {
@@ -283,11 +352,10 @@ fn create_typed_array_iterator(
     kind: u8,
     method: &str,
 ) -> Result<JsValue, VmError> {
-    let (id, _buffer_id, _byte_offset, _byte_length, _ek) =
-        require_typed_array_parts(ctx, this, method)?;
+    let parts = require_typed_array_parts(ctx, this, method)?;
     let iter_id = ctx.vm.alloc_object(Object {
         kind: ObjectKind::ArrayIterator(ArrayIterState {
-            array_id: id,
+            array_id: parts.id,
             index: 0,
             kind,
         }),
@@ -317,8 +385,14 @@ pub(crate) fn native_typed_array_set(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, dst_ek) =
-        require_typed_array_parts(ctx, this, "set")?;
+    let parts = require_typed_array_parts(ctx, this, "set")?;
+    let dst_len = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: dst_ek,
+        ..
+    } = parts;
     // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)`; step 8
     // uses the result in a `targetOffset + len > ArrayLength`
     // comparison which always fails for `±Infinity` / values beyond
@@ -341,8 +415,6 @@ pub(crate) fn native_typed_array_set(
             }
         }
     };
-    let dst_bpe = u32::from(dst_ek.bytes_per_element());
-    let dst_len = byte_length / dst_bpe;
 
     let source = args.first().copied().unwrap_or(JsValue::Undefined);
     if let JsValue::Object(src_id) = source {
@@ -485,10 +557,15 @@ pub(crate) fn native_typed_array_copy_within(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "copyWithin")?;
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
+    let parts = require_typed_array_parts(ctx, this, "copyWithin")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        id,
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let target = match args.first().copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => 0,
         other => relative_index_u32(ctx.to_number(other)?, len_elem),
@@ -535,10 +612,15 @@ pub(crate) fn native_typed_array_reverse(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "reverse")?;
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
+    let parts = require_typed_array_parts(ctx, this, "reverse")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        id,
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let mut lo = 0_u32;
     let mut hi = len_elem.saturating_sub(1);
     while lo < hi {
@@ -564,11 +646,15 @@ pub(crate) fn native_typed_array_index_of(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "indexOf")?;
+    let parts = require_typed_array_parts(ctx, this, "indexOf")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let search = args.first().copied().unwrap_or(JsValue::Undefined);
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
     let from = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => 0,
         other => relative_index_u32(ctx.to_number(other)?, len_elem),
@@ -590,11 +676,15 @@ pub(crate) fn native_typed_array_last_index_of(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "lastIndexOf")?;
+    let parts = require_typed_array_parts(ctx, this, "lastIndexOf")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let search = args.first().copied().unwrap_or(JsValue::Undefined);
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
     if len_elem == 0 {
         return Ok(JsValue::Number(-1.0));
     }
@@ -640,11 +730,15 @@ pub(crate) fn native_typed_array_includes(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "includes")?;
+    let parts = require_typed_array_parts(ctx, this, "includes")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let search = args.first().copied().unwrap_or(JsValue::Undefined);
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
     let from = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => 0,
         other => relative_index_u32(ctx.to_number(other)?, len_elem),
@@ -665,10 +759,14 @@ pub(crate) fn native_typed_array_at(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "at")?;
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
+    let parts = require_typed_array_parts(ctx, this, "at")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     // §23.2.3.3 step 3: `ToIntegerOrInfinity(index)` — NaN → 0,
     // ±Infinity preserved.  Bounds are applied uniformly below so
     // `at(NaN)` returns the first element (unless empty) and
@@ -703,8 +801,14 @@ pub(crate) fn native_typed_array_join(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, "join")?;
+    let parts = require_typed_array_parts(ctx, this, "join")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let sep = match args.first().copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => ",".to_string(),
         other => {
@@ -712,8 +816,6 @@ pub(crate) fn native_typed_array_join(
             ctx.vm.strings.get_utf8(sid)
         }
     };
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
     let mut out = String::new();
     for i in 0..len_elem {
         if i > 0 {
@@ -750,8 +852,14 @@ fn iterate_with_callback(
     fallback: JsValue,
     mut decide: impl FnMut(u32, JsValue, bool) -> HofDecision,
 ) -> Result<JsValue, VmError> {
-    let (_id, buffer_id, byte_offset, byte_length, ek) =
-        require_typed_array_parts(ctx, this, method)?;
+    let parts = require_typed_array_parts(ctx, this, method)?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
     let cb = match args.first().copied().unwrap_or(JsValue::Undefined) {
         JsValue::Object(id) if ctx.get_object(id).kind.is_callable() => id,
         _ => {
@@ -761,8 +869,6 @@ fn iterate_with_callback(
         }
     };
     let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let bpe = u32::from(ek.bytes_per_element());
-    let len_elem = byte_length / bpe;
     for i in 0..len_elem {
         let elem = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
         #[allow(clippy::cast_precision_loss)]
