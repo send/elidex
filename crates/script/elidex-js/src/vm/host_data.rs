@@ -142,6 +142,13 @@ mod engine_feature {
             self.cookie_jar = Some(jar);
         }
 
+        /// Borrow the installed cookie jar, or `None` when the shell
+        /// did not call [`Self::install_cookie_jar`] (cookie-averse
+        /// fallback, WHATWG §6.5.2).
+        pub(crate) fn cookie_jar(&self) -> Option<&std::sync::Arc<elidex_net::CookieJar>> {
+            self.cookie_jar.as_ref()
+        }
+
         /// Set the focused Element (called from `HTMLElement.focus()`).
         pub(crate) fn set_focused_entity(&mut self, entity: Entity) {
             self.focused_entity = Some(entity);

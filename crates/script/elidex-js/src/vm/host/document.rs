@@ -563,32 +563,50 @@ pub(super) fn native_document_get_doctype(
 // cookie / referrer (stubs) + forms / images / links (snapshot arrays)
 // ---------------------------------------------------------------------------
 
-/// `document.cookie` getter — **stub** (empty string).
-///
-/// WHATWG §6.5.2 explicitly permits returning `""` for a cookie-averse
-/// Document; elidex treats every Document as cookie-averse until the
-/// real cookie jar integration lands in PR6 / PR-Cookie-Store.  Scripts
-/// that read `document.cookie` therefore observe an empty string
-/// rather than a misleading partial implementation.
+/// `document.cookie` getter (WHATWG §6.5.2).  Reads the script-
+/// visible cookie set for `navigation.current_url` from the shell-
+/// owned [`elidex_net::CookieJar`].  The jar already filters out
+/// `HttpOnly` cookies and `Secure` cookies on non-HTTPS origins, so
+/// the value returned here is exactly what the spec exposes to
+/// scripts.  When no jar is installed (test harness, standalone
+/// VM) we fall back to the cookie-averse path and return `""`.
 pub(super) fn native_document_get_cookie(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let _ = document_receiver(ctx, this, "cookie")?;
-    Ok(JsValue::String(ctx.vm.well_known.empty))
+    let value = ctx
+        .host_if_bound()
+        .and_then(|hd| hd.cookie_jar().cloned())
+        .map(|jar| jar.cookies_for_script(&ctx.vm.navigation.current_url))
+        .unwrap_or_default();
+    if value.is_empty() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    let sid = ctx.vm.strings.intern(&value);
+    Ok(JsValue::String(sid))
 }
 
-/// `document.cookie = x` — **stub** (no-op).  Real storage arrives
-/// with PR6 / PR-Cookie-Store.
+/// `document.cookie = value` (WHATWG §6.5.2).  Forwards a single
+/// `Set-Cookie`-syntax string to
+/// [`elidex_net::CookieJar::set_cookie_from_script`], which parses
+/// the attribute list and rejects `HttpOnly` cookies (scripts cannot
+/// set those) and `Secure` cookies on non-HTTPS pages.  When no jar
+/// is installed the assignment silently no-ops, matching the
+/// cookie-averse Document path the spec permits.
 pub(super) fn native_document_set_cookie(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let _ = document_receiver(ctx, this, "cookie")?;
-    // Silently drop the write — spec allows no-op on cookie-averse
-    // Documents.  See `native_document_get_cookie` docstring.
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let value = ctx.vm.strings.get_utf8(sid);
+    if let Some(jar) = ctx.host_if_bound().and_then(|hd| hd.cookie_jar().cloned()) {
+        jar.set_cookie_from_script(&ctx.vm.navigation.current_url, &value);
+    }
     Ok(JsValue::Undefined)
 }
 
