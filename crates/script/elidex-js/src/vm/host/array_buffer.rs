@@ -223,11 +223,13 @@ pub(crate) fn create_array_buffer_from_bytes(vm: &mut VmInner, bytes: Arc<[u8]>)
 /// `[0, 2^53)` arithmetic through [`coerce::to_index_u64`] so the
 /// V8-shaped error message and width stays in lockstep with the
 /// other `ToIndex` callers, then layers a 32-bit-host safety check
-/// on top: `try_reserve(usize::MAX-ish)` would either silently OOM
-/// or panic, so reject up front with a spec-shaped `RangeError`
-/// instead.  On 64-bit hosts that branch is provably dead because
-/// the canonical helper already capped the value at `2^53 - 1 <
-/// usize::MAX`.
+/// on top: the constructor's backing-store allocation
+/// (`vec![0_u8; length]`) needs the length to fit in `usize`, so
+/// reject above-platform-max values up front with a spec-shaped
+/// `RangeError` rather than letting the alloc itself abort the
+/// process on capacity failure.  On 64-bit hosts that branch is
+/// provably dead because the canonical helper already capped the
+/// value at `2^53 − 1 < usize::MAX`.
 fn to_index_for_array_buffer(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
