@@ -304,15 +304,19 @@ fn string_reflect_get(
     attr_name: &'static str,
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, idl_name)?;
-    // Intern requires `&mut ctx.vm.strings`, which conflicts with the
-    // active `&ctx.host().dom()` borrow used by `with_attribute` — so
-    // we still allocate a `String` here.  The remaining `get_attribute`
-    // call sites in this module are the IDL-getter family (lang /
-    // title / nonce / dir / …) where the value is interned and
-    // returned to JS, so the owned form stays load-bearing.
-    let sid = match ctx.host().dom().get_attribute(entity, attr_name) {
-        Some(v) => ctx.vm.strings.intern(&v),
-        None => ctx.vm.well_known.empty,
+    let empty = ctx.vm.well_known.empty;
+    // Snapshot `well_known.empty` first, then split the dom + strings
+    // borrow so `with_attribute`'s closure can intern the borrowed
+    // `&str` without the per-method `host()` / `vm.strings` borrow
+    // conflict — saves one `String::from` clone per call.
+    // `require_html_element_receiver` already promotes the unbound
+    // case to TypeError above, so the `None` arm of
+    // `dom_and_strings_if_bound` is a defensive fallback only.
+    let sid = match ctx.dom_and_strings_if_bound() {
+        Some((dom, strings)) => dom.with_attribute(entity, attr_name, |v| {
+            v.map_or(empty, |s| strings.intern(s))
+        }),
+        None => empty,
     };
     Ok(JsValue::String(sid))
 }

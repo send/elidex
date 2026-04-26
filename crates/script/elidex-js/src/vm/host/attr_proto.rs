@@ -269,17 +269,21 @@ fn native_attr_get_value(
     }
     let owner = state.owner;
     let qname = state.qualified_name;
-    let name_str = ctx.vm.strings.get_utf8(qname);
+    let empty = ctx.vm.well_known.empty;
     // Post-unbind live Attr: report empty string rather than
-    // panicking via `HostData::dom()` is_bound assert.
-    let value = ctx
-        .host_if_bound()
-        .and_then(|host| host.dom().get_attribute(owner, &name_str))
-        .unwrap_or_default();
-    let sid = if value.is_empty() {
-        ctx.vm.well_known.empty
-    } else {
-        ctx.vm.strings.intern(&value)
+    // panicking via `HostData::dom()` is_bound assert.  Split the
+    // dom + strings borrow so the borrowed value can be interned
+    // without the per-call `String::from` clone the owned getter
+    // would allocate.
+    let sid = match ctx.dom_and_strings_if_bound() {
+        Some((dom, strings)) => {
+            let name_str = strings.get_utf8(qname);
+            dom.with_attribute(owner, &name_str, |v| match v {
+                Some("") | None => empty,
+                Some(s) => strings.intern(s),
+            })
+        }
+        None => empty,
     };
     Ok(JsValue::String(sid))
 }
