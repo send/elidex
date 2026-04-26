@@ -18,11 +18,26 @@
 //!
 //! ## Identity
 //!
-//! Identity is **not** preserved across calls: repeated
-//! `getAttributeNode('id')` allocates a fresh wrapper.  This
-//! mirrors HTMLCollection / NodeList / NamedNodeMap and avoids the
-//! GC root machinery a wrapper cache would demand.  Consumers that
-//! need a stable handle can cache the wrapper on the JS side.
+//! Live `Attr` wrappers are interned in
+//! [`VmInner::attr_wrapper_cache`] keyed by
+//! `(owner Element entity, qualified-name StringId)`, so repeated
+//! `getAttributeNode('id')` returns the same `ObjectId` (matches
+//! Chrome / Firefox / Safari).  The cache is invalidated whenever
+//! the named attribute leaves the owner's attribute list
+//! (`removeAttribute`, `removeAttributeNode`, `toggleAttribute(off)`,
+//! `removeNamedItem`); subsequent `setAttribute` allocates a fresh
+//! wrapper for the new attribute, distinct from any wrapper the
+//! caller still holds for the prior incarnation.  *Detached*
+//! wrappers (`detached_value == Some(_)`) are never cached — each
+//! detachment site allocates its own snapshot wrapper.
+//!
+//! `setAttributeNode` / `setNamedItem` *invalidate* rather than
+//! replace the cache entry; the engine path does not currently
+//! retarget the passed-in Attr's `AttrState.owner`, so identity
+//! with the passed-in argument is **not** preserved (Phase 2
+//! limitation paired with the existing AttrState ownership
+//! simplification — same Deferred #21 bucket as the namespace
+//! work below).
 //!
 //! ## Phase 2 simplification
 //!
@@ -141,6 +156,43 @@ impl VmInner {
         });
         self.attr_states.insert(id, state);
         id
+    }
+
+    /// Identity-preserving allocation for *live* `Attr` wrappers
+    /// (WHATWG DOM §4.9.2).  Returns the cached `ObjectId` for
+    /// `(owner, qualified_name)` if one already exists, otherwise
+    /// allocates a fresh wrapper via [`Self::alloc_attr`] and
+    /// caches it.  Callers must only invoke this for attributes
+    /// known to be present on the owner — detached wrappers are
+    /// never cached and must go through [`Self::alloc_attr`]
+    /// directly with `detached_value: Some(_)`.
+    pub(crate) fn cached_or_alloc_attr_live(
+        &mut self,
+        owner: Entity,
+        qualified_name: StringId,
+    ) -> ObjectId {
+        if let Some(&id) = self.attr_wrapper_cache.get(&(owner, qualified_name)) {
+            return id;
+        }
+        let id = self.alloc_attr(AttrState {
+            owner,
+            qualified_name,
+            detached_value: None,
+        });
+        self.attr_wrapper_cache.insert((owner, qualified_name), id);
+        id
+    }
+
+    /// Drop the cached `Attr` wrapper for `(owner, qualified_name)`
+    /// when the named attribute is leaving the owner's attribute
+    /// list (`removeAttribute` / `removeAttributeNode` /
+    /// `toggleAttribute(off)` / `removeNamedItem` /
+    /// `setAttributeNode` / `setNamedItem`).  A subsequent
+    /// `getAttributeNode` for the same name allocates a fresh
+    /// wrapper distinct from any caller-held handle to the prior
+    /// incarnation.  No-op when no entry exists.
+    pub(crate) fn invalidate_attr_cache_entry(&mut self, owner: Entity, qualified_name: StringId) {
+        self.attr_wrapper_cache.remove(&(owner, qualified_name));
     }
 }
 

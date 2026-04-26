@@ -123,6 +123,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 attr_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                attr_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,

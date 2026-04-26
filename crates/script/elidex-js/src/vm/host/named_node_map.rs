@@ -232,11 +232,7 @@ fn native_nnm_item(
         return Ok(JsValue::Null);
     };
     let qname_sid = ctx.vm.strings.intern(&name);
-    let attr_id = ctx.vm.alloc_attr(AttrState {
-        owner,
-        qualified_name: qname_sid,
-        detached_value: None,
-    });
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
     Ok(JsValue::Object(attr_id))
 }
 
@@ -261,11 +257,7 @@ fn native_nnm_get_named_item(
         return Ok(JsValue::Null);
     }
     let qname_sid = ctx.vm.strings.intern(&key);
-    let attr_id = ctx.vm.alloc_attr(AttrState {
-        owner,
-        qualified_name: qname_sid,
-        detached_value: None,
-    });
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
     Ok(JsValue::Object(attr_id))
 }
 
@@ -347,6 +339,10 @@ fn native_nnm_set_named_item(
         return Ok(JsValue::Null);
     };
     host.dom().set_attribute(owner, &name_str, value);
+    // Mirrors `Element.setAttributeNode`: the passed-in Attr's
+    // owner is not retargeted, so it cannot become the cached
+    // identity — drop instead.
+    ctx.vm.invalidate_attr_cache_entry(owner, qname);
     Ok(match prev_sid {
         Some(sid) => {
             let prev = ctx.vm.alloc_attr(AttrState {
@@ -410,6 +406,7 @@ fn native_nnm_remove_named_item(
         ));
     };
     host.dom().remove_attribute(owner, &key);
+    ctx.vm.invalidate_attr_cache_entry(owner, qname_sid);
     let returned = ctx.vm.alloc_attr(AttrState {
         owner,
         qualified_name: qname_sid,
@@ -498,11 +495,7 @@ fn native_nnm_symbol_iterator(
     let mut values = Vec::with_capacity(names.len());
     for name in names {
         let qname_sid = ctx.vm.strings.intern(&name);
-        let attr_id = ctx.vm.alloc_attr(AttrState {
-            owner,
-            qualified_name: qname_sid,
-            detached_value: None,
-        });
+        let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
         values.push(JsValue::Object(attr_id));
     }
     let array_id = ctx.vm.create_array_object(values);

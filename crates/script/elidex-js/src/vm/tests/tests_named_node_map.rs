@@ -225,6 +225,113 @@ fn element_remove_attribute_node_detaches_and_returns_wrapper() {
     assert_eq!(out, "ok");
 }
 
+// --- Attr identity (WHATWG DOM §4.9.2 — SP5) ---------------------
+
+#[test]
+fn get_attribute_node_preserves_identity_across_calls() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         (d.getAttributeNode('id') === d.getAttributeNode('id')) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn get_attribute_node_identity_matches_named_node_map_paths() {
+    // `getAttributeNode`, `attributes.getNamedItem`, `attributes.item`,
+    // and the indexed/named property accesses on the NamedNodeMap all
+    // resolve to the same Attr wrapper for a given (element, name).
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var via_get = d.getAttributeNode('id'); \
+         var via_named = d.attributes.getNamedItem('id'); \
+         var via_item = d.attributes.item(0); \
+         var via_indexed = d.attributes[0]; \
+         var via_keyed = d.attributes['id']; \
+         (via_get === via_named && via_named === via_item \
+          && via_item === via_indexed && via_indexed === via_keyed) \
+             ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn get_attribute_node_identity_survives_set_attribute_value_mutation() {
+    // `setAttribute` only mutates the attribute's value; the cached
+    // wrapper observes the new value transparently and identity is
+    // preserved.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.getAttributeNode('id'); \
+         d.setAttribute('id', 'y'); \
+         (a === d.getAttributeNode('id') && a.value === 'y') ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn remove_attribute_invalidates_identity() {
+    // After `removeAttribute` + `setAttribute` (re-adding the same
+    // name), `getAttributeNode` returns a fresh wrapper distinct
+    // from any caller-held handle to the prior incarnation.  The
+    // prior wrapper's `.value` re-reads through to the current
+    // owner attribute (Phase 2 detachment-on-remove is out of
+    // scope for SP5), so identity is the only invariant under test
+    // here.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.getAttributeNode('id'); \
+         d.removeAttribute('id'); \
+         d.setAttribute('id', 'y'); \
+         var b = d.getAttributeNode('id'); \
+         (a !== b && b.value === 'y') ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn remove_attribute_node_invalidates_identity() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.getAttributeNode('id'); \
+         d.removeAttributeNode(a); \
+         d.setAttribute('id', 'y'); \
+         (a !== d.getAttributeNode('id')) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn remove_named_item_invalidates_identity() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.getAttributeNode('id'); \
+         d.attributes.removeNamedItem('id'); \
+         d.setAttribute('id', 'y'); \
+         (a !== d.getAttributeNode('id')) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn toggle_attribute_off_invalidates_identity() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('hidden', ''); \
+         var a = d.getAttributeNode('hidden'); \
+         d.toggleAttribute('hidden', false); \
+         d.toggleAttribute('hidden', true); \
+         (a !== d.getAttributeNode('hidden')) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn distinct_elements_and_names_have_distinct_identities() {
+    let out = run("var a = document.createElement('div'); \
+         var b = document.createElement('div'); \
+         a.setAttribute('id', 'x'); \
+         b.setAttribute('id', 'x'); \
+         a.setAttribute('class', 'y'); \
+         var ai = a.getAttributeNode('id'); \
+         var bi = b.getAttributeNode('id'); \
+         var ac = a.getAttributeNode('class'); \
+         (ai !== bi && ai !== ac && bi !== ac) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
 #[test]
 fn element_remove_attribute_node_throws_when_not_attached() {
     let out = run("var a = document.createElement('div'); \

@@ -72,9 +72,16 @@ pub(super) fn attr_set(
 }
 
 /// Remove attribute `name` from `entity`.  Shim around
-/// [`elidex_ecs::EcsDom::remove_attribute`].
+/// [`elidex_ecs::EcsDom::remove_attribute`] that also invalidates
+/// the [`crate::vm::VmInner::attr_wrapper_cache`] entry for
+/// `(entity, name)` so any subsequent `getAttributeNode` for the
+/// same name allocates a fresh wrapper (matches WHATWG §4.9.2
+/// identity semantics — the removed attribute's Attr is no longer
+/// in the element's attribute list).
 pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
     ctx.host().dom().remove_attribute(entity, name);
+    let qname_sid = ctx.vm.strings.intern(name);
+    ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
 }
 
 pub(super) fn native_element_get_attribute(
@@ -202,7 +209,9 @@ pub(super) fn native_element_get_attributes(
 }
 
 /// `element.getAttributeNode(name)` — return an Attr wrapper for
-/// the named attribute, or `null` when absent.
+/// the named attribute, or `null` when absent.  Repeated calls for
+/// the same `(entity, qualified_name)` return the same `ObjectId`
+/// via [`crate::vm::VmInner::cached_or_alloc_attr_live`].
 pub(super) fn native_element_get_attribute_node(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -216,11 +225,7 @@ pub(super) fn native_element_get_attribute_node(
         return Ok(JsValue::Null);
     }
     let qname_sid = ctx.vm.strings.intern(&name);
-    let attr_id = ctx.vm.alloc_attr(super::attr_proto::AttrState {
-        owner: entity,
-        qualified_name: qname_sid,
-        detached_value: None,
-    });
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(entity, qname_sid);
     Ok(JsValue::Object(attr_id))
 }
 
@@ -290,6 +295,11 @@ pub(super) fn native_element_set_attribute_node(
         return Ok(JsValue::Null);
     };
     host.dom().set_attribute(entity, &name_str, new_value);
+    // We cannot adopt `attr_id` as the cached wrapper because the
+    // engine path leaves its `AttrState.owner` pointing at the
+    // source element; drop instead and let the next
+    // `getAttributeNode` allocate a fresh canonical wrapper.
+    ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
     Ok(match prev_sid {
         Some(sid) => {
             let prev = ctx.vm.alloc_attr(super::attr_proto::AttrState {
@@ -384,6 +394,7 @@ pub(super) fn native_element_remove_attribute_node(
         ));
     };
     host.dom().remove_attribute(entity, &name_str);
+    ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
     if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
         state_mut.detached_value = Some(prev_sid);
     }

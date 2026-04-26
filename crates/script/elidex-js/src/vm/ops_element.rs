@@ -290,11 +290,7 @@ impl VmInner {
                         return Ok(JsValue::Object(self.create_element_wrapper(e)));
                     }
                     if let Some((owner, qname_sid)) = nnm_hit {
-                        let attr_id = self.alloc_attr(super::host::attr_proto::AttrState {
-                            owner,
-                            qualified_name: qname_sid,
-                            detached_value: None,
-                        });
+                        let attr_id = self.cached_or_alloc_attr_live(owner, qname_sid);
                         return Ok(JsValue::Object(attr_id));
                     }
                 }
