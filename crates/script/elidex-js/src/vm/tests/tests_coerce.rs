@@ -11,10 +11,10 @@
 
 use super::super::coerce::{
     abstract_eq, relative_index_f64, strict_eq, string_to_number, to_boolean, to_display_string,
-    to_int32, to_integer_or_infinity, to_number, to_string, typeof_str,
+    to_index_u64, to_int32, to_integer_or_infinity, to_number, to_string, typeof_str,
 };
 use super::super::coerce_ops::*;
-use super::super::value::{JsValue, ObjectId, StringId};
+use super::super::value::{JsValue, NativeContext, ObjectId, StringId};
 use super::super::Vm;
 
 #[test]
@@ -426,4 +426,116 @@ fn relative_index_f64_zero_length() {
     assert_eq!(relative_index_f64(-5.0, 0.0), 0.0);
     assert_eq!(relative_index_f64(f64::INFINITY, 0.0), 0.0);
     assert_eq!(relative_index_f64(f64::NEG_INFINITY, 0.0), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// `to_index_u64` (ES §7.1.22) — full-width `[0, 2^53)` ToIndex.  Drives both
+// the `ArrayBuffer(length)` and `BigInt.asIntN/asUintN(bits)` callers, so
+// the boundary semantics are locked here rather than re-asserted at each
+// caller's integration tests.
+// ---------------------------------------------------------------------------
+
+fn try_to_index_u64(vm: &mut Vm, val: JsValue) -> Result<u64, super::super::value::VmError> {
+    let mut ctx = NativeContext { vm: &mut vm.inner };
+    to_index_u64(&mut ctx, val, "Test", "arg")
+}
+
+#[test]
+fn to_index_u64_nan_returns_zero() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        try_to_index_u64(&mut vm, JsValue::Number(f64::NAN)).unwrap(),
+        0
+    );
+}
+
+#[test]
+fn to_index_u64_truncates_fractional() {
+    let mut vm = Vm::new();
+    assert_eq!(try_to_index_u64(&mut vm, JsValue::Number(3.9)).unwrap(), 3);
+    // Negative fractional truncates *toward zero* before the range
+    // check fires, so `-0.7 → trunc(-0) → 0` is accepted.
+    assert_eq!(try_to_index_u64(&mut vm, JsValue::Number(-0.7)).unwrap(), 0);
+}
+
+#[test]
+fn to_index_u64_negative_rejects_with_safe_integer_message() {
+    let mut vm = Vm::new();
+    let err = try_to_index_u64(&mut vm, JsValue::Number(-1.0)).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("must be a non-negative safe integer"),
+        "expected safe-integer rejection message, got {msg}"
+    );
+}
+
+#[test]
+fn to_index_u64_neg_infinity_rejects() {
+    let mut vm = Vm::new();
+    let err = try_to_index_u64(&mut vm, JsValue::Number(f64::NEG_INFINITY)).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("must be a non-negative safe integer"),
+        "expected non-finite rejection, got {msg}"
+    );
+}
+
+#[test]
+fn to_index_u64_pos_infinity_rejects() {
+    let mut vm = Vm::new();
+    // `+Infinity` survives `to_integer_or_infinity` (preserved
+    // unchanged), so the `is_finite()` guard rejects it before the
+    // bounds check.  Same path as the negative case but worth
+    // pinning since the literal value is different.
+    let err = try_to_index_u64(&mut vm, JsValue::Number(f64::INFINITY)).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("must be a non-negative safe integer"),
+        "expected non-finite rejection, got {msg}"
+    );
+}
+
+/// `Number.MAX_SAFE_INTEGER == 2^53 - 1` — the maximum value `ToIndex`
+/// accepts.  Boundary case: this **must** succeed (the `>=` check uses
+/// `2^53`, so `2^53 - 1` lands inside the open upper bound).
+#[test]
+fn to_index_u64_max_safe_integer_accepted() {
+    let mut vm = Vm::new();
+    let max_safe = (1_u64 << 53) - 1;
+    #[allow(clippy::cast_precision_loss)]
+    let as_f64 = max_safe as f64;
+    assert_eq!(
+        try_to_index_u64(&mut vm, JsValue::Number(as_f64)).unwrap(),
+        max_safe
+    );
+}
+
+/// `Number.MAX_SAFE_INTEGER + 1 == 2^53` — first value above the spec
+/// limit.  Boundary case: this **must** reject with the
+/// `"exceeds the maximum safe integer"` message so the rejection
+/// distinguishes from the negative / non-finite branch.
+#[test]
+fn to_index_u64_two_pow_53_rejects_with_max_message() {
+    let mut vm = Vm::new();
+    #[allow(clippy::cast_precision_loss)]
+    let two_pow_53 = (1_u64 << 53) as f64;
+    let err = try_to_index_u64(&mut vm, JsValue::Number(two_pow_53)).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("exceeds the maximum safe integer"),
+        "expected upper-bound rejection, got {msg}"
+    );
+}
+
+/// `undefined` coerces to `NaN` via `ToNumber`, then the NaN-fast-path
+/// in `to_integer_or_infinity` returns `0` — so `to_index_u64`
+/// implicitly handles `undefined → 0` via the standard pipeline.  The
+/// `BigInt.asIntN` caller still wraps with an explicit `Undefined →
+/// 0` early-return for symmetry with the spec, but this test pins
+/// the canonical-helper-only behaviour so future refactors of either
+/// caller can drop the wrapper without breaking semantics.
+#[test]
+fn to_index_u64_undefined_via_to_number_pipeline_returns_zero() {
+    let mut vm = Vm::new();
+    assert_eq!(try_to_index_u64(&mut vm, JsValue::Undefined).unwrap(), 0);
 }

@@ -218,31 +218,24 @@ pub(crate) fn create_array_buffer_from_bytes(vm: &mut VmInner, bytes: Arc<[u8]>)
     id
 }
 
-/// ES2020 §7.1.22 `ToIndex` — integer in `[0, 2^53-1]`, else
-/// `RangeError`.  `undefined` becomes `0` at the caller's
-/// discretion (we expect the ctor to default-supply zero before
-/// dispatching here).
-fn to_index_for_array_buffer(n: f64, what: &str) -> Result<usize, VmError> {
-    if n.is_nan() {
-        return Ok(0);
-    }
-    let truncated = n.trunc();
-    #[allow(clippy::cast_precision_loss)]
-    let max = (1_u64 << 53) as f64 - 1.0;
-    if truncated < 0.0 || truncated > max || !truncated.is_finite() {
-        return Err(VmError::range_error(format!(
-            "Failed to construct 'ArrayBuffer': {what} must be a non-negative safe integer"
-        )));
-    }
-    // `truncated` is in [0, 2^53-1]; cast to `u64` is infallible.
-    // On 64-bit hosts the subsequent `usize` cast is also
-    // infallible.  On 32-bit hosts a length larger than
-    // `usize::MAX` cannot be allocated — silently clamping would
-    // hand `try_reserve` an `isize::MAX`-ish value that then
-    // panics / OOMs; instead reject up front with `RangeError`
-    // so JS observes a spec-shaped conversion failure.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let as_u64 = truncated as u64;
+/// ES §7.1.22 `ToIndex` narrowed to `usize` for the `ArrayBuffer`
+/// `[[ArrayBufferByteLength]]` slot.  Routes the spec-wide
+/// `[0, 2^53)` arithmetic through [`coerce::to_index_u64`] so the
+/// V8-shaped error message and width stays in lockstep with the
+/// other `ToIndex` callers, then layers a 32-bit-host safety check
+/// on top: the constructor's backing-store allocation
+/// (`vec![0_u8; length]`) needs the length to fit in `usize`, so
+/// reject above-platform-max values up front with a spec-shaped
+/// `RangeError` rather than letting the alloc itself abort the
+/// process on capacity failure.  On 64-bit hosts that branch is
+/// provably dead because the canonical helper already capped the
+/// value at `2^53 − 1 < usize::MAX`.
+fn to_index_for_array_buffer(
+    ctx: &mut NativeContext<'_>,
+    val: JsValue,
+    what: &str,
+) -> Result<usize, VmError> {
+    let as_u64 = coerce::to_index_u64(ctx, val, "Failed to construct 'ArrayBuffer'", what)?;
     if as_u64 > usize::MAX as u64 {
         return Err(VmError::range_error(format!(
             "Failed to construct 'ArrayBuffer': {what} exceeds the maximum supported length on this platform"
@@ -273,10 +266,7 @@ fn native_array_buffer_constructor(
 
     let length = match args.first().copied() {
         Some(JsValue::Undefined) | None => 0,
-        Some(v) => {
-            let n = super::super::coerce::to_number(ctx.vm, v)?;
-            to_index_for_array_buffer(n, "length")?
-        }
+        Some(v) => to_index_for_array_buffer(ctx, v, "length")?,
     };
 
     // Promote the pre-allocated Ordinary instance to ArrayBuffer.
