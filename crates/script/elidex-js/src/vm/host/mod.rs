@@ -38,6 +38,8 @@ pub(crate) mod attr_proto;
 pub(crate) mod blob;
 #[cfg(feature = "engine")]
 pub(super) mod body_mixin;
+#[cfg(feature = "engine")]
+mod byte_io;
 pub(super) mod character_data_proto;
 pub(super) mod childnode;
 #[cfg(feature = "engine")]

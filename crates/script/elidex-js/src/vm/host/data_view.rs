@@ -291,7 +291,8 @@ fn native_data_view_get_byte_length(
 /// `[[ByteOffset]]`.  Returns a copy of the bytes into a fixed-
 /// size array so the caller can decode without a live borrow on
 /// `body_data`.  RangeError if the requested span extends past
-/// the view's byte length.
+/// the view's byte length.  The underlying byte snapshot is
+/// performed by [`super::byte_io::read_into`].
 fn read_bytes<const N: usize>(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -301,19 +302,18 @@ fn read_bytes<const N: usize>(
     let (buffer_id, dv_offset, dv_len) = require_data_view_parts(ctx, this, method)?;
     let rel_offset = ensure_in_range(offset_f, dv_len, N as u32, method)?;
     let abs = (dv_offset + rel_offset) as usize;
-    let mut out = [0_u8; N];
-    if let Some(bytes) = ctx.vm.body_data.get(&buffer_id) {
-        if let Some(slice) = bytes.get(abs..abs + N) {
-            out.copy_from_slice(slice);
-        }
-    }
-    Ok(out)
+    Ok(super::byte_io::read_into::<N>(
+        &ctx.vm.body_data,
+        buffer_id,
+        abs,
+    ))
 }
 
 /// Write `bytes` at `byte_offset` relative to the DataView's own
-/// `[[ByteOffset]]`.  Replaces the entire `body_data` entry with a
-/// fresh `Arc<[u8]>` so downstream views over the same buffer see
-/// the mutation through `body_data.get(&buffer_id)` (same model as
+/// `[[ByteOffset]]`.  The underlying clone-grow-install step is
+/// performed by [`super::byte_io::write_at`], so downstream views
+/// over the same buffer see the mutation through their next
+/// `body_data.get(&buffer_id)` (same model as
 /// [`super::typed_array::write_element_raw`]).
 fn write_bytes<const N: usize>(
     ctx: &mut NativeContext<'_>,
@@ -325,20 +325,7 @@ fn write_bytes<const N: usize>(
     let (buffer_id, dv_offset, dv_len) = require_data_view_parts(ctx, this, method)?;
     let rel_offset = ensure_in_range(offset_f, dv_len, N as u32, method)?;
     let abs = (dv_offset + rel_offset) as usize;
-    let needed = abs + N;
-    let current: &[u8] = ctx
-        .vm
-        .body_data
-        .get(&buffer_id)
-        .map(AsRef::as_ref)
-        .unwrap_or(&[]);
-    let mut new_bytes: Vec<u8> = current.to_vec();
-    if new_bytes.len() < needed {
-        new_bytes.resize(needed, 0);
-    }
-    new_bytes[abs..abs + N].copy_from_slice(&bytes);
-    use std::sync::Arc;
-    ctx.vm.body_data.insert(buffer_id, Arc::from(new_bytes));
+    super::byte_io::write_at(&mut ctx.vm.body_data, buffer_id, abs, &bytes);
     Ok(())
 }
 

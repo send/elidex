@@ -810,47 +810,55 @@ pub(crate) fn read_element_raw(
 ) -> JsValue {
     let bpe = u32::from(ek.bytes_per_element());
     let abs = (byte_offset + index * bpe) as usize;
-    // Snapshot up to 8 bytes (max element size) into scratch so
-    // the subsequent `alloc` (BigInt branch) doesn't conflict with
-    // a live borrow of `body_data`.
-    let mut scratch = [0_u8; 8];
-    let scratch_len = bpe as usize;
-    if let Some(bytes) = vm.body_data.get(&buffer_id) {
-        if let Some(slice) = bytes.get(abs..abs + scratch_len) {
-            scratch[..scratch_len].copy_from_slice(slice);
-        }
-    }
+    // Snapshot exactly `bpe` bytes per element kind so each
+    // subscript copies only the bytes the decoder will actually
+    // consume — small-element reads (e.g. `Uint8Array`) are hot
+    // and must not pay for the wider fixed-size scratch.  The
+    // const-generic `read_into` produces a per-arm fixed-size
+    // array; the BigInt arms own a `&mut vm` reborrow afterwards
+    // so the snapshot must complete before the `bigints.alloc`.
     match ek {
-        ElementKind::Int8 => JsValue::Number(f64::from(scratch[0] as i8)),
-        ElementKind::Uint8 | ElementKind::Uint8Clamped => JsValue::Number(f64::from(scratch[0])),
+        ElementKind::Int8 => {
+            let s = super::byte_io::read_into::<1>(&vm.body_data, buffer_id, abs);
+            JsValue::Number(f64::from(s[0] as i8))
+        }
+        ElementKind::Uint8 | ElementKind::Uint8Clamped => {
+            let s = super::byte_io::read_into::<1>(&vm.body_data, buffer_id, abs);
+            JsValue::Number(f64::from(s[0]))
+        }
         ElementKind::Int16 => {
-            let v = i16::from_le_bytes([scratch[0], scratch[1]]);
-            JsValue::Number(f64::from(v))
+            let s = super::byte_io::read_into::<2>(&vm.body_data, buffer_id, abs);
+            JsValue::Number(f64::from(i16::from_le_bytes(s)))
         }
         ElementKind::Uint16 => {
-            let v = u16::from_le_bytes([scratch[0], scratch[1]]);
-            JsValue::Number(f64::from(v))
+            let s = super::byte_io::read_into::<2>(&vm.body_data, buffer_id, abs);
+            JsValue::Number(f64::from(u16::from_le_bytes(s)))
         }
         ElementKind::Int32 => {
-            let v = i32::from_le_bytes([scratch[0], scratch[1], scratch[2], scratch[3]]);
-            JsValue::Number(f64::from(v))
+            let s = super::byte_io::read_into::<4>(&vm.body_data, buffer_id, abs);
+            JsValue::Number(f64::from(i32::from_le_bytes(s)))
         }
         ElementKind::Uint32 => {
-            let v = u32::from_le_bytes([scratch[0], scratch[1], scratch[2], scratch[3]]);
-            JsValue::Number(f64::from(v))
+            let s = super::byte_io::read_into::<4>(&vm.body_data, buffer_id, abs);
+            JsValue::Number(f64::from(u32::from_le_bytes(s)))
         }
         ElementKind::Float32 => {
-            let v = f32::from_le_bytes([scratch[0], scratch[1], scratch[2], scratch[3]]);
-            JsValue::Number(f64::from(v))
+            let s = super::byte_io::read_into::<4>(&vm.body_data, buffer_id, abs);
+            JsValue::Number(f64::from(f32::from_le_bytes(s)))
         }
-        ElementKind::Float64 => JsValue::Number(f64::from_le_bytes(scratch)),
+        ElementKind::Float64 => {
+            let s = super::byte_io::read_into::<8>(&vm.body_data, buffer_id, abs);
+            JsValue::Number(f64::from_le_bytes(s))
+        }
         ElementKind::BigInt64 => {
-            let v = i64::from_le_bytes(scratch);
+            let s = super::byte_io::read_into::<8>(&vm.body_data, buffer_id, abs);
+            let v = i64::from_le_bytes(s);
             let bi = num_bigint::BigInt::from(v);
             JsValue::BigInt(vm.bigints.alloc(bi))
         }
         ElementKind::BigUint64 => {
-            let v = u64::from_le_bytes(scratch);
+            let s = super::byte_io::read_into::<8>(&vm.body_data, buffer_id, abs);
+            let v = u64::from_le_bytes(s);
             let bi = num_bigint::BigInt::from(v);
             JsValue::BigInt(vm.bigints.alloc(bi))
         }
@@ -945,23 +953,14 @@ pub(crate) fn write_element_raw(
         }
     };
 
-    let needed_len = abs + written_len;
-    // Clone the existing buffer into a fresh `Vec<u8>`, grow if
-    // needed, apply the element write, install the new Arc.
-    // Other views over the same `buffer_id` read via
-    // `body_data.get(&buffer_id)` and will see the new bytes on
-    // their next access.
-    let current: &[u8] = ctx
-        .vm
-        .body_data
-        .get(&buffer_id)
-        .map(AsRef::as_ref)
-        .unwrap_or(&[]);
-    let mut new_bytes: Vec<u8> = current.to_vec();
-    if new_bytes.len() < needed_len {
-        new_bytes.resize(needed_len, 0);
-    }
-    new_bytes[abs..abs + written_len].copy_from_slice(&scratch[..written_len]);
-    ctx.vm.body_data.insert(buffer_id, Arc::from(new_bytes));
+    // Clone the existing buffer, grow if needed, apply the element
+    // write, install the fresh `Arc<[u8]>` so other views over the
+    // same `buffer_id` see the new bytes on their next access.
+    super::byte_io::write_at(
+        &mut ctx.vm.body_data,
+        buffer_id,
+        abs,
+        &scratch[..written_len],
+    );
     Ok(())
 }
