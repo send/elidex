@@ -26,6 +26,23 @@ impl StringPool {
         StringId(self.0.intern(s))
     }
 
+    /// Return `alias` when `s` is empty; otherwise intern `s` via
+    /// [`Self::intern`] and return the resulting `StringId`.  Lets call sites
+    /// route the WHATWG "value attribute resolves to empty string"
+    /// fast-path through a single pre-interned sentinel
+    /// (`well_known.empty`) instead of paying the per-call hash
+    /// lookup.  Centralises the alias-or-intern shape that
+    /// `setNamedItem` / `removeNamedItem` / `setAttributeNode` /
+    /// `removeAttributeNode` snapshot the prior attribute value
+    /// through.
+    pub fn intern_or_alias(&mut self, alias: StringId, s: &str) -> StringId {
+        if s.is_empty() {
+            alias
+        } else {
+            self.intern(s)
+        }
+    }
+
     /// Intern a string from raw WTF-16 code units.
     pub fn intern_utf16(&mut self, units: &[u16]) -> StringId {
         StringId(self.0.intern_wtf16(units))

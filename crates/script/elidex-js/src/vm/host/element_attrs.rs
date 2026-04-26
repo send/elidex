@@ -258,39 +258,48 @@ pub(super) fn native_element_set_attribute_node(
     let source_owner = state.owner;
     let qname_sid = state.qualified_name;
     let source_detached = state.detached_value;
-    let name_str = ctx.vm.strings.get_utf8(qname_sid);
-    // Mirror `Attr.prototype.value`: detached snapshot first,
-    // else the owner's current attribute value.  Without the
-    // snapshot branch, `element.setAttributeNode(detachedAttr)`
-    // would write empty / stale data instead of the attribute
-    // value the author observed on the source Attr.
-    let new_value = if let Some(snapshot_sid) = source_detached {
-        ctx.vm.strings.get_utf8(snapshot_sid)
-    } else {
-        ctx.host()
-            .dom()
-            .get_attribute(source_owner, &name_str)
-            .unwrap_or_default()
+    let empty = ctx.vm.well_known.empty;
+    // Mirror `Attr.prototype.value`: detached snapshot first, else
+    // the source owner's current attribute value.  Capture both
+    // values + the prior-target snapshot in one split-borrow pass
+    // so prev_value can be interned directly from the borrowed
+    // `&str` (no `String::from` clone).
+    let (name_str, new_value, prev_sid) = match ctx.dom_and_strings_if_bound() {
+        Some((dom, strings)) => {
+            let name_str = strings.get_utf8(qname_sid);
+            let new_value = if let Some(snapshot_sid) = source_detached {
+                strings.get_utf8(snapshot_sid)
+            } else {
+                dom.with_attribute(source_owner, &name_str, |v| {
+                    v.map(str::to_owned).unwrap_or_default()
+                })
+            };
+            let prev_sid = dom.with_attribute(entity, &name_str, |v| {
+                v.map(|s| strings.intern_or_alias(empty, s))
+            });
+            (name_str, new_value, prev_sid)
+        }
+        None => return Ok(JsValue::Null),
     };
     // Snapshot the prev value BEFORE overwriting so the returned
-    // detached Attr observes the replaced value, not the
-    // just-written one (WHATWG §4.9.2).
-    let prev_value: Option<String> = ctx.host().dom().get_attribute(entity, &name_str);
-    ctx.host().dom().set_attribute(entity, &name_str, new_value);
-    Ok(if let Some(prev_val) = prev_value {
-        let prev_sid = if prev_val.is_empty() {
-            ctx.vm.well_known.empty
-        } else {
-            ctx.vm.strings.intern(&prev_val)
-        };
-        let prev = ctx.vm.alloc_attr(super::attr_proto::AttrState {
-            owner: entity,
-            qualified_name: qname_sid,
-            detached_value: Some(prev_sid),
-        });
-        JsValue::Object(prev)
-    } else {
-        JsValue::Null
+    // detached Attr observes the replaced value, not the just-written
+    // one (WHATWG §4.9.2).  Surface a post-snapshot unbind as `Null`
+    // (no mutation, no "previous" Attr) instead of panicking via
+    // `HostData::dom()`'s `is_bound` assert.
+    let Some(host) = ctx.host_if_bound() else {
+        return Ok(JsValue::Null);
+    };
+    host.dom().set_attribute(entity, &name_str, new_value);
+    Ok(match prev_sid {
+        Some(sid) => {
+            let prev = ctx.vm.alloc_attr(super::attr_proto::AttrState {
+                owner: entity,
+                qualified_name: qname_sid,
+                detached_value: Some(sid),
+            });
+            JsValue::Object(prev)
+        }
+        None => JsValue::Null,
     })
 }
 
@@ -342,27 +351,42 @@ pub(super) fn native_element_remove_attribute_node(
             ),
         ));
     }
-    let Some(prev_value) = ctx.host().dom().get_attribute(entity, &name_str) else {
+    let empty = ctx.vm.well_known.empty;
+    // Snapshot the prior value via the split-borrow path so the
+    // intern happens directly on the borrowed `&str` (no
+    // `String::from` clone).  Absence is the spec's
+    // `NotFoundError` trigger — an unbound receiver is treated the
+    // same way (no readable attribute).
+    let prev_sid = ctx.dom_and_strings_if_bound().and_then(|(dom, strings)| {
+        dom.with_attribute(entity, &name_str, |v| {
+            v.map(|s| strings.intern_or_alias(empty, s))
+        })
+    });
+    let Some(prev_sid) = prev_sid else {
         let not_found = ctx.vm.well_known.dom_exc_not_found_error;
         return Err(VmError::dom_exception(
             not_found,
             format!("Failed to execute 'removeAttributeNode' on 'Element': '{name_str}' not found"),
         ));
     };
-    // Detach-snapshot the prior value + update the passed Attr's
-    // state to detached before mutating the element, so the
-    // passed-in wrapper itself sees the detached view afterward
-    // (WHATWG §4.9.2 "remove an attribute" mutates the Attr being
-    // removed).
-    let prev_sid = if prev_value.is_empty() {
-        ctx.vm.well_known.empty
-    } else {
-        ctx.vm.strings.intern(&prev_value)
+    // Apply the removal through `host_if_bound` BEFORE mutating
+    // the Attr's `attr_states` snapshot — if the host happens to
+    // be unbound between the snapshot and the write, surface the
+    // recoverable `NotFoundError` without leaving the passed Attr
+    // observably detached.  The wrapper-detach step matches WHATWG
+    // §4.9.2 "remove an attribute"'s requirement that the removed
+    // Attr report its prior value through `attr.value` afterwards.
+    let Some(host) = ctx.host_if_bound() else {
+        let not_found = ctx.vm.well_known.dom_exc_not_found_error;
+        return Err(VmError::dom_exception(
+            not_found,
+            format!("Failed to execute 'removeAttributeNode' on 'Element': '{name_str}' not found"),
+        ));
     };
+    host.dom().remove_attribute(entity, &name_str);
     if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
         state_mut.detached_value = Some(prev_sid);
     }
-    ctx.host().dom().remove_attribute(entity, &name_str);
     // Return the same Attr — now detached with a snapshot of the
     // value at removal time.  Caller-side stashing for
     // reinsertion continues to work because `attr.value` reads

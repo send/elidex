@@ -308,43 +308,55 @@ fn native_nnm_set_named_item(
     // qualified name.  Mirrors the `value` accessor precedence so
     // `setNamedItem(detachedAttr)` writes the snapshot — not the
     // former owner's empty/stale slot.
-    let name_str = ctx.vm.strings.get_utf8(qname);
-    let value = if let Some(snapshot_sid) = source_detached {
-        ctx.vm.strings.get_utf8(snapshot_sid)
-    } else {
-        // Live Attr: read from the source's owner.  If unbound,
-        // fall back to empty string so the write still produces a
-        // deterministic result without panicking.
-        ctx.host_if_bound()
-            .and_then(|host| host.dom().get_attribute(source_owner, &name_str))
-            .unwrap_or_default()
+    let empty = ctx.vm.well_known.empty;
+    // Capture the source value + previous-target-value snapshot in
+    // a single split-borrow pass so the prev_value can be interned
+    // directly from the borrowed `&str` (no `String::from` clone).
+    // Live source: read through the source owner's `Attributes`
+    // component; otherwise a `source_detached` snapshot has already
+    // been substituted via the `if let Some(...)` arm.  Unbound
+    // receivers can't write, so return Null without mutating.
+    let outcome = match ctx.dom_and_strings_if_bound() {
+        Some((dom, strings)) => {
+            let name_str = strings.get_utf8(qname);
+            let value = if let Some(snapshot_sid) = source_detached {
+                strings.get_utf8(snapshot_sid)
+            } else {
+                dom.with_attribute(source_owner, &name_str, |v| {
+                    v.map(str::to_owned).unwrap_or_default()
+                })
+            };
+            let prev_sid = dom.with_attribute(owner, &name_str, |v| {
+                v.map(|s| strings.intern_or_alias(empty, s))
+            });
+            Some((name_str, value, prev_sid))
+        }
+        None => None,
     };
-    // If the target already has an attribute with that name,
-    // snapshot the prior VALUE into a *detached* Attr wrapper so
-    // the return value observes the replaced value rather than
-    // the newly-written one (WHATWG §4.9.1.2 step 5 — the
-    // returned Attr represents the previous attribute, not the
-    // one that just replaced it).  Unbound receivers: no write
-    // possible, return null (no previous Attr).
+    let Some((name_str, value, prev_sid)) = outcome else {
+        return Ok(JsValue::Null);
+    };
+    // Apply the write through `host_if_bound`.  Both this codebase
+    // and the broader VM treat post-unbind access as a recoverable
+    // state — match that contract here: if the host happens to be
+    // unbound between the snapshot and the write, surface `Null`
+    // (no mutation, no "previous" Attr) instead of panicking.  The
+    // path is unreachable under current control flow but keeping
+    // it recoverable avoids any future-bug embedding crash.
     let Some(host) = ctx.host_if_bound() else {
         return Ok(JsValue::Null);
     };
-    let prev_value: Option<String> = host.dom().get_attribute(owner, &name_str);
     host.dom().set_attribute(owner, &name_str, value);
-    Ok(if let Some(prev_val) = prev_value {
-        let prev_sid = if prev_val.is_empty() {
-            ctx.vm.well_known.empty
-        } else {
-            ctx.vm.strings.intern(&prev_val)
-        };
-        let prev = ctx.vm.alloc_attr(AttrState {
-            owner,
-            qualified_name: qname,
-            detached_value: Some(prev_sid),
-        });
-        JsValue::Object(prev)
-    } else {
-        JsValue::Null
+    Ok(match prev_sid {
+        Some(sid) => {
+            let prev = ctx.vm.alloc_attr(AttrState {
+                owner,
+                qualified_name: qname,
+                detached_value: Some(sid),
+            });
+            JsValue::Object(prev)
+        }
+        None => JsValue::Null,
     })
 }
 
@@ -357,13 +369,18 @@ fn native_nnm_remove_named_item(
     let key_value = args.first().copied().unwrap_or(JsValue::Undefined);
     let key_sid = super::super::coerce::to_string(ctx.vm, key_value)?;
     let key = ctx.vm.strings.get_utf8(key_sid);
+    let empty = ctx.vm.well_known.empty;
     // Post-unbind: the attribute is not visible → NotFoundError
     // (treat as absent per spec step 3 rather than panicking via
-    // `HostData::dom()` is_bound assert).
-    let prev_value = ctx
-        .host_if_bound()
-        .and_then(|host| host.dom().get_attribute(owner, &key));
-    let Some(prev_value) = prev_value else {
+    // `HostData::dom()` is_bound assert).  Snapshot the prior value
+    // through the split-borrow path so the intern happens directly
+    // on the borrowed `&str`.
+    let prev_sid = ctx.dom_and_strings_if_bound().and_then(|(dom, strings)| {
+        dom.with_attribute(owner, &key, |v| {
+            v.map(|s| strings.intern_or_alias(empty, s))
+        })
+    });
+    let Some(prev_sid) = prev_sid else {
         // Spec §4.9.1.2 step 3: throw NotFoundError when the
         // attribute is absent.  Our current DOMException surface
         // covers this via the well-known name; reuse the same
@@ -374,19 +391,25 @@ fn native_nnm_remove_named_item(
             format!("Failed to execute 'removeNamedItem' on 'NamedNodeMap': '{key}' not found"),
         ));
     };
-    let qname_sid = ctx.vm.strings.intern(&key);
-    let prev_sid = if prev_value.is_empty() {
-        ctx.vm.well_known.empty
-    } else {
-        ctx.vm.strings.intern(&prev_value)
+    // Reuse `key_sid` directly as the qualified-name StringId — it
+    // was produced from the original argument's
+    // `coerce::to_string` and is the canonical interned form;
+    // re-interning the lossy `get_utf8(...)` round-trip would
+    // duplicate work and risk a different code-unit sequence for
+    // strings containing lone surrogates.
+    let qname_sid = key_sid;
+    // Apply the removal through `host_if_bound`.  Treat post-snapshot
+    // unbind as the absent path (raise `NotFoundError`) rather than
+    // panicking — matches how the rest of this codepath surfaces
+    // post-unbind state.
+    let Some(host) = ctx.host_if_bound() else {
+        let not_found = ctx.vm.well_known.dom_exc_not_found_error;
+        return Err(VmError::dom_exception(
+            not_found,
+            format!("Failed to execute 'removeNamedItem' on 'NamedNodeMap': '{key}' not found"),
+        ));
     };
-    // `prev_value` existed → `host_if_bound()` returned `Some`
-    // earlier — the second call is guaranteed to succeed too since
-    // rebind between the two calls is impossible inside one native
-    // invocation.
-    if let Some(host) = ctx.host_if_bound() {
-        host.dom().remove_attribute(owner, &key);
-    }
+    host.dom().remove_attribute(owner, &key);
     let returned = ctx.vm.alloc_attr(AttrState {
         owner,
         qualified_name: qname_sid,
