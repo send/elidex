@@ -37,8 +37,7 @@ use elidex_ecs::Entity;
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
 use super::super::{NativeFn, StringId, VmInner};
 
@@ -110,14 +109,21 @@ impl VmInner {
             (self.well_known.local_name, native_attr_get_local_name),
             (self.well_known.specified, native_attr_get_specified),
         ] {
-            self.install_attr_ro_accessor(proto_id, name_sid, getter);
+            self.install_accessor_pair(
+                proto_id,
+                name_sid,
+                getter,
+                None,
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
         }
         // `value` is read/write (§4.9.2).
-        self.install_attr_rw_accessor(
+        self.install_accessor_pair(
             proto_id,
             self.well_known.value,
             native_attr_get_value,
-            native_attr_set_value,
+            Some(native_attr_set_value),
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
     }
 
@@ -135,46 +141,6 @@ impl VmInner {
         });
         self.attr_states.insert(id, state);
         id
-    }
-
-    fn install_attr_ro_accessor(
-        &mut self,
-        proto_id: ObjectId,
-        name_sid: StringId,
-        getter: NativeFn,
-    ) {
-        let display = self.strings.get_utf8(name_sid);
-        let gid = self.create_native_function(&format!("get {display}"), getter);
-        self.define_shaped_property(
-            proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Accessor {
-                getter: Some(gid),
-                setter: None,
-            },
-            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-        );
-    }
-
-    fn install_attr_rw_accessor(
-        &mut self,
-        proto_id: ObjectId,
-        name_sid: StringId,
-        getter: NativeFn,
-        setter: NativeFn,
-    ) {
-        let display = self.strings.get_utf8(name_sid);
-        let gid = self.create_native_function(&format!("get {display}"), getter);
-        let sid = self.create_native_function(&format!("set {display}"), setter);
-        self.define_shaped_property(
-            proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Accessor {
-                getter: Some(gid),
-                setter: Some(sid),
-            },
-            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-        );
     }
 }
 

@@ -45,7 +45,7 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError,
 };
-use super::super::{NativeFn, VmInner};
+use super::super::VmInner;
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -121,41 +121,27 @@ impl VmInner {
             return;
         };
         let is_view_sid = self.strings.intern("isView");
-        let is_view_fn = self.create_native_function("isView", native_array_buffer_is_view);
-        self.define_shaped_property(
+        self.install_native_method(
             ctor,
-            PropertyKey::String(is_view_sid),
-            PropertyValue::Data(JsValue::Object(is_view_fn)),
+            is_view_sid,
+            native_array_buffer_is_view,
             PropertyAttrs::METHOD,
         );
     }
 
     fn install_array_buffer_members(&mut self, proto_id: ObjectId) {
-        // Snapshot StringIds up front so the subsequent `&mut self`
-        // calls don't conflict with a live `&self.well_known`
-        // borrow (E0502 — same pattern as Request/Response
-        // accessors).
-        let byte_length_sid = self.well_known.byte_length;
-        let getter = self.create_native_function(
-            "get byteLength",
-            native_array_buffer_get_byte_length as NativeFn,
-        );
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            PropertyKey::String(byte_length_sid),
-            PropertyValue::Accessor {
-                getter: Some(getter),
-                setter: None,
-            },
+            self.well_known.byte_length,
+            native_array_buffer_get_byte_length,
+            None,
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
 
-        let slice_sid = self.well_known.slice;
-        let slice_fn = self.create_native_function("slice", native_array_buffer_slice as NativeFn);
-        self.define_shaped_property(
+        self.install_native_method(
             proto_id,
-            PropertyKey::String(slice_sid),
-            PropertyValue::Data(JsValue::Object(slice_fn)),
+            self.well_known.slice,
+            native_array_buffer_slice,
             PropertyAttrs::METHOD,
         );
     }

@@ -85,16 +85,11 @@ impl VmInner {
         // property — WHATWG DOM §2.9 requires it to reflect the current
         // canceled flag including writes from `preventDefault()` made
         // inside the same listener body.
-        let getter =
-            self.create_native_function("get defaultPrevented", native_event_get_default_prevented);
-        let dp_key = PropertyKey::String(self.well_known.default_prevented);
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            dp_key,
-            PropertyValue::Accessor {
-                getter: Some(getter),
-                setter: None,
-            },
+            self.well_known.default_prevented,
+            native_event_get_default_prevented,
+            None,
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
         self.event_prototype = Some(proto_id);
@@ -375,14 +370,11 @@ impl VmInner {
         // is shadowed by the own property for normal instances — it
         // only fires for e.g. `CustomEvent.prototype.detail` reads
         // (`undefined`, matching browsers).
-        let get_detail = self.create_native_function("get detail", native_custom_event_get_detail);
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            PropertyKey::String(self.well_known.detail),
-            PropertyValue::Accessor {
-                getter: Some(get_detail),
-                setter: None,
-            },
+            self.well_known.detail,
+            native_custom_event_get_detail,
+            None,
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
         self.custom_event_prototype = Some(proto_id);

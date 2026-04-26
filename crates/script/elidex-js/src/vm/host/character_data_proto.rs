@@ -40,8 +40,7 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
 use super::super::{NativeFn, VmInner};
 use super::event_target::entity_from_this;
@@ -72,28 +71,19 @@ impl VmInner {
 
     fn install_character_data_accessors(&mut self, proto_id: ObjectId) {
         // `data` (RW).
-        let data_sid = self.well_known.data;
-        let getter = self.create_native_function("get data", native_char_data_get_data);
-        let setter = self.create_native_function("set data", native_char_data_set_data);
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            PropertyKey::String(data_sid),
-            PropertyValue::Accessor {
-                getter: Some(getter),
-                setter: Some(setter),
-            },
+            self.well_known.data,
+            native_char_data_get_data,
+            Some(native_char_data_set_data),
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
         // `length` (RO) — UTF-16 code unit count.
-        let length_sid = self.well_known.length;
-        let length_getter = self.create_native_function("get length", native_char_data_get_length);
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            PropertyKey::String(length_sid),
-            PropertyValue::Accessor {
-                getter: Some(length_getter),
-                setter: None,
-            },
+            self.well_known.length,
+            native_char_data_get_length,
+            None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
     }
@@ -112,14 +102,7 @@ impl VmInner {
                 native_char_data_substring_data,
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                shape::PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
     }
 }

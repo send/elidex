@@ -24,10 +24,7 @@
 #![cfg(feature = "engine")]
 
 use super::super::shape;
-use super::super::value::{
-    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
-    VmError,
-};
+use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
 use super::super::VmInner;
 use super::event_target::entity_from_this;
 
@@ -48,13 +45,10 @@ impl VmInner {
         });
         self.text_prototype = Some(proto_id);
 
-        let name_sid = self.well_known.split_text;
-        let name = self.strings.get_utf8(name_sid);
-        let fn_id = self.create_native_function(&name, native_text_split_text);
-        self.define_shaped_property(
+        self.install_native_method(
             proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Data(JsValue::Object(fn_id)),
+            self.well_known.split_text,
+            native_text_split_text,
             shape::PropertyAttrs::METHOD,
         );
     }

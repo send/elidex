@@ -344,12 +344,24 @@ impl VmInner {
         });
         self.html_collection_prototype = Some(proto_id);
 
-        self.install_rw_accessor_once(proto_id, self.well_known.length, native_hc_length_get, None);
-        self.install_method(proto_id, self.well_known.item, native_hc_item);
-        self.install_method(
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.length,
+            native_hc_length_get,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.item,
+            native_hc_item,
+            shape::PropertyAttrs::METHOD,
+        );
+        self.install_native_method(
             proto_id,
             self.well_known.named_item,
             native_collection_named_item,
+            shape::PropertyAttrs::METHOD,
         );
         self.install_symbol_iterator(proto_id, native_hc_iterator);
     }
@@ -368,12 +380,24 @@ impl VmInner {
         });
         self.node_list_prototype = Some(proto_id);
 
-        self.install_rw_accessor_once(proto_id, self.well_known.length, native_nl_length_get, None);
-        self.install_method(proto_id, self.well_known.item, native_nl_item);
-        self.install_method(
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.length,
+            native_nl_length_get,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.item,
+            native_nl_item,
+            shape::PropertyAttrs::METHOD,
+        );
+        self.install_native_method(
             proto_id,
             self.well_known.for_each,
             native_node_list_for_each,
+            shape::PropertyAttrs::METHOD,
         );
         self.install_symbol_iterator(proto_id, native_nl_iterator);
     }
@@ -387,38 +411,6 @@ impl VmInner {
         self.define_shaped_property(
             proto_id,
             sym_key,
-            PropertyValue::Data(JsValue::Object(fn_id)),
-            shape::PropertyAttrs::METHOD,
-        );
-    }
-
-    fn install_rw_accessor_once(
-        &mut self,
-        proto_id: ObjectId,
-        name_sid: StringId,
-        getter: NativeFn,
-        setter: Option<NativeFn>,
-    ) {
-        let display = self.strings.get_utf8(name_sid);
-        let gid = self.create_native_function(&format!("get {display}"), getter);
-        let sid = setter.map(|f| self.create_native_function(&format!("set {display}"), f));
-        self.define_shaped_property(
-            proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Accessor {
-                getter: Some(gid),
-                setter: sid,
-            },
-            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-        );
-    }
-
-    fn install_method(&mut self, proto_id: ObjectId, name_sid: StringId, func: NativeFn) {
-        let display = self.strings.get_utf8(name_sid);
-        let fn_id = self.create_native_function(&display, func);
-        self.define_shaped_property(
-            proto_id,
-            PropertyKey::String(name_sid),
             PropertyValue::Data(JsValue::Object(fn_id)),
             shape::PropertyAttrs::METHOD,
         );

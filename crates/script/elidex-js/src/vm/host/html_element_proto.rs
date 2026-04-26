@@ -70,10 +70,9 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
-use super::super::{NativeFn, StringId, VmInner};
+use super::super::{NativeFn, VmInner};
 
 impl VmInner {
     /// Allocate `HTMLElement.prototype` with `Element.prototype` as
@@ -109,14 +108,7 @@ impl VmInner {
             (self.well_known.focus, native_html_element_focus as NativeFn),
             (self.well_known.blur, native_html_element_blur),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                shape::PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
     }
 
@@ -192,49 +184,20 @@ impl VmInner {
                 native_tab_index_set,
             ),
         ] {
-            self.install_rw_accessor(proto_id, name_sid, getter, setter);
+            self.install_accessor_pair(
+                proto_id,
+                name_sid,
+                getter,
+                Some(setter),
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
         }
         // Read-only derived attribute — no backing content attr.
-        self.install_ro_accessor(
+        self.install_accessor_pair(
             proto_id,
             self.well_known.is_content_editable,
             native_is_content_editable_get,
-        );
-    }
-
-    /// Helper — install a getter/setter pair as a WebIDL RW accessor.
-    fn install_rw_accessor(
-        &mut self,
-        proto_id: ObjectId,
-        name_sid: StringId,
-        getter: NativeFn,
-        setter: NativeFn,
-    ) {
-        let display = self.strings.get_utf8(name_sid);
-        let gid = self.create_native_function(&format!("get {display}"), getter);
-        let sid = self.create_native_function(&format!("set {display}"), setter);
-        self.define_shaped_property(
-            proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Accessor {
-                getter: Some(gid),
-                setter: Some(sid),
-            },
-            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-        );
-    }
-
-    /// Helper — install a getter-only WebIDL accessor.
-    fn install_ro_accessor(&mut self, proto_id: ObjectId, name_sid: StringId, getter: NativeFn) {
-        let display = self.strings.get_utf8(name_sid);
-        let gid = self.create_native_function(&format!("get {display}"), getter);
-        self.define_shaped_property(
-            proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Accessor {
-                getter: Some(gid),
-                setter: None,
-            },
+            None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
     }

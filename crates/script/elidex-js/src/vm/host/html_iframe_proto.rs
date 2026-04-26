@@ -43,8 +43,7 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
 use super::super::{NativeFn, VmInner};
 
@@ -93,39 +92,22 @@ impl VmInner {
         for (name_sid, attr_name) in pairs {
             let getter = string_reflect_getter_for(attr_name);
             let setter = string_reflect_setter_for(attr_name);
-            let display = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {display}"), getter);
-            let sid = self.create_native_function(&format!("set {display}"), setter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: Some(sid),
-                },
+                name_sid,
+                getter,
+                Some(setter),
                 shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
     }
 
     fn install_html_iframe_bool_attr(&mut self, proto_id: ObjectId) {
-        let name_sid = self.well_known.allow_fullscreen;
-        let display = self.strings.get_utf8(name_sid);
-        let gid = self.create_native_function(
-            &format!("get {display}"),
-            native_iframe_get_allow_fullscreen as NativeFn,
-        );
-        let sid = self.create_native_function(
-            &format!("set {display}"),
-            native_iframe_set_allow_fullscreen,
-        );
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            PropertyKey::String(name_sid),
-            PropertyValue::Accessor {
-                getter: Some(gid),
-                setter: Some(sid),
-            },
+            self.well_known.allow_fullscreen,
+            native_iframe_get_allow_fullscreen,
+            Some(native_iframe_set_allow_fullscreen),
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
     }
@@ -141,15 +123,11 @@ impl VmInner {
                 native_iframe_get_content_window,
             ),
         ] {
-            let display = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {display}"), getter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
+                name_sid,
+                getter,
+                None,
                 shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }

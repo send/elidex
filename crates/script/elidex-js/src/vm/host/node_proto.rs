@@ -45,8 +45,7 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, StringId, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::tree_nav_getter;
@@ -112,15 +111,11 @@ impl VmInner {
                 native_node_get_owner_document,
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
+                name_sid,
+                getter,
+                None,
                 shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
@@ -129,7 +124,6 @@ impl VmInner {
     fn install_node_rw_accessors(&mut self, proto_id: ObjectId) {
         // `WEBIDL_RO_ACCESSOR`'s `writable` bit is meaningless for
         // accessors — the setter slot is what makes these RW.
-        let rw_attrs = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
         for (name_sid, getter, setter) in [
             (
                 self.well_known.node_value,
@@ -142,17 +136,12 @@ impl VmInner {
                 native_node_set_text_content,
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter);
-            let sid = self.create_native_function(&format!("set {name}"), setter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: Some(sid),
-                },
-                rw_attrs,
+                name_sid,
+                getter,
+                Some(setter),
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
     }
@@ -178,14 +167,7 @@ impl VmInner {
             ),
             (self.well_known.normalize, native_node_normalize),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                shape::PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
     }
 }

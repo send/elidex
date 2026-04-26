@@ -182,15 +182,11 @@ impl VmInner {
     }
 
     fn install_text_encoder_members(&mut self, proto_id: ObjectId) {
-        let encoding_sid = self.well_known.encoding;
-        let gid = self.create_native_function("get encoding", native_text_encoder_get_encoding);
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            PropertyKey::String(encoding_sid),
-            PropertyValue::Accessor {
-                getter: Some(gid),
-                setter: None,
-            },
+            self.well_known.encoding,
+            native_text_encoder_get_encoding,
+            None,
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
 
@@ -205,14 +201,7 @@ impl VmInner {
             ),
         ];
         for (name_sid, func) in methods {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, func, PropertyAttrs::METHOD);
         }
     }
 
@@ -274,26 +263,19 @@ impl VmInner {
             ),
         ];
         for (name_sid, getter) in accessors {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
+                name_sid,
+                getter,
+                None,
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
 
-        let decode_sid = self.well_known.decode;
-        let name = self.strings.get_utf8(decode_sid);
-        let fn_id = self.create_native_function(&name, native_text_decoder_decode);
-        self.define_shaped_property(
+        self.install_native_method(
             proto_id,
-            PropertyKey::String(decode_sid),
-            PropertyValue::Data(JsValue::Object(fn_id)),
+            self.well_known.decode,
+            native_text_decoder_decode,
             PropertyAttrs::METHOD,
         );
     }
