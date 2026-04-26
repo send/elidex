@@ -651,11 +651,18 @@ pub(crate) struct VmInner {
     /// no shared mutability needed inside `body_data`).  Cross-
     /// subsystem callers that need to ferry bytes across an
     /// ownership boundary (`fetch` HTTP handoff,
-    /// `body_mixin::read_body_bytes`, `structured_clone`)
-    /// snapshot to a fresh `Arc<[u8]>` at the boundary — the
-    /// snapshot semantics that the previous immutable-`Arc`
-    /// storage delivered implicitly are now visible in the type
-    /// signature.
+    /// `body_mixin::take_body_bytes`, `structured_clone`,
+    /// `array_buffer::array_buffer_view_bytes`) take an owned
+    /// snapshot at the boundary — by `clone`, `remove`, or
+    /// sub-range `to_vec` depending on whether the consumer is
+    /// non-destructive or one-shot.  Some boundaries keep that
+    /// snapshot as `Vec<u8>`; others convert it to `Arc<[u8]>`
+    /// only when the downstream API requires shared-immutable
+    /// bytes (`fetch` → `Bytes::from_owner` needs `Send + Sync`,
+    /// `BlobData` stores `Arc<[u8]>` per-spec immutability).
+    /// The snapshot semantics that the previous immutable-`Arc`
+    /// storage delivered implicitly are now visible in those
+    /// boundary APIs' types.
     ///
     /// Requests / Responses without body bytes simply omit their
     /// entry.  In Phase 2 the `.body` IDL getter is always `null`
