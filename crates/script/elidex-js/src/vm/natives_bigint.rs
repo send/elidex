@@ -109,18 +109,18 @@ pub(super) fn native_bigint_value_of(
     }
 }
 
-/// Coerce a value to a non-negative integer index (§7.1.22 ToIndex).
+/// Coerce a value to a non-negative integer index (ES §7.1.22
+/// `ToIndex`).  `Undefined → 0` is the per-method default the
+/// `BigInt.asIntN` / `asUintN` callers rely on (their `bits` arg
+/// is the only consumer); the spec arithmetic itself routes through
+/// [`super::coerce::to_index_u64`] with the V8-shape error prefix
+/// `"BigInt"` so the rejection message matches the rest of the
+/// engine's `ToIndex` surface.
 fn to_index(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {
     if matches!(val, JsValue::Undefined) {
         return Ok(0);
     }
-    let n = super::coerce::to_number(ctx.vm, val)?;
-    let n = n.trunc();
-    if !n.is_finite() || !(0.0..9_007_199_254_740_992.0).contains(&n) {
-        return Err(VmError::range_error("index out of range"));
-    }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    Ok(n as u64)
+    super::coerce::to_index_u64(ctx, val, "BigInt", "bits")
 }
 
 /// Coerce a value to BigInt via ToBigInt (§7.1.13).

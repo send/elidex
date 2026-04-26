@@ -4,9 +4,7 @@
 //! ToInt32, ToUint32, and the equality/relational/arithmetic operators.
 
 use super::coerce_format::write_number_es;
-#[cfg(feature = "engine")]
-use super::value::NativeContext;
-use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, StringId, VmError};
+use super::value::{JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, StringId, VmError};
 use super::VmInner;
 use num_bigint::BigInt as BigIntValue;
 use num_bigint::Sign;
@@ -583,6 +581,47 @@ pub(crate) fn to_index_u32(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let as_u32 = truncated as u32;
     Ok(as_u32)
+}
+
+/// ES §7.1.22 `ToIndex` at full spec width — integer in
+/// `[0, 2^53)` (`Number.MAX_SAFE_INTEGER + 1`), else `RangeError`.
+/// Used by `BigInt.asIntN` / `asUintN` (`bits` argument) and the
+/// `ArrayBuffer` constructor (`length` argument); each caller wraps
+/// this with a thin adapter that handles their site-specific
+/// concerns (`Undefined → 0` on the BigInt path, the `usize::MAX`
+/// safety check on 32-bit hosts in the `ArrayBuffer` path).
+///
+/// Error messages share the
+/// `"{error_prefix}: {what} ..."` shape so callers can mirror V8's
+/// per-API formatting (`"Failed to construct 'ArrayBuffer'"`,
+/// `"BigInt"`, etc.).  The returned value satisfies
+/// `0 <= result < 2^53`, so the `truncated as u64` cast at the
+/// bottom is exact.
+pub(crate) fn to_index_u64(
+    ctx: &mut NativeContext<'_>,
+    val: JsValue,
+    error_prefix: &str,
+    what: &str,
+) -> Result<u64, VmError> {
+    let n = ctx.to_number(val)?;
+    let truncated = to_integer_or_infinity(n);
+    if !truncated.is_finite() || truncated < 0.0 {
+        return Err(VmError::range_error(format!(
+            "{error_prefix}: {what} must be a non-negative safe integer"
+        )));
+    }
+    // Number.MAX_SAFE_INTEGER + 1 = 2^53.  Strict `>=` to match
+    // `ToIndex`'s `[0, 2^53 − 1]` closed interval.
+    #[allow(clippy::cast_precision_loss)]
+    let max = (1_u64 << 53) as f64;
+    if truncated >= max {
+        return Err(VmError::range_error(format!(
+            "{error_prefix}: {what} exceeds the maximum safe integer"
+        )));
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let as_u64 = truncated as u64;
+    Ok(as_u64)
 }
 
 // ---------------------------------------------------------------------------
