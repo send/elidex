@@ -462,7 +462,7 @@ fn to_index_u64_truncates_fractional() {
 fn to_index_u64_negative_rejects_with_safe_integer_message() {
     let mut vm = Vm::new();
     let err = try_to_index_u64(&mut vm, JsValue::Number(-1.0)).unwrap_err();
-    let msg = format!("{err:?}");
+    let msg = err.to_string();
     assert!(
         msg.contains("must be a non-negative safe integer"),
         "expected safe-integer rejection message, got {msg}"
@@ -473,7 +473,7 @@ fn to_index_u64_negative_rejects_with_safe_integer_message() {
 fn to_index_u64_neg_infinity_rejects() {
     let mut vm = Vm::new();
     let err = try_to_index_u64(&mut vm, JsValue::Number(f64::NEG_INFINITY)).unwrap_err();
-    let msg = format!("{err:?}");
+    let msg = err.to_string();
     assert!(
         msg.contains("must be a non-negative safe integer"),
         "expected non-finite rejection, got {msg}"
@@ -488,7 +488,7 @@ fn to_index_u64_pos_infinity_rejects() {
     // bounds check.  Same path as the negative case but worth
     // pinning since the literal value is different.
     let err = try_to_index_u64(&mut vm, JsValue::Number(f64::INFINITY)).unwrap_err();
-    let msg = format!("{err:?}");
+    let msg = err.to_string();
     assert!(
         msg.contains("must be a non-negative safe integer"),
         "expected non-finite rejection, got {msg}"
@@ -520,7 +520,7 @@ fn to_index_u64_two_pow_53_rejects_with_max_message() {
     #[allow(clippy::cast_precision_loss)]
     let two_pow_53 = (1_u64 << 53) as f64;
     let err = try_to_index_u64(&mut vm, JsValue::Number(two_pow_53)).unwrap_err();
-    let msg = format!("{err:?}");
+    let msg = err.to_string();
     assert!(
         msg.contains("exceeds the maximum safe integer"),
         "expected upper-bound rejection, got {msg}"
