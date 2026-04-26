@@ -439,7 +439,7 @@ pub(super) fn extract_body_bytes(
         JsValue::Undefined | JsValue::Null => Ok(None),
         JsValue::String(sid) => {
             let raw = ctx.vm.strings.get_utf8(sid);
-            Ok(Some(raw.as_bytes().to_vec()))
+            Ok(Some(raw.into_bytes()))
         }
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
             ObjectKind::ArrayBuffer => Ok(Some(super::array_buffer::array_buffer_bytes(
@@ -466,19 +466,18 @@ pub(super) fn extract_body_bytes(
                 buffer_id,
                 byte_offset,
                 byte_length,
-            } => {
-                let backing = super::array_buffer::array_buffer_bytes(ctx.vm, buffer_id);
-                let start = byte_offset as usize;
-                let end = start + byte_length as usize;
-                let slice: &[u8] = backing.get(start..end).unwrap_or(&[]);
-                Ok(Some(slice.to_vec()))
-            }
+            } => Ok(Some(super::array_buffer::array_buffer_view_bytes(
+                ctx.vm,
+                buffer_id,
+                byte_offset,
+                byte_length,
+            ))),
             _ => {
                 // Generic fallback: stringify.  Covers plain
                 // objects / Arrays / numbers once wrapped.
                 let sid = super::super::coerce::to_string(ctx.vm, val)?;
                 let raw = ctx.vm.strings.get_utf8(sid);
-                Ok(Some(raw.as_bytes().to_vec()))
+                Ok(Some(raw.into_bytes()))
             }
         },
         _ => {
@@ -486,7 +485,7 @@ pub(super) fn extract_body_bytes(
             // matching browsers' `new Request(url, {body: 42})` → "42".
             let sid = super::super::coerce::to_string(ctx.vm, val)?;
             let raw = ctx.vm.strings.get_utf8(sid);
-            Ok(Some(raw.as_bytes().to_vec()))
+            Ok(Some(raw.into_bytes()))
         }
     }
 }
@@ -935,7 +934,7 @@ fn native_response_static_json(
     let body_bytes = match json_val {
         JsValue::String(sid) => {
             let raw = ctx.vm.strings.get_utf8(sid);
-            Some(raw.as_bytes().to_vec())
+            Some(raw.into_bytes())
         }
         _ => {
             // `JSON.stringify(undefined)` → `undefined` → body is

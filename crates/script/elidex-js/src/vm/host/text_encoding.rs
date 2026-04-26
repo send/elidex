@@ -706,16 +706,12 @@ fn extract_buffer_source_bytes(
                 buffer_id,
                 byte_offset,
                 byte_length,
-            } => {
-                let backing = super::array_buffer::array_buffer_bytes(ctx.vm, buffer_id);
-                let start = byte_offset as usize;
-                let end = start + byte_length as usize;
-                if start == 0 && end == backing.len() {
-                    Ok(backing)
-                } else {
-                    Ok(backing.get(start..end).unwrap_or(&[]).to_vec())
-                }
-            }
+            } => Ok(super::array_buffer::array_buffer_view_bytes(
+                ctx.vm,
+                buffer_id,
+                byte_offset,
+                byte_length,
+            )),
             _ => Err(VmError::type_error(
                 "Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'BufferSource'",
             )),

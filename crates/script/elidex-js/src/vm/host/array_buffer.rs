@@ -186,6 +186,29 @@ pub(crate) fn array_buffer_bytes(vm: &VmInner, id: ObjectId) -> Vec<u8> {
     vm.body_data.get(&id).cloned().unwrap_or_default()
 }
 
+/// Return a snapshot of `body_data[buffer_id]` over `[byte_offset,
+/// byte_offset + byte_length)` as an owned `Vec<u8>`, sized to the
+/// view (not the full backing buffer).  Used by `BufferSource`
+/// extractors (TextDecoder.decode, Body init, Blob construction)
+/// where a small TypedArray / DataView over a large ArrayBuffer
+/// must not clone the entire backing buffer.  Missing entry,
+/// out-of-range slice, or full-buffer view all produce a single
+/// `Vec` allocation sized to the view.
+pub(crate) fn array_buffer_view_bytes(
+    vm: &VmInner,
+    buffer_id: ObjectId,
+    byte_offset: u32,
+    byte_length: u32,
+) -> Vec<u8> {
+    let start = byte_offset as usize;
+    let end = start.saturating_add(byte_length as usize);
+    vm.body_data
+        .get(&buffer_id)
+        .and_then(|src| src.get(start..end))
+        .map(<[u8]>::to_vec)
+        .unwrap_or_default()
+}
+
 /// Allocate an `ArrayBuffer` instance whose bytes are `bytes`.
 /// Used by `.slice()` and by the Body mixin's `.arrayBuffer()`.
 /// Empty input skips the `body_data.insert` so absent vs zero-byte
