@@ -83,11 +83,74 @@ pub(super) fn write_at(
     let Some(end) = abs.checked_add(bytes.len()) else {
         return;
     };
-    let current: &[u8] = body_data.get(&buffer_id).map(AsRef::as_ref).unwrap_or(&[]);
-    let mut new_bytes: Vec<u8> = current.to_vec();
-    if new_bytes.len() < end {
-        new_bytes.resize(end, 0);
-    }
+    let mut new_bytes = grow_or_fresh(body_data.get(&buffer_id), end);
     new_bytes[abs..end].copy_from_slice(bytes);
+    body_data.insert(buffer_id, Arc::from(new_bytes));
+}
+
+/// Materialise a writable `Vec<u8>` of length `>= needed` from the
+/// existing `body_data` entry, or allocate a fresh zero-filled
+/// `Vec` of exactly `needed` bytes when no entry exists.
+///
+/// The fresh-buffer path skips the `&[]`-to-`Vec` clone that
+/// `current.to_vec()` would otherwise perform on a missing entry,
+/// going straight to a single `vec![0; needed]` allocation.
+/// Pre-existing entries fall through to clone + grow as before.
+fn grow_or_fresh(current: Option<&Arc<[u8]>>, needed: usize) -> Vec<u8> {
+    match current {
+        Some(arc) => {
+            let mut new_bytes: Vec<u8> = arc.as_ref().to_vec();
+            if new_bytes.len() < needed {
+                new_bytes.resize(needed, 0);
+            }
+            new_bytes
+        }
+        None => vec![0_u8; needed],
+    }
+}
+
+/// Write `pattern` `count` times consecutively into
+/// `body_data[buffer_id]` starting at absolute byte offset `abs`,
+/// growing the backing buffer with zero-fill as needed and
+/// installing a single fresh `Arc<[u8]>` afterwards.
+///
+/// Replaces the per-element loop pattern (`fill()` etc.) where
+/// each iteration would otherwise clone the entire buffer through
+/// [`write_at`].  One clone-grow-install instead of N collapses
+/// `%TypedArray%.prototype.fill` from O(N²) bytes touched to
+/// O(N).  Single-byte patterns hit the `slice::fill` fast path;
+/// wider patterns chunk in a tight inner loop.
+///
+/// Callers retain responsibility for any view-relative bounds
+/// check.  Overflow on `pattern.len() * count` or
+/// `abs + total_len` is treated as a no-op write — the call sites
+/// pre-validate against their own view's `[[ByteLength]]`, so
+/// reaching either branch indicates a malformed receiver that
+/// must not corrupt the backing buffer or panic.
+pub(super) fn fill_pattern(
+    body_data: &mut HashMap<ObjectId, Arc<[u8]>>,
+    buffer_id: ObjectId,
+    abs: usize,
+    pattern: &[u8],
+    count: usize,
+) {
+    let Some(total_len) = pattern.len().checked_mul(count) else {
+        return;
+    };
+    let Some(end) = abs.checked_add(total_len) else {
+        return;
+    };
+    let mut new_bytes = grow_or_fresh(body_data.get(&buffer_id), end);
+    match pattern {
+        [] => {}
+        [b] => new_bytes[abs..end].fill(*b),
+        _ => {
+            let plen = pattern.len();
+            for i in 0..count {
+                let dst_start = abs + i * plen;
+                new_bytes[dst_start..dst_start + plen].copy_from_slice(pattern);
+            }
+        }
+    }
     body_data.insert(buffer_id, Arc::from(new_bytes));
 }

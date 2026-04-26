@@ -98,9 +98,11 @@ pub(super) fn subclass_prototype_for(vm: &VmInner, ek: ElementKind) -> Option<Ob
 
 /// `%TypedArray%.prototype.fill(value, start?, end?)` (ES §23.2.3.11).
 /// Writes `value` to each element across `[start, end)` and returns
-/// the receiver for chaining.  Current impl delegates to
-/// `write_element_raw` per element, so coercion runs once per
-/// iteration; a pre-coerced byte-level helper lands with SP9.
+/// the receiver for chaining.  Coerces `value` *once* up front via
+/// [`super::typed_array::coerce_element_to_le_bytes`] and bulk-fills
+/// the byte range through [`super::byte_io::fill_pattern`] — a
+/// single clone-grow-install replaces what was previously N of them.
+/// O(N²) bytes-touched → O(N).
 pub(crate) fn native_typed_array_fill(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -128,11 +130,22 @@ pub(crate) fn native_typed_array_fill(
         other => relative_index_u32(ctx.to_number(other)?, len_elem),
     };
 
-    // O(N²) in bytes — coerces per iteration and re-clones the
-    // whole backing Arc per write.  Deferred to SP9 (byte-level
-    // fill helper) to keep the C4a change minimal.
-    for i in start_idx..end_idx {
-        write_element_raw(ctx, buffer_id, byte_offset, i, ek, value)?;
+    if end_idx > start_idx {
+        // Coerce the user-supplied `value` exactly once — `valueOf`
+        // / `Symbol.toPrimitive` may have observable side effects,
+        // and the spec runs the conversion before any element
+        // writes (so a thrown coercion leaves the array unmodified).
+        let mut scratch = [0_u8; 8];
+        let bpe = super::typed_array::coerce_element_to_le_bytes(ctx, ek, value, &mut scratch)?;
+        let abs = (byte_offset + start_idx * (bpe as u32)) as usize;
+        let count = (end_idx - start_idx) as usize;
+        super::byte_io::fill_pattern(
+            &mut ctx.vm.body_data,
+            buffer_id,
+            abs,
+            &scratch[..bpe],
+            count,
+        );
     }
     Ok(JsValue::Object(id))
 }

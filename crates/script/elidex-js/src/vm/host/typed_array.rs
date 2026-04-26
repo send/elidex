@@ -865,6 +865,93 @@ pub(crate) fn read_element_raw(
     }
 }
 
+/// Coerce `value` per `ek` and serialise the per-element
+/// little-endian byte sequence into `out`, returning the number of
+/// bytes written (always equal to `ek.bytes_per_element()`).
+/// Shared by [`write_element_raw`] (single-element writes) and
+/// [`super::typed_array_methods::native_typed_array_fill`] (one
+/// coerce per fill, not per element).
+///
+/// Coercion may run user code (`valueOf` / `Symbol.toPrimitive`)
+/// and throw — callers therefore invoke this before any
+/// irreversible mutation, so a thrown coercion leaves the backing
+/// buffer untouched.
+pub(crate) fn coerce_element_to_le_bytes(
+    ctx: &mut NativeContext<'_>,
+    ek: ElementKind,
+    value: JsValue,
+    out: &mut [u8; 8],
+) -> Result<usize, VmError> {
+    Ok(match ek {
+        ElementKind::Int8 => {
+            let v = super::super::coerce::to_int8(ctx.vm, value)?;
+            out[0] = v as u8;
+            1
+        }
+        ElementKind::Uint8 => {
+            let v = super::super::coerce::to_uint8(ctx.vm, value)?;
+            out[0] = v;
+            1
+        }
+        ElementKind::Uint8Clamped => {
+            let v = super::super::coerce::to_uint8_clamp(ctx.vm, value)?;
+            out[0] = v;
+            1
+        }
+        ElementKind::Int16 => {
+            let v = super::super::coerce::to_int16(ctx.vm, value)?;
+            out[..2].copy_from_slice(&v.to_le_bytes());
+            2
+        }
+        ElementKind::Uint16 => {
+            let v = super::super::coerce::to_uint16(ctx.vm, value)?;
+            out[..2].copy_from_slice(&v.to_le_bytes());
+            2
+        }
+        ElementKind::Int32 => {
+            let v = super::super::coerce::to_int32(ctx.vm, value)?;
+            out[..4].copy_from_slice(&v.to_le_bytes());
+            4
+        }
+        ElementKind::Uint32 => {
+            let v = super::super::coerce::to_uint32(ctx.vm, value)?;
+            out[..4].copy_from_slice(&v.to_le_bytes());
+            4
+        }
+        ElementKind::Float32 => {
+            let n = super::super::coerce::to_number(ctx.vm, value)?;
+            #[allow(clippy::cast_possible_truncation)]
+            let v = n as f32;
+            out[..4].copy_from_slice(&v.to_le_bytes());
+            4
+        }
+        ElementKind::Float64 => {
+            let n = super::super::coerce::to_number(ctx.vm, value)?;
+            out[..8].copy_from_slice(&n.to_le_bytes());
+            8
+        }
+        ElementKind::BigInt64 => {
+            let v = super::super::natives_bigint::to_bigint64(ctx, value)?;
+            out[..8].copy_from_slice(&v.to_le_bytes());
+            8
+        }
+        ElementKind::BigUint64 => {
+            let v = super::super::natives_bigint::to_biguint64(ctx, value)?;
+            out[..8].copy_from_slice(&v.to_le_bytes());
+            8
+        }
+    })
+    .map(|len| {
+        debug_assert_eq!(
+            len,
+            usize::from(ek.bytes_per_element()),
+            "coerce_element_to_le_bytes wrote {len} bytes but ek={ek:?} declares bytes_per_element()={}",
+            ek.bytes_per_element()
+        );
+        len
+    })
+}
+
 /// Write `value` into the buffer at `index`, coerced per `ek`.
 /// Returns `Err` when BigInt coercion fails (writing a Number into
 /// a `BigInt64Array` — `ToBigInt` rejects) or when user-level
@@ -893,65 +980,7 @@ pub(crate) fn write_element_raw(
     // bytes; the actual write (which replaces the Arc entry)
     // only runs if coercion succeeds.
     let mut scratch = [0_u8; 8];
-    let written_len = match ek {
-        ElementKind::Int8 => {
-            let v = super::super::coerce::to_int8(ctx.vm, value)?;
-            scratch[0] = v as u8;
-            1
-        }
-        ElementKind::Uint8 => {
-            let v = super::super::coerce::to_uint8(ctx.vm, value)?;
-            scratch[0] = v;
-            1
-        }
-        ElementKind::Uint8Clamped => {
-            let v = super::super::coerce::to_uint8_clamp(ctx.vm, value)?;
-            scratch[0] = v;
-            1
-        }
-        ElementKind::Int16 => {
-            let v = super::super::coerce::to_int16(ctx.vm, value)?;
-            scratch[..2].copy_from_slice(&v.to_le_bytes());
-            2
-        }
-        ElementKind::Uint16 => {
-            let v = super::super::coerce::to_uint16(ctx.vm, value)?;
-            scratch[..2].copy_from_slice(&v.to_le_bytes());
-            2
-        }
-        ElementKind::Int32 => {
-            let v = super::super::coerce::to_int32(ctx.vm, value)?;
-            scratch[..4].copy_from_slice(&v.to_le_bytes());
-            4
-        }
-        ElementKind::Uint32 => {
-            let v = super::super::coerce::to_uint32(ctx.vm, value)?;
-            scratch[..4].copy_from_slice(&v.to_le_bytes());
-            4
-        }
-        ElementKind::Float32 => {
-            let n = super::super::coerce::to_number(ctx.vm, value)?;
-            #[allow(clippy::cast_possible_truncation)]
-            let v = n as f32;
-            scratch[..4].copy_from_slice(&v.to_le_bytes());
-            4
-        }
-        ElementKind::Float64 => {
-            let n = super::super::coerce::to_number(ctx.vm, value)?;
-            scratch[..8].copy_from_slice(&n.to_le_bytes());
-            8
-        }
-        ElementKind::BigInt64 => {
-            let v = super::super::natives_bigint::to_bigint64(ctx, value)?;
-            scratch[..8].copy_from_slice(&v.to_le_bytes());
-            8
-        }
-        ElementKind::BigUint64 => {
-            let v = super::super::natives_bigint::to_biguint64(ctx, value)?;
-            scratch[..8].copy_from_slice(&v.to_le_bytes());
-            8
-        }
-    };
+    let written_len = coerce_element_to_le_bytes(ctx, ek, value, &mut scratch)?;
 
     // Clone the existing buffer, grow if needed, apply the element
     // write, install the fresh `Arc<[u8]>` so other views over the
