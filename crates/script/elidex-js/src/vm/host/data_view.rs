@@ -152,8 +152,7 @@ impl VmInner {
             ),
         ];
         for (name_sid, fn_ptr) in methods {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, fn_ptr);
+            let fn_id = self.create_native_function_with_sid(name_sid, fn_ptr);
             self.define_shaped_property(
                 proto_id,
                 PropertyKey::String(name_sid),
