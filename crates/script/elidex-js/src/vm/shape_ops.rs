@@ -312,6 +312,13 @@ impl VmInner {
         setter: Option<super::NativeFn>,
         attrs: shape::PropertyAttrs,
     ) {
+        debug_assert!(
+            attrs.is_accessor,
+            "install_accessor_pair requires accessor-typed attrs \
+             (is_accessor=true); a data-typed PropertyAttrs would put \
+             the shape metadata out of sync with the slot's Accessor \
+             value and break descriptor lookups",
+        );
         let display = self.strings.get_utf8(name_sid);
         let getter_id = self.create_native_function(&format!("get {display}"), getter);
         let setter_id = setter.map(|f| self.create_native_function(&format!("set {display}"), f));
@@ -344,6 +351,13 @@ impl VmInner {
         func: super::NativeFn,
         attrs: shape::PropertyAttrs,
     ) -> ObjectId {
+        debug_assert!(
+            !attrs.is_accessor,
+            "install_native_method requires data-typed attrs \
+             (is_accessor=false); an accessor-typed PropertyAttrs \
+             would put the shape metadata out of sync with the \
+             slot's Data value and break descriptor lookups",
+        );
         let fn_id = self.create_native_function_with_sid(name_sid, func);
         self.define_shaped_property(
             target,
