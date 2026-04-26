@@ -118,34 +118,42 @@ impl VmInner {
         }
 
         // 10 get* methods + 10 set* methods.  Names are
-        // fresh-interned here (not WellKnownStrings) because
-        // they're unique to DataView and the intern pool
-        // dedup-caches on repeat calls.
-        let methods: [(&str, NativeFn); 20] = [
-            ("getInt8", native_data_view_get_int8),
-            ("getUint8", native_data_view_get_uint8),
-            ("getInt16", native_data_view_get_int16),
-            ("getUint16", native_data_view_get_uint16),
-            ("getInt32", native_data_view_get_int32),
-            ("getUint32", native_data_view_get_uint32),
-            ("getFloat32", native_data_view_get_float32),
-            ("getFloat64", native_data_view_get_float64),
-            ("getBigInt64", native_data_view_get_bigint64),
-            ("getBigUint64", native_data_view_get_biguint64),
-            ("setInt8", native_data_view_set_int8),
-            ("setUint8", native_data_view_set_uint8),
-            ("setInt16", native_data_view_set_int16),
-            ("setUint16", native_data_view_set_uint16),
-            ("setInt32", native_data_view_set_int32),
-            ("setUint32", native_data_view_set_uint32),
-            ("setFloat32", native_data_view_set_float32),
-            ("setFloat64", native_data_view_set_float64),
-            ("setBigInt64", native_data_view_set_bigint64),
-            ("setBigUint64", native_data_view_set_biguint64),
+        // pre-interned in `WellKnownStrings` so this table skips
+        // the per-call `strings.intern(...)` round-trip during
+        // `Vm::new`.  The displayed function name (used by
+        // `Function.prototype.name`) is carried by the same
+        // interned `StringId` passed to
+        // `create_native_function_with_sid`.
+        let methods: [(StringId, NativeFn); 20] = [
+            (self.well_known.get_int8, native_data_view_get_int8),
+            (self.well_known.get_uint8, native_data_view_get_uint8),
+            (self.well_known.get_int16, native_data_view_get_int16),
+            (self.well_known.get_uint16, native_data_view_get_uint16),
+            (self.well_known.get_int32, native_data_view_get_int32),
+            (self.well_known.get_uint32, native_data_view_get_uint32),
+            (self.well_known.get_float32, native_data_view_get_float32),
+            (self.well_known.get_float64, native_data_view_get_float64),
+            (self.well_known.get_bigint64, native_data_view_get_bigint64),
+            (
+                self.well_known.get_biguint64,
+                native_data_view_get_biguint64,
+            ),
+            (self.well_known.set_int8, native_data_view_set_int8),
+            (self.well_known.set_uint8, native_data_view_set_uint8),
+            (self.well_known.set_int16, native_data_view_set_int16),
+            (self.well_known.set_uint16, native_data_view_set_uint16),
+            (self.well_known.set_int32, native_data_view_set_int32),
+            (self.well_known.set_uint32, native_data_view_set_uint32),
+            (self.well_known.set_float32, native_data_view_set_float32),
+            (self.well_known.set_float64, native_data_view_set_float64),
+            (self.well_known.set_bigint64, native_data_view_set_bigint64),
+            (
+                self.well_known.set_biguint64,
+                native_data_view_set_biguint64,
+            ),
         ];
-        for (name, fn_ptr) in methods {
-            let name_sid = self.strings.intern(name);
-            let fn_id = self.create_native_function(name, fn_ptr);
+        for (name_sid, fn_ptr) in methods {
+            let fn_id = self.create_native_function_with_sid(name_sid, fn_ptr);
             self.define_shaped_property(
                 proto_id,
                 PropertyKey::String(name_sid),

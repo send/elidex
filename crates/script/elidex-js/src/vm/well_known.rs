@@ -483,6 +483,52 @@ pub(crate) struct WellKnownStrings {
     pub(crate) byte_offset: StringId,
     pub(crate) bytes_per_element: StringId,
 
+    // -- %TypedArray%.prototype method names --
+    // Pre-interned so `install_typed_array_prototype_members`
+    // skips the per-method `strings.intern(...)` round-trip
+    // during `Vm::new`.  `slice` / `set` / `values` / `keys` /
+    // `entries` / `for_each` / `join` are reused from the
+    // Headers / Body / Array sections above.
+    pub(crate) fill: StringId,
+    pub(crate) subarray: StringId,
+    pub(crate) copy_within: StringId,
+    pub(crate) reverse: StringId,
+    pub(crate) index_of: StringId,
+    pub(crate) last_index_of: StringId,
+    pub(crate) includes: StringId,
+    pub(crate) at: StringId,
+    pub(crate) every: StringId,
+    pub(crate) some: StringId,
+    pub(crate) find: StringId,
+    pub(crate) find_index: StringId,
+
+    // -- DataView.prototype method names --
+    // Pre-interned so `install_data_view_members` skips the
+    // per-method `strings.intern(...)` round-trip during
+    // `Vm::new`.  All 20 get* / set* names are unique to
+    // DataView and have no overlap with reusable identifiers
+    // above.
+    pub(crate) get_int8: StringId,
+    pub(crate) get_uint8: StringId,
+    pub(crate) get_int16: StringId,
+    pub(crate) get_uint16: StringId,
+    pub(crate) get_int32: StringId,
+    pub(crate) get_uint32: StringId,
+    pub(crate) get_float32: StringId,
+    pub(crate) get_float64: StringId,
+    pub(crate) get_bigint64: StringId,
+    pub(crate) get_biguint64: StringId,
+    pub(crate) set_int8: StringId,
+    pub(crate) set_uint8: StringId,
+    pub(crate) set_int16: StringId,
+    pub(crate) set_uint16: StringId,
+    pub(crate) set_int32: StringId,
+    pub(crate) set_uint32: StringId,
+    pub(crate) set_float32: StringId,
+    pub(crate) set_float64: StringId,
+    pub(crate) set_bigint64: StringId,
+    pub(crate) set_biguint64: StringId,
+
     // -- TextEncoder / TextDecoder (WHATWG Encoding §8) --
     // Constructor globals use the `*_global` suffix convention.
     // Method / attribute names are separate fields: `encoding`
@@ -874,6 +920,42 @@ impl WellKnownStrings {
             buffer: strings.intern("buffer"),
             byte_offset: strings.intern("byteOffset"),
             bytes_per_element: strings.intern("BYTES_PER_ELEMENT"),
+
+            // %TypedArray%.prototype method names.
+            fill: strings.intern("fill"),
+            subarray: strings.intern("subarray"),
+            copy_within: strings.intern("copyWithin"),
+            reverse: strings.intern("reverse"),
+            index_of: strings.intern("indexOf"),
+            last_index_of: strings.intern("lastIndexOf"),
+            includes: strings.intern("includes"),
+            at: strings.intern("at"),
+            every: strings.intern("every"),
+            some: strings.intern("some"),
+            find: strings.intern("find"),
+            find_index: strings.intern("findIndex"),
+
+            // DataView.prototype method names.
+            get_int8: strings.intern("getInt8"),
+            get_uint8: strings.intern("getUint8"),
+            get_int16: strings.intern("getInt16"),
+            get_uint16: strings.intern("getUint16"),
+            get_int32: strings.intern("getInt32"),
+            get_uint32: strings.intern("getUint32"),
+            get_float32: strings.intern("getFloat32"),
+            get_float64: strings.intern("getFloat64"),
+            get_bigint64: strings.intern("getBigInt64"),
+            get_biguint64: strings.intern("getBigUint64"),
+            set_int8: strings.intern("setInt8"),
+            set_uint8: strings.intern("setUint8"),
+            set_int16: strings.intern("setInt16"),
+            set_uint16: strings.intern("setUint16"),
+            set_int32: strings.intern("setInt32"),
+            set_uint32: strings.intern("setUint32"),
+            set_float32: strings.intern("setFloat32"),
+            set_float64: strings.intern("setFloat64"),
+            set_bigint64: strings.intern("setBigInt64"),
+            set_biguint64: strings.intern("setBigUint64"),
 
             // TextEncoder / TextDecoder.
             text_encoder_global: strings.intern("TextEncoder"),

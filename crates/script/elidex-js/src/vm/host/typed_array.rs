@@ -198,88 +198,89 @@ impl VmInner {
         // Core method suite.  See `typed_array_methods` for the
         // spec-aligned bodies; each method is installed on
         // `%TypedArray%.prototype` (shared across all 11 subclasses
-        // via prototype chain).
+        // via prototype chain).  Names are pre-interned in
+        // `WellKnownStrings` so this table doesn't pay the per-call
+        // `strings.intern(...)` round-trip during `Vm::new`.
         let methods: [(StringId, NativeFn); 19] = [
             (
-                self.strings.intern("fill"),
+                self.well_known.fill,
                 super::typed_array_methods::native_typed_array_fill as NativeFn,
             ),
             (
-                self.strings.intern("subarray"),
+                self.well_known.subarray,
                 super::typed_array_methods::native_typed_array_subarray as NativeFn,
             ),
             (
-                self.strings.intern("slice"),
+                self.well_known.slice,
                 super::typed_array_methods::native_typed_array_slice as NativeFn,
             ),
             (
-                self.strings.intern("values"),
+                self.well_known.values,
                 super::typed_array_methods::native_typed_array_values as NativeFn,
             ),
             (
-                self.strings.intern("keys"),
+                self.well_known.keys,
                 super::typed_array_methods::native_typed_array_keys as NativeFn,
             ),
             (
-                self.strings.intern("entries"),
+                self.well_known.entries,
                 super::typed_array_methods::native_typed_array_entries as NativeFn,
             ),
             (
-                self.strings.intern("set"),
+                self.well_known.set,
                 super::typed_array_methods::native_typed_array_set as NativeFn,
             ),
             (
-                self.strings.intern("copyWithin"),
+                self.well_known.copy_within,
                 super::typed_array_methods::native_typed_array_copy_within as NativeFn,
             ),
             (
-                self.strings.intern("reverse"),
+                self.well_known.reverse,
                 super::typed_array_methods::native_typed_array_reverse as NativeFn,
             ),
             (
-                self.strings.intern("indexOf"),
+                self.well_known.index_of,
                 super::typed_array_methods::native_typed_array_index_of as NativeFn,
             ),
             (
-                self.strings.intern("lastIndexOf"),
+                self.well_known.last_index_of,
                 super::typed_array_methods::native_typed_array_last_index_of as NativeFn,
             ),
             (
-                self.strings.intern("includes"),
+                self.well_known.includes,
                 super::typed_array_methods::native_typed_array_includes as NativeFn,
             ),
             (
-                self.strings.intern("at"),
+                self.well_known.at,
                 super::typed_array_methods::native_typed_array_at as NativeFn,
             ),
             (
-                self.strings.intern("join"),
+                self.well_known.join,
                 super::typed_array_methods::native_typed_array_join as NativeFn,
             ),
             (
-                self.strings.intern("forEach"),
+                self.well_known.for_each,
                 super::typed_array_methods::native_typed_array_for_each as NativeFn,
             ),
             (
-                self.strings.intern("every"),
+                self.well_known.every,
                 super::typed_array_methods::native_typed_array_every as NativeFn,
             ),
             (
-                self.strings.intern("some"),
+                self.well_known.some,
                 super::typed_array_methods::native_typed_array_some as NativeFn,
             ),
             (
-                self.strings.intern("find"),
+                self.well_known.find,
                 super::typed_array_methods::native_typed_array_find as NativeFn,
             ),
             (
-                self.strings.intern("findIndex"),
+                self.well_known.find_index,
                 super::typed_array_methods::native_typed_array_find_index as NativeFn,
             ),
         ];
         for (name_sid, fn_ptr) in methods {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, fn_ptr);
+            let fn_id = self.create_native_function_with_sid(name_sid, fn_ptr);
             self.define_shaped_property(
                 proto_id,
                 PropertyKey::String(name_sid),
@@ -291,9 +292,11 @@ impl VmInner {
         // `%TypedArray%.prototype[Symbol.iterator]` — spec-mandated
         // identity-equal to `.values` (ES §23.2.3.33).  Install
         // after `values` so we can reuse the same function id.
-        let values_sid = self.strings.intern("values");
-        let values_slot =
-            super::super::coerce::get_property(self, proto_id, PropertyKey::String(values_sid));
+        let values_slot = super::super::coerce::get_property(
+            self,
+            proto_id,
+            PropertyKey::String(self.well_known.values),
+        );
         if let Some(super::super::coerce::PropertyResult::Data(JsValue::Object(values_fn))) =
             values_slot
         {

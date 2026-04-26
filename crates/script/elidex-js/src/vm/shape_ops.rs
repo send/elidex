@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use super::value::{self, JsValue, NativeContext, Object, ObjectId, ObjectKind, VmError};
+use super::value::{self, JsValue, NativeContext, Object, ObjectId, ObjectKind, StringId, VmError};
 use super::{coerce, shape, VmInner};
 use crate::bytecode::compiled::CompiledFunction;
 use value::{FuncId, NativeFunction, UpvalueId};
@@ -264,7 +264,8 @@ impl VmInner {
         name: &str,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     ) -> ObjectId {
-        self.create_native_function_impl(name, func, false)
+        let name_id = self.strings.intern(name);
+        self.create_native_function_impl(name_id, func, false)
     }
 
     /// Helper: create a constructable native function object (for Error, etc.).
@@ -273,16 +274,31 @@ impl VmInner {
         name: &str,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     ) -> ObjectId {
-        self.create_native_function_impl(name, func, true)
+        let name_id = self.strings.intern(name);
+        self.create_native_function_impl(name_id, func, true)
+    }
+
+    /// Helper: create a native function whose `name` is already interned
+    /// (typically a [`super::well_known::WellKnownStrings`] field).  Saves
+    /// the per-call `strings.intern(...)` round-trip plus the
+    /// `strings.get_utf8(...)` allocation a caller would need to feed
+    /// the `&str`-form sibling.  Used by the TypedArray + DataView
+    /// install paths where every method name is pre-interned.
+    #[cfg(feature = "engine")]
+    pub(crate) fn create_native_function_with_sid(
+        &mut self,
+        name_id: StringId,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    ) -> ObjectId {
+        self.create_native_function_impl(name_id, func, false)
     }
 
     fn create_native_function_impl(
         &mut self,
-        name: &str,
+        name_id: StringId,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
         constructable: bool,
     ) -> ObjectId {
-        let name_id = self.strings.intern(name);
         let obj = self.alloc_object(Object {
             kind: ObjectKind::NativeFunction(NativeFunction {
                 name: name_id,
