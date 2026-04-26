@@ -299,14 +299,24 @@ pub(super) fn dispatch_payload(
             origin,
             last_event_id,
         } => {
-            // data, origin, lastEventId
+            // data, origin, lastEventId, source, ports — full
+            // payload-slot extension matching the `message` shape
+            // declared by `build_precomputed_event_shapes`.  The
+            // shell-side payload struct doesn't carry `source` or
+            // `ports` yet (MessagePort lands with the M4-12
+            // cutover-residual transferable-objects work), so they
+            // surface as `null` / fresh empty Array — the JS-visible
+            // `MessageEvent` shape stays in lockstep with the
+            // `dispatch_post_message` path that does carry them.
             let data_sid = vm.strings.intern(data);
             let origin_sid = vm.strings.intern(origin);
             let last_id_sid = vm.strings.intern(last_event_id);
             push_str(slots, data_sid);
             push_str(slots, origin_sid);
             push_str(slots, last_id_sid);
-            // `source` / `ports` populated when MessagePort lands (PR5b).
+            push_val(slots, JsValue::Null);
+            let ports_arr = vm.create_array_object(Vec::new());
+            push_val(slots, JsValue::Object(ports_arr));
         }
         EventPayload::CloseEvent(c) => {
             // code, reason, wasClean
@@ -504,6 +514,8 @@ impl VmInner {
                 self.well_known.data,
                 self.well_known.origin,
                 self.well_known.last_event_id,
+                self.well_known.source,
+                self.well_known.ports,
             ],
         );
         // CloseEvent's numeric `code` shares the JS-visible name with
