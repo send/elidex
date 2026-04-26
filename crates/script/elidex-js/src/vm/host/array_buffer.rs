@@ -37,8 +37,6 @@
 
 #![cfg(feature = "engine")]
 
-use std::sync::Arc;
-
 use super::super::coerce;
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -177,20 +175,22 @@ pub(crate) fn array_buffer_byte_length(vm: &VmInner, id: ObjectId) -> usize {
     vm.body_data.get(&id).map_or(0, |b| b.len())
 }
 
-/// Return the full backing byte slice as an `Arc<[u8]>`, cheaply
-/// cloning the reference-counted handle.  Used by the Body mixin
-/// to ferry bytes back into `VmInner::body_data` when wrapping the
-/// buffer in a new Response / Request body.
-pub(crate) fn array_buffer_bytes(vm: &VmInner, id: ObjectId) -> Arc<[u8]> {
-    vm.body_data
-        .get(&id)
-        .cloned()
-        .unwrap_or_else(|| Arc::from(&[][..]))
+/// Return a snapshot of the full backing byte slice as an owned
+/// `Vec<u8>`.  Used by the Body mixin and other cross-subsystem
+/// readers to ferry bytes out of `VmInner::body_data` for
+/// independent ownership (the new owner inserts the Vec into its
+/// own `body_data` entry, wraps it in `Arc<[u8]>` for shared pools
+/// like `BlobData`, or feeds it into a stream / decoder).  Missing
+/// entry ⇒ empty Vec.
+pub(crate) fn array_buffer_bytes(vm: &VmInner, id: ObjectId) -> Vec<u8> {
+    vm.body_data.get(&id).cloned().unwrap_or_default()
 }
 
 /// Allocate an `ArrayBuffer` instance whose bytes are `bytes`.
 /// Used by `.slice()` and by the Body mixin's `.arrayBuffer()`.
-pub(crate) fn create_array_buffer_from_bytes(vm: &mut VmInner, bytes: Arc<[u8]>) -> ObjectId {
+/// Empty input skips the `body_data.insert` so absent vs zero-byte
+/// stay distinguishable via `body_data.contains_key(&id)`.
+pub(crate) fn create_array_buffer_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> ObjectId {
     let proto = vm.array_buffer_prototype;
     let id = vm.alloc_object(Object {
         kind: ObjectKind::ArrayBuffer,
@@ -261,11 +261,10 @@ fn native_array_buffer_constructor(
     // (PR5a2 R7.2/R7.3 lesson — subclass chain preservation).
     ctx.vm.get_object_mut(inst_id).kind = ObjectKind::ArrayBuffer;
     if length > 0 {
-        // Allocate a zero-filled Arc<[u8]>.  Single allocation via
-        // `vec![0u8; length].into()` avoids the intermediate Vec→Box
-        // shuffle.
-        let bytes: Arc<[u8]> = vec![0_u8; length].into();
-        ctx.vm.body_data.insert(inst_id, bytes);
+        // Allocate the zero-filled Vec directly into `body_data` —
+        // no intermediate wrap; subsequent TypedArray / DataView
+        // writes mutate in place via `byte_io`.
+        ctx.vm.body_data.insert(inst_id, vec![0_u8; length]);
     }
     Ok(JsValue::Object(inst_id))
 }
@@ -341,23 +340,20 @@ fn native_array_buffer_slice(
     let stop = relative_index(end, len_f);
     let final_len = stop.saturating_sub(start);
 
-    // Copy the slice into a fresh `Arc<[u8]>`.  Partial-share of an
-    // `Arc<[u8]>` sub-range requires per-range allocation until the
-    // backing store is refactored to support shared slices (planned
-    // for the later TypedArray tranche of M4-12 — the current layer
-    // is ArrayBuffer-only and byte-copy-on-slice is acceptable
-    // because the measurable cost lands only when a script actually
-    // slices large buffers).
-    let bytes: Arc<[u8]> = if final_len == 0 {
-        Arc::from(&[][..])
+    // Copy the slice into a fresh `Vec<u8>`.  Sub-range zero-copy
+    // sharing was only meaningful while `body_data` held immutable
+    // `Arc<[u8]>`; with owned `Vec<u8>` storage every owner has
+    // its own buffer (per-view mutability is a spec invariant for
+    // ArrayBuffer.slice — the new buffer is independent of the
+    // source).
+    let bytes: Vec<u8> = if final_len == 0 {
+        Vec::new()
     } else {
-        let src = ctx
-            .vm
+        ctx.vm
             .body_data
             .get(&id)
-            .cloned()
-            .unwrap_or_else(|| Arc::from(&[][..]));
-        Arc::from(&src[start..stop])
+            .map(|src| src[start..stop].to_vec())
+            .unwrap_or_default()
     };
     let new_id = create_array_buffer_from_bytes(ctx.vm, bytes);
     Ok(JsValue::Object(new_id))

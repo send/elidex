@@ -587,7 +587,10 @@ fn native_blob_array_buffer(
     // `id` is already reachable from JS (method receiver) so
     // `blob_bytes` stays safe without extra rooting.
     let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let bytes = blob_bytes(&g, id);
+    // BlobData stores `bytes` as `Arc<[u8]>` (per-spec immutable);
+    // the new ArrayBuffer needs an owned `Vec<u8>` for `body_data`,
+    // so snapshot at the pool boundary via `to_vec()`.
+    let bytes = blob_bytes(&g, id).to_vec();
     let buf_id = super::array_buffer::create_array_buffer_from_bytes(&mut g, bytes);
     resolve_promise_sync(&mut g, promise, JsValue::Object(buf_id));
     drop(g);

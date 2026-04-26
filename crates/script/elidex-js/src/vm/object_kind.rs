@@ -268,12 +268,12 @@ pub enum ObjectKind {
     /// `method` / `url` / `headers_id` state lives in
     /// `VmInner::request_states`.  Body bytes (when present) live
     /// in the shared `VmInner::body_data` map keyed by this
-    /// object's `ObjectId` — `clone()` uses `Arc::clone` on the
-    /// entry so two Requests can share a single backing buffer
-    /// without copy.
+    /// object's `ObjectId` — `clone()` deep-copies the entry's
+    /// `Vec<u8>` so the cloned Request owns its bytes
+    /// independently.
     ///
     /// GC contract: the trace step marks the `headers_id` Companion
-    /// from the state entry.  Body bytes are plain `Arc<[u8]>` (no
+    /// from the state entry.  Body bytes are plain `Vec<u8>` (no
     /// `ObjectId` references), so they need no marking.  Sweep
     /// tail prunes `request_states` / `body_data` / `body_used`
     /// entries whose key was collected.
@@ -294,18 +294,20 @@ pub enum ObjectKind {
     Response,
     /// `ArrayBuffer` instance (ES2020 §24.1, minimal Phase 2 form).
     /// Payload-free; the backing bytes live in the shared
-    /// `VmInner::body_data` map keyed by this object's `ObjectId`.
-    /// `.slice()` allocates a fresh ArrayBuffer + `Arc<[u8]>` range
-    /// copy.  TypedArray views (Uint8Array / DataView / …) are
-    /// deferred to the next tranche; this variant's byte storage is
-    /// therefore not shared with any view object yet.
+    /// `VmInner::body_data` map (owned `Vec<u8>`) keyed by this
+    /// object's `ObjectId`.  `.slice()` allocates a fresh
+    /// ArrayBuffer with its own `Vec<u8>` range copy.  TypedArray
+    /// and DataView views read and **mutate in place** through
+    /// `byte_io` over the shared `body_data` entry, so writes
+    /// through any view are visible through any other view over
+    /// the same `buffer_id`.
     ///
-    /// IDL readonly `byteLength` reads the `Arc<[u8]>::len()` of
+    /// IDL readonly `byteLength` reads the `Vec<u8>::len()` of
     /// the `body_data` entry — authoritative internal slot (PR5a2
     /// R7.1 lesson: `delete buf.byteLength` must not break reads).
     ///
     /// GC contract: payload-free — the trace step has nothing to
-    /// fan out (body bytes are plain `Arc<[u8]>`, no ObjectId
+    /// fan out (body bytes are plain `Vec<u8>`, no ObjectId
     /// references).  Sweep tail pruning of `body_data` already
     /// drops dead-key entries alongside Request / Response.
     #[cfg(feature = "engine")]

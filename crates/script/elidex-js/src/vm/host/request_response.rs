@@ -5,7 +5,8 @@
 //! lives in out-of-band side tables ([`RequestState`] / [`ResponseState`])
 //! keyed by the instance's own `ObjectId`.  Body bytes — when present
 //! — share a single `VmInner::body_data` map across both variants so
-//! `clone()` can cheaply `Arc::clone` the backing buffer.
+//! `clone()` clones the body `Vec<u8>` via the shared `body_data`
+//! map.
 //!
 //! ## Prototype chain
 //!
@@ -37,7 +38,8 @@
 //!   mixin tranche).
 //! - `new Response(body?, init?)` — same body types.
 //! - All IDL getters listed above.
-//! - `request.clone()` / `response.clone()` — shared body via `Arc`.
+//! - `request.clone()` / `response.clone()` — copy body Vec via
+//!   `body_data` map.
 //! - `Response.error()` / `Response.redirect(url, status)` /
 //!   `Response.json(data, init?)` static factories.
 //! - `.text()` / `.json()` / `.arrayBuffer()` / `.blob()` read
@@ -59,8 +61,6 @@
 //!   PR5-async-fetch refactor that threads through an Origin.
 
 #![cfg(feature = "engine")]
-
-use std::sync::Arc;
 
 use url::Url;
 
@@ -434,25 +434,28 @@ pub(super) fn validate_http_method(raw: &str, error_prefix: &str) -> Result<Stri
 pub(super) fn extract_body_bytes(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
-) -> Result<Option<Arc<[u8]>>, VmError> {
+) -> Result<Option<Vec<u8>>, VmError> {
     match val {
         JsValue::Undefined | JsValue::Null => Ok(None),
         JsValue::String(sid) => {
             let raw = ctx.vm.strings.get_utf8(sid);
-            Ok(Some(Arc::from(raw.as_bytes())))
+            Ok(Some(raw.as_bytes().to_vec()))
         }
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
             ObjectKind::ArrayBuffer => Ok(Some(super::array_buffer::array_buffer_bytes(
                 ctx.vm, obj_id,
             ))),
-            ObjectKind::Blob => Ok(Some(super::blob::blob_bytes(ctx.vm, obj_id))),
+            ObjectKind::Blob => {
+                // `BlobData.bytes` is the source of truth as
+                // `Arc<[u8]>` (per-spec immutable).  Snapshot the
+                // bytes into a fresh Vec at the pool boundary so
+                // the new body owns its bytes independently.
+                Ok(Some(super::blob::blob_bytes(ctx.vm, obj_id).to_vec()))
+            }
             // TypedArray / DataView as BufferSource (WHATWG Fetch
-            // §5 — BodyInit union accepts any BufferSource).  We
-            // extract the view's byte range from the underlying
-            // ArrayBuffer via `Arc::from(&slice)` — a fresh Arc
-            // sub-range copy, since `body_data` is keyed per
-            // ArrayBuffer (sub-Arc zero-copy sharing deferred to
-            // PR-spec-polish SP9).
+            // §5 — BodyInit union accepts any BufferSource).
+            // Extract the view's byte range from the underlying
+            // ArrayBuffer.
             ObjectKind::TypedArray {
                 buffer_id,
                 byte_offset,
@@ -468,14 +471,14 @@ pub(super) fn extract_body_bytes(
                 let start = byte_offset as usize;
                 let end = start + byte_length as usize;
                 let slice: &[u8] = backing.get(start..end).unwrap_or(&[]);
-                Ok(Some(Arc::from(slice)))
+                Ok(Some(slice.to_vec()))
             }
             _ => {
                 // Generic fallback: stringify.  Covers plain
                 // objects / Arrays / numbers once wrapped.
                 let sid = super::super::coerce::to_string(ctx.vm, val)?;
                 let raw = ctx.vm.strings.get_utf8(sid);
-                Ok(Some(Arc::from(raw.as_bytes())))
+                Ok(Some(raw.as_bytes().to_vec()))
             }
         },
         _ => {
@@ -483,7 +486,7 @@ pub(super) fn extract_body_bytes(
             // matching browsers' `new Request(url, {body: 42})` → "42".
             let sid = super::super::coerce::to_string(ctx.vm, val)?;
             let raw = ctx.vm.strings.get_utf8(sid);
-            Ok(Some(Arc::from(raw.as_bytes())))
+            Ok(Some(raw.as_bytes().to_vec()))
         }
     }
 }
@@ -554,7 +557,7 @@ fn native_response_constructor(
 fn build_response_instance(
     ctx: &mut NativeContext<'_>,
     inst_id: ObjectId,
-    body_bytes: Option<Arc<[u8]>>,
+    body_bytes: Option<Vec<u8>>,
     body_default_content_type: Option<StringId>,
     init_arg: JsValue,
     response_type: ResponseType,
@@ -932,7 +935,7 @@ fn native_response_static_json(
     let body_bytes = match json_val {
         JsValue::String(sid) => {
             let raw = ctx.vm.strings.get_utf8(sid);
-            Some(Arc::from(raw.as_bytes()))
+            Some(raw.as_bytes().to_vec())
         }
         _ => {
             // `JSON.stringify(undefined)` → `undefined` → body is

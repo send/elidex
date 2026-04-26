@@ -548,15 +548,12 @@ fn clone_array_buffer(
     if let Some(&cached) = memo.get(&src) {
         return cached;
     }
-    let src_bytes: Arc<[u8]> = vm
-        .body_data
-        .get(&src)
-        .cloned()
-        .unwrap_or_else(|| Arc::from(&[][..]));
-    // `Arc::<[u8]>::from(&[u8])` performs a single allocation + memcpy
-    // straight into the Arc payload — independent memory, no shared
-    // refcount with the source (StructuredSerialize §2.9 step 12).
-    let new_bytes: Arc<[u8]> = Arc::<[u8]>::from(&src_bytes[..]);
+    // `body_data.get(&src).cloned()` snapshots the source bytes
+    // into a fresh owned `Vec<u8>` — independent memory from the
+    // source, satisfying StructuredSerialize §2.9 step 12 (the
+    // clone owns its bytes; a later mutation through the source
+    // ArrayBuffer must not propagate to the clone).
+    let new_bytes: Vec<u8> = vm.body_data.get(&src).cloned().unwrap_or_default();
     let new_id = super::array_buffer::create_array_buffer_from_bytes(vm, new_bytes);
     memo.insert(src, new_id);
     new_id

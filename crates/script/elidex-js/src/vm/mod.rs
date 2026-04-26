@@ -645,10 +645,17 @@ pub(crate) struct VmInner {
     /// the separate [`Self::blob_data`] table (R20.2); don't
     /// conflate them — future zero-copy / GC-sweep decisions
     /// pivot on which side table owns the bytes.  Keyed by the
-    /// owning object's `ObjectId`; the value is an `Arc<[u8]>`
-    /// so `clone()` can share the buffer across two objects
-    /// without copy (WHATWG §5 "body" cloning is reference-
-    /// counted).
+    /// owning object's `ObjectId`; the value is an owned
+    /// `Vec<u8>`, so TypedArray / DataView writes mutate it in
+    /// place via [`super::host::byte_io`] (single-threaded VM,
+    /// no shared mutability needed inside `body_data`).  Cross-
+    /// subsystem callers that need to ferry bytes across an
+    /// ownership boundary (`fetch` HTTP handoff,
+    /// `body_mixin::read_body_bytes`, `structured_clone`)
+    /// snapshot to a fresh `Arc<[u8]>` at the boundary — the
+    /// snapshot semantics that the previous immutable-`Arc`
+    /// storage delivered implicitly are now visible in the type
+    /// signature.
     ///
     /// Requests / Responses without body bytes simply omit their
     /// entry.  In Phase 2 the `.body` IDL getter is always `null`
@@ -663,7 +670,7 @@ pub(crate) struct VmInner {
     /// key was collected (matching `headers_states`) so that a
     /// recycled slot does not inherit stale bytes.
     #[cfg(feature = "engine")]
-    pub(crate) body_data: HashMap<ObjectId, std::sync::Arc<[u8]>>,
+    pub(crate) body_data: HashMap<ObjectId, Vec<u8>>,
     /// One-shot "body already consumed" flag (WHATWG §5 `bodyUsed`).
     /// Inserted by the Body mixin read methods (`text()` /
     /// `.json()` / `.arrayBuffer()` / `.blob()`) the first time

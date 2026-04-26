@@ -8,7 +8,7 @@
 //!   `JSON.parse`; parse error bubbles through the returned
 //!   Promise's reject path.
 //! - `.arrayBuffer()` → `Promise<ArrayBuffer>` — new ArrayBuffer
-//!   sharing the backing `Arc<[u8]>`.
+//!   owning a fresh `Vec<u8>` snapshot of the body bytes.
 //! - `.blob()` → `Promise<Blob>` — new Blob whose `type` defaults
 //!   from the receiver's `Content-Type` header (or `""` if
 //!   absent).
@@ -96,13 +96,12 @@ fn thrown_type_error(ctx: &mut NativeContext<'_>, msg: &str) -> JsValue {
     ctx.vm.vm_error_to_thrown(&err)
 }
 
-/// Return the receiver's body bytes (or empty if no entry).
-fn read_body_bytes(ctx: &NativeContext<'_>, id: ObjectId) -> Arc<[u8]> {
-    ctx.vm
-        .body_data
-        .get(&id)
-        .cloned()
-        .unwrap_or_else(|| Arc::from(&[][..]))
+/// Return a snapshot of the receiver's body bytes (or empty if no
+/// entry).  Owned `Vec<u8>` so the caller can hand the bytes
+/// straight into a new owner (`body_data` insert, `Arc::<[u8]>::from`
+/// for `BlobData`, UTF-8 decode) without juggling borrow lifetimes.
+fn read_body_bytes(ctx: &NativeContext<'_>, id: ObjectId) -> Vec<u8> {
+    ctx.vm.body_data.get(&id).cloned().unwrap_or_default()
 }
 
 /// Return the receiver's companion-Headers `Content-Type` value,
@@ -172,10 +171,7 @@ enum BodyReadCheck {
     /// the full content and `owner_id` is the Request / Response
     /// the bytes came from (needed by `.blob()` for its
     /// `content-type` lookup).
-    Ready {
-        owner_id: ObjectId,
-        bytes: Arc<[u8]>,
-    },
+    Ready { owner_id: ObjectId, bytes: Vec<u8> },
 }
 
 /// Allocation-free Body-mixin prologue: brand-check, check
@@ -306,7 +302,11 @@ pub(super) fn native_body_blob(
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),
         BodyReadCheck::Ready { owner_id, bytes } => {
             let type_sid = content_type_of(ctx, owner_id);
-            let blob_id = create_blob_from_bytes(ctx.vm, bytes, type_sid);
+            // BlobData stores bytes as `Arc<[u8]>` (per-spec
+            // immutability), so the body Vec converts here at the
+            // pool boundary.  `Arc::<[u8]>::from(Vec<u8>)` is a
+            // single allocation (no intermediate `Box<[u8]>`).
+            let blob_id = create_blob_from_bytes(ctx.vm, Arc::<[u8]>::from(bytes), type_sid);
             resolve_promise_sync(ctx.vm, promise, JsValue::Object(blob_id));
         }
     }
