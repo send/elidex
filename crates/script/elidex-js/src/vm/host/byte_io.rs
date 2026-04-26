@@ -74,12 +74,20 @@ pub(super) fn write_at(
     abs: usize,
     bytes: &[u8],
 ) {
-    let needed = abs + bytes.len();
+    // `abs + bytes.len()` can overflow on 32-bit targets when
+    // callers pass an `abs` near `usize::MAX`.  Treat overflow as
+    // a no-op write — the call sites pre-validate against their
+    // own view's `[[ByteLength]]`, so reaching this branch
+    // indicates a malformed receiver that must not corrupt the
+    // backing buffer or panic.
+    let Some(end) = abs.checked_add(bytes.len()) else {
+        return;
+    };
     let current: &[u8] = body_data.get(&buffer_id).map(AsRef::as_ref).unwrap_or(&[]);
     let mut new_bytes: Vec<u8> = current.to_vec();
-    if new_bytes.len() < needed {
-        new_bytes.resize(needed, 0);
+    if new_bytes.len() < end {
+        new_bytes.resize(end, 0);
     }
-    new_bytes[abs..abs + bytes.len()].copy_from_slice(bytes);
+    new_bytes[abs..end].copy_from_slice(bytes);
     body_data.insert(buffer_id, Arc::from(new_bytes));
 }
