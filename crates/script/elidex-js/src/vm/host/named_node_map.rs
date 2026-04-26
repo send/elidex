@@ -338,12 +338,15 @@ fn native_nnm_set_named_item(
     let Some((name_str, value, prev_sid)) = outcome else {
         return Ok(JsValue::Null);
     };
-    // Apply the write through `host_if_bound` — `dom_and_strings_if_bound`
-    // returned `Some` on the previous line, so this can't be `None`
-    // (rebind across native calls is impossible).
-    if let Some(host) = ctx.host_if_bound() {
-        host.dom().set_attribute(owner, &name_str, value);
-    }
+    // Apply the write through `host_if_bound`.  `dom_and_strings_if_bound`
+    // returned `Some` on the previous line and rebind across a single
+    // native invocation is impossible, so this must succeed; an
+    // `expect` enforces the invariant rather than silently skipping
+    // the write while still returning a "previous Attr" wrapper.
+    let host = ctx
+        .host_if_bound()
+        .expect("setNamedItem: host must remain bound after dom_and_strings_if_bound() succeeded");
+    host.dom().set_attribute(owner, &name_str, value);
     Ok(match prev_sid {
         Some(sid) => {
             let prev = ctx.vm.alloc_attr(AttrState {
@@ -392,11 +395,15 @@ fn native_nnm_remove_named_item(
     };
     let qname_sid = ctx.vm.strings.intern(&key);
     // `prev_sid` was produced via `dom_and_strings_if_bound()` →
-    // bound at that point and rebind across native calls is
-    // impossible, so the second `host_if_bound` is guaranteed.
-    if let Some(host) = ctx.host_if_bound() {
-        host.dom().remove_attribute(owner, &key);
-    }
+    // bound at that point and rebind across a single native
+    // invocation is impossible.  Enforce the invariant with
+    // `expect` so a failure surfaces as a panic rather than a
+    // silent skip that would still return a detached Attr wrapper
+    // without having actually removed the attribute.
+    let host = ctx.host_if_bound().expect(
+        "removeNamedItem: host must remain bound after dom_and_strings_if_bound() succeeded",
+    );
+    host.dom().remove_attribute(owner, &key);
     let returned = ctx.vm.alloc_attr(AttrState {
         owner,
         qualified_name: qname_sid,
