@@ -635,7 +635,7 @@ fn native_hidden_set(
             return Ok(JsValue::Undefined);
         }
         if s.is_empty() {
-            ctx.host().dom().remove_attribute(entity, "hidden");
+            super::element_attrs::attr_remove(ctx, entity, "hidden");
             return Ok(JsValue::Undefined);
         }
     }
@@ -645,7 +645,7 @@ fn native_hidden_set(
             .dom()
             .set_attribute(entity, "hidden", String::new());
     } else {
-        ctx.host().dom().remove_attribute(entity, "hidden");
+        super::element_attrs::attr_remove(ctx, entity, "hidden");
     }
     Ok(JsValue::Undefined)
 }
@@ -673,7 +673,7 @@ fn native_autofocus_set(
             .dom()
             .set_attribute(entity, "autofocus", String::new());
     } else {
-        ctx.host().dom().remove_attribute(entity, "autofocus");
+        super::element_attrs::attr_remove(ctx, entity, "autofocus");
     }
     Ok(JsValue::Undefined)
 }

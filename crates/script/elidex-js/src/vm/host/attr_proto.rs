@@ -31,20 +31,29 @@
 //! even for inputs containing lone surrogates (which collapse to
 //! the same UTF-8 representation the DOM stored).
 //!
-//! The cache is invalidated whenever the named attribute leaves
-//! the owner's attribute list (`removeAttribute`,
-//! `removeAttributeNode`, `toggleAttribute(off)`,
-//! `removeNamedItem`); a subsequent `setAttribute` therefore
+//! The cache is invalidated on the wrapper-aware removal paths
+//! (`removeAttribute`, `removeAttributeNode`, `toggleAttribute(off)`,
+//! `removeNamedItem`) plus every reflected-boolean setter that
+//! routes its detach branch through
+//! [`super::element_attrs::attr_remove`] (`HTMLElement.hidden`,
+//! `HTMLElement.autofocus`, `HTMLIFrameElement.allowFullscreen`).
+//! A subsequent `setAttribute` after one of those invalidations
 //! causes the next `getAttributeNode` / `NamedNodeMap` lookup for
-//! that `(owner, qname)` pair to allocate a fresh *canonical*
-//! wrapper.  This invalidation does not currently detach
-//! caller-held live wrappers (`detached_value == None`): those
-//! wrappers continue to read through the owner's `Attributes`
-//! component, so after a same-name re-add on the same element
-//! they can observe the new value / `ownerElement` again.
-//! *Detached* wrappers (`detached_value == Some(_)`) are never
-//! cached — each detachment site allocates its own snapshot
-//! wrapper.
+//! the same `(owner, qname)` to allocate a fresh *canonical*
+//! wrapper.  Any future attribute-removal path that bypasses
+//! `attr_remove` (for example, a direct `dom().remove_attribute(...)`
+//! call) **must** call
+//! [`VmInner::invalidate_attr_cache_entry`](super::super::VmInner::invalidate_attr_cache_entry)
+//! itself; otherwise the cache leaks dead entries and a same-name
+//! re-add can incorrectly preserve canonical identity.
+//!
+//! Invalidation does not detach caller-held live wrappers
+//! (`detached_value == None`): those wrappers continue to read
+//! through the owner's `Attributes` component, so after a
+//! same-name re-add on the same element they can observe the new
+//! value / `ownerElement` again.  *Detached* wrappers
+//! (`detached_value == Some(_)`) are never cached — each
+//! detachment site allocates its own snapshot wrapper.
 //!
 //! `setAttributeNode` / `setNamedItem` invalidate the cache only
 //! when the passed-in Attr cannot remain canonical for the target

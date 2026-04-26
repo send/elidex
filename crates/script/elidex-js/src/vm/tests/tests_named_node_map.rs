@@ -387,6 +387,22 @@ fn set_attribute_node_from_other_element_invalidates_cache() {
 }
 
 #[test]
+fn reflected_boolean_setter_invalidates_identity_cache() {
+    // `el.hidden = false` removes the `hidden` attribute and must
+    // invalidate the identity cache so a subsequent `el.hidden =
+    // true; el.getAttributeNode("hidden")` returns a fresh
+    // canonical wrapper rather than the stale one cached before
+    // the boolean-setter detach.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('hidden', ''); \
+         var a = d.getAttributeNode('hidden'); \
+         d.hidden = false; \
+         d.hidden = true; \
+         (a !== d.getAttributeNode('hidden')) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn distinct_elements_and_names_have_distinct_identities() {
     let out = run("var a = document.createElement('div'); \
          var b = document.createElement('div'); \

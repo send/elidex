@@ -291,7 +291,7 @@ fn native_iframe_set_allow_fullscreen(
             .dom()
             .set_attribute(entity, "allowfullscreen", String::new());
     } else {
-        ctx.host().dom().remove_attribute(entity, "allowfullscreen");
+        super::element_attrs::attr_remove(ctx, entity, "allowfullscreen");
     }
     Ok(JsValue::Undefined)
 }
