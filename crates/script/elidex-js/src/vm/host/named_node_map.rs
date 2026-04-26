@@ -326,10 +326,8 @@ fn native_nnm_set_named_item(
                     v.map(str::to_owned).unwrap_or_default()
                 })
             };
-            let prev_sid = dom.with_attribute(owner, &name_str, |v| match v {
-                Some("") => Some(empty),
-                Some(s) => Some(strings.intern(s)),
-                None => None,
+            let prev_sid = dom.with_attribute(owner, &name_str, |v| {
+                v.map(|s| strings.intern_or_alias(empty, s))
             });
             Some((name_str, value, prev_sid))
         }
@@ -378,10 +376,8 @@ fn native_nnm_remove_named_item(
     // through the split-borrow path so the intern happens directly
     // on the borrowed `&str`.
     let prev_sid = ctx.dom_and_strings_if_bound().and_then(|(dom, strings)| {
-        dom.with_attribute(owner, &key, |v| match v {
-            Some("") => Some(empty),
-            Some(s) => Some(strings.intern(s)),
-            None => None,
+        dom.with_attribute(owner, &key, |v| {
+            v.map(|s| strings.intern_or_alias(empty, s))
         })
     });
     let Some(prev_sid) = prev_sid else {

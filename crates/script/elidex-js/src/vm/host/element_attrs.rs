@@ -274,10 +274,8 @@ pub(super) fn native_element_set_attribute_node(
                     v.map(str::to_owned).unwrap_or_default()
                 })
             };
-            let prev_sid = dom.with_attribute(entity, &name_str, |v| match v {
-                Some("") => Some(empty),
-                Some(s) => Some(strings.intern(s)),
-                None => None,
+            let prev_sid = dom.with_attribute(entity, &name_str, |v| {
+                v.map(|s| strings.intern_or_alias(empty, s))
             });
             (name_str, new_value, prev_sid)
         }
@@ -360,10 +358,8 @@ pub(super) fn native_element_remove_attribute_node(
     // `NotFoundError` trigger — an unbound receiver is treated the
     // same way (no readable attribute).
     let prev_sid = ctx.dom_and_strings_if_bound().and_then(|(dom, strings)| {
-        dom.with_attribute(entity, &name_str, |v| match v {
-            Some("") => Some(empty),
-            Some(s) => Some(strings.intern(s)),
-            None => None,
+        dom.with_attribute(entity, &name_str, |v| {
+            v.map(|s| strings.intern_or_alias(empty, s))
         })
     });
     let Some(prev_sid) = prev_sid else {
