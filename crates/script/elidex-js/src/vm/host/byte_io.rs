@@ -5,7 +5,7 @@
 //! backing storage is `Vec<u8>` — owned, in-place mutable.  Reads
 //! snapshot the requested span into a fixed-size array (so partial
 //! reads near the buffer's end zero-pad cleanly), writes mutate the
-//! `Vec<u8>` directly via `entry().or_insert_with(Vec::new).resize()`
+//! `Vec<u8>` directly via `entry().or_default().resize()`
 //! + `copy_from_slice`.  No clone-grow-install round-trip; repeated
 //! writes are O(N) total bytes touched, not O(N²).
 //!

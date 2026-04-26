@@ -96,11 +96,23 @@ fn thrown_type_error(ctx: &mut NativeContext<'_>, msg: &str) -> JsValue {
     ctx.vm.vm_error_to_thrown(&err)
 }
 
-/// Return a snapshot of the receiver's body bytes (or empty if no
-/// entry).  Owned `Vec<u8>` so the caller can hand the bytes
-/// straight into a new owner (`body_data` insert, `Arc::<[u8]>::from`
-/// for `BlobData`, UTF-8 decode) without juggling borrow lifetimes.
-fn read_body_bytes(ctx: &NativeContext<'_>, id: ObjectId) -> Vec<u8> {
+/// Borrow the receiver's body bytes for the duration of `f` (or
+/// an empty slice if no entry exists).  Read-only consumers like
+/// `.text()` / `.json()` decode directly from the stored buffer
+/// without first deep-cloning the entire `Vec<u8>` — UTF-8 decode
+/// only needs `&[u8]`.
+fn with_body_bytes<R>(ctx: &NativeContext<'_>, id: ObjectId, f: impl FnOnce(&[u8]) -> R) -> R {
+    let bytes = ctx.vm.body_data.get(&id).map(Vec::as_slice).unwrap_or(&[]);
+    f(bytes)
+}
+
+/// Return an owned snapshot of the receiver's body bytes (or empty
+/// if no entry exists).  Use only for callers that must take
+/// ownership of the bytes (`body_data` insert for `.arrayBuffer()`,
+/// `Arc::<[u8]>::from` for `.blob()`'s `BlobData`); read-only
+/// consumers should prefer [`with_body_bytes`] to skip the deep
+/// clone.
+fn read_body_bytes_snapshot(ctx: &NativeContext<'_>, id: ObjectId) -> Vec<u8> {
     ctx.vm.body_data.get(&id).cloned().unwrap_or_default()
 }
 
@@ -156,29 +168,37 @@ fn content_type_of(ctx: &mut NativeContext<'_>, id: ObjectId) -> super::super::v
 /// Outcome of the alloc-free body-mixin prologue
 /// ([`check_body`]): either the body has already been consumed
 /// (caller must reject its Promise with TypeError) or the owner
-/// object's id plus the consumed bytes are ready to use.
+/// object's id is ready for the caller to read its body bytes
+/// (via [`with_body_bytes`] for read-only consumers like
+/// `.text()` / `.json()`, or [`read_body_bytes_snapshot`] for
+/// owning consumers like `.arrayBuffer()` / `.blob()`).
 ///
 /// The Promise itself is **not** created here — callers own
 /// creation so they can root the Promise across the subsequent
 /// allocation-heavy post-processing (UTF-8 decode / JSON.parse /
 /// ArrayBuffer / Blob alloc).  Rooting at the call site is the
 /// R13 GC-safety invariant that this split enforces.
+///
+/// `Ready` no longer carries the body bytes themselves: the
+/// snapshot vs borrow choice belongs to the consumer, not the
+/// prologue (Copilot R3 lesson — read-only `.text()` / `.json()`
+/// don't need the full-Vec deep-clone the unified prologue used
+/// to perform).
 enum BodyReadCheck {
     /// Body already consumed — caller must reject its Promise
     /// with `TypeError("Body stream is already used")`.
     AlreadyUsed,
-    /// Body successfully locked for consumption; `bytes` carries
-    /// the full content and `owner_id` is the Request / Response
-    /// the bytes came from (needed by `.blob()` for its
-    /// `content-type` lookup).
-    Ready { owner_id: ObjectId, bytes: Vec<u8> },
+    /// Body successfully locked for consumption; `owner_id` is
+    /// the Request / Response receiver — caller fetches body
+    /// bytes itself via the borrow / snapshot helper appropriate
+    /// to its consumer.
+    Ready { owner_id: ObjectId },
 }
 
 /// Allocation-free Body-mixin prologue: brand-check, check
-/// `body_used`, mark as consumed, and return the owner's bytes.
-/// Matches WHATWG Fetch §5.2 "consume body" steps 1-3 minus the
-/// Promise allocation — the caller handles Promise creation
-/// + rooting + settlement.
+/// `body_used`, mark as consumed.  Matches WHATWG Fetch §5.2
+/// "consume body" steps 1-3 minus the Promise allocation — the
+/// caller handles Promise creation + rooting + settlement.
 ///
 /// This helper is deliberately alloc-free (in the VM
 /// `alloc_object` sense) so it can run **before** the caller
@@ -195,11 +215,7 @@ fn check_body(
         return Ok(BodyReadCheck::AlreadyUsed);
     }
     mark_body_used(ctx, id);
-    let bytes = read_body_bytes(ctx, id);
-    Ok(BodyReadCheck::Ready {
-        owner_id: id,
-        bytes,
-    })
+    Ok(BodyReadCheck::Ready { owner_id: id })
 }
 
 /// Immediately reject `promise` with the "Body stream is
@@ -224,8 +240,10 @@ pub(super) fn native_body_text(
     let ctx = &mut rooted_holder;
     match check {
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),
-        BodyReadCheck::Ready { bytes, .. } => {
-            let text = String::from_utf8_lossy(&bytes).into_owned();
+        BodyReadCheck::Ready { owner_id } => {
+            let text = with_body_bytes(ctx, owner_id, |bytes| {
+                String::from_utf8_lossy(bytes).into_owned()
+            });
             let sid = ctx.vm.strings.intern(&text);
             resolve_promise_sync(ctx.vm, promise, JsValue::String(sid));
         }
@@ -245,8 +263,10 @@ pub(super) fn native_body_json(
     let ctx = &mut rooted_holder;
     match check {
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),
-        BodyReadCheck::Ready { bytes, .. } => {
-            let text = String::from_utf8_lossy(&bytes).into_owned();
+        BodyReadCheck::Ready { owner_id } => {
+            let text = with_body_bytes(ctx, owner_id, |bytes| {
+                String::from_utf8_lossy(bytes).into_owned()
+            });
             let sid = ctx.vm.strings.intern(&text);
             // Delegate to `JSON.parse` — matches spec §5 "consume
             // body" → "parse JSON from bytes" step.  Errors
@@ -280,7 +300,8 @@ pub(super) fn native_body_array_buffer(
     let ctx = &mut rooted_holder;
     match check {
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),
-        BodyReadCheck::Ready { bytes, .. } => {
+        BodyReadCheck::Ready { owner_id } => {
+            let bytes = read_body_bytes_snapshot(ctx, owner_id);
             let buf_id = super::array_buffer::create_array_buffer_from_bytes(ctx.vm, bytes);
             resolve_promise_sync(ctx.vm, promise, JsValue::Object(buf_id));
         }
@@ -300,8 +321,9 @@ pub(super) fn native_body_blob(
     let ctx = &mut rooted_holder;
     match check {
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),
-        BodyReadCheck::Ready { owner_id, bytes } => {
+        BodyReadCheck::Ready { owner_id } => {
             let type_sid = content_type_of(ctx, owner_id);
+            let bytes = read_body_bytes_snapshot(ctx, owner_id);
             // BlobData stores bytes as `Arc<[u8]>` (per-spec
             // immutability), so the body Vec converts here at the
             // pool boundary.  `Arc::<[u8]>::from(Vec<u8>)` is a
