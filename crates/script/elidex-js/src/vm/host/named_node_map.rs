@@ -344,13 +344,13 @@ fn native_nnm_set_named_item(
         return Ok(JsValue::Null);
     };
     host.dom().set_attribute(owner, &name_str, value);
-    // Mirrors `Element.setAttributeNode`: skip invalidation when
-    // the passed-in Attr is already a live wrapper for `(owner,
-    // qname)` so `el.attributes.setNamedItem(el.getAttributeNode(...))`
-    // preserves identity.  Cross-element or detached Attrs still
-    // drop the entry — the engine path doesn't retarget their
-    // `AttrState.owner`, so they cannot become canonical here.
-    if source_owner != owner || source_detached.is_some() {
+    // Mirrors `Element.setAttributeNode`: live Attrs already
+    // attached to `owner` insert/refresh the cache so reattachment
+    // after `removeNamedItem` keeps identity; cross-element or
+    // detached Attrs cannot be made canonical and drop the entry.
+    if source_owner == owner && source_detached.is_none() {
+        ctx.vm.attr_wrapper_cache.insert((owner, qname), attr_id);
+    } else {
         ctx.vm.invalidate_attr_cache_entry(owner, qname);
     }
     Ok(match prev_sid {

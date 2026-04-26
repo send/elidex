@@ -343,6 +343,35 @@ fn set_named_item_self_preserves_identity() {
 }
 
 #[test]
+fn set_attribute_node_reattach_after_remove_preserves_identity() {
+    // Reattachment sequence:
+    //   1. `getAttributeNode` populates the cache with `a`.
+    //   2. `removeAttribute` empties the cache.
+    //   3. `setAttributeNode(a)` — `a` is still a live wrapper for
+    //      this `(element, name)`, so the cache must be repopulated
+    //      to point at `a` (rather than left empty, which would
+    //      cause the next `getAttributeNode` to allocate fresh).
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.getAttributeNode('id'); \
+         d.removeAttribute('id'); \
+         d.setAttributeNode(a); \
+         (d.getAttributeNode('id') === a) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn set_named_item_reattach_after_remove_preserves_identity() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.getAttributeNode('id'); \
+         d.attributes.removeNamedItem('id'); \
+         d.attributes.setNamedItem(a); \
+         (d.getAttributeNode('id') === a) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn set_attribute_node_from_other_element_invalidates_cache() {
     // Passing an Attr from a *different* element cannot retarget
     // its `AttrState.owner`, so the cache must drop and the next

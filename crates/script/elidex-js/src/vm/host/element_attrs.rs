@@ -315,16 +315,20 @@ pub(super) fn native_element_set_attribute_node(
         return Ok(JsValue::Null);
     };
     host.dom().set_attribute(entity, &name_str, new_value);
-    // Only drop the cache when the passed-in Attr cannot remain
-    // canonical for `(entity, qname)`.  A live Attr already
-    // attached to `entity` (`source_owner == entity`,
-    // `source_detached.is_none()`) is the same backing state the
-    // cache already points at — invalidating would gratuitously
-    // break `el.setAttributeNode(el.getAttributeNode("id"))`
-    // identity.  Cross-element or detached Attrs cannot be made
-    // canonical here (the engine path doesn't retarget their
-    // `AttrState.owner`), so those still drop the entry.
-    if source_owner != entity || source_detached.is_some() {
+    // Sync the identity cache for `(entity, qname_sid)`:
+    // - Live Attrs already attached to `entity` (`source_owner ==
+    //   entity`, `source_detached.is_none()`) become / stay
+    //   canonical: insert/refresh so reattachment after a prior
+    //   `removeAttribute` (which empties the cache) still keeps
+    //   `el.getAttributeNode(name) === a`.
+    // - Cross-element or detached Attrs cannot be made canonical
+    //   here (the engine path doesn't retarget their
+    //   `AttrState.owner`), so drop the entry instead.
+    if source_owner == entity && source_detached.is_none() {
+        ctx.vm
+            .attr_wrapper_cache
+            .insert((entity, qname_sid), attr_id);
+    } else {
         ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
     }
     Ok(match prev_sid {
