@@ -491,9 +491,14 @@ impl EcsDom {
 
     /// Borrow attribute `name` on `entity` and project through `f`.
     ///
-    /// `f` is called with `Some(value)` when both the `Attributes`
-    /// component and key are present, and `None` otherwise.  This
-    /// is the zero-allocation sibling of [`Self::get_attribute`] —
+    /// `f` is called with `Some(value)` when the `Attributes`
+    /// component is reachable and contains `name`, and `None`
+    /// otherwise — covering not just absent-component / missing-key
+    /// but every `World::get::<&Attributes>` failure (entity
+    /// destroyed, borrow conflict).  Callers cannot distinguish
+    /// these cases from `None`; treat it as "no readable attribute"
+    /// rather than "definitely no attribute".  This is the
+    /// zero-allocation sibling of [`Self::get_attribute`] —
     /// callers that only need to compare, parse, or hash the value
     /// can avoid the `String::from` clone the owned getter performs.
     /// Mirrors the closure-borrow `read_rel` pattern used internally

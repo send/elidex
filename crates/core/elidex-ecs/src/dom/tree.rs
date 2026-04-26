@@ -409,8 +409,11 @@ impl EcsDom {
     /// Borrow the tag name of `entity` and project through `f`.
     ///
     /// `f` is called with `Some(tag)` for elements carrying a
-    /// `TagType` component, and `None` for text / comment /
-    /// document / window entities.  Zero-allocation sibling of
+    /// `TagType` component, and `None` for every other case —
+    /// non-element nodes (text / comment / document / window) AND
+    /// any `World::get::<&TagType>` failure (entity destroyed,
+    /// borrow conflict).  Callers cannot distinguish these cases
+    /// from `None`.  Zero-allocation sibling of
     /// [`Self::get_tag_name`].
     ///
     /// The closure parameter is `for<'b> FnOnce(Option<&'b str>) -> R`
