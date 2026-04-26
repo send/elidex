@@ -27,10 +27,7 @@
 #![cfg(feature = "engine")]
 
 use super::super::shape;
-use super::super::value::{
-    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
-    VmError,
-};
+use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
 use super::super::VmInner;
 
 use elidex_ecs::{DocTypeData, NodeKind};
@@ -58,15 +55,11 @@ impl VmInner {
             (self.well_known.public_id, native_doctype_get_public_id),
             (self.well_known.system_id, native_doctype_get_system_id),
         ] {
-            let display = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {display}"), getter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
+                name_sid,
+                getter,
+                None,
                 shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }

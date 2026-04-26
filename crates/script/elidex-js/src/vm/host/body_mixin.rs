@@ -41,7 +41,7 @@
 use std::sync::Arc;
 
 use super::super::natives_promise::create_promise;
-use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, VmError};
+use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 use super::blob::{create_blob_from_bytes, reject_promise_sync, resolve_promise_sync};
 
 /// Brand-check `this` against `Request` / `Response`.  Returns
@@ -345,12 +345,10 @@ impl super::super::VmInner {
             native_body_blob,
         ];
         for (name_sid, func) in method_sids.into_iter().zip(method_fns) {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
+            self.install_native_method(
                 proto_id,
-                PropertyKey::String(name_sid),
-                super::super::value::PropertyValue::Data(JsValue::Object(fn_id)),
+                name_sid,
+                func,
                 super::super::shape::PropertyAttrs::METHOD,
             );
         }

@@ -24,9 +24,7 @@
 #![cfg(feature = "engine")]
 
 use super::super::shape;
-use super::super::value::{
-    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, VmError,
-};
+use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::nodes_to_insert;
 
@@ -46,14 +44,7 @@ impl VmInner {
             (self.well_known.replace_with, native_child_node_replace_with),
             (self.well_known.remove, native_child_node_remove),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                shape::PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
     }
 }

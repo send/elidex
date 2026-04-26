@@ -281,15 +281,11 @@ impl VmInner {
             (self.well_known.message, native_dom_exception_get_message),
             (self.well_known.code, native_dom_exception_get_code),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
+                name_sid,
+                getter,
+                None,
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }

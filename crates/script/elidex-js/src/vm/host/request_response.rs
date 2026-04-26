@@ -265,12 +265,10 @@ impl VmInner {
             (self.well_known.cache, native_request_get_cache as NativeFn),
         ];
         self.install_ro_accessor_list(proto_id, &accessors);
-        let clone_name_sid = self.well_known.clone;
-        let clone_fn = self.create_native_function("clone", native_request_clone);
-        self.define_shaped_property(
+        self.install_native_method(
             proto_id,
-            PropertyKey::String(clone_name_sid),
-            PropertyValue::Data(JsValue::Object(clone_fn)),
+            self.well_known.clone,
+            native_request_clone,
             PropertyAttrs::METHOD,
         );
     }
@@ -323,14 +321,7 @@ impl VmInner {
             ),
         ];
         for (name_sid, func) in statics {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                ctor,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
+            self.install_native_method(ctor, name_sid, func, PropertyAttrs::METHOD);
         }
         let name_sid = self.well_known.response;
         self.globals.insert(name_sid, JsValue::Object(ctor));
@@ -367,12 +358,10 @@ impl VmInner {
             ),
         ];
         self.install_ro_accessor_list(proto_id, &accessors);
-        let clone_name_sid = self.well_known.clone;
-        let clone_fn = self.create_native_function("clone", native_response_clone);
-        self.define_shaped_property(
+        self.install_native_method(
             proto_id,
-            PropertyKey::String(clone_name_sid),
-            PropertyValue::Data(JsValue::Object(clone_fn)),
+            self.well_known.clone,
+            native_response_clone,
             PropertyAttrs::METHOD,
         );
     }
@@ -383,15 +372,11 @@ impl VmInner {
     /// name is derived as `"get {name}"` to match browsers.
     fn install_ro_accessor_list(&mut self, proto_id: ObjectId, list: &[(StringId, NativeFn)]) {
         for &(name_sid, getter) in list {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
+                name_sid,
+                getter,
+                None,
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }

@@ -204,14 +204,7 @@ impl VmInner {
             ),
             (self.strings.intern("any"), native_abort_signal_static_any),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                abort_signal_ctor,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
+            self.install_native_method(abort_signal_ctor, name_sid, func, PropertyAttrs::METHOD);
         }
 
         let abort_signal_name = self.well_known.abort_signal;
@@ -228,12 +221,10 @@ impl VmInner {
         // `abort` is a method; `signal` is a per-instance own data
         // property set by the constructor (not a prototype accessor),
         // because each controller owns a unique signal.
-        let abort_fn = self.create_native_function("abort", native_abort_controller_abort);
-        let abort_key = PropertyKey::String(self.well_known.abort);
-        self.define_shaped_property(
+        self.install_native_method(
             ctrl_proto,
-            abort_key,
-            PropertyValue::Data(JsValue::Object(abort_fn)),
+            self.well_known.abort,
+            native_abort_controller_abort,
             PropertyAttrs::METHOD,
         );
 
@@ -276,16 +267,11 @@ impl VmInner {
                 Some(native_abort_signal_set_onabort as NativeFn),
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter);
-            let sid = setter.map(|s| self.create_native_function(&format!("set {name}"), s));
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: sid,
-                },
+                name_sid,
+                getter,
+                setter,
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
@@ -317,14 +303,7 @@ impl VmInner {
                 native_abort_signal_throw_if_aborted,
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, func, PropertyAttrs::METHOD);
         }
     }
 

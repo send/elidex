@@ -293,6 +293,67 @@ impl VmInner {
         self.create_native_function_impl(name_id, func, false)
     }
 
+    /// Install a getter (and optional setter) as an accessor property
+    /// keyed by a pre-interned `name_sid`.  The getter's `name` slot
+    /// resolves to `"get {display}"` and the setter's to
+    /// `"set {display}"`, where `display` is `name_sid`'s interned
+    /// UTF-8 — matching V8 / SpiderMonkey / JSC for WebIDL and ES
+    /// built-in accessors.  `attrs` selects between
+    /// [`shape::PropertyAttrs::WEBIDL_RO_ACCESSOR`] (DOM / WebIDL
+    /// surfaces, enumerable) and
+    /// [`shape::PropertyAttrs::ES_BUILTIN_ACCESSOR`] (ES-spec built-ins
+    /// such as `%TypedArray%.prototype.buffer`, non-enumerable).
+    #[cfg(feature = "engine")]
+    pub(crate) fn install_accessor_pair(
+        &mut self,
+        target: ObjectId,
+        name_sid: StringId,
+        getter: super::NativeFn,
+        setter: Option<super::NativeFn>,
+        attrs: shape::PropertyAttrs,
+    ) {
+        let display = self.strings.get_utf8(name_sid);
+        let getter_id = self.create_native_function(&format!("get {display}"), getter);
+        let setter_id = setter.map(|f| self.create_native_function(&format!("set {display}"), f));
+        self.define_shaped_property(
+            target,
+            value::PropertyKey::String(name_sid),
+            value::PropertyValue::Accessor {
+                getter: Some(getter_id),
+                setter: setter_id,
+            },
+            attrs,
+        );
+    }
+
+    /// Install `func` as a method (data-property) keyed by
+    /// `name_sid` and return the freshly-allocated function's
+    /// `ObjectId`.  Routes the function-name allocation through
+    /// [`Self::create_native_function_with_sid`] so the install path
+    /// avoids the per-method `strings.get_utf8(...)` round-trip the
+    /// `&str`-form sibling would require.  `attrs` is typically
+    /// [`shape::PropertyAttrs::METHOD`] for prototype methods and
+    /// constructor statics.  The returned id lets a caller alias the
+    /// same function under a second key (e.g.
+    /// `Headers.prototype[Symbol.iterator] === Headers.prototype.entries`).
+    #[cfg(feature = "engine")]
+    pub(crate) fn install_native_method(
+        &mut self,
+        target: ObjectId,
+        name_sid: StringId,
+        func: super::NativeFn,
+        attrs: shape::PropertyAttrs,
+    ) -> ObjectId {
+        let fn_id = self.create_native_function_with_sid(name_sid, func);
+        self.define_shaped_property(
+            target,
+            value::PropertyKey::String(name_sid),
+            value::PropertyValue::Data(JsValue::Object(fn_id)),
+            attrs,
+        );
+        fn_id
+    }
+
     fn create_native_function_impl(
         &mut self,
         name_id: StringId,

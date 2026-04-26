@@ -104,15 +104,11 @@ impl VmInner {
             ),
         ];
         for (name_sid, getter_fn) in accessors {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter_fn);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
+                name_sid,
+                getter_fn,
+                None,
                 PropertyAttrs::ES_BUILTIN_ACCESSOR,
             );
         }
@@ -153,13 +149,7 @@ impl VmInner {
             ),
         ];
         for (name_sid, fn_ptr) in methods {
-            let fn_id = self.create_native_function_with_sid(name_sid, fn_ptr);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, fn_ptr, PropertyAttrs::METHOD);
         }
     }
 }

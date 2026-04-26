@@ -41,8 +41,7 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{
@@ -132,15 +131,11 @@ impl VmInner {
                 native_element_get_child_element_count,
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: None,
-                },
+                name_sid,
+                getter,
+                None,
                 shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
@@ -151,24 +146,17 @@ impl VmInner {
     fn install_element_attributes(&mut self, proto_id: ObjectId) {
         // `tagName` — read-only accessor (WHATWG §4.9, uppercase for
         // HTML).
-        let tag_name_sid = self.well_known.tag_name;
-        let tag_name_name = self.strings.get_utf8(tag_name_sid);
-        let tag_gid = self
-            .create_native_function(&format!("get {tag_name_name}"), native_element_get_tag_name);
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            PropertyKey::String(tag_name_sid),
-            PropertyValue::Accessor {
-                getter: Some(tag_gid),
-                setter: None,
-            },
+            self.well_known.tag_name,
+            native_element_get_tag_name,
+            None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
 
         // `id` / `className` — read/write accessors (WHATWG §3.5).
         // `WEBIDL_RO_ACCESSOR`'s `writable` bit is meaningless for
         // accessors; the RW-ness comes from the setter slot below.
-        let rw_attrs = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
         for (name_sid, getter, setter) in [
             (
                 self.well_known.id,
@@ -181,36 +169,23 @@ impl VmInner {
                 native_element_set_class_name,
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let gid = self.create_native_function(&format!("get {name}"), getter);
-            let sid = self.create_native_function(&format!("set {name}"), setter);
-            self.define_shaped_property(
+            self.install_accessor_pair(
                 proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Accessor {
-                    getter: Some(gid),
-                    setter: Some(sid),
-                },
-                rw_attrs,
+                name_sid,
+                getter,
+                Some(setter),
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
 
         // `attributes` accessor — returns a live `NamedNodeMap`
         // backed by the element's `Attributes` component
         // (WHATWG §4.9).
-        let attrs_sid = self.well_known.attributes;
-        let attrs_display = self.strings.get_utf8(attrs_sid);
-        let attrs_getter = self.create_native_function(
-            &format!("get {attrs_display}"),
-            native_element_get_attributes,
-        );
-        self.define_shaped_property(
+        self.install_accessor_pair(
             proto_id,
-            PropertyKey::String(attrs_sid),
-            PropertyValue::Accessor {
-                getter: Some(attrs_getter),
-                setter: None,
-            },
+            self.well_known.attributes,
+            native_element_get_attributes,
+            None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
 
@@ -248,14 +223,7 @@ impl VmInner {
                 native_element_remove_attribute_node,
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                shape::PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
     }
 
@@ -294,14 +262,7 @@ impl VmInner {
                 native_element_get_elements_by_class_name,
             ),
         ] {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                shape::PropertyAttrs::METHOD,
-            );
+            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
     }
 }

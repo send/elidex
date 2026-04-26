@@ -181,18 +181,12 @@ impl VmInner {
         let entries_sid = wk.entries;
         let mut entries_fn_id: Option<ObjectId> = None;
         for (name_sid, func) in entries {
-            let name = self.strings.get_utf8(name_sid);
-            let fn_id = self.create_native_function(&name, func);
+            let fn_id = self.install_native_method(proto_id, name_sid, func, PropertyAttrs::METHOD);
             if name_sid == entries_sid {
                 entries_fn_id = Some(fn_id);
             }
-            self.define_shaped_property(
-                proto_id,
-                PropertyKey::String(name_sid),
-                PropertyValue::Data(JsValue::Object(fn_id)),
-                PropertyAttrs::METHOD,
-            );
         }
+        let entries_fn_id = entries_fn_id.expect("entries method id not captured during install");
 
         // `Headers.prototype[Symbol.iterator] === Headers.prototype.entries`
         // (WHATWG §5.2, matching `Map.prototype` precedent).  Reuse the
@@ -200,12 +194,11 @@ impl VmInner {
         // holds — allocating a fresh native function for the symbol
         // slot would make `p[@@iterator] === p.entries` observably
         // `false`.
-        let iter_fn = entries_fn_id.expect("entries method id not captured during install");
         let sym_iter_key = PropertyKey::Symbol(self.well_known_symbols.iterator);
         self.define_shaped_property(
             proto_id,
             sym_iter_key,
-            PropertyValue::Data(JsValue::Object(iter_fn)),
+            PropertyValue::Data(JsValue::Object(entries_fn_id)),
             PropertyAttrs::METHOD,
         );
     }
