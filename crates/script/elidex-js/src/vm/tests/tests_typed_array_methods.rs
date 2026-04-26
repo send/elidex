@@ -149,7 +149,7 @@ fn slice_bulk_copy_preserves_int32_pattern() {
     // Multi-byte element bulk-copy regression — `slice()` now goes
     // through `byte_io::copy_bytes` (not per-element decode/encode),
     // so verify LE byte sequence survives the snapshot+install path
-    // for an 8-byte element width.
+    // for a 4-byte element width.
     let mut vm = Vm::new();
     assert_eq!(
         eval_number(
@@ -168,7 +168,7 @@ fn copy_within_forward_overlap_uses_pre_snapshot() {
     // overlap — copying `[0, 1, 2, 3, 4][0..3]` to position 2
     // must yield `[0, 1, 0, 1, 2]`, NOT
     // `[0, 1, 0, 1, 0]` (which is what a naive forward in-place
-    // memmove would produce).
+    // copy would produce).
     let mut vm = Vm::new();
     assert_eq!(
         eval_number(
