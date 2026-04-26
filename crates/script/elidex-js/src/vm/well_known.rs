@@ -54,6 +54,11 @@ pub(crate) struct WellKnownStrings {
     pub(crate) configurable: StringId,
     pub(crate) writable: StringId,
     pub(crate) source: StringId,
+    /// `MessageEvent.ports` — pre-interned so the postMessage
+    /// shape extension picks the StringId out of `WellKnownStrings`
+    /// instead of round-tripping through `strings.intern("ports")`
+    /// per dispatched event.
+    pub(crate) ports: StringId,
     pub(crate) flags: StringId,
     pub(crate) status: StringId,
     pub(crate) fulfilled: StringId,
@@ -599,6 +604,7 @@ impl WellKnownStrings {
             configurable: strings.intern("configurable"),
             writable: strings.intern("writable"),
             source: strings.intern("source"),
+            ports: strings.intern("ports"),
             flags: strings.intern("flags"),
             status: strings.intern("status"),
             fulfilled: strings.intern("fulfilled"),

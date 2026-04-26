@@ -43,7 +43,7 @@
 #![cfg(feature = "engine")]
 
 use super::super::coerce;
-use super::super::shape::{self, PropertyAttrs};
+use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, StringId, VmError,
@@ -219,18 +219,31 @@ fn dispatch_post_message(
 
     // Install core-9 + MessageEvent payload via the precomputed
     // `shapes.message` terminal shape.  Slot order MUST match
-    // `build_precomputed_event_shapes`'s `core_keys` ordering so
-    // `set_event_slot_raw(event_id, EVENT_SLOT_TARGET=4, ...)` from
-    // inside `dispatch_script_event` hits the `target` slot.
+    // `build_precomputed_event_shapes`'s `core_keys` + Message
+    // extension ordering so `set_event_slot_raw(event_id,
+    // EVENT_SLOT_TARGET=4, ...)` from inside `dispatch_script_event`
+    // hits the `target` slot, and so the trailing payload positions
+    // line up with `data` / `origin` / `lastEventId` / `source` /
+    // `ports`.
     let message_shape = g
         .precomputed_event_shapes
         .as_ref()
         .expect("precomputed_event_shapes built during VM init")
         .message;
     let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
-    // Slot order MUST match the `core_keys` ordering in
-    // `build_precomputed_event_shapes` + the `message` payload
-    // extension (`data` / `origin` / `lastEventId`).
+    // `source` is `null` when the producer did not identify a
+    // window (WHATWG HTML §9.4.3 step 8).  `ports` is a fresh empty
+    // Array until MessagePort lands (plan §Deferred #16);
+    // allocating per dispatch keeps identity fresh per event,
+    // matching browser behaviour.  Allocate the Array BEFORE
+    // `define_with_precomputed_shape` so the slot vec already has
+    // its `ObjectId`; the outer `g` GC root keeps the event alive,
+    // and the slot install will write `ports_arr` into the event
+    // before any subsequent allocation could collect it.
+    let source_val = source_window_id
+        .map(JsValue::Object)
+        .unwrap_or(JsValue::Null);
+    let ports_arr = g.create_array_object(Vec::new());
     let slots: Vec<PropertyValue> = vec![
         PropertyValue::Data(JsValue::String(message_type_sid)),
         PropertyValue::Data(JsValue::Boolean(false)),
@@ -244,42 +257,10 @@ fn dispatch_post_message(
         PropertyValue::Data(data),
         PropertyValue::Data(JsValue::String(origin_sid)),
         PropertyValue::Data(JsValue::String(last_event_id_sid)),
+        PropertyValue::Data(source_val),
+        PropertyValue::Data(JsValue::Object(ports_arr)),
     ];
     g.define_with_precomputed_shape(event_id, message_shape, slots);
-
-    // `source` + `ports` extend past the precomputed shape (the
-    // shell-side MessageEvent shape doesn't carry them; see
-    // `event_shapes::dispatch_payload` Message arm).  Installed as
-    // ordinary shape-transition properties — only the core-9 slot
-    // indices matter for dispatch, the rest are JS-visible own
-    // data.  `source` is `null` when the producer did not identify
-    // a window (WHATWG HTML §9.4.3 step 8).
-    let source_val = source_window_id
-        .map(JsValue::Object)
-        .unwrap_or(JsValue::Null);
-    let source_key = PropertyKey::String(g.well_known.source);
-    g.define_shaped_property(
-        event_id,
-        source_key,
-        PropertyValue::Data(source_val),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    // `ports` — fresh empty Array until MessagePort lands (plan
-    // §Deferred #16).  Allocating per dispatch keeps identity fresh
-    // per event, matching browser behaviour.  Root the fresh Array
-    // before `define_shaped_property` since the shape transition
-    // inside define may itself allocate; without the root,
-    // `ports_arr` is a dangling ObjectId in that window.
-    let ports_arr = g.create_array_object(Vec::new());
-    let mut g_ports = g.push_temp_root(JsValue::Object(ports_arr));
-    let ports_key = PropertyKey::String(g_ports.strings.intern("ports"));
-    g_ports.define_shaped_property(
-        event_id,
-        ports_key,
-        PropertyValue::Data(JsValue::Object(ports_arr)),
-        PropertyAttrs::WEBIDL_RO,
-    );
-    drop(g_ports);
 
     // Bracket `dispatched_events` membership around the dispatch.
     // `dispatch_script_event`'s doc contract requires the event to
