@@ -88,6 +88,66 @@ pub(super) fn write_at(
     body_data.insert(buffer_id, Arc::from(new_bytes));
 }
 
+/// Copy `len` bytes from `body_data[src_id][src_abs..]` to
+/// `body_data[dst_id][dst_abs..]`, growing the destination buffer
+/// with zero-fill as needed and installing a fresh `Arc<[u8]>`
+/// afterwards.  Source bytes that fall past the source buffer's
+/// length are read as zero (mirroring [`read_into`]'s partial-read
+/// contract).
+///
+/// Replaces the per-element `read_element_raw` + `write_element_raw`
+/// loop pattern (`slice()`, `copyWithin()`, same-element-kind
+/// `set()`) — one src snapshot + one dst clone-grow-install
+/// instead of N of each.  The src snapshot is taken into a fresh
+/// `Vec<u8>` *before* mutating the destination, so overlapping
+/// source/destination ranges (`src_id == dst_id`) are correct
+/// under any direction.
+///
+/// Callers retain responsibility for any view-relative bounds
+/// check.  Zero-length, length overflow, and offset overflow are
+/// all silent no-ops — the call sites pre-validate against their
+/// own view's `[[ByteLength]]`, so reaching either branch
+/// indicates a malformed receiver that must not corrupt the
+/// backing buffer or panic.
+pub(super) fn copy_bytes(
+    body_data: &mut HashMap<ObjectId, Arc<[u8]>>,
+    src_id: ObjectId,
+    src_abs: usize,
+    dst_id: ObjectId,
+    dst_abs: usize,
+    len: usize,
+) {
+    if len == 0 {
+        return;
+    }
+    if src_abs.checked_add(len).is_none() {
+        return;
+    }
+    let Some(dst_end) = dst_abs.checked_add(len) else {
+        return;
+    };
+    // Snapshot the source slice into a fresh `Vec<u8>` *before*
+    // touching the destination, so an in-place overlap (src == dst,
+    // typical of `copyWithin`) is correct: the destination write
+    // copies from the snapshot, never re-reading bytes that the
+    // earlier write already overwrote.
+    let src_snapshot: Vec<u8> = match body_data.get(&src_id) {
+        Some(arc) => {
+            let mut out = vec![0_u8; len];
+            let buf_len = arc.len();
+            if src_abs < buf_len {
+                let avail = (buf_len - src_abs).min(len);
+                out[..avail].copy_from_slice(&arc[src_abs..src_abs + avail]);
+            }
+            out
+        }
+        None => vec![0_u8; len],
+    };
+    let mut new_dst = grow_or_fresh(body_data.get(&dst_id), dst_end);
+    new_dst[dst_abs..dst_end].copy_from_slice(&src_snapshot);
+    body_data.insert(dst_id, Arc::from(new_dst));
+}
+
 /// Materialise a writable `Vec<u8>` of length `>= needed` from the
 /// existing `body_data` entry, or allocate a fresh zero-filled
 /// `Vec` of exactly `needed` bytes when no entry exists.

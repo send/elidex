@@ -145,6 +145,59 @@ fn fill_empty_range_is_a_noop() {
 }
 
 #[test]
+fn slice_bulk_copy_preserves_int32_pattern() {
+    // Multi-byte element bulk-copy regression — `slice()` now goes
+    // through `byte_io::copy_bytes` (not per-element decode/encode),
+    // so verify LE byte sequence survives the snapshot+install path
+    // for an 8-byte element width.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Int32Array([1, 2, 3, 4, 5]); var b = a.slice(1, 4); \
+             (b.length === 3 && b[0] === 2 && b[1] === 3 && b[2] === 4) ? 1 : 0;"
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn copy_within_forward_overlap_uses_pre_snapshot() {
+    // Forward overlap: dst > src.  The pre-snapshot in
+    // `byte_io::copy_bytes` is what makes this correct under
+    // overlap — copying `[0, 1, 2, 3, 4][0..3]` to position 2
+    // must yield `[0, 1, 0, 1, 2]`, NOT
+    // `[0, 1, 0, 1, 0]` (which is what a naive forward in-place
+    // memmove would produce).
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([0, 1, 2, 3, 4]); a.copyWithin(2, 0, 3); \
+             a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4];"
+        ),
+        1012.0
+    );
+}
+
+#[test]
+fn copy_within_backward_overlap_uses_pre_snapshot() {
+    // Backward overlap: dst < src.  Spec §23.2.3.6 requires
+    // pre-snapshot semantics; copying `[10, 11, 12, 13, 14][2..5]`
+    // to position 0 yields `[12, 13, 14, 13, 14]` —
+    // 12*10000 + 13*1000 + 14*100 + 13*10 + 14 = 134544.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([10, 11, 12, 13, 14]); a.copyWithin(0, 2); \
+             a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4];"
+        ),
+        134544.0
+    );
+}
+
+#[test]
 fn subarray_shares_buffer() {
     let mut vm = Vm::new();
     assert!(eval_bool(

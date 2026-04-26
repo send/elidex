@@ -213,6 +213,12 @@ pub(crate) fn native_typed_array_subarray(
 /// slice.  Uses the receiver's `element_kind` as the allocation
 /// ElementKind; `SpeciesConstructor` / user-subclass dispatch is
 /// deferred to PR-spec-polish SP8.
+///
+/// Source and destination share the same `ElementKind`, so the
+/// per-element decode/encode round-trip is unnecessary —
+/// [`super::byte_io::copy_bytes`] performs the entire range copy
+/// in one snapshot + one clone-grow-install.  O(N²) bytes-touched
+/// → O(N).
 pub(crate) fn native_typed_array_slice(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -242,9 +248,30 @@ pub(crate) fn native_typed_array_slice(
 
     let (new_buffer_id, _, _) = super::typed_array::allocate_fresh_buffer(ctx, new_byte_length)?;
     let new_view_id = alloc_typed_array_view(ctx, ek, new_buffer_id, 0, new_byte_length);
-    for i in 0..new_len {
-        let elem = read_element_raw(ctx.vm, buffer_id, byte_offset, begin + i, ek);
-        write_element_raw(ctx, new_buffer_id, 0, i, ek, elem)?;
+    // Bulk byte copy — same `ElementKind` source and destination,
+    // so element-wise decode/encode would be a wasted round-trip.
+    // `copy_bytes` snapshots the source range up front, so the new
+    // buffer (`new_buffer_id`, fresh from `allocate_fresh_buffer`)
+    // is written exactly once.  Offset math goes through `usize`
+    // with `checked_*` to mirror the helper's overflow contract;
+    // `len_elem` is bounded by `[[ByteLength]] / bpe`, but a
+    // malformed receiver could still wrap u32 in
+    // `byte_offset + begin * bpe`.
+    let byte_offset_us = byte_offset as usize;
+    let begin_us = begin as usize;
+    let bpe_us = bpe as usize;
+    if let Some(src_abs) = begin_us
+        .checked_mul(bpe_us)
+        .and_then(|elem_off| byte_offset_us.checked_add(elem_off))
+    {
+        super::byte_io::copy_bytes(
+            &mut ctx.vm.body_data,
+            buffer_id,
+            src_abs,
+            new_buffer_id,
+            0,
+            new_byte_length as usize,
+        );
     }
     Ok(JsValue::Object(new_view_id))
 }
@@ -492,8 +519,12 @@ fn set_array_like_body(
 
 /// `%TypedArray%.prototype.copyWithin(target, start, end?)`
 /// (ES §23.2.3.6).  In-place byte copy with correct overlap
-/// handling via an intermediate read-all-then-write-all pass.
-/// Returns receiver for chaining.
+/// handling — [`super::byte_io::copy_bytes`] snapshots the source
+/// range into an owned `Vec<u8>` before mutating the destination,
+/// so any direction (forward / backward overlap) is sound.
+/// Same `ElementKind` source and destination, so the per-element
+/// decode/encode round-trip the previous impl performed is
+/// redundant.  O(N²) bytes-touched → O(N).
 pub(crate) fn native_typed_array_copy_within(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -501,11 +532,11 @@ pub(crate) fn native_typed_array_copy_within(
 ) -> Result<JsValue, VmError> {
     let parts = require_typed_array_parts(ctx, this, "copyWithin")?;
     let len_elem = parts.len_elem();
+    let bpe = parts.bpe();
     let TypedArrayParts {
         id,
         buffer_id,
         byte_offset,
-        element_kind: ek,
         ..
     } = parts;
     let target = match args.first().copied().unwrap_or(JsValue::Undefined) {
@@ -524,20 +555,28 @@ pub(crate) fn native_typed_array_copy_within(
         .saturating_sub(start)
         .min(len_elem.saturating_sub(target));
     if count > 0 {
-        let mut scratch: Vec<JsValue> = Vec::with_capacity(count as usize);
-        for i in 0..count {
-            scratch.push(read_element_raw(
-                ctx.vm,
+        // All offset math in `usize` with `checked_*` so a malformed
+        // receiver can't wrap u32 and write to the wrong slot —
+        // mirrors `fill`'s overflow contract.
+        let byte_offset_us = byte_offset as usize;
+        let bpe_us = bpe as usize;
+        let count_us = count as usize;
+        let src_abs = (start as usize)
+            .checked_mul(bpe_us)
+            .and_then(|elem_off| byte_offset_us.checked_add(elem_off));
+        let dst_abs = (target as usize)
+            .checked_mul(bpe_us)
+            .and_then(|elem_off| byte_offset_us.checked_add(elem_off));
+        let total_bytes = count_us.checked_mul(bpe_us);
+        if let (Some(src_abs), Some(dst_abs), Some(total_bytes)) = (src_abs, dst_abs, total_bytes) {
+            super::byte_io::copy_bytes(
+                &mut ctx.vm.body_data,
                 buffer_id,
-                byte_offset,
-                start + i,
-                ek,
-            ));
-        }
-        for (i, v) in scratch.into_iter().enumerate() {
-            #[allow(clippy::cast_possible_truncation)]
-            let dst_i = target + i as u32;
-            write_element_raw(ctx, buffer_id, byte_offset, dst_i, ek, v)?;
+                src_abs,
+                buffer_id,
+                dst_abs,
+                total_bytes,
+            );
         }
     }
     Ok(JsValue::Object(id))
