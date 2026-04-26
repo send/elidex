@@ -373,17 +373,13 @@ pub(super) fn native_element_remove_attribute_node(
             format!("Failed to execute 'removeAttributeNode' on 'Element': '{name_str}' not found"),
         ));
     };
-    // Detach-snapshot the prior value + update the passed Attr's
-    // state to detached before mutating the element, so the
-    // passed-in wrapper itself sees the detached view afterward
-    // (WHATWG §4.9.2 "remove an attribute" mutates the Attr being
-    // removed).
-    if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
-        state_mut.detached_value = Some(prev_sid);
-    }
-    // Apply the removal through `host_if_bound`.  A post-snapshot
-    // unbind maps to the same `NotFoundError` the absent path
-    // raises so the caller can recover rather than crash.
+    // Apply the removal through `host_if_bound` BEFORE mutating
+    // the Attr's `attr_states` snapshot — if the host happens to
+    // be unbound between the snapshot and the write, surface the
+    // recoverable `NotFoundError` without leaving the passed Attr
+    // observably detached.  The wrapper-detach step matches WHATWG
+    // §4.9.2 "remove an attribute"'s requirement that the removed
+    // Attr report its prior value through `attr.value` afterwards.
     let Some(host) = ctx.host_if_bound() else {
         let not_found = ctx.vm.well_known.dom_exc_not_found_error;
         return Err(VmError::dom_exception(
@@ -392,6 +388,9 @@ pub(super) fn native_element_remove_attribute_node(
         ));
     };
     host.dom().remove_attribute(entity, &name_str);
+    if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
+        state_mut.detached_value = Some(prev_sid);
+    }
     // Return the same Attr — now detached with a snapshot of the
     // value at removal time.  Caller-side stashing for
     // reinsertion continues to work because `attr.value` reads
