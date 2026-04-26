@@ -121,8 +121,9 @@ impl VmInner {
         // pre-interned in `WellKnownStrings` so this table skips
         // the per-call `strings.intern(...)` round-trip during
         // `Vm::new`.  The displayed function name (used by
-        // `Function.prototype.name`) is recovered via
-        // `strings.get_utf8` of the same `StringId`.
+        // `Function.prototype.name`) is carried by the same
+        // interned `StringId` passed to
+        // `create_native_function_with_sid`.
         let methods: [(StringId, NativeFn); 20] = [
             (self.well_known.get_int8, native_data_view_get_int8),
             (self.well_known.get_uint8, native_data_view_get_uint8),
