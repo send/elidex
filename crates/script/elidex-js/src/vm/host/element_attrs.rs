@@ -285,8 +285,13 @@ pub(super) fn native_element_set_attribute_node(
     };
     // Snapshot the prev value BEFORE overwriting so the returned
     // detached Attr observes the replaced value, not the just-written
-    // one (WHATWG §4.9.2).
-    ctx.host().dom().set_attribute(entity, &name_str, new_value);
+    // one (WHATWG §4.9.2).  Surface a post-snapshot unbind as `Null`
+    // (no mutation, no "previous" Attr) instead of panicking via
+    // `HostData::dom()`'s `is_bound` assert.
+    let Some(host) = ctx.host_if_bound() else {
+        return Ok(JsValue::Null);
+    };
+    host.dom().set_attribute(entity, &name_str, new_value);
     Ok(match prev_sid {
         Some(sid) => {
             let prev = ctx.vm.alloc_attr(super::attr_proto::AttrState {
@@ -376,7 +381,17 @@ pub(super) fn native_element_remove_attribute_node(
     if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
         state_mut.detached_value = Some(prev_sid);
     }
-    ctx.host().dom().remove_attribute(entity, &name_str);
+    // Apply the removal through `host_if_bound`.  A post-snapshot
+    // unbind maps to the same `NotFoundError` the absent path
+    // raises so the caller can recover rather than crash.
+    let Some(host) = ctx.host_if_bound() else {
+        let not_found = ctx.vm.well_known.dom_exc_not_found_error;
+        return Err(VmError::dom_exception(
+            not_found,
+            format!("Failed to execute 'removeAttributeNode' on 'Element': '{name_str}' not found"),
+        ));
+    };
+    host.dom().remove_attribute(entity, &name_str);
     // Return the same Attr — now detached with a snapshot of the
     // value at removal time.  Caller-side stashing for
     // reinsertion continues to work because `attr.value` reads
