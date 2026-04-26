@@ -39,11 +39,11 @@ use super::super::value::ObjectId;
 /// so the partial-copy branch is unreachable for them.
 /// `TypedArray::read_element_raw` always requests `N = 8` (the
 /// widest per-element type) but each `ElementKind` decodes only
-/// `bytes_per_element()` of the prefix; a `Uint8Array` over a
-/// 4-byte `ArrayBuffer` reading `Int32[0]` near the tail can
-/// observe `bytes.len() - abs < 8`, and the prefix must still
-/// land in the first few bytes of the returned array with the
-/// rest zero-padded.
+/// `bytes_per_element()` of the prefix; a `Uint8Array` reading
+/// its last element near the end of the backing buffer may
+/// observe `bytes.len() - abs < 8`, and the element byte(s) must
+/// still land in the first few bytes of the returned array with
+/// the rest zero-padded.
 pub(super) fn read_into<const N: usize>(
     body_data: &HashMap<ObjectId, Arc<[u8]>>,
     buffer_id: ObjectId,

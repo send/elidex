@@ -812,9 +812,11 @@ pub(crate) fn read_element_raw(
     let abs = (byte_offset + index * bpe) as usize;
     // Snapshot up to 8 bytes (max element size) into scratch so
     // the subsequent `alloc` (BigInt branch) doesn't conflict with
-    // a live borrow of `body_data`.  The fixed-size `[u8; 8]` is
-    // wider than the per-`ek` element so the per-arm decoders index
-    // into a known-zero suffix when the element is shorter.
+    // a live borrow of `body_data`.  The fixed-size `[u8; 8]` may
+    // be wider than the per-`ek` element; each decoder arm reads
+    // only the prefix required for that element kind (any trailing
+    // bytes the snapshot picked up belong to subsequent elements
+    // and are simply ignored here).
     let scratch = super::byte_io::read_into::<8>(&vm.body_data, buffer_id, abs);
     match ek {
         ElementKind::Int8 => JsValue::Number(f64::from(scratch[0] as i8)),
