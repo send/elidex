@@ -69,6 +69,17 @@ pub(super) fn write_at(
     abs: usize,
     bytes: &[u8],
 ) {
+    if bytes.is_empty() {
+        // Zero-length writes are pure no-ops — short-circuit
+        // before `entry().or_default()` so a caller passing an
+        // empty slice doesn't accidentally materialise a
+        // `body_data` entry, which would break the
+        // `body_data.contains_key(&id)` "carries bytes?" signal
+        // documented at `array_buffer::create_array_buffer_from_bytes`
+        // and `fetch.rs` response-body installation.  Mirrors
+        // `fill_pattern`'s `total_len == 0` early return.
+        return;
+    }
     // `abs + bytes.len()` can overflow on 32-bit targets when
     // callers pass an `abs` near `usize::MAX`.  Treat overflow as
     // a no-op write — the call sites pre-validate against their
