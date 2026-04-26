@@ -392,15 +392,19 @@ impl EcsDom {
             .is_some_and(|t| t.0 == tag)
     }
 
-    /// Returns the tag name of an entity, or `None` for non-element
-    /// entities (text / comment / document / window — anything
-    /// without a `TagType` component).
+    /// Returns the tag name of an entity.
     ///
-    /// Allocates a fresh `String`; prefer [`Self::with_tag_name`]
-    /// for borrow-only consumers (equality comparisons,
-    /// case-insensitive matching, intern-on-Some) — that path
-    /// keeps the value as `Option<&str>` and skips the per-call
-    /// `String` allocation.
+    /// Returns `None` for non-element entities (text / comment /
+    /// document / window — anything without a `TagType` component)
+    /// AND for any `World::get::<&TagType>` failure (entity
+    /// destroyed, hecs borrow conflict).  Callers cannot
+    /// distinguish these from a genuinely tagless entity.
+    ///
+    /// Allocates a fresh `String` for the present-value arm;
+    /// prefer [`Self::with_tag_name`] for borrow-only consumers
+    /// (equality comparisons, case-insensitive matching,
+    /// intern-on-Some) — that path keeps the value as
+    /// `Option<&str>` and skips the per-call `String` allocation.
     #[must_use]
     pub fn get_tag_name(&self, entity: Entity) -> Option<String> {
         self.with_tag_name(entity, |t| t.map(String::from))

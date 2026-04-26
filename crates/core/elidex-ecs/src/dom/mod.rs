@@ -477,13 +477,20 @@ impl EcsDom {
 
     // ---- Attribute accessors ----
 
-    /// Read attribute `name` on `entity`, returning `None` if the
-    /// `Attributes` component is absent or the key is not present.
+    /// Read attribute `name` on `entity`.
     ///
-    /// Allocates a fresh `String`; prefer [`Self::with_attribute`]
-    /// for borrow-only consumers (existence checks, equality
-    /// comparisons, intern-on-Some) — that path keeps the value as
-    /// `Option<&str>` and skips the `String::from` clone.
+    /// Returns `None` when the value is not readable — covering the
+    /// `Attributes` component absent / key not present cases AND any
+    /// `World::get::<&Attributes>` failure (entity destroyed, hecs
+    /// borrow conflict).  Callers cannot distinguish these from a
+    /// genuinely-absent attribute; treat `None` as "no readable
+    /// attribute" rather than "definitely no attribute".
+    ///
+    /// Allocates a fresh `String` for the present-value arm; prefer
+    /// [`Self::with_attribute`] for borrow-only consumers (existence
+    /// checks, equality comparisons, intern-on-Some) — that path
+    /// keeps the value as `Option<&str>` and skips the `String::from`
+    /// clone.
     #[must_use]
     pub fn get_attribute(&self, entity: Entity, name: &str) -> Option<String> {
         self.with_attribute(entity, name, |v| v.map(String::from))
