@@ -103,6 +103,69 @@ fn ecs_dom_set_attribute_on_destroyed_entity_returns_false() {
 }
 
 #[test]
+fn ecs_dom_with_attribute_present_missing_and_no_component() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let text = dom.create_text("hello");
+    // Element with no attributes yet → None for any key.
+    assert_eq!(dom.with_attribute(el, "id", |v| v.map(str::to_owned)), None);
+    // After set, with_attribute borrows the same value get_attribute clones.
+    assert!(dom.set_attribute(el, "id", "main".to_owned()));
+    let viewed = dom.with_attribute(el, "id", |v| v.map(str::to_owned));
+    assert_eq!(viewed.as_deref(), Some("main"));
+    assert_eq!(viewed, dom.get_attribute(el, "id"));
+    // Missing key on a component-bearing element → None.
+    assert_eq!(
+        dom.with_attribute(el, "absent", |v| v.map(str::to_owned)),
+        None
+    );
+    // Entity without an Attributes component → None (text node).
+    assert_eq!(
+        dom.with_attribute(text, "id", |v| v.map(str::to_owned)),
+        None
+    );
+}
+
+#[test]
+fn ecs_dom_has_attribute_matches_get_attribute_is_some() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let text = dom.create_text("hi");
+    assert!(!dom.has_attribute(el, "id"));
+    assert!(!dom.has_attribute(text, "id"));
+    assert!(dom.set_attribute(el, "id", "main".to_owned()));
+    assert!(dom.has_attribute(el, "id"));
+    assert_eq!(
+        dom.has_attribute(el, "id"),
+        dom.get_attribute(el, "id").is_some()
+    );
+    assert!(!dom.has_attribute(el, "absent"));
+}
+
+#[test]
+fn ecs_dom_with_tag_name_element_text_and_consistency() {
+    let mut dom = EcsDom::new();
+    let el = elem(&mut dom, "div");
+    let text = dom.create_text("hi");
+    // Element returns its tag verbatim.
+    assert_eq!(
+        dom.with_tag_name(el, |t| t.map(str::to_owned)),
+        Some("div".to_owned())
+    );
+    // Non-element entity → None.
+    assert_eq!(dom.with_tag_name(text, |t| t.map(str::to_owned)), None);
+    // Borrow form must agree with the owned getter for both arms.
+    assert_eq!(
+        dom.with_tag_name(el, |t| t.map(str::to_owned)),
+        dom.get_tag_name(el)
+    );
+    assert_eq!(
+        dom.with_tag_name(text, |t| t.map(str::to_owned)),
+        dom.get_tag_name(text)
+    );
+}
+
+#[test]
 fn document_root_none_initially() {
     let dom = EcsDom::new();
     assert!(dom.document_root().is_none());

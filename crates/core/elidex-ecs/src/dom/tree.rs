@@ -392,10 +392,48 @@ impl EcsDom {
             .is_some_and(|t| t.0 == tag)
     }
 
-    /// Returns the tag name of an entity, or `None` for text nodes.
+    /// Returns the tag name of an entity.
+    ///
+    /// Returns `None` for non-element entities (text / comment /
+    /// document / window — anything without a `TagType` component)
+    /// AND for any `World::get::<&TagType>` failure (entity
+    /// destroyed, hecs borrow conflict).  Callers cannot
+    /// distinguish these from a genuinely tagless entity.
+    ///
+    /// Allocates a fresh `String` for the present-value arm;
+    /// prefer [`Self::with_tag_name`] for borrow-only consumers
+    /// (equality comparisons, case-insensitive matching,
+    /// intern-on-Some) — that path keeps the value as
+    /// `Option<&str>` and skips the per-call `String` allocation.
     #[must_use]
     pub fn get_tag_name(&self, entity: Entity) -> Option<String> {
-        self.world.get::<&TagType>(entity).ok().map(|t| t.0.clone())
+        self.with_tag_name(entity, |t| t.map(String::from))
+    }
+
+    /// Borrow the tag name of `entity` and project through `f`.
+    ///
+    /// `f` is called with `Some(tag)` for elements carrying a
+    /// `TagType` component, and `None` for every other case —
+    /// non-element nodes (text / comment / document / window) AND
+    /// any `World::get::<&TagType>` failure (entity destroyed,
+    /// borrow conflict).  Callers cannot distinguish these cases
+    /// from `None`.  Zero-allocation sibling of
+    /// [`Self::get_tag_name`].
+    ///
+    /// The closure parameter is `for<'b> FnOnce(Option<&'b str>) -> R`
+    /// so the borrowed `&str` cannot escape `f`'s scope: `hecs::World`
+    /// supports interior-mutable borrows via `&World`, so leaking the
+    /// `&str` past the internal `Ref<'_, TagType>` guard could allow a
+    /// later `&mut TagType` borrow to alias it.
+    pub fn with_tag_name<R>(
+        &self,
+        entity: Entity,
+        f: impl for<'b> FnOnce(Option<&'b str>) -> R,
+    ) -> R {
+        match self.world.get::<&TagType>(entity) {
+            Ok(tag) => f(Some(&tag.0)),
+            Err(_) => f(None),
+        }
     }
 
     /// Compare two entities by tree order (pre-order depth-first traversal).

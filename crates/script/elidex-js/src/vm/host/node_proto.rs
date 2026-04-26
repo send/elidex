@@ -356,14 +356,15 @@ fn native_node_get_node_name(
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
     enum NodeNameKind {
-        Tag(String),
+        Upper(String),
         Hash(StringId),
         Empty,
     }
     let kind = {
         let dom = ctx.host().dom();
-        if let Some(tag) = dom.get_tag_name(entity) {
-            NodeNameKind::Tag(tag)
+        let upper = dom.with_tag_name(entity, |t| t.map(str::to_ascii_uppercase));
+        if let Some(s) = upper {
+            NodeNameKind::Upper(s)
         } else {
             match dom.node_kind(entity) {
                 Some(NodeKind::Text) => NodeNameKind::Hash(ctx.vm.well_known.hash_text),
@@ -379,8 +380,7 @@ fn native_node_get_node_name(
     match kind {
         NodeNameKind::Hash(sid) => Ok(JsValue::String(sid)),
         NodeNameKind::Empty => Ok(JsValue::String(ctx.vm.well_known.empty)),
-        NodeNameKind::Tag(tag) => {
-            let upper = tag.to_ascii_uppercase();
+        NodeNameKind::Upper(upper) => {
             let sid = ctx.vm.strings.intern(&upper);
             Ok(JsValue::String(sid))
         }

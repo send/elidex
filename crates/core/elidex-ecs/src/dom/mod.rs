@@ -477,14 +477,67 @@ impl EcsDom {
 
     // ---- Attribute accessors ----
 
-    /// Read attribute `name` on `entity`, returning `None` if the
-    /// `Attributes` component is absent or the key is not present.
+    /// Read attribute `name` on `entity`.
+    ///
+    /// Returns `None` when the value is not readable — covering the
+    /// `Attributes` component absent / key not present cases AND any
+    /// `World::get::<&Attributes>` failure (entity destroyed, hecs
+    /// borrow conflict).  Callers cannot distinguish these from a
+    /// genuinely-absent attribute; treat `None` as "no readable
+    /// attribute" rather than "definitely no attribute".
+    ///
+    /// Allocates a fresh `String` for the present-value arm; prefer
+    /// [`Self::with_attribute`] for borrow-only consumers (existence
+    /// checks, equality comparisons, intern-on-Some) — that path
+    /// keeps the value as `Option<&str>` and skips the `String::from`
+    /// clone.
     #[must_use]
     pub fn get_attribute(&self, entity: Entity, name: &str) -> Option<String> {
+        self.with_attribute(entity, name, |v| v.map(String::from))
+    }
+
+    /// Borrow attribute `name` on `entity` and project through `f`.
+    ///
+    /// `f` is called with `Some(value)` when the `Attributes`
+    /// component is reachable and contains `name`, and `None`
+    /// otherwise — covering not just absent-component / missing-key
+    /// but every `World::get::<&Attributes>` failure (entity
+    /// destroyed, borrow conflict).  Callers cannot distinguish
+    /// these cases from `None`; treat it as "no readable attribute"
+    /// rather than "definitely no attribute".  This is the
+    /// zero-allocation sibling of [`Self::get_attribute`] —
+    /// callers that only need to compare, parse, or hash the value
+    /// can avoid the `String::from` clone the owned getter performs.
+    /// Mirrors the closure-borrow `read_rel` pattern used internally
+    /// for `TreeRelation` reads.
+    ///
+    /// The closure parameter is `for<'b> FnOnce(Option<&'b str>) -> R`
+    /// so the borrowed `&str` cannot escape `f`'s scope: `hecs::World`
+    /// supports interior-mutable borrows via `&World`, so leaking the
+    /// `&str` past the internal `Ref<'_, Attributes>` guard could
+    /// allow a later `&mut Attributes` borrow to alias it.
+    pub fn with_attribute<R>(
+        &self,
+        entity: Entity,
+        name: &str,
+        f: impl for<'b> FnOnce(Option<&'b str>) -> R,
+    ) -> R {
+        match self.world.get::<&Attributes>(entity) {
+            Ok(attrs) => f(attrs.get(name)),
+            Err(_) => f(None),
+        }
+    }
+
+    /// Returns `true` if `entity` has an `Attributes` component
+    /// with `name` present.  Equivalent to
+    /// `self.get_attribute(entity, name).is_some()` but skips the
+    /// `String::from` clone.
+    #[must_use]
+    pub fn has_attribute(&self, entity: Entity, name: &str) -> bool {
         self.world
             .get::<&Attributes>(entity)
             .ok()
-            .and_then(|attrs| attrs.get(name).map(String::from))
+            .is_some_and(|attrs| attrs.contains(name))
     }
 
     /// Set attribute `name = value` on `entity`, inserting an

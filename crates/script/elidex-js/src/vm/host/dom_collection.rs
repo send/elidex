@@ -144,9 +144,7 @@ fn resolve_entities_with_needles(
                     return true; // skip root itself (Element.getElementsByTagName semantics)
                 }
                 let matches = *all
-                    || dom
-                        .get_tag_name(e)
-                        .is_some_and(|t| t.eq_ignore_ascii_case(tag_str));
+                    || dom.with_tag_name(e, |t| t.is_some_and(|s| s.eq_ignore_ascii_case(tag_str)));
                 if matches && dom.node_kind_inferred(e) == Some(NodeKind::Element) {
                     out.push(e);
                 }
@@ -166,14 +164,16 @@ fn resolve_entities_with_needles(
                 if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
                     return true;
                 }
-                if let Some(class_attr) = dom.get_attribute(e, "class") {
-                    let has_all = resolved_needles
-                        .class_names
-                        .iter()
-                        .all(|n| class_attr.split_whitespace().any(|c| c == n));
-                    if has_all {
-                        out.push(e);
-                    }
+                let has_all = dom.with_attribute(e, "class", |class_attr| {
+                    class_attr.is_some_and(|c| {
+                        resolved_needles
+                            .class_names
+                            .iter()
+                            .all(|n| c.split_whitespace().any(|tok| tok == n))
+                    })
+                });
+                if has_all {
+                    out.push(e);
                 }
                 true
             });
@@ -191,10 +191,10 @@ fn resolve_entities_with_needles(
                 if e == *doc {
                     return true;
                 }
-                let tag_ok = dom
-                    .get_tag_name(e)
-                    .is_some_and(|t| t.eq_ignore_ascii_case("a") || t.eq_ignore_ascii_case("area"));
-                if tag_ok && dom.get_attribute(e, "href").is_some() {
+                let tag_ok = dom.with_tag_name(e, |t| {
+                    t.is_some_and(|s| s.eq_ignore_ascii_case("a") || s.eq_ignore_ascii_case("area"))
+                });
+                if tag_ok && dom.has_attribute(e, "href") {
                     out.push(e);
                 }
                 true
@@ -220,7 +220,7 @@ fn resolve_entities_with_needles(
                 if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
                     return true;
                 }
-                if dom.get_attribute(e, "name").is_some_and(|v| v == needle) {
+                if dom.with_attribute(e, "name", |v| v == Some(needle)) {
                     out.push(e);
                 }
                 true
@@ -290,10 +290,7 @@ fn collect_descendants_with_tag(dom: &EcsDom, root: Entity, tag: &str) -> Vec<En
         if e == root {
             return true;
         }
-        if dom
-            .get_tag_name(e)
-            .is_some_and(|t| t.eq_ignore_ascii_case(tag))
-        {
+        if dom.with_tag_name(e, |t| t.is_some_and(|s| s.eq_ignore_ascii_case(tag))) {
             out.push(e);
         }
         true
@@ -622,17 +619,14 @@ fn native_collection_named_item(
     let mut name_hit: Option<Entity> = None;
     for &e in &entities {
         let dom = ctx.host().dom();
-        if dom.get_attribute(e, "id").as_deref() == Some(key.as_str()) {
+        if dom.with_attribute(e, "id", |v| v == Some(key.as_str())) {
             return Ok(JsValue::Object(ctx.vm.create_element_wrapper(e)));
         }
-        if name_hit.is_none() {
-            if let Some(tag) = dom.get_tag_name(e) {
-                if tag_allows_name_lookup(&tag)
-                    && dom.get_attribute(e, "name").as_deref() == Some(key.as_str())
-                {
-                    name_hit = Some(e);
-                }
-            }
+        if name_hit.is_none()
+            && dom.with_tag_name(e, |t| t.is_some_and(tag_allows_name_lookup))
+            && dom.with_attribute(e, "name", |v| v == Some(key.as_str()))
+        {
+            name_hit = Some(e);
         }
     }
     Ok(match name_hit {
@@ -789,17 +783,14 @@ pub(crate) fn try_indexed_get(
             }
             let mut name_hit: Option<Entity> = None;
             for &e in &entities {
-                if dom.get_attribute(e, "id").as_deref() == Some(key_str.as_str()) {
+                if dom.with_attribute(e, "id", |v| v == Some(key_str.as_str())) {
                     return Some(e);
                 }
-                if name_hit.is_none() {
-                    if let Some(tag) = dom.get_tag_name(e) {
-                        if tag_allows_name_lookup(&tag)
-                            && dom.get_attribute(e, "name").as_deref() == Some(key_str.as_str())
-                        {
-                            name_hit = Some(e);
-                        }
-                    }
+                if name_hit.is_none()
+                    && dom.with_tag_name(e, |t| t.is_some_and(tag_allows_name_lookup))
+                    && dom.with_attribute(e, "name", |v| v == Some(key_str.as_str()))
+                {
+                    name_hit = Some(e);
                 }
             }
             name_hit

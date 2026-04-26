@@ -247,7 +247,7 @@ fn native_attr_get_owner_element(
     // panicking via `HostData::dom()` is_bound assert.
     let still_attached = ctx
         .host_if_bound()
-        .is_some_and(|host| host.dom().get_attribute(owner, &name_str).is_some());
+        .is_some_and(|host| host.dom().has_attribute(owner, &name_str));
     if still_attached {
         Ok(JsValue::Object(ctx.vm.create_element_wrapper(owner)))
     } else {
@@ -315,7 +315,7 @@ fn native_attr_set_value(
     let Some(host) = ctx.host_if_bound() else {
         return Ok(JsValue::Undefined);
     };
-    let attached = host.dom().get_attribute(owner, &name_str).is_some();
+    let attached = host.dom().has_attribute(owner, &name_str);
     if attached {
         let new_value = ctx.vm.strings.get_utf8(value_sid);
         // Re-borrow `ctx.host_if_bound()` since we need a fresh

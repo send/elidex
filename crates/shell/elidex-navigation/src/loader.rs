@@ -251,10 +251,9 @@ fn extract_manifest_url(dom: &EcsDom, document: Entity, base_url: &url::Url) -> 
     while let Some(entity) = queue.pop_front() {
         queue.extend(dom.children(entity));
 
-        let Some(tag) = dom.get_tag_name(entity) else {
-            continue;
-        };
-        if !tag.eq_ignore_ascii_case("link") {
+        if !dom.with_tag_name(entity, |t| {
+            t.is_some_and(|s| s.eq_ignore_ascii_case("link"))
+        }) {
             continue;
         }
         let world = dom.world();

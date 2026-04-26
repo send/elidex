@@ -270,11 +270,7 @@ fn native_iframe_get_allow_fullscreen(
     let Some(entity) = require_iframe_receiver(ctx, this, "allowFullscreen")? else {
         return Ok(JsValue::Boolean(false));
     };
-    let present = ctx
-        .host()
-        .dom()
-        .get_attribute(entity, "allowfullscreen")
-        .is_some();
+    let present = ctx.host().dom().has_attribute(entity, "allowfullscreen");
     Ok(JsValue::Boolean(present))
 }
 
