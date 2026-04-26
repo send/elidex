@@ -88,9 +88,9 @@ pub(super) fn native_element_get_attribute(
     let name = coerce_first_arg_to_string(ctx, args)?;
     // Split the dom + strings borrow so `with_attribute` can intern
     // the borrowed `&str` without first allocating an owned `String`
-    // through `attr_get`.  Post-unbind reads return `Null` (no
-    // attribute observable) — same contract `attr_get` honours via
-    // `host_if_bound` underneath.
+    // through `attr_get`.  `entity_from_this` above already
+    // short-circuited unbound receivers with `Null`, so the `None`
+    // arm of `dom_and_strings_if_bound` is a defensive fallback only.
     let sid = match ctx.dom_and_strings_if_bound() {
         Some((dom, strings)) => dom.with_attribute(entity, &name, |v| v.map(|s| strings.intern(s))),
         None => None,

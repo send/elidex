@@ -308,10 +308,10 @@ fn string_reflect_get(
     // Snapshot `well_known.empty` first, then split the dom + strings
     // borrow so `with_attribute`'s closure can intern the borrowed
     // `&str` without the per-method `host()` / `vm.strings` borrow
-    // conflict — saves one `String::from` clone per call.  Post-
-    // unbind reads through `dom_and_strings_if_bound() == None` and
-    // surface the empty StringId, matching the unbound contract used
-    // by the rest of the module.
+    // conflict — saves one `String::from` clone per call.
+    // `require_html_element_receiver` already promotes the unbound
+    // case to TypeError above, so the `None` arm of
+    // `dom_and_strings_if_bound` is a defensive fallback only.
     let sid = match ctx.dom_and_strings_if_bound() {
         Some((dom, strings)) => dom.with_attribute(entity, attr_name, |v| {
             v.map_or(empty, |s| strings.intern(s))
