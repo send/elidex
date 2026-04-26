@@ -498,11 +498,17 @@ impl EcsDom {
     /// can avoid the `String::from` clone the owned getter performs.
     /// Mirrors the closure-borrow `read_rel` pattern used internally
     /// for `TreeRelation` reads.
+    ///
+    /// The closure parameter is `for<'b> FnOnce(Option<&'b str>) -> R`
+    /// so the borrowed `&str` cannot escape `f`'s scope: `hecs::World`
+    /// supports interior-mutable borrows via `&World`, so leaking the
+    /// `&str` past the internal `Ref<'_, Attributes>` guard could
+    /// allow a later `&mut Attributes` borrow to alias it.
     pub fn with_attribute<R>(
         &self,
         entity: Entity,
         name: &str,
-        f: impl FnOnce(Option<&str>) -> R,
+        f: impl for<'b> FnOnce(Option<&'b str>) -> R,
     ) -> R {
         match self.world.get::<&Attributes>(entity) {
             Ok(attrs) => f(attrs.get(name)),

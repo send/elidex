@@ -412,7 +412,17 @@ impl EcsDom {
     /// `TagType` component, and `None` for text / comment /
     /// document / window entities.  Zero-allocation sibling of
     /// [`Self::get_tag_name`].
-    pub fn with_tag_name<R>(&self, entity: Entity, f: impl FnOnce(Option<&str>) -> R) -> R {
+    ///
+    /// The closure parameter is `for<'b> FnOnce(Option<&'b str>) -> R`
+    /// so the borrowed `&str` cannot escape `f`'s scope: `hecs::World`
+    /// supports interior-mutable borrows via `&World`, so leaking the
+    /// `&str` past the internal `Ref<'_, TagType>` guard could allow a
+    /// later `&mut TagType` borrow to alias it.
+    pub fn with_tag_name<R>(
+        &self,
+        entity: Entity,
+        f: impl for<'b> FnOnce(Option<&'b str>) -> R,
+    ) -> R {
         match self.world.get::<&TagType>(entity) {
             Ok(tag) => f(Some(&tag.0)),
             Err(_) => f(None),

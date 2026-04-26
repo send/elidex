@@ -593,19 +593,23 @@ fn native_hidden_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "hidden")?;
-    // 0 = absent, 1 = present (truthy), 2 = "until-found" surface as string.
+    enum HiddenKind {
+        Absent,
+        Present,
+        UntilFound,
+    }
     let kind = ctx
         .host()
         .dom()
         .with_attribute(entity, "hidden", |v| match v {
-            None => 0_u8,
-            Some(s) if s.eq_ignore_ascii_case("until-found") => 2,
-            Some(_) => 1,
+            None => HiddenKind::Absent,
+            Some(s) if s.eq_ignore_ascii_case("until-found") => HiddenKind::UntilFound,
+            Some(_) => HiddenKind::Present,
         });
     Ok(match kind {
-        0 => JsValue::Boolean(false),
-        2 => JsValue::String(ctx.vm.strings.intern("until-found")),
-        _ => JsValue::Boolean(true),
+        HiddenKind::Absent => JsValue::Boolean(false),
+        HiddenKind::UntilFound => JsValue::String(ctx.vm.strings.intern("until-found")),
+        HiddenKind::Present => JsValue::Boolean(true),
     })
 }
 fn native_hidden_set(
