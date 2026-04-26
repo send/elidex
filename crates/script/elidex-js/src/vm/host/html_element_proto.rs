@@ -836,31 +836,61 @@ fn parse_tab_index_value(raw: &str) -> Option<i32> {
 
 /// Per-element `tabIndex` default (WHATWG §6.6.3 step 2).
 fn tab_index_default_for(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> i32 {
-    let lower_tag: Option<String> = dom.with_tag_name(entity, |t| t.map(str::to_ascii_lowercase));
-    let Some(lower_tag) = lower_tag else {
-        return -1;
-    };
-    let has_href = dom.has_attribute(entity, "href");
-    let is_link = matches!(lower_tag.as_str(), "a" | "area") && has_href;
-    let is_form_control = match lower_tag.as_str() {
-        "button" | "select" | "textarea" => true,
-        "input" => {
+    // Tag-driven branch decisions read the borrowed tag directly so
+    // the lowercase comparison is zero-allocation; an explicit
+    // `Option<TagDefault>` enum lets the inner `dom.with_attribute`
+    // and `dom.has_attribute` calls run AFTER the tag borrow drops.
+    enum TagDefault {
+        // Definitely focus-zero (button / select / textarea / iframe /
+        // object / embed) — no further attribute lookup needed.
+        Zero,
+        // Link — focus-zero only when the element also carries `href`.
+        Link,
+        // `<input>` — focus-zero unless `type="hidden"`.
+        Input,
+        // Generic element — depends on `contenteditable`.
+        Generic,
+    }
+    let kind = dom.with_tag_name(entity, |t| match t {
+        None => None,
+        Some(s) => {
+            if s.eq_ignore_ascii_case("button")
+                || s.eq_ignore_ascii_case("select")
+                || s.eq_ignore_ascii_case("textarea")
+                || s.eq_ignore_ascii_case("iframe")
+                || s.eq_ignore_ascii_case("object")
+                || s.eq_ignore_ascii_case("embed")
+            {
+                Some(TagDefault::Zero)
+            } else if s.eq_ignore_ascii_case("a") || s.eq_ignore_ascii_case("area") {
+                Some(TagDefault::Link)
+            } else if s.eq_ignore_ascii_case("input") {
+                Some(TagDefault::Input)
+            } else {
+                Some(TagDefault::Generic)
+            }
+        }
+    });
+    let focusable = match kind {
+        None => false,
+        Some(TagDefault::Zero) => true,
+        Some(TagDefault::Link) => dom.has_attribute(entity, "href"),
+        Some(TagDefault::Input) => {
             // `<input type="hidden">` is unfocusable; everything else
             // participates in sequential focus navigation.
             !dom.with_attribute(entity, "type", |t| {
                 t.is_some_and(|s| s.eq_ignore_ascii_case("hidden"))
             })
         }
-        _ => false,
+        Some(TagDefault::Generic) => dom.with_attribute(entity, "contenteditable", |v| {
+            v.is_some_and(|s| {
+                s.is_empty()
+                    || s.eq_ignore_ascii_case("true")
+                    || s.eq_ignore_ascii_case("plaintext-only")
+            })
+        }),
     };
-    let is_embedded = matches!(lower_tag.as_str(), "iframe" | "object" | "embed");
-    let has_contenteditable = dom.with_attribute(entity, "contenteditable", |v| {
-        v.is_some_and(|s| {
-            let lower = s.to_ascii_lowercase();
-            matches!(lower.as_str(), "" | "true" | "plaintext-only")
-        })
-    });
-    if is_link || is_form_control || is_embedded || has_contenteditable {
+    if focusable {
         0
     } else {
         -1

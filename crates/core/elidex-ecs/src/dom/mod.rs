@@ -496,7 +496,8 @@ impl EcsDom {
     /// is the zero-allocation sibling of [`Self::get_attribute`] —
     /// callers that only need to compare, parse, or hash the value
     /// can avoid the `String::from` clone the owned getter performs.
-    /// Mirror of [`Self::read_rel`] for attribute reads.
+    /// Mirrors the closure-borrow `read_rel` pattern used internally
+    /// for `TreeRelation` reads.
     pub fn with_attribute<R>(
         &self,
         entity: Entity,

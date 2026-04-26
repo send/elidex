@@ -34,7 +34,7 @@ pub(super) fn native_element_get_tag_name(
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
     // WHATWG DOM §4.9 tagName: HTML elements are uppercase.  Every
-    // document we bind is treated as HTML in Phase 2.  Lowercase the
+    // document we bind is treated as HTML in Phase 2.  Uppercase the
     // tag inside the borrow so the eventual `intern` only sees the
     // already-uppercased copy.
     let upper = ctx
