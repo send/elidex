@@ -31,13 +31,18 @@
 //! wrappers (`detached_value == Some(_)`) are never cached — each
 //! detachment site allocates its own snapshot wrapper.
 //!
-//! `setAttributeNode` / `setNamedItem` *invalidate* rather than
-//! replace the cache entry; the engine path does not currently
-//! retarget the passed-in Attr's `AttrState.owner`, so identity
-//! with the passed-in argument is **not** preserved (Phase 2
-//! limitation paired with the existing AttrState ownership
-//! simplification — same Deferred #21 bucket as the namespace
-//! work below).
+//! `setAttributeNode` / `setNamedItem` invalidate the cache only
+//! when the passed-in Attr cannot remain canonical for the target
+//! `(owner, qname)` pair — that is, when the Attr's
+//! `AttrState.owner` differs from the receiving element or when
+//! the Attr is detached.  Live Attrs already attached to the
+//! receiving element are left in place, so
+//! `el.setAttributeNode(el.getAttributeNode("id"))` preserves
+//! identity.  Cross-element or detached arguments cannot be
+//! retargeted (the engine path does not mutate the passed-in
+//! Attr's `AttrState.owner`), so the cache drops the entry and
+//! the next `getAttributeNode` allocates a fresh wrapper — same
+//! Deferred #21 bucket as the namespace work below.
 //!
 //! ## Phase 2 simplification
 //!

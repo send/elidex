@@ -319,6 +319,45 @@ fn toggle_attribute_off_invalidates_identity() {
 }
 
 #[test]
+fn set_attribute_node_self_preserves_identity() {
+    // `el.setAttributeNode(el.getAttributeNode(name))` — passing
+    // the live wrapper for the same `(element, name)` back in
+    // must not invalidate the cache, since its backing state is
+    // already canonical.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.getAttributeNode('id'); \
+         d.setAttributeNode(a); \
+         (d.getAttributeNode('id') === a) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn set_named_item_self_preserves_identity() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         var a = d.getAttributeNode('id'); \
+         d.attributes.setNamedItem(a); \
+         (d.getAttributeNode('id') === a) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn set_attribute_node_from_other_element_invalidates_cache() {
+    // Passing an Attr from a *different* element cannot retarget
+    // its `AttrState.owner`, so the cache must drop and the next
+    // `getAttributeNode` allocate a fresh canonical wrapper.
+    let out = run("var src = document.createElement('div'); \
+         var dst = document.createElement('div'); \
+         src.setAttribute('id', 'x'); \
+         dst.setAttribute('id', 'y'); \
+         var dst_before = dst.getAttributeNode('id'); \
+         dst.setAttributeNode(src.getAttributeNode('id')); \
+         (dst.getAttributeNode('id') !== dst_before) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn distinct_elements_and_names_have_distinct_identities() {
     let out = run("var a = document.createElement('div'); \
          var b = document.createElement('div'); \

@@ -315,11 +315,18 @@ pub(super) fn native_element_set_attribute_node(
         return Ok(JsValue::Null);
     };
     host.dom().set_attribute(entity, &name_str, new_value);
-    // We cannot adopt `attr_id` as the cached wrapper because the
-    // engine path leaves its `AttrState.owner` pointing at the
-    // source element; drop instead and let the next
-    // `getAttributeNode` allocate a fresh canonical wrapper.
-    ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
+    // Only drop the cache when the passed-in Attr cannot remain
+    // canonical for `(entity, qname)`.  A live Attr already
+    // attached to `entity` (`source_owner == entity`,
+    // `source_detached.is_none()`) is the same backing state the
+    // cache already points at — invalidating would gratuitously
+    // break `el.setAttributeNode(el.getAttributeNode("id"))`
+    // identity.  Cross-element or detached Attrs cannot be made
+    // canonical here (the engine path doesn't retarget their
+    // `AttrState.owner`), so those still drop the entry.
+    if source_owner != entity || source_detached.is_some() {
+        ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
+    }
     Ok(match prev_sid {
         Some(sid) => {
             let prev = ctx.vm.alloc_attr(super::attr_proto::AttrState {

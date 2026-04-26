@@ -328,12 +328,16 @@ pub(crate) struct VmInner {
     /// The cache is **invalidated** when the named attribute leaves
     /// the owner's attribute list — `removeAttribute`,
     /// `removeAttributeNode`, `toggleAttribute(off)`,
-    /// `removeNamedItem`.  `setAttributeNode` / `setNamedItem` also
-    /// invalidate (rather than re-target the passed-in Attr's owner)
-    /// because the engine path does not currently mutate the
-    /// argument's `AttrState.owner`; identity with the passed-in
-    /// Attr is therefore not preserved (Phase 2 limitation, paired
-    /// with the existing AttrState ownership simplification).
+    /// `removeNamedItem`.  `setAttributeNode` / `setNamedItem`
+    /// invalidate only when the passed-in Attr cannot remain
+    /// canonical (cross-element source, or detached) — a live Attr
+    /// already attached to the receiving element keeps the cache
+    /// entry intact so `el.setAttributeNode(el.getAttributeNode("id"))`
+    /// preserves identity.  Cross-element / detached arguments
+    /// cannot be retargeted because the engine path does not
+    /// mutate the passed-in Attr's `AttrState.owner` (Phase 2
+    /// limitation paired with the existing AttrState ownership
+    /// simplification).
     ///
     /// GC interaction: tracing fans out a cached `attr_id` only when
     /// the owner element wrapper is reachable (looked up via
