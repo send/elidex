@@ -256,7 +256,7 @@ fn native_nnm_get_named_item(
     // Post-unbind lookup returns null — no attribute visible.
     let exists = ctx
         .host_if_bound()
-        .is_some_and(|host| host.dom().get_attribute(owner, &key).is_some());
+        .is_some_and(|host| host.dom().has_attribute(owner, &key));
     if !exists {
         return Ok(JsValue::Null);
     }

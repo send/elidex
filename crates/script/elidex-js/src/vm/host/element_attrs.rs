@@ -34,12 +34,16 @@ pub(super) fn native_element_get_tag_name(
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
     // WHATWG DOM §4.9 tagName: HTML elements are uppercase.  Every
-    // document we bind is treated as HTML in Phase 2.
-    let tag = ctx.host().dom().get_tag_name(entity);
-    match tag {
-        Some(t) => {
-            let upper = t.to_ascii_uppercase();
-            let sid = ctx.vm.strings.intern(&upper);
+    // document we bind is treated as HTML in Phase 2.  Lowercase the
+    // tag inside the borrow so the eventual `intern` only sees the
+    // already-uppercased copy.
+    let upper = ctx
+        .host()
+        .dom()
+        .with_tag_name(entity, |t| t.map(str::to_ascii_uppercase));
+    match upper {
+        Some(s) => {
+            let sid = ctx.vm.strings.intern(&s);
             Ok(JsValue::String(sid))
         }
         None => Ok(JsValue::String(ctx.vm.well_known.empty)),
@@ -202,7 +206,7 @@ pub(super) fn native_element_get_attribute_node(
         return Ok(JsValue::Null);
     };
     let name = coerce_first_arg_to_string(ctx, args)?;
-    if ctx.host().dom().get_attribute(entity, &name).is_none() {
+    if !ctx.host().dom().has_attribute(entity, &name) {
         return Ok(JsValue::Null);
     }
     let qname_sid = ctx.vm.strings.intern(&name);

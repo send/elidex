@@ -273,7 +273,8 @@ fn nodes_equal(dom: &elidex_ecs::EcsDom, a: Entity, b: Entity) -> bool {
         if kind != dom.node_kind_inferred(b) {
             return false;
         }
-        if dom.get_tag_name(a) != dom.get_tag_name(b) {
+        let tags_match = dom.with_tag_name(a, |ta| dom.with_tag_name(b, |tb| ta == tb));
+        if !tags_match {
             return false;
         }
         // Character-data equality is dispatched by kind — Text compares

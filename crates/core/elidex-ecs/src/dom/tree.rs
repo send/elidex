@@ -393,9 +393,28 @@ impl EcsDom {
     }
 
     /// Returns the tag name of an entity, or `None` for text nodes.
+    ///
+    /// Allocates a fresh `String`; prefer [`Self::with_tag_name`]
+    /// for borrow-only consumers (equality comparisons,
+    /// case-insensitive matching, intern-on-Some) — that path
+    /// keeps the value as `Option<&str>` and skips the
+    /// `t.0.clone()` allocation.
     #[must_use]
     pub fn get_tag_name(&self, entity: Entity) -> Option<String> {
-        self.world.get::<&TagType>(entity).ok().map(|t| t.0.clone())
+        self.with_tag_name(entity, |t| t.map(String::from))
+    }
+
+    /// Borrow the tag name of `entity` and project through `f`.
+    ///
+    /// `f` is called with `Some(tag)` for elements carrying a
+    /// `TagType` component, and `None` for text / comment /
+    /// document / window entities.  Zero-allocation sibling of
+    /// [`Self::get_tag_name`].
+    pub fn with_tag_name<R>(&self, entity: Entity, f: impl FnOnce(Option<&str>) -> R) -> R {
+        match self.world.get::<&TagType>(entity) {
+            Ok(tag) => f(Some(&tag.0)),
+            Err(_) => f(None),
+        }
     }
 
     /// Compare two entities by tree order (pre-order depth-first traversal).

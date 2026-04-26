@@ -479,12 +479,46 @@ impl EcsDom {
 
     /// Read attribute `name` on `entity`, returning `None` if the
     /// `Attributes` component is absent or the key is not present.
+    ///
+    /// Allocates a fresh `String`; prefer [`Self::with_attribute`]
+    /// for borrow-only consumers (existence checks, equality
+    /// comparisons, intern-on-Some) — that path keeps the value as
+    /// `Option<&str>` and skips the `String::from` clone.
     #[must_use]
     pub fn get_attribute(&self, entity: Entity, name: &str) -> Option<String> {
+        self.with_attribute(entity, name, |v| v.map(String::from))
+    }
+
+    /// Borrow attribute `name` on `entity` and project through `f`.
+    ///
+    /// `f` is called with `Some(value)` when both the `Attributes`
+    /// component and key are present, and `None` otherwise.  This
+    /// is the zero-allocation sibling of [`Self::get_attribute`] —
+    /// callers that only need to compare, parse, or hash the value
+    /// can avoid the `String::from` clone the owned getter performs.
+    /// Mirror of [`Self::read_rel`] for attribute reads.
+    pub fn with_attribute<R>(
+        &self,
+        entity: Entity,
+        name: &str,
+        f: impl FnOnce(Option<&str>) -> R,
+    ) -> R {
+        match self.world.get::<&Attributes>(entity) {
+            Ok(attrs) => f(attrs.get(name)),
+            Err(_) => f(None),
+        }
+    }
+
+    /// Returns `true` if `entity` has an `Attributes` component
+    /// with `name` present.  Equivalent to
+    /// `self.get_attribute(entity, name).is_some()` but skips the
+    /// `String::from` clone.
+    #[must_use]
+    pub fn has_attribute(&self, entity: Entity, name: &str) -> bool {
         self.world
             .get::<&Attributes>(entity)
             .ok()
-            .and_then(|attrs| attrs.get(name).map(String::from))
+            .is_some_and(|attrs| attrs.contains(name))
     }
 
     /// Set attribute `name = value` on `entity`, inserting an

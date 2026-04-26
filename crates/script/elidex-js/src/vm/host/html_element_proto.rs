@@ -304,6 +304,12 @@ fn string_reflect_get(
     attr_name: &'static str,
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, idl_name)?;
+    // Intern requires `&mut ctx.vm.strings`, which conflicts with the
+    // active `&ctx.host().dom()` borrow used by `with_attribute` — so
+    // we still allocate a `String` here.  The remaining `get_attribute`
+    // call sites in this module are the IDL-getter family (lang /
+    // title / nonce / dir / …) where the value is interned and
+    // returned to JS, so the owned form stays load-bearing.
     let sid = match ctx.host().dom().get_attribute(entity, attr_name) {
         Some(v) => ctx.vm.strings.intern(&v),
         None => ctx.vm.well_known.empty,
@@ -341,11 +347,13 @@ fn enumerated_reflect_get(
     default: &'static str,
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, idl_name)?;
-    let raw = ctx.host().dom().get_attribute(entity, attr_name);
-    let resolved = raw
-        .as_deref()
-        .map(str::to_ascii_lowercase)
-        .filter(|v| allowed.iter().any(|a| a == v))
+    let resolved = ctx
+        .host()
+        .dom()
+        .with_attribute(entity, attr_name, |raw| {
+            raw.map(str::to_ascii_lowercase)
+                .filter(|v| allowed.iter().any(|a| a == v))
+        })
         .unwrap_or_else(|| default.to_string());
     let sid = if resolved.is_empty() {
         ctx.vm.well_known.empty
@@ -558,12 +566,14 @@ fn native_is_content_editable_get(
     let dom = ctx.host().dom();
     let mut cur = Some(entity);
     while let Some(e) = cur {
-        if let Some(raw) = dom.get_attribute(e, "contenteditable") {
-            let lower = raw.to_ascii_lowercase();
-            return Ok(JsValue::Boolean(matches!(
-                lower.as_str(),
-                "true" | "plaintext-only" | ""
-            )));
+        let matched = dom.with_attribute(e, "contenteditable", |raw| {
+            raw.map(|s| {
+                let lower = s.to_ascii_lowercase();
+                matches!(lower.as_str(), "true" | "plaintext-only" | "")
+            })
+        });
+        if let Some(b) = matched {
+            return Ok(JsValue::Boolean(b));
         }
         cur = dom.get_parent(e);
     }
@@ -583,14 +593,19 @@ fn native_hidden_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "hidden")?;
-    let value = ctx.host().dom().get_attribute(entity, "hidden");
-    Ok(match value {
-        None => JsValue::Boolean(false),
-        Some(v) if v.eq_ignore_ascii_case("until-found") => {
-            let sid = ctx.vm.strings.intern("until-found");
-            JsValue::String(sid)
-        }
-        Some(_) => JsValue::Boolean(true),
+    // 0 = absent, 1 = present (truthy), 2 = "until-found" surface as string.
+    let kind = ctx
+        .host()
+        .dom()
+        .with_attribute(entity, "hidden", |v| match v {
+            None => 0_u8,
+            Some(s) if s.eq_ignore_ascii_case("until-found") => 2,
+            Some(_) => 1,
+        });
+    Ok(match kind {
+        0 => JsValue::Boolean(false),
+        2 => JsValue::String(ctx.vm.strings.intern("until-found")),
+        _ => JsValue::Boolean(true),
     })
 }
 fn native_hidden_set(
@@ -635,10 +650,7 @@ fn native_autofocus_get(
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "autofocus")?;
     Ok(JsValue::Boolean(
-        ctx.host()
-            .dom()
-            .get_attribute(entity, "autofocus")
-            .is_some(),
+        ctx.host().dom().has_attribute(entity, "autofocus"),
     ))
 }
 fn native_autofocus_set(
@@ -669,17 +681,15 @@ fn native_draggable_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "draggable")?;
-    let (raw, tag_default) = {
-        let dom = ctx.host().dom();
-        let r = dom.get_attribute(entity, "draggable");
-        let default = draggable_default_for(dom, entity);
-        (r, default)
-    };
-    let result = match raw.as_deref().map(str::to_ascii_lowercase).as_deref() {
-        Some("true") => true,
-        Some("false") => false,
-        _ => tag_default,
-    };
+    let dom = ctx.host().dom();
+    let result = dom.with_attribute(entity, "draggable", |raw| {
+        match raw.map(str::to_ascii_lowercase).as_deref() {
+            Some("true") => Some(true),
+            Some("false") => Some(false),
+            _ => None,
+        }
+    });
+    let result = result.unwrap_or_else(|| draggable_default_for(dom, entity));
     Ok(JsValue::Boolean(result))
 }
 fn native_draggable_set(
@@ -703,18 +713,16 @@ fn native_draggable_set(
 /// Per-element `draggable` default (WHATWG §6.11.1 step 4).
 /// `<img>` and `<a href>` default to true; everything else false.
 fn draggable_default_for(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> bool {
-    let Some(tag) = dom.get_tag_name(entity) else {
-        return false;
-    };
-    if tag.eq_ignore_ascii_case("img") {
-        return true;
-    }
-    if (tag.eq_ignore_ascii_case("a") || tag.eq_ignore_ascii_case("area"))
-        && dom.get_attribute(entity, "href").is_some()
-    {
-        return true;
-    }
-    false
+    dom.with_tag_name(entity, |tag| match tag {
+        Some(t) if t.eq_ignore_ascii_case("img") => true,
+        Some(t)
+            if (t.eq_ignore_ascii_case("a") || t.eq_ignore_ascii_case("area"))
+                && dom.has_attribute(entity, "href") =>
+        {
+            true
+        }
+        _ => false,
+    })
 }
 
 // ---- translate (yes / no, defaults to true) ----
@@ -724,12 +732,10 @@ fn native_translate_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "translate")?;
-    let raw = ctx.host().dom().get_attribute(entity, "translate");
     // §6.9 step 4: missing / "" / "yes" → true; "no" → false.
-    let result = !matches!(
-        raw.as_deref().map(str::to_ascii_lowercase).as_deref(),
-        Some("no")
-    );
+    let result = ctx.host().dom().with_attribute(entity, "translate", |raw| {
+        !matches!(raw.map(str::to_ascii_lowercase).as_deref(), Some("no"))
+    });
     Ok(JsValue::Boolean(result))
 }
 fn native_translate_set(
@@ -760,11 +766,12 @@ fn native_spellcheck_get(
     // §6.8.6 default-true: attr "true" / "" → true, "false" → false,
     // missing / other → true (Phase 2 simplification; inheritance
     // from ancestors is the spec rule but browsers diverge).
-    let raw = ctx.host().dom().get_attribute(entity, "spellcheck");
-    let result = !matches!(
-        raw.as_deref().map(str::to_ascii_lowercase).as_deref(),
-        Some("false")
-    );
+    let result = ctx
+        .host()
+        .dom()
+        .with_attribute(entity, "spellcheck", |raw| {
+            !matches!(raw.map(str::to_ascii_lowercase).as_deref(), Some("false"))
+        });
     Ok(JsValue::Boolean(result))
 }
 fn native_spellcheck_set(
@@ -797,15 +804,11 @@ fn native_tab_index_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "tabIndex")?;
-    let (raw, element_default) = {
-        let dom = ctx.host().dom();
-        (
-            dom.get_attribute(entity, "tabindex"),
-            tab_index_default_for(dom, entity),
-        )
-    };
-    let parsed = raw.as_deref().and_then(parse_tab_index_value);
-    let value = parsed.unwrap_or(element_default);
+    let dom = ctx.host().dom();
+    let parsed = dom.with_attribute(entity, "tabindex", |raw| {
+        raw.and_then(parse_tab_index_value)
+    });
+    let value = parsed.unwrap_or_else(|| tab_index_default_for(dom, entity));
     Ok(JsValue::Number(f64::from(value)))
 }
 fn native_tab_index_set(
@@ -833,29 +836,30 @@ fn parse_tab_index_value(raw: &str) -> Option<i32> {
 
 /// Per-element `tabIndex` default (WHATWG §6.6.3 step 2).
 fn tab_index_default_for(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> i32 {
-    let Some(tag) = dom.get_tag_name(entity) else {
+    let lower_tag: Option<String> = dom.with_tag_name(entity, |t| t.map(str::to_ascii_lowercase));
+    let Some(lower_tag) = lower_tag else {
         return -1;
     };
-    let lower_tag: String = tag.to_ascii_lowercase();
-    let has_href = dom.get_attribute(entity, "href").is_some();
+    let has_href = dom.has_attribute(entity, "href");
     let is_link = matches!(lower_tag.as_str(), "a" | "area") && has_href;
     let is_form_control = match lower_tag.as_str() {
         "button" | "select" | "textarea" => true,
         "input" => {
             // `<input type="hidden">` is unfocusable; everything else
             // participates in sequential focus navigation.
-            !dom.get_attribute(entity, "type")
-                .is_some_and(|t| t.eq_ignore_ascii_case("hidden"))
+            !dom.with_attribute(entity, "type", |t| {
+                t.is_some_and(|s| s.eq_ignore_ascii_case("hidden"))
+            })
         }
         _ => false,
     };
     let is_embedded = matches!(lower_tag.as_str(), "iframe" | "object" | "embed");
-    let has_contenteditable = dom
-        .get_attribute(entity, "contenteditable")
-        .is_some_and(|v| {
-            let lower = v.to_ascii_lowercase();
+    let has_contenteditable = dom.with_attribute(entity, "contenteditable", |v| {
+        v.is_some_and(|s| {
+            let lower = s.to_ascii_lowercase();
             matches!(lower.as_str(), "" | "true" | "plaintext-only")
-        });
+        })
+    });
     if is_link || is_form_control || is_embedded || has_contenteditable {
         0
     } else {
