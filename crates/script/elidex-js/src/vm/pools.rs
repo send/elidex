@@ -26,8 +26,8 @@ impl StringPool {
         StringId(self.0.intern(s))
     }
 
-    /// Return `alias` when `s` is empty; otherwise [`Self::intern`]
-    /// `s` and return the resulting `StringId`.  Lets call sites
+    /// Return `alias` when `s` is empty; otherwise intern `s` via
+    /// [`Self::intern`] and return the resulting `StringId`.  Lets call sites
     /// route the WHATWG "value attribute resolves to empty string"
     /// fast-path through a single pre-interned sentinel
     /// (`well_known.empty`) instead of paying the per-call hash
