@@ -137,15 +137,28 @@ pub(crate) fn native_typed_array_fill(
         // writes (so a thrown coercion leaves the array unmodified).
         let mut scratch = [0_u8; 8];
         let bpe = super::typed_array::coerce_element_to_le_bytes(ctx, ek, value, &mut scratch)?;
-        let abs = (byte_offset + start_idx * (bpe as u32)) as usize;
+        // Compute `abs` in `usize` with checked arithmetic so a
+        // malformed receiver (which the upstream view-relative
+        // bounds check would normally catch) cannot wrap u32 in
+        // `byte_offset + start_idx * bpe`, defeat
+        // `fill_pattern`'s overflow guard, and write to the wrong
+        // slot.  On overflow, surface the same silent no-op as
+        // the byte_io guards.
+        let byte_offset = byte_offset as usize;
+        let start_us = start_idx as usize;
         let count = (end_idx - start_idx) as usize;
-        super::byte_io::fill_pattern(
-            &mut ctx.vm.body_data,
-            buffer_id,
-            abs,
-            &scratch[..bpe],
-            count,
-        );
+        if let Some(abs) = start_us
+            .checked_mul(bpe)
+            .and_then(|elem_off| byte_offset.checked_add(elem_off))
+        {
+            super::byte_io::fill_pattern(
+                &mut ctx.vm.body_data,
+                buffer_id,
+                abs,
+                &scratch[..bpe],
+                count,
+            );
+        }
     }
     Ok(JsValue::Object(id))
 }

@@ -137,12 +137,20 @@ pub(super) fn fill_pattern(
     let Some(total_len) = pattern.len().checked_mul(count) else {
         return;
     };
+    if total_len == 0 {
+        // Zero-length writes (`count == 0`, `pattern == []`) are
+        // pure no-ops — skip the clone/install so callers don't
+        // accidentally materialise a `body_data` entry from a
+        // zero-byte operation.
+        return;
+    }
     let Some(end) = abs.checked_add(total_len) else {
         return;
     };
     let mut new_bytes = grow_or_fresh(body_data.get(&buffer_id), end);
+    // Post-`total_len == 0` early-return: `pattern.len() >= 1` and
+    // `count >= 1`, so the empty-pattern arm is unreachable here.
     match pattern {
-        [] => {}
         [b] => new_bytes[abs..end].fill(*b),
         _ => {
             let plen = pattern.len();
