@@ -96,8 +96,8 @@ pub(super) fn write_at(
 /// contract).
 ///
 /// Replaces the per-element `read_element_raw` + `write_element_raw`
-/// loop pattern (`slice()`, `copyWithin()`, same-element-kind
-/// `set()`) — one src snapshot + one dst clone-grow-install
+/// loop pattern (`slice()`, `copyWithin()`, same-`ElementKind`
+/// `set(TypedArray)`) — one src snapshot + one dst clone-grow-install
 /// instead of N of each.  The src snapshot is taken into a fresh
 /// `Vec<u8>` *before* mutating the destination, so overlapping
 /// source/destination ranges (`src_id == dst_id`) are correct

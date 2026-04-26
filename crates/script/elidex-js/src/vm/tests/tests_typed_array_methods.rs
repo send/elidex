@@ -422,6 +422,117 @@ fn set_mixed_bigint_throws_type_error() {
 }
 
 #[test]
+fn set_same_ek_self_overlap_is_identity() {
+    let mut vm = Vm::new();
+    // `a.set(a)` exercises the same-`ElementKind` bulk-copy path
+    // with src and dst aliasing the entire backing buffer.  The
+    // pre-snapshot in `byte_io::copy_bytes` keeps the result
+    // identical to the source even when src and dst point at the
+    // same `(buffer_id, byte_offset)`.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 4, 5]); a.set(a); \
+             a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4];"
+        ),
+        12345.0
+    );
+}
+
+#[test]
+fn set_same_ek_forward_overlap_subarray() {
+    let mut vm = Vm::new();
+    // Src view (`a.subarray(2, 4)`) lives ahead of the destination
+    // (`set(..., 0)`); a naive forward in-place copy would overwrite
+    // bytes that the later iterations still need to read.  The
+    // pre-snapshot path is direction-agnostic.
+    // [1,2,3,4,5] with subarray(2,4)=[3,4] copied to offset 0 → [3,4,3,4,5]
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 4, 5]); \
+             a.set(a.subarray(2, 4), 0); \
+             a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4];"
+        ),
+        3.0 * 10000.0 + 4.0 * 1000.0 + 3.0 * 100.0 + 4.0 * 10.0 + 5.0
+    );
+}
+
+#[test]
+fn set_same_ek_backward_overlap_subarray() {
+    let mut vm = Vm::new();
+    // Mirror of the forward case — src view (`a.subarray(0, 2)`)
+    // lives before the destination (`set(..., 2)`).
+    // [1,2,3,4,5] with subarray(0,2)=[1,2] copied to offset 2 → [1,2,1,2,5]
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 4, 5]); \
+             a.set(a.subarray(0, 2), 2); \
+             a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4];"
+        ),
+        1.0 * 10000.0 + 2.0 * 1000.0 + 1.0 * 100.0 + 2.0 * 10.0 + 5.0
+    );
+}
+
+#[test]
+fn set_same_ek_int32_cross_buffer() {
+    let mut vm = Vm::new();
+    // 4-byte `ElementKind` validates that the bulk-copy `byte_offset
+    // + target_offset * bpe` arithmetic walks elements, not bytes.
+    // src and dst live in distinct backing buffers (no overlap).
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var src = new Int32Array([100, 200, 300]); \
+             var dst = new Int32Array(4); dst.set(src, 1); \
+             dst[0] + dst[1] + dst[2] + dst[3];"
+        ),
+        600.0
+    );
+}
+
+#[test]
+fn set_same_ek_into_subview_of_outer_buffer() {
+    let mut vm = Vm::new();
+    // Destination view has a non-zero `byte_offset` within its
+    // backing buffer; a sibling outer view lets the test observe
+    // bytes outside the destination's window to confirm the bulk
+    // copy didn't spill past `byte_offset .. byte_offset + length`.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var ab = new ArrayBuffer(8); \
+             var dst = new Uint8Array(ab, 2, 4); \
+             var src = new Uint8Array([10, 20, 30]); \
+             dst.set(src, 1); \
+             var v = new Uint8Array(ab); \
+             v[0] * 10000000 + v[1] * 1000000 + v[2] * 100000 + v[3] * 10000 + \
+             v[4] * 1000 + v[5] * 100 + v[6] * 10 + v[7];"
+        ),
+        // expected layout: [0, 0, 0, 10, 20, 30, 0, 0]
+        10.0 * 10000.0 + 20.0 * 1000.0 + 30.0 * 100.0
+    );
+}
+
+#[test]
+fn set_different_ek_falls_back_to_per_element_coerce() {
+    let mut vm = Vm::new();
+    // Src `Uint8Array` and dst `Int16Array` differ in `ElementKind`
+    // — the bulk-copy fast path must NOT trigger; per-element
+    // `ToNumber` widens each byte into a 16-bit slot.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var src = new Uint8Array([1, 2, 3]); \
+             var dst = new Int16Array(3); dst.set(src); \
+             dst[0] * 100 + dst[1] * 10 + dst[2];"
+        ),
+        123.0
+    );
+}
+
+#[test]
 fn copy_within_basic() {
     let mut vm = Vm::new();
     // [1,2,3,4,5].copyWithin(0, 3) → [4,5,3,4,5]

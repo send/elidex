@@ -343,8 +343,11 @@ fn create_typed_array_iterator(
 ///
 /// Two branches:
 /// - If `source` is a TypedArray, copy its elements into `this`
-///   starting at `offset`, with per-element type conversion and
-///   overlap-aware copy (same-buffer case uses a scratch Vec).
+///   starting at `offset`.  Same-`ElementKind` source and destination
+///   route through [`super::byte_io::copy_bytes`] for a single
+///   pre-snapshot bulk copy (overlap-correct under any direction);
+///   different `ElementKind` falls through to a per-element scratch
+///   loop that performs the type conversion.
 /// - Otherwise treat `source` as array-like: iterate `[0, src.length)`
 ///   and copy via `ToNumber` / `ToBigInt`.
 ///
@@ -409,13 +412,42 @@ pub(crate) fn native_typed_array_set(
                     "Failed to execute 'set' on 'TypedArray': offset + length out of range",
                 ));
             }
-            // Source and destination MAY share the backing buffer
-            // (e.g. `ta.set(ta.subarray(0))`).  Read every source
+            if src_ek == dst_ek {
+                // Same `ElementKind` — per-element decode/encode
+                // would round-trip through `JsValue` for nothing.
+                // `copy_bytes` snapshots the source range up front,
+                // so an in-place overlap (`src_buf == buffer_id`,
+                // typical of `ta.set(ta.subarray(...))`) is correct
+                // under any direction without a forward/backward
+                // branch.  Offset math goes through `usize` with
+                // `checked_*` to mirror `slice` / `copyWithin` /
+                // `fill`'s overflow contract; the upfront
+                // `target_offset + src_len > dst_len` RangeError
+                // already rules out the realistic overflow paths,
+                // but a malformed receiver could still wrap u32 in
+                // `byte_offset + target_offset * bpe`.
+                let bpe_us = src_bpe as usize;
+                let dst_off_us = byte_offset as usize;
+                if let Some(dst_abs) = (target_offset as usize)
+                    .checked_mul(bpe_us)
+                    .and_then(|elem_off| dst_off_us.checked_add(elem_off))
+                {
+                    super::byte_io::copy_bytes(
+                        &mut ctx.vm.body_data,
+                        src_buf,
+                        src_off as usize,
+                        buffer_id,
+                        dst_abs,
+                        src_bytelen as usize,
+                    );
+                }
+                return Ok(JsValue::Undefined);
+            }
+            // Different `ElementKind` — per-element coerce loop
+            // performs the type conversion.  Source and destination
+            // MAY share the backing buffer; read every source
             // element upfront so the write pass doesn't observe
-            // its own output — spec §23.2.3.24 step 26 handles
-            // this via an explicit same-buffer check + scratch
-            // copy.  Our simpler full-read-then-write serialises
-            // correctly for all cases.
+            // its own output (§23.2.3.24 step 26 same-buffer scratch).
             let mut scratch: Vec<JsValue> = Vec::with_capacity(src_len as usize);
             for i in 0..src_len {
                 scratch.push(read_element_raw(ctx.vm, src_buf, src_off, i, src_ek));
