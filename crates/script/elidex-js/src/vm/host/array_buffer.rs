@@ -211,8 +211,11 @@ pub(crate) fn array_buffer_view_bytes(
 
 /// Allocate an `ArrayBuffer` instance whose bytes are `bytes`.
 /// Used by `.slice()` and by the Body mixin's `.arrayBuffer()`.
-/// Empty input skips the `body_data.insert` so absent vs zero-byte
-/// stay distinguishable via `body_data.contains_key(&id)`.
+/// Empty input intentionally skips `body_data.insert`; in this
+/// representation, `body_data.contains_key(&id)` implies a
+/// non-empty backing store, while absence is treated as zero
+/// length (`array_buffer_byte_length` falls back to `0` on
+/// missing entries).
 pub(crate) fn create_array_buffer_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> ObjectId {
     let proto = vm.array_buffer_prototype;
     let id = vm.alloc_object(Object {
