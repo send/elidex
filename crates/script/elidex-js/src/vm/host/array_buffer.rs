@@ -188,12 +188,12 @@ pub(crate) fn array_buffer_bytes(vm: &VmInner, id: ObjectId) -> Vec<u8> {
 
 /// Return a snapshot of `body_data[buffer_id]` over `[byte_offset,
 /// byte_offset + byte_length)` as an owned `Vec<u8>`, sized to the
-/// view (not the full backing buffer).  Used by `BufferSource`
-/// extractors (TextDecoder.decode, Body init, Blob construction)
-/// where a small TypedArray / DataView over a large ArrayBuffer
-/// must not clone the entire backing buffer.  Missing entry,
-/// out-of-range slice, or full-buffer view all produce a single
-/// `Vec` allocation sized to the view.
+/// requested view (not the full backing buffer) when the range is
+/// in-bounds.  Used by `BufferSource` extractors
+/// (TextDecoder.decode, Body init, Blob construction) where a
+/// small TypedArray / DataView over a large ArrayBuffer must not
+/// clone the entire backing buffer.  Missing entry or out-of-range
+/// slice ⇒ empty Vec.
 pub(crate) fn array_buffer_view_bytes(
     vm: &VmInner,
     buffer_id: ObjectId,
