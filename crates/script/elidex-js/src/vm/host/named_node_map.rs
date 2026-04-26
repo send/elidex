@@ -256,8 +256,13 @@ fn native_nnm_get_named_item(
     if !exists {
         return Ok(JsValue::Null);
     }
-    let qname_sid = ctx.vm.strings.intern(&key);
-    let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
+    // Reuse `key_sid` directly: `get_utf8 → intern` would round-trip
+    // through a lossy UTF-8 conversion for inputs with lone
+    // surrogates and could produce a different `StringId` than the
+    // one `removeNamedItem` invalidates with — desyncing the
+    // identity cache.  Mirrors the canonical-StringId reuse already
+    // done by `removeNamedItem`.
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, key_sid);
     Ok(JsValue::Object(attr_id))
 }
 
@@ -571,8 +576,13 @@ pub(crate) fn try_indexed_get(
             if !names.iter().any(|n| n == key_str.as_str()) {
                 return None;
             }
-            let qname_sid = vm.strings.intern(&key_str);
-            Some((owner, qname_sid))
+            // Reuse the original `sid` directly: `get_utf8 → intern`
+            // would round-trip through a lossy UTF-8 conversion for
+            // inputs with lone surrogates and could produce a
+            // different `StringId` than `getAttributeNode` /
+            // `getNamedItem` cache under, breaking cross-API
+            // identity for the same `(owner, name)` pair.
+            Some((owner, sid))
         }
         _ => None,
     }

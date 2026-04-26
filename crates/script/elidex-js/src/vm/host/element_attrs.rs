@@ -220,12 +220,20 @@ pub(super) fn native_element_get_attribute_node(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let name = coerce_first_arg_to_string(ctx, args)?;
+    // Inline the coerce so the canonical `StringId` from `to_string`
+    // can drive the cache key directly: `get_utf8 → intern` would
+    // round-trip through a lossy UTF-8 conversion for inputs with
+    // lone surrogates and could produce a different `StringId` than
+    // the one `attr_remove` / `removeAttributeNode` invalidate with,
+    // desyncing the identity cache.  Mirrors the canonical-StringId
+    // reuse already done by `getNamedItem` / `removeNamedItem`.
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let key_sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let name = ctx.vm.strings.get_utf8(key_sid);
     if !ctx.host().dom().has_attribute(entity, &name) {
         return Ok(JsValue::Null);
     }
-    let qname_sid = ctx.vm.strings.intern(&name);
-    let attr_id = ctx.vm.cached_or_alloc_attr_live(entity, qname_sid);
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(entity, key_sid);
     Ok(JsValue::Object(attr_id))
 }
 
