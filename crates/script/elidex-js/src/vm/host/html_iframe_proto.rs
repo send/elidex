@@ -212,17 +212,19 @@ macro_rules! iframe_string_attr {
             this: JsValue,
             _args: &[JsValue],
         ) -> Result<JsValue, VmError> {
+            let empty = ctx.vm.well_known.empty;
             let Some(entity) = require_iframe_receiver(ctx, this, $label)? else {
-                return Ok(JsValue::String(ctx.vm.well_known.empty));
+                return Ok(JsValue::String(empty));
             };
-            let value = ctx.host().dom().get_attribute(entity, $attr);
-            match value {
-                Some(v) => {
-                    let sid = ctx.vm.strings.intern(&v);
-                    Ok(JsValue::String(sid))
+            // Split borrow: `with_attribute` on `&EcsDom` + `intern`
+            // on `&mut StringPool`, no per-call `String::from` clone.
+            let sid = match ctx.dom_and_strings_if_bound() {
+                Some((dom, strings)) => {
+                    dom.with_attribute(entity, $attr, |v| v.map_or(empty, |s| strings.intern(s)))
                 }
-                None => Ok(JsValue::String(ctx.vm.well_known.empty)),
-            }
+                None => empty,
+            };
+            Ok(JsValue::String(sid))
         }
 
         fn $set(

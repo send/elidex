@@ -86,13 +86,19 @@ pub(super) fn native_element_get_attribute(
         return Ok(JsValue::Null);
     };
     let name = coerce_first_arg_to_string(ctx, args)?;
-    match attr_get(ctx, entity, &name) {
-        Some(v) => {
-            let sid = ctx.vm.strings.intern(&v);
-            Ok(JsValue::String(sid))
-        }
-        None => Ok(JsValue::Null),
-    }
+    // Split the dom + strings borrow so `with_attribute` can intern
+    // the borrowed `&str` without first allocating an owned `String`
+    // through `attr_get`.  Post-unbind reads return `Null` (no
+    // attribute observable) — same contract `attr_get` honours via
+    // `host_if_bound` underneath.
+    let sid = match ctx.dom_and_strings_if_bound() {
+        Some((dom, strings)) => dom.with_attribute(entity, &name, |v| v.map(|s| strings.intern(s))),
+        None => None,
+    };
+    Ok(match sid {
+        Some(sid) => JsValue::String(sid),
+        None => JsValue::Null,
+    })
 }
 
 pub(super) fn native_element_set_attribute(

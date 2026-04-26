@@ -155,6 +155,39 @@ impl NativeContext<'_> {
         self.vm.host_data.as_deref_mut().filter(|h| h.is_bound())
     }
 
+    /// Borrow the bound DOM (shared) and the string pool (exclusive)
+    /// simultaneously via disjoint field projection on
+    /// [`super::VmInner`].
+    ///
+    /// Lets a native function call
+    /// [`elidex_ecs::EcsDom::with_attribute`] (or any other
+    /// `&EcsDom`-only accessor) to read a borrowed `&str` AND
+    /// `pool.intern(s)` it within the same closure — without
+    /// the `&ctx.host().dom()` / `&mut ctx.vm.strings.intern()`
+    /// borrow conflict that the per-method `host()` accessor
+    /// triggers.  Returns `None` when the VM is unbound (matches
+    /// [`Self::host_if_bound`]'s contract so post-unbind callers
+    /// can fall through without panicking).
+    ///
+    /// # Safety
+    ///
+    /// Implemented via `HostData::dom_shared` (the `&self` aliasing
+    /// view of `dom_ptr`).  The returned `&EcsDom` aliases the
+    /// exclusive borrow held by the `bind`-time pointer; callers
+    /// must not invoke any sibling `host()` / `host().dom()` path
+    /// (which would yield `&mut EcsDom`) while either of the
+    /// returned references is live.  In practice this is
+    /// straightforward: the closure form returns the projected
+    /// `R` and drops both borrows before the call site continues.
+    #[cfg(feature = "engine")]
+    pub fn dom_and_strings_if_bound(
+        &mut self,
+    ) -> Option<(&elidex_ecs::EcsDom, &mut super::pools::StringPool)> {
+        let vm = &mut *self.vm;
+        let host = vm.host_data.as_deref().filter(|h| h.is_bound())?;
+        Some((host.dom_shared(), &mut vm.strings))
+    }
+
     /// `HasProperty` + `Get` (§7.3.1): returns `None` if the property does
     /// not exist anywhere on the prototype chain, `Some(value)` otherwise.
     pub fn try_get_property_value(
