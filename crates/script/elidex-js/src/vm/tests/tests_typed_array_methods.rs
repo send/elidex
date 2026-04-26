@@ -95,6 +95,56 @@ fn fill_negative_indices() {
 }
 
 #[test]
+fn fill_int32_pattern_propagates_to_every_element() {
+    // Multi-byte element (Int32: 4 bytes per element) — verify the
+    // bulk-fill helper correctly repeats the LE byte pattern across
+    // every covered slot and leaves uncovered slots untouched.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Int32Array(4); a.fill(0x12345678, 1, 3); \
+             (a[0] === 0 && a[1] === 0x12345678 && a[2] === 0x12345678 && a[3] === 0) \
+                 ? 1 : 0;"
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn fill_float64_pattern_propagates_to_every_element() {
+    // 8-byte element fast-path — exercises the `_ => chunk-write`
+    // branch in `byte_io::fill_pattern` (Int8/Uint8 take the
+    // single-byte `slice::fill` arm; multi-byte widths land here).
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Float64Array(3); a.fill(1.5); \
+             (a[0] === 1.5 && a[1] === 1.5 && a[2] === 1.5) ? 1 : 0;"
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn fill_empty_range_is_a_noop() {
+    // `start >= end` after relative-index normalisation must leave
+    // the array unmodified.  Exercises the early-return guard
+    // before the coerce step (skipping coercion when no element
+    // would be written matches the spec's vacuous loop).
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 4]); a.fill(99, 2, 2); \
+             a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3];"
+        ),
+        1234.0
+    );
+}
+
+#[test]
 fn subarray_shares_buffer() {
     let mut vm = Vm::new();
     assert!(eval_bool(
