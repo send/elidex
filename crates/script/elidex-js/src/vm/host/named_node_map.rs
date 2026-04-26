@@ -256,13 +256,11 @@ fn native_nnm_get_named_item(
     if !exists {
         return Ok(JsValue::Null);
     }
-    // Reuse `key_sid` directly: `get_utf8 → intern` would round-trip
-    // through a lossy UTF-8 conversion for inputs with lone
-    // surrogates and could produce a different `StringId` than the
-    // one `removeNamedItem` invalidates with — desyncing the
-    // identity cache.  Mirrors the canonical-StringId reuse already
-    // done by `removeNamedItem`.
-    let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, key_sid);
+    // Cache key matches `nnm.item` / `[Symbol.iterator]` — both
+    // derive `intern(utf8)` from the DOM snapshot, the only form
+    // shared by every hit/invalidation site.
+    let qname_sid = ctx.vm.strings.intern(&key);
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
     Ok(JsValue::Object(attr_id))
 }
 
@@ -397,13 +395,14 @@ fn native_nnm_remove_named_item(
             format!("Failed to execute 'removeNamedItem' on 'NamedNodeMap': '{key}' not found"),
         ));
     };
-    // Reuse `key_sid` directly as the qualified-name StringId — it
-    // was produced from the original argument's
-    // `coerce::to_string` and is the canonical interned form;
-    // re-interning the lossy `get_utf8(...)` round-trip would
-    // duplicate work and risk a different code-unit sequence for
-    // strings containing lone surrogates.
-    let qname_sid = key_sid;
+    // Cache key uses `intern(utf8)`, matching every hit site
+    // (`getNamedItem` / `getAttributeNode` / `nnm.item` /
+    // `[Symbol.iterator]` / `nnm[k]`).  The DOM stores attribute
+    // names in UTF-8, so `intern(&key)` is the only form every
+    // path can derive consistently — the original UCS-2 `key_sid`
+    // would diverge from snapshot-derived keys for lone-surrogate
+    // inputs and leak entries through the invalidation.
+    let qname_sid = ctx.vm.strings.intern(&key);
     // Apply the removal through `host_if_bound`.  Treat post-snapshot
     // unbind as the absent path (raise `NotFoundError`) rather than
     // panicking — matches how the rest of this codepath surfaces
@@ -575,19 +574,20 @@ pub(crate) fn try_indexed_get(
                 return Some((owner, qname_sid));
             }
             let key_str = vm.strings.get_utf8(sid);
-            // Match by exact attribute name — HTML documents store
-            // names lowercase via `EcsDom::set_attribute`, so a
-            // lookup for `"id"` hits the normalised key.
+            // Match by exact attribute name — `EcsDom::set_attribute`
+            // stores names verbatim, so equality on the UTF-8 form
+            // is the spec-aligned comparison.
             if !names.iter().any(|n| n == key_str.as_str()) {
                 return None;
             }
-            // Reuse the original `sid` directly: `get_utf8 → intern`
-            // would round-trip through a lossy UTF-8 conversion for
-            // inputs with lone surrogates and could produce a
-            // different `StringId` than `getAttributeNode` /
-            // `getNamedItem` cache under, breaking cross-API
-            // identity for the same `(owner, name)` pair.
-            Some((owner, sid))
+            // Cache key is `intern(utf8)`, matching `getAttributeNode`
+            // / `getNamedItem` / `nnm.item` / `[Symbol.iterator]`
+            // — the only form every path can derive consistently
+            // (the DOM stores UTF-8, so the original UCS-2 sid
+            // would diverge from snapshot-derived keys for
+            // lone-surrogate inputs).
+            let qname_sid = vm.strings.intern(&key_str);
+            Some((owner, qname_sid))
         }
         _ => None,
     }

@@ -22,9 +22,18 @@
 //! [`VmInner::attr_wrapper_cache`] keyed by
 //! `(owner Element entity, qualified-name StringId)`, so repeated
 //! `getAttributeNode('id')` returns the same `ObjectId` (matches
-//! Chrome / Firefox / Safari).  The cache is invalidated whenever
-//! the named attribute leaves the owner's attribute list
-//! (`removeAttribute`, `removeAttributeNode`, `toggleAttribute(off)`,
+//! Chrome / Firefox / Safari).  The qualified-name `StringId` is
+//! always `intern(get_utf8(...))` — the UTF-8 form the DOM itself
+//! stores via [`elidex_ecs::EcsDom::set_attribute`].  Every hit
+//! site (`getAttributeNode`, `nnm.{item, getNamedItem,
+//! [Symbol.iterator]}`, `nnm[k]`) and every invalidation site
+//! agrees on this key shape, so identity holds across all paths
+//! even for inputs containing lone surrogates (which collapse to
+//! the same UTF-8 representation the DOM stored).
+//!
+//! The cache is invalidated whenever the named attribute leaves
+//! the owner's attribute list (`removeAttribute`,
+//! `removeAttributeNode`, `toggleAttribute(off)`,
 //! `removeNamedItem`); subsequent `setAttribute` allocates a fresh
 //! wrapper for the new attribute, distinct from any wrapper the
 //! caller still holds for the prior incarnation.  *Detached*

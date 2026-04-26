@@ -16,7 +16,6 @@
 #![cfg(feature = "engine")]
 
 use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
-use super::super::StringId;
 use super::dom_bridge::coerce_first_arg_to_string;
 use super::event_target::entity_from_this;
 
@@ -72,25 +71,23 @@ pub(super) fn attr_set(
     ctx.host().dom().set_attribute(entity, name, value)
 }
 
-/// Remove attribute `name_sid` from `entity`.  Shim around
+/// Remove attribute `name` from `entity`.  Shim around
 /// [`elidex_ecs::EcsDom::remove_attribute`] that also invalidates
 /// the [`crate::vm::VmInner::attr_wrapper_cache`] entry for
-/// `(entity, name_sid)` so any subsequent `getAttributeNode` for
-/// the same name allocates a fresh wrapper (matches WHATWG §4.9.2
-/// identity semantics — the removed attribute's Attr is no longer
-/// in the element's attribute list).
+/// `(entity, intern(name))` so any subsequent `getAttributeNode`
+/// for the same name allocates a fresh wrapper (matches WHATWG
+/// §4.9.2 identity semantics — the removed attribute's Attr is
+/// no longer in the element's attribute list).
 ///
-/// Takes the canonical `StringId` directly: re-interning a
-/// `get_utf8`-materialised UTF-8 form would round-trip through a
-/// lossy conversion for inputs with lone surrogates and could
-/// produce a different `StringId` than `getAttributeNode` /
-/// `getNamedItem` cache under, leaving stale entries.  Callers
-/// pass the `StringId` produced by their original
-/// `coerce::to_string` step.
-pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name_sid: StringId) {
-    let name = ctx.vm.strings.get_utf8(name_sid);
-    ctx.host().dom().remove_attribute(entity, &name);
-    ctx.vm.invalidate_attr_cache_entry(entity, name_sid);
+/// `name` is the UTF-8 form passed to the DOM; the cache is
+/// keyed by `intern(utf8)` across every hit site (`getAttributeNode`,
+/// `nnm.{item, getNamedItem, [Symbol.iterator]}`, `nnm[k]`),
+/// so this re-intern lands on the same `StringId` they cached
+/// under and the invalidation is correctly observed.
+pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
+    ctx.host().dom().remove_attribute(entity, name);
+    let qname_sid = ctx.vm.strings.intern(name);
+    ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
 }
 
 pub(super) fn native_element_get_attribute(
@@ -145,11 +142,8 @@ pub(super) fn native_element_remove_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    // Inline the coerce so the canonical `StringId` from `to_string`
-    // can drive the cache-invalidation key without a UTF-8 round-trip.
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let name_sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    attr_remove(ctx, entity, name_sid);
+    let name = coerce_first_arg_to_string(ctx, args)?;
+    attr_remove(ctx, entity, &name);
     Ok(JsValue::Undefined)
 }
 
@@ -232,20 +226,17 @@ pub(super) fn native_element_get_attribute_node(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    // Inline the coerce so the canonical `StringId` from `to_string`
-    // can drive the cache key directly: `get_utf8 → intern` would
-    // round-trip through a lossy UTF-8 conversion for inputs with
-    // lone surrogates and could produce a different `StringId` than
-    // the one `attr_remove` / `removeAttributeNode` invalidate with,
-    // desyncing the identity cache.  Mirrors the canonical-StringId
-    // reuse already done by `getNamedItem` / `removeNamedItem`.
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let key_sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let name = ctx.vm.strings.get_utf8(key_sid);
+    let name = coerce_first_arg_to_string(ctx, args)?;
     if !ctx.host().dom().has_attribute(entity, &name) {
         return Ok(JsValue::Null);
     }
-    let attr_id = ctx.vm.cached_or_alloc_attr_live(entity, key_sid);
+    // Cache key is `intern(utf8)` — the same form `nnm.item` /
+    // `[Symbol.iterator]` derive from DOM-stored attribute names —
+    // so identity holds across all paths even for lone-surrogate
+    // inputs (the DOM stores UTF-8 verbatim, so the original
+    // UCS-2 `StringId` would diverge from snapshot-derived keys).
+    let qname_sid = ctx.vm.strings.intern(&name);
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(entity, qname_sid);
     Ok(JsValue::Object(attr_id))
 }
 
@@ -444,12 +435,7 @@ pub(super) fn native_element_toggle_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(false));
     };
-    // Inline the coerce so the canonical `StringId` from `to_string`
-    // can drive the eventual `attr_remove` cache-invalidation key
-    // without a UTF-8 round-trip.
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let name_sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let name = ctx.vm.strings.get_utf8(name_sid);
+    let name = coerce_first_arg_to_string(ctx, args)?;
 
     // `force` (second arg): undefined = toggle, true = ensure present,
     // false = ensure absent.  WHATWG §4.9.2 toggleAttribute.
@@ -477,13 +463,13 @@ pub(super) fn native_element_toggle_attribute(
         }
         Some(false) => {
             if currently_present {
-                attr_remove(ctx, entity, name_sid);
+                attr_remove(ctx, entity, &name);
             }
             false
         }
         None => {
             if currently_present {
-                attr_remove(ctx, entity, name_sid);
+                attr_remove(ctx, entity, &name);
                 false
             } else {
                 attr_set(ctx, entity, &name, String::new());
