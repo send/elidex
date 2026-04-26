@@ -34,11 +34,17 @@
 //! The cache is invalidated whenever the named attribute leaves
 //! the owner's attribute list (`removeAttribute`,
 //! `removeAttributeNode`, `toggleAttribute(off)`,
-//! `removeNamedItem`); subsequent `setAttribute` allocates a fresh
-//! wrapper for the new attribute, distinct from any wrapper the
-//! caller still holds for the prior incarnation.  *Detached*
-//! wrappers (`detached_value == Some(_)`) are never cached — each
-//! detachment site allocates its own snapshot wrapper.
+//! `removeNamedItem`); a subsequent `setAttribute` therefore
+//! causes the next `getAttributeNode` / `NamedNodeMap` lookup for
+//! that `(owner, qname)` pair to allocate a fresh *canonical*
+//! wrapper.  This invalidation does not currently detach
+//! caller-held live wrappers (`detached_value == None`): those
+//! wrappers continue to read through the owner's `Attributes`
+//! component, so after a same-name re-add on the same element
+//! they can observe the new value / `ownerElement` again.
+//! *Detached* wrappers (`detached_value == Some(_)`) are never
+//! cached — each detachment site allocates its own snapshot
+//! wrapper.
 //!
 //! `setAttributeNode` / `setNamedItem` invalidate the cache only
 //! when the passed-in Attr cannot remain canonical for the target
