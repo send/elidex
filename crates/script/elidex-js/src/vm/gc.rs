@@ -178,6 +178,15 @@ struct GcRoots<'a> {
     /// alive if GC triggers between `postMessage` and `drain_tasks`.
     #[cfg(feature = "engine")]
     pending_tasks: &'a std::collections::VecDeque<super::host::pending_tasks::PendingTask>,
+    /// `Attr` wrapper identity cache (WHATWG DOM §4.9.2).  Keyed by
+    /// `(owner Element entity, qualified-name StringId)`.  Values
+    /// are pinned only when the owner element wrapper is reachable
+    /// — looked up via `HostData::get_cached_wrapper(entity)`; this
+    /// keeps the cache effectively *weak* through the owner so a
+    /// dropped element does not extend its Attrs' lifetimes.  Sweep
+    /// tail prunes entries whose value `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    attr_wrapper_cache: &'a HashMap<(elidex_ecs::Entity, super::value::StringId), ObjectId>,
     // `any_composite_map` is weak bookkeeping only — no GC roots
     // live there.  The sweep pass prunes dead ObjectIds post-GC
     // and `abort_signal`'s fan-out tolerates missing state — both
@@ -258,6 +267,22 @@ fn mark_roots(
     if let Some(hd) = roots.host_data {
         for id in hd.gc_root_object_ids() {
             mark_object(id, obj_marks, work);
+        }
+        // (e2) `Attr` identity cache — fan out a cached `attr_id`
+        // only when the owner element wrapper is still reachable
+        // through `HostData::wrapper_cache`.  This makes the cache
+        // weak through the owner: an element wrapper dropped from
+        // `wrapper_cache` (entity destroyed via `remove_wrapper`)
+        // releases its cached Attrs in the same GC, since the
+        // `attr_id` is no longer reached from the owner-wrapper
+        // root.  Attrs themselves carry no further fan-out
+        // (`AttrState` holds only `Entity` / `StringId`), so a
+        // single mark is enough — no work-list re-add needed.
+        #[cfg(feature = "engine")]
+        for ((entity, _), &attr_id) in roots.attr_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(attr_id, obj_marks, work);
+            }
         }
     }
 
@@ -664,6 +689,8 @@ impl VmInner {
             pending_timeout_signals: &self.pending_timeout_signals,
             #[cfg(feature = "engine")]
             pending_tasks: &self.pending_tasks,
+            #[cfg(feature = "engine")]
+            attr_wrapper_cache: &self.attr_wrapper_cache,
         };
 
         self.gc_work_list.clear();
@@ -801,6 +828,13 @@ impl VmInner {
             self.named_node_map_states
                 .retain(|id, _| bit_get(marks, id.0));
             self.attr_states.retain(|id, _| bit_get(marks, id.0));
+            // `attr_wrapper_cache` — drop entries whose wrapper was
+            // collected in this sweep.  Owner-wrapper destruction
+            // via `remove_wrapper` flows through this prune because
+            // the `(e2)` mark-roots fan-out gates Attr marking on
+            // owner-wrapper presence.
+            self.attr_wrapper_cache
+                .retain(|_, attr_id| bit_get(marks, attr_id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

@@ -232,11 +232,7 @@ fn native_nnm_item(
         return Ok(JsValue::Null);
     };
     let qname_sid = ctx.vm.strings.intern(&name);
-    let attr_id = ctx.vm.alloc_attr(AttrState {
-        owner,
-        qualified_name: qname_sid,
-        detached_value: None,
-    });
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
     Ok(JsValue::Object(attr_id))
 }
 
@@ -260,12 +256,11 @@ fn native_nnm_get_named_item(
     if !exists {
         return Ok(JsValue::Null);
     }
+    // Cache key matches `nnm.item` / `[Symbol.iterator]` — both
+    // derive `intern(utf8)` from the DOM snapshot, the only form
+    // shared by every hit/invalidation site.
     let qname_sid = ctx.vm.strings.intern(&key);
-    let attr_id = ctx.vm.alloc_attr(AttrState {
-        owner,
-        qualified_name: qname_sid,
-        detached_value: None,
-    });
+    let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
     Ok(JsValue::Object(attr_id))
 }
 
@@ -347,6 +342,15 @@ fn native_nnm_set_named_item(
         return Ok(JsValue::Null);
     };
     host.dom().set_attribute(owner, &name_str, value);
+    // Mirrors `Element.setAttributeNode`: live Attrs already
+    // attached to `owner` insert/refresh the cache so reattachment
+    // after `removeNamedItem` keeps identity; cross-element or
+    // detached Attrs cannot be made canonical and drop the entry.
+    if source_owner == owner && source_detached.is_none() {
+        ctx.vm.attr_wrapper_cache.insert((owner, qname), attr_id);
+    } else {
+        ctx.vm.invalidate_attr_cache_entry(owner, qname);
+    }
     Ok(match prev_sid {
         Some(sid) => {
             let prev = ctx.vm.alloc_attr(AttrState {
@@ -391,13 +395,14 @@ fn native_nnm_remove_named_item(
             format!("Failed to execute 'removeNamedItem' on 'NamedNodeMap': '{key}' not found"),
         ));
     };
-    // Reuse `key_sid` directly as the qualified-name StringId — it
-    // was produced from the original argument's
-    // `coerce::to_string` and is the canonical interned form;
-    // re-interning the lossy `get_utf8(...)` round-trip would
-    // duplicate work and risk a different code-unit sequence for
-    // strings containing lone surrogates.
-    let qname_sid = key_sid;
+    // Cache key uses `intern(utf8)`, matching every hit site
+    // (`getNamedItem` / `getAttributeNode` / `nnm.item` /
+    // `[Symbol.iterator]` / `nnm[k]`).  The DOM stores attribute
+    // names in UTF-8, so `intern(&key)` is the only form every
+    // path can derive consistently — the original UCS-2 `key_sid`
+    // would diverge from snapshot-derived keys for lone-surrogate
+    // inputs and leak entries through the invalidation.
+    let qname_sid = ctx.vm.strings.intern(&key);
     // Apply the removal through `host_if_bound`.  Treat post-snapshot
     // unbind as the absent path (raise `NotFoundError`) rather than
     // panicking — matches how the rest of this codepath surfaces
@@ -410,6 +415,7 @@ fn native_nnm_remove_named_item(
         ));
     };
     host.dom().remove_attribute(owner, &key);
+    ctx.vm.invalidate_attr_cache_entry(owner, qname_sid);
     let returned = ctx.vm.alloc_attr(AttrState {
         owner,
         qualified_name: qname_sid,
@@ -498,11 +504,7 @@ fn native_nnm_symbol_iterator(
     let mut values = Vec::with_capacity(names.len());
     for name in names {
         let qname_sid = ctx.vm.strings.intern(&name);
-        let attr_id = ctx.vm.alloc_attr(AttrState {
-            owner,
-            qualified_name: qname_sid,
-            detached_value: None,
-        });
+        let attr_id = ctx.vm.cached_or_alloc_attr_live(owner, qname_sid);
         values.push(JsValue::Object(attr_id));
     }
     let array_id = ctx.vm.create_array_object(values);
@@ -572,12 +574,18 @@ pub(crate) fn try_indexed_get(
                 return Some((owner, qname_sid));
             }
             let key_str = vm.strings.get_utf8(sid);
-            // Match by exact attribute name — HTML documents store
-            // names lowercase via `EcsDom::set_attribute`, so a
-            // lookup for `"id"` hits the normalised key.
+            // Match by exact attribute name — `EcsDom::set_attribute`
+            // stores names verbatim, so equality on the UTF-8 form
+            // is the spec-aligned comparison.
             if !names.iter().any(|n| n == key_str.as_str()) {
                 return None;
             }
+            // Cache key is `intern(utf8)`, matching `getAttributeNode`
+            // / `getNamedItem` / `nnm.item` / `[Symbol.iterator]`
+            // — the only form every path can derive consistently
+            // (the DOM stores UTF-8, so the original UCS-2 sid
+            // would diverge from snapshot-derived keys for
+            // lone-surrogate inputs).
             let qname_sid = vm.strings.intern(&key_str);
             Some((owner, qname_sid))
         }

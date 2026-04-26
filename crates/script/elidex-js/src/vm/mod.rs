@@ -315,6 +315,38 @@ pub(crate) struct VmInner {
     /// surfaces `ownerElement === null` and `value === ""`.
     #[cfg(feature = "engine")]
     pub(crate) attr_states: HashMap<ObjectId, host::attr_proto::AttrState>,
+    /// Identity cache for live `Attr` wrappers (WHATWG DOM §4.9.2).
+    ///
+    /// Keyed by `(owner Element entity, qualified-name StringId)`; a
+    /// hit returns the same `ObjectId` so
+    /// `el.getAttributeNode("id") === el.getAttributeNode("id")`
+    /// (matches Chrome / Firefox / Safari).  `Attr.prototype.value` /
+    /// `ownerElement` accessors read through to the owner's
+    /// `Attributes` component on each call, so a single cached
+    /// wrapper observes value mutations transparently.
+    ///
+    /// The cache is **invalidated** when the named attribute leaves
+    /// the owner's attribute list — `removeAttribute`,
+    /// `removeAttributeNode`, `toggleAttribute(off)`,
+    /// `removeNamedItem`.  `setAttributeNode` / `setNamedItem`
+    /// invalidate only when the passed-in Attr cannot remain
+    /// canonical (cross-element source, or detached) — a live Attr
+    /// already attached to the receiving element keeps the cache
+    /// entry intact so `el.setAttributeNode(el.getAttributeNode("id"))`
+    /// preserves identity.  Cross-element / detached arguments
+    /// cannot be retargeted because the engine path does not
+    /// mutate the passed-in Attr's `AttrState.owner` (Phase 2
+    /// limitation paired with the existing AttrState ownership
+    /// simplification).
+    ///
+    /// GC interaction: tracing fans out a cached `attr_id` only when
+    /// the owner element wrapper is reachable (looked up via
+    /// `HostData::wrapper_cache`); the sweep tail prunes entries
+    /// whose `attr_id` was collected (same retain-on-key-mark pattern
+    /// as `attr_states`).  This makes the cache effectively weak —
+    /// it never extends an Attr's lifetime past its owner.
+    #[cfg(feature = "engine")]
+    pub(crate) attr_wrapper_cache: HashMap<(elidex_ecs::Entity, StringId), ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
     /// [`Self::html_element_prototype`] (after PR5b splice) so
