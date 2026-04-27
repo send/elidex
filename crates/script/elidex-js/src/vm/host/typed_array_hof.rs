@@ -43,10 +43,13 @@ enum HofDecision {
     Short(JsValue),
 }
 
-/// Brand-check the first argument as a callable function and return
-/// its `ObjectId`.  Shared by every HOF — each spec algorithm runs
-/// `If IsCallable(callbackfn) is false, throw a TypeError exception`
-/// before touching the receiver's elements.
+/// Validate the first argument is a callable function and return
+/// its `ObjectId`, otherwise raise the spec-mandated TypeError
+/// (`If IsCallable(callbackfn) is false, throw a TypeError`).
+/// Shared by every HOF — each spec algorithm runs this check
+/// before touching the receiver's elements.  Distinct from
+/// [`require_typed_array_parts`], which is the actual receiver
+/// brand-check; this helper only inspects the callback slot.
 fn require_callback(
     ctx: &NativeContext<'_>,
     args: &[JsValue],

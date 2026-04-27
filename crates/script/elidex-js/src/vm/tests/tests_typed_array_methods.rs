@@ -1094,6 +1094,38 @@ fn filter_throws_when_species_not_typed_array_constructor() {
 }
 
 #[test]
+fn hofs_bind_this_arg_in_callback() {
+    let mut vm = Vm::new();
+    // Spec for each HOF (`%TypedArray%.prototype.{map, filter,
+    // findLast, findLastIndex, forEach, every, some, find,
+    // findIndex}`) invokes the callback via `Call(callback,
+    // thisArg, ⟨...⟩)`, so `this` inside the callback must be
+    // the user-supplied `thisArg`.  Object thisArg avoids the
+    // non-strict primitive-boxing wrap, so identity comparison
+    // is unambiguous.  All four new SP8b HOFs are covered here;
+    // existing HOFs (forEach/every/some/find/findIndex) share
+    // the same `iterate_with_callback` plumbing so the bind is
+    // covered by construction, but exercise them too as a
+    // sanity check.
+    assert!(eval_bool(
+        &mut vm,
+        "var marker = { id: 42 }; var ok = true; var n = 0; \
+         var check = function() { if (this !== marker) ok = false; n++; return false; }; \
+         var a = new Uint8Array([1, 2, 3]); \
+         a.map(check, marker); \
+         a.filter(check, marker); \
+         a.findLast(check, marker); \
+         a.findLastIndex(check, marker); \
+         a.forEach(check, marker); \
+         a.every(function() { if (this !== marker) ok = false; n++; return true; }, marker); \
+         a.some(check, marker); \
+         a.find(check, marker); \
+         a.findIndex(check, marker); \
+         ok && n === 27;"
+    ));
+}
+
+#[test]
 fn map_throws_when_constructor_is_null() {
     let mut vm = Vm::new();
     // `null` is non-Object but distinct from `undefined`: spec
