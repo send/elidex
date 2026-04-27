@@ -135,6 +135,14 @@ pub(super) fn native_array_some(
 }
 
 /// `Array.prototype.reduce(callback, initialValue?)` — left fold, skip holes.
+///
+/// The accumulator is pinned to a `vm.stack` slot under
+/// `push_stack_scope` so user callbacks returning fresh
+/// `JsValue::Object` handles stay GC-rooted across every
+/// `ctx.call_function` invocation.  Held only as a Rust local,
+/// such handles would be invisible to the GC scanner across the
+/// next iteration's GC point — a latent bug shared with
+/// `%TypedArray%.prototype.reduce` (SP8c-A R2 same-pattern audit).
 pub(super) fn native_array_reduce(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -144,7 +152,7 @@ pub(super) fn native_array_reduce(
     let cb = require_callback(args)?;
     let elements = clone_elements(ctx, id);
 
-    let (mut accumulator, start_idx) = if args.len() > 1 {
+    let (initial_accumulator, start_idx) = if args.len() > 1 {
         (args[1], 0)
     } else {
         let first = elements.iter().enumerate().find(|(_, v)| !v.is_empty());
@@ -158,21 +166,35 @@ pub(super) fn native_array_reduce(
         }
     };
 
+    let mut frame = ctx.vm.push_stack_scope();
+    let acc_slot = frame.saved_len();
+    frame.stack.push(initial_accumulator);
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+
     #[allow(clippy::needless_range_loop)]
     for i in start_idx..elements.len() {
         if elements[i].is_empty() {
             continue;
         }
-        accumulator = ctx.call_function(
+        // Snapshot the rooted accumulator slot into a `Copy`
+        // local; the slot stays populated with the previous
+        // iteration's value until we overwrite it after the
+        // call returns.
+        let accumulator = sub_ctx.vm.stack[acc_slot];
+        let result = sub_ctx.call_function(
             cb,
             JsValue::Undefined,
             &[accumulator, elements[i], index_to_number(i), this],
         )?;
+        sub_ctx.vm.stack[acc_slot] = result;
     }
-    Ok(accumulator)
+    let final_accumulator = sub_ctx.vm.stack[acc_slot];
+    drop(frame);
+    Ok(final_accumulator)
 }
 
 /// `Array.prototype.reduceRight(callback, initialValue?)` — right fold, skip holes.
+/// Accumulator GC-rooting matches `native_array_reduce`'s contract.
 pub(super) fn native_array_reduce_right(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -182,7 +204,7 @@ pub(super) fn native_array_reduce_right(
     let cb = require_callback(args)?;
     let elements = clone_elements(ctx, id);
 
-    let (mut accumulator, start_idx) = if args.len() > 1 {
+    let (initial_accumulator, start_idx) = if args.len() > 1 {
         (args[1], elements.len())
     } else {
         let last = elements.iter().enumerate().rfind(|(_, v)| !v.is_empty());
@@ -196,18 +218,27 @@ pub(super) fn native_array_reduce_right(
         }
     };
 
+    let mut frame = ctx.vm.push_stack_scope();
+    let acc_slot = frame.saved_len();
+    frame.stack.push(initial_accumulator);
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+
     #[allow(clippy::needless_range_loop)]
     for i in (0..start_idx).rev() {
         if elements[i].is_empty() {
             continue;
         }
-        accumulator = ctx.call_function(
+        let accumulator = sub_ctx.vm.stack[acc_slot];
+        let result = sub_ctx.call_function(
             cb,
             JsValue::Undefined,
             &[accumulator, elements[i], index_to_number(i), this],
         )?;
+        sub_ctx.vm.stack[acc_slot] = result;
     }
-    Ok(accumulator)
+    let final_accumulator = sub_ctx.vm.stack[acc_slot];
+    drop(frame);
+    Ok(final_accumulator)
 }
 
 /// `Array.prototype.find(callback, thisArg?)` — first element passing test.
