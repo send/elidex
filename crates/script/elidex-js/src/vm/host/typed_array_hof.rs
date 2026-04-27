@@ -305,10 +305,13 @@ pub(crate) fn native_typed_array_find_last_index(
 // Species-sensitive: map / filter
 // ---------------------------------------------------------------------------
 
-/// Snapshot the four `ObjectKind::TypedArray` slots a freshly
-/// `species`-allocated view exposes.  `create_typed_array_for_length`
-/// always produces a TypedArray view; the `unreachable!` arm guards
-/// the contract.
+/// Extract the `(buffer_id, byte_offset)` pair from a freshly
+/// `species`-allocated `ObjectKind::TypedArray` view — the only
+/// two slots `map` / `filter`'s per-element write loop needs
+/// (`byte_length` / `element_kind` are already in scope at the
+/// call site as `len_elem` / `dst_ek`).
+/// [`create_typed_array_for_length`] always produces a TypedArray
+/// view; the `unreachable!` arm guards that contract.
 fn destructure_view(vm: &super::super::VmInner, view_id: ObjectId) -> (ObjectId, u32) {
     match vm.get_object(view_id).kind {
         ObjectKind::TypedArray {

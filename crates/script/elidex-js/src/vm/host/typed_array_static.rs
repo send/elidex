@@ -234,13 +234,17 @@ fn resolve_typed_array_constructor_in_chain(
 /// the pair straight to [`create_typed_array_for_length`].
 ///
 /// Algorithm:
-/// 1. `C = receiver.[[Get]]("constructor")`.  Undefined → use
-///    `default_ek` with no proto override (default `%TypedArray%`).
+/// 1. `C = receiver.[[Get]]("constructor")`.  Undefined → return
+///    [`default_typed_array_pair`] for `default_ek`, which reads
+///    `Get(defaultCtor, "prototype")` so the resulting pair MAY
+///    include a `proto_override` (matching spec
+///    `Construct(defaultCtor, args)` →
+///    `OrdinaryCreateFromConstructor` ordering).
 /// 2. Non-Object `C` → TypeError per spec.
-/// 3. `S = C.[[Get]](@@species)`.  Undefined / null → use
-///    `default_ek` (the inherited `%TypedArray%[@@species]` getter
-///    returns `this`, so the common path lands here when the
-///    receiver's constructor is a built-in subclass).
+/// 3. `S = C.[[Get]](@@species)`.  Undefined / null → return the
+///    same default pair (the inherited `%TypedArray%[@@species]`
+///    getter returns `this`, so the common path lands here when
+///    the receiver's constructor is a built-in subclass).
 /// 4. Non-Object / non-constructor `S` → TypeError per spec.
 /// 5. Walk `S`'s `[[Prototype]]` chain via
 ///    [`resolve_typed_array_constructor_in_chain`].  Hit → return
