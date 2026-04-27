@@ -9,8 +9,6 @@
 
 #![cfg(feature = "engine")]
 
-use std::sync::Arc;
-
 use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
@@ -220,7 +218,7 @@ pub(super) fn native_request_clone(
             state.cache,
         )
     };
-    let body = ctx.vm.body_data.get(&id).map(Arc::clone);
+    let body = ctx.vm.body_data.get(&id).cloned();
     let new_headers = ctx.vm.create_headers(HeadersGuard::None);
     // Root `new_headers` across the subsequent allocations — the
     // `copy_headers_entries` entry-splice path and the cloned
@@ -436,7 +434,7 @@ pub(super) fn native_response_clone(
             state.redirected,
         )
     };
-    let body = ctx.vm.body_data.get(&id).map(Arc::clone);
+    let body = ctx.vm.body_data.get(&id).cloned();
 
     // New companion Headers: start mutable, splice source
     // entries, flip to Immutable to match the original.

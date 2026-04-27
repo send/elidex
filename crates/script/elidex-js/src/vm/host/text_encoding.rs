@@ -398,11 +398,11 @@ fn native_text_encoder_encode_into(
 
     // WHATWG §8.2.3 `encodeInto`: walk source code points, encode
     // into a scratch buffer until the next code point would
-    // overflow `dest_len`, then perform a single read-modify-write
-    // on `body_data[buffer_id]`.  Doing the copy inside the loop
-    // would clone the entire backing `Arc<[u8]>` per code point —
-    // O(N·B) work and allocations for an N-char source over a
-    // B-byte buffer.
+    // overflow `dest_len`, then perform a single
+    // [`super::byte_io::write_at`] on `body_data[buffer_id]`.
+    // Bulking the destination write keeps the work O(source.len)
+    // rather than O(source.len × buffer.len) — `byte_io` mutates
+    // the backing `Vec<u8>` in place via `entry().or_default()`.
     let source = ctx.vm.strings.get_utf8(source_sid);
     let source_bytes = source.as_bytes();
     let mut read: usize = 0;
@@ -422,21 +422,7 @@ fn native_text_encoder_encode_into(
         read += ch.len_utf16();
     }
     if written > 0 {
-        let current: &[u8] = ctx
-            .vm
-            .body_data
-            .get(&buffer_id)
-            .map(AsRef::as_ref)
-            .unwrap_or(&[]);
-        let needed = dest_offset + written;
-        let mut new_bytes: Vec<u8> = current.to_vec();
-        if new_bytes.len() < needed {
-            new_bytes.resize(needed, 0);
-        }
-        new_bytes[dest_offset..dest_offset + written].copy_from_slice(&scratch);
-        ctx.vm
-            .body_data
-            .insert(buffer_id, std::sync::Arc::from(new_bytes));
+        super::byte_io::write_at(&mut ctx.vm.body_data, buffer_id, dest_offset, &scratch);
     }
 
     // Build the `{read, written}` result object.  Data properties
@@ -695,21 +681,19 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 
 /// Pull raw bytes out of a BufferSource argument.  Accepts
 /// `ArrayBuffer`, any `TypedArray`, or `DataView`; `undefined` →
-/// empty byte slice (spec §10.1.3 step 2).  Anything else throws
+/// empty byte vector (spec §10.1.3 step 2).  Anything else throws
 /// TypeError — matches the WebIDL `BufferSource` union.
 ///
-/// Returns `Arc<[u8]>` so the full-buffer `ArrayBuffer` case is a
-/// pure refcount bump (no copy).  View cases (offset / length
-/// sub-range) allocate a fresh `Arc<[u8]>` covering the sub-slice
-/// — the clone is linear in the view's byte length, not the
-/// backing buffer's.
+/// Returns owned `Vec<u8>`: the full-buffer `ArrayBuffer` case
+/// snapshots `body_data[id]`, view cases allocate a fresh `Vec`
+/// covering the sub-slice (linear in the view's byte length, not
+/// the backing buffer's).
 fn extract_buffer_source_bytes(
     ctx: &NativeContext<'_>,
     input_arg: JsValue,
-) -> Result<std::sync::Arc<[u8]>, VmError> {
-    use std::sync::Arc;
+) -> Result<Vec<u8>, VmError> {
     match input_arg {
-        JsValue::Undefined => Ok(Arc::from(&[][..])),
+        JsValue::Undefined => Ok(Vec::new()),
         JsValue::Object(id) => match ctx.vm.get_object(id).kind {
             ObjectKind::ArrayBuffer => Ok(super::array_buffer::array_buffer_bytes(ctx.vm, id)),
             ObjectKind::TypedArray {
@@ -722,21 +706,12 @@ fn extract_buffer_source_bytes(
                 buffer_id,
                 byte_offset,
                 byte_length,
-            } => {
-                let backing = super::array_buffer::array_buffer_bytes(ctx.vm, buffer_id);
-                let start = byte_offset as usize;
-                let end = start + byte_length as usize;
-                let slice = backing.get(start..end).unwrap_or(&[]);
-                // Sub-range view: fresh `Arc<[u8]>` sized to the
-                // view, not the backing buffer.  If `byte_offset
-                // == 0 && byte_length == backing.len()`, skip the
-                // clone and hand back the original Arc.
-                if start == 0 && end == backing.len() {
-                    Ok(backing)
-                } else {
-                    Ok(Arc::from(slice))
-                }
-            }
+            } => Ok(super::array_buffer::array_buffer_view_bytes(
+                ctx.vm,
+                buffer_id,
+                byte_offset,
+                byte_length,
+            )),
             _ => Err(VmError::type_error(
                 "Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'BufferSource'",
             )),
@@ -766,8 +741,7 @@ fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<Obj
             "Failed to execute 'encode' on 'TextEncoder': encoded byte length exceeds 4 GiB",
         )
     })?;
-    let buffer_id =
-        super::array_buffer::create_array_buffer_from_bytes(vm, std::sync::Arc::from(bytes));
+    let buffer_id = super::array_buffer::create_array_buffer_from_bytes(vm, bytes);
     // Temp-root `buffer_id` across the Uint8Array allocation via
     // the RAII `push_temp_root` guard so the stack is restored on
     // every exit path (normal return and panic unwinding alike) —

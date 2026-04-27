@@ -43,8 +43,6 @@
 
 #![cfg(feature = "engine")]
 
-use std::sync::Arc;
-
 use super::super::coerce;
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -779,10 +777,10 @@ pub(super) fn allocate_fresh_buffer(
     ctx: &mut NativeContext<'_>,
     byte_len: u32,
 ) -> Result<(ObjectId, u32, u32), VmError> {
-    let bytes: Arc<[u8]> = if byte_len == 0 {
-        Arc::from(&[][..])
+    let bytes: Vec<u8> = if byte_len == 0 {
+        Vec::new()
     } else {
-        vec![0_u8; byte_len as usize].into()
+        vec![0_u8; byte_len as usize]
     };
     let buf_id = super::array_buffer::create_array_buffer_from_bytes(ctx.vm, bytes);
     Ok((buf_id, 0, byte_len))
@@ -957,13 +955,12 @@ pub(crate) fn coerce_element_to_le_bytes(
 /// a `BigInt64Array` — `ToBigInt` rejects) or when user-level
 /// coercion (valueOf / Symbol.toPrimitive) throws.
 ///
-/// The backing `Arc<[u8]>` is treated as immutable: every write
-/// produces a fresh `Arc::from(Vec)` that replaces the map entry.
-/// This keeps the spec-mandated "views share bytes" invariant —
-/// every view reads through `body_data[buffer_id]`, which always
-/// holds the latest snapshot.  The O(N)-per-write cost is
-/// acceptable for C2; a byte-level interior-mutability refactor
-/// lands with PR-spec-polish SP9.
+/// Coerce first so a thrown `valueOf` / `Symbol.toPrimitive` leaves
+/// the backing buffer unmodified.  The actual byte-level write
+/// goes through [`super::byte_io::write_at`], which mutates the
+/// backing `Vec<u8>` in place via `entry().or_default()` — other
+/// views over the same `buffer_id` see the mutation through their
+/// next `body_data.get`.
 pub(crate) fn write_element_raw(
     ctx: &mut NativeContext<'_>,
     buffer_id: ObjectId,
@@ -977,14 +974,11 @@ pub(crate) fn write_element_raw(
 
     // Coerce first — user code may run (valueOf / toPrimitive)
     // and throw.  Scratch buffer holds the encoded little-endian
-    // bytes; the actual write (which replaces the Arc entry)
-    // only runs if coercion succeeds.
+    // bytes; the actual write (mutating the backing `Vec<u8>` in
+    // place) only runs if coercion succeeds.
     let mut scratch = [0_u8; 8];
     let written_len = coerce_element_to_le_bytes(ctx, ek, value, &mut scratch)?;
 
-    // Clone the existing buffer, grow if needed, apply the element
-    // write, install the fresh `Arc<[u8]>` so other views over the
-    // same `buffer_id` see the new bytes on their next access.
     super::byte_io::write_at(
         &mut ctx.vm.body_data,
         buffer_id,

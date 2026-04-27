@@ -331,10 +331,21 @@ fn append_blob_part_bytes(
                 byte_offset,
                 byte_length,
             } => {
-                let backing = super::array_buffer::array_buffer_bytes(ctx.vm, buffer_id);
+                // Read `body_data[buffer_id]` once and extend
+                // directly from the requested sub-range — avoids
+                // cloning the full backing buffer just to copy a
+                // small view (the `array_buffer_bytes` /
+                // `array_buffer_view_bytes` helpers materialise an
+                // owned Vec, which is wasted when the consumer is
+                // an `extend_from_slice` into an existing buffer).
                 let start = byte_offset as usize;
-                let end = start + byte_length as usize;
-                if let Some(slice) = backing.get(start..end) {
+                let end = start.saturating_add(byte_length as usize);
+                if let Some(slice) = ctx
+                    .vm
+                    .body_data
+                    .get(&buffer_id)
+                    .and_then(|src| src.get(start..end))
+                {
                     out.extend_from_slice(slice);
                 }
             }
@@ -587,7 +598,10 @@ fn native_blob_array_buffer(
     // `id` is already reachable from JS (method receiver) so
     // `blob_bytes` stays safe without extra rooting.
     let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let bytes = blob_bytes(&g, id);
+    // BlobData stores `bytes` as `Arc<[u8]>` (per-spec immutable);
+    // the new ArrayBuffer needs an owned `Vec<u8>` for `body_data`,
+    // so snapshot at the pool boundary via `to_vec()`.
+    let bytes = blob_bytes(&g, id).to_vec();
     let buf_id = super::array_buffer::create_array_buffer_from_bytes(&mut g, bytes);
     resolve_promise_sync(&mut g, promise, JsValue::Object(buf_id));
     drop(g);

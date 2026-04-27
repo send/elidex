@@ -1,28 +1,31 @@
 //! Byte-level read/write primitives over [`super::super::VmInner::body_data`].
 //!
 //! Shared by [`super::data_view`] (per-method getters / setters) and
-//! [`super::typed_array`] (per-element raw read / write).  Both
-//! subsystems treat the backing `Arc<[u8]>` as immutable: reads
-//! snapshot the requested span into a fixed-size array, writes
-//! clone the existing bytes into a fresh `Vec<u8>`, apply the
-//! mutation, and install a new `Arc::from(...)`.  This keeps the
-//! spec-mandated "all views share bytes" invariant — every view
-//! reads through `body_data[buffer_id]`, which always holds the
-//! latest snapshot.
+//! [`super::typed_array`] (per-element raw read / write).  The
+//! backing storage is `Vec<u8>` — owned, in-place mutable.  Reads
+//! snapshot the requested span into a fixed-size array (so partial
+//! reads near the buffer's end zero-pad cleanly), writes mutate the
+//! `Vec<u8>` directly via `entry().or_default().resize()`
+//! + `copy_from_slice`.  No clone-grow-install round-trip; repeated
+//! writes are O(N) total bytes touched, not O(N²).
 //!
-//! The O(N)-per-write cost is acceptable for C2; a byte-level
-//! interior-mutability refactor (`Rc<RefCell<Vec<u8>>>`) is the
-//! larger half of PR-spec-polish SP9 and lands separately.  The
-//! present module is the *placement* half: every read/write that
-//! pre-existed inline in `data_view` / `typed_array` is now
-//! threaded through the same two primitives so the future
-//! migration only needs to swap the storage type, not chase
-//! call sites.
+//! Cross-subsystem callers (`fetch` HTTP handoff,
+//! `body_mixin::take_body_bytes`, `structured_clone`,
+//! `array_buffer::array_buffer_view_bytes`) take an owned snapshot
+//! *at the boundary* from the backing `Vec<u8>` — by `clone`,
+//! `remove`, or sub-range `to_vec`, depending on whether the
+//! consumer is non-destructive or one-shot.  Some boundaries keep
+//! the snapshot as `Vec<u8>` (structured clone of `ArrayBuffer`,
+//! body-mixin `.arrayBuffer()`); others convert it to `Arc<[u8]>`
+//! only when the downstream API requires shared-immutable bytes
+//! (`fetch` → `Bytes::from_owner` needs `Send + Sync`, `BlobData`
+//! stores `Arc<[u8]>` per-spec immutability).  The snapshot
+//! semantics that the previous immutable-`Arc` storage delivered
+//! implicitly are now visible in those boundary APIs' types.
 
 #![cfg(feature = "engine")]
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use super::super::value::ObjectId;
 
@@ -45,7 +48,7 @@ use super::super::value::ObjectId;
 /// still land in the first few bytes of the returned array with
 /// the rest zero-padded.
 pub(super) fn read_into<const N: usize>(
-    body_data: &HashMap<ObjectId, Arc<[u8]>>,
+    body_data: &HashMap<ObjectId, Vec<u8>>,
     buffer_id: ObjectId,
     abs: usize,
 ) -> [u8; N] {
@@ -61,19 +64,30 @@ pub(super) fn read_into<const N: usize>(
 
 /// Write `bytes` into `body_data[buffer_id]` starting at absolute
 /// byte offset `abs`, growing the backing buffer with zero-fill as
-/// needed and installing a fresh `Arc<[u8]>` so other views over
-/// the same `buffer_id` observe the mutation through their next
-/// `body_data.get(&buffer_id)`.
+/// needed.  Mutates the `Vec<u8>` in place — other views over the
+/// same `buffer_id` observe the mutation through their next
+/// `body_data.get(&buffer_id)` (the entry's identity is preserved).
 ///
 /// Callers retain full responsibility for bounds-checking against
 /// the *view's* own `[[ByteLength]]` — this helper only ensures
 /// the underlying buffer is large enough to hold the write itself.
 pub(super) fn write_at(
-    body_data: &mut HashMap<ObjectId, Arc<[u8]>>,
+    body_data: &mut HashMap<ObjectId, Vec<u8>>,
     buffer_id: ObjectId,
     abs: usize,
     bytes: &[u8],
 ) {
+    if bytes.is_empty() {
+        // Zero-length writes are pure no-ops — short-circuit
+        // before `entry().or_default()` so a caller passing an
+        // empty slice doesn't accidentally materialise a
+        // `body_data` entry, which would break the
+        // `body_data.contains_key(&id)` "carries bytes?" signal
+        // documented at `array_buffer::create_array_buffer_from_bytes`
+        // and `fetch.rs` response-body installation.  Mirrors
+        // `fill_pattern`'s `total_len == 0` early return.
+        return;
+    }
     // `abs + bytes.len()` can overflow on 32-bit targets when
     // callers pass an `abs` near `usize::MAX`.  Treat overflow as
     // a no-op write — the call sites pre-validate against their
@@ -83,25 +97,31 @@ pub(super) fn write_at(
     let Some(end) = abs.checked_add(bytes.len()) else {
         return;
     };
-    let mut new_bytes = grow_or_fresh(body_data.get(&buffer_id), end);
-    new_bytes[abs..end].copy_from_slice(bytes);
-    body_data.insert(buffer_id, Arc::from(new_bytes));
+    let dst = body_data.entry(buffer_id).or_default();
+    if dst.len() < end {
+        dst.resize(end, 0);
+    }
+    dst[abs..end].copy_from_slice(bytes);
 }
 
 /// Copy `len` bytes from `body_data[src_id][src_abs..]` to
 /// `body_data[dst_id][dst_abs..]`, growing the destination buffer
-/// with zero-fill as needed and installing a fresh `Arc<[u8]>`
-/// afterwards.  Source bytes that fall past the source buffer's
-/// length are read as zero (mirroring [`read_into`]'s partial-read
-/// contract).
+/// with zero-fill as needed.  Source bytes that fall past the
+/// source buffer's length are read as zero (mirroring
+/// [`read_into`]'s partial-read contract).
 ///
 /// Replaces the per-element `read_element_raw` + `write_element_raw`
 /// loop pattern (`slice()`, `copyWithin()`, same-`ElementKind`
-/// `set(TypedArray)`) — one src snapshot + one dst clone-grow-install
-/// instead of N of each.  The src snapshot is taken into a fresh
-/// `Vec<u8>` *before* mutating the destination, so overlapping
-/// source/destination ranges (`src_id == dst_id`) are correct
-/// under any direction.
+/// `set(TypedArray)`) — one src snapshot + one dst in-place resize
+/// instead of N decode/encode round-trips.
+///
+/// The src snapshot is taken into a fresh `Vec<u8>` *before*
+/// borrowing the destination, both so overlapping source/destination
+/// ranges (`src_id == dst_id`) are correct under any direction
+/// (the destination write copies from the snapshot, never re-reading
+/// bytes that the earlier write already overwrote) and so the
+/// `body_data` HashMap is freed for the subsequent `entry().or_default()`
+/// borrow.
 ///
 /// Callers retain responsibility for any view-relative bounds
 /// check.  Zero-length, length overflow, and offset overflow are
@@ -110,7 +130,7 @@ pub(super) fn write_at(
 /// indicates a malformed receiver that must not corrupt the
 /// backing buffer or panic.
 pub(super) fn copy_bytes(
-    body_data: &mut HashMap<ObjectId, Arc<[u8]>>,
+    body_data: &mut HashMap<ObjectId, Vec<u8>>,
     src_id: ObjectId,
     src_abs: usize,
     dst_id: ObjectId,
@@ -126,60 +146,34 @@ pub(super) fn copy_bytes(
     let Some(dst_end) = dst_abs.checked_add(len) else {
         return;
     };
-    // Snapshot the source slice into a fresh `Vec<u8>` *before*
-    // touching the destination, so an in-place overlap (src == dst,
-    // typical of `copyWithin`) is correct: the destination write
-    // copies from the snapshot, never re-reading bytes that the
-    // earlier write already overwrote.
     let src_snapshot: Vec<u8> = match body_data.get(&src_id) {
-        Some(arc) => {
+        Some(bytes) => {
             let mut out = vec![0_u8; len];
-            let buf_len = arc.len();
+            let buf_len = bytes.len();
             if src_abs < buf_len {
                 let avail = (buf_len - src_abs).min(len);
-                out[..avail].copy_from_slice(&arc[src_abs..src_abs + avail]);
+                out[..avail].copy_from_slice(&bytes[src_abs..src_abs + avail]);
             }
             out
         }
         None => vec![0_u8; len],
     };
-    let mut new_dst = grow_or_fresh(body_data.get(&dst_id), dst_end);
-    new_dst[dst_abs..dst_end].copy_from_slice(&src_snapshot);
-    body_data.insert(dst_id, Arc::from(new_dst));
-}
-
-/// Materialise a writable `Vec<u8>` of length `>= needed` from the
-/// existing `body_data` entry, or allocate a fresh zero-filled
-/// `Vec` of exactly `needed` bytes when no entry exists.
-///
-/// The fresh-buffer path skips the `&[]`-to-`Vec` clone that
-/// `current.to_vec()` would otherwise perform on a missing entry,
-/// going straight to a single `vec![0; needed]` allocation.
-/// Pre-existing entries fall through to clone + grow as before.
-fn grow_or_fresh(current: Option<&Arc<[u8]>>, needed: usize) -> Vec<u8> {
-    match current {
-        Some(arc) => {
-            let mut new_bytes: Vec<u8> = arc.as_ref().to_vec();
-            if new_bytes.len() < needed {
-                new_bytes.resize(needed, 0);
-            }
-            new_bytes
-        }
-        None => vec![0_u8; needed],
+    let dst = body_data.entry(dst_id).or_default();
+    if dst.len() < dst_end {
+        dst.resize(dst_end, 0);
     }
+    dst[dst_abs..dst_end].copy_from_slice(&src_snapshot);
 }
 
 /// Write `pattern` `count` times consecutively into
 /// `body_data[buffer_id]` starting at absolute byte offset `abs`,
-/// growing the backing buffer with zero-fill as needed and
-/// installing a single fresh `Arc<[u8]>` afterwards.
-///
-/// Replaces the per-element loop pattern (`fill()` etc.) where
-/// each iteration would otherwise clone the entire buffer through
-/// [`write_at`].  One clone-grow-install instead of N collapses
-/// `%TypedArray%.prototype.fill` from O(N²) bytes touched to
-/// O(N).  Single-byte patterns hit the `slice::fill` fast path;
-/// wider patterns chunk in a tight inner loop.
+/// growing the backing buffer with zero-fill as needed.  Mutates
+/// the existing `Vec<u8>` in place — one resize and one inner
+/// fill loop replace the previous `clone-grow-install` per
+/// iteration, collapsing `%TypedArray%.prototype.fill` from O(N²)
+/// bytes touched to O(N).  Single-byte patterns hit the
+/// `slice::fill` fast path; wider patterns chunk in a tight
+/// inner loop.
 ///
 /// Callers retain responsibility for any view-relative bounds
 /// check.  Overflow on `pattern.len() * count` or
@@ -188,7 +182,7 @@ fn grow_or_fresh(current: Option<&Arc<[u8]>>, needed: usize) -> Vec<u8> {
 /// reaching either branch indicates a malformed receiver that
 /// must not corrupt the backing buffer or panic.
 pub(super) fn fill_pattern(
-    body_data: &mut HashMap<ObjectId, Arc<[u8]>>,
+    body_data: &mut HashMap<ObjectId, Vec<u8>>,
     buffer_id: ObjectId,
     abs: usize,
     pattern: &[u8],
@@ -199,7 +193,7 @@ pub(super) fn fill_pattern(
     };
     if total_len == 0 {
         // Zero-length writes (`count == 0`, `pattern == []`) are
-        // pure no-ops — skip the clone/install so callers don't
+        // pure no-ops — skip the resize so callers don't
         // accidentally materialise a `body_data` entry from a
         // zero-byte operation.
         return;
@@ -207,18 +201,20 @@ pub(super) fn fill_pattern(
     let Some(end) = abs.checked_add(total_len) else {
         return;
     };
-    let mut new_bytes = grow_or_fresh(body_data.get(&buffer_id), end);
+    let dst = body_data.entry(buffer_id).or_default();
+    if dst.len() < end {
+        dst.resize(end, 0);
+    }
     // Post-`total_len == 0` early-return: `pattern.len() >= 1` and
     // `count >= 1`, so the empty-pattern arm is unreachable here.
     match pattern {
-        [b] => new_bytes[abs..end].fill(*b),
+        [b] => dst[abs..end].fill(*b),
         _ => {
             let plen = pattern.len();
             for i in 0..count {
                 let dst_start = abs + i * plen;
-                new_bytes[dst_start..dst_start + plen].copy_from_slice(pattern);
+                dst[dst_start..dst_start + plen].copy_from_slice(pattern);
             }
         }
     }
-    body_data.insert(buffer_id, Arc::from(new_bytes));
 }

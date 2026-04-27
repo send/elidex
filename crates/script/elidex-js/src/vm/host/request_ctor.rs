@@ -17,8 +17,6 @@
 
 #![cfg(feature = "engine")]
 
-use std::sync::Arc;
-
 use super::super::value::{
     JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, StringId, VmError,
 };
@@ -32,8 +30,8 @@ use super::request_response::{
 /// is canonicalised; method defaults to `GET` unless the input was
 /// itself a `Request` (then its method carries over); `source_headers`
 /// is `Some` for the Request-clone case; `source_body` is the cloned
-/// body Arc (may be `None`).
-type RequestInputParts = (StringId, StringId, Option<ObjectId>, Option<Arc<[u8]>>);
+/// body Vec (may be `None`).
+type RequestInputParts = (StringId, StringId, Option<ObjectId>, Option<Vec<u8>>);
 
 /// Tuple returned by [`parse_request_init`]: optional method
 /// override, optional headers-init source (copied into the
@@ -48,7 +46,7 @@ type RequestInputParts = (StringId, StringId, Option<ObjectId>, Option<Arc<[u8]>
 /// requests from carrying a body — a cleared body must not
 /// trigger that check, while an explicit empty-string body must
 /// (R25.1 / R25.3).
-type RequestInitParts = (Option<StringId>, Option<JsValue>, Option<Option<Arc<[u8]>>>);
+type RequestInitParts = (Option<StringId>, Option<JsValue>, Option<Option<Vec<u8>>>);
 
 /// `new Request(input, init?)` (WHATWG §5.3).
 pub(super) fn native_request_constructor(
@@ -110,7 +108,7 @@ pub(super) fn native_request_constructor(
     // Request's base body.  `None` preserves the base; `Some(None)`
     // clears it; `Some(Some(b))` replaces.  See `RequestInitParts`
     // doc for the spec rationale (R25.3).
-    let final_body: Option<Arc<[u8]>> = match body_init_arg {
+    let final_body: Option<Vec<u8>> = match body_init_arg {
         None => body_bytes,
         Some(None) => None,
         Some(Some(b)) => Some(b),
@@ -160,8 +158,8 @@ pub(super) fn native_request_constructor(
 ///   `navigation.current_url`), method defaults to `"GET"`, no
 ///   source Headers, no source body.
 /// - Request object → copy its state (URL / method / headers id
-///   / body Arc).  Body is "taken" from the source per spec §5.3
-///   step 37 — but Phase 2 shares the Arc without marking the
+///   / body Vec).  Body is "taken" from the source per spec §5.3
+///   step 37 — but Phase 2 clones the bytes without marking the
 ///   source as consumed, because the body-used tracking only
 ///   applies once the Body mixin read methods land.
 /// - Anything else → `TypeError`.
@@ -191,7 +189,7 @@ fn resolve_request_input(
             let url_sid = state.url_sid;
             let method_sid = state.method_sid;
             let headers_id = state.headers_id;
-            let body = ctx.vm.body_data.get(&obj_id).map(Arc::clone);
+            let body = ctx.vm.body_data.get(&obj_id).cloned();
             Ok((url_sid, method_sid, Some(headers_id), body))
         }
         _ => Err(VmError::type_error(

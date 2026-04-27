@@ -497,17 +497,20 @@ fn request_base_from_vm(
         })
         .unwrap_or_default();
 
-    // `Bytes::from_owner(Arc::clone(arc))` hands the `Arc<[u8]>`
-    // to the `Bytes` instance as its owner, so no byte copy
-    // happens — the broker reads directly from the same
-    // allocation `body_data` already rooted.  `Option<Bytes>`
-    // preserves the "no body" vs "empty body" distinction (see
-    // fn doc).
-    let body = ctx
-        .vm
-        .body_data
-        .get(&obj_id)
-        .map(|arc| Bytes::from_owner(Arc::clone(arc)));
+    // Snapshot the body bytes into an `Arc<[u8]>` so they can be
+    // handed to `Bytes::from_owner` (whose owner bound is
+    // `Send + Sync + 'static`).  The snapshot semantics match the
+    // spec — once `fetch()` extracts the request body, subsequent
+    // VM-side mutations through the same `body_data` entry must
+    // not propagate to the in-flight HTTP request.  The previous
+    // `Arc::clone(arc)` zero-copy handoff happened to deliver the
+    // same observable behaviour because the engine cloned-and-
+    // reinstalled an `Arc` on every TypedArray write; with owned
+    // `Vec<u8>` storage the snapshot must be explicit.
+    let body = ctx.vm.body_data.get(&obj_id).map(|bytes| {
+        let arc: Arc<[u8]> = Arc::from(bytes.as_slice());
+        Bytes::from_owner(arc)
+    });
 
     Ok((method, url, headers, body))
 }
@@ -708,21 +711,13 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
     // so `.body_data.contains_key(id)` keeps meaning "this
     // response actually carries bytes".
     //
-    // **Phase 2 cost**: `response.body` is `bytes::Bytes` (which
-    // is itself ref-counted) but we copy into `Arc<[u8]>` because
-    // `VmInner::body_data` is typed `Arc<[u8]>` to match the
-    // broker-independent Request / Blob / ArrayBuffer paths.
-    // Switching the side-table type to `Bytes` (or adding a
-    // zero-copy shim) is plausible but intrudes on every body-
-    // mixin reader in `body_mixin.rs` and every GC sweep site in
-    // `gc.rs`; deferred to the PR5-streams tranche which
-    // refactors body storage to a stream-compatible wrapper
-    // anyway.  The copy is observable only on large fetch
-    // responses — for script-sized bodies it's below measurement
-    // noise, tracked for the post-PR5a-fetch spec-polish pass.
+    // The HTTP response body is owned by `bytes::Bytes` (its own
+    // ref-counted handle); we copy it into a fresh `Vec<u8>` for
+    // installation in `body_data`, since that map's storage type
+    // is owned `Vec<u8>` so subsequent TypedArray / DataView
+    // writes can mutate it in place via `byte_io`.
     if !response.body.is_empty() {
-        let bytes: Arc<[u8]> = Arc::from(&response.body[..]);
-        g2.body_data.insert(inst_id, bytes);
+        g2.body_data.insert(inst_id, response.body.to_vec());
     }
 
     let url_sid = g2.strings.intern(response.url.as_str());

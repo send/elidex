@@ -259,7 +259,7 @@ pub(super) fn trace_work_list(
             // companion Headers would be collected whenever the
             // user code only retained the Request / Response
             // itself.  Body bytes (`body_data[id]`) are plain
-            // `Arc<[u8]>` — no ObjectId fan-out, so no marking
+            // `Vec<u8>` — no ObjectId fan-out, so no marking
             // required.  URL / method / statusText are pool-
             // permanent StringIds.
             //
@@ -290,11 +290,11 @@ pub(super) fn trace_work_list(
                 }
             }
             // `ArrayBuffer` / `Blob` payloads are bytes-only —
-            // the backing `Arc<[u8]>` holds no ObjectId
-            // references, so there is nothing to fan out here.
-            // The sweep tail prunes `body_data` (ArrayBuffer
-            // storage, shared with Request / Response) and
-            // `blob_data` (Blob storage) entries whose key was
+            // ArrayBuffer's `Vec<u8>` and Blob's `Arc<[u8]>` both
+            // hold no ObjectId references, so there is nothing to
+            // fan out here.  The sweep tail prunes `body_data`
+            // (ArrayBuffer storage, shared with Request / Response)
+            // and `blob_data` (Blob storage) entries whose key was
             // collected, mirroring `headers_states` /
             // `abort_signal_states`.
             #[cfg(feature = "engine")]
