@@ -88,7 +88,7 @@ fn require_subclass_ctor(
     // 1)`) would slip through because the walk finds Uint8Array at
     // depth 1 and the receiver's `prototype` data property
     // resolution falls back to the built-in subclass prototype.
-    if !ctx.vm.get_object(ctor_id).kind.is_constructor() {
+    if !super::super::object_kind::is_constructor(ctx.vm, ctor_id) {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on '%TypedArray%': this is not a TypedArray constructor"
         )));

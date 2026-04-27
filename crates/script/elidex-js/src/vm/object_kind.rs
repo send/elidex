@@ -487,28 +487,36 @@ impl ObjectKind {
                 | Self::AsyncDriverStep { .. }
         )
     }
+}
 
-    /// `IsConstructor(value)` (ES §7.2.4): true when this object
-    /// has a `[[Construct]]` slot.  Arrow functions and `Lexical`-
-    /// `this_mode` `Function`s are NOT constructors (they cannot
-    /// be invoked via `new`); native functions opt in via the
-    /// `constructable` flag (`Symbol`/`BigInt` etc. are non-
-    /// constructable).  `BoundFunction` defers to its target per
-    /// spec — kept conservatively `true` here because every
-    /// existing caller of `bind` in the stdlib targets a
-    /// constructable function (a future spec-strict refactor can
-    /// thread the target lookup through if needed).
-    ///
-    /// Plain `Ordinary` / `Array` / `RegExp` etc. are not
-    /// constructors — used by `%TypedArray%.of` / `.from` to
-    /// reject prototype-spoofing receivers.
-    #[inline]
-    pub fn is_constructor(&self) -> bool {
-        match self {
-            Self::Function(fo) => fo.this_mode != crate::vm::value::ThisMode::Lexical,
-            Self::NativeFunction(nf) => nf.constructable,
-            Self::BoundFunction { .. } => true,
-            _ => false,
+/// `IsConstructor(value)` (ES §7.2.4): true when the object has
+/// a `[[Construct]]` internal slot.  Walks `BoundFunction` chains
+/// up to [`crate::vm::MAX_BIND_CHAIN_DEPTH`] and inspects the
+/// underlying target — a bound chain ending in an arrow function
+/// or non-constructable native must NOT report constructor (the
+/// `do_new` path in `ops.rs` does the same unwrap before
+/// validating, so without this recursive check the `IsConstructor`
+/// gate at `%TypedArray%.of` / `.from` could be bypassed by
+/// `Object.setPrototypeOf((()=>{}).bind(null), Uint8Array)`).
+///
+/// Free function rather than a method on [`ObjectKind`] because
+/// the chain walk needs `VmInner` access to look up each
+/// `BoundFunction.target` by `ObjectId`.
+#[cfg(feature = "engine")]
+pub(crate) fn is_constructor(vm: &super::VmInner, id: super::value::ObjectId) -> bool {
+    let mut current = id;
+    for _ in 0..crate::vm::MAX_BIND_CHAIN_DEPTH {
+        match &vm.get_object(current).kind {
+            ObjectKind::Function(fo) => {
+                return fo.this_mode != crate::vm::value::ThisMode::Lexical;
+            }
+            ObjectKind::NativeFunction(nf) => return nf.constructable,
+            ObjectKind::BoundFunction { target, .. } => current = *target,
+            _ => return false,
         }
     }
+    // Chain length exceeded — reject defensively (matches
+    // `do_new`'s `Maximum bind chain depth exceeded` RangeError
+    // intent at the `IsConstructor`-precheck level).
+    false
 }

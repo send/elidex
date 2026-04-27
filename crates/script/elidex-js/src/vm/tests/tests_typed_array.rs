@@ -940,6 +940,27 @@ fn typed_array_from_rejects_prototype_spoofed_receiver() {
 }
 
 #[test]
+fn typed_array_of_rejects_bound_arrow_spoof() {
+    let mut vm = Vm::new();
+    // Bound functions inherit constructability from their target
+    // (ES §10.4.1.2 BoundFunction[[Construct]] is set iff the
+    // target has [[Construct]]).  An arrow function target has no
+    // `[[Construct]]`, so the bound wrapper must NOT pass the
+    // IsConstructor gate even when its `[[Prototype]]` is spoofed
+    // to `Uint8Array`.  Catches a regression where the chain walk
+    // accepts BoundFunction unconditionally instead of unwrapping
+    // to inspect the target.
+    assert!(eval_bool(
+        &mut vm,
+        "var f = (() => {}).bind(null); \
+         Object.setPrototypeOf(f, Uint8Array); \
+         var ok = false; \
+         try { Uint8Array.of.call(f, 1); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
 fn typed_array_of_user_subclass_preserves_constructor_identity() {
     let mut vm = Vm::new();
     // The receiver of `.of` is a user-defined subclass.  Per spec,
