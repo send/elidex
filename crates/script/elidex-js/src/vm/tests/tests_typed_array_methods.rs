@@ -1094,11 +1094,37 @@ fn filter_throws_when_species_not_typed_array_constructor() {
 }
 
 #[test]
+fn map_throws_when_constructor_is_null() {
+    let mut vm = Vm::new();
+    // `null` is non-Object but distinct from `undefined`: spec
+    // §10.1.13 SpeciesConstructor step 2 only short-circuits on
+    // `undefined` (returning the default constructor), step 3
+    // rejects everything else that isn't `Object` — including
+    // `null` — as a TypeError.  Pairs with
+    // `map_default_species_falls_back_when_constructor_undefined`
+    // to cover both arms of the asymmetric early-return.
+    assert!(vm
+        .eval(
+            "var a = new Uint8Array([1, 2]); \
+             Object.defineProperty(a, 'constructor', { value: null }); \
+             a.map(function(v) { return v; });"
+        )
+        .unwrap_err()
+        .message
+        .contains("constructor"));
+}
+
+#[test]
 fn map_default_species_falls_back_when_constructor_undefined() {
     let mut vm = Vm::new();
-    // Removing `.constructor` (own + prototype) leaves the lookup
-    // resolving to `undefined` — spec §10.1.13 step 2 returns the
-    // default constructor (here, `Uint8Array`'s ek).
+    // Shadowing the inherited `Uint8Array.prototype.constructor`
+    // with an own data property whose value is `undefined` makes
+    // `[[Get]]("constructor")` resolve to `undefined` (the own
+    // property wins over the inherited one) — spec §10.1.13
+    // SpeciesConstructor step 2 then returns the default
+    // constructor (here, `Uint8Array`'s ek).  Note this is
+    // distinct from `null`, which spec step 3 rejects as
+    // "Type(C) is not Object" → TypeError.
     assert!(eval_bool(
         &mut vm,
         "var a = new Uint8Array([1, 2, 3]); \

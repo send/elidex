@@ -16,6 +16,16 @@
 //!
 //! Install-time wiring lives in
 //! [`super::typed_array::install_typed_array_prototype_members`].
+//!
+//! Section numbers in the per-method docstrings track the **ES2024
+//! (15th edition)** numbering for `%TypedArray%.prototype` —
+//! deliberately divergent from the legacy numbering still used in
+//! sibling [`super::typed_array_methods`].  That file pre-dates
+//! the §23.2.3 reshuffle that introduced `findLast` /
+//! `findLastIndex` (ES2023) and re-numbered surrounding methods;
+//! re-numbering it is a separate doc-debt cleanup outside this
+//! PR's scope.  Within this file every spec ref points at the
+//! current §23.2.3.* slot.
 
 #![cfg(feature = "engine")]
 
@@ -123,7 +133,7 @@ fn iterate_with_callback(
 // Forward HOFs: forEach / every / some / find / findIndex
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.forEach(cb, thisArg?)` (ES §23.2.3.13).
+/// `%TypedArray%.prototype.forEach(cb, thisArg?)` (ES §23.2.3.15).
 pub(crate) fn native_typed_array_for_each(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -140,7 +150,7 @@ pub(crate) fn native_typed_array_for_each(
     )
 }
 
-/// `%TypedArray%.prototype.every(cb, thisArg?)` (ES §23.2.3.7).
+/// `%TypedArray%.prototype.every(cb, thisArg?)` (ES §23.2.3.8).
 pub(crate) fn native_typed_array_every(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -163,7 +173,7 @@ pub(crate) fn native_typed_array_every(
     )
 }
 
-/// `%TypedArray%.prototype.some(cb, thisArg?)` (ES §23.2.3.26).
+/// `%TypedArray%.prototype.some(cb, thisArg?)` (ES §23.2.3.28).
 pub(crate) fn native_typed_array_some(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -186,7 +196,7 @@ pub(crate) fn native_typed_array_some(
     )
 }
 
-/// `%TypedArray%.prototype.find(cb, thisArg?)` (ES §23.2.3.10).
+/// `%TypedArray%.prototype.find(cb, thisArg?)` (ES §23.2.3.11).
 pub(crate) fn native_typed_array_find(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -237,7 +247,7 @@ pub(crate) fn native_typed_array_find_index(
 // Reverse HOFs: findLast / findLastIndex
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.findLast(cb, thisArg?)` (ES §23.2.3.11).
+/// `%TypedArray%.prototype.findLast(cb, thisArg?)` (ES §23.2.3.13).
 /// Reverse-iterates `[len-1, 0]`; returns the first matching element
 /// or `undefined`.  No allocation.
 pub(crate) fn native_typed_array_find_last(
@@ -263,7 +273,7 @@ pub(crate) fn native_typed_array_find_last(
 }
 
 /// `%TypedArray%.prototype.findLastIndex(cb, thisArg?)`
-/// (ES §23.2.3.12).  Reverse-iterates `[len-1, 0]`; returns the
+/// (ES §23.2.3.14).  Reverse-iterates `[len-1, 0]`; returns the
 /// first matching index or `-1`.  No allocation.
 pub(crate) fn native_typed_array_find_last_index(
     ctx: &mut NativeContext<'_>,
@@ -308,7 +318,7 @@ fn destructure_view(vm: &super::super::VmInner, view_id: ObjectId) -> (ObjectId,
 }
 
 /// `%TypedArray%.prototype.map(callbackfn, thisArg?)`
-/// (ES §23.2.3.21).
+/// (ES §23.2.3.22).
 ///
 /// Resolves `TypedArraySpeciesCreate(O, ⟨len⟩)` (§22.2.4.7) BEFORE
 /// the read/callback/write loop so a hostile species lookup that
