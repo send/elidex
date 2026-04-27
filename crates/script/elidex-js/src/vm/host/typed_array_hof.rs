@@ -50,6 +50,30 @@ fn require_callback(
     }
 }
 
+/// Forward / reverse `u32` index range used by
+/// [`iterate_with_callback`].  A two-arm enum that implements
+/// [`Iterator`] inline so the two iteration directions share the
+/// loop body without per-call heap allocation (the `Box<dyn
+/// Iterator>` form Copilot R1 flagged).  `Range<u32>` and
+/// `Rev<Range<u32>>` are both bounded `u32`-stride iterators; the
+/// `next` match dispatches to one inline `Range::next` per
+/// element, well within the per-element callback dispatch cost.
+enum IndicesRange {
+    Forward(std::ops::Range<u32>),
+    Reverse(std::iter::Rev<std::ops::Range<u32>>),
+}
+
+impl Iterator for IndicesRange {
+    type Item = u32;
+    #[inline]
+    fn next(&mut self) -> Option<u32> {
+        match self {
+            Self::Forward(r) => r.next(),
+            Self::Reverse(r) => r.next(),
+        }
+    }
+}
+
 /// Iterate `this`'s elements with `callback`.  `decide(i, elem,
 /// truthy)` is invoked once per element with `ToBoolean` already
 /// applied to the callback result; it decides whether to short-
@@ -57,11 +81,6 @@ fn require_callback(
 /// drives the loop from `len - 1` down to `0` for the `findLast`
 /// family; otherwise `0..len` ascending.  Returns `fallback` on
 /// full drain without a `Short`.
-///
-/// `Box<dyn Iterator<Item = u32>>` lets the two iteration
-/// directions share the loop body without duplicating it across a
-/// `match reverse { … }` arm; the per-call boxing is amortised
-/// across the per-element callback dispatch.
 fn iterate_with_callback(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -81,10 +100,10 @@ fn iterate_with_callback(
     } = parts;
     let cb = require_callback(ctx, args, method)?;
     let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let indices: Box<dyn Iterator<Item = u32>> = if reverse {
-        Box::new((0..len_elem).rev())
+    let indices = if reverse {
+        IndicesRange::Reverse((0..len_elem).rev())
     } else {
-        Box::new(0..len_elem)
+        IndicesRange::Forward(0..len_elem)
     };
     for i in indices {
         let elem = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);

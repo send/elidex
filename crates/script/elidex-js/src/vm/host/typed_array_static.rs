@@ -262,7 +262,7 @@ pub(super) fn species_constructor_for_typed_array(
     let constructor_key = PropertyKey::String(ctx.vm.well_known.constructor);
     let ctor_val = ctx.get_property_value(receiver, constructor_key)?;
     let c_id = match ctor_val {
-        JsValue::Undefined => return Ok((default_ek, None)),
+        JsValue::Undefined => return default_typed_array_pair(ctx, default_ek),
         JsValue::Object(id) => id,
         _ => {
             return Err(VmError::type_error(format!(
@@ -273,7 +273,7 @@ pub(super) fn species_constructor_for_typed_array(
     let species_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.species);
     let s_val = ctx.get_property_value(c_id, species_key)?;
     let s_id = match s_val {
-        JsValue::Undefined | JsValue::Null => return Ok((default_ek, None)),
+        JsValue::Undefined | JsValue::Null => return default_typed_array_pair(ctx, default_ek),
         JsValue::Object(id) => id,
         _ => {
             return Err(VmError::type_error(format!(
@@ -291,6 +291,39 @@ pub(super) fn species_constructor_for_typed_array(
             "Failed to execute '{method}' on 'TypedArray': @@species is not a TypedArray constructor"
         ))
     })
+}
+
+/// Resolve the species default-fallback `(ek, proto_override)`
+/// pair for `default_ek` when `SpeciesConstructor` returns the
+/// default constructor (per ES §10.1.13 step 2 / step 5 — receiver
+/// `.constructor` undefined, or species `@@species` undefined /
+/// null).  Per spec, `TypedArrayCreate(defaultConstructor, args)`
+/// runs `Construct(defaultCtor, args)` →
+/// `OrdinaryCreateFromConstructor` → `Get(defaultCtor,
+/// "prototype")`, so a user override on the built-in ctor's
+/// `.prototype` slot would be observable.  Built-in TypedArray
+/// `.prototype` data properties are non-configurable + non-writable
+/// in this engine, so the lookup always returns the cached value
+/// in practice — the `Get` round-trip preserves observability for
+/// the (currently unreachable) user-mutation path and matches the
+/// `require_subclass_ctor` "always resolve from original ctor"
+/// policy (typed_array_static.rs original-receiver pattern).
+///
+/// Returns `Ok((default_ek, None))` when the registry slot is
+/// empty (very early init, before
+/// `register_typed_array_subclass` finishes) — the
+/// `create_typed_array_for_length` caller's `or_else` then uses
+/// the cached subclass prototype.  An exception thrown from the
+/// `Get` accessor propagates per spec.
+fn default_typed_array_pair(
+    ctx: &mut NativeContext<'_>,
+    default_ek: ElementKind,
+) -> Result<(ElementKind, Option<ObjectId>), VmError> {
+    let proto_override = match ctx.vm.subclass_array_ctors[default_ek.index()] {
+        Some(default_ctor_id) => receiver_prototype(ctx, default_ctor_id)?,
+        None => None,
+    };
+    Ok((default_ek, proto_override))
 }
 
 /// Read `ctor.prototype` via spec `Get(C, "prototype")`
