@@ -506,6 +506,10 @@ pub(crate) struct WellKnownStrings {
     pub(crate) some: StringId,
     pub(crate) find: StringId,
     pub(crate) find_index: StringId,
+    pub(crate) find_last: StringId,
+    pub(crate) find_last_index: StringId,
+    pub(crate) map: StringId,
+    pub(crate) filter: StringId,
 
     // -- DataView.prototype method names --
     // Pre-interned so `install_data_view_members` skips the
@@ -940,6 +944,10 @@ impl WellKnownStrings {
             some: strings.intern("some"),
             find: strings.intern("find"),
             find_index: strings.intern("findIndex"),
+            find_last: strings.intern("findLast"),
+            find_last_index: strings.intern("findLastIndex"),
+            map: strings.intern("map"),
+            filter: strings.intern("filter"),
 
             // DataView.prototype method names.
             get_int8: strings.intern("getInt8"),

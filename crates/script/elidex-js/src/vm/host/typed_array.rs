@@ -201,7 +201,7 @@ impl VmInner {
         // via prototype chain).  Names are pre-interned in
         // `WellKnownStrings` so this table doesn't pay the per-call
         // `strings.intern(...)` round-trip during `Vm::new`.
-        let methods: [(StringId, NativeFn); 19] = [
+        let methods: [(StringId, NativeFn); 23] = [
             (
                 self.well_known.fill,
                 super::typed_array_methods::native_typed_array_fill as NativeFn,
@@ -260,23 +260,39 @@ impl VmInner {
             ),
             (
                 self.well_known.for_each,
-                super::typed_array_methods::native_typed_array_for_each as NativeFn,
+                super::typed_array_hof::native_typed_array_for_each as NativeFn,
             ),
             (
                 self.well_known.every,
-                super::typed_array_methods::native_typed_array_every as NativeFn,
+                super::typed_array_hof::native_typed_array_every as NativeFn,
             ),
             (
                 self.well_known.some,
-                super::typed_array_methods::native_typed_array_some as NativeFn,
+                super::typed_array_hof::native_typed_array_some as NativeFn,
             ),
             (
                 self.well_known.find,
-                super::typed_array_methods::native_typed_array_find as NativeFn,
+                super::typed_array_hof::native_typed_array_find as NativeFn,
             ),
             (
                 self.well_known.find_index,
-                super::typed_array_methods::native_typed_array_find_index as NativeFn,
+                super::typed_array_hof::native_typed_array_find_index as NativeFn,
+            ),
+            (
+                self.well_known.find_last,
+                super::typed_array_hof::native_typed_array_find_last as NativeFn,
+            ),
+            (
+                self.well_known.find_last_index,
+                super::typed_array_hof::native_typed_array_find_last_index as NativeFn,
+            ),
+            (
+                self.well_known.map,
+                super::typed_array_hof::native_typed_array_map as NativeFn,
+            ),
+            (
+                self.well_known.filter,
+                super::typed_array_hof::native_typed_array_filter as NativeFn,
             ),
         ];
         for (name_sid, fn_ptr) in methods {

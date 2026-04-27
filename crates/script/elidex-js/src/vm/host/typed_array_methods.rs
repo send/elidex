@@ -18,15 +18,20 @@
 //! - `reverse()` (§23.2.3.23)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
 //! - `join(separator?)` (§23.2.3.19)
-//! - `forEach` / `every` / `some` / `find` / `findIndex`
 //!
-//! ## Deferred (PR-spec-polish SP8)
+//! Higher-order callback methods (`forEach` / `every` / `some` /
+//! `find` / `findIndex` / `findLast` / `findLastIndex` / `map` /
+//! `filter`) live in [`super::typed_array_hof`] (PR-spec-polish
+//! SP8b split — keeps both files under the 1000-line convention
+//! once SpeciesConstructor + the `findLast` family expanded the
+//! HOF surface).
 //!
-//! `sort` / `map` / `filter` / `reduce` / `reduceRight` / `flatMap` /
-//! `findLast` / `findLastIndex` / `toLocaleString` — all rely on
-//! SpeciesConstructor or ICU.  Per-subclass `.of` / `.from` also
-//! deferred (use identity ctor, don't need species, but require
-//! ctor-ObjectId → ElementKind registry — adds state to VmInner).
+//! ## Deferred (PR-spec-polish SP8c)
+//!
+//! `sort` / `reduce` / `reduceRight` / `flatMap` /
+//! `toLocaleString` — `sort` needs a comparator-driven in-place
+//! shuffle, `flatMap` needs a two-pass collect-then-flatten, and
+//! `toLocaleString` requires ICU.
 
 #![cfg(feature = "engine")]
 
@@ -840,160 +845,6 @@ pub(crate) fn native_typed_array_join(
     }
     let out_sid = ctx.vm.strings.intern(&out);
     Ok(JsValue::String(out_sid))
-}
-
-// ---------------------------------------------------------------------------
-// HOFs: forEach / every / some / find / findIndex
-// ---------------------------------------------------------------------------
-
-/// Per-HOF short-circuit verdict.  `Short` returns the given value
-/// immediately; `Continue` lets the loop advance to the next index.
-enum HofDecision {
-    Continue,
-    Short(JsValue),
-}
-
-/// Iterate with callback.  `decide(i, elem, cb_result_is_truthy)`
-/// is called once per element with ToBoolean already applied to
-/// the callback result; it decides whether to short-circuit and
-/// with what value.  Returns the final fallback on full drain.
-fn iterate_with_callback(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-    method: &str,
-    fallback: JsValue,
-    mut decide: impl FnMut(u32, JsValue, bool) -> HofDecision,
-) -> Result<JsValue, VmError> {
-    let parts = require_typed_array_parts(ctx, this, method)?;
-    let len_elem = parts.len_elem();
-    let TypedArrayParts {
-        buffer_id,
-        byte_offset,
-        element_kind: ek,
-        ..
-    } = parts;
-    let cb = match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Object(id) if ctx.get_object(id).kind.is_callable() => id,
-        _ => {
-            return Err(VmError::type_error(format!(
-                "Failed to execute '{method}' on 'TypedArray': callback is not a function"
-            )));
-        }
-    };
-    let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    for i in 0..len_elem {
-        let elem = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
-        #[allow(clippy::cast_precision_loss)]
-        let idx_val = JsValue::Number(f64::from(i));
-        let cb_args = [elem, idx_val, this];
-        let result = ctx.call_function(cb, this_arg, &cb_args)?;
-        let truthy = ctx.to_boolean(result);
-        if let HofDecision::Short(v) = decide(i, elem, truthy) {
-            return Ok(v);
-        }
-    }
-    Ok(fallback)
-}
-
-/// `%TypedArray%.prototype.forEach(cb, thisArg?)` (ES §23.2.3.13).
-pub(crate) fn native_typed_array_for_each(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    iterate_with_callback(ctx, this, args, "forEach", JsValue::Undefined, |_, _, _| {
-        HofDecision::Continue
-    })
-}
-
-/// `%TypedArray%.prototype.every(cb, thisArg?)` (ES §23.2.3.7).
-pub(crate) fn native_typed_array_every(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    iterate_with_callback(
-        ctx,
-        this,
-        args,
-        "every",
-        JsValue::Boolean(true),
-        |_, _, truthy| {
-            if truthy {
-                HofDecision::Continue
-            } else {
-                HofDecision::Short(JsValue::Boolean(false))
-            }
-        },
-    )
-}
-
-/// `%TypedArray%.prototype.some(cb, thisArg?)` (ES §23.2.3.26).
-pub(crate) fn native_typed_array_some(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    iterate_with_callback(
-        ctx,
-        this,
-        args,
-        "some",
-        JsValue::Boolean(false),
-        |_, _, truthy| {
-            if truthy {
-                HofDecision::Short(JsValue::Boolean(true))
-            } else {
-                HofDecision::Continue
-            }
-        },
-    )
-}
-
-/// `%TypedArray%.prototype.find(cb, thisArg?)` (ES §23.2.3.10).
-pub(crate) fn native_typed_array_find(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    iterate_with_callback(
-        ctx,
-        this,
-        args,
-        "find",
-        JsValue::Undefined,
-        |_, elem, truthy| {
-            if truthy {
-                HofDecision::Short(elem)
-            } else {
-                HofDecision::Continue
-            }
-        },
-    )
-}
-
-/// `%TypedArray%.prototype.findIndex(cb, thisArg?)` (ES §23.2.3.12).
-pub(crate) fn native_typed_array_find_index(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    iterate_with_callback(
-        ctx,
-        this,
-        args,
-        "findIndex",
-        JsValue::Number(-1.0),
-        |i, _, truthy| {
-            if truthy {
-                #[allow(clippy::cast_precision_loss)]
-                HofDecision::Short(JsValue::Number(f64::from(i)))
-            } else {
-                HofDecision::Continue
-            }
-        },
-    )
 }
 
 // ---------------------------------------------------------------------------

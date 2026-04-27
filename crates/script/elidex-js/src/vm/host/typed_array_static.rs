@@ -10,17 +10,20 @@
 //! scan over [`super::super::VmInner::subclass_array_ctors`]) and
 //! materialise a fresh subclass instance.
 //!
-//! ## Scope (SP8a)
+//! ## Scope (SP8a + SP8b)
 //!
-//! - `%TypedArray%.of(...items)` (§23.2.2.2)
-//! - `%TypedArray%.from(source, mapFn?, thisArg?)` (§23.2.2.1)
+//! - `%TypedArray%.of(...items)` (§23.2.2.2) — SP8a
+//! - `%TypedArray%.from(source, mapFn?, thisArg?)` (§23.2.2.1) — SP8a
+//! - [`species_constructor_for_typed_array`] +
+//!   [`create_typed_array_for_length`] — SP8b shared infrastructure
+//!   re-exported `pub(super)` for [`super::typed_array_hof`]
+//!   (`map` / `filter`).
 //!
-//! Species-sensitive instance methods (`map`, `filter`, `findLast`,
-//! `findLastIndex`, `sort`, `reduce`, `reduceRight`, `flatMap`,
-//! `toLocaleString`) and the supporting `SpeciesConstructor` /
-//! `IsConstructor` machinery land in SP8b/c (spec abstract op
-//! names — backticked rather than intra-doc-linked because no
-//! Rust items by those names exist in the crate).
+//! Species-sensitive instance methods land in [`super::typed_array_hof`].
+//! `sort` / `reduce` / `reduceRight` / `flatMap` / `toLocaleString`
+//! defer to SP8c (spec abstract op names — backticked rather than
+//! intra-doc-linked because no Rust items by those names exist in
+//! the crate).
 
 #![cfg(feature = "engine")]
 
@@ -163,45 +166,131 @@ fn require_subclass_ctor(
     // `natives_function.rs` doesn't install one), so that lookup
     // currently yields `undefined` and `receiver_prototype` falls
     // back to the built-in subclass prototype.
+    resolve_typed_array_constructor_in_chain(ctx, ctor_id)?.ok_or_else(|| {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
+        ))
+    })
+}
+
+/// Walk `ctor_id`'s `[[Prototype]]` chain looking for a registered
+/// built-in TypedArray constructor.  Used by both the static-method
+/// receiver gate ([`require_subclass_ctor`]) and the species
+/// dispatch ([`species_constructor_for_typed_array`]) so the chain
+/// walk and prototype-override resolution stay in lock-step.
+///
+/// Returns `Some((ek, proto_override))` on hit, where:
+/// - `ek` is the destination [`ElementKind`] picked from the chain
+///   match (so `class Sub extends Uint8Array {}` resolves to
+///   `Uint8`).
+/// - `proto_override` comes from `Get(ctor_id, "prototype")` —
+///   always read from the **original** `ctor_id`, NOT the
+///   registered built-in, so user-defined `Sub.prototype` is
+///   preserved and `(Sub.of(...)).constructor === Sub` holds.
+///
+/// `None` on miss (chain ends or cycles before hitting a registered
+/// ctor) — callers translate that into the appropriate TypeError
+/// (`"this is not a TypedArray constructor"` for static dispatch,
+/// `"@@species is not a TypedArray constructor"` for species).
+///
+/// `BoundFunction` chains are unwrapped at the chain start via
+/// [`unwrap_bound_chain`] so `Uint8Array.bind(null).of(...)` walks
+/// from `Uint8Array` directly; the original `ctor_id` is preserved
+/// for the `proto_override` read because `Get(boundFn, "prototype")`
+/// has its own (currently `undefined`) lookup result.
+///
+/// No depth cap — a small visited list catches
+/// `__proto__ = self`-style cycles without imposing an arbitrary
+/// limit on legitimate deep subclass towers.  `Vec<ObjectId>` +
+/// linear `contains` instead of `HashSet` because realistic chains
+/// are 1-3 entries; linear scan beats hashing + heap allocation at
+/// this size.
+fn resolve_typed_array_constructor_in_chain(
+    ctx: &mut NativeContext<'_>,
+    ctor_id: ObjectId,
+) -> Result<Option<(ElementKind, Option<ObjectId>)>, VmError> {
     let chain_start = unwrap_bound_chain(ctx.vm, ctor_id);
-    // Walk the constructor `[[Prototype]]` chain looking for a
-    // registered built-in TypedArray ctor.  No depth cap — a small
-    // visited list catches `__proto__ = self`-style cycles without
-    // imposing an arbitrary limit on legitimate deep subclass
-    // towers (`class A extends Uint8Array {}; class B extends A
-    // {}; …`).  `Vec<ObjectId>` + linear `contains` instead of
-    // `HashSet` because realistic chains are 1-3 entries; linear
-    // scan beats hashing + heap allocation at this size.
     let mut visited: Vec<ObjectId> = Vec::new();
     let mut current = Some(chain_start);
     while let Some(id) = current {
         if visited.contains(&id) {
-            // Cycle (`A.__proto__.__proto__... === A`) — give up
-            // before re-traversing the same node forever.
             break;
         }
         visited.push(id);
         if let Some(ek) = ctor_to_element_kind(ctx.vm, id) {
-            // Found a registered ctor in the chain.  Always resolve
-            // the prototype from the original receiver constructor,
-            // including the case where the receiver IS the
-            // registered built-in — this mirrors the
-            // `new.target.prototype` preservation that `do_new` /
-            // `construct_typed_array` already give the
-            // `new Uint8Array(...)` path.  Under default conditions
-            // the receiver's `.prototype` IS the cached
-            // `subclass_array_prototypes[ek]`, so observable
-            // behaviour is identical; the always-resolve form
-            // additionally honours user proxies / accessors on
-            // the constructor's `.prototype` slot.
             let proto_override = receiver_prototype(ctx, ctor_id)?;
-            return Ok((ek, proto_override));
+            return Ok(Some((ek, proto_override)));
         }
         current = ctx.vm.get_object(id).prototype;
     }
-    Err(VmError::type_error(format!(
-        "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
-    )))
+    Ok(None)
+}
+
+/// Resolve `TypedArraySpeciesCreate`'s constructor lookup
+/// (ES §22.2.4.7 step 1-2 + §10.1.13 SpeciesConstructor) for an
+/// existing TypedArray `receiver`.  Returns `(dst_ek,
+/// proto_override)` mirroring [`require_subclass_ctor`]'s shape so
+/// the [`super::typed_array_hof`] map / filter callers can hand
+/// the pair straight to [`create_typed_array_for_length`].
+///
+/// Algorithm:
+/// 1. `C = receiver.[[Get]]("constructor")`.  Undefined → use
+///    `default_ek` with no proto override (default `%TypedArray%`).
+/// 2. Non-Object `C` → TypeError per spec.
+/// 3. `S = C.[[Get]](@@species)`.  Undefined / null → use
+///    `default_ek` (the inherited `%TypedArray%[@@species]` getter
+///    returns `this`, so the common path lands here when the
+///    receiver's constructor is a built-in subclass).
+/// 4. Non-Object / non-constructor `S` → TypeError per spec.
+/// 5. Walk `S`'s `[[Prototype]]` chain via
+///    [`resolve_typed_array_constructor_in_chain`].  Hit → return
+///    `(ek, S.prototype)`; miss → TypeError ("species is not a
+///    TypedArray constructor") — a deliberate over-reject of the
+///    spec, which would `Construct(S, ⟨len⟩)` to honour a true
+///    user-defined ctor.  Full `Construct` integration defers to a
+///    follow-up; for `class Sub extends Uint8Array {}` (no ctor
+///    body) the chain-walk bypass is observably equivalent.
+///
+/// Both `[[Get]]` calls run user accessors / proxy traps and may
+/// throw — propagated as abrupt completions, not swallowed.
+pub(super) fn species_constructor_for_typed_array(
+    ctx: &mut NativeContext<'_>,
+    receiver: ObjectId,
+    default_ek: ElementKind,
+    method: &str,
+) -> Result<(ElementKind, Option<ObjectId>), VmError> {
+    let constructor_key = PropertyKey::String(ctx.vm.well_known.constructor);
+    let ctor_val = ctx.get_property_value(receiver, constructor_key)?;
+    let c_id = match ctor_val {
+        JsValue::Undefined => return Ok((default_ek, None)),
+        JsValue::Object(id) => id,
+        _ => {
+            return Err(VmError::type_error(format!(
+                "Failed to execute '{method}' on 'TypedArray': constructor must be an object"
+            )));
+        }
+    };
+    let species_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.species);
+    let s_val = ctx.get_property_value(c_id, species_key)?;
+    let s_id = match s_val {
+        JsValue::Undefined | JsValue::Null => return Ok((default_ek, None)),
+        JsValue::Object(id) => id,
+        _ => {
+            return Err(VmError::type_error(format!(
+                "Failed to execute '{method}' on 'TypedArray': @@species is not a constructor"
+            )));
+        }
+    };
+    if !super::super::object_kind::is_constructor(ctx.vm, s_id) {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'TypedArray': @@species is not a constructor"
+        )));
+    }
+    resolve_typed_array_constructor_in_chain(ctx, s_id)?.ok_or_else(|| {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on 'TypedArray': @@species is not a TypedArray constructor"
+        ))
+    })
 }
 
 /// Read `ctor.prototype` via spec `Get(C, "prototype")`
@@ -249,7 +338,7 @@ fn receiver_prototype(
 /// when [`receiver_prototype`] resolves a missing / non-Object
 /// `.prototype` value (e.g. a contrived
 /// `Object.defineProperty(Sub, 'prototype', {value: 42})`).
-fn create_typed_array_for_length(
+pub(super) fn create_typed_array_for_length(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
     proto_override: Option<ObjectId>,
