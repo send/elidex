@@ -156,25 +156,31 @@ fn require_subclass_ctor(
     // target so the walk inspects `Uint8Array.bind(null).of(...)`
     // as if `Uint8Array` were the receiver.  The original `ctor_id`
     // is preserved as the `receiver_prototype` source so the new
-    // instance's `[[Prototype]]` still reflects what `Get(C,
-    // "prototype")` resolves on the bound wrapper (which falls
-    // through the bind chain to the target's `.prototype`).
+    // instance's `[[Prototype]]` still reflects what
+    // `Get(originalCtor, "prototype")` resolves on the bound
+    // wrapper.  In this VM the bound wrapper has no own
+    // `"prototype"` data property (`Function.prototype.bind` in
+    // `natives_function.rs` doesn't install one), so that lookup
+    // currently yields `undefined` and `receiver_prototype` falls
+    // back to the built-in subclass prototype.
     let chain_start = unwrap_bound_chain(ctx.vm, ctor_id);
     // Walk the constructor `[[Prototype]]` chain looking for a
     // registered built-in TypedArray ctor.  No depth cap — a small
-    // visited set catches `__proto__ = self`-style cycles without
+    // visited list catches `__proto__ = self`-style cycles without
     // imposing an arbitrary limit on legitimate deep subclass
     // towers (`class A extends Uint8Array {}; class B extends A
-    // {}; …`).  Realistic chains are 1-3 entries; the
-    // allocation is below measurement noise.
-    let mut visited: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
+    // {}; …`).  `Vec<ObjectId>` + linear `contains` instead of
+    // `HashSet` because realistic chains are 1-3 entries; linear
+    // scan beats hashing + heap allocation at this size.
+    let mut visited: Vec<ObjectId> = Vec::new();
     let mut current = Some(chain_start);
     while let Some(id) = current {
-        if !visited.insert(id) {
+        if visited.contains(&id) {
             // Cycle (`A.__proto__.__proto__... === A`) — give up
             // before re-traversing the same node forever.
             break;
         }
+        visited.push(id);
         if let Some(ek) = ctor_to_element_kind(ctx.vm, id) {
             // Found a registered ctor in the chain.  Always resolve
             // the prototype from the original receiver constructor,
