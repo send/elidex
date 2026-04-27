@@ -791,9 +791,9 @@ fn typed_array_from_array_source() {
 #[test]
 fn typed_array_from_string_iterable() {
     let mut vm = Vm::new();
-    // String iterates by code-point (UTF-16 code units for our
-    // engine).  Each iteration yields a single-char string;
-    // `ToUint8` coerces it to NaN → 0 for non-numeric chars.
+    // In this engine, String iteration is by UTF-16 code unit.
+    // Each iteration yields a single-char string; `ToUint8`
+    // coerces it to NaN → 0 for non-numeric chars.
     assert_eq!(
         eval_number(
             &mut vm,
@@ -938,6 +938,79 @@ fn typed_array_from_rejects_prototype_spoofed_receiver() {
          catch (e) { ok = e instanceof TypeError; } ok;"
     ));
 }
+
+#[test]
+fn typed_array_of_rejects_async_function_spoof() {
+    let mut vm = Vm::new();
+    // Async functions lack `[[Construct]]` per spec
+    // (§15.8.4 AsyncFunction abstract).  Even when the receiver's
+    // `[[Prototype]]` is spoofed to `Uint8Array`, the
+    // IsConstructor gate must reject because the async-function
+    // metadata flags `is_async = true`.  Catches a regression
+    // where `is_constructor` looks only at `this_mode` and
+    // misses the compiled-function flags.
+    assert!(eval_bool(
+        &mut vm,
+        "var f = async function() {}; \
+         Object.setPrototypeOf(f, Uint8Array); \
+         var ok = false; \
+         try { Uint8Array.of.call(f, 1); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn typed_array_of_rejects_generator_function_spoof() {
+    let mut vm = Vm::new();
+    // Generator functions also lack `[[Construct]]`
+    // (§15.5.4 GeneratorFunction abstract).  Same gate as the
+    // async-function case, exercising `is_generator = true`.
+    assert!(eval_bool(
+        &mut vm,
+        "var f = function*() {}; \
+         Object.setPrototypeOf(f, Uint8Array); \
+         var ok = false; \
+         try { Uint8Array.of.call(f, 1); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn typed_array_of_handles_deep_subclass_tower() {
+    let mut vm = Vm::new();
+    // The constructor-prototype walk uses cycle detection (visited
+    // set), not a fixed depth cap, so legitimate deep towers
+    // resolve correctly.  This builds a 6-level chain manually
+    // (mirroring `class A extends Uint8Array {}; class B extends A
+    // {}; class C extends B {}; …`) — a realistic spec-conformant
+    // shape that would have been rejected by an earlier `MAX_DEPTH
+    // = 32` cap as a stand-in for the same regression family.
+    assert!(eval_bool(
+        &mut vm,
+        "function L1() {} Object.setPrototypeOf(L1, Uint8Array); \
+         L1.prototype = Object.create(Uint8Array.prototype); \
+         function L2() {} Object.setPrototypeOf(L2, L1); \
+         L2.prototype = Object.create(L1.prototype); \
+         function L3() {} Object.setPrototypeOf(L3, L2); \
+         L3.prototype = Object.create(L2.prototype); \
+         function L4() {} Object.setPrototypeOf(L4, L3); \
+         L4.prototype = Object.create(L3.prototype); \
+         function L5() {} Object.setPrototypeOf(L5, L4); \
+         L5.prototype = Object.create(L4.prototype); \
+         function L6() {} Object.setPrototypeOf(L6, L5); \
+         L6.prototype = Object.create(L5.prototype); \
+         var s = L6.of(11, 22, 33); \
+         s instanceof L6 && s instanceof L5 && \
+         s.length === 3 && s[0] === 11 && s[2] === 33;"
+    ));
+}
+
+// Note: a cyclic-prototype-chain test (`A.__proto__ === A`) isn't
+// reachable here — the engine's `Object.setPrototypeOf` rejects
+// the trivial cycle upfront with `TypeError: Cyclic __proto__
+// value`, so the require_subclass_ctor walk's visited-set guard
+// is defensive code only (covers theoretical cases where the
+// upfront cycle check is bypassed).
 
 #[test]
 fn typed_array_of_rejects_bound_arrow_spoof() {

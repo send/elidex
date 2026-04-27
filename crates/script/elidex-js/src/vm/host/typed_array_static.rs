@@ -77,31 +77,38 @@ fn require_subclass_ctor(
 ) -> Result<(ElementKind, Option<ObjectId>), VmError> {
     let JsValue::Object(ctor_id) = this else {
         return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on '%TypedArray%': this is not a TypedArray constructor"
+            "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
         )));
     };
     // Spec §23.2.2.{1,2} step "If IsConstructor(C) is false, throw
-    // TypeError" — reject plain objects, arrow functions, and
-    // non-constructable natives BEFORE walking the prototype chain.
-    // Without this gate, a prototype-spoofed receiver (e.g.
-    // `Object.setPrototypeOf({}, Uint8Array); Uint8Array.of.call(o,
-    // 1)`) would slip through because the walk finds Uint8Array at
-    // depth 1 and the receiver's `prototype` data property
-    // resolution falls back to the built-in subclass prototype.
+    // TypeError" — reject plain objects, arrow / async / generator
+    // functions, and non-constructable natives BEFORE walking the
+    // prototype chain.  Without this gate, a prototype-spoofed
+    // receiver (e.g. `Object.setPrototypeOf({}, Uint8Array);
+    // Uint8Array.of.call(o, 1)`) would slip through because the
+    // walk finds Uint8Array at depth 1 and the receiver's
+    // `prototype` data property resolution falls back to the
+    // built-in subclass prototype.
     if !super::super::object_kind::is_constructor(ctx.vm, ctor_id) {
         return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on '%TypedArray%': this is not a TypedArray constructor"
+            "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
         )));
     }
-    // Bound the constructor-prototype walk to a small constant so
-    // a pathological cyclic chain (`__proto__ = self`) never
-    // spins; 32 covers the deepest realistic subclass tower
-    // (`class A extends Uint8Array {}; class B extends A {}; …`)
-    // by a wide margin.
-    const MAX_CTOR_DEPTH: usize = 32;
+    // Walk the constructor `[[Prototype]]` chain looking for a
+    // registered built-in TypedArray ctor.  No depth cap — a small
+    // visited set catches `__proto__ = self`-style cycles without
+    // imposing an arbitrary limit on legitimate deep subclass
+    // towers (`class A extends Uint8Array {}; class B extends A
+    // {}; …`).  Realistic chains are 1-3 entries; the
+    // allocation is below measurement noise.
+    let mut visited: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
     let mut current = Some(ctor_id);
-    for _ in 0..MAX_CTOR_DEPTH {
-        let Some(id) = current else { break };
+    while let Some(id) = current {
+        if !visited.insert(id) {
+            // Cycle (`A.__proto__.__proto__... === A`) — give up
+            // before re-traversing the same node forever.
+            break;
+        }
         if let Some(ek) = ctor_to_element_kind(ctx.vm, id) {
             // Found a registered ctor in the chain.  If the
             // original receiver IS the registered ctor, hand back
@@ -120,7 +127,7 @@ fn require_subclass_ctor(
         current = ctx.vm.get_object(id).prototype;
     }
     Err(VmError::type_error(format!(
-        "Failed to execute '{method}' on '%TypedArray%': this is not a TypedArray constructor"
+        "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
     )))
 }
 
@@ -377,7 +384,16 @@ fn collect_source_values(
         let l = truncated as u32;
         l
     };
-    let mut out: Vec<JsValue> = Vec::with_capacity(len_capped as usize);
+    // Cap the eagerly-reserved capacity to avoid an OOM panic on
+    // attacker-controlled `source.length` values up to `u32::MAX`.
+    // The actual element count usually matches `len_capped` exactly
+    // for genuine array-like sources; the `Vec` will grow on
+    // `push` for the rare case where we under-reserve.  Mirrors
+    // the bounded-capacity convention used elsewhere in the
+    // engine's array-like collectors.
+    const INITIAL_CAPACITY_CAP: usize = 1024;
+    let initial_capacity = (len_capped as usize).min(INITIAL_CAPACITY_CAP);
+    let mut out: Vec<JsValue> = Vec::with_capacity(initial_capacity);
     for i in 0..len_capped {
         #[allow(clippy::cast_precision_loss)]
         let idx = JsValue::Number(f64::from(i));
