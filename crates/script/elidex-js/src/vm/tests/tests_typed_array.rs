@@ -907,6 +907,77 @@ fn typed_array_from_empty_array_yields_zero_length() {
 }
 
 #[test]
+fn typed_array_of_user_subclass_preserves_constructor_identity() {
+    let mut vm = Vm::new();
+    // The receiver of `.of` is a user-defined subclass.  Per spec,
+    // only `IsConstructor(C)` is required; the prototype-chain
+    // walk finds `Uint8Array` (registered in
+    // `subclass_array_ctors`) and the new instance inherits from
+    // `Sub.prototype` so its `.constructor === Sub`.
+    //
+    // **Note**: this test sets up the subclass manually
+    // (`Object.setPrototypeOf` + `Object.create(parent.prototype)`)
+    // rather than via `class Sub extends Uint8Array {}`, because
+    // our engine's `class extends` does not currently link
+    // `Sub.__proto__ === Uint8Array` for built-in TypedArray
+    // parents.  That's a separate engine bug; once fixed, the
+    // manual setup here can be replaced with the `class extends`
+    // sugar.  The natives' prototype-chain walk works correctly
+    // for both shapes.
+    assert!(eval_bool(
+        &mut vm,
+        "function Sub() {} \
+         Object.setPrototypeOf(Sub, Uint8Array); \
+         Sub.prototype = Object.create(Uint8Array.prototype); \
+         Sub.prototype.constructor = Sub; \
+         var s = Sub.of(10, 20, 30); \
+         s instanceof Sub && s.constructor === Sub && \
+         s.length === 3 && s[0] === 10 && s[2] === 30;"
+    ));
+}
+
+#[test]
+fn typed_array_from_user_subclass_preserves_constructor_identity() {
+    let mut vm = Vm::new();
+    // Manual subclass setup — see
+    // `typed_array_of_user_subclass_preserves_constructor_identity`
+    // for rationale.
+    assert!(eval_bool(
+        &mut vm,
+        "function Sub() {} \
+         Object.setPrototypeOf(Sub, Float32Array); \
+         Sub.prototype = Object.create(Float32Array.prototype); \
+         Sub.prototype.constructor = Sub; \
+         var s = Sub.from([1.5, 2.5]); \
+         s instanceof Sub && s.constructor === Sub && \
+         s.length === 2 && s[0] === 1.5 && s[1] === 2.5;"
+    ));
+}
+
+#[test]
+fn typed_array_from_invokes_iterator_getter_exactly_once() {
+    let mut vm = Vm::new();
+    // Spec §7.3.10 `GetMethod` evaluates the @@iterator getter
+    // exactly once.  The pre-fix impl called `coerce::get_property`
+    // (which runs the getter) AND then `resolve_iterator` (which
+    // runs the getter again internally) — observable as `count
+    // === 2`.  After R1, the single `lookup_iterator_method` pass
+    // runs the getter exactly once.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var count = 0; \
+             var src = {}; \
+             Object.defineProperty(src, Symbol.iterator, { \
+                 get: function() { count++; return [10, 20][Symbol.iterator].bind([10, 20]); } \
+             }); \
+             Uint8Array.from(src); count;"
+        ),
+        1.0
+    );
+}
+
+#[test]
 fn typed_array_from_map_fn_receives_index() {
     let mut vm = Vm::new();
     // mapFn is called as `(value, index)` per spec — index passed

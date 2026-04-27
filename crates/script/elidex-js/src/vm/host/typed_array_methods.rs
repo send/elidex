@@ -60,7 +60,7 @@ fn relative_index_u32(n: f64, len: u32) -> u32 {
 /// (`subarray` / `slice`) pass their own `element_kind`, so the
 /// result matches a same-ElementKind built-in subclass.  Full
 /// `SpeciesConstructor` dispatch lands with PR-spec-polish SP8.
-pub(super) fn alloc_typed_array_view(
+fn alloc_typed_array_view(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
     buffer_id: ObjectId,

@@ -22,10 +22,13 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::value::{ElementKind, JsValue, NativeContext, ObjectId, PropertyKey, VmError};
-use super::super::VmInner;
+use super::super::value::{
+    ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
+    PropertyStorage, VmError,
+};
+use super::super::{shape, VmInner};
 use super::typed_array::{allocate_fresh_buffer, write_element_raw};
-use super::typed_array_methods::alloc_typed_array_view;
+use super::typed_array_methods::subclass_prototype_for;
 
 /// Resolve a constructor `ObjectId` to its `ElementKind` by linear
 /// scan over [`VmInner::subclass_array_ctors`].  Used by
@@ -42,39 +45,110 @@ fn ctor_to_element_kind(vm: &VmInner, ctor_id: ObjectId) -> Option<ElementKind> 
         .and_then(ElementKind::from_index)
 }
 
-/// Resolve `this` (the caller of `%TypedArray%.of` / `.from`) to
-/// the destination [`ElementKind`].  Mirrors the spec's
-/// `IsConstructor` step at the level of "is this a built-in
-/// TypedArray subclass ctor we know about?": user-defined
-/// subclasses + the abstract `%TypedArray%` ctor itself both land
-/// in the `None` branch and surface a TypeError per
-/// §23.2.2.{1,2} step "If IsConstructor(C) is false, throw".
+/// Resolve `this` (the caller of `%TypedArray%.of` / `.from`)
+/// into the destination `(ElementKind, prototype_for_new_instance)`
+/// pair.
+///
+/// For a built-in subclass ctor (`Uint8Array`, `Float64Array`,
+/// …), `ek` comes from the direct `subclass_array_ctors` hit and
+/// the new instance's prototype is the built-in subclass
+/// prototype (`subclass_array_prototypes[ek.index()]`).
+///
+/// For a user-defined subclass (`class Sub extends Uint8Array
+/// {}`), `Sub` itself is not in the registry — we walk the
+/// constructor's `[[Prototype]]` chain to find the nearest
+/// built-in TypedArray ctor (which gives the destination `ek`)
+/// and then read the receiver's own `.prototype` data property
+/// to use as the new instance's prototype (so
+/// `(new Sub.of(...)).constructor === Sub` holds).  The full
+/// spec `TypedArrayCreate(C, ⟨len⟩)` would invoke `Construct(C,
+/// ⟨len⟩)` to let `Sub`'s ctor body run — that final step is
+/// deferred to a follow-up PR which threads `new.target`
+/// through; for the common `class Sub extends Uint8Array {}`
+/// (no ctor override) the bypass is observably equivalent.
+///
+/// The abstract `%TypedArray%` itself and any other receiver
+/// surface TypeError per §23.2.2.{1,2} step "If IsConstructor(C)
+/// is false, throw".
 fn require_subclass_ctor(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &str,
-) -> Result<ElementKind, VmError> {
+) -> Result<(ElementKind, Option<ObjectId>), VmError> {
     let JsValue::Object(ctor_id) = this else {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on '%TypedArray%': this is not a TypedArray constructor"
         )));
     };
-    ctor_to_element_kind(ctx.vm, ctor_id).ok_or_else(|| {
-        VmError::type_error(format!(
-            "Failed to execute '{method}' on '%TypedArray%': this is not a built-in TypedArray subclass constructor"
-        ))
-    })
+    // Bound the constructor-prototype walk to a small constant so
+    // a pathological cyclic chain (`__proto__ = self`) never
+    // spins; 32 covers the deepest realistic subclass tower
+    // (`class A extends Uint8Array {}; class B extends A {}; …`)
+    // by a wide margin.
+    const MAX_CTOR_DEPTH: usize = 32;
+    let mut current = Some(ctor_id);
+    for _ in 0..MAX_CTOR_DEPTH {
+        let Some(id) = current else { break };
+        if let Some(ek) = ctor_to_element_kind(ctx.vm, id) {
+            // Found a registered ctor in the chain.  If the
+            // original receiver IS the registered ctor, hand back
+            // `None` to defer prototype resolution to
+            // `subclass_prototype_for` (the standard path).
+            // Otherwise (user-defined subclass), read the receiver's
+            // own `.prototype` data property to preserve subclass
+            // identity on the new instance.
+            let proto_override = if id == ctor_id {
+                None
+            } else {
+                receiver_prototype(ctx, ctor_id, ek)
+            };
+            return Ok((ek, proto_override));
+        }
+        current = ctx.vm.get_object(id).prototype;
+    }
+    Err(VmError::type_error(format!(
+        "Failed to execute '{method}' on '%TypedArray%': this is not a TypedArray constructor"
+    )))
+}
+
+/// Read `ctor.prototype` to obtain the prototype object that the
+/// new TypedArray instance should inherit from.  Used by the
+/// user-subclass branch of [`require_subclass_ctor`] so
+/// `(class Sub extends Uint8Array {}).of(1, 2).constructor ===
+/// Sub` holds.  Falls back to the built-in subclass prototype
+/// if the receiver's `.prototype` slot is missing or non-Object
+/// (defensive — the JS subclass ctor protocol always installs a
+/// data `.prototype` property; only highly contrived
+/// `Reflect.deleteProperty(Sub, 'prototype')` would expose this).
+fn receiver_prototype(
+    ctx: &NativeContext<'_>,
+    ctor_id: ObjectId,
+    ek: ElementKind,
+) -> Option<ObjectId> {
+    let proto_key = PropertyKey::String(ctx.vm.well_known.prototype);
+    if let Some(super::super::coerce::PropertyResult::Data(JsValue::Object(p))) =
+        super::super::coerce::get_property(ctx.vm, ctor_id, proto_key)
+    {
+        return Some(p);
+    }
+    subclass_prototype_for(ctx.vm, ek)
 }
 
 /// Allocate a fresh `<ek>Array(len)`-shaped TypedArray instance:
 /// new buffer of `len * bpe` bytes, fresh view at `byte_offset = 0`
-/// covering the whole buffer.  Mirrors the spec's
-/// `TypedArrayCreate(constructor, ⟨len⟩)` (§22.2.4.2.1) for the
-/// built-in subclass case — `constructor` is implied by the
-/// already-resolved `ek`.
+/// covering the whole buffer.  Approximates the spec's
+/// `TypedArrayCreate(constructor, ⟨len⟩)` (§22.2.4.2.1).
+///
+/// `proto_override` selects the new instance's `[[Prototype]]`:
+/// `None` uses the built-in subclass prototype for `ek` (the
+/// path taken when `this` is the registered subclass ctor itself);
+/// `Some(p)` uses `p` as the prototype (the user-subclass path —
+/// `class Sub extends Uint8Array {}` resolves `p =
+/// Sub.prototype` so `(new Sub.of(...)).constructor === Sub`).
 fn create_typed_array_for_length(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
+    proto_override: Option<ObjectId>,
     len: u32,
 ) -> Result<ObjectId, VmError> {
     let bpe = u32::from(ek.bytes_per_element());
@@ -86,14 +160,22 @@ fn create_typed_array_for_length(
     })?;
     let (buf_id, _, _) = allocate_fresh_buffer(ctx, byte_len)?;
     // Root the freshly allocated buffer across the subsequent view
-    // alloc — `alloc_typed_array_view` allocates an `Object` and
-    // (under the future GC-enabled path) could otherwise reclaim
-    // the buffer's slot before the view links it.  Same RAII
-    // rooting pattern as `init_from_typed_array` /
-    // `init_from_iterable_body`.
+    // alloc — `alloc_object` could otherwise reclaim the buffer's
+    // slot before the view links it.  Same RAII rooting pattern as
+    // `init_from_typed_array` / `init_from_iterable_body`.
     let mut g = ctx.vm.push_temp_root(JsValue::Object(buf_id));
-    let mut sub_ctx = NativeContext { vm: &mut g };
-    let view_id = alloc_typed_array_view(&mut sub_ctx, ek, buf_id, 0, byte_len);
+    let prototype = proto_override.or_else(|| subclass_prototype_for(&g, ek));
+    let view_id = g.alloc_object(Object {
+        kind: ObjectKind::TypedArray {
+            buffer_id: buf_id,
+            byte_offset: 0,
+            byte_length: byte_len,
+            element_kind: ek,
+        },
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype,
+        extensible: true,
+    });
     drop(g);
     Ok(view_id)
 }
@@ -111,14 +193,14 @@ pub(crate) fn native_typed_array_of(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let ek = require_subclass_ctor(ctx, this, "of")?;
+    let (ek, proto_override) = require_subclass_ctor(ctx, this, "of")?;
     let len = u32::try_from(args.len()).map_err(|_| {
         VmError::range_error(format!(
             "Failed to execute 'of' on '{}': too many items",
             ek.name()
         ))
     })?;
-    let view_id = create_typed_array_for_length(ctx, ek, len)?;
+    let view_id = create_typed_array_for_length(ctx, ek, proto_override, len)?;
     // Root the view across element writes (each `write_element_raw`
     // may run user-level `valueOf` / `Symbol.toPrimitive` and, on
     // BigInt subclasses, allocate fresh `BigIntId`s — both can
@@ -127,7 +209,7 @@ pub(crate) fn native_typed_array_of(
     let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
     let mut sub_ctx = NativeContext { vm: &mut g };
     let (buf_id, byte_offset) = match sub_ctx.vm.get_object(view_id).kind {
-        super::super::value::ObjectKind::TypedArray {
+        ObjectKind::TypedArray {
             buffer_id,
             byte_offset,
             ..
@@ -159,7 +241,7 @@ pub(crate) fn native_typed_array_from(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let ek = require_subclass_ctor(ctx, this, "from")?;
+    let (ek, proto_override) = require_subclass_ctor(ctx, this, "from")?;
     let source = args.first().copied().unwrap_or(JsValue::Undefined);
     let map_fn = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => None,
@@ -188,11 +270,11 @@ pub(crate) fn native_typed_array_from(
         ))
     })?;
 
-    let view_id = create_typed_array_for_length(ctx, ek, len)?;
+    let view_id = create_typed_array_for_length(ctx, ek, proto_override, len)?;
     let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
     let mut sub_ctx = NativeContext { vm: &mut g };
     let (buf_id, byte_offset) = match sub_ctx.vm.get_object(view_id).kind {
-        super::super::value::ObjectKind::TypedArray {
+        ObjectKind::TypedArray {
             buffer_id,
             byte_offset,
             ..
@@ -212,10 +294,14 @@ pub(crate) fn native_typed_array_from(
 /// `source` to either an iterator (callable `@@iterator`) or an
 /// array-like (length + integer-indexed read), then collects each
 /// value into the returned `Vec`, applying `map_fn(value, index)`
-/// with `this_arg` as the callback receiver if present.  Mirrors
-/// `Array.from`'s [`super::super::natives_array_hof::native_array_from`]
-/// dispatch — `null` / `undefined` `@@iterator` falls through to
-/// the array-like branch rather than throwing.
+/// with `this_arg` as the callback receiver if present.
+///
+/// `@@iterator` is fetched **once** (a single
+/// `GetMethod`-equivalent) — a user-defined getter for the symbol
+/// MUST NOT run twice between probe and call (spec §7.3.10
+/// `GetMethod` evaluates the getter once).  `null` / `undefined`
+/// `@@iterator` falls through to the array-like branch rather
+/// than throwing.
 fn collect_source_values(
     ctx: &mut NativeContext<'_>,
     source: JsValue,
@@ -223,26 +309,26 @@ fn collect_source_values(
     this_arg: JsValue,
     ek: ElementKind,
 ) -> Result<Vec<JsValue>, VmError> {
-    // `@@iterator` resolves to a callable for objects, strings,
-    // arrays, sets, maps, generators, etc.  Primitives without
-    // wrappers (numbers, booleans, etc.) fall through to the
-    // array-like branch, which then `ToObject`-wraps via
-    // `get_property_value` semantics.
-    let has_iterator = match source {
-        JsValue::Object(obj_id) => {
-            let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
-            match super::super::coerce::get_property(ctx.vm, obj_id, iter_key) {
-                Some(prop) => !ctx.vm.resolve_property(prop, source)?.is_nullish(),
-                None => false,
-            }
+    let iter_method = lookup_iterator_method(ctx, source)?;
+    if !iter_method.is_nullish() {
+        let JsValue::Object(iter_fn_id) = iter_method else {
+            return Err(VmError::type_error(format!(
+                "Failed to execute 'from' on '{}': @@iterator is not callable",
+                ek.name()
+            )));
+        };
+        if !ctx.get_object(iter_fn_id).kind.is_callable() {
+            return Err(VmError::type_error(format!(
+                "Failed to execute 'from' on '{}': @@iterator is not callable",
+                ek.name()
+            )));
         }
-        JsValue::String(_) => true,
-        _ => false,
-    };
-
-    if has_iterator {
-        let Some(iter_val) = ctx.vm.resolve_iterator(source)? else {
-            return Ok(Vec::new());
+        let iter_val = ctx.call_function(iter_fn_id, source, &[])?;
+        let JsValue::Object(_) = iter_val else {
+            return Err(VmError::type_error(format!(
+                "Failed to execute 'from' on '{}': @@iterator must return an object",
+                ek.name()
+            )));
         };
         return drain_iterator_with_map(ctx, iter_val, map_fn, this_arg);
     }
@@ -291,6 +377,35 @@ fn collect_source_values(
         out.push(value);
     }
     Ok(out)
+}
+
+/// Resolve `source`'s `@@iterator` method to a `JsValue` —
+/// `Undefined` if no entry, the resolved property value otherwise.
+/// For `Object` sources, looks up `@@iterator` on the object
+/// itself (with prototype chain).  For `String` primitives,
+/// looks up on `String.prototype` (the spec-mandated location).
+/// All other primitives have no iterator and return `Undefined`.
+///
+/// The single `get_property` + `resolve_property` pair is the
+/// `GetMethod(source, @@iterator)` per spec §7.3.10 — a user
+/// getter on `@@iterator` is invoked exactly once.
+fn lookup_iterator_method(
+    ctx: &mut NativeContext<'_>,
+    source: JsValue,
+) -> Result<JsValue, VmError> {
+    let lookup_id = match source {
+        JsValue::Object(id) => Some(id),
+        JsValue::String(_) => ctx.vm.string_prototype,
+        _ => None,
+    };
+    let Some(obj_id) = lookup_id else {
+        return Ok(JsValue::Undefined);
+    };
+    let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
+    match super::super::coerce::get_property(ctx.vm, obj_id, iter_key) {
+        Some(prop) => ctx.vm.resolve_property(prop, source),
+        None => Ok(JsValue::Undefined),
+    }
 }
 
 /// Drain `iter_val` into a `Vec<JsValue>`, applying `map_fn` per
