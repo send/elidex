@@ -340,9 +340,15 @@ pub(crate) fn native_typed_array_from(
                 ek.name()
             )));
         };
-        return with_drained_iterator_on_stack(ctx, iter_val, map_fn, this_arg, |sub_ctx, vals| {
-            allocate_and_write_view(sub_ctx, ek, proto_override, vals)
-        });
+        return with_drained_iterator_on_stack(
+            ctx,
+            iter_val,
+            map_fn,
+            this_arg,
+            |sub_ctx, elem_start, elems_len| {
+                allocate_and_write_view(sub_ctx, ek, proto_override, elem_start, elems_len)
+            },
+        );
     }
 
     // Array-like fallback (§23.2.2.1 step 8.b): read `source.length`
@@ -382,23 +388,30 @@ pub(crate) fn native_typed_array_from(
         len_capped,
         map_fn,
         this_arg,
-        |sub_ctx, vals| allocate_and_write_view(sub_ctx, ek, proto_override, vals),
+        |sub_ctx, elem_start, elems_len| {
+            allocate_and_write_view(sub_ctx, ek, proto_override, elem_start, elems_len)
+        },
     )
 }
 
-/// Materialise a fresh `<ek>Array` of length `vals.len()` and copy
+/// Materialise a fresh `<ek>Array` of length `elems_len` and copy
 /// each value through the destination's `[[Set]]` coercion.  Lives
-/// inside the source-drain stack scope so `vals` stays rooted on
-/// `vm.stack` across the `alloc_object` GC point in
+/// inside the source-drain stack scope so the source values
+/// (`ctx.vm.stack[elem_start..elem_start + elems_len]`) stay
+/// rooted across the `alloc_object` GC point in
 /// [`create_typed_array_for_length`] and the per-element
-/// [`write_element_raw`] loop.
+/// [`write_element_raw`] loop.  Reads from the rooted stack
+/// range directly — no intermediate `Vec` clone (`JsValue` is
+/// `Copy`, so the per-element `let value = ...` snapshot ends
+/// before the next mutable borrow).
 fn allocate_and_write_view(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
     proto_override: Option<ObjectId>,
-    vals: &[JsValue],
+    elem_start: usize,
+    elems_len: usize,
 ) -> Result<JsValue, VmError> {
-    let len = u32::try_from(vals.len()).map_err(|_| {
+    let len = u32::try_from(elems_len).map_err(|_| {
         VmError::range_error(format!(
             "Failed to execute 'from' on '{}': too many elements in source",
             ek.name()
@@ -415,10 +428,15 @@ fn allocate_and_write_view(
         } => (buffer_id, byte_offset),
         _ => unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray"),
     };
-    for (i, value) in vals.iter().enumerate() {
+    for i in 0..elems_len {
+        // `JsValue` is `Copy`; this snapshot ends before the
+        // mutable `&mut sub_ctx` borrow on the next line.  The
+        // stack entry remains rooted under the parent
+        // `with_drained_*_on_stack` scope.
+        let value = sub_ctx.vm.stack[elem_start + i];
         #[allow(clippy::cast_possible_truncation)]
         let idx = i as u32;
-        write_element_raw(&mut sub_ctx, buf_id, byte_offset, idx, ek, *value)?;
+        write_element_raw(&mut sub_ctx, buf_id, byte_offset, idx, ek, value)?;
     }
     drop(g);
     Ok(JsValue::Object(view_id))
@@ -426,14 +444,21 @@ fn allocate_and_write_view(
 
 /// Drain `iter_val` onto `vm.stack`, then run `body` while every
 /// drained `JsValue` (and the iterator object) remains rooted on
-/// the stack.  `body` is the alloc + per-element-write phase; running
-/// it inside the same stack scope as the drain ensures
+/// the stack.  `body` is the alloc + per-element-write phase;
+/// running it inside the same stack scope as the drain ensures
 /// `alloc_object` GC points cannot collect any object values
 /// referenced from the stack range — snapshotting those values
 /// into an unrooted `Vec<JsValue>` between drain and alloc would
 /// leave them invisible to GC and produce stale `ObjectId`s
 /// (Copilot R7 lesson).  Mirrors the `init_from_iterable_body`
 /// pattern in `typed_array_ctor.rs`.
+///
+/// `body` receives `(ctx, elem_start, elems_len)` and reads
+/// individual elements directly from `ctx.vm.stack[elem_start +
+/// i]` — no intermediate `Vec` clone (Copilot R8 lesson).
+/// `body`'s own `push_temp_root` allocations grow the stack
+/// **above** `elem_start + elems_len` and shrink back on guard
+/// drop, so the rooted element range is undisturbed.
 ///
 /// IteratorClose (§7.4.6) runs on `map_fn` abrupt completion
 /// before the stack scope drops, so the iterator's `.return()`
@@ -447,7 +472,7 @@ fn with_drained_iterator_on_stack<R, F>(
     body: F,
 ) -> Result<R, VmError>
 where
-    F: FnOnce(&mut NativeContext<'_>, &[JsValue]) -> Result<R, VmError>,
+    F: FnOnce(&mut NativeContext<'_>, usize, usize) -> Result<R, VmError>,
 {
     let mut frame = ctx.vm.push_stack_scope();
     let iter_slot = frame.saved_len();
@@ -455,16 +480,8 @@ where
     let elem_start = iter_slot + 1;
     let mut sub_ctx = NativeContext { vm: &mut frame };
     drain_iterator_loop(&mut sub_ctx, iter_val, map_fn, this_arg, elem_start)?;
-    // Borrow the rooted slice immutably for the body — the values
-    // live on the still-live `frame.stack`, so any GC during
-    // `body`'s alloc phase will trace them as roots.  `JsValue` is
-    // `Copy`; a local snapshot of the slice handles the
-    // borrow-checker conflict between `&sub_ctx.vm` (slice) and
-    // `&mut sub_ctx` (body) without losing the rooting (the stack
-    // entries themselves remain live).
     let elems_len = sub_ctx.vm.stack.len() - elem_start;
-    let rooted: Vec<JsValue> = sub_ctx.vm.stack[elem_start..elem_start + elems_len].to_vec();
-    let result = body(&mut sub_ctx, &rooted);
+    let result = body(&mut sub_ctx, elem_start, elems_len);
     drop(frame);
     result
 }
@@ -503,7 +520,7 @@ fn drain_iterator_loop(
 
 /// Drain the array-like `source_obj[0..len_capped]` onto
 /// `vm.stack`, then run `body` while drained values remain rooted
-/// — same GC-rooting invariant as
+/// — same GC-rooting + direct-slice-read invariants as
 /// [`with_drained_iterator_on_stack`] (no iterator close needed
 /// because the source isn't an iterator).
 fn with_drained_array_like_on_stack<R, F>(
@@ -515,15 +532,14 @@ fn with_drained_array_like_on_stack<R, F>(
     body: F,
 ) -> Result<R, VmError>
 where
-    F: FnOnce(&mut NativeContext<'_>, &[JsValue]) -> Result<R, VmError>,
+    F: FnOnce(&mut NativeContext<'_>, usize, usize) -> Result<R, VmError>,
 {
     let mut frame = ctx.vm.push_stack_scope();
     let elem_start = frame.saved_len();
     let mut sub_ctx = NativeContext { vm: &mut frame };
     drain_array_like_loop(&mut sub_ctx, source_obj, len_capped, map_fn, this_arg)?;
     let elems_len = sub_ctx.vm.stack.len() - elem_start;
-    let rooted: Vec<JsValue> = sub_ctx.vm.stack[elem_start..elem_start + elems_len].to_vec();
-    let result = body(&mut sub_ctx, &rooted);
+    let result = body(&mut sub_ctx, elem_start, elems_len);
     drop(frame);
     result
 }
