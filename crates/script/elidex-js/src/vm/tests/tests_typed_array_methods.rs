@@ -669,3 +669,98 @@ fn join_custom_separator() {
         "1-2-3"
     );
 }
+
+// ---------------------------------------------------------------------------
+// toLocaleString (SP8c-B — no-Intl, mirrors Array.prototype.toLocaleString)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn to_locale_string_basic_numeric() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new Uint8Array([1, 2, 3]).toLocaleString();"),
+        "1,2,3"
+    );
+}
+
+#[test]
+fn to_locale_string_empty_array_returns_empty_string() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new Uint8Array(0).toLocaleString();"),
+        ""
+    );
+}
+
+#[test]
+fn to_locale_string_single_element_no_separator() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new Float32Array([3.5]).toLocaleString();"),
+        "3.5"
+    );
+}
+
+#[test]
+fn to_locale_string_bigint_array_strips_n_suffix() {
+    let mut vm = Vm::new();
+    // BigInt.prototype.toLocaleString → toString shape: "1,2,3"
+    // (no `n` suffix per BigInt.prototype.toString contract).
+    assert_eq!(
+        eval_string(&mut vm, "new BigInt64Array([1n, 2n, 3n]).toLocaleString();"),
+        "1,2,3"
+    );
+}
+
+#[test]
+fn to_locale_string_locale_args_ignored() {
+    let mut vm = Vm::new();
+    // No Intl support — locale + options arguments are accepted
+    // but ignored, so the result matches the no-arg form.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "new Uint8Array([1, 2]).toLocaleString('de-DE', { useGrouping: false });"
+        ),
+        "1,2"
+    );
+}
+
+#[test]
+fn to_locale_string_observes_number_prototype_override() {
+    let mut vm = Vm::new();
+    // §23.2.3.31 Invoke(elem, "toLocaleString") → finds the
+    // user override on Number.prototype because the call's GetV
+    // boxes the primitive for property lookup.  The override
+    // sees `this === <primitive>` (after non-strict boxing) and
+    // can read `.valueOf()`.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return '<' + this.valueOf() + '>'; }; \
+             new Uint8Array([1, 2, 3]).toLocaleString();"
+        ),
+        "<1>,<2>,<3>"
+    );
+}
+
+#[test]
+fn to_locale_string_throws_on_non_typed_array_receiver() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval("Uint8Array.prototype.toLocaleString.call({});")
+        .unwrap_err()
+        .message
+        .contains("non-TypedArray"));
+}
+
+#[test]
+fn to_locale_string_propagates_throw_from_per_element_method() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval(
+            "Number.prototype.toLocaleString = function() { throw new Error('boom'); }; \
+             new Uint8Array([1]).toLocaleString();"
+        )
+        .is_err());
+}

@@ -18,27 +18,22 @@
 //! - `reverse()` (§23.2.3.23)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
 //! - `join(separator?)` (§23.2.3.19)
+//! - `toLocaleString(reserved1?, reserved2?)` (§23.2.3.31) —
+//!   no-Intl per-element `Invoke("toLocaleString")`, joined `","`
 //!
 //! Higher-order callback methods (`forEach` / `every` / `some` /
 //! `find` / `findIndex` / `findLast` / `findLastIndex` / `map` /
-//! `filter`) live in [`super::typed_array_hof`] (PR-spec-polish
-//! SP8b split — keeps both files under the 1000-line convention
-//! once SpeciesConstructor + the `findLast` family expanded the
-//! HOF surface).
-//!
-//! ## Deferred (PR-spec-polish SP8c)
-//!
-//! `sort` / `reduce` / `reduceRight` / `flatMap` /
-//! `toLocaleString` — `sort` needs a comparator-driven in-place
-//! shuffle, `flatMap` needs a two-pass collect-then-flatten, and
-//! `toLocaleString` requires ICU.
+//! `filter` / `reduce` / `reduceRight` / `sort` / `flatMap`) live in
+//! [`super::typed_array_hof`] (PR-spec-polish SP8b/c split — keeps
+//! both files under the 1000-line convention as the HOF surface
+//! grew with SpeciesConstructor + the `findLast` family).
 
 #![cfg(feature = "engine")]
 
 use super::super::coerce;
 use super::super::shape;
 use super::super::value::{
-    ArrayIterState, ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind,
+    ArrayIterState, ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
     PropertyStorage, VmError,
 };
 use super::super::VmInner;
@@ -842,6 +837,71 @@ pub(crate) fn native_typed_array_join(
         let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
         let sid = ctx.to_string_val(v)?;
         out.push_str(&ctx.vm.strings.get_utf8(sid));
+    }
+    let out_sid = ctx.vm.strings.intern(&out);
+    Ok(JsValue::String(out_sid))
+}
+
+// ---------------------------------------------------------------------------
+// toLocaleString(reserved1?, reserved2?)
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.toLocaleString(reserved1?, reserved2?)`
+/// (ES §23.2.3.31).  Per-element `Invoke("toLocaleString")`,
+/// `ToString` on the result, joined with `","`.
+///
+/// elidex has no Intl yet (see memory `intl-icu-deferral.md`), so
+/// the locale arguments are accepted and ignored.  This matches
+/// the no-Intl shape of [`super::super::natives_array::native_array_to_locale_string`]:
+/// `Object.prototype.toLocaleString` redirects to `toString`, so
+/// numeric / BigInt elements produce their canonical `Number` /
+/// `BigInt` string forms unless the user has overridden
+/// `Number.prototype.toLocaleString` or
+/// `BigInt.prototype.toLocaleString` higher in the prototype chain.
+///
+/// TypedArray elements are always non-nullish (Number or BigInt),
+/// so the `Array.prototype.toLocaleString` empty-or-nullish skip
+/// (spec §22.1.3.30 step 7.a) doesn't apply here — every index
+/// contributes a string segment.
+pub(crate) fn native_typed_array_to_locale_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let parts = require_typed_array_parts(ctx, this, "toLocaleString")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
+    let to_locale_key = PropertyKey::String(ctx.vm.well_known.to_locale_string);
+    let mut out = String::new();
+    for i in 0..len_elem {
+        if i > 0 {
+            out.push(',');
+        }
+        let elem = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
+        // Invoke(V, P) = ? Call(? GetV(V, P), V).  GetV boxes the
+        // primitive element via ToObject for the property lookup,
+        // but the call receiver is the original primitive — so a
+        // user-defined `Number.prototype.toLocaleString` override
+        // sees the raw element value rather than the throw-away
+        // wrapper.  Mirrors `native_array_to_locale_string`.
+        let (obj_id, receiver) = match elem {
+            JsValue::Object(id) => (id, elem),
+            primitive => (coerce::to_object(ctx.vm, primitive)?, primitive),
+        };
+        let method = ctx.try_get_property_value(obj_id, to_locale_key)?;
+        let str_sid = match method {
+            Some(JsValue::Object(fn_id)) if ctx.get_object(fn_id).kind.is_callable() => {
+                let ret = ctx.call_function(fn_id, receiver, &[])?;
+                ctx.to_string_val(ret)?
+            }
+            _ => ctx.to_string_val(receiver)?,
+        };
+        out.push_str(&ctx.vm.strings.get_utf8(str_sid));
     }
     let out_sid = ctx.vm.strings.intern(&out);
     Ok(JsValue::String(out_sid))
