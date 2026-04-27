@@ -737,6 +737,25 @@ pub(crate) struct VmInner {
     /// `proto_roots` / `subclass_array_proto_roots` split).
     #[cfg(feature = "engine")]
     pub(crate) subclass_array_prototypes: [Option<ObjectId>; value::ElementKind::COUNT],
+    /// Per-subclass TypedArray constructors (ES §23.2.6), parallel
+    /// to [`Self::subclass_array_prototypes`] and addressed by the
+    /// same [`value::ElementKind::index`].  Reverse mapping
+    /// (`ctor ObjectId → ElementKind`) supports the static
+    /// `%TypedArray%.of` / `%TypedArray%.from` natives, which
+    /// inspect `this` (the calling subclass ctor) to decide which
+    /// concrete subclass to materialise.  Linear scan over the
+    /// 11-entry array is cheap; no `HashMap` overhead.  Slots stay
+    /// `None` until `register_typed_array_subclass()` runs.
+    ///
+    /// These entries are strong internal references and **must be
+    /// traced by GC** in parallel with
+    /// [`Self::subclass_array_prototypes`] — chained into the GC
+    /// root set via `subclass_array_ctor_roots` in `gc.rs`.  Without
+    /// tracing, severing the global ctor reference (`delete
+    /// globalThis.Uint8Array`) could let the ctor be collected
+    /// while this reverse-lookup table still holds a stale id.
+    #[cfg(feature = "engine")]
+    pub(crate) subclass_array_ctors: [Option<ObjectId>; value::ElementKind::COUNT],
     /// `TextEncoder.prototype` (WHATWG Encoding §8.2).  Chains
     /// directly to `Object.prototype`.  `None` until
     /// `register_text_encoder_global()` runs during

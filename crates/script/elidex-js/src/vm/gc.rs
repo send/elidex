@@ -116,6 +116,17 @@ struct GcRoots<'a> {
     /// subclass entries fold into a single iter step in the mark
     /// phase (SP14).  Empty in non-engine builds.
     subclass_array_proto_roots: &'a [Option<ObjectId>],
+    /// Per-subclass TypedArray constructor slots, parallel to
+    /// [`Self::subclass_array_proto_roots`] and addressed by the
+    /// same [`super::value::ElementKind::index`].  Strong roots
+    /// because [`super::VmInner::subclass_array_ctors`] holds
+    /// these `ObjectId`s for the static `%TypedArray%.of` /
+    /// `.from` reverse-lookup; without GC marking, severing the
+    /// global ctor reference (e.g. `delete globalThis.Uint8Array`)
+    /// would let the ctor be collected while the reverse table
+    /// retains a stale id (SP8a R1 finding).  Empty in non-engine
+    /// builds.
+    subclass_array_ctor_roots: &'a [Option<ObjectId>],
     global_object: ObjectId,
     upvalues: &'a [Upvalue],
     objects: &'a [Option<Object>],
@@ -258,6 +269,7 @@ fn mark_roots(
         .proto_roots
         .iter()
         .chain(roots.subclass_array_proto_roots.iter())
+        .chain(roots.subclass_array_ctor_roots.iter())
         .flatten()
     {
         mark_object(id, obj_marks, work);
@@ -668,6 +680,10 @@ impl VmInner {
             subclass_array_proto_roots: &self.subclass_array_prototypes,
             #[cfg(not(feature = "engine"))]
             subclass_array_proto_roots: &[],
+            #[cfg(feature = "engine")]
+            subclass_array_ctor_roots: &self.subclass_array_ctors,
+            #[cfg(not(feature = "engine"))]
+            subclass_array_ctor_roots: &[],
             global_object: self.global_object,
             upvalues: &self.upvalues,
             objects: &self.objects,

@@ -76,6 +76,7 @@ mod tests_try_catch_finally;
 mod tests_typed_array;
 mod tests_typed_array_extras;
 mod tests_typed_array_methods;
+mod tests_typed_array_static;
 mod tests_ui_event_constructor;
 mod tests_value_types;
 mod tests_window_global;

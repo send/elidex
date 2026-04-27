@@ -133,6 +133,12 @@ impl VmInner {
         for entry in &SUBCLASS_TABLE {
             self.register_typed_array_subclass(entry, proto_id, abstract_ctor);
         }
+
+        // Static `%TypedArray%.of` / `.from` (ES §23.2.2.{1,2}) —
+        // install body lives in [`super::typed_array_static`]
+        // alongside the natives' impls + the `subclass_array_ctors`
+        // dispatch helper.
+        super::typed_array_static::install_typed_array_static_methods(self, abstract_ctor);
     }
 
     /// Install the generic accessors (`buffer` / `byteOffset` /
@@ -388,6 +394,10 @@ impl VmInner {
         // Global ctor exposure (`Uint8Array`, `Int8Array`, …).
         let name_sid = (entry.global_name)(&self.well_known);
         self.globals.insert(name_sid, JsValue::Object(ctor));
+
+        // Reverse-lookup table for the static `%TypedArray%.of` /
+        // `.from` natives — see `subclass_array_ctors` doc on `VmInner`.
+        self.subclass_array_ctors[entry.element_kind.index()] = Some(ctor);
     }
 }
 
