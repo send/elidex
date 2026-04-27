@@ -907,6 +907,39 @@ fn typed_array_from_empty_array_yields_zero_length() {
 }
 
 #[test]
+fn typed_array_of_rejects_prototype_spoofed_receiver() {
+    let mut vm = Vm::new();
+    // Spec §23.2.2.{1,2} step "If IsConstructor(C) is false, throw
+    // TypeError" — a plain object whose `[[Prototype]]` is set
+    // to a registered TypedArray ctor must NOT be accepted just
+    // because the prototype-chain walk reaches a registered ctor.
+    // The receiver-side IsConstructor check rejects before walking.
+    assert!(eval_bool(
+        &mut vm,
+        "var spoof = {}; \
+         Object.setPrototypeOf(spoof, Uint8Array); \
+         var ok = false; \
+         try { Uint8Array.of.call(spoof, 1, 2); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn typed_array_from_rejects_prototype_spoofed_receiver() {
+    let mut vm = Vm::new();
+    // Companion to the `of` spoofing test — same IsConstructor
+    // gate must apply to `.from`.
+    assert!(eval_bool(
+        &mut vm,
+        "var spoof = {}; \
+         Object.setPrototypeOf(spoof, Uint8Array); \
+         var ok = false; \
+         try { Uint8Array.from.call(spoof, [1, 2]); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
 fn typed_array_of_user_subclass_preserves_constructor_identity() {
     let mut vm = Vm::new();
     // The receiver of `.of` is a user-defined subclass.  Per spec,

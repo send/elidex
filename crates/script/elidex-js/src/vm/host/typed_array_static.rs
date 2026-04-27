@@ -80,6 +80,19 @@ fn require_subclass_ctor(
             "Failed to execute '{method}' on '%TypedArray%': this is not a TypedArray constructor"
         )));
     };
+    // Spec §23.2.2.{1,2} step "If IsConstructor(C) is false, throw
+    // TypeError" — reject plain objects, arrow functions, and
+    // non-constructable natives BEFORE walking the prototype chain.
+    // Without this gate, a prototype-spoofed receiver (e.g.
+    // `Object.setPrototypeOf({}, Uint8Array); Uint8Array.of.call(o,
+    // 1)`) would slip through because the walk finds Uint8Array at
+    // depth 1 and the receiver's `prototype` data property
+    // resolution falls back to the built-in subclass prototype.
+    if !ctx.vm.get_object(ctor_id).kind.is_constructor() {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on '%TypedArray%': this is not a TypedArray constructor"
+        )));
+    }
     // Bound the constructor-prototype walk to a small constant so
     // a pathological cyclic chain (`__proto__ = self`) never
     // spins; 32 covers the deepest realistic subclass tower

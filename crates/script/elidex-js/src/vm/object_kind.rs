@@ -487,4 +487,28 @@ impl ObjectKind {
                 | Self::AsyncDriverStep { .. }
         )
     }
+
+    /// `IsConstructor(value)` (ES §7.2.4): true when this object
+    /// has a `[[Construct]]` slot.  Arrow functions and `Lexical`-
+    /// `this_mode` `Function`s are NOT constructors (they cannot
+    /// be invoked via `new`); native functions opt in via the
+    /// `constructable` flag (`Symbol`/`BigInt` etc. are non-
+    /// constructable).  `BoundFunction` defers to its target per
+    /// spec — kept conservatively `true` here because every
+    /// existing caller of `bind` in the stdlib targets a
+    /// constructable function (a future spec-strict refactor can
+    /// thread the target lookup through if needed).
+    ///
+    /// Plain `Ordinary` / `Array` / `RegExp` etc. are not
+    /// constructors — used by `%TypedArray%.of` / `.from` to
+    /// reject prototype-spoofing receivers.
+    #[inline]
+    pub fn is_constructor(&self) -> bool {
+        match self {
+            Self::Function(fo) => fo.this_mode != crate::vm::value::ThisMode::Lexical,
+            Self::NativeFunction(nf) => nf.constructable,
+            Self::BoundFunction { .. } => true,
+            _ => false,
+        }
+    }
 }

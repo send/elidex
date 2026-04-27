@@ -497,6 +497,28 @@ impl ElementKind {
         }
     }
 
+    /// Stable inverse-mapping table — entry at position `i` is the
+    /// `ElementKind` whose [`Self::index`] returns `i`.  Defined
+    /// alongside `index()` so the `Some(_)` arms of [`Self::from_index`]
+    /// are derived from this single source rather than a parallel
+    /// hand-rolled match (Copilot R2 lesson: parallel matches drift
+    /// silently when a variant is added — bumping `Self::COUNT`
+    /// then rebuilding will fail to compile here until this array
+    /// is also extended).
+    const KINDS: [Self; Self::COUNT] = [
+        Self::Int8,
+        Self::Uint8,
+        Self::Uint8Clamped,
+        Self::Int16,
+        Self::Uint16,
+        Self::Int32,
+        Self::Uint32,
+        Self::Float32,
+        Self::Float64,
+        Self::BigInt64,
+        Self::BigUint64,
+    ];
+
     /// Inverse of [`Self::index`].  Returns `None` for `idx >=
     /// COUNT`, so the caller can fall through to a subclass-not-
     /// found error rather than panicking on a malformed lookup.
@@ -506,19 +528,10 @@ impl ElementKind {
     #[inline]
     #[must_use]
     pub const fn from_index(idx: usize) -> Option<Self> {
-        match idx {
-            0 => Some(Self::Int8),
-            1 => Some(Self::Uint8),
-            2 => Some(Self::Uint8Clamped),
-            3 => Some(Self::Int16),
-            4 => Some(Self::Uint16),
-            5 => Some(Self::Int32),
-            6 => Some(Self::Uint32),
-            7 => Some(Self::Float32),
-            8 => Some(Self::Float64),
-            9 => Some(Self::BigInt64),
-            10 => Some(Self::BigUint64),
-            _ => None,
+        if idx < Self::COUNT {
+            Some(Self::KINDS[idx])
+        } else {
+            None
         }
     }
 
