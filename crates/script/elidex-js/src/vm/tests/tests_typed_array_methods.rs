@@ -1393,10 +1393,10 @@ fn sort_default_bigint_ascending() {
 #[test]
 fn sort_default_biguint_ascending() {
     let mut vm = Vm::new();
-    // BigUint64 default sort uses `u64::cmp` (no negative values
-    // representable).  Exercises the `sort_bigint_in_place`
-    // BigUint64 arm — distinct from the BigInt64 arm because
-    // `i64::from_le_bytes` interprets the high bit as sign.
+    // BigUint64 default sort uses `BigInt::cmp` ordering via the
+    // pool lookup — distinct from BigInt64 because the underlying
+    // `BigInt` representation is signed, but values stored in a
+    // `BigUint64Array` are non-negative by element-coercion.
     assert!(eval_bool(
         &mut vm,
         "var a = new BigUint64Array([3n, 100n, 1n, 0n, 50n]); \
@@ -1407,17 +1407,15 @@ fn sort_default_biguint_ascending() {
 }
 
 #[test]
-fn sort_default_bigint_repeated_does_not_materialize_jsvalues() {
+fn sort_repeated_on_bigint_array_is_idempotent() {
     let mut vm = Vm::new();
-    // Functional regression: the no-`compareFn` BigInt sort path
-    // routes through `sort_bigint_in_place` and operates on raw
-    // `i64` words — no `BigIntPool::alloc` per element, so
-    // repeated `.sort()` calls on a sizeable array stay
-    // bounded in pool growth.  We can't directly observe the
-    // pool size from JS, but verify the result is correct
-    // across many sort cycles to pin the contract.  10 cycles
-    // × 100 elements = 1000 sorts that previously would have
-    // permanently allocated 1000 BigIntIds; now allocate 0.
+    // Functional regression: repeated `.sort()` on a BigInt
+    // typed array stays correct across many cycles.  Pool dedup
+    // (`BigIntPool::alloc` short-circuits on existing values)
+    // means repeated reads of the same BigInts share `BigIntId`s
+    // — verifies the dedup doesn't break sort ordering or
+    // element values.  10 cycles × 100 elements proves
+    // correctness at scale.
     assert!(eval_bool(
         &mut vm,
         "var a = new BigInt64Array(100); var ok = true; \
