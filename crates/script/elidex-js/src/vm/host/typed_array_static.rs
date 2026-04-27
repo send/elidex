@@ -197,11 +197,15 @@ fn receiver_prototype(
 /// `TypedArrayCreate(constructor, ⟨len⟩)` (§22.2.4.2.1).
 ///
 /// `proto_override` selects the new instance's `[[Prototype]]`:
-/// `None` uses the built-in subclass prototype for `ek` (the
-/// path taken when `this` is the registered subclass ctor itself);
-/// `Some(p)` uses `p` as the prototype (the user-subclass path —
-/// `class Sub extends Uint8Array {}` resolves `p =
-/// Sub.prototype` so `(new Sub.of(...)).constructor === Sub`).
+/// `Some(p)` uses `p` directly — this is the usual result of
+/// [`receiver_prototype`], including for ordinary built-in
+/// TypedArray ctors whose `.prototype` resolves to an Object,
+/// AND for user subclasses where `p = Sub.prototype` so
+/// `(Sub.of(...)).constructor === Sub`.  `None` falls back to
+/// the built-in subclass prototype for `ek`, which can happen
+/// when [`receiver_prototype`] resolves a missing / non-Object
+/// `.prototype` value (e.g. a contrived
+/// `Object.defineProperty(Sub, 'prototype', {value: 42})`).
 fn create_typed_array_for_length(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
@@ -392,16 +396,65 @@ pub(crate) fn native_typed_array_from(
         let l = truncated as u32;
         l
     };
-    with_drained_array_like_on_stack(
+    allocate_and_write_view_from_array_like(
         ctx,
+        ek,
+        proto_override,
         source_obj,
         len_capped,
         map_fn,
         this_arg,
-        |sub_ctx, elem_start, elems_len| {
-            allocate_and_write_view(sub_ctx, ek, proto_override, elem_start, elems_len)
-        },
     )
+}
+
+/// Materialise a fresh `<ek>Array` of length `elems_len`, then read
+/// `source_obj[0..elems_len]` lazily, optionally apply `map_fn`,
+/// and write each value directly through the destination's
+/// `[[Set]]` coercion.  Allocate-then-loop preserves the
+/// spec-observable ordering for `%TypedArray%.from`'s array-like
+/// path (ES §23.2.2.1 step 8.d): `TypedArrayCreate(C, ⟨len⟩)` runs
+/// BEFORE any per-index `Get(arrayLike, k)` or `mapFn` side effect,
+/// so a length-overflow `RangeError` from
+/// [`create_typed_array_for_length`] fires first — matching the
+/// existing `init_from_array_like` behaviour in
+/// `typed_array_ctor.rs`.
+///
+/// The destination view is rooted on `vm.stack` across the loop
+/// so it stays live over GC points introduced by `get_element` /
+/// callback invocation / element writes.
+fn allocate_and_write_view_from_array_like(
+    ctx: &mut NativeContext<'_>,
+    ek: ElementKind,
+    proto_override: Option<ObjectId>,
+    source_obj: ObjectId,
+    elems_len: u32,
+    map_fn: Option<ObjectId>,
+    this_arg: JsValue,
+) -> Result<JsValue, VmError> {
+    let view_id = create_typed_array_for_length(ctx, ek, proto_override, elems_len)?;
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
+    let mut sub_ctx = NativeContext { vm: &mut g };
+    let (buf_id, byte_offset) = match sub_ctx.vm.get_object(view_id).kind {
+        ObjectKind::TypedArray {
+            buffer_id,
+            byte_offset,
+            ..
+        } => (buffer_id, byte_offset),
+        _ => unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray"),
+    };
+    for i in 0..elems_len {
+        #[allow(clippy::cast_precision_loss)]
+        let idx = JsValue::Number(f64::from(i));
+        let raw = sub_ctx.vm.get_element(JsValue::Object(source_obj), idx)?;
+        let value = if let Some(fn_id) = map_fn {
+            sub_ctx.call_function(fn_id, this_arg, &[raw, idx])?
+        } else {
+            raw
+        };
+        write_element_raw(&mut sub_ctx, buf_id, byte_offset, i, ek, value)?;
+    }
+    drop(g);
+    Ok(JsValue::Object(view_id))
 }
 
 /// Materialise a fresh `<ek>Array` of length `elems_len` and copy
@@ -524,56 +577,6 @@ fn drain_iterator_loop(
             value
         };
         ctx.vm.stack.push(mapped);
-    }
-    Ok(())
-}
-
-/// Drain the array-like `source_obj[0..len_capped]` onto
-/// `vm.stack`, then run `body` while drained values remain rooted
-/// — same GC-rooting + direct-slice-read invariants as
-/// [`with_drained_iterator_on_stack`] (no iterator close needed
-/// because the source isn't an iterator).
-fn with_drained_array_like_on_stack<R, F>(
-    ctx: &mut NativeContext<'_>,
-    source_obj: ObjectId,
-    len_capped: u32,
-    map_fn: Option<ObjectId>,
-    this_arg: JsValue,
-    body: F,
-) -> Result<R, VmError>
-where
-    F: FnOnce(&mut NativeContext<'_>, usize, usize) -> Result<R, VmError>,
-{
-    let mut frame = ctx.vm.push_stack_scope();
-    let elem_start = frame.saved_len();
-    let mut sub_ctx = NativeContext { vm: &mut frame };
-    drain_array_like_loop(&mut sub_ctx, source_obj, len_capped, map_fn, this_arg)?;
-    let elems_len = sub_ctx.vm.stack.len() - elem_start;
-    let result = body(&mut sub_ctx, elem_start, elems_len);
-    drop(frame);
-    result
-}
-
-/// Inner loop of [`with_drained_array_like_on_stack`].  Pushed
-/// elements are released by the parent's stack-scope `Drop` on
-/// every exit.
-fn drain_array_like_loop(
-    ctx: &mut NativeContext<'_>,
-    source_obj: ObjectId,
-    len_capped: u32,
-    map_fn: Option<ObjectId>,
-    this_arg: JsValue,
-) -> Result<(), VmError> {
-    for i in 0..len_capped {
-        #[allow(clippy::cast_precision_loss)]
-        let idx = JsValue::Number(f64::from(i));
-        let raw = ctx.vm.get_element(JsValue::Object(source_obj), idx)?;
-        let value = if let Some(fn_id) = map_fn {
-            ctx.call_function(fn_id, this_arg, &[raw, idx])?
-        } else {
-            raw
-        };
-        ctx.vm.stack.push(value);
     }
     Ok(())
 }

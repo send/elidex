@@ -503,6 +503,32 @@ fn typed_array_from_honours_primitive_wrapper_iterator() {
 }
 
 #[test]
+fn typed_array_from_array_like_allocates_before_indexed_get() {
+    let mut vm = Vm::new();
+    // Spec §23.2.2.1 step 8.d: `TypedArrayCreate(C, ⟨len⟩)` runs
+    // BEFORE any per-index `Get(arrayLike, k)` or `mapFn` side
+    // effect.  An over-long `length` (here 0x40000000 elements
+    // × 8 bpe = 0x200000000 bytes — overflows u32) must surface
+    // a `RangeError` from allocation BEFORE the first indexed
+    // getter fires.  Pre-fix `from(array-like)` drained values
+    // first, so a getter side effect on `[0]` would observably
+    // run before the alloc-side RangeError; the regression
+    // hits the same observable ordering bug spec catches.
+    assert!(eval_bool(
+        &mut vm,
+        "var hits = 0; \
+         var src = { length: 0x40000000 }; \
+         Object.defineProperty(src, 0, { \
+             get: function () { hits++; throw new Error('indexed getter ran'); } \
+         }); \
+         var ok = false; \
+         try { Float64Array.from(src); } \
+         catch (e) { ok = e instanceof RangeError; } \
+         ok && hits === 0;"
+    ));
+}
+
+#[test]
 fn typed_array_from_invokes_iterator_getter_exactly_once() {
     let mut vm = Vm::new();
     // Spec §7.3.10 `GetMethod` evaluates the @@iterator getter
