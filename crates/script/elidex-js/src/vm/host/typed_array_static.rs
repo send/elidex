@@ -22,13 +22,44 @@
 
 #![cfg(feature = "engine")]
 
+use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
     ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
     PropertyStorage, VmError,
 };
-use super::super::{shape, VmInner};
+use super::super::VmInner;
 use super::typed_array::{allocate_fresh_buffer, write_element_raw};
 use super::typed_array_methods::subclass_prototype_for;
+
+/// Install `%TypedArray%.of` and `%TypedArray%.from` on the
+/// abstract constructor.  Subclass ctors (`Uint8Array`,
+/// `Float64Array`, …) inherit both via the constructor prototype
+/// chain (`Object.getPrototypeOf(Uint8Array) === %TypedArray%`),
+/// so they need no per-subclass install.  The natives dispatch on
+/// `this` (the calling subclass ctor) via `subclass_array_ctors`
+/// to pick the destination [`ElementKind`].
+///
+/// Called once from
+/// [`super::typed_array::register_typed_array_prototype_global`]
+/// after the abstract ctor + the 11 subclass ctors are wired up
+/// (so the registry that this module's `ctor_to_element_kind`
+/// scans is fully populated).
+pub(super) fn install_typed_array_static_methods(vm: &mut VmInner, abstract_ctor: ObjectId) {
+    let of_sid = vm.strings.intern("of");
+    vm.install_native_method(
+        abstract_ctor,
+        of_sid,
+        native_typed_array_of,
+        PropertyAttrs::METHOD,
+    );
+    let from_sid = vm.strings.intern("from");
+    vm.install_native_method(
+        abstract_ctor,
+        from_sid,
+        native_typed_array_from,
+        PropertyAttrs::METHOD,
+    );
+}
 
 /// Resolve a constructor `ObjectId` to its `ElementKind` by linear
 /// scan over [`VmInner::subclass_array_ctors`].  Used by
