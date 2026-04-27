@@ -257,8 +257,13 @@ fn create_typed_array_for_length(
 ) -> Result<ObjectId, VmError> {
     let bpe = u32::from(ek.bytes_per_element());
     let byte_len = len.checked_mul(bpe).ok_or_else(|| {
+        // "Failed to construct" matches the existing TypedArray
+        // ctor convention in `typed_array_ctor.rs` for length /
+        // byte-length overflow — `create_typed_array_for_length`
+        // is the static-method equivalent of `TypedArrayCreate`,
+        // which is itself a `Construct` operation.
         VmError::range_error(format!(
-            "Failed to allocate '{}': length too large",
+            "Failed to construct '{}': length too large",
             ek.name()
         ))
     })?;

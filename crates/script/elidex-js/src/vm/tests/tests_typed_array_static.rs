@@ -575,6 +575,33 @@ fn typed_array_from_array_like_allocates_before_indexed_get() {
 }
 
 #[test]
+fn typed_array_from_iterator_receives_source_as_this() {
+    let mut vm = Vm::new();
+    // Spec §7.4.1 GetIteratorFromMethod calls the iterator
+    // method with `source` as the receiver — `Call(method,
+    // source)`.  In this VM, `function () {}` literals default
+    // to strict-mode `this` binding (no auto-boxing via
+    // `OrdinaryCallBindThis`), so a primitive `source = 7`
+    // surfaces as `typeof this === "number"` inside the
+    // installed iterator.  Catches a regression where the
+    // iterator method is called with `Undefined` / `Null` / a
+    // boxed wrapper instead of the original primitive `source`.
+    assert!(eval_bool(
+        &mut vm,
+        "var seen_this = null; \
+         Number.prototype[Symbol.iterator] = function () { \
+             seen_this = this; \
+             return [10, 20, 30][Symbol.iterator](); \
+         }; \
+         var a = Uint8Array.from(7); \
+         var ok = seen_this === 7 && a.length === 3 && a[0] === 10 \
+                  && a[1] === 20 && a[2] === 30; \
+         delete Number.prototype[Symbol.iterator]; \
+         ok;"
+    ));
+}
+
+#[test]
 fn typed_array_from_invokes_iterator_getter_exactly_once() {
     let mut vm = Vm::new();
     // Spec §7.3.10 `GetMethod` evaluates the @@iterator getter
