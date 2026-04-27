@@ -1,14 +1,23 @@
-//! RAII temporary GC root guard.
+//! RAII temporary GC root guards.
 //!
 //! Split out of `mod.rs` to keep that file under the project's
-//! 1000-line convention.  Available in **every** feature
-//! combination — the original gating to `feature = "engine"`
-//! assumed only the host bridge would produce un-rooted
-//! intermediates, but pure-JS natives (e.g.,
-//! `Array.prototype.reduce`'s accumulator) carry the same
-//! GC-rooting concern across `ctx.call_function` boundaries.
-//! `vm.stack` is in `GcRoots` regardless of feature flags, so
-//! the rooting infrastructure is sound either way.
+//! 1000-line convention.  Hosts two related guards with
+//! different feature gates:
+//!
+//! - [`VmInner::push_stack_scope`] / [`VmStackScope`] —
+//!   **always available**, including without `feature = "engine"`.
+//!   The original assumption that only the host bridge produced
+//!   un-rooted intermediates was wrong: pure-JS natives (e.g.,
+//!   `Array.prototype.reduce`'s accumulator across
+//!   `ctx.call_function` boundaries) need the same rooting.
+//!   `vm.stack` is in `GcRoots` regardless of feature flags, so
+//!   the multi-value scope guard is sound everywhere.
+//! - [`VmInner::push_temp_root`] / [`VmTempRoot`] —
+//!   **engine-only** (`#[cfg(feature = "engine")]`).  Single-
+//!   value identity-asserting variant; current callers all live
+//!   in the host bridge (event objects, PromiseRejection
+//!   synthetic events, etc.), so the per-item gates avoid
+//!   pulling unused machinery into non-engine builds.
 
 #[cfg(feature = "engine")]
 use super::value::{same_value, JsValue};
