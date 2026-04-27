@@ -9,10 +9,13 @@
 //!
 //! - `forEach` / `every` / `some` / `find` / `findIndex` (forward)
 //! - `findLast` / `findLastIndex` (reverse)
+//! - `reduce` / `reduceRight` (linear with accumulator)
 //! - `map` / `filter` (species-sensitive — allocate a fresh
 //!   destination view via
 //!   [`super::typed_array_static::species_constructor_for_typed_array`]
 //!   + [`super::typed_array_static::create_typed_array_for_length`])
+//! - `sort` (in-place; default numeric / `BigInt` ordering or
+//!   user-supplied `compareFn` insertion sort)
 //!
 //! Install-time wiring lives in
 //! [`super::typed_array::install_typed_array_prototype_members`].
@@ -451,4 +454,244 @@ pub(crate) fn native_typed_array_filter(
     drop(g);
     drop(frame);
     Ok(JsValue::Object(dst_view_id))
+}
+
+// ---------------------------------------------------------------------------
+// reduce / reduceRight (linear with accumulator)
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.reduce(callbackfn, initialValue?)`
+/// (ES §23.2.3.23).  Forward iterate, accumulator threaded through.
+pub(crate) fn native_typed_array_reduce(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    reduce_impl(ctx, this, args, "reduce", false)
+}
+
+/// `%TypedArray%.prototype.reduceRight(callbackfn, initialValue?)`
+/// (ES §23.2.3.24).  Reverse iterate, accumulator threaded through.
+pub(crate) fn native_typed_array_reduce_right(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    reduce_impl(ctx, this, args, "reduceRight", true)
+}
+
+/// Shared body of `reduce` / `reduceRight`.  Per spec
+/// §23.2.3.23/.24 the callback is invoked as `Call(callbackfn,
+/// undefined, ⟨acc, kValue, F(k), O⟩)` — `this` inside the
+/// callback is always `undefined` (no `thisArg` parameter).
+///
+/// Initial-value handling per §23.2.3.23 step 4-7:
+/// - `initialValue` provided → `acc = initialValue`, scan all
+///   elements (`[0..len)` forward / `[len-1..-1]` reverse).
+/// - `initialValue` absent + `len > 0` → `acc = O[start]`
+///   (`start = 0` forward / `len-1` reverse), scan remaining
+///   elements (`[1..len)` forward / `[len-2..-1]` reverse).
+/// - `initialValue` absent + `len == 0` → spec-mandated
+///   TypeError ("Reduce of empty TypedArray with no initial value").
+///
+/// Indices are tracked in `i64` because the reverse-empty-loop
+/// terminating sentinel is `-1`, which would underflow `u32`.
+/// `len_elem` is bounded by `[[ByteLength]] / bpe`, so the
+/// `len_elem.into()` widening is exact (no clamp).
+fn reduce_impl(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    method: &str,
+    reverse: bool,
+) -> Result<JsValue, VmError> {
+    let parts = require_typed_array_parts(ctx, this, method)?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
+    let cb = require_callback(ctx, args, method)?;
+    let initial_value = args.get(1).copied();
+
+    if len_elem == 0 && initial_value.is_none() {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'TypedArray': reduce of empty TypedArray with no initial value"
+        )));
+    }
+
+    // Compute accumulator + first-iteration index.  Forward k
+    // counts up from `start_k` to `len_elem`; reverse k counts
+    // down from `start_k` to `-1`.
+    let len_signed = i64::from(len_elem);
+    let (mut acc, mut k_signed) = match (initial_value, reverse) {
+        (Some(v), false) => (v, 0_i64),
+        (Some(v), true) => (v, len_signed - 1),
+        (None, false) => (
+            read_element_raw(ctx.vm, buffer_id, byte_offset, 0, ek),
+            1_i64,
+        ),
+        (None, true) => {
+            let last = len_elem - 1;
+            (
+                read_element_raw(ctx.vm, buffer_id, byte_offset, last, ek),
+                len_signed - 2,
+            )
+        }
+    };
+    let (limit, step) = if reverse {
+        (-1_i64, -1_i64)
+    } else {
+        (len_signed, 1_i64)
+    };
+
+    while k_signed != limit {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let k = k_signed as u32;
+        let kv = read_element_raw(ctx.vm, buffer_id, byte_offset, k, ek);
+        #[allow(clippy::cast_precision_loss)]
+        let idx_val = JsValue::Number(k_signed as f64);
+        let cb_args = [acc, kv, idx_val, this];
+        acc = ctx.call_function(cb, JsValue::Undefined, &cb_args)?;
+        k_signed += step;
+    }
+
+    Ok(acc)
+}
+
+// ---------------------------------------------------------------------------
+// sort (in-place; default numeric / BigInt ordering or compareFn)
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.sort(comparefn?)` (ES §23.2.3.29).
+///
+/// In-place sort, returns receiver.  `comparefn` must be callable
+/// or `undefined` — anything else surfaces TypeError per spec
+/// §23.2.3.29 step 1.  Default ordering (no `compareFn`) is
+/// ascending numeric for non-`BigInt` element kinds with `NaN`
+/// sorted to the end (per spec `TypedArrayElementSortCompare`),
+/// or ascending `BigInt::cmp` for `BigInt64Array` /
+/// `BigUint64Array` (no NaN concern).
+///
+/// Implementation: snapshot all elements into an unrooted
+/// `Vec<JsValue>` (TypedArray stores only `Number` / `BigInt` —
+/// neither is GC-traced; `BigInt` allocations are permanent per
+/// `BigIntPool` contract), sort, write back via
+/// [`write_element_raw`].  `compareFn` branch uses a stable
+/// insertion sort (mirrors `Array.prototype.sort`) so a throwing
+/// callback short-circuits with the partial-sort state observable
+/// at the receiver — matching spec "An abrupt completion is
+/// returned" behaviour.  Default branch uses Rust's stable
+/// `slice::sort_by`.
+pub(crate) fn native_typed_array_sort(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Spec §23.2.3.29 step 1 validates `comparefn` BEFORE the
+    // receiver brand-check, so even calling `[].sort.call(non_ta,
+    // 'not_a_function')` throws the comparefn TypeError first.
+    let compare_fn = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => None,
+        JsValue::Object(id) if ctx.get_object(id).kind.is_callable() => Some(id),
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'sort' on 'TypedArray': comparefn must be a function",
+            ));
+        }
+    };
+    let parts = require_typed_array_parts(ctx, this, "sort")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        id: receiver_id,
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
+
+    if len_elem < 2 {
+        return Ok(JsValue::Object(receiver_id));
+    }
+
+    let mut snapshot: Vec<JsValue> = (0..len_elem)
+        .map(|i| read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek))
+        .collect();
+
+    if let Some(fn_id) = compare_fn {
+        // Insertion sort with fallible comparator.  Pair-wise
+        // adjacent compares only — Array.prototype.sort uses the
+        // same shape, so we keep the per-PR mental model
+        // consistent.  Throwing `fn_id` propagates immediately
+        // and the receiver retains the partial-sort state
+        // (spec §23.2.3.29 step 5 abrupt-completion behaviour).
+        for i in 1..snapshot.len() {
+            let mut j = i;
+            while j > 0 {
+                let a = snapshot[j - 1];
+                let b = snapshot[j];
+                let result = ctx.call_function(fn_id, JsValue::Undefined, &[a, b])?;
+                let cmp_val = ctx.to_number(result)?;
+                let cmp = if cmp_val.is_nan() { 0.0 } else { cmp_val };
+                if cmp > 0.0 {
+                    snapshot.swap(j - 1, j);
+                    j -= 1;
+                } else {
+                    // Stable: equal or `cmp < 0` means current
+                    // pair is in order; insertion sort stops the
+                    // inward walk at first non-swap.
+                    break;
+                }
+            }
+        }
+    } else {
+        // Default ordering — `&VmInner` capture is sound because
+        // `snapshot` is a local `Vec`, not `vm.stack`, so the
+        // borrow doesn't overlap any mutable VM access inside
+        // the comparator.
+        let vm: &super::super::VmInner = ctx.vm;
+        snapshot.sort_by(|a, b| default_typed_array_compare(vm, *a, *b));
+    }
+
+    for (i, v) in snapshot.into_iter().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
+        let idx = i as u32;
+        write_element_raw(ctx, buffer_id, byte_offset, idx, ek, v)?;
+    }
+    Ok(JsValue::Object(receiver_id))
+}
+
+/// Default ascending sort comparator for the no-`compareFn`
+/// branch of [`native_typed_array_sort`].  Matches spec
+/// `TypedArrayElementSortCompare` (§23.2.4.7 / .8):
+///
+/// - `Number / Number` → `<` ordering with `NaN` sorted to the
+///   end (`partial_cmp` is `None` for any NaN comparison; the
+///   fallback `Equal` only fires for the unreachable
+///   `NaN.cmp(NaN)` case which is already handled by the
+///   `is_nan` arms above).
+/// - `BigInt / BigInt` → `BigInt::cmp` ordering via the canonical
+///   `BigIntPool` lookup.  BigInt values are permanent (per
+///   `BigIntPool`'s "not garbage-collected" contract), so the
+///   `&BigInt` borrows are valid across the entire sort.
+/// - Mixed types → `Equal` (impossible by the TypedArray brand:
+///   each subclass stores a single primitive type, never mixed).
+fn default_typed_array_compare(
+    vm: &super::super::VmInner,
+    a: JsValue,
+    b: JsValue,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (JsValue::Number(x), JsValue::Number(y)) => match (x.is_nan(), y.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => x.partial_cmp(&y).unwrap_or(Ordering::Equal),
+        },
+        (JsValue::BigInt(ai), JsValue::BigInt(bi)) => vm.bigints.get(ai).cmp(vm.bigints.get(bi)),
+        _ => Ordering::Equal,
+    }
 }

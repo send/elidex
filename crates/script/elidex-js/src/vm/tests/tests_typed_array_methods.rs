@@ -1165,3 +1165,300 @@ fn map_default_species_falls_back_when_constructor_undefined() {
          b instanceof Uint8Array && b.length === 3 && b[0] === 2;"
     ));
 }
+
+// ---------------------------------------------------------------------------
+// reduce / reduceRight (SP8c-A — accumulator HOFs)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn reduce_with_initial_value_threads_accumulator() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "new Uint8Array([1, 2, 3, 4]).reduce(function(acc, v) { return acc + v; }, 100);"
+        ),
+        110.0
+    );
+}
+
+#[test]
+fn reduce_without_initial_uses_first_element() {
+    let mut vm = Vm::new();
+    // Without initialValue, acc starts as A[0] and loop visits A[1..].
+    // For [10, 20, 30] this yields 10 + 20 + 30 = 60 with one fewer
+    // callback invocation than the initial-value case.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var n = 0; \
+             var s = new Uint8Array([10, 20, 30]).reduce(function(acc, v) { n++; return acc + v; }); \
+             s * 100 + n;"
+        ),
+        // s = 60, n = 2 → 6002
+        6002.0
+    );
+}
+
+#[test]
+fn reduce_callback_args_are_acc_value_index_array() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([10, 20, 30]); var ok = true; \
+         a.reduce(function(acc, v, i, arr) { \
+             if (arr !== a) ok = false; \
+             if (arr[i] !== v) ok = false; \
+             return acc; \
+         }, 0); \
+         ok;"
+    ));
+}
+
+#[test]
+fn reduce_empty_no_initial_throws() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval("new Uint8Array(0).reduce(function() {});")
+        .unwrap_err()
+        .message
+        .contains("empty TypedArray"));
+}
+
+#[test]
+fn reduce_empty_with_initial_returns_initial() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "new Uint8Array(0).reduce(function() { throw new Error('cb'); }, 42);"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn reduce_throws_when_callback_not_callable() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval("new Uint8Array([1]).reduce(undefined, 0);")
+        .unwrap_err()
+        .message
+        .contains("callback is not a function"));
+}
+
+#[test]
+fn reduce_right_visits_indices_in_reverse() {
+    let mut vm = Vm::new();
+    // Visiting order: cb(initial, A[2], 2), cb(_, A[1], 1), cb(_, A[0], 0)
+    // — record the index sequence to confirm.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var visits = []; \
+             new Uint8Array([10, 20, 30]).reduceRight(function(acc, v, i) { \
+                 visits.push(String(i)); return acc; \
+             }, ''); \
+             visits.join(',');"
+        ),
+        "2,1,0"
+    );
+}
+
+#[test]
+fn reduce_right_without_initial_uses_last_element() {
+    let mut vm = Vm::new();
+    // acc starts as A[len-1] = 30, callback visits A[len-2..0]
+    // = [20, 10] → 30 - 20 - 10 = 0; n = 2.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var n = 0; \
+             var s = new Uint8Array([10, 20, 30]).reduceRight(function(acc, v) { n++; return acc - v; }); \
+             s * 100 + n;"
+        ),
+        2.0  // s = 0 → 0 * 100 + 2 = 2
+    );
+}
+
+#[test]
+fn reduce_right_empty_no_initial_throws() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval("new Uint8Array(0).reduceRight(function() {});")
+        .unwrap_err()
+        .message
+        .contains("empty TypedArray"));
+}
+
+#[test]
+fn reduce_callback_this_is_undefined() {
+    let mut vm = Vm::new();
+    // Spec passes `undefined` as thisArg; non-strict callback sees
+    // the global object (boxed undefined).  Strict callback sees
+    // undefined directly.  Use strict mode for unambiguous identity.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([1, 2, 3]); var ok = true; \
+         a.reduce(function() { 'use strict'; if (this !== undefined) ok = false; return 0; }, 0); \
+         a.reduceRight(function() { 'use strict'; if (this !== undefined) ok = false; return 0; }, 0); \
+         ok;"
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// sort (SP8c-A — in-place; default numeric / BigInt or compareFn)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sort_default_ascending_numeric() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([3, 1, 4, 1, 5, 9, 2, 6]); \
+         a.sort(); \
+         a[0] === 1 && a[1] === 1 && a[2] === 2 && a[3] === 3 && \
+         a[4] === 4 && a[5] === 5 && a[6] === 6 && a[7] === 9;"
+    ));
+}
+
+#[test]
+fn sort_default_handles_negative_numbers() {
+    let mut vm = Vm::new();
+    // Int8Array preserves negatives; default sort is true numeric
+    // ascending (NOT lexicographic, unlike Array.prototype.sort).
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Int8Array([5, -10, 0, 3, -1, -100]); \
+         a.sort(); \
+         a[0] === -100 && a[1] === -10 && a[2] === -1 && \
+         a[3] === 0 && a[4] === 3 && a[5] === 5;"
+    ));
+}
+
+#[test]
+fn sort_default_places_nan_at_end_in_float_arrays() {
+    let mut vm = Vm::new();
+    // Spec TypedArrayElementSortCompare sorts NaN to the end.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Float64Array([3, NaN, 1, NaN, 2]); \
+         a.sort(); \
+         a[0] === 1 && a[1] === 2 && a[2] === 3 && \
+         isNaN(a[3]) && isNaN(a[4]);"
+    ));
+}
+
+#[test]
+fn sort_default_bigint_ascending() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new BigInt64Array([3n, -10n, 1n, 0n, -1n]); \
+         a.sort(); \
+         a[0] === -10n && a[1] === -1n && a[2] === 0n && \
+         a[3] === 1n && a[4] === 3n;"
+    ));
+}
+
+#[test]
+fn sort_with_user_compare_fn() {
+    let mut vm = Vm::new();
+    // Descending sort via user comparefn returning b - a.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([3, 1, 4, 1, 5, 9, 2, 6]); \
+         a.sort(function(x, y) { return y - x; }); \
+         a[0] === 9 && a[1] === 6 && a[2] === 5 && a[3] === 4 && \
+         a[4] === 3 && a[5] === 2 && a[6] === 1 && a[7] === 1;"
+    ));
+}
+
+#[test]
+fn sort_compare_fn_nan_treated_as_zero() {
+    let mut vm = Vm::new();
+    // Per spec, comparefn returning NaN is treated as 0 (no swap),
+    // matching Array.prototype.sort behaviour.  With the all-NaN
+    // comparator the array stays unchanged (insertion sort
+    // breaks at first non-positive cmp).
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([3, 1, 2]); \
+         a.sort(function() { return NaN; }); \
+         a[0] === 3 && a[1] === 1 && a[2] === 2;"
+    ));
+}
+
+#[test]
+fn sort_throws_when_compare_fn_not_callable() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval("new Uint8Array([1, 2]).sort(42);")
+        .unwrap_err()
+        .message
+        .contains("comparefn"));
+    // String comparefn — most-common user mistake (`a.sort('asc')`).
+    assert!(vm
+        .eval("new Uint8Array([1, 2]).sort('asc');")
+        .unwrap_err()
+        .message
+        .contains("comparefn"));
+}
+
+#[test]
+fn sort_compare_fn_propagates_throw_with_partial_state() {
+    let mut vm = Vm::new();
+    // Throwing comparefn surfaces as abrupt completion; the
+    // partial-sort state is observable.  Verify the throw
+    // propagates AND the receiver is still a Uint8Array (didn't
+    // become some other type via failure).
+    assert!(vm
+        .eval(
+            "var a = new Uint8Array([3, 1, 2]); \
+             try { a.sort(function() { throw new Error('boom'); }); } \
+             catch (e) { throw e; }"
+        )
+        .is_err());
+}
+
+#[test]
+fn sort_returns_receiver() {
+    let mut vm = Vm::new();
+    // Spec returns the original receiver unchanged (after in-place sort).
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([2, 1]); var r = a.sort(); r === a;"
+    ));
+}
+
+#[test]
+fn sort_short_arrays_no_op() {
+    let mut vm = Vm::new();
+    // len < 2 short-circuits without invoking the comparefn.
+    assert!(eval_bool(
+        &mut vm,
+        "var n = 0; \
+         var a = new Uint8Array(0); a.sort(function() { n++; return 0; }); \
+         var b = new Uint8Array([42]); b.sort(function() { n++; return 0; }); \
+         n === 0 && b[0] === 42;"
+    ));
+}
+
+#[test]
+fn sort_is_stable_for_equal_elements_under_compare_fn() {
+    let mut vm = Vm::new();
+    // Insertion sort is stable.  Sort by parity (even before odd)
+    // and verify within-parity order is preserved.  `a.join` goes
+    // through `%TypedArray%.prototype.join` directly — the
+    // `Array.prototype.join.call(typedArray, ...)` cross-class
+    // borrow doesn't pass our brand-check.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var a = new Uint8Array([1, 2, 3, 4, 5, 6]); \
+             a.sort(function(x, y) { return (x & 1) - (y & 1); }); \
+             a.join(',');"
+        ),
+        "2,4,6,1,3,5"
+    );
+}

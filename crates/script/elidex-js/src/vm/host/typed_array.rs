@@ -201,7 +201,7 @@ impl VmInner {
         // via prototype chain).  Names are pre-interned in
         // `WellKnownStrings` so this table doesn't pay the per-call
         // `strings.intern(...)` round-trip during `Vm::new`.
-        let methods: [(StringId, NativeFn); 23] = [
+        let methods: [(StringId, NativeFn); 26] = [
             (
                 self.well_known.fill,
                 super::typed_array_methods::native_typed_array_fill as NativeFn,
@@ -293,6 +293,18 @@ impl VmInner {
             (
                 self.well_known.filter,
                 super::typed_array_hof::native_typed_array_filter as NativeFn,
+            ),
+            (
+                self.well_known.reduce,
+                super::typed_array_hof::native_typed_array_reduce as NativeFn,
+            ),
+            (
+                self.well_known.reduce_right,
+                super::typed_array_hof::native_typed_array_reduce_right as NativeFn,
+            ),
+            (
+                self.well_known.sort,
+                super::typed_array_hof::native_typed_array_sort as NativeFn,
             ),
         ];
         for (name_sid, fn_ptr) in methods {
