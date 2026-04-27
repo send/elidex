@@ -1406,19 +1406,27 @@ fn sort_throws_when_compare_fn_not_callable() {
 }
 
 #[test]
-fn sort_compare_fn_propagates_throw_with_partial_state() {
+fn sort_compare_fn_propagates_throw_atomically() {
     let mut vm = Vm::new();
-    // Throwing comparefn surfaces as abrupt completion; the
-    // partial-sort state is observable.  Verify the throw
-    // propagates AND the receiver is still a Uint8Array (didn't
-    // become some other type via failure).
-    assert!(vm
-        .eval(
-            "var a = new Uint8Array([3, 1, 2]); \
-             try { a.sort(function() { throw new Error('boom'); }); } \
-             catch (e) { throw e; }"
-        )
-        .is_err());
+    // Throwing comparefn surfaces as abrupt completion AND the
+    // receiver is left **unchanged** — `native_typed_array_sort`
+    // snapshots into a local Vec, sorts there, then writes back
+    // only after the sort completes, so an error during the sort
+    // means no write-back ever happens.  Spec §23.2.3.29 step 5
+    // (`SortIndexedProperties`) → step 7 ordering matches: an
+    // abrupt completion in step 5 short-circuits step 7.
+    let result = vm.eval(
+        "var a = new Uint8Array([3, 1, 2]); var captured = null; \
+         try { a.sort(function() { throw new Error('boom'); }); } \
+         catch (e) { captured = e; } \
+         (captured ? 1 : 0) * 1000 + a[0] * 100 + a[1] * 10 + a[2];",
+    );
+    // captured = error → 1; receiver bytes unchanged at [3, 1, 2]
+    // → 1 * 1000 + 3 * 100 + 1 * 10 + 2 = 1312.
+    match result {
+        Ok(JsValue::Number(n)) => assert_eq!(n, 1312.0),
+        other => panic!("expected number, got {other:?}"),
+    }
 }
 
 #[test]

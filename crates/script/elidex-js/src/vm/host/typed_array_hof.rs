@@ -518,7 +518,7 @@ fn reduce_impl(
 
     if len_elem == 0 && initial_value.is_none() {
         return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'TypedArray': reduce of empty TypedArray with no initial value"
+            "Failed to execute '{method}' on 'TypedArray': Reduce of empty TypedArray with no initial value"
         )));
     }
 
@@ -579,11 +579,18 @@ fn reduce_impl(
 /// `Vec<JsValue>` (TypedArray stores only `Number` / `BigInt` —
 /// neither is GC-traced; `BigInt` allocations are permanent per
 /// `BigIntPool` contract), sort, write back via
-/// [`write_element_raw`].  `compareFn` branch uses a stable
-/// insertion sort (mirrors `Array.prototype.sort`) so a throwing
-/// callback short-circuits with the partial-sort state observable
-/// at the receiver — matching spec "An abrupt completion is
-/// returned" behaviour.  Default branch uses Rust's stable
+/// [`write_element_raw`].  Snapshot-then-write-back gives the
+/// receiver **atomic-on-throw** semantics — a throwing
+/// `compareFn` returns the abrupt completion *before* any
+/// write-back happens, so the receiver is left unchanged rather
+/// than exposing a half-sorted state.  This matches spec
+/// §23.2.3.29 step 5 → 7 ordering: `SortIndexedProperties`
+/// (step 5) collects sorted values into a list, then step 7
+/// writes them back — an abrupt completion in step 5 short-
+/// circuits before step 7 runs, so the receiver is never
+/// observed mid-sort either way.  `compareFn` branch uses a
+/// stable insertion sort (same shape as
+/// `Array.prototype.sort`); default branch uses Rust's stable
 /// `slice::sort_by`.
 pub(crate) fn native_typed_array_sort(
     ctx: &mut NativeContext<'_>,
@@ -624,9 +631,10 @@ pub(crate) fn native_typed_array_sort(
         // Insertion sort with fallible comparator.  Pair-wise
         // adjacent compares only — Array.prototype.sort uses the
         // same shape, so we keep the per-PR mental model
-        // consistent.  Throwing `fn_id` propagates immediately
-        // and the receiver retains the partial-sort state
-        // (spec §23.2.3.29 step 5 abrupt-completion behaviour).
+        // consistent.  Throwing `fn_id` propagates immediately;
+        // the swaps live on the local `snapshot`, not the
+        // receiver, so the early return leaves the receiver
+        // unchanged (atomic-on-throw — see fn-level docstring).
         for i in 1..snapshot.len() {
             let mut j = i;
             while j > 0 {
