@@ -691,3 +691,234 @@ fn uint16_view_over_uint8_buffer_reads_little_endian() {
         1.0
     );
 }
+
+// ---------------------------------------------------------------------------
+// %TypedArray%.of / %TypedArray%.from (SP8a) — ES §23.2.2.{1,2}
+// ---------------------------------------------------------------------------
+
+#[test]
+fn typed_array_of_basic_uint8() {
+    let mut vm = Vm::new();
+    // `Uint8Array.of(...items)` — variadic; `length` matches arg
+    // count, each element coerced via the destination kind's
+    // `[[Set]]` (here `ToUint8`).
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = Uint8Array.of(1, 2, 3); \
+             a.length * 1000 + a[0] * 100 + a[1] * 10 + a[2];"
+        ),
+        3123.0
+    );
+}
+
+#[test]
+fn typed_array_of_empty_yields_zero_length() {
+    let mut vm = Vm::new();
+    assert_eq!(eval_number(&mut vm, "Uint8Array.of().length;"), 0.0);
+}
+
+#[test]
+fn typed_array_of_int16_signed_widening() {
+    let mut vm = Vm::new();
+    // 2-byte signed kind preserves negative values + larger range
+    // than the Uint8 cases above — exercises `write_element_raw`'s
+    // ToInt16 coercion path through the static-method dispatch.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = Int16Array.of(-1, 100, 32767); \
+             a[0] + a[1] + a[2];"
+        ),
+        -1.0 + 100.0 + 32767.0
+    );
+}
+
+#[test]
+fn typed_array_of_float64_preserves_fractional() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(&mut vm, "var a = Float64Array.of(1.5, 2.25); a[0] + a[1];"),
+        3.75
+    );
+}
+
+#[test]
+fn typed_array_of_dispatches_per_subclass() {
+    let mut vm = Vm::new();
+    // `Uint8Array.of` and `Float64Array.of` resolve to the SAME
+    // function object on `%TypedArray%` (inherited via the
+    // constructor prototype chain), but the per-call ek dispatch
+    // means the result's `[[TypedArrayName]]` differs.  Catches
+    // a regression where the static method might bake in a
+    // particular ek instead of resolving from `this`.
+    assert!(eval_bool(
+        &mut vm,
+        "Uint8Array.of === Float64Array.of && \
+         Uint8Array.of(1).constructor === Uint8Array && \
+         Float64Array.of(1).constructor === Float64Array;"
+    ));
+}
+
+#[test]
+fn typed_array_of_on_abstract_throws_type_error() {
+    let mut vm = Vm::new();
+    // `%TypedArray%` itself is not registered in
+    // `subclass_array_ctors`, so `(%TypedArray%).of(1, 2)` (which
+    // in script is reachable as `Uint8Array.__proto__.of(1, 2)`)
+    // must throw rather than silently producing an Uint8Array.
+    assert!(eval_bool(
+        &mut vm,
+        "var ok = false; \
+         try { Uint8Array.__proto__.of.call(Uint8Array.__proto__, 1, 2); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn typed_array_from_array_source() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = Uint8Array.from([10, 20, 30]); \
+             a.length * 10000 + a[0] * 100 + a[2];"
+        ),
+        30030.0 + 1000.0
+    );
+}
+
+#[test]
+fn typed_array_from_string_iterable() {
+    let mut vm = Vm::new();
+    // String iterates by code-point (UTF-16 code units for our
+    // engine).  Each iteration yields a single-char string;
+    // `ToUint8` coerces it to NaN → 0 for non-numeric chars.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = Uint8Array.from('123'); a[0] + a[1] + a[2];"
+        ),
+        6.0
+    );
+}
+
+#[test]
+fn typed_array_from_with_map_fn_doubles_values() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = Uint8Array.from([1, 2, 3], function (x) { return x * 2; }); \
+             a[0] + a[1] + a[2];"
+        ),
+        12.0
+    );
+}
+
+#[test]
+fn typed_array_from_array_like_via_length() {
+    let mut vm = Vm::new();
+    // §23.2.2.1 array-like fallback — when `@@iterator` is absent,
+    // use `LengthOfArrayLike` + integer-indexed `[[Get]]`.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = Uint8Array.from({ length: 3, 0: 7, 1: 8, 2: 9 }); \
+             a[0] * 100 + a[1] * 10 + a[2];"
+        ),
+        789.0
+    );
+}
+
+#[test]
+fn typed_array_from_typed_array_source() {
+    let mut vm = Vm::new();
+    // TypedArrays expose `@@iterator` (= `.values()`), so a
+    // `Float32Array` source iterates element-wise — the values
+    // then re-coerce through the destination's `ToInt16`.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var src = new Float32Array([1.7, -2.3, 100.0]); \
+             var dst = Int16Array.from(src); \
+             dst[0] + dst[1] + dst[2];"
+        ),
+        // ToInt16(1.7) = 1, ToInt16(-2.3) = -2, ToInt16(100) = 100
+        99.0
+    );
+}
+
+#[test]
+fn typed_array_from_null_source_throws_type_error() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var ok = false; \
+         try { Uint8Array.from(null); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn typed_array_from_non_callable_map_fn_throws_type_error() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var ok = false; \
+         try { Uint8Array.from([1, 2, 3], 'not a function'); } \
+         catch (e) { ok = e instanceof TypeError; } ok;"
+    ));
+}
+
+#[test]
+fn typed_array_from_bigint_subclass() {
+    let mut vm = Vm::new();
+    // BigInt64Array source values must be BigInt — the iterator
+    // path passes raw BigInt values through `ToBigInt64` for the
+    // destination kind.  Confirms BigInt subclass dispatch
+    // works.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = BigInt64Array.from([1n, 2n, 3n]); \
+         a.length === 3 && a[0] === 1n && a[2] === 3n;"
+    ));
+}
+
+#[test]
+fn typed_array_from_inherits_via_constructor_prototype() {
+    let mut vm = Vm::new();
+    // `Uint8Array.from` and `Float32Array.from` are the SAME
+    // function (inherited from `%TypedArray%.from`), and each
+    // dispatch correctly produces an instance of the calling
+    // ctor's subclass.
+    assert!(eval_bool(
+        &mut vm,
+        "Uint8Array.from === Float32Array.from && \
+         Uint8Array.from([1]).constructor === Uint8Array && \
+         Float32Array.from([1]).constructor === Float32Array;"
+    ));
+}
+
+#[test]
+fn typed_array_from_empty_array_yields_zero_length() {
+    let mut vm = Vm::new();
+    assert_eq!(eval_number(&mut vm, "Uint8Array.from([]).length;"), 0.0);
+}
+
+#[test]
+fn typed_array_from_map_fn_receives_index() {
+    let mut vm = Vm::new();
+    // mapFn is called as `(value, index)` per spec — index passed
+    // here lets the test see the loop counter without external
+    // state.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var a = Uint8Array.from([10, 20, 30], function (v, i) { return v + i; }); \
+             a[0] * 10000 + a[1] * 100 + a[2];"
+        ),
+        // [10+0, 20+1, 30+2] = [10, 21, 32]
+        100000.0 + 2100.0 + 32.0
+    );
+}

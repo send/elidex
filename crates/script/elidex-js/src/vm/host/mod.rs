@@ -102,4 +102,6 @@ pub(super) mod typed_array_ctor;
 pub(super) mod typed_array_methods;
 #[cfg(feature = "engine")]
 pub(super) mod typed_array_parts;
+#[cfg(feature = "engine")]
+pub(super) mod typed_array_static;
 pub(super) mod window;

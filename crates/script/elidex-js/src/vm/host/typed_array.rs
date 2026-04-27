@@ -133,6 +133,29 @@ impl VmInner {
         for entry in &SUBCLASS_TABLE {
             self.register_typed_array_subclass(entry, proto_id, abstract_ctor);
         }
+
+        // Static `%TypedArray%.of` / `.from` (ES §23.2.2.{1,2}).
+        // Installed on the abstract ctor only — subclass ctors
+        // (`Uint8Array`, `Float64Array`, …) inherit via the
+        // constructor prototype chain set up above
+        // (`Object.getPrototypeOf(Uint8Array) === %TypedArray%`).
+        // The natives dispatch on `this` (the calling subclass
+        // ctor) via `subclass_array_ctors` to pick the destination
+        // `ElementKind`.
+        let of_sid = self.strings.intern("of");
+        self.install_native_method(
+            abstract_ctor,
+            of_sid,
+            super::typed_array_static::native_typed_array_of,
+            PropertyAttrs::METHOD,
+        );
+        let from_sid = self.strings.intern("from");
+        self.install_native_method(
+            abstract_ctor,
+            from_sid,
+            super::typed_array_static::native_typed_array_from,
+            PropertyAttrs::METHOD,
+        );
     }
 
     /// Install the generic accessors (`buffer` / `byteOffset` /
@@ -388,6 +411,12 @@ impl VmInner {
         // Global ctor exposure (`Uint8Array`, `Int8Array`, …).
         let name_sid = (entry.global_name)(&self.well_known);
         self.globals.insert(name_sid, JsValue::Object(ctor));
+
+        // Reverse-lookup table for the static `%TypedArray%.of` /
+        // `.from` natives, which inspect `this` (the calling subclass
+        // ctor) to dispatch to the right `ElementKind`.  Indexed
+        // identically to `subclass_array_prototypes`.
+        self.subclass_array_ctors[entry.element_kind.index()] = Some(ctor);
     }
 }
 

@@ -181,6 +181,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 subclass_array_prototypes: [None; super::value::ElementKind::COUNT],
                 #[cfg(feature = "engine")]
+                subclass_array_ctors: [None; super::value::ElementKind::COUNT],
+                #[cfg(feature = "engine")]
                 text_encoder_prototype: None,
                 #[cfg(feature = "engine")]
                 text_decoder_prototype: None,
