@@ -503,6 +503,52 @@ fn typed_array_from_honours_primitive_wrapper_iterator() {
 }
 
 #[test]
+fn typed_array_of_accepts_bound_typed_array_constructor() {
+    let mut vm = Vm::new();
+    // `Uint8Array.bind(...)` is a BoundFunction; spec
+    // `TypedArrayCreate(C, ⟨len⟩)` / `Construct(C, ⟨len⟩)` unwraps
+    // bound chains internally so the underlying ctor is what
+    // resolves the destination ek.  `require_subclass_ctor`
+    // mirrors that by walking `BoundFunction.target` before the
+    // `[[Prototype]]` chain walk.
+    //
+    // **Note**: invoked via `.of.call(Bound, ...)` rather than
+    // `Bound.of(...)` because our engine's `Function.prototype.bind`
+    // doesn't currently preserve the target's `[[Prototype]]` on
+    // the wrapper (BoundFunction's `__proto__` ends up as
+    // `Function.prototype`, not the target's `__proto__`), so
+    // property-chain lookup of `.of` from the bound wrapper
+    // returns undefined.  That's a separate engine bug (spec
+    // §10.4.1.4 step 9 sets the bound function's `[[Prototype]]`
+    // to `target.[[GetPrototypeOf]]()`); once fixed, the
+    // `Bound.of(...)` form will work without the explicit
+    // `.call(Bound, ...)` thunk.
+    assert!(eval_bool(
+        &mut vm,
+        "var Bound = Uint8Array.bind(null); \
+         var a = Uint8Array.of.call(Bound, 10, 20, 30); \
+         a.length === 3 && a[0] === 10 && a[2] === 30 && \
+         a instanceof Uint8Array;"
+    ));
+}
+
+#[test]
+fn typed_array_from_accepts_bound_typed_array_constructor() {
+    let mut vm = Vm::new();
+    // Companion to the `of` bound-ctor test — `from` must also
+    // accept a bound TypedArray constructor receiver via the
+    // BoundFunction unwrap.  Same `.from.call(...)` workaround
+    // for the engine's bind-prototype gap.
+    assert!(eval_bool(
+        &mut vm,
+        "var Bound = Float32Array.bind(null); \
+         var a = Float32Array.from.call(Bound, [1.5, 2.5, 3.5]); \
+         a.length === 3 && a[0] === 1.5 && a[2] === 3.5 && \
+         a instanceof Float32Array;"
+    ));
+}
+
+#[test]
 fn typed_array_from_array_like_allocates_before_indexed_get() {
     let mut vm = Vm::new();
     // Spec §23.2.2.1 step 8.d: `TypedArrayCreate(C, ⟨len⟩)` runs

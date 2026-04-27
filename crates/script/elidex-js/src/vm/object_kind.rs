@@ -517,7 +517,14 @@ impl ObjectKind {
 #[cfg(feature = "engine")]
 pub(crate) fn is_constructor(vm: &super::VmInner, id: super::value::ObjectId) -> bool {
     let mut current = id;
-    for _ in 0..crate::vm::MAX_BIND_CHAIN_DEPTH {
+    // `0..=MAX_BIND_CHAIN_DEPTH` (one more iteration than the
+    // half-open range) so a chain of exactly `MAX_BIND_CHAIN_DEPTH`
+    // `BoundFunction` wrappers can fully unwrap to its target —
+    // matches `do_new`'s policy in `ops.rs` (allows MAX wrappers,
+    // errors only on MAX+1).  An off-by-one half-open range
+    // would exit before inspecting the final target and incorrectly
+    // report non-constructor on otherwise-valid bound chains.
+    for _ in 0..=crate::vm::MAX_BIND_CHAIN_DEPTH {
         match &vm.get_object(current).kind {
             ObjectKind::Function(fo) => {
                 if fo.this_mode == crate::vm::value::ThisMode::Lexical {

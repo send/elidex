@@ -17,8 +17,10 @@
 //!
 //! Species-sensitive instance methods (`map`, `filter`, `findLast`,
 //! `findLastIndex`, `sort`, `reduce`, `reduceRight`, `flatMap`,
-//! `toLocaleString`) and the supporting [`SpeciesConstructor`] /
-//! [`IsConstructor`] machinery land in SP8b/c.
+//! `toLocaleString`) and the supporting `SpeciesConstructor` /
+//! `IsConstructor` machinery land in SP8b/c (spec abstract op
+//! names — backticked rather than intra-doc-linked because no
+//! Rust items by those names exist in the crate).
 
 #![cfg(feature = "engine")]
 
@@ -76,6 +78,25 @@ fn ctor_to_element_kind(vm: &VmInner, ctor_id: ObjectId) -> Option<ElementKind> 
         .and_then(ElementKind::from_index)
 }
 
+/// Walk `BoundFunction` chains to the underlying target, capped at
+/// [`crate::vm::MAX_BIND_CHAIN_DEPTH`] (matching `do_new`'s policy
+/// in `ops.rs`).  Returns the first non-`BoundFunction` `ObjectId`
+/// encountered; if the chain is too deep, returns the deepest
+/// `BoundFunction` reached (the subsequent prototype walk will
+/// then fail to find a registered TypedArray ctor and produce a
+/// TypeError, matching the spec behavior of rejecting chains
+/// deeper than the runtime cap).
+fn unwrap_bound_chain(vm: &VmInner, id: ObjectId) -> ObjectId {
+    let mut current = id;
+    for _ in 0..=crate::vm::MAX_BIND_CHAIN_DEPTH {
+        match &vm.get_object(current).kind {
+            ObjectKind::BoundFunction { target, .. } => current = *target,
+            _ => return current,
+        }
+    }
+    current
+}
+
 /// Resolve `this` (the caller of `%TypedArray%.of` / `.from`)
 /// into the destination `(ElementKind, prototype_for_new_instance)`
 /// pair.
@@ -125,6 +146,20 @@ fn require_subclass_ctor(
             "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
         )));
     }
+    // `BoundFunction.bind(target)` exposes a wrapper whose
+    // `[[Prototype]]` is `Function.prototype`, NOT the bound
+    // target's prototype chain — so a naive `[[Prototype]]` walk
+    // from the bound wrapper would never find a registered
+    // TypedArray ctor.  Spec `TypedArrayCreate(C, ⟨len⟩)` /
+    // `Construct(C, ⟨len⟩)` unwraps bound chains internally; mirror
+    // that here by replacing `chain_start` with the underlying
+    // target so the walk inspects `Uint8Array.bind(null).of(...)`
+    // as if `Uint8Array` were the receiver.  The original `ctor_id`
+    // is preserved as the `receiver_prototype` source so the new
+    // instance's `[[Prototype]]` still reflects what `Get(C,
+    // "prototype")` resolves on the bound wrapper (which falls
+    // through the bind chain to the target's `.prototype`).
+    let chain_start = unwrap_bound_chain(ctx.vm, ctor_id);
     // Walk the constructor `[[Prototype]]` chain looking for a
     // registered built-in TypedArray ctor.  No depth cap — a small
     // visited set catches `__proto__ = self`-style cycles without
@@ -133,7 +168,7 @@ fn require_subclass_ctor(
     // {}; …`).  Realistic chains are 1-3 entries; the
     // allocation is below measurement noise.
     let mut visited: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
-    let mut current = Some(ctor_id);
+    let mut current = Some(chain_start);
     while let Some(id) = current {
         if !visited.insert(id) {
             // Cycle (`A.__proto__.__proto__... === A`) — give up
