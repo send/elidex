@@ -140,9 +140,15 @@ pub(super) fn native_array_some(
 /// `push_stack_scope` so user callbacks returning fresh
 /// `JsValue::Object` handles stay GC-rooted across every
 /// `ctx.call_function` invocation.  Held only as a Rust local,
-/// such handles would be invisible to the GC scanner across the
-/// next iteration's GC point — a latent bug shared with
-/// `%TypedArray%.prototype.reduce` (SP8c-A R2 same-pattern audit).
+/// such handles would be invisible to the GC scanner.  Today GC
+/// is disabled for the entire duration of a `NativeFunction`
+/// call (`interpreter.rs:81` sets `gc_enabled = false` and that
+/// flag stays false through every re-entrant `ctx.call_function`
+/// invocation), so the accumulator **cannot currently be
+/// collected** mid-loop.  The rooted-slot shape is future-proofing
+/// for when GC is permitted during native→JS callbacks, and it
+/// matches `%TypedArray%.prototype.reduce`'s contract by
+/// construction (SP8c-A R2 same-pattern audit, R8 wording fix).
 pub(super) fn native_array_reduce(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

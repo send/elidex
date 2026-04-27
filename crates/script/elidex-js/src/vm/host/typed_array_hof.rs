@@ -549,14 +549,18 @@ fn reduce_impl(
 
     // Pin the accumulator to a fixed `vm.stack` slot for the
     // duration of the loop.  User callbacks can return arbitrary
-    // `JsValue::Object` handles; held only as a Rust local, those
-    // would be invisible to the GC scanner across the next
-    // `ctx.call_function` GC point and could be collected mid-
-    // iteration (Copilot SP8c-A R2).  No GC trigger sits in the
-    // current cross-iteration window for TypedArray reads
-    // (`read_element_raw` returns `Number` / `BigInt` only,
-    // neither GC-allocated), but the rooted-slot pattern is the
-    // future-proof shape and matches `filter`'s rooted collect.
+    // `JsValue::Object` handles; held only as a Rust local those
+    // would be invisible to the GC scanner.  Today GC is disabled
+    // for the entire duration of a `NativeFunction` call —
+    // `interpreter.rs:81` sets `gc_enabled = false` before
+    // dispatching the native and restores `saved_gc` on return,
+    // and that flag stays false through every re-entrant
+    // `ctx.call_function` invocation — so the accumulator
+    // **cannot currently be collected** mid-iteration at the
+    // call boundary.  The rooted-slot shape is future-proofing for
+    // when GC is permitted during native→JS callbacks, and it
+    // matches `filter`'s rooted-collect contract for free.
+    // (Copilot SP8c-A R2 motivation, R8 wording fix.)
     let mut frame = ctx.vm.push_stack_scope();
     let acc_slot = frame.saved_len();
     frame.stack.push(initial_acc);
