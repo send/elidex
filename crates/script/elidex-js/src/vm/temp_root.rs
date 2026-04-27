@@ -1,16 +1,29 @@
-//! RAII temporary GC root guard.
+//! RAII temporary GC root guards.
 //!
 //! Split out of `mod.rs` to keep that file under the project's
-//! 1000-line convention.  Engine-feature gated — rooting matters only
-//! when host code can produce un-rooted intermediate `JsValue`s
-//! (event objects, PromiseRejection synthetic events, etc.).  Without
-//! the engine feature there is no host bridge and no caller.
+//! 1000-line convention.  Hosts two related guards with
+//! different feature gates:
+//!
+//! - [`VmInner::push_stack_scope`] / [`VmStackScope`] —
+//!   **always available**, including without `feature = "engine"`.
+//!   The original assumption that only the host bridge produced
+//!   un-rooted intermediates was wrong: pure-JS natives (e.g.,
+//!   `Array.prototype.reduce`'s accumulator across
+//!   `ctx.call_function` boundaries) need the same rooting.
+//!   `vm.stack` is in `GcRoots` regardless of feature flags, so
+//!   the multi-value scope guard is sound everywhere.
+//! - [`VmInner::push_temp_root`] / [`VmTempRoot`] —
+//!   **engine-only** (`#[cfg(feature = "engine")]`).  Single-
+//!   value identity-asserting variant; current callers all live
+//!   in the host bridge (event objects, PromiseRejection
+//!   synthetic events, etc.), so the per-item gates avoid
+//!   pulling unused machinery into non-engine builds.
 
-#![cfg(feature = "engine")]
-
+#[cfg(feature = "engine")]
 use super::value::{same_value, JsValue};
 use super::VmInner;
 
+#[cfg(feature = "engine")]
 impl VmInner {
     /// Push `value` onto the VM stack as a temporary GC root and
     /// return an RAII guard that restores the stack on drop.
@@ -59,12 +72,14 @@ impl VmInner {
 /// are skipped to avoid double-panic process-abort; the stack is
 /// truncated unconditionally so any propagation through
 /// `catch_unwind` upstream sees a clean stack.
+#[cfg(feature = "engine")]
 pub(crate) struct VmTempRoot<'a> {
     vm: &'a mut VmInner,
     saved_len: usize,
     expected: JsValue,
 }
 
+#[cfg(feature = "engine")]
 impl std::ops::Deref for VmTempRoot<'_> {
     type Target = VmInner;
     #[inline]
@@ -73,6 +88,7 @@ impl std::ops::Deref for VmTempRoot<'_> {
     }
 }
 
+#[cfg(feature = "engine")]
 impl std::ops::DerefMut for VmTempRoot<'_> {
     #[inline]
     fn deref_mut(&mut self) -> &mut VmInner {
@@ -80,6 +96,7 @@ impl std::ops::DerefMut for VmTempRoot<'_> {
     }
 }
 
+#[cfg(feature = "engine")]
 impl Drop for VmTempRoot<'_> {
     fn drop(&mut self) {
         let stack = &mut self.vm.stack;

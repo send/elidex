@@ -508,6 +508,31 @@ fn array_reduce_right_with_initial() {
     );
 }
 
+#[test]
+fn array_reduce_object_accumulator_threads_through_iterations() {
+    // User callbacks can return arbitrary `JsValue::Object` handles
+    // for the accumulator; the rooted-stack-slot pattern in
+    // `native_array_reduce` keeps each intermediate object reachable
+    // by the GC scanner across the next `ctx.call_function`
+    // boundary.  Pinning contract: object accumulator survives every
+    // iteration with all properties intact (last + sum).  Pairs with
+    // `reduceRight` to exercise both the forward and reverse rooted
+    // loops.  Same-shape regression as
+    // `tests_typed_array_methods::reduce_object_accumulator_*`.
+    assert!(eval_bool(
+        "var r = [10, 20, 30].reduce(function(acc, v) { \
+             return { last: v, sum: (acc.sum || 0) + v }; \
+         }, { sum: 0 }); \
+         r.last === 30 && r.sum === 60;"
+    ));
+    assert!(eval_bool(
+        "var r = [10, 20, 30].reduceRight(function(acc, v) { \
+             return { last: v, sum: (acc.sum || 0) + v }; \
+         }, { sum: 0 }); \
+         r.last === 10 && r.sum === 60;"
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // find / findIndex
 // ---------------------------------------------------------------------------

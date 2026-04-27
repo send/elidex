@@ -78,12 +78,37 @@ impl StringPool {
 // BigIntPool
 // ---------------------------------------------------------------------------
 
-/// Pool of arbitrary-precision BigInt values. Allocated BigInts are permanent
-/// (not garbage-collected), following the same strategy as `StringPool`.
-/// Canonical 0n and 1n are pre-allocated to avoid repeated allocation in
-/// common patterns like `i + 1n`.
+/// Pool of arbitrary-precision BigInt values.  Allocated BigInts are
+/// permanent (not garbage-collected) but **deduplicated by value**:
+/// repeated `alloc(v)` for the same `v` returns the same `BigIntId`.
+/// Canonical `0n` and `1n` are pre-allocated and short-circuit
+/// before the dedup lookup to avoid hashing in common
+/// increment/decrement patterns (`i + 1n` etc.).
+///
+/// Dedup motivation: every TypedArray BigInt read
+/// (`%TypedArray%.prototype.{forEach, every, some, find, findIndex,
+/// findLast, findLastIndex, map, filter, reduce, reduceRight, sort,
+/// at, includes, indexOf, lastIndexOf, join, values, keys, entries,
+/// copyWithin, reverse, fill, ...}` on `BigInt64Array` /
+/// `BigUint64Array`) goes through `read_element_raw` which calls
+/// `alloc`.  Without dedup the pool grows by one entry per
+/// per-element read across the entire `%TypedArray%.prototype`
+/// surface, producing slow unbounded growth in long-running
+/// workloads (Copilot SP8c-A R5 surfaced this on `sort`).  With
+/// dedup, a `BigInt64Array(N).map(...)` allocates at most `N` new
+/// pool entries the first time each unique value appears, and
+/// subsequent passes — including the rest of the typed-array
+/// surface — find existing entries via the `dedup` lookup.
 pub(crate) struct BigIntPool {
     values: Vec<num_bigint::BigInt>,
+    /// Value → `BigIntId` index for deduplication.  Kept in sync
+    /// with `values` (every push also inserts here); never
+    /// removed because pool entries are permanent.
+    ///
+    /// `0n` and `1n` are NOT in `dedup` — they short-circuit in
+    /// [`Self::alloc`] before the lookup, so a `Hash` round-trip
+    /// for the hot increment/decrement path is avoided.
+    dedup: std::collections::HashMap<num_bigint::BigInt, value::BigIntId>,
     /// Pre-allocated ID for `0n`.
     pub(crate) zero: value::BigIntId,
     /// Pre-allocated ID for `1n`.
@@ -94,15 +119,23 @@ impl BigIntPool {
     pub(crate) fn new() -> Self {
         Self {
             values: vec![num_bigint::BigInt::from(0), num_bigint::BigInt::from(1)],
+            dedup: std::collections::HashMap::new(),
             zero: value::BigIntId(0),
             one: value::BigIntId(1),
         }
     }
 
-    /// Allocate a new BigInt, returning its `BigIntId`.
-    /// Returns cached IDs for 0 and 1.  `num_traits::One::is_one()` avoids
-    /// constructing a temporary `BigInt::from(1)` on every call (hot for
-    /// `i + 1n` / incrementing loops).
+    /// Allocate or reuse a `BigIntId` for `val`.  Hot-path order:
+    ///
+    /// 1. `0n` / `1n` short-circuit (sign / one check) — no hash.
+    /// 2. `dedup` lookup — value-equal BigInts share an id.
+    /// 3. Fresh push + `dedup.insert(val.clone(), id)`.
+    ///
+    /// `num_traits::One::is_one()` avoids constructing a temporary
+    /// `BigInt::from(1)` on every call (hot for `i + 1n` /
+    /// incrementing loops).  The clone in step 3 is unavoidable
+    /// because `dedup` and `values` both need to own the value;
+    /// for typical 1-2 limb BigInts the clone is ~16 bytes.
     pub(crate) fn alloc(&mut self, val: num_bigint::BigInt) -> value::BigIntId {
         use num_bigint::Sign;
         use num_traits::One;
@@ -111,7 +144,11 @@ impl BigIntPool {
             Sign::Plus if val.is_one() => return self.one,
             _ => {}
         }
+        if let Some(&id) = self.dedup.get(&val) {
+            return id;
+        }
         let id = value::BigIntId(self.values.len() as u32);
+        self.dedup.insert(val.clone(), id);
         self.values.push(val);
         id
     }
@@ -120,5 +157,56 @@ impl BigIntPool {
     #[inline]
     pub(crate) fn get(&self, id: value::BigIntId) -> &num_bigint::BigInt {
         &self.values[id.0 as usize]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num_bigint::BigInt;
+
+    #[test]
+    fn bigint_pool_dedups_repeated_values() {
+        // Pool dedup contract: `alloc(v)` for the same `v`
+        // returns the same `BigIntId`, so per-element TypedArray
+        // BigInt reads (`%TypedArray%.prototype.{forEach, every,
+        // some, find, map, filter, reduce, sort, ...}` on
+        // BigInt64Array / BigUint64Array) don't grow the pool
+        // unboundedly across repeated invocations.
+        let mut pool = BigIntPool::new();
+        let pre_len = pool.values.len();
+
+        // Three reads of `42n` share an id.
+        let id_42_first = pool.alloc(BigInt::from(42));
+        let id_42_second = pool.alloc(BigInt::from(42));
+        let id_42_third = pool.alloc(BigInt::from(42));
+        assert_eq!(id_42_first, id_42_second);
+        assert_eq!(id_42_first, id_42_third);
+        assert_eq!(pool.values.len(), pre_len + 1, "deduped to one entry");
+
+        // A different value gets a fresh id.
+        let id_neg7_first = pool.alloc(BigInt::from(-7));
+        assert_ne!(id_42_first, id_neg7_first);
+        assert_eq!(pool.values.len(), pre_len + 2);
+
+        // Re-allocating the new value also dedups.
+        let id_neg7_second = pool.alloc(BigInt::from(-7));
+        assert_eq!(id_neg7_first, id_neg7_second);
+        assert_eq!(pool.values.len(), pre_len + 2, "still two entries");
+    }
+
+    #[test]
+    fn bigint_pool_short_circuits_zero_and_one() {
+        // `0n` and `1n` are pre-allocated and short-circuit
+        // before the dedup hash lookup — verify no pool growth
+        // for repeated `0n`/`1n` allocations (hot path for
+        // `i + 1n` increment loops).
+        let mut pool = BigIntPool::new();
+        let pre_len = pool.values.len();
+        for _ in 0..100 {
+            assert_eq!(pool.alloc(BigInt::from(0)), pool.zero);
+            assert_eq!(pool.alloc(BigInt::from(1)), pool.one);
+        }
+        assert_eq!(pool.values.len(), pre_len, "no growth for canonical values");
     }
 }
