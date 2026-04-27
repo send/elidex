@@ -1475,6 +1475,30 @@ fn sort_throws_when_compare_fn_not_callable() {
 }
 
 #[test]
+fn sort_validates_compare_fn_before_brand_check() {
+    let mut vm = Vm::new();
+    // Spec §23.2.3.29 step 1 validates `comparefn` BEFORE the
+    // receiver brand-check, so `Uint8Array.prototype.sort.call({},
+    // 42)` must throw the "comparefn must be a function" TypeError
+    // — NOT the "called on non-TypedArray" brand error.  Easy to
+    // regress during refactors that move the brand-check earlier;
+    // pin the ordering with this regression test.
+    let err = vm
+        .eval("Uint8Array.prototype.sort.call({}, 42);")
+        .unwrap_err();
+    assert!(
+        err.message.contains("comparefn"),
+        "expected comparefn error, got: {}",
+        err.message
+    );
+    assert!(
+        !err.message.contains("non-TypedArray"),
+        "comparefn validation should fire BEFORE brand-check, got: {}",
+        err.message
+    );
+}
+
+#[test]
 fn sort_compare_fn_propagates_throw_atomically() {
     let mut vm = Vm::new();
     // Throwing comparefn surfaces as abrupt completion AND the
