@@ -194,7 +194,7 @@ fn require_subclass_ctor(
             // behaviour is identical; the always-resolve form
             // additionally honours user proxies / accessors on
             // the constructor's `.prototype` slot.
-            let proto_override = receiver_prototype(ctx, ctor_id, ek)?;
+            let proto_override = receiver_prototype(ctx, ctor_id)?;
             return Ok((ek, proto_override));
         }
         current = ctx.vm.get_object(id).prototype;
@@ -206,12 +206,15 @@ fn require_subclass_ctor(
 
 /// Read `ctor.prototype` via spec `Get(C, "prototype")`
 /// semantics — invokes a user-defined accessor (getter), honours
-/// inherited `.prototype` properties, and only falls back to the
-/// built-in subclass prototype when the get **succeeds** but
-/// yields a missing or non-Object value.  An exception thrown
-/// from the accessor (or from any inherited proxy trap) is
-/// propagated as an abrupt completion per spec, NOT swallowed —
-/// silent fallback would mask user errors.
+/// inherited `.prototype` properties.  Returns `Some(p)` only
+/// when the get yields an Object; non-Object / missing values
+/// return `Ok(None)`, leaving the prototype-fallback decision to
+/// the single caller ([`create_typed_array_for_length`]) so the
+/// fallback policy lives in one place rather than being
+/// duplicated across both helpers (Copilot R14 lesson).  An
+/// exception thrown from the accessor (or from any inherited
+/// proxy trap) is propagated as an abrupt completion per spec,
+/// NOT swallowed — silent fallback would mask user errors.
 ///
 /// Used by the user-subclass branch of [`require_subclass_ctor`]
 /// so `(class Sub extends Uint8Array {}).of(1, 2).constructor ===
@@ -223,12 +226,11 @@ fn require_subclass_ctor(
 fn receiver_prototype(
     ctx: &mut NativeContext<'_>,
     ctor_id: ObjectId,
-    ek: ElementKind,
 ) -> Result<Option<ObjectId>, VmError> {
     let proto_key = PropertyKey::String(ctx.vm.well_known.prototype);
     match ctx.get_property_value(ctor_id, proto_key)? {
         JsValue::Object(p) => Ok(Some(p)),
-        _ => Ok(subclass_prototype_for(ctx.vm, ek)),
+        _ => Ok(None),
     }
 }
 
