@@ -141,18 +141,19 @@ fn require_subclass_ctor(
             break;
         }
         if let Some(ek) = ctor_to_element_kind(ctx.vm, id) {
-            // Found a registered ctor in the chain.  If the
-            // original receiver IS the registered ctor, hand back
-            // `None` to defer prototype resolution to
-            // `subclass_prototype_for` (the standard path).
-            // Otherwise (user-defined subclass), read the receiver's
-            // own `.prototype` data property to preserve subclass
-            // identity on the new instance.
-            let proto_override = if id == ctor_id {
-                None
-            } else {
-                receiver_prototype(ctx, ctor_id, ek)?
-            };
+            // Found a registered ctor in the chain.  Always resolve
+            // the prototype from the original receiver constructor,
+            // including the case where the receiver IS the
+            // registered built-in — this mirrors the
+            // `new.target.prototype` preservation that `do_new` /
+            // `construct_typed_array` already give the
+            // `new Uint8Array(...)` path.  Under default conditions
+            // the receiver's `.prototype` IS the cached
+            // `subclass_array_prototypes[ek]`, so observable
+            // behaviour is identical; the always-resolve form
+            // additionally honours user proxies / accessors on
+            // the constructor's `.prototype` slot.
+            let proto_override = receiver_prototype(ctx, ctor_id, ek)?;
             return Ok((ek, proto_override));
         }
         current = ctx.vm.get_object(id).prototype;
@@ -214,14 +215,23 @@ fn create_typed_array_for_length(
             ek.name()
         ))
     })?;
-    let (buf_id, _, _) = allocate_fresh_buffer(ctx, byte_len)?;
-    // Root the freshly allocated buffer across the subsequent view
-    // alloc — `alloc_object` could otherwise reclaim the buffer's
-    // slot before the view links it.  Same RAII rooting pattern as
-    // `init_from_typed_array` / `init_from_iterable_body`.
-    let mut g = ctx.vm.push_temp_root(JsValue::Object(buf_id));
-    let prototype = proto_override.or_else(|| subclass_prototype_for(&g, ek));
-    let view_id = g.alloc_object(Object {
+    // Single stack scope rooting both `proto_override` (when an
+    // accessor-resolved prototype that may be reachable only via
+    // a Rust local) and the freshly allocated `buf_id` across the
+    // view's `alloc_object`.  Two `push_temp_root` guards would
+    // overlap the `&mut ctx.vm` borrow; the looser stack scope
+    // accepts an arbitrary number of pushed values and restores
+    // the stack on every exit (success / `?` propagation /
+    // panic) via the guard's `Drop`.
+    let mut frame = ctx.vm.push_stack_scope();
+    if let Some(p) = proto_override {
+        frame.stack.push(JsValue::Object(p));
+    }
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let (buf_id, _, _) = allocate_fresh_buffer(&mut sub_ctx, byte_len)?;
+    sub_ctx.vm.stack.push(JsValue::Object(buf_id));
+    let prototype = proto_override.or_else(|| subclass_prototype_for(sub_ctx.vm, ek));
+    let view_id = sub_ctx.vm.alloc_object(Object {
         kind: ObjectKind::TypedArray {
             buffer_id: buf_id,
             byte_offset: 0,
@@ -232,7 +242,7 @@ fn create_typed_array_for_length(
         prototype,
         extensible: true,
     });
-    drop(g);
+    drop(frame);
     Ok(view_id)
 }
 
