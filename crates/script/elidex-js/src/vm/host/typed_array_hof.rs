@@ -621,6 +621,19 @@ fn reduce_impl(
 /// stable insertion sort (same shape as
 /// `Array.prototype.sort`); default branch uses Rust's stable
 /// `slice::sort_by`.
+///
+/// **Default-`BigInt` fast path**: `compareFn`-absent sorts on
+/// `BigInt64Array` / `BigUint64Array` route through
+/// [`sort_bigint_in_place`], which reads each element as raw
+/// 8-byte LE words via [`super::byte_io::read_into`], sorts the
+/// `i64` / `u64` values directly, and writes back via
+/// [`super::byte_io::write_at`].  Avoids allocating a fresh
+/// `BigIntId` per element — `BigIntPool` is permanent (not
+/// GC-collected, no deduplication beyond `0n`/`1n`), so repeated
+/// `.sort()` calls on large BigInt arrays would otherwise grow
+/// the pool unboundedly.  The `compareFn` branch on BigInt
+/// arrays still materialises via `read_element_raw` because the
+/// user comparator receives `JsValue` arguments.
 pub(crate) fn native_typed_array_sort(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -649,6 +662,12 @@ pub(crate) fn native_typed_array_sort(
     } = parts;
 
     if len_elem < 2 {
+        return Ok(JsValue::Object(receiver_id));
+    }
+
+    // BigInt fast path — see fn-level docstring.
+    if compare_fn.is_none() && ek.is_bigint() {
+        sort_bigint_in_place(ctx, buffer_id, byte_offset, ek, len_elem);
         return Ok(JsValue::Object(receiver_id));
     }
 
@@ -730,5 +749,96 @@ fn default_typed_array_compare(
         },
         (JsValue::BigInt(ai), JsValue::BigInt(bi)) => vm.bigints.get(ai).cmp(vm.bigints.get(bi)),
         _ => Ordering::Equal,
+    }
+}
+
+/// In-place sort for `BigInt64Array` / `BigUint64Array` that
+/// avoids materialising any `BigInt` `JsValue` — the
+/// no-`compareFn` fast path called from
+/// [`native_typed_array_sort`].  Reads each 8-byte slot as a raw
+/// `i64` / `u64` little-endian word via
+/// [`super::byte_io::read_into`], sorts the integer Vec
+/// directly, and writes back via [`super::byte_io::write_at`].
+///
+/// Skipping the `BigIntPool::alloc` round-trip per element is
+/// what makes repeated `.sort()` on large BigInt arrays bounded
+/// in memory: `BigIntPool` is permanent (not GC-collected, only
+/// `0n` and `1n` are deduplicated by `alloc`), so the
+/// `read_element_raw` path would grow the pool by `len_elem`
+/// entries on every sort call.
+///
+/// `i64` / `u64` `Ord` is the same total order spec
+/// `TypedArrayElementSortCompare` produces for BigInt values
+/// (`<` lifts directly to `Ord` because there is no `NaN` in
+/// either domain).  Stable `slice::sort` is sufficient — the
+/// integer values themselves are the keys, no equal-element
+/// stability concern.
+///
+/// Offset arithmetic stays in `usize` with `checked_*` to
+/// mirror the [`super::byte_io`] overflow contract (carry-over
+/// SP9 bulk-fill lesson) — a malformed receiver can't wrap and
+/// write to the wrong slot; on overflow this becomes a silent
+/// no-op matching the byte_io guards.
+fn sort_bigint_in_place(
+    ctx: &mut NativeContext<'_>,
+    buffer_id: ObjectId,
+    byte_offset: u32,
+    ek: super::super::value::ElementKind,
+    len_elem: u32,
+) {
+    use super::super::value::ElementKind;
+    use super::byte_io;
+    let byte_offset_us = byte_offset as usize;
+    let len_us = len_elem as usize;
+    // 8 bytes per element for both BigInt64 and BigUint64;
+    // hard-coded since the const-generic `read_into` parameter
+    // cannot read the value at runtime.
+    const BPE: usize = 8;
+    // Pre-validate offset+span overflow once for the whole loop;
+    // realistic receivers are bounded but a malformed `byte_offset`
+    // could wrap on 32-bit usize targets.
+    let Some(span) = len_us
+        .checked_mul(BPE)
+        .and_then(|s| byte_offset_us.checked_add(s))
+    else {
+        return;
+    };
+    let _ = span; // bounds-check only; reads/writes use per-element abs
+
+    let read_abs = |i: usize| -> Option<usize> {
+        i.checked_mul(BPE)
+            .and_then(|off| byte_offset_us.checked_add(off))
+    };
+
+    match ek {
+        ElementKind::BigInt64 => {
+            let mut values: Vec<i64> = Vec::with_capacity(len_us);
+            for i in 0..len_us {
+                let Some(abs) = read_abs(i) else { return };
+                let bytes = byte_io::read_into::<BPE>(&ctx.vm.body_data, buffer_id, abs);
+                values.push(i64::from_le_bytes(bytes));
+            }
+            values.sort();
+            for (i, v) in values.into_iter().enumerate() {
+                let Some(abs) = read_abs(i) else { return };
+                byte_io::write_at(&mut ctx.vm.body_data, buffer_id, abs, &v.to_le_bytes());
+            }
+        }
+        ElementKind::BigUint64 => {
+            let mut values: Vec<u64> = Vec::with_capacity(len_us);
+            for i in 0..len_us {
+                let Some(abs) = read_abs(i) else { return };
+                let bytes = byte_io::read_into::<BPE>(&ctx.vm.body_data, buffer_id, abs);
+                values.push(u64::from_le_bytes(bytes));
+            }
+            values.sort();
+            for (i, v) in values.into_iter().enumerate() {
+                let Some(abs) = read_abs(i) else { return };
+                byte_io::write_at(&mut ctx.vm.body_data, buffer_id, abs, &v.to_le_bytes());
+            }
+        }
+        _ => unreachable!(
+            "sort_bigint_in_place is only called from the BigInt branch of native_typed_array_sort"
+        ),
     }
 }
