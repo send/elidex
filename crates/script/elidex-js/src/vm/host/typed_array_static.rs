@@ -311,60 +311,14 @@ pub(crate) fn native_typed_array_from(
     };
     let this_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
 
-    // Drain `source` into a `Vec<JsValue>` first — the source-side
-    // pass (iterator drain or array-like read) is decoupled from
-    // the destination-side write so the two can run independently
-    // (the destination buffer is sized once, after the count is
-    // known, and rooted across the per-element write loop).  Mirror
-    // of the `init_from_iterable` / `init_from_array_like` shape
-    // in `typed_array_ctor.rs`.
-    let values = collect_source_values(ctx, source, map_fn, this_arg, ek)?;
-    let len = u32::try_from(values.len()).map_err(|_| {
-        VmError::range_error(format!(
-            "Failed to execute 'from' on '{}': too many elements in source",
-            ek.name()
-        ))
-    })?;
-
-    let view_id = create_typed_array_for_length(ctx, ek, proto_override, len)?;
-    let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
-    let mut sub_ctx = NativeContext { vm: &mut g };
-    let (buf_id, byte_offset) = match sub_ctx.vm.get_object(view_id).kind {
-        ObjectKind::TypedArray {
-            buffer_id,
-            byte_offset,
-            ..
-        } => (buffer_id, byte_offset),
-        _ => unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray"),
-    };
-    for (i, value) in values.into_iter().enumerate() {
-        #[allow(clippy::cast_possible_truncation)]
-        let idx = i as u32;
-        write_element_raw(&mut sub_ctx, buf_id, byte_offset, idx, ek, value)?;
-    }
-    drop(g);
-    Ok(JsValue::Object(view_id))
-}
-
-/// Source-side drain for [`native_typed_array_from`].  Resolves
-/// `source` to either an iterator (callable `@@iterator`) or an
-/// array-like (length + integer-indexed read), then collects each
-/// value into the returned `Vec`, applying `map_fn(value, index)`
-/// with `this_arg` as the callback receiver if present.
-///
-/// `@@iterator` is fetched **once** (a single
-/// `GetMethod`-equivalent) — a user-defined getter for the symbol
-/// MUST NOT run twice between probe and call (spec §7.3.10
-/// `GetMethod` evaluates the getter once).  `null` / `undefined`
-/// `@@iterator` falls through to the array-like branch rather
-/// than throwing.
-fn collect_source_values(
-    ctx: &mut NativeContext<'_>,
-    source: JsValue,
-    map_fn: Option<ObjectId>,
-    this_arg: JsValue,
-    ek: ElementKind,
-) -> Result<Vec<JsValue>, VmError> {
+    // Drain into vm.stack and run alloc + per-element write inside
+    // the SAME stack scope so collected `JsValue`s remain GC-rooted
+    // through the destination TypedArray's allocation.  Snapshotting
+    // to a `Vec<JsValue>` between drain and alloc would leave the
+    // values invisible to GC; `create_typed_array_for_length`'s
+    // `alloc_object` is a potential GC point that could collect any
+    // object values referenced only from the snapshot — leaving
+    // stale `ObjectId`s and a use-after-free in the write loop.
     let iter_method = lookup_iterator_method(ctx, source)?;
     if !iter_method.is_nullish() {
         let JsValue::Object(iter_fn_id) = iter_method else {
@@ -386,7 +340,9 @@ fn collect_source_values(
                 ek.name()
             )));
         };
-        return drain_iterator_into_stack(ctx, iter_val, map_fn, this_arg);
+        return with_drained_iterator_on_stack(ctx, iter_val, map_fn, this_arg, |sub_ctx, vals| {
+            allocate_and_write_view(sub_ctx, ek, proto_override, vals)
+        });
     }
 
     // Array-like fallback (§23.2.2.1 step 8.b): read `source.length`
@@ -420,36 +376,97 @@ fn collect_source_values(
         let l = truncated as u32;
         l
     };
-    drain_array_like_into_stack(ctx, source_obj, len_capped, map_fn, this_arg)
+    with_drained_array_like_on_stack(
+        ctx,
+        source_obj,
+        len_capped,
+        map_fn,
+        this_arg,
+        |sub_ctx, vals| allocate_and_write_view(sub_ctx, ek, proto_override, vals),
+    )
 }
 
-/// Drain `iter_val` into a `Vec<JsValue>` while keeping the
-/// iterator + every drained element rooted on `vm.stack` for the
-/// duration of every user-code re-entry (`iter_next`, optional
-/// `map_fn`).  Rust locals / `Vec<JsValue>` are invisible to GC
-/// once native-call collection is enabled (the standard invariant
-/// preserved across the whole engine — `init_from_iterable_body`
-/// uses the same scope shape).
+/// Materialise a fresh `<ek>Array` of length `vals.len()` and copy
+/// each value through the destination's `[[Set]]` coercion.  Lives
+/// inside the source-drain stack scope so `vals` stays rooted on
+/// `vm.stack` across the `alloc_object` GC point in
+/// [`create_typed_array_for_length`] and the per-element
+/// [`write_element_raw`] loop.
+fn allocate_and_write_view(
+    ctx: &mut NativeContext<'_>,
+    ek: ElementKind,
+    proto_override: Option<ObjectId>,
+    vals: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let len = u32::try_from(vals.len()).map_err(|_| {
+        VmError::range_error(format!(
+            "Failed to execute 'from' on '{}': too many elements in source",
+            ek.name()
+        ))
+    })?;
+    let view_id = create_typed_array_for_length(ctx, ek, proto_override, len)?;
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
+    let mut sub_ctx = NativeContext { vm: &mut g };
+    let (buf_id, byte_offset) = match sub_ctx.vm.get_object(view_id).kind {
+        ObjectKind::TypedArray {
+            buffer_id,
+            byte_offset,
+            ..
+        } => (buffer_id, byte_offset),
+        _ => unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray"),
+    };
+    for (i, value) in vals.iter().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
+        let idx = i as u32;
+        write_element_raw(&mut sub_ctx, buf_id, byte_offset, idx, ek, *value)?;
+    }
+    drop(g);
+    Ok(JsValue::Object(view_id))
+}
+
+/// Drain `iter_val` onto `vm.stack`, then run `body` while every
+/// drained `JsValue` (and the iterator object) remains rooted on
+/// the stack.  `body` is the alloc + per-element-write phase; running
+/// it inside the same stack scope as the drain ensures
+/// `alloc_object` GC points cannot collect any object values
+/// referenced from the stack range — snapshotting those values
+/// into an unrooted `Vec<JsValue>` between drain and alloc would
+/// leave them invisible to GC and produce stale `ObjectId`s
+/// (Copilot R7 lesson).  Mirrors the `init_from_iterable_body`
+/// pattern in `typed_array_ctor.rs`.
 ///
 /// IteratorClose (§7.4.6) runs on `map_fn` abrupt completion
 /// before the stack scope drops, so the iterator's `.return()`
 /// observes a still-rooted iter; `iter_next` throw is spec-exempt
 /// and propagates without close.
-fn drain_iterator_into_stack(
+fn with_drained_iterator_on_stack<R, F>(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,
     map_fn: Option<ObjectId>,
     this_arg: JsValue,
-) -> Result<Vec<JsValue>, VmError> {
+    body: F,
+) -> Result<R, VmError>
+where
+    F: FnOnce(&mut NativeContext<'_>, &[JsValue]) -> Result<R, VmError>,
+{
     let mut frame = ctx.vm.push_stack_scope();
     let iter_slot = frame.saved_len();
     frame.stack.push(iter_val);
     let elem_start = iter_slot + 1;
     let mut sub_ctx = NativeContext { vm: &mut frame };
-    let drain_result = drain_iterator_loop(&mut sub_ctx, iter_val, map_fn, this_arg, elem_start);
-    let snapshot = drain_result.map(|()| frame.stack[elem_start..].to_vec());
+    drain_iterator_loop(&mut sub_ctx, iter_val, map_fn, this_arg, elem_start)?;
+    // Borrow the rooted slice immutably for the body — the values
+    // live on the still-live `frame.stack`, so any GC during
+    // `body`'s alloc phase will trace them as roots.  `JsValue` is
+    // `Copy`; a local snapshot of the slice handles the
+    // borrow-checker conflict between `&sub_ctx.vm` (slice) and
+    // `&mut sub_ctx` (body) without losing the rooting (the stack
+    // entries themselves remain live).
+    let elems_len = sub_ctx.vm.stack.len() - elem_start;
+    let rooted: Vec<JsValue> = sub_ctx.vm.stack[elem_start..elem_start + elems_len].to_vec();
+    let result = body(&mut sub_ctx, &rooted);
     drop(frame);
-    snapshot
+    result
 }
 
 /// Inner loop of [`drain_iterator_into_stack`], split so the outer
@@ -484,29 +501,36 @@ fn drain_iterator_loop(
     Ok(())
 }
 
-/// Drain the array-like `source_obj[0..len_capped]` into a
-/// `Vec<JsValue>` while keeping every drained element rooted on
-/// `vm.stack` across `get_element` / optional `map_fn` user-code
-/// re-entry — same GC-rooting invariant as
-/// [`drain_iterator_into_stack`].
-fn drain_array_like_into_stack(
+/// Drain the array-like `source_obj[0..len_capped]` onto
+/// `vm.stack`, then run `body` while drained values remain rooted
+/// — same GC-rooting invariant as
+/// [`with_drained_iterator_on_stack`] (no iterator close needed
+/// because the source isn't an iterator).
+fn with_drained_array_like_on_stack<R, F>(
     ctx: &mut NativeContext<'_>,
     source_obj: ObjectId,
     len_capped: u32,
     map_fn: Option<ObjectId>,
     this_arg: JsValue,
-) -> Result<Vec<JsValue>, VmError> {
+    body: F,
+) -> Result<R, VmError>
+where
+    F: FnOnce(&mut NativeContext<'_>, &[JsValue]) -> Result<R, VmError>,
+{
     let mut frame = ctx.vm.push_stack_scope();
     let elem_start = frame.saved_len();
     let mut sub_ctx = NativeContext { vm: &mut frame };
-    let body_result = drain_array_like_loop(&mut sub_ctx, source_obj, len_capped, map_fn, this_arg);
-    let snapshot = body_result.map(|()| frame.stack[elem_start..].to_vec());
+    drain_array_like_loop(&mut sub_ctx, source_obj, len_capped, map_fn, this_arg)?;
+    let elems_len = sub_ctx.vm.stack.len() - elem_start;
+    let rooted: Vec<JsValue> = sub_ctx.vm.stack[elem_start..elem_start + elems_len].to_vec();
+    let result = body(&mut sub_ctx, &rooted);
     drop(frame);
-    snapshot
+    result
 }
 
-/// Inner loop of [`drain_array_like_into_stack`].  Pushed elements
-/// are released by the parent's stack-scope `Drop` on every exit.
+/// Inner loop of [`with_drained_array_like_on_stack`].  Pushed
+/// elements are released by the parent's stack-scope `Drop` on
+/// every exit.
 fn drain_array_like_loop(
     ctx: &mut NativeContext<'_>,
     source_obj: ObjectId,
@@ -528,35 +552,30 @@ fn drain_array_like_loop(
     Ok(())
 }
 
-/// Resolve `source`'s `@@iterator` method to a `JsValue` for
-/// this VM's current `%TypedArray%.from` iterator lookup
-/// semantics: `Undefined` if no entry, the resolved property
-/// value otherwise.  For `Object` sources, looks up `@@iterator`
-/// on the object itself (with prototype chain).  For `String`
-/// primitives, looks up on `String.prototype` (the spec-mandated
-/// location for the boxed wrapper).  All other primitives are
-/// treated as having no iterator and return `Undefined` — strict
-/// spec `GetMethod(ToObject(source), @@iterator)` would consult
-/// the `Number` / `Boolean` wrapper prototypes too, but those
-/// have no `@@iterator` in our environment, so the observable
-/// outcome is identical (fall through to the array-like branch,
-/// which itself runs `ToObject(source)`).
+/// Resolve `source`'s `@@iterator` method to a `JsValue` per spec
+/// `GetMethod(ToObject(source), @@iterator)` (§7.3.10): `null` /
+/// `undefined` source returns `Undefined` immediately (no
+/// iterator); every other value (`Object`, `String`, `Number`,
+/// `Boolean`, `BigInt`, `Symbol`) is boxed via `ToObject` so
+/// prototype-installed iterators on **any** primitive's wrapper
+/// prototype are honoured (e.g. user-defined
+/// `Number.prototype[Symbol.iterator]`).
 ///
-/// For the supported cases above, the single `get_property` +
-/// `resolve_property` pair preserves the spec's "read once"
-/// behaviour — a user getter on `@@iterator` is invoked exactly
-/// once between probe and call (§7.3.10 GetMethod).
+/// `resolve_property(prop, source)` keeps the **original**
+/// `source` as the receiver passed to a `@@iterator` accessor,
+/// matching `GetV` semantics — the wrapper is a transient lookup
+/// vehicle, not the `this` binding of any user getter.
+///
+/// The single `get_property` + `resolve_property` pair preserves
+/// the spec's "read once" behaviour — a user getter on
+/// `@@iterator` is invoked exactly once between probe and call.
 fn lookup_iterator_method(
     ctx: &mut NativeContext<'_>,
     source: JsValue,
 ) -> Result<JsValue, VmError> {
-    let lookup_id = match source {
-        JsValue::Object(id) => Some(id),
-        JsValue::String(_) => ctx.vm.string_prototype,
-        _ => None,
-    };
-    let Some(obj_id) = lookup_id else {
-        return Ok(JsValue::Undefined);
+    let obj_id = match source {
+        JsValue::Undefined | JsValue::Null => return Ok(JsValue::Undefined),
+        _ => super::super::coerce::to_object(ctx.vm, source)?,
     };
     let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
     match super::super::coerce::get_property(ctx.vm, obj_id, iter_key) {

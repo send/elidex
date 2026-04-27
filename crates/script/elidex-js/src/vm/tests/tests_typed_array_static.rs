@@ -481,6 +481,28 @@ fn typed_array_of_handles_deep_subclass_tower() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn typed_array_from_honours_primitive_wrapper_iterator() {
+    let mut vm = Vm::new();
+    // Spec `GetMethod(ToObject(source), @@iterator)` — non-Object
+    // primitives are boxed via `ToObject` for the lookup so a
+    // user-installed iterator on the wrapper prototype (here
+    // `Number.prototype`) is honoured.  The pre-fix
+    // `lookup_iterator_method` returned `Undefined` for non-Object
+    // / non-String sources, which fell through to the array-like
+    // branch and ignored the prototype iterator.
+    assert!(eval_bool(
+        &mut vm,
+        "Number.prototype[Symbol.iterator] = function () { \
+             return [10, 20, 30][Symbol.iterator](); \
+         }; \
+         var a = Uint8Array.from(7); \
+         var ok = a.length === 3 && a[0] === 10 && a[1] === 20 && a[2] === 30; \
+         delete Number.prototype[Symbol.iterator]; \
+         ok;"
+    ));
+}
+
+#[test]
 fn typed_array_from_invokes_iterator_getter_exactly_once() {
     let mut vm = Vm::new();
     // Spec §7.3.10 `GetMethod` evaluates the @@iterator getter
