@@ -32,13 +32,22 @@ use super::value::{StringId, SymbolId, SymbolRecord};
 ///
 /// The `"section name" { ... }` blocks act as navigation markers
 /// in the source — the macro consumes the literal but doesn't emit
-/// it (so no per-section runtime overhead).  Pure declarative
-/// macro_rules; no proc-macro infrastructure needed.
+/// it (so no per-section runtime overhead).  Each field accepts an
+/// optional `$(#[$attr:meta])*` attribute prefix which gets emitted
+/// on the generated struct field — `///` rustdoc comments work as
+/// `#[doc = "..."]` attrs and survive the expansion intact.  Plain
+/// `//` line comments inside the macro invocation are stripped at
+/// parse time (transparent to the expansion) and serve as inline
+/// rationale for human readers.  Pure declarative macro_rules; no
+/// proc-macro infrastructure needed.
 macro_rules! define_well_known_strings {
     (
         $(
             $_section:literal {
-                $( $field:ident => $literal:literal ),* $(,)?
+                $(
+                    $(#[$attr:meta])*
+                    $field:ident => $literal:literal
+                ),* $(,)?
             }
         )*
     ) => {
@@ -50,7 +59,10 @@ macro_rules! define_well_known_strings {
         /// below, so no `field`/`literal` divergence is possible.
         #[allow(dead_code)] // Fields used by interpreter and future built-ins.
         pub(crate) struct WellKnownStrings {
-            $($( pub(crate) $field: StringId, )*)*
+            $($(
+                $(#[$attr])*
+                pub(crate) $field: StringId,
+            )*)*
         }
 
         impl WellKnownStrings {
@@ -110,6 +122,10 @@ define_well_known_strings! {
         configurable => "configurable",
         writable => "writable",
         source => "source",
+        /// `MessageEvent.ports` — pre-interned so the postMessage
+        /// shape extension picks the StringId out of `WellKnownStrings`
+        /// instead of round-tripping through `strings.intern("ports")`
+        /// per dispatched event.
         ports => "ports",
         flags => "flags",
         status => "status",
@@ -121,6 +137,10 @@ define_well_known_strings! {
     }
 
     "Event-dispatch identifiers (PR3)" {
+        // Property names installed on every event object — pre-interned
+        // here to avoid a HashMap lookup per name per dispatch.  Listener
+        // option keys (`capture`/`once`/`passive`) live here too since
+        // every `addEventListener` with options-object form reads them.
         event_type => "type",
         bubbles => "bubbles",
         cancelable => "cancelable",
@@ -144,20 +164,36 @@ define_well_known_strings! {
         performance => "performance",
         location => "location",
         history => "history",
+        /// `document.readyState` constant — returned every read of the
+        /// stub getter.  Pre-interning avoids a per-access StringPool
+        /// allocation on what would otherwise be a HashMap lookup path.
         complete => "complete",
+        /// `history.scrollRestoration` constant — same rationale as `complete`.
         auto => "auto",
+        /// Pre-interned `"about:blank"` for callers that need the default
+        /// blank-document URL as a `StringId` without repeating
+        /// `strings.intern("about:blank")`.  `NavigationState::new` uses
+        /// the `String` form directly; this field ensures the pool entry
+        /// exists so that subsequent `intern` calls on the same literal
+        /// are HashMap hits rather than fresh insertions.
         about_blank => "about:blank",
         unhandledrejection => "unhandledrejection",
         promise => "promise",
     }
 
     "Event constructor globals" {
+        // `Event` / `CustomEvent` are the global names bound to their
+        // respective constructable functions; `detail` is a property key
+        // on CustomEvent instances (CustomEventInit dict member + accessor).
         event_global => "Event",
         custom_event_global => "CustomEvent",
         detail => "detail",
     }
 
     "Specialized Event constructor globals (UIEvent family)" {
+        // WebIDL names for the UIEvent family.  Each binds to a
+        // constructable function installed during `register_globals` and
+        // chains through `UIEvent.prototype → Event.prototype`.
         ui_event_global => "UIEvent",
         mouse_event_global => "MouseEvent",
         keyboard_event_global => "KeyboardEvent",
@@ -166,6 +202,9 @@ define_well_known_strings! {
     }
 
     "UIEvent / MouseEvent / KeyboardEvent init-dict keys" {
+        // `view`, plus MouseEvent-specific constructor keys beyond the
+        // UA-dispatch Mouse payload set.  `detail` is reused from
+        // CustomEvent above; `location` is reused from Window.location.
         view => "view",
         screen_x => "screenX",
         screen_y => "screenY",
@@ -174,6 +213,9 @@ define_well_known_strings! {
     }
 
     "Non-UIEvent specialized constructor globals" {
+        // PromiseRejectionEvent / ErrorEvent / HashChangeEvent /
+        // PopStateEvent all chain directly to `Event.prototype` (not
+        // UIEvent — they're sibling subclasses of Event).
         promise_rejection_event_global => "PromiseRejectionEvent",
         error_event_global => "ErrorEvent",
         hash_change_event_global => "HashChangeEvent",
@@ -181,6 +223,8 @@ define_well_known_strings! {
     }
 
     "ErrorEvent / PopStateEvent init-dict keys" {
+        // `message` / `error` / `reason` / `promise` / `old_url` /
+        // `new_url` already exist elsewhere and are reused here.
         filename => "filename",
         lineno => "lineno",
         colno => "colno",
@@ -188,6 +232,15 @@ define_well_known_strings! {
     }
 
     "Event payload property keys" {
+        // Pre-interned so `create_event_object`'s payload installation
+        // can feed them directly into the precomputed-shape slot array
+        // without per-dispatch `strings.intern(name)` calls.  Also used
+        // by `VmInner::build_precomputed_event_shapes` to walk the
+        // shape-transition chain once at `register_globals` time.
+        //
+        // Shared keys (used by multiple payload variants) are defined
+        // once: `alt_key`, `ctrl_key`, `meta_key`, `shift_key`, `data`,
+        // `code`, `elapsed_time`, `pseudo_element`, `key`.
         client_x => "clientX",
         client_y => "clientY",
         button => "button",
@@ -223,6 +276,10 @@ define_well_known_strings! {
     }
 
     "Node / Element accessors" {
+        // Pre-interned here because every DOM access touches one of
+        // them.  Keeping the `StringId`s in `WellKnownStrings` lets the
+        // native getters reach them with a field read rather than a
+        // per-call `strings.intern(...)`.
         parent_node => "parentNode",
         parent_element => "parentElement",
         first_child => "firstChild",
@@ -268,6 +325,7 @@ define_well_known_strings! {
         owner_document => "ownerDocument",
         get_root_node => "getRootNode",
         normalize => "normalize",
+        // Element.prototype.insertAdjacent* (PR4f C4).
         insert_adjacent_element => "insertAdjacentElement",
         insert_adjacent_text => "insertAdjacentText",
         beforebegin => "beforebegin",
@@ -276,16 +334,33 @@ define_well_known_strings! {
         afterend => "afterend",
         get_elements_by_tag_name => "getElementsByTagName",
         get_elements_by_class_name => "getElementsByClassName",
+        // Document RO / RW accessors (PR4f C6 / C7).
         css1_compat => "CSS1Compat",
+        // DocumentType.prototype attrs (PR4f C7).
         public_id => "publicId",
         system_id => "systemId",
+        // Document collections + stubs (PR4f C7).
         cookie => "cookie",
         referrer => "referrer",
         forms => "forms",
         images => "images",
         links => "links",
+        // HTMLElement.prototype method + accessor names (PR5b §C1).
+        // `focus` / `blur` install as methods; `activeElement` /
+        // `hasFocus` install as document accessor + method
+        // respectively.  Pre-interned here so install sites and
+        // receiver brand-check helpers share a single StringId.
         focus => "focus",
         blur => "blur",
+        // HTMLElement IDL attribute names (PR5b §C2).  Each covers the
+        // IDL property identifier; the matching HTML content-attribute
+        // name is sometimes identical (lang / title / dir / hidden /
+        // nonce / translate / spellcheck / autofocus) and sometimes a
+        // case-folded variant (`accessKey` ↔ `accesskey`, `tabIndex` ↔
+        // `tabindex`, `inputMode` ↔ `inputmode`, `enterKeyHint` ↔
+        // `enterkeyhint`, `contentEditable` ↔ `contenteditable`).
+        // WHATWG §3.2.8 / §6.6 / §6.7.  `isContentEditable` is a
+        // readonly derived accessor with no backing content attribute.
         access_key => "accessKey",
         tab_index => "tabIndex",
         draggable => "draggable",
@@ -302,8 +377,10 @@ define_well_known_strings! {
         content_editable => "contentEditable",
         is_content_editable => "isContentEditable",
         autofocus => "autofocus",
+        // HTMLCollection / NodeList IDL members (PR5b §C3).
         item => "item",
         named_item => "namedItem",
+        // NamedNodeMap + Attr IDL members (PR5b §C4 + §C4.5).
         attributes => "attributes",
         get_attribute_node => "getAttributeNode",
         set_attribute_node => "setAttributeNode",
@@ -319,6 +396,7 @@ define_well_known_strings! {
         local_name => "localName",
         prefix => "prefix",
         specified => "specified",
+        // HTMLIFrameElement.prototype property names (PR4f C8).
         src => "src",
         srcdoc => "srcdoc",
         referrer_policy => "referrerPolicy",
@@ -330,18 +408,26 @@ define_well_known_strings! {
         allow_fullscreen => "allowFullscreen",
         content_document => "contentDocument",
         content_window => "contentWindow",
+        // CharacterData (PR4e C5) method names.  `data` / `length` live
+        // elsewhere (`data` under event-payload keys above, `length`
+        // under core).
         append_data => "appendData",
         insert_data => "insertData",
         delete_data => "deleteData",
         replace_data => "replaceData",
         substring_data => "substringData",
+        // Text.prototype (PR4e C5.5)
         split_text => "splitText",
+        // ChildNode / ParentNode mixins (PR4e C6 / C7)
         before => "before",
         after => "after",
         replace_with => "replaceWith",
         prepend => "prepend",
         append => "append",
         replace_children => "replaceChildren",
+        // `Node.prototype.nodeName` constants for non-Element nodes.
+        // Pre-interned so `native_node_get_node_name` returns a cached
+        // `StringId` without per-call allocation.
         hash_text => "#text",
         hash_comment => "#comment",
         hash_document => "#document",
@@ -349,6 +435,11 @@ define_well_known_strings! {
     }
 
     "AbortController / AbortSignal (PR4d)" {
+        // Method, accessor, and listener-option key names.  Pre-interned
+        // here so `parse_listener_options` can look up `signal` without
+        // re-interning per `addEventListener` call, and so the prototype
+        // installer can assemble its property list without re-interning
+        // on every VM construction.
         abort_controller => "AbortController",
         abort_signal => "AbortSignal",
         signal => "signal",
@@ -357,12 +448,21 @@ define_well_known_strings! {
         onabort => "onabort",
         throw_if_aborted => "throwIfAborted",
         abort_error => "AbortError",
+        // EventTarget method names — referenced by both the
+        // EventTarget.prototype installer and AbortSignal.prototype's
+        // shadowing installer.  Pre-interning here means each prototype
+        // installer hits an existing pool entry instead of allocating.
         add_event_listener => "addEventListener",
         remove_event_listener => "removeEventListener",
         dispatch_event => "dispatchEvent",
     }
 
     "DOMException" {
+        // The constructor identifier, WebIDL member names, and the
+        // subset of WHATWG §2.1 spec exception names currently used.
+        // Additional names land at their first use site (interning is
+        // deduplicating, so a later `well_known` entry is a
+        // HashMap-hit fallback for hot paths).
         dom_exception => "DOMException",
         dom_exc_syntax_error => "SyntaxError",
         dom_exc_hierarchy_request_error => "HierarchyRequestError",
@@ -374,6 +474,10 @@ define_well_known_strings! {
     }
 
     "Headers (WHATWG Fetch §5.2)" {
+        // Method and iteration-helper names.  `get` / `set` / `append` /
+        // `value` / `key` already live elsewhere and are reused here.
+        // `delete` is an ES keyword — field named `delete_str` to
+        // sidestep the `r#delete` raw-identifier contortion.
         headers_global => "Headers",
         headers => "headers",
         delete_str => "delete",
@@ -387,6 +491,9 @@ define_well_known_strings! {
     }
 
     "Request / Response (WHATWG Fetch §5.3 / §5.5)" {
+        // Globals + IDL attr names + static factory method names +
+        // enum strings.  `url` / `headers` already live above and are
+        // reused here.
         request => "Request",
         response => "Response",
         method => "method",
@@ -401,6 +508,9 @@ define_well_known_strings! {
         cache => "cache",
         clone => "clone",
         json => "json",
+        // Method / response-type string constants — pre-interned so
+        // per-instance `.type` / `.method` accessor reads return the
+        // pool entry directly.
         http_get => "GET",
         http_head => "HEAD",
         http_post => "POST",
@@ -422,6 +532,10 @@ define_well_known_strings! {
     }
 
     "ArrayBuffer / Blob / Body mixin (ES2020 §24.1 / File API §3 / WHATWG Fetch §5 Body mixin)" {
+        // Constructor global names are separate fields from the
+        // camelCase attribute / method names to sidestep the name
+        // collision the Headers ctor ran into (`"Headers"` ctor name
+        // vs `"headers"` attr name).
         array_buffer_global => "ArrayBuffer",
         blob_global => "Blob",
         byte_length => "byteLength",
@@ -432,6 +546,12 @@ define_well_known_strings! {
     }
 
     "TypedArray + DataView (ES2024 §23.2 / §25.3)" {
+        // Constructor name StringIds.  `data_view_global` and the 11
+        // concrete-subclass entries back the real globals; the abstract
+        // `%TypedArray%` intrinsic has no globalThis binding per
+        // §23.2.2 so no StringId is needed for it.  All are interned
+        // eagerly so `register_typed_array_subclass` can fetch them
+        // without a per-call `strings.intern(...)` round-trip.
         data_view_global => "DataView",
         int8_array_global => "Int8Array",
         uint8_array_global => "Uint8Array",
@@ -450,6 +570,11 @@ define_well_known_strings! {
     }
 
     "%TypedArray%.prototype method names" {
+        // Pre-interned so `install_typed_array_prototype_members`
+        // skips the per-method `strings.intern(...)` round-trip
+        // during `Vm::new`.  `slice` / `set` / `values` / `keys` /
+        // `entries` / `for_each` / `join` are reused from the
+        // Headers / Body / Array sections above.
         fill => "fill",
         subarray => "subarray",
         copy_within => "copyWithin",
@@ -472,6 +597,11 @@ define_well_known_strings! {
     }
 
     "DataView.prototype method names" {
+        // Pre-interned so `install_data_view_members` skips the
+        // per-method `strings.intern(...)` round-trip during
+        // `Vm::new`.  All 20 get* / set* names are unique to
+        // DataView and have no overlap with reusable identifiers
+        // above.
         get_int8 => "getInt8",
         get_uint8 => "getUint8",
         get_int16 => "getInt16",
@@ -495,6 +625,10 @@ define_well_known_strings! {
     }
 
     "TextEncoder / TextDecoder (WHATWG Encoding §8)" {
+        // Constructor globals use the `*_global` suffix convention.
+        // Method / attribute names are separate fields: `encoding`
+        // doubles as the `TextDecoder.prototype.encoding` getter name
+        // and an options-bag key, so the StringId is shared.
         text_encoder_global => "TextEncoder",
         text_decoder_global => "TextDecoder",
         encode => "encode",
