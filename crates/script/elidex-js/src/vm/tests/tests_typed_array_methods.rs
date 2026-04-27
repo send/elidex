@@ -1292,6 +1292,35 @@ fn reduce_right_empty_no_initial_throws() {
 }
 
 #[test]
+fn reduce_object_accumulator_threads_through_iterations() {
+    let mut vm = Vm::new();
+    // User callbacks can return arbitrary `JsValue::Object`
+    // handles for the accumulator; the rooted-stack-slot pattern
+    // in `reduce_impl` keeps each intermediate object reachable
+    // by the GC scanner across the next `ctx.call_function`
+    // boundary.  Even if no GC is currently triggered in the
+    // cross-iteration window, this test pins the contract: an
+    // object accumulator survives every iteration with all
+    // properties intact (last-element id + accumulated sum).
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([10, 20, 30]); \
+         var r = a.reduce(function(acc, v) { \
+             return { last: v, sum: (acc.sum || 0) + v }; \
+         }, { sum: 0 }); \
+         r.last === 30 && r.sum === 60;"
+    ));
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([10, 20, 30]); \
+         var r = a.reduceRight(function(acc, v) { \
+             return { last: v, sum: (acc.sum || 0) + v }; \
+         }, { sum: 0 }); \
+         r.last === 10 && r.sum === 60;"
+    ));
+}
+
+#[test]
 fn reduce_callback_this_is_undefined() {
     let mut vm = Vm::new();
     // Spec passes `undefined` as thisArg; non-strict callback sees

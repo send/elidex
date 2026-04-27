@@ -522,11 +522,11 @@ fn reduce_impl(
         )));
     }
 
-    // Compute accumulator + first-iteration index.  Forward k
-    // counts up from `start_k` to `len_elem`; reverse k counts
-    // down from `start_k` to `-1`.
+    // Compute initial accumulator + first-iteration index.
+    // Forward k counts up from `start_k` to `len_elem`; reverse k
+    // counts down from `start_k` to `-1`.
     let len_signed = i64::from(len_elem);
-    let (mut acc, mut k_signed) = match (initial_value, reverse) {
+    let (initial_acc, mut k_signed) = match (initial_value, reverse) {
         (Some(v), false) => (v, 0_i64),
         (Some(v), true) => (v, len_signed - 1),
         (None, false) => (
@@ -547,18 +547,47 @@ fn reduce_impl(
         (len_signed, 1_i64)
     };
 
+    // Pin the accumulator to a fixed `vm.stack` slot for the
+    // duration of the loop.  User callbacks can return arbitrary
+    // `JsValue::Object` handles; held only as a Rust local, those
+    // would be invisible to the GC scanner across the next
+    // `ctx.call_function` GC point and could be collected mid-
+    // iteration (Copilot SP8c-A R2).  No GC trigger sits in the
+    // current cross-iteration window for TypedArray reads
+    // (`read_element_raw` returns `Number` / `BigInt` only,
+    // neither GC-allocated), but the rooted-slot pattern is the
+    // future-proof shape and matches `filter`'s rooted collect.
+    let mut frame = ctx.vm.push_stack_scope();
+    let acc_slot = frame.saved_len();
+    frame.stack.push(initial_acc);
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+
     while k_signed != limit {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let k = k_signed as u32;
-        let kv = read_element_raw(ctx.vm, buffer_id, byte_offset, k, ek);
+        let kv = read_element_raw(sub_ctx.vm, buffer_id, byte_offset, k, ek);
         #[allow(clippy::cast_precision_loss)]
         let idx_val = JsValue::Number(k_signed as f64);
+        // Snapshot the rooted slot into a `Copy` local so the
+        // mutable borrow of `sub_ctx` for `call_function` doesn't
+        // overlap the immutable index read.  The slot stays
+        // populated with the previous iteration's `acc` until
+        // we overwrite it after the call returns.
+        let acc = sub_ctx.vm.stack[acc_slot];
         let cb_args = [acc, kv, idx_val, this];
-        acc = ctx.call_function(cb, JsValue::Undefined, &cb_args)?;
+        let result = sub_ctx.call_function(cb, JsValue::Undefined, &cb_args)?;
+        sub_ctx.vm.stack[acc_slot] = result;
         k_signed += step;
     }
 
-    Ok(acc)
+    // Extract the final accumulator BEFORE dropping the frame —
+    // the drop truncates `vm.stack` past `acc_slot`, so the
+    // intermediate `Copy` local is the only safe handoff path.
+    // No GC point sits between this read and the function
+    // return, so the Rust-local-only window is sound.
+    let final_acc = sub_ctx.vm.stack[acc_slot];
+    drop(frame);
+    Ok(final_acc)
 }
 
 // ---------------------------------------------------------------------------
