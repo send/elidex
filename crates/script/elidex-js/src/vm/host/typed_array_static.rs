@@ -151,7 +151,7 @@ fn require_subclass_ctor(
             let proto_override = if id == ctor_id {
                 None
             } else {
-                receiver_prototype(ctx, ctor_id, ek)
+                receiver_prototype(ctx, ctor_id, ek)?
             };
             return Ok((ek, proto_override));
         }
@@ -165,10 +165,14 @@ fn require_subclass_ctor(
 /// Read `ctor.prototype` via spec `Get(C, "prototype")`
 /// semantics — invokes a user-defined accessor (getter), honours
 /// inherited `.prototype` properties, and only falls back to the
-/// built-in subclass prototype when the resolved value is missing
-/// or non-Object.  Used by the user-subclass branch of
-/// [`require_subclass_ctor`] so
-/// `(class Sub extends Uint8Array {}).of(1, 2).constructor ===
+/// built-in subclass prototype when the get **succeeds** but
+/// yields a missing or non-Object value.  An exception thrown
+/// from the accessor (or from any inherited proxy trap) is
+/// propagated as an abrupt completion per spec, NOT swallowed —
+/// silent fallback would mask user errors.
+///
+/// Used by the user-subclass branch of [`require_subclass_ctor`]
+/// so `(class Sub extends Uint8Array {}).of(1, 2).constructor ===
 /// Sub` holds even when `Sub.prototype` is a getter rather than a
 /// plain data property.
 ///
@@ -178,12 +182,12 @@ fn receiver_prototype(
     ctx: &mut NativeContext<'_>,
     ctor_id: ObjectId,
     ek: ElementKind,
-) -> Option<ObjectId> {
+) -> Result<Option<ObjectId>, VmError> {
     let proto_key = PropertyKey::String(ctx.vm.well_known.prototype);
-    if let Ok(JsValue::Object(p)) = ctx.get_property_value(ctor_id, proto_key) {
-        return Some(p);
+    match ctx.get_property_value(ctor_id, proto_key)? {
+        JsValue::Object(p) => Ok(Some(p)),
+        _ => Ok(subclass_prototype_for(ctx.vm, ek)),
     }
-    subclass_prototype_for(ctx.vm, ek)
 }
 
 /// Allocate a fresh `<ek>Array(len)`-shaped TypedArray instance:
@@ -382,7 +386,7 @@ fn collect_source_values(
                 ek.name()
             )));
         };
-        return drain_iterator_with_map(ctx, iter_val, map_fn, this_arg);
+        return drain_iterator_into_stack(ctx, iter_val, map_fn, this_arg);
     }
 
     // Array-like fallback (§23.2.2.1 step 8.b): read `source.length`
@@ -416,16 +420,100 @@ fn collect_source_values(
         let l = truncated as u32;
         l
     };
-    // Cap the eagerly-reserved capacity to avoid an OOM panic on
-    // attacker-controlled `source.length` values up to `u32::MAX`.
-    // The actual element count usually matches `len_capped` exactly
-    // for genuine array-like sources; the `Vec` will grow on
-    // `push` for the rare case where we under-reserve.  Mirrors
-    // the bounded-capacity convention used elsewhere in the
-    // engine's array-like collectors.
-    const INITIAL_CAPACITY_CAP: usize = 1024;
-    let initial_capacity = (len_capped as usize).min(INITIAL_CAPACITY_CAP);
-    let mut out: Vec<JsValue> = Vec::with_capacity(initial_capacity);
+    drain_array_like_into_stack(ctx, source_obj, len_capped, map_fn, this_arg)
+}
+
+/// Drain `iter_val` into a `Vec<JsValue>` while keeping the
+/// iterator + every drained element rooted on `vm.stack` for the
+/// duration of every user-code re-entry (`iter_next`, optional
+/// `map_fn`).  Rust locals / `Vec<JsValue>` are invisible to GC
+/// once native-call collection is enabled (the standard invariant
+/// preserved across the whole engine — `init_from_iterable_body`
+/// uses the same scope shape).
+///
+/// IteratorClose (§7.4.6) runs on `map_fn` abrupt completion
+/// before the stack scope drops, so the iterator's `.return()`
+/// observes a still-rooted iter; `iter_next` throw is spec-exempt
+/// and propagates without close.
+fn drain_iterator_into_stack(
+    ctx: &mut NativeContext<'_>,
+    iter_val: JsValue,
+    map_fn: Option<ObjectId>,
+    this_arg: JsValue,
+) -> Result<Vec<JsValue>, VmError> {
+    let mut frame = ctx.vm.push_stack_scope();
+    let iter_slot = frame.saved_len();
+    frame.stack.push(iter_val);
+    let elem_start = iter_slot + 1;
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let drain_result = drain_iterator_loop(&mut sub_ctx, iter_val, map_fn, this_arg, elem_start);
+    let snapshot = drain_result.map(|()| frame.stack[elem_start..].to_vec());
+    drop(frame);
+    snapshot
+}
+
+/// Inner loop of [`drain_iterator_into_stack`], split so the outer
+/// stack scope can `truncate(saved_len)` on every exit (success +
+/// `?` propagation + panic unwinding) via the guard's `Drop`.
+fn drain_iterator_loop(
+    ctx: &mut NativeContext<'_>,
+    iter_val: JsValue,
+    map_fn: Option<ObjectId>,
+    this_arg: JsValue,
+    elem_start: usize,
+) -> Result<(), VmError> {
+    while let Some(value) = ctx.vm.iter_next(iter_val)? {
+        let mapped = if let Some(fn_id) = map_fn {
+            #[allow(clippy::cast_precision_loss)]
+            let idx = JsValue::Number((ctx.vm.stack.len() - elem_start) as f64);
+            match ctx.call_function(fn_id, this_arg, &[value, idx]) {
+                Ok(v) => v,
+                Err(e) => {
+                    // §7.4.6 IteratorClose: a throw from `mapFn` is
+                    // an abrupt completion of the for-of-like body;
+                    // close the iterator before propagating.  A
+                    // throw from `.return()` itself wins.
+                    return Err(close_iterator_with_precedence(ctx, iter_val, e));
+                }
+            }
+        } else {
+            value
+        };
+        ctx.vm.stack.push(mapped);
+    }
+    Ok(())
+}
+
+/// Drain the array-like `source_obj[0..len_capped]` into a
+/// `Vec<JsValue>` while keeping every drained element rooted on
+/// `vm.stack` across `get_element` / optional `map_fn` user-code
+/// re-entry — same GC-rooting invariant as
+/// [`drain_iterator_into_stack`].
+fn drain_array_like_into_stack(
+    ctx: &mut NativeContext<'_>,
+    source_obj: ObjectId,
+    len_capped: u32,
+    map_fn: Option<ObjectId>,
+    this_arg: JsValue,
+) -> Result<Vec<JsValue>, VmError> {
+    let mut frame = ctx.vm.push_stack_scope();
+    let elem_start = frame.saved_len();
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let body_result = drain_array_like_loop(&mut sub_ctx, source_obj, len_capped, map_fn, this_arg);
+    let snapshot = body_result.map(|()| frame.stack[elem_start..].to_vec());
+    drop(frame);
+    snapshot
+}
+
+/// Inner loop of [`drain_array_like_into_stack`].  Pushed elements
+/// are released by the parent's stack-scope `Drop` on every exit.
+fn drain_array_like_loop(
+    ctx: &mut NativeContext<'_>,
+    source_obj: ObjectId,
+    len_capped: u32,
+    map_fn: Option<ObjectId>,
+    this_arg: JsValue,
+) -> Result<(), VmError> {
     for i in 0..len_capped {
         #[allow(clippy::cast_precision_loss)]
         let idx = JsValue::Number(f64::from(i));
@@ -435,9 +523,9 @@ fn collect_source_values(
         } else {
             raw
         };
-        out.push(value);
+        ctx.vm.stack.push(value);
     }
-    Ok(out)
+    Ok(())
 }
 
 /// Resolve `source`'s `@@iterator` method to a `JsValue` for
@@ -475,41 +563,6 @@ fn lookup_iterator_method(
         Some(prop) => ctx.vm.resolve_property(prop, source),
         None => Ok(JsValue::Undefined),
     }
-}
-
-/// Drain `iter_val` into a `Vec<JsValue>`, applying `map_fn` per
-/// element.  Mirrors
-/// [`super::super::natives_array_hof`]'s drain helper but inlined
-/// here to keep the cross-module surface small (the
-/// `IteratorClose`-on-abrupt path is straightforward enough that
-/// duplicating it is cleaner than exposing the array helper).
-fn drain_iterator_with_map(
-    ctx: &mut NativeContext<'_>,
-    iter_val: JsValue,
-    map_fn: Option<ObjectId>,
-    this_arg: JsValue,
-) -> Result<Vec<JsValue>, VmError> {
-    let mut out = Vec::new();
-    while let Some(value) = ctx.vm.iter_next(iter_val)? {
-        let mapped = if let Some(fn_id) = map_fn {
-            #[allow(clippy::cast_precision_loss)]
-            let idx = JsValue::Number(out.len() as f64);
-            match ctx.call_function(fn_id, this_arg, &[value, idx]) {
-                Ok(v) => v,
-                Err(e) => {
-                    // §7.4.6 IteratorClose: a throw from `mapFn` is
-                    // an abrupt completion of the for-of-like body;
-                    // close the iterator before propagating.  A
-                    // throw from `.return()` itself wins.
-                    return Err(close_iterator_with_precedence(ctx, iter_val, e));
-                }
-            }
-        } else {
-            value
-        };
-        out.push(mapped);
-    }
-    Ok(out)
 }
 
 /// Close `iter_val` via `.return()` and surface the higher-
