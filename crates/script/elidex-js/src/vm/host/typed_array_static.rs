@@ -549,9 +549,10 @@ where
     result
 }
 
-/// Inner loop of [`drain_iterator_into_stack`], split so the outer
-/// stack scope can `truncate(saved_len)` on every exit (success +
-/// `?` propagation + panic unwinding) via the guard's `Drop`.
+/// Inner loop of [`with_drained_iterator_on_stack`], split so the
+/// outer stack scope can `truncate(saved_len)` on every exit
+/// (success + `?` propagation + panic unwinding) via the guard's
+/// `Drop`.
 fn drain_iterator_loop(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,
