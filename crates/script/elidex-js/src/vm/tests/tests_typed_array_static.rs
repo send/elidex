@@ -433,6 +433,19 @@ fn typed_array_from_user_subclass_preserves_constructor_identity() {
     ));
 }
 
+// Note: an accessor-`.prototype` regression test isn't reachable
+// from JS in this engine — function `.prototype` data properties
+// are installed non-configurable, so `Object.defineProperty(Sub,
+// 'prototype', {get: ...})` throws "Cannot redefine property:
+// cannot convert between data and accessor" before the static
+// natives ever see the receiver.  The R5 fix routes
+// `receiver_prototype` through `Get(C, "prototype")` semantics
+// (`get_property_value`) so an accessor `.prototype` would be
+// honoured if the engine ever lets one be installed (e.g. once
+// `Reflect.deleteProperty(Sub, 'prototype')` of the auto-installed
+// data property is supported, or for ctors built outside the
+// `function`-declaration path).
+
 #[test]
 fn typed_array_of_handles_deep_subclass_tower() {
     let mut vm = Vm::new();

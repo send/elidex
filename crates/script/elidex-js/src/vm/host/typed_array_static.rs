@@ -102,7 +102,7 @@ fn ctor_to_element_kind(vm: &VmInner, ctor_id: ObjectId) -> Option<ElementKind> 
 /// surface TypeError per §23.2.2.{1,2} step "If IsConstructor(C)
 /// is false, throw".
 fn require_subclass_ctor(
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,
 ) -> Result<(ElementKind, Option<ObjectId>), VmError> {
@@ -162,24 +162,25 @@ fn require_subclass_ctor(
     )))
 }
 
-/// Read `ctor.prototype` to obtain the prototype object that the
-/// new TypedArray instance should inherit from.  Used by the
-/// user-subclass branch of [`require_subclass_ctor`] so
+/// Read `ctor.prototype` via spec `Get(C, "prototype")`
+/// semantics — invokes a user-defined accessor (getter), honours
+/// inherited `.prototype` properties, and only falls back to the
+/// built-in subclass prototype when the resolved value is missing
+/// or non-Object.  Used by the user-subclass branch of
+/// [`require_subclass_ctor`] so
 /// `(class Sub extends Uint8Array {}).of(1, 2).constructor ===
-/// Sub` holds.  Falls back to the built-in subclass prototype
-/// if the receiver's `.prototype` slot is missing or non-Object
-/// (defensive — the JS subclass ctor protocol always installs a
-/// data `.prototype` property; only highly contrived
-/// `Reflect.deleteProperty(Sub, 'prototype')` would expose this).
+/// Sub` holds even when `Sub.prototype` is a getter rather than a
+/// plain data property.
+///
+/// `&mut NativeContext<'_>` because `get_property_value` may fire
+/// the user getter (which can run arbitrary JS).
 fn receiver_prototype(
-    ctx: &NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     ctor_id: ObjectId,
     ek: ElementKind,
 ) -> Option<ObjectId> {
     let proto_key = PropertyKey::String(ctx.vm.well_known.prototype);
-    if let Some(super::super::coerce::PropertyResult::Data(JsValue::Object(p))) =
-        super::super::coerce::get_property(ctx.vm, ctor_id, proto_key)
-    {
+    if let Ok(JsValue::Object(p)) = ctx.get_property_value(ctor_id, proto_key) {
         return Some(p);
     }
     subclass_prototype_for(ctx.vm, ek)
@@ -439,16 +440,24 @@ fn collect_source_values(
     Ok(out)
 }
 
-/// Resolve `source`'s `@@iterator` method to a `JsValue` —
-/// `Undefined` if no entry, the resolved property value otherwise.
-/// For `Object` sources, looks up `@@iterator` on the object
-/// itself (with prototype chain).  For `String` primitives,
-/// looks up on `String.prototype` (the spec-mandated location).
-/// All other primitives have no iterator and return `Undefined`.
+/// Resolve `source`'s `@@iterator` method to a `JsValue` for
+/// this VM's current `%TypedArray%.from` iterator lookup
+/// semantics: `Undefined` if no entry, the resolved property
+/// value otherwise.  For `Object` sources, looks up `@@iterator`
+/// on the object itself (with prototype chain).  For `String`
+/// primitives, looks up on `String.prototype` (the spec-mandated
+/// location for the boxed wrapper).  All other primitives are
+/// treated as having no iterator and return `Undefined` — strict
+/// spec `GetMethod(ToObject(source), @@iterator)` would consult
+/// the `Number` / `Boolean` wrapper prototypes too, but those
+/// have no `@@iterator` in our environment, so the observable
+/// outcome is identical (fall through to the array-like branch,
+/// which itself runs `ToObject(source)`).
 ///
-/// The single `get_property` + `resolve_property` pair is the
-/// `GetMethod(source, @@iterator)` per spec §7.3.10 — a user
-/// getter on `@@iterator` is invoked exactly once.
+/// For the supported cases above, the single `get_property` +
+/// `resolve_property` pair preserves the spec's "read once"
+/// behaviour — a user getter on `@@iterator` is invoked exactly
+/// once between probe and call (§7.3.10 GetMethod).
 fn lookup_iterator_method(
     ctx: &mut NativeContext<'_>,
     source: JsValue,

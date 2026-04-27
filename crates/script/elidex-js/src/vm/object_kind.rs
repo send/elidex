@@ -501,11 +501,14 @@ impl ObjectKind {
 /// `Object.setPrototypeOf((()=>{}).bind(null), Uint8Array)` /
 /// `Object.setPrototypeOf(async function(){}, Uint8Array)`).
 ///
-/// For JS `Function` objects, both the `ThisMode::Lexical` flag
-/// (arrow functions) AND the compiled-function `is_async` /
-/// `is_generator` flags must be inspected — `class extends`-style
-/// constructors are the **only** JS-callable shape with
-/// `[[Construct]]`.
+/// For JS `Function` objects, this VM treats a function as
+/// constructable iff it is not an arrow function
+/// (`ThisMode::Lexical`) AND its compiled metadata is neither
+/// `is_async` nor `is_generator`.  In other words, any non-arrow,
+/// non-async, non-generator JS function is considered to have
+/// `[[Construct]]` here — that includes classic `function`
+/// declarations and `class` ctors alike (the latter is a
+/// strict-mode `function` in our compiled representation).
 ///
 /// Free function rather than a method on [`ObjectKind`] because
 /// the chain walk needs `VmInner` access to look up each
