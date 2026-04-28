@@ -764,3 +764,40 @@ fn to_locale_string_propagates_throw_from_per_element_method() {
         )
         .is_err());
 }
+
+#[test]
+fn to_locale_string_forwards_reserved_args() {
+    let mut vm = Vm::new();
+    // §23.2.3.31 step 7: per-element `Invoke(elem, "toLocaleString",
+    // « locales, options »)` must forward the reserved args to user
+    // overrides.  Capture the args via an override that joins them
+    // (no Intl in elidex, so the built-in shim ignores them — but
+    // overrides MUST observe them).
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Number.prototype.toLocaleString = function(loc, opt) { \
+                 return String(loc) + ':' + (opt && opt.tag); \
+             }; \
+             new Uint8Array([1, 2]).toLocaleString('de-DE', { tag: 'X' });"
+        ),
+        "de-DE:X,de-DE:X"
+    );
+}
+
+#[test]
+fn to_locale_string_throws_on_non_callable_method() {
+    let mut vm = Vm::new();
+    // Per `Invoke` semantics (§7.3.16) a present-but-non-callable
+    // `toLocaleString` is a TypeError, not a silent fallback to
+    // `ToString(receiver)` — the prior behaviour masked user
+    // mistakes like the assignment below.
+    assert!(vm
+        .eval(
+            "Number.prototype.toLocaleString = 42; \
+             new Uint8Array([1]).toLocaleString();"
+        )
+        .unwrap_err()
+        .message
+        .contains("not callable"));
+}

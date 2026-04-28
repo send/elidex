@@ -847,26 +847,36 @@ pub(crate) fn native_typed_array_join(
 // ---------------------------------------------------------------------------
 
 /// `%TypedArray%.prototype.toLocaleString(reserved1?, reserved2?)`
-/// (ES §23.2.3.31).  Per-element `Invoke("toLocaleString")`,
-/// `ToString` on the result, joined with `","`.
+/// (ES §23.2.3.31).  Per-element `? ToString(? Invoke(elem,
+/// "toLocaleString", « locales, options »))`, joined with `","`.
 ///
 /// elidex has no Intl yet (see memory `intl-icu-deferral.md`), so
-/// the locale arguments are accepted and ignored.  This matches
-/// the no-Intl shape of [`super::super::natives_array::native_array_to_locale_string`]:
-/// `Object.prototype.toLocaleString` redirects to `toString`, so
-/// numeric / BigInt elements produce their canonical `Number` /
-/// `BigInt` string forms unless the user has overridden
-/// `Number.prototype.toLocaleString` or
-/// `BigInt.prototype.toLocaleString` higher in the prototype chain.
+/// `(locales, options)` flow through to per-element overrides
+/// unobserved by the built-in `Object.prototype.toLocaleString`
+/// shim (which redirects to `toString`).  Forwarding the reserved
+/// args matters for user overrides on `Number.prototype.toLocaleString`
+/// / `BigInt.prototype.toLocaleString`, which can read them.
 ///
 /// TypedArray elements are always non-nullish (Number or BigInt),
 /// so the `Array.prototype.toLocaleString` empty-or-nullish skip
 /// (spec §22.1.3.30 step 7.a) doesn't apply here — every index
 /// contributes a string segment.
+///
+/// ## Rooting
+///
+/// Boxed primitive wrappers (`coerce::to_object` outputs) are
+/// pinned in a single rooted slot for the duration of each
+/// iteration's `try_get_property_value` + `call_function` GC
+/// points.  Without it a sufficiently aggressive GC could collect
+/// the wrapper between the lookup-time accessor (which `GetV`
+/// permits) and the call-time receiver dispatch, leaving
+/// `obj_id` dangling.  Today GC is disabled across native calls
+/// (`interpreter.rs:81`), so the pin is future-proofing —
+/// matching the SP8c-A reduce-accumulator slot pattern.
 pub(crate) fn native_typed_array_to_locale_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let parts = require_typed_array_parts(ctx, this, "toLocaleString")?;
     let len_elem = parts.len_elem();
@@ -877,32 +887,60 @@ pub(crate) fn native_typed_array_to_locale_string(
         ..
     } = parts;
     let to_locale_key = PropertyKey::String(ctx.vm.well_known.to_locale_string);
+
+    // Single rooted slot for the boxed-primitive wrapper.  Object
+    // elements skip the box and overwrite the slot with the
+    // already-pinned receiver id; primitive elements box and pin
+    // their fresh wrapper.  Drop on early `?` is panic-safe via
+    // the scope guard's truncate-on-drop.
+    let mut frame = ctx.vm.push_stack_scope();
+    let wrapper_slot = frame.saved_len();
+    frame.stack.push(JsValue::Undefined);
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+
     let mut out = String::new();
     for i in 0..len_elem {
         if i > 0 {
             out.push(',');
         }
-        let elem = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
-        // Invoke(V, P) = ? Call(? GetV(V, P), V).  GetV boxes the
-        // primitive element via ToObject for the property lookup,
-        // but the call receiver is the original primitive — so a
-        // user-defined `Number.prototype.toLocaleString` override
-        // sees the raw element value rather than the throw-away
-        // wrapper.  Mirrors `native_array_to_locale_string`.
+        let elem = read_element_raw(sub_ctx.vm, buffer_id, byte_offset, i, ek);
+        // Invoke(V, P, args) — GetV boxes the primitive element
+        // via ToObject for the property lookup, but the call
+        // receiver stays the original primitive so user overrides
+        // see the raw element value rather than the wrapper.
         let (obj_id, receiver) = match elem {
             JsValue::Object(id) => (id, elem),
-            primitive => (coerce::to_object(ctx.vm, primitive)?, primitive),
+            primitive => (coerce::to_object(sub_ctx.vm, primitive)?, primitive),
         };
-        let method = ctx.try_get_property_value(obj_id, to_locale_key)?;
+        sub_ctx.vm.stack[wrapper_slot] = JsValue::Object(obj_id);
+        let method = sub_ctx.try_get_property_value(obj_id, to_locale_key)?;
         let str_sid = match method {
-            Some(JsValue::Object(fn_id)) if ctx.get_object(fn_id).kind.is_callable() => {
-                let ret = ctx.call_function(fn_id, receiver, &[])?;
-                ctx.to_string_val(ret)?
+            Some(JsValue::Object(fn_id)) if sub_ctx.get_object(fn_id).kind.is_callable() => {
+                // §23.2.3.31 step 7: forward `(locales, options)` to
+                // each per-element invocation so user overrides
+                // observe them.
+                let ret = sub_ctx.call_function(fn_id, receiver, args)?;
+                sub_ctx.to_string_val(ret)?
             }
-            _ => ctx.to_string_val(receiver)?,
+            // Per `Invoke` semantics (§7.3.16) a present-but-non-
+            // callable property throws TypeError — silent fallback
+            // to `ToString(receiver)` would mask user mistakes
+            // like `Number.prototype.toLocaleString = 42`.
+            Some(_) => {
+                return Err(VmError::type_error(
+                    "Failed to execute 'toLocaleString' on 'TypedArray': \
+                     element's toLocaleString is not callable",
+                ));
+            }
+            // Property absent on the prototype chain — defensive
+            // arm that fires only if the user has deleted
+            // `Object.prototype.toLocaleString` (otherwise
+            // unreachable, since elidex installs it eagerly).
+            None => sub_ctx.to_string_val(receiver)?,
         };
-        out.push_str(&ctx.vm.strings.get_utf8(str_sid));
+        out.push_str(&sub_ctx.vm.strings.get_utf8(str_sid));
     }
+    drop(frame);
     let out_sid = ctx.vm.strings.intern(&out);
     Ok(JsValue::String(out_sid))
 }

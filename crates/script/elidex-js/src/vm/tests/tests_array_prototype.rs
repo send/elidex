@@ -341,6 +341,33 @@ fn array_to_locale_string() {
     assert_eq!(eval_string("[1,2,3].toLocaleString();"), "1,2,3");
 }
 
+#[test]
+fn array_to_locale_string_forwards_reserved_args() {
+    // §22.1.3.30 step 6: per-element `Invoke(elem, "toLocaleString",
+    // « locales, options »)` must forward the reserved args.
+    assert_eq!(
+        eval_string(
+            "Number.prototype.toLocaleString = function(loc, opt) { \
+                 return String(loc) + ':' + (opt && opt.tag); \
+             }; \
+             [1, 2].toLocaleString('de-DE', { tag: 'X' });"
+        ),
+        "de-DE:X,de-DE:X"
+    );
+}
+
+#[test]
+fn array_to_locale_string_throws_on_non_callable_method() {
+    // Spec `Invoke` (§7.3.16) throws TypeError when the resolved
+    // method is non-callable; silent ToString fallback would mask
+    // the user mistake.
+    let result = super::eval(
+        "Number.prototype.toLocaleString = 42; \
+         [1].toLocaleString();",
+    );
+    assert!(result.unwrap_err().message.contains("not callable"));
+}
+
 // ---------------------------------------------------------------------------
 // forEach
 // ---------------------------------------------------------------------------
