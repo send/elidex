@@ -266,29 +266,26 @@ async fn cors_redirect_handle(
     if request.mode != RequestMode::Cors {
         return Ok(request.credentials);
     }
-    if is_same_origin(&request.url, next_url) {
-        return Ok(request.credentials);
-    }
-    // §4.4 step 14.5 — `Include` downgrades to `SameOrigin` on
-    // cross-origin redirects.  Compute the downgrade **before**
-    // building the probe so the re-preflight validation runs
-    // against the credentials mode the redirected hop will
-    // actually use (Copilot R2): leaving `Include` on the probe
-    // would force `validate_preflight_response` into the strict
-    // credentialed branch (`ACAO: *` rejected, `ACAC: true`
-    // required) even though the actual redirected request gets
-    // sent without credentials, mis-rejecting otherwise-valid
-    // server allowances.
-    let post_redirect_credentials = if request.credentials == CredentialsMode::Include {
-        CredentialsMode::SameOrigin
-    } else {
-        request.credentials
-    };
+    // §4.4 step 14.5 — `Include` downgrades to `SameOrigin` only
+    // when the **redirect hop itself** crosses origin (the
+    // contract is hop-to-hop, not initiator-to-target).  A
+    // same-origin hop preserves the credentials mode unchanged.
+    let hop_crosses_origin = !is_same_origin(&request.url, next_url);
+    let post_redirect_credentials =
+        if hop_crosses_origin && request.credentials == CredentialsMode::Include {
+            CredentialsMode::SameOrigin
+        } else {
+            request.credentials
+        };
     // Probe representing the request that would actually go to
     // `next_url` after method / header / body / credentials
     // adjustments.  Used both for `requires_preflight` detection
     // and as the input to `build_preflight_request` inside
-    // `run_preflight`.
+    // `run_preflight`.  Built with the **post-redirect**
+    // credentials so `validate_preflight_response` doesn't apply
+    // the strict credentialed branch (`ACAO: *` rejected,
+    // `ACAC: true` required) when the actual redirected request
+    // will go out without credentials (Copilot R2).
     let probe = Request {
         method: method.to_string(),
         headers: headers.to_vec(),
@@ -299,17 +296,25 @@ async fn cors_redirect_handle(
         credentials: post_redirect_credentials,
         mode: request.mode,
     };
+    // §4.4 step 14.4 — re-issue preflight whenever the redirected
+    // request itself is non-simple, regardless of whether the
+    // *hop* crossed origin (Copilot R3): the §4.8 preflight cache
+    // key is per-URL, so a hop that stays within the cross-origin
+    // server but lands on a *different URL* than the original
+    // preflight target still needs its own OPTIONS round-trip.
+    // `requires_preflight(&probe)` already gates on initiator-vs-
+    // probe.url same-origin, so genuinely same-origin landings
+    // (relative to the initiator) correctly skip preflight.
     if requires_preflight(&probe) {
-        // §4.4 step 14.4 — re-issue preflight against the
-        // redirect target.  Without a cache reference (e.g.
-        // embedder-driven `ResourceLoader` paths) we must fail
-        // closed since dispatching a preflight without populating
-        // a cache would silently re-OPTIONS on every same-target
-        // redirect — a perf bug at minimum, and a contract
-        // violation since the embedder has no way to scope or
-        // reset the implicit cache.  In practice such callers
-        // never set `mode = Cors`, so this branch is only reached
-        // for misconfigured callers.
+        // Without a cache reference (e.g. embedder-driven
+        // `ResourceLoader` paths) we must fail closed since
+        // dispatching a preflight without populating a cache
+        // would silently re-OPTIONS on every same-target redirect
+        // — a perf bug at minimum, and a contract violation
+        // since the embedder has no way to scope or reset the
+        // implicit cache.  In practice such callers never set
+        // `mode = Cors`, so this branch is only reached for
+        // misconfigured callers.
         let cache = preflight_cache.ok_or_else(|| {
             NetError::new(
                 NetErrorKind::CorsBlocked,

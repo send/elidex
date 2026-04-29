@@ -1452,4 +1452,77 @@ mod preflight_integration_tests {
             "tainted-chain Set-Cookie must not be persisted under SameOrigin"
         );
     }
+
+    /// PR-cors-redirect-preflight Copilot R3: a same-origin
+    /// redirect hop within a cross-origin server (e.g.
+    /// `https://api.other.com/start` → `/dest`, both on the same
+    /// cross-origin host) must still re-issue OPTIONS against
+    /// `/dest` because the §4.8 preflight cache is keyed
+    /// per-URL.  Without this the broker would skip the
+    /// per-URL preflight and dispatch the actual non-simple
+    /// request without a fresh allowance for `/dest`.
+    #[tokio::test]
+    async fn cors_redirect_same_origin_hop_to_different_url_re_preflights() {
+        // Cross-origin server hosts both /start and /dest.  /start
+        // gets the initial OPTIONS+PUT (PUT responds with 302 →
+        // /dest).  /dest gets its own OPTIONS+PUT.  All on the
+        // same port (= same origin from the initiator's POV) but
+        // different URLs.
+        let preflight_static: &'static [u8] = b"HTTP/1.1 204 No Content\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Access-Control-Allow-Methods: PUT\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n";
+        // We need to know the server's port to build the 302
+        // Location header before we spawn it — bind a listener
+        // first to discover the port, then drop+rebind via
+        // `spawn_scripted_server` is racy.  Use a relative
+        // Location instead so the port doesn't need to be
+        // pre-known: `Location: /dest` resolves against the
+        // current request URL.
+        let redirect_response: &'static [u8] = b"HTTP/1.1 302 Found\r\n\
+              Location: /dest\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n";
+        let final_response: &'static [u8] = b"HTTP/1.1 200 OK\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Content-Length: 1\r\nConnection: close\r\n\r\nD";
+        // Server scripted: OPTIONS /start → PUT /start (302) →
+        // OPTIONS /dest → PUT /dest (200).
+        let (port, recorded) = spawn_scripted_server(vec![
+            preflight_static,
+            redirect_response,
+            preflight_static,
+            final_response,
+        ])
+        .await;
+
+        let client = test_client();
+        let request = Request {
+            method: "PUT".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{port}/start")).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+            mode: RequestMode::Cors,
+            credentials: CredentialsMode::SameOrigin,
+            redirect: RedirectMode::Follow,
+        };
+        let response = client.send(request).await.unwrap();
+        assert_eq!(response.status, 200);
+
+        // Server saw exactly 4 requests: OPTIONS /start, PUT /start,
+        // OPTIONS /dest, PUT /dest.  Without the R3 fix, the second
+        // OPTIONS would be skipped because `is_same_origin(/start, /dest)`
+        // returned true, mis-treating the same-origin hop as
+        // "no preflight needed".
+        let reqs = recorded.lock().unwrap().clone();
+        assert_eq!(reqs.len(), 4, "must see 4 requests (OPTIONS+PUT × 2)");
+        assert!(reqs[0].starts_with("OPTIONS /start"));
+        assert!(reqs[1].starts_with("PUT /start"));
+        assert!(
+            reqs[2].starts_with("OPTIONS /dest"),
+            "redirect target on same cross-origin server must still be re-preflighted (R3): got {:?}",
+            reqs[2].lines().next()
+        );
+        assert!(reqs[3].starts_with("PUT /dest"));
+    }
 }

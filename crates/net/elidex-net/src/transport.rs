@@ -177,11 +177,16 @@ impl HttpTransport {
                 // promotes this to `true` when a chain crosses
                 // origin (WHATWG Fetch §4.4 step 14.3).
                 is_redirect_tainted: false,
-                // Authoritative credentialed-network value is
-                // stamped by the redirect loop / `NetClient::send`
-                // post-redirect; the transport (which sees no
-                // redirects) leaves a conservative `false`.
-                credentialed_network: false,
+                // Stamp from the actual request's credentials
+                // mode so direct `transport.send` callers (paths
+                // that bypass the redirect loop) see a correct
+                // `credentialed_network` instead of a placeholder
+                // `false` (Copilot R3 PR-cors-redirect-preflight).
+                // The redirect loop overrides this with the
+                // post-redirect value on its final-hop response,
+                // so multi-hop chains always end up with the
+                // §4.4 step 14.5 downgrade applied.
+                credentialed_network: request.credentials == crate::CredentialsMode::Include,
             })
         })
         .await
