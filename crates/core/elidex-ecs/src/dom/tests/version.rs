@@ -207,3 +207,59 @@ fn is_element_false_document() {
     let doc = dom.create_document_root();
     assert!(!dom.is_element(doc));
 }
+
+#[test]
+fn version_bumped_by_set_attribute() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let body = elem(&mut dom, "body");
+    dom.append_child(doc, body);
+    let div = elem(&mut dom, "div");
+    dom.append_child(body, div);
+
+    let v_doc = dom.inclusive_descendants_version(doc);
+    let v_body = dom.inclusive_descendants_version(body);
+    let v_div = dom.inclusive_descendants_version(div);
+
+    // First set on a fresh entity (no `Attributes` component yet) —
+    // exercises the `insert_one(Attributes)` branch.
+    assert!(dom.set_attribute(div, "class", "foo".into()));
+    assert!(dom.inclusive_descendants_version(div) > v_div);
+    assert!(dom.inclusive_descendants_version(body) > v_body);
+    assert!(dom.inclusive_descendants_version(doc) > v_doc);
+
+    // Second set on the same entity — exercises the `&mut Attributes`
+    // branch.  Must bump again so that downstream caches keyed against
+    // an attribute-mutation-sensitive root never wedge to a stale value.
+    let v_div2 = dom.inclusive_descendants_version(div);
+    assert!(dom.set_attribute(div, "class", "bar".into()));
+    assert!(dom.inclusive_descendants_version(div) > v_div2);
+}
+
+#[test]
+fn version_bumped_by_remove_attribute_even_when_absent() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let body = elem(&mut dom, "body");
+    dom.append_child(doc, body);
+
+    let v_doc = dom.inclusive_descendants_version(doc);
+
+    // No `Attributes` component yet — `remove_attribute` is a logical
+    // no-op on the attribute storage but must still bump version so
+    // attribute-filtered caches converge to "no match" deterministically
+    // (e.g. a `getElementsByName` cache populated before the no-op
+    // removal must re-walk after it, since the cache invariant is
+    // version-keyed, not attribute-mutation-keyed).
+    let v_body = dom.inclusive_descendants_version(body);
+    dom.remove_attribute(body, "name");
+    assert!(dom.inclusive_descendants_version(body) > v_body);
+    assert!(dom.inclusive_descendants_version(doc) > v_doc);
+
+    // After a real attribute is set + removed, version must bump on
+    // the remove leg too.
+    assert!(dom.set_attribute(body, "id", "x".into()));
+    let v_body2 = dom.inclusive_descendants_version(body);
+    dom.remove_attribute(body, "id");
+    assert!(dom.inclusive_descendants_version(body) > v_body2);
+}

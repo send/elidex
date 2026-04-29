@@ -543,31 +543,54 @@ impl EcsDom {
     /// Set attribute `name = value` on `entity`, inserting an
     /// `Attributes` component if one does not exist.
     ///
+    /// On success, bumps [`rev_version`](Self::rev_version) so that
+    /// live collections filtering on attribute state (e.g.
+    /// `getElementsByClassName`, `getElementsByName`,
+    /// `document.links`) invalidate any cached entity list at the
+    /// next read.  Tag-only / topology-only filters (e.g.
+    /// `getElementsByTagName`) over-invalidate harmlessly — the
+    /// next read pays one walk and re-caches.  See the SP2 entity-
+    /// list cache in `elidex-js::vm::host::dom_collection`.
+    ///
     /// Returns `false` if the entity has been destroyed.
     pub fn set_attribute(&mut self, entity: Entity, name: &str, value: String) -> bool {
         if !self.contains(entity) {
             return false;
         }
         let has_component = self.world.get::<&Attributes>(entity).is_ok();
-        if has_component {
+        let inserted = if has_component {
             if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
                 attrs.set(name, value);
-                return true;
+                true
+            } else {
+                false
             }
-            return false;
+        } else {
+            let mut attrs = Attributes::default();
+            attrs.set(name, value);
+            self.world.insert_one(entity, attrs).is_ok()
+        };
+        if inserted {
+            self.rev_version(entity);
         }
-        let mut attrs = Attributes::default();
-        attrs.set(name, value);
-        self.world.insert_one(entity, attrs).is_ok()
+        inserted
     }
 
     /// Remove attribute `name` from `entity`.  No-op if the entity is
     /// destroyed, the `Attributes` component is absent, or the key is
     /// missing.
+    ///
+    /// Bumps [`rev_version`](Self::rev_version) unconditionally —
+    /// even when the attribute was absent — so attribute-filtered
+    /// live collections invalidate cleanly.  See the SP2 entity-
+    /// list cache in `elidex-js::vm::host::dom_collection`.  The
+    /// `set_attribute` rationale on over-invalidation applies here
+    /// too.
     pub fn remove_attribute(&mut self, entity: Entity, name: &str) {
         if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
             attrs.remove(name);
         }
+        self.rev_version(entity);
     }
 }
 

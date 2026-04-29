@@ -21,16 +21,30 @@
 //! `Vec<Entity>`; every other kind re-traverses the ECS on each
 //! read, so mutations made after the collection is obtained are
 //! observable on subsequent `length` / `item(i)` / indexed
-//! accesses.  No caching layer — the spec text *is* the algorithm.
+//! accesses.
+//!
+//! Each live collection wrapper carries a [`LiveCollectionCache`]
+//! validated against [`EcsDom::inclusive_descendants_version`] of
+//! the collection's root: cache hit on an unchanged subtree skips
+//! the descendant walk, cache miss on a bumped version re-walks
+//! and refreshes.  Snapshot variants bypass the cache entirely
+//! (their entity list is frozen at construction).  This is a pure
+//! performance optimisation — the observable per-read semantics
+//! still match "re-traverse on every read" because the cache
+//! version check tracks every tree mutation site that bumps
+//! `rev_version` (`tree.rs::{append_child, remove_child,
+//! insert_before, replace_child}` plus
+//! `EcsDom::{set_attribute, remove_attribute}`).
 //!
 //! ## GC contract
 //!
 //! The prototypes are rooted via the `proto_roots` array (gc.rs).
-//! `LiveCollectionKind` stores only `Entity`, `StringId`,
-//! `Vec<StringId>`, and `Vec<Entity>` — **no `ObjectId` references**
-//! — so the trace step has nothing to fan out.  The sweep tail
-//! prunes `live_collection_states` entries whose key `ObjectId`
-//! was collected, same pattern as `headers_states` / `blob_data`.
+//! `LiveCollectionKind` and `LiveCollectionCache` together store
+//! only `Entity`, `StringId`, `Vec<StringId>`, `Vec<Entity>`, and
+//! `Cell<u64>` — **no `ObjectId` references** — so the trace
+//! step has nothing to fan out.  The sweep tail prunes
+//! `live_collection_states` entries whose key `ObjectId` was
+//! collected, same pattern as `headers_states` / `blob_data`.
 //!
 //! ## Brand check
 //!
@@ -41,6 +55,8 @@
 //! throws, matching WebIDL brand semantics).
 
 #![cfg(feature = "engine")]
+
+use std::cell::{Cell, RefCell};
 
 use elidex_ecs::{EcsDom, Entity, NodeKind};
 
@@ -113,6 +129,43 @@ impl LiveCollectionKind {
                 | Self::Links { .. }
         )
     }
+
+    /// Root entity whose `inclusive_descendants_version` drives the
+    /// cache validity check.  `None` for [`Self::Snapshot`] —
+    /// snapshot entity lists are frozen at construction and bypass
+    /// the cache entirely.
+    fn cache_root(&self) -> Option<Entity> {
+        match self {
+            Self::ByTag { root, .. } | Self::ByClass { root, .. } => Some(*root),
+            Self::Children { parent } | Self::ChildNodes { parent } => Some(*parent),
+            Self::Forms { doc }
+            | Self::Images { doc }
+            | Self::Links { doc }
+            | Self::ByName { doc, .. } => Some(*doc),
+            Self::Snapshot { .. } => None,
+        }
+    }
+}
+
+/// Per-wrapper entity-list cache, validated against
+/// [`EcsDom::inclusive_descendants_version`] of the kind's
+/// [`cache_root`](LiveCollectionKind::cache_root).
+///
+/// Stored alongside [`LiveCollectionKind`] in
+/// [`VmInner::live_collection_states`](super::super::VmInner::live_collection_states)
+/// so cache state survives across `length` / `item(i)` / iter
+/// reads on the same wrapper without `&mut self` access through
+/// the resolve path.  `Cell` + `RefCell` give the interior
+/// mutability needed for that — the cache is owned during the
+/// `remove → resolve → insert` dance in
+/// [`resolve_receiver_entities`] / [`try_indexed_get`], but the
+/// cache fields are written via shared-ref methods so the dance
+/// is purely a borrow-aliasing accommodation, not a logical
+/// requirement.
+#[derive(Default)]
+pub(crate) struct LiveCollectionCache {
+    cached_version: Cell<u64>,
+    cached_entities: RefCell<Vec<Entity>>,
 }
 
 // -------------------------------------------------------------------------
@@ -265,12 +318,16 @@ fn resolve_needles(vm: &VmInner, kind: &LiveCollectionKind) -> ResolvedNeedles {
 }
 
 /// Public resolver — materialises needles from the VM's string
-/// pool, then runs the ECS traversal.  Uses a matched pair of
-/// disjoint borrows (`&VmInner` for strings, then `&EcsDom` from
-/// host data) to avoid NativeContext's aliasing constraint.
+/// pool, then runs the ECS traversal (or returns the cached
+/// entity list when the subtree's
+/// [`inclusive_descendants_version`](EcsDom::inclusive_descendants_version)
+/// is unchanged).  Uses a matched pair of disjoint borrows
+/// (`&VmInner` for strings, then `&EcsDom` from host data) to
+/// avoid NativeContext's aliasing constraint.
 pub(super) fn resolve_entities_for(
     ctx: &mut NativeContext<'_>,
     kind: &LiveCollectionKind,
+    cache: &LiveCollectionCache,
 ) -> Vec<Entity> {
     let needles = resolve_needles(ctx.vm, kind);
     // Post-unbind access to a retained collection wrapper must
@@ -280,7 +337,36 @@ pub(super) fn resolve_entities_for(
     let Some(host) = ctx.host_if_bound() else {
         return Vec::new();
     };
-    resolve_entities_with_needles(host.dom(), kind, &needles)
+    resolve_with_cache(host.dom(), kind, cache, &needles)
+}
+
+/// Cache-aware wrapper over [`resolve_entities_with_needles`].
+///
+/// On hit (cached version matches `dom`'s current version for the
+/// kind's `cache_root`): clones the cached entity list and returns
+/// it immediately, skipping the descendant walk.
+///
+/// On miss (or `cache_root() == None` — i.e. `Snapshot`): runs the
+/// full re-resolve, and, when a `cache_root` is available, refreshes
+/// both the cached entity list and the cached version so the next
+/// read on an unchanged subtree hits.
+fn resolve_with_cache(
+    dom: &EcsDom,
+    kind: &LiveCollectionKind,
+    cache: &LiveCollectionCache,
+    needles: &ResolvedNeedles,
+) -> Vec<Entity> {
+    let Some(root) = kind.cache_root() else {
+        return resolve_entities_with_needles(dom, kind, needles);
+    };
+    let cur = dom.inclusive_descendants_version(root);
+    if cache.cached_version.get() == cur {
+        return cache.cached_entities.borrow().clone();
+    }
+    let fresh = resolve_entities_with_needles(dom, kind, needles);
+    cache.cached_version.set(cur);
+    *cache.cached_entities.borrow_mut() = fresh.clone();
+    fresh
 }
 
 /// Helper — collect every descendant Element with a given tag.
@@ -437,7 +523,8 @@ impl VmInner {
             prototype: Some(proto),
             extensible: false,
         });
-        self.live_collection_states.insert(id, kind);
+        self.live_collection_states
+            .insert(id, (kind, LiveCollectionCache::default()));
         id
     }
 }
@@ -504,11 +591,11 @@ fn require_collection_receiver(
 /// the kind out of the map temporarily breaks that aliasing into
 /// two sequential borrows.
 fn resolve_receiver_entities(ctx: &mut NativeContext<'_>, id: ObjectId) -> Vec<Entity> {
-    let Some(kind) = ctx.vm.live_collection_states.remove(&id) else {
+    let Some((kind, cache)) = ctx.vm.live_collection_states.remove(&id) else {
         return Vec::new();
     };
-    let entities = resolve_entities_for(ctx, &kind);
-    ctx.vm.live_collection_states.insert(id, kind);
+    let entities = resolve_entities_for(ctx, &kind, &cache);
+    ctx.vm.live_collection_states.insert(id, (kind, cache));
     entities
 }
 
@@ -745,10 +832,10 @@ pub(crate) fn try_indexed_get(
     // can take concurrent borrows of `vm.strings` (for the needle
     // lookup) and `dom` (for the traversal) without tripping the
     // aliasing rules.
-    let kind = vm.live_collection_states.remove(&id)?;
+    let (kind, cache) = vm.live_collection_states.remove(&id)?;
     let needles = resolve_needles(vm, &kind);
-    let entities = resolve_entities_with_needles(dom, &kind, &needles);
-    vm.live_collection_states.insert(id, kind);
+    let entities = resolve_with_cache(dom, &kind, &cache, &needles);
+    vm.live_collection_states.insert(id, (kind, cache));
 
     match key {
         JsValue::Number(n) if n.is_finite() => {

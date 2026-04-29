@@ -612,3 +612,90 @@ fn shared_item_method_rejects_cross_interface_receiver() {
     );
     assert_eq!(out, "ok");
 }
+
+// --- SP2 entity-list cache regression -----------------------------
+//
+// These tests target the per-wrapper `LiveCollectionCache` added in
+// SP2-impl: cache hits short-circuit `resolve_entities_for` to a
+// `Cell::get` + `Vec::clone` of the previously walked entity list.
+// The visible JS semantics are unchanged (every read still reflects
+// the live tree), but the tests below pin down the invalidation
+// surface so a future regression that, say, forgets to bump
+// `rev_version` from `EcsDom::set_attribute` would fail loudly here
+// rather than silently degrading to stale results.
+
+#[test]
+fn cache_hit_then_tree_mutation_invalidates() {
+    // Repeated `length` reads on an unchanged subtree must return the
+    // same value (cache hit path).  A subsequent appendChild must be
+    // observed (cache miss + refresh path) — this is the behaviour the
+    // existing liveness tests cover, and the cache layer is required
+    // not to break it.
+    let out = run("var coll = document.body.getElementsByTagName('span'); \
+         var a = coll.length; \
+         var b = coll.length; \
+         var c = coll.length; \
+         document.body.appendChild(document.createElement('span')); \
+         var d = coll.length; \
+         (a === 0 && b === 0 && c === 0 && d === 1) ? 'ok' : \
+           'fail:' + a + '/' + b + '/' + c + '/' + d;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn cache_invalidates_on_set_attribute() {
+    // `getElementsByClassName` filters on attribute state — any
+    // `setAttribute` under the root must invalidate the cache so the
+    // next read sees the new match.  Pre-SP2-impl this would either
+    // need separate attr-version tracking or an attr-mutation hook;
+    // SP2-impl threads `rev_version` through `EcsDom::set_attribute`
+    // so the same single counter handles both tree topology and
+    // attribute state.
+    let out = run("var p = document.createElement('div'); \
+         var s = document.createElement('span'); \
+         p.appendChild(s); \
+         document.body.appendChild(p); \
+         var coll = p.getElementsByClassName('target'); \
+         var before = coll.length; \
+         s.setAttribute('class', 'target'); \
+         var after = coll.length; \
+         (before === 0 && after === 1) ? 'ok' : 'fail:' + before + '/' + after;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn cache_invalidates_on_remove_attribute() {
+    // The mirror of the set_attribute case: removing the filter
+    // attribute must drop the element from a previously cached match.
+    let out = run("var p = document.createElement('div'); \
+         var s = document.createElement('span'); s.setAttribute('class', 'target'); \
+         p.appendChild(s); \
+         document.body.appendChild(p); \
+         var coll = p.getElementsByClassName('target'); \
+         var before = coll.length; \
+         s.removeAttribute('class'); \
+         var after = coll.length; \
+         (before === 1 && after === 0) ? 'ok' : 'fail:' + before + '/' + after;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn cache_persists_across_iter_constructions() {
+    // Each `for/of` iteration constructs a fresh Array snapshot
+    // through `collection_iterator_impl` — the entity list cache is
+    // consulted on each construction.  Two consecutive iters over an
+    // unchanged collection must yield the same elements (cache-hit
+    // bypass on the second iter).  The visible test is the count
+    // equality plus identity preservation across the snapshots.
+    let out = run("var p = document.createElement('div'); \
+         p.appendChild(document.createElement('a')); \
+         p.appendChild(document.createElement('b')); \
+         document.body.appendChild(p); \
+         var coll = p.children; \
+         var seen1 = []; for (var e of coll) seen1.push(e); \
+         var seen2 = []; for (var e of coll) seen2.push(e); \
+         (seen1.length === seen2.length \
+           && seen1[0] === seen2[0] \
+           && seen1[1] === seen2[1]) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}

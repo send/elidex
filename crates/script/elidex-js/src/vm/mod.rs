@@ -804,14 +804,22 @@ pub(crate) struct VmInner {
     /// indexed / named property lookup in `ops_property::get_element`
     /// hit a single side-table regardless of the wrapper kind.
     ///
-    /// GC contract: the stored `LiveCollectionKind` holds only
-    /// `Entity`, `StringId`, `Vec<StringId>` (class names), and
-    /// `Vec<Entity>` (querySelectorAll snapshot) — **no `ObjectId`
-    /// references**, so the trace step does nothing.  The sweep
-    /// tail prunes entries whose key `ObjectId` was collected, same
-    /// pattern as `headers_states` / `blob_data`.
+    /// GC contract: the stored `(LiveCollectionKind,
+    /// LiveCollectionCache)` tuple holds only `Entity`, `StringId`,
+    /// `Vec<StringId>` (class names), `Vec<Entity>` (querySelectorAll
+    /// snapshot + per-wrapper SP2 entity-list cache), and `Cell<u64>`
+    /// (cache version) — **no `ObjectId` references**, so the trace
+    /// step does nothing.  The sweep tail prunes entries whose key
+    /// `ObjectId` was collected, same pattern as `headers_states` /
+    /// `blob_data`.
     #[cfg(feature = "engine")]
-    pub(crate) live_collection_states: HashMap<ObjectId, host::dom_collection::LiveCollectionKind>,
+    pub(crate) live_collection_states: HashMap<
+        ObjectId,
+        (
+            host::dom_collection::LiveCollectionKind,
+            host::dom_collection::LiveCollectionCache,
+        ),
+    >,
     /// Content-thread `NetworkHandle` used by the `fetch()` host
     /// global.  `None` in test / standalone mode (`fetch()` then
     /// rejects with `TypeError`); the embedding harness —
