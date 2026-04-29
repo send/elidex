@@ -36,6 +36,15 @@ fn ok_response(url: &str, body: &'static str) -> NetResponse {
 
 fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
     let mut vm = Vm::new();
+    // Default the document origin to `http://example.com/page` so
+    // the lifecycle tests below (which fetch `http://example.com/...`
+    // URLs) classify as same-origin → `Basic`.  Without this, the
+    // default `about:blank` origin would become opaque after Copilot
+    // R3 fix, making every fetch cross-origin and tripping the
+    // `NetworkError` (no ACAO) path — these tests aren't about CORS,
+    // they're about the Promise / abort lifecycle.
+    vm.inner.navigation.current_url =
+        url::Url::parse("http://example.com/page").expect("valid base URL");
     vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(responses)));
     vm
 }
@@ -545,6 +554,10 @@ fn install_network_handle_same_rc_is_noop_for_pending_fetches() {
         Ok(ok_response("http://example.com/same-rc", "ok")),
     )]));
     let mut vm = Vm::new();
+    // Same-origin context so the fetch classifies as Basic
+    // (Copilot R3 — without explicit document origin the default
+    // about:blank → opaque origin would force the cors path).
+    vm.inner.navigation.current_url = url::Url::parse("http://example.com/page").expect("valid");
     vm.install_network_handle(Rc::clone(&handle));
     vm.eval(
         "globalThis.r = 0; \
@@ -740,9 +753,12 @@ fn fetch_same_origin_mode_passes_same_origin_url() {
 }
 
 #[test]
-fn fetch_origin_threaded_only_for_http_https_documents() {
-    // `about:blank` document → origin is `None` so cookie gating
-    // falls back to "always attach" (matches embedder-driven loads).
+fn fetch_threads_opaque_origin_for_about_blank_initiator() {
+    // Copilot R3 fix: `about:blank` script-initiated fetches
+    // produce an opaque origin (Origin::Opaque, ascii_serialization
+    // = "null") rather than `None`.  The previous behaviour —
+    // returning `None` for non-HTTP(S) — caused the classifier to
+    // short-circuit to `Basic`, which was a CORS bypass.
     let (mut vm, handle) = vm_with_origin_and_mock(
         "about:blank",
         "http://example.com/api",
@@ -751,7 +767,13 @@ fn fetch_origin_threaded_only_for_http_https_documents() {
     vm.eval("fetch('http://example.com/api');").unwrap();
     let logged = handle.drain_recorded_requests();
     assert_eq!(logged.len(), 1);
-    assert_eq!(logged[0].origin, None);
+    let origin = logged[0]
+        .origin
+        .as_ref()
+        .expect("script-initiated fetch always carries Some(origin)");
+    // Opaque origins serialise as "null" per HTML §3.2.1.2.
+    assert_eq!(origin.ascii_serialization(), "null");
+    assert!(!origin.is_tuple());
 }
 
 // ---------------------------------------------------------------------------

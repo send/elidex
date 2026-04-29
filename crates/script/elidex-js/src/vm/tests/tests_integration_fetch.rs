@@ -23,6 +23,11 @@ use super::super::Vm;
 
 fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
     let mut vm = Vm::new();
+    // Same-origin context for HTTP fetches (Copilot R3 PR #133):
+    // default `about:blank` would now serialize to an opaque
+    // origin and force the cors path on every fetch.
+    vm.inner.navigation.current_url =
+        url::Url::parse("http://example.com/page").expect("valid base URL");
     vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(responses)));
     vm
 }

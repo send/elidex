@@ -222,6 +222,7 @@ impl VmInner {
                     cors_meta.request_origin.as_ref(),
                     &cors_meta.request_url,
                     cors_meta.request_mode,
+                    cors_meta.request_credentials,
                     cors_meta.redirect_mode,
                     &response.url,
                     response.status,

@@ -369,6 +369,7 @@ fn build_net_request(
                 request_url: url.clone(),
                 request_origin: origin.clone(),
                 request_mode: mode,
+                request_credentials: credentials,
                 redirect_mode: redirect,
             };
             let mut request = elidex_net::Request {
@@ -419,6 +420,7 @@ fn build_net_request(
         request_url: url.clone(),
         request_origin: origin.clone(),
         request_mode: mode,
+        request_credentials: credentials,
         redirect_mode: redirect,
     };
     let mut request = elidex_net::Request {
@@ -462,13 +464,19 @@ fn reject_same_origin_cross_origin(
 /// Pick the origin to thread through to the broker as
 /// `request.origin`.  Used by the cookie-attach gate (WHATWG
 /// Fetch §3.1.7) and by the Stage-4 response_type CORS
-/// classifier.  Returns the source's [`url::Origin`] when the
-/// document is on an HTTP/HTTPS scheme (script-initiated
-/// fetches always have a tuple origin); `None` for `about:blank`
-/// / `data:` / etc. initiators with opaque origins where no
-/// meaningful tuple-origin exists — broker `SameOrigin`
-/// credentials gating treats `None` as "always-attach" (matches
-/// pre-PR top-level navigation behaviour).
+/// classifier.  Always returns `Some(source.origin())` for any
+/// script-initiated fetch — including opaque-origin initiators
+/// like `data:` URLs, which serialize as `null` and never match
+/// any tuple origin (so SameOrigin credentials are stripped and
+/// CORS classification runs the cross-origin path, matching
+/// WHATWG Fetch §3.2.5 + §3.1.7 for opaque origins).
+///
+/// `Request.origin = None` is reserved for **embedder-driven
+/// callers** that bypass the VM-side fetch path (the navigation
+/// pipeline's initial document load, favicon prefetch, etc.) —
+/// those genuinely have no script-origin context.  That path is
+/// untouched by this PR and continues to use the
+/// `..Default::default()` shape with `origin: None`.
 ///
 /// Returning [`url::Origin`] (rather than a full URL) ensures
 /// the broker never sees the initiator's path / query /
@@ -476,12 +484,14 @@ fn reject_same_origin_cross_origin(
 /// field with origin-only semantics is a misuse trap because
 /// every consumer would have to remember to call `.origin()`
 /// before comparing.
+///
+/// Copilot R3 (findings 2+3): the previous "HTTP/HTTPS only,
+/// else None" gate caused `data:` / `about:blank` script
+/// initiators to short-circuit to `ResponseType::Basic` in the
+/// classifier, which is a CORS bypass.  Fixed by threading
+/// every script-side fetch's source origin through verbatim.
 fn origin_for_request(source: &Url, _target: &Url) -> Option<url::Origin> {
-    if matches!(source.scheme(), "http" | "https") {
-        Some(source.origin())
-    } else {
-        None
-    }
+    Some(source.origin())
 }
 
 /// Inject the spec-prescribed `Cache-Control` / `Pragma`

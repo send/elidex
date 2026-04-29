@@ -157,6 +157,31 @@ fn should_attach_cookies(request: &Request) -> bool {
     }
 }
 
+/// Decide whether to **persist** Set-Cookie from a final
+/// (post-redirect) response.  Mirrors [`should_attach_cookies`]
+/// but evaluates against the response URL — required because a
+/// redirect chain can change the effective origin between
+/// dispatch and settlement (Copilot R3).
+///
+/// Without this re-evaluation, a request that started same-
+/// origin and redirected cross-origin would persist cookies
+/// from the cross-origin response under `SameOrigin`
+/// credentials, contradicting the spec.
+fn should_store_set_cookie_from(
+    credentials: CredentialsMode,
+    origin: Option<&url::Origin>,
+    response_url: &url::Url,
+) -> bool {
+    match credentials {
+        CredentialsMode::Omit => false,
+        CredentialsMode::Include => true,
+        CredentialsMode::SameOrigin => match origin {
+            None => true,
+            Some(source) => *source == response_url.origin(),
+        },
+    }
+}
+
 impl Default for Request {
     fn default() -> Self {
         Self {
@@ -302,15 +327,36 @@ impl NetClient {
             }
         }
 
+        // Snapshot the credentials/origin pair before moving
+        // `request` into `follow_redirects`, so the post-
+        // redirect Set-Cookie storage decision can honour
+        // `SameOrigin` against the **final** response URL
+        // (Copilot R3): a request that started same-origin and
+        // got redirected cross-origin must NOT persist Set-
+        // Cookie from the cross-origin response under
+        // `SameOrigin` credentials.
+        let credentials_for_store = request.credentials;
+        let origin_for_store = request.origin.clone();
+
         // Send with redirect following
         let max_redirects = self.transport.config().max_redirects;
         let mut response =
             redirect::follow_redirects(&self.transport, request, max_redirects).await?;
 
-        // Store cookies from response — same gating as the
-        // attach side so an `Omit` request never persists
-        // Set-Cookie either.
-        if attach_cookies {
+        // Store cookies from response — re-evaluate gating
+        // against the **final** response URL because the
+        // redirect chain may have crossed origin (Copilot R3).
+        // For `SameOrigin`, we compare the snapshotted initiator
+        // origin against `response.url.origin()`; for `Omit` /
+        // `Include` the decision is URL-independent so the
+        // re-eval is a no-op.
+        let store_cookies = !self.credentialless
+            && should_store_set_cookie_from(
+                credentials_for_store,
+                origin_for_store.as_ref(),
+                &response.url,
+            );
+        if store_cookies {
             self.cookie_jar
                 .store_from_response(&response.url, &response.headers);
         }
@@ -489,6 +535,64 @@ mod tests {
             ..Default::default()
         };
         assert!(should_attach_cookies(&request));
+    }
+
+    /// Copilot R3 regression (finding 1): cookie storage from
+    /// the **final** post-redirect response must re-evaluate
+    /// the SameOrigin check against `response.url` so a
+    /// same-origin → cross-origin redirect under
+    /// `CredentialsMode::SameOrigin` does NOT persist cookies
+    /// from the cross-origin response.
+    #[test]
+    fn should_store_set_cookie_blocks_cross_origin_redirect_under_same_origin() {
+        let source_origin = url::Url::parse("http://example.com/page").unwrap().origin();
+        let final_url = url::Url::parse("http://attacker.com/landing").unwrap();
+        // Same-origin credentials, but final URL crossed origin
+        // (the redirect chain landed at attacker.com).  Storage
+        // decision must be `false`.
+        assert!(!should_store_set_cookie_from(
+            CredentialsMode::SameOrigin,
+            Some(&source_origin),
+            &final_url,
+        ));
+    }
+
+    /// Counterpart sentinel: a same-origin → same-origin
+    /// redirect chain still stores cookies under SameOrigin.
+    #[test]
+    fn should_store_set_cookie_allows_same_origin_redirect_under_same_origin() {
+        let source_origin = url::Url::parse("http://example.com/page").unwrap().origin();
+        let final_url = url::Url::parse("http://example.com/landing").unwrap();
+        assert!(should_store_set_cookie_from(
+            CredentialsMode::SameOrigin,
+            Some(&source_origin),
+            &final_url,
+        ));
+    }
+
+    /// Counterpart sentinel: `Include` always stores even
+    /// across cross-origin redirects.
+    #[test]
+    fn should_store_set_cookie_include_always_stores() {
+        let source_origin = url::Url::parse("http://example.com/page").unwrap().origin();
+        let final_url = url::Url::parse("http://attacker.com/landing").unwrap();
+        assert!(should_store_set_cookie_from(
+            CredentialsMode::Include,
+            Some(&source_origin),
+            &final_url,
+        ));
+    }
+
+    /// Counterpart sentinel: `Omit` never stores.
+    #[test]
+    fn should_store_set_cookie_omit_never_stores() {
+        let source_origin = url::Url::parse("http://example.com/page").unwrap().origin();
+        let final_url = url::Url::parse("http://example.com/landing").unwrap();
+        assert!(!should_store_set_cookie_from(
+            CredentialsMode::Omit,
+            Some(&source_origin),
+            &final_url,
+        ));
     }
 
     /// Regression test for Copilot R1 finding: `Request.origin`

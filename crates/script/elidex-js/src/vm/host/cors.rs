@@ -27,7 +27,7 @@
 
 use url::Url;
 
-use super::request_response::{RedirectMode, RequestMode, ResponseType};
+use super::request_response::{RedirectMode, RequestCredentials, RequestMode, ResponseType};
 
 /// Per-pending-fetch metadata captured at dispatch time so the
 /// `tick_network` settlement step can run the CORS classifier
@@ -52,6 +52,12 @@ pub(crate) struct FetchCorsMeta {
     /// `init.mode` (or the source `Request`'s mode for the
     /// Request-input path).
     pub(crate) request_mode: RequestMode,
+    /// `init.credentials` — gates the strict ACAO/ACAC checks
+    /// in [`cors_check_passes`].  Cross-origin requests with
+    /// `Include` credentials reject `Access-Control-Allow-
+    /// Origin: *` and require `Access-Control-Allow-Credentials:
+    /// true` per WHATWG Fetch §3.2.5 (Copilot R3 finding 5).
+    pub(crate) request_credentials: RequestCredentials,
     /// `init.redirect` — `Manual` triggers the OpaqueRedirect
     /// classification when the response status is 3xx.
     pub(crate) redirect_mode: RedirectMode,
@@ -79,29 +85,60 @@ pub(crate) enum CorsOutcome {
 
 /// Classify a broker response per WHATWG Fetch §3.2.5 / §4.4.
 ///
-/// - Same-origin → `Basic`.
+/// - **Same-origin → `Basic`** (only when **both** the original
+///   request URL **and** the final response URL match the
+///   initiator origin).  WHATWG Fetch's actual algorithm tracks
+///   a *tainted-origin flag* across redirects so a chain that
+///   crossed origin can still get Basic when the final URL is
+///   same-origin; we don't propagate that flag through the
+///   broker yet, so the defensive `&&` here fails closed: a
+///   chain where any URL crossed origin runs the cors path
+///   (which would NetworkError unless the same-origin server
+///   explicitly opts in via ACAO — typically not the case).
+///   Tracking the tainted-origin flag belongs with PR5-cors-
+///   preflight broker-state work (Copilot R3 finding 4
+///   acknowledged; defensive logic kept).
 /// - `mode = "no-cors"` cross-origin → `Opaque` (body / headers
 ///   / url stripped).
 /// - `redirect = "manual"` returning a 3xx (regardless of
 ///   origin) → `OpaqueRedirect`.
 /// - `mode = "cors"` cross-origin:
-///   - `Access-Control-Allow-Origin` matches request origin or is
-///     `*` → `Cors`.
-///   - else → `NetworkError`.
+///   - For non-credentialed requests:
+///     `Access-Control-Allow-Origin` matches request origin or
+///     is `*` → `Cors`; else `NetworkError`.
+///   - For credentialed requests (`credentials: "include"`):
+///     `*` is rejected (spec §3.2.5); ACAO must match the
+///     request origin **exactly** AND `Access-Control-Allow-
+///     Credentials: true` must be present (Copilot R3 finding
+///     5).
 /// - `mode = "navigate"` is internal and cannot be reached from
 ///   JS-facing fetch (parser rejects it).
 ///
 /// `request_origin` is the document / worker origin that
 /// initiated the fetch (the value populated by
-/// [`super::fetch::origin_for_request`]).  When `None`, every
-/// classification falls through to `Basic` because there's no
-/// origin context against which to compute "cross-origin"
-/// (matches embedder-driven loads — initial navigation, favicon
-/// prefetch — that don't have a JS-script-origin context).
+/// [`super::fetch::origin_for_request`]).  Script-initiated
+/// fetches always carry `Some(origin)` — including opaque
+/// origins from `data:` / `about:blank` initiators (the
+/// classifier compares the opaque origin against the response
+/// origin and proceeds through the cors path because opaque !=
+/// any tuple origin).  `None` is reserved for **embedder-driven
+/// callers** that bypass the VM fetch path entirely (initial
+/// document load, favicon prefetch); those genuinely have no
+/// script-origin context against which to compute "cross-
+/// origin" so the classifier falls through to `Basic`.
+///
+/// Copilot R3 (finding 3): before this PR, `origin_for_request`
+/// returned `None` for non-HTTP(S) initiators (`data:` /
+/// `about:blank`), which made the classifier short-circuit to
+/// `Basic` and bypass CORS for opaque-origin scripts.  Fixed
+/// upstream in `origin_for_request`; this function's `None`
+/// path is now unreachable from VM-side fetch and only serves
+/// the embedder fallback contract.
 pub(crate) fn classify_response_type(
     request_origin: Option<&url::Origin>,
     request_url: &Url,
     request_mode: RequestMode,
+    request_credentials: RequestCredentials,
     redirect_mode: RedirectMode,
     response_url: &Url,
     response_status: u16,
@@ -151,8 +188,18 @@ pub(crate) fn classify_response_type(
         RequestMode::Cors | RequestMode::Navigate => {
             // WHATWG Fetch §3.2.5 "CORS check" — the response must
             // carry an `Access-Control-Allow-Origin` whose value
-            // is `*` or matches the request's origin.
-            if cors_check_passes(source, response_headers) {
+            // is `*` or matches the request's origin, and for
+            // credentialed cross-origin requests the additional
+            // `Access-Control-Allow-Credentials: true` rule
+            // applies (`*` rejected).
+            //
+            // The credentialed-network condition fires only when
+            // `init.credentials = "include"` because `SameOrigin`
+            // strips Cookie at `should_attach_cookies` for
+            // cross-origin paths — so the network response was
+            // not credentialed, and the relaxed `*` rule applies.
+            let credentialed_network = matches!(request_credentials, RequestCredentials::Include);
+            if cors_check_passes(source, response_headers, credentialed_network) {
                 CorsOutcome::Ok(CorsClassification {
                     response_type: ResponseType::Cors,
                     opaque_shape: false,
@@ -164,17 +211,54 @@ pub(crate) fn classify_response_type(
     }
 }
 
-fn cors_check_passes(source: &url::Origin, response_headers: &[(String, String)]) -> bool {
+/// WHATWG Fetch §3.2.5 "CORS check" — verify the response's
+/// `Access-Control-Allow-Origin` header against the request
+/// origin.  When the request was sent with credentials
+/// (`credentialed_network = true`), the spec mandates stricter
+/// rules:
+///
+/// - `Access-Control-Allow-Origin: *` is **rejected** (the
+///   wildcard is incompatible with credentials).
+/// - The ACAO value must match the request origin **exactly**
+///   (case-insensitive serialised form).
+/// - `Access-Control-Allow-Credentials: true` must be present.
+///
+/// For non-credentialed requests, `*` is accepted as before.
+fn cors_check_passes(
+    source: &url::Origin,
+    response_headers: &[(String, String)],
+    credentialed_network: bool,
+) -> bool {
     let allowed = response_headers
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("access-control-allow-origin"))
         .map(|(_, v)| v.trim());
     match allowed {
         None => false,
-        Some("*") => true,
+        Some("*") => {
+            // Credentialed requests cannot use the `*` wildcard
+            // (Copilot R3 finding 5).  Without this gate, a
+            // cross-origin server returning `ACAO: *` would let
+            // a `credentials: 'include'` response slip through
+            // and expose the response to script.
+            !credentialed_network
+        }
         Some(value) => {
             let serialised = source.ascii_serialization();
-            value.eq_ignore_ascii_case(&serialised)
+            if !value.eq_ignore_ascii_case(&serialised) {
+                return false;
+            }
+            // Origin matches; for credentialed requests the spec
+            // additionally requires `Access-Control-Allow-
+            // Credentials: true` on the response.
+            if credentialed_network {
+                response_headers
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("access-control-allow-credentials"))
+                    .is_some_and(|(_, v)| v.trim().eq_ignore_ascii_case("true"))
+            } else {
+                true
+            }
         }
     }
 }
@@ -283,6 +367,7 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
@@ -305,6 +390,7 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::NoCors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
@@ -331,6 +417,7 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
@@ -354,6 +441,7 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
@@ -376,6 +464,7 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
@@ -396,6 +485,7 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
@@ -412,6 +502,7 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Manual,
             &target,
             302,
@@ -434,6 +525,7 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Manual,
             &target,
             200,
@@ -455,6 +547,7 @@ mod tests {
             None,
             &target,
             RequestMode::Cors,
+            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
@@ -536,6 +629,108 @@ mod tests {
             "Set-Cookie2 must be dropped"
         );
         assert!(names.contains(&"x-custom"), "non-forbidden expose passes");
+    }
+
+    /// Copilot R3 regression (finding 5): credentialed CORS
+    /// requests must reject `Access-Control-Allow-Origin: *`
+    /// (spec §3.2.5).
+    #[test]
+    fn credentialed_cors_rejects_wildcard_acao() {
+        let source = origin("http://example.com/page");
+        let target = url("http://other.com/api");
+        let headers = vec![("access-control-allow-origin".to_string(), "*".to_string())];
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RequestCredentials::Include,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers,
+        );
+        assert!(matches!(out, CorsOutcome::NetworkError));
+    }
+
+    /// Copilot R3 regression (finding 5): credentialed CORS
+    /// requests with matching origin still require
+    /// `Access-Control-Allow-Credentials: true`.
+    #[test]
+    fn credentialed_cors_requires_allow_credentials_true() {
+        let source = origin("http://example.com/page");
+        let target = url("http://other.com/api");
+        // Origin matches but ACAC missing → NetworkError.
+        let headers_no_acac = vec![(
+            "Access-Control-Allow-Origin".to_string(),
+            "http://example.com".to_string(),
+        )];
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RequestCredentials::Include,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers_no_acac,
+        );
+        assert!(matches!(out, CorsOutcome::NetworkError));
+
+        // Origin matches AND ACAC: true → passes.
+        let headers_with_acac = vec![
+            (
+                "Access-Control-Allow-Origin".to_string(),
+                "http://example.com".to_string(),
+            ),
+            (
+                "Access-Control-Allow-Credentials".to_string(),
+                "true".to_string(),
+            ),
+        ];
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RequestCredentials::Include,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers_with_acac,
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Cors,
+                ..
+            })
+        ));
+    }
+
+    /// Sentinel: non-credentialed (SameOrigin / Omit) cross-
+    /// origin CORS requests still accept wildcard `*` (Copilot
+    /// R3 finding 5 only restricts credentialed requests).
+    #[test]
+    fn non_credentialed_cors_still_accepts_wildcard() {
+        let source = origin("http://example.com/page");
+        let target = url("http://other.com/api");
+        let headers = vec![("access-control-allow-origin".to_string(), "*".to_string())];
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RequestCredentials::SameOrigin,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers,
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Cors,
+                ..
+            })
+        ));
     }
 
     /// Copilot R2 regression: wildcard `Access-Control-Expose-
