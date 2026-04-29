@@ -224,7 +224,8 @@ fn header_quoted_len(input: &[u8]) -> usize {
 }
 
 /// Derive a hex boundary string from the `salt` only — no payload
-/// bytes touched.  Always 25 hex chars + the `elidexFormBoundary`
+/// bytes touched.  Always 24 hex chars (16 from the hashed salt +
+/// 8 from `salt as u32`) appended to the `----elidexFormBoundary`
 /// prefix, well within RFC 2046's 70-char limit and unique enough
 /// to avoid collisions in practice (the explicit collision check
 /// in [`encode`] retries with an incremented salt if it ever does).

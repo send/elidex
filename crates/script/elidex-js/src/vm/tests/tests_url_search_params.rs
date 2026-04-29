@@ -315,3 +315,25 @@ fn ctor_requires_new() {
     let result = vm.eval("URLSearchParams('a=1');");
     assert!(result.is_err());
 }
+
+#[test]
+fn prototype_survives_gc_after_global_removal() {
+    // Regression for R2 GC-roots finding: even if user code severs
+    // the `URLSearchParams` global binding, the cached
+    // `VmInner::url_search_params_prototype` `ObjectId` is still
+    // an intrinsic root, so the prototype object must survive a
+    // forced GC cycle and a freshly constructed instance must keep
+    // its method dispatch intact.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.SavedUSP = URLSearchParams; \
+         delete globalThis.URLSearchParams;",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    let result = match vm.eval("new SavedUSP('a=1&b=2').toString();").unwrap() {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert_eq!(result, "a=1&b=2");
+}

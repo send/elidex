@@ -109,7 +109,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 50],
+    proto_roots: [Option<ObjectId>; 52],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -682,6 +682,25 @@ impl VmInner {
                 None,
                 #[cfg(feature = "engine")]
                 self.text_decoder_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 50 + 2 (M4-12 PR-form-url: URLSearchParams + FormData) = 52.
+                // Both chain directly to Object.prototype.  Without
+                // marking these intrinsic prototypes here, user code
+                // that severs the global binding (e.g. `delete
+                // globalThis.URLSearchParams`) could let the
+                // prototype be collected while `VmInner::
+                // url_search_params_prototype` retains a stale id;
+                // the next `new URLSearchParams()` would then bind
+                // its instance to a recycled slot of an unrelated
+                // type.  Same invariant as every other intrinsic
+                // prototype in this list.
+                #[cfg(feature = "engine")]
+                self.url_search_params_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.form_data_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],

@@ -208,6 +208,29 @@ fn brand_check_throws_on_alien_receiver() {
         .is_err());
 }
 
+#[test]
+fn prototype_survives_gc_after_global_removal() {
+    // Regression for R2 GC-roots finding: with `FormData` removed
+    // from globals, the cached `VmInner::form_data_prototype`
+    // ObjectId remains an intrinsic root and a freshly-constructed
+    // instance still finds its prototype methods after a forced GC.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.SavedFD = FormData; \
+         delete globalThis.FormData;",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    let value = match vm
+        .eval("let f = new SavedFD(); f.append('k', 'v'); f.get('k');")
+        .unwrap()
+    {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert_eq!(value, "v");
+}
+
 // ---------------------------------------------------------------------------
 // Body extraction (multipart encoder + Content-Type wiring)
 // ---------------------------------------------------------------------------
