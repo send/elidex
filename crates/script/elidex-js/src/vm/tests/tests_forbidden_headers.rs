@@ -238,6 +238,71 @@ fn fetch_user_set_origin_dropped_in_favour_of_auto_attach() {
 }
 
 #[test]
+fn request_headers_drop_method_override_family() {
+    // WHATWG Fetch §2.2.2 forbidden-request-header list includes
+    // `X-HTTP-Method`, `X-HTTP-Method-Override`, and
+    // `X-Method-Override` so script can't smuggle forbidden HTTP
+    // methods past the method gate.  Originally missed in PR #131,
+    // added in the follow-up.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r1 = 'unset'; \
+         globalThis.r2 = 'unset'; \
+         globalThis.r3 = 'unset'; \
+         var req = new Request('http://example.com/', { \
+             headers: { \
+                 'X-HTTP-Method': 'CONNECT', \
+                 'X-HTTP-Method-Override': 'TRACE', \
+                 'X-Method-Override': 'TRACK', \
+             } \
+         }); \
+         globalThis.r1 = req.headers.get('x-http-method'); \
+         globalThis.r2 = req.headers.get('x-http-method-override'); \
+         globalThis.r3 = req.headers.get('x-method-override');",
+    )
+    .unwrap();
+    for key in ["r1", "r2", "r3"] {
+        match vm.get_global(key) {
+            Some(JsValue::Null) => {}
+            other => panic!("{key} must be null (filtered), got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn request_headers_user_agent_and_set_cookie2_are_settable() {
+    // WHATWG Fetch §2.2.2 does NOT list `User-Agent` or
+    // `Set-Cookie2` in forbidden request-header names — `User-Agent`
+    // is a header with a default value (UA can override) but script
+    // can still set it on a Request, and `Set-Cookie2` is forbidden
+    // *response*-header (§2.2.6), not request.  Covered here as an
+    // explicit FP guard so a future overzealous expansion of
+    // `is_forbidden_request_header` regresses against this test.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r1 = ''; \
+         globalThis.r2 = ''; \
+         var req = new Request('http://example.com/', { \
+             headers: { \
+                 'User-Agent': 'TestAgent/1.0', \
+                 'Set-Cookie2': 'sid2=1', \
+             } \
+         }); \
+         globalThis.r1 = req.headers.get('user-agent'); \
+         globalThis.r2 = req.headers.get('set-cookie2');",
+    )
+    .unwrap();
+    match vm.get_global("r1") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "TestAgent/1.0"),
+        other => panic!("User-Agent must pass through, got {other:?}"),
+    }
+    match vm.get_global("r2") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "sid2=1"),
+        other => panic!("Set-Cookie2 must pass through on request, got {other:?}"),
+    }
+}
+
+#[test]
 fn standalone_headers_set_cookie_works_until_attached_to_request() {
     // `Set-Cookie` is only forbidden on Request guard.  A bare
     // Headers can carry it.

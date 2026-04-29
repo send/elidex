@@ -96,7 +96,7 @@ pub(super) fn validate_and_normalise(
     Ok((name_sid, value_sid))
 }
 
-/// WHATWG Fetch §4.6 forbidden request header names.  Compared
+/// WHATWG Fetch §2.2.2 forbidden request-header names.  Compared
 /// against the lowercased name returned by
 /// [`validate_and_normalise_name`].  Includes the `proxy-` and
 /// `sec-` byte-prefix matches.
@@ -134,6 +134,15 @@ pub(super) fn is_forbidden_request_header(lower_name: &str) -> bool {
             | "transfer-encoding"
             | "upgrade"
             | "via"
+            // Method-override headers — spec adds these to prevent
+            // script from smuggling forbidden methods (CONNECT /
+            // TRACE / TRACK) past the browser's method gate by
+            // hiding them in an override header that some servers
+            // honour.  Not in the original PR #131 list — added
+            // here per WHATWG Fetch §2.2.2 (R12 follow-up).
+            | "x-http-method"
+            | "x-http-method-override"
+            | "x-method-override"
     )
 }
 
