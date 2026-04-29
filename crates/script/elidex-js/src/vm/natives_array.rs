@@ -594,9 +594,10 @@ pub(super) fn native_array_to_string(
 /// so user overrides on `Number.prototype.toLocaleString` /
 /// `BigInt.prototype.toLocaleString` see them.  Throws TypeError
 /// on a present-but-non-callable `toLocaleString` per `Invoke`
-/// (§7.3.16); the `None` branch is a defensive fallback for the
-/// (unreachable in practice) case where the user deleted
-/// `Object.prototype.toLocaleString`.
+/// (§7.3.16); the `None` branch covers the user-reachable case
+/// where `toLocaleString` is absent (for example because
+/// `Object.prototype.toLocaleString` was deleted), which is part
+/// of the observable `Invoke` semantics.
 ///
 /// Boxed-primitive wrappers are pinned in a single rooted stack
 /// slot across the property lookup + call points — same shape as

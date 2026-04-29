@@ -822,23 +822,28 @@ pub(crate) fn native_typed_array_join(
         element_kind: ek,
         ..
     } = parts;
-    let sep = match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined => ",".to_string(),
+    // WTF-16 accumulation — preserves lone surrogates that user
+    // overrides on `Number.prototype.toString` /
+    // `BigInt.prototype.toString` could return.  The lossy
+    // `StringPool::get_utf8` path would clobber them; mirror
+    // `native_array_join`'s `Vec<u16>` + `intern_utf16` shape.
+    let sep: Vec<u16> = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => vec![u16::from(b',')],
         other => {
             let sid = ctx.to_string_val(other)?;
-            ctx.vm.strings.get_utf8(sid)
+            ctx.vm.strings.get(sid).to_vec()
         }
     };
-    let mut out = String::new();
+    let mut out: Vec<u16> = Vec::new();
     for i in 0..len_elem {
         if i > 0 {
-            out.push_str(&sep);
+            out.extend_from_slice(&sep);
         }
         let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
         let sid = ctx.to_string_val(v)?;
-        out.push_str(&ctx.vm.strings.get_utf8(sid));
+        out.extend_from_slice(ctx.vm.strings.get(sid));
     }
-    let out_sid = ctx.vm.strings.intern(&out);
+    let out_sid = ctx.vm.strings.intern_utf16(&out);
     Ok(JsValue::String(out_sid))
 }
 
@@ -907,10 +912,14 @@ pub(crate) fn native_typed_array_to_locale_string(
     frame.stack.push(JsValue::Undefined);
     let mut sub_ctx = NativeContext { vm: &mut frame };
 
-    let mut out = String::new();
+    // WTF-16 accumulation preserves lone surrogates: a user
+    // override returning `'\uD800'` must round-trip exactly,
+    // which the lossy `StringPool::get_utf8` path would clobber.
+    // Mirrors `native_array_to_locale_string` / `native_array_join`.
+    let mut out: Vec<u16> = Vec::new();
     for i in 0..len_elem {
         if i > 0 {
-            out.push(',');
+            out.push(u16::from(b','));
         }
         let elem = read_element_raw(sub_ctx.vm, buffer_id, byte_offset, i, ek);
         // Invoke(V, P, args) — GetV boxes the primitive element
@@ -930,11 +939,13 @@ pub(crate) fn native_typed_array_to_locale_string(
             }
             // Per `Invoke` semantics (§7.3.16) `?Call(?GetV(V, P), …)`
             // throws TypeError when the resolved property is either
-            // present-but-non-callable OR absent (GetV returns
-            // undefined → Call rejects undefined as not-a-function).
-            // Silent fallback to `ToString(receiver)` would mask
-            // user mistakes like `Number.prototype.toLocaleString = 42`
-            // and diverge from spec on the chain-deletion path.
+            // present-but-non-callable OR absent.  The `None` branch
+            // covers the user-reachable case where `toLocaleString`
+            // has been removed from the chain (e.g. via
+            // `delete Object.prototype.toLocaleString`); silent
+            // fallback to `ToString(receiver)` would mask user
+            // mistakes like `Number.prototype.toLocaleString = 42`
+            // and diverge from observable `Invoke` semantics.
             Some(_) | None => {
                 return Err(VmError::type_error(
                     "Failed to execute 'toLocaleString' on 'TypedArray': \
@@ -942,10 +953,10 @@ pub(crate) fn native_typed_array_to_locale_string(
                 ));
             }
         };
-        out.push_str(&sub_ctx.vm.strings.get_utf8(str_sid));
+        out.extend_from_slice(sub_ctx.vm.strings.get(str_sid));
     }
     drop(frame);
-    let out_sid = ctx.vm.strings.intern(&out);
+    let out_sid = ctx.vm.strings.intern_utf16(&out);
     Ok(JsValue::String(out_sid))
 }
 

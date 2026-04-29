@@ -812,6 +812,34 @@ fn to_locale_string_passes_exactly_two_args_to_override() {
 }
 
 #[test]
+fn to_locale_string_preserves_lone_surrogate_from_override() {
+    let mut vm = Vm::new();
+    // WTF-16 round-trip — a user override returning `'\uD800'`
+    // (a lone high surrogate) must survive accumulation intact.
+    // The lossy `StringPool::get_utf8` path would replace it with
+    // U+FFFD; the `Vec<u16>` + `intern_utf16` shape preserves it.
+    // Length 3 = U+D800 + ',' + U+D800 → 3 UTF-16 code units.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return '\\uD800'; }; \
+             new Uint8Array([1, 2]).toLocaleString().length;"
+        ),
+        3.0
+    );
+    // charCodeAt(0) confirms the surrogate is preserved (not the
+    // U+FFFD replacement that lossy UTF-8 round-trip would yield).
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return '\\uD800'; }; \
+             new Uint8Array([1]).toLocaleString().charCodeAt(0);"
+        ),
+        f64::from(0xD800_u32)
+    );
+}
+
+#[test]
 fn to_locale_string_throws_on_non_callable_method() {
     let mut vm = Vm::new();
     // Per `Invoke` semantics (§7.3.16) a present-but-non-callable
