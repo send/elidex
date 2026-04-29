@@ -326,7 +326,7 @@ impl Vm {
     /// Late replies for fetches whose Promise was already settled by
     /// an abort fan-out (`controller.abort()` between dispatch and
     /// reply) are silently dropped because their entry in
-    /// [`super::VmInner::pending_fetches`] was already removed.
+    /// `VmInner::pending_fetches` was already removed.
     ///
     /// Runs a microtask checkpoint at the end so `.then` reactions
     /// fire before this call returns.

@@ -527,10 +527,11 @@ fn native_headers_append(
         value_sid,
         "Failed to execute 'append' on 'Headers'",
     )?;
-    // Forbidden-name filter lives inside `append_entry` so internal
-    // callers (init.headers parse / `copy_headers_entries` / default
-    // Content-Type splice) get the same silent-drop behaviour as
-    // `Headers.append`.  No second check here.
+    // Forbidden-name filter lives inside `append_entry`, which is
+    // the funnel for the JS-facing `Headers.append` (this site)
+    // and the `init.headers` parse path
+    // (`fill_headers_from_init` → `parse_headers_init_entries`).
+    // No second check here.
     append_entry(ctx, id, name_sid, value_sid)?;
     Ok(JsValue::Undefined)
 }
@@ -851,10 +852,20 @@ fn append_entry(
     name_sid: StringId,
     value_sid: StringId,
 ) -> Result<(), VmError> {
-    // Forbidden-name filter applies to every internal append site
-    // (init.headers parse during ctor, default Content-Type splice,
-    // copy_headers_entries from another Headers instance — all of
-    // which call here).  Spec semantics: silent ignore, not throw.
+    // Forbidden-name filter for the two callers that funnel here:
+    // [`native_headers_append`] (JS-facing `Headers.append`) and
+    // [`fill_headers_from_init`] (init.headers ctor parse).
+    // Spec semantics: silent ignore, not throw.
+    //
+    // Other internal mutators (`copy_headers_entries` /
+    // `ensure_content_type` in `request_response.rs`) bypass this
+    // filter by pushing onto `state.list` directly — the bypass is
+    // safe because (a) `copy_headers_entries` only ever copies from
+    // an already-filtered Request-guarded source, and (b)
+    // `ensure_content_type` only adds the `content-type` header,
+    // which is not in WHATWG Fetch §4.6's forbidden list.  Routing
+    // those through `append_entry` would be redundant work on a
+    // hot Request-clone path.
     let lower = ctx.vm.strings.get_utf8(name_sid);
     if is_blocked_by_guard(ctx, headers_id, &lower) {
         return Ok(());
