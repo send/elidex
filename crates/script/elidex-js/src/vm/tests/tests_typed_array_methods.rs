@@ -840,6 +840,33 @@ fn to_locale_string_preserves_lone_surrogate_from_override() {
 }
 
 #[test]
+fn to_locale_string_accessor_getter_sees_primitive_receiver() {
+    let mut vm = Vm::new();
+    // §7.3.2 GetV(V, P): when `toLocaleString` resolves through
+    // an accessor getter on the prototype chain, the getter
+    // receives the *original* primitive value as `this`, not the
+    // throw-away wrapper used for the prototype-chain lookup.
+    // Pre-R6 the `try_get_property_value` path passed the wrapper
+    // as receiver — observable in non-strict mode by capturing
+    // `typeof this`, which boxes back to "object" for the wrapper
+    // but stays "object" for primitive→box-on-non-strict-call too.
+    // Strict-mode getter is the cleanest way to observe the
+    // primitive: `'use strict'` keeps the receiver unboxed, so
+    // `typeof this === 'number'` confirms primitive identity.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Object.defineProperty(Number.prototype, 'toLocaleString', { \
+                 configurable: true, \
+                 get: function() { 'use strict'; var t = this; return function() { return typeof t; }; } \
+             }); \
+             new Uint8Array([1]).toLocaleString();"
+        ),
+        "number"
+    );
+}
+
+#[test]
 fn to_locale_string_throws_on_non_callable_method() {
     let mut vm = Vm::new();
     // Per `Invoke` semantics (§7.3.16) a present-but-non-callable

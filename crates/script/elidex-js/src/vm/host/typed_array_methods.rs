@@ -931,7 +931,19 @@ pub(crate) fn native_typed_array_to_locale_string(
             primitive => (coerce::to_object(sub_ctx.vm, primitive)?, primitive),
         };
         sub_ctx.vm.stack[wrapper_slot] = JsValue::Object(obj_id);
-        let method = sub_ctx.try_get_property_value(obj_id, to_locale_key)?;
+        // GetV(V, P) (§7.3.2): the wrapper is just the prototype-
+        // chain anchor for the *lookup*; an accessor getter must
+        // see the original primitive `receiver` as `this`, not the
+        // wrapper.  `try_get_property_value` resolves getters with
+        // `this = Object(obj_id)` and would diverge from spec for
+        // strict-mode user getters on `Number.prototype.toLocaleString`.
+        // The `get_property` + `resolve_property` pair preserves
+        // the spec receiver semantics — same shape as
+        // `super::typed_array_static::lookup_iterator_method`.
+        let method = match coerce::get_property(sub_ctx.vm, obj_id, to_locale_key) {
+            Some(prop) => Some(sub_ctx.vm.resolve_property(prop, receiver)?),
+            None => None,
+        };
         let str_sid = match method {
             Some(JsValue::Object(fn_id)) if sub_ctx.get_object(fn_id).kind.is_callable() => {
                 let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;

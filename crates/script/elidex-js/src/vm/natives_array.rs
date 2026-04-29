@@ -639,7 +639,16 @@ pub(super) fn native_array_to_locale_string(
             primitive => (super::coerce::to_object(sub_ctx.vm, primitive)?, primitive),
         };
         sub_ctx.vm.stack[wrapper_slot] = JsValue::Object(obj_id);
-        let method = sub_ctx.try_get_property_value(obj_id, to_locale_key)?;
+        // GetV(V, P) (§7.3.2): an accessor getter must see the
+        // original primitive `receiver` as `this`, not the boxed
+        // wrapper (which is only the prototype-chain anchor for
+        // the lookup).  `try_get_property_value` resolves getters
+        // with `this = Object(obj_id)` — wrong for strict-mode
+        // user getters on `Number.prototype.toLocaleString`.
+        let method = match super::coerce::get_property(sub_ctx.vm, obj_id, to_locale_key) {
+            Some(prop) => Some(sub_ctx.vm.resolve_property(prop, receiver)?),
+            None => None,
+        };
         let str_sid = match method {
             Some(JsValue::Object(fn_id)) if sub_ctx.get_object(fn_id).kind.is_callable() => {
                 let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
