@@ -795,11 +795,21 @@ struct BaseState {
 /// / `cache` — are `None` when `init` did not set the member,
 /// allowing the Request-input path to preserve the source's
 /// values.  The URL-input path falls back to spec defaults
-/// (`Cors` / `SameOrigin` / `Follow` / `Default`).  The Stage 1
-/// landing in PR5-cors only validates and round-trips the values
-/// through Request state; broker-side enforcement (same-origin
-/// reject, redirect mode, credentials gating, cache header
-/// injection) lands with Stages 2-5.
+/// (`Cors` / `SameOrigin` / `Follow` / `Default`).
+///
+/// `build_net_request` enforces these values end-to-end:
+/// - `mode = SameOrigin` rejects cross-origin URLs synchronously
+///   with `TypeError` (Stage 3).
+/// - `credentials` is threaded into the broker `Request` so
+///   `should_attach_cookies` gates Cookie attach + storage;
+///   classifier uses it to enforce the credentialed-CORS
+///   strict ACAO/ACAC rules (Stage 4 + Copilot R3).
+/// - `redirect` is threaded so the broker's `follow_redirects`
+///   honours Error / Manual modes (Stage 2).
+/// - `cache` triggers `apply_cache_mode_headers` to inject the
+///   spec `Cache-Control` / `Pragma` headers (Stage 5).
+/// - `mode` also drives `response_type` classification at
+///   settlement time (Stage 4 — `host/cors.rs`).
 #[allow(dead_code)]
 struct InitOverrides {
     method: Option<String>,

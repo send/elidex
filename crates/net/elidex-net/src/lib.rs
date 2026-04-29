@@ -144,10 +144,16 @@ pub struct Request {
 /// - `Omit`: never attach.
 /// - `SameOrigin`: attach iff `request.origin` (an
 ///   [`url::Origin`]) equals the request URL's origin.  When
-///   `request.origin` is `None` (no document context —
-///   embedder-driven loads or opaque initiator origins), attach
-///   unconditionally so the navigation pipeline keeps the
-///   pre-PR5-cors behaviour for top-level loads.
+///   `request.origin` is `None` (genuinely no document
+///   context — embedder-driven loads such as initial
+///   navigation / favicon prefetch), attach unconditionally so
+///   the navigation pipeline keeps the pre-PR5-cors behaviour
+///   for top-level loads.  **Opaque initiator origins**
+///   (`about:blank` / `data:` scripts) must be represented as
+///   `Some(url::Origin::Opaque(_))`, **not** `None` — opaque
+///   never matches a tuple origin so SameOrigin correctly
+///   blocks cookies for opaque-initiator cross-origin fetches
+///   (Copilot R3 + R5 PR #133).
 /// - `Include`: always attach.
 fn should_attach_cookies(request: &Request) -> bool {
     match request.credentials {
