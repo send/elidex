@@ -142,6 +142,7 @@ fn fetch_impl(args: &[JsValue], captures: &FetchCaptures, ctx: &mut Context) -> 
         url,
         headers,
         body,
+        ..Default::default()
     };
 
     // 3. Execute the request via the Network Process broker (blocking).

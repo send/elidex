@@ -206,6 +206,7 @@ fn register_import_scripts(
                     url: resolved.clone(),
                     headers: Vec::new(),
                     body: bytes::Bytes::new(),
+                    ..Default::default()
                 };
                 let response = match network_handle.fetch_blocking(request) {
                     Ok(resp) => resp,
