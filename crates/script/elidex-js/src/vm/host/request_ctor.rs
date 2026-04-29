@@ -34,23 +34,29 @@ use super::request_response::{
 /// body Vec (may be `None`).
 type RequestInputParts = (StringId, StringId, Option<ObjectId>, Option<Vec<u8>>);
 
-/// Tuple returned by [`parse_request_init`]: optional method
-/// override, optional headers-init source (copied into the
-/// companion Headers), optional body bytes (with optional
-/// override Content-Type that supersedes the static
-/// [`content_type_for_body`] mapping — needed for FormData where
-/// the boundary is only known after serialisation).
+/// Tuple returned by [`parse_request_init`].  Per-field shape:
 ///
-/// The `body` slot is **tri-state**: `None` means the caller
-/// didn't set `body` at all (preserve the Request clone's base
-/// body); `Some(None)` means the caller explicitly set `body:
-/// null` and expects the base body to be cleared; `Some(Some((b,
-/// ct)))` is an explicit replacement with `b` and the override CT
-/// (`None` when the static mapping suffices).  The distinction
-/// matters because WHATWG Fetch §5.3 step 40 forbids `GET`/`HEAD`
-/// requests from carrying a body — a cleared body must not
-/// trigger that check, while an explicit empty-string body must
-/// (R25.1 / R25.3).
+/// - `0` — optional method override.
+/// - `1` — optional headers-init source (copied into the companion
+///   Headers).
+/// - `2` — optional body bytes, **tri-state**: `None` means the
+///   caller didn't set `body` at all (preserve the Request clone's
+///   base body); `Some(None)` means the caller explicitly set
+///   `body: null` and expects the base body to be cleared;
+///   `Some(Some(b))` is an explicit replacement with `b`.  The
+///   distinction matters because WHATWG Fetch §5.3 step 40 forbids
+///   `GET`/`HEAD` requests from carrying a body — a cleared body
+///   must not trigger that check, while an explicit empty-string
+///   body must (R25.1 / R25.3).
+/// - `3` — optional default Content-Type for the chosen body
+///   (WHATWG Fetch §5.3 step 38 / §5 "extract a body").  Carried
+///   separately from the body bytes so the FormData boundary-
+///   bearing `multipart/form-data; boundary=…` Content-Type
+///   (only known after serialisation) and the static
+///   [`content_type_for_body`] mapping for String /
+///   URLSearchParams / Blob bodies share one channel.  `None`
+///   when no default applies (e.g. ArrayBuffer body, or `body:
+///   null` cleared path).
 type RequestInitParts = (
     Option<StringId>,
     Option<JsValue>,
