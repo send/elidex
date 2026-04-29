@@ -374,6 +374,20 @@ impl NetClient {
         // Apply middleware (pre-request)
         self.middleware.process_request(&mut request)?;
 
+        // Cors-mode requests MUST have a document origin context
+        // so the §4.4 ACAO check (VM-side) and §4.8 preflight
+        // (broker-side) have a value to gate against.  A `None`
+        // origin at this point is a misconfigured caller — fail
+        // closed before any network activity, including for
+        // simple GET/HEAD/POST requests that bypass the
+        // §4.8.1 preflight detection (Copilot R5 PR #134).
+        if request.mode == RequestMode::Cors && request.origin.is_none() {
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                "cors-mode request requires an origin context",
+            ));
+        }
+
         // CORS preflight (WHATWG Fetch §4.8) — for `mode = Cors`
         // cross-origin non-simple requests, issue an OPTIONS
         // preflight (or hit the cache) before the actual request
@@ -1009,6 +1023,42 @@ mod preflight_integration_tests {
         assert!(
             client.cookie_jar().is_empty(),
             "cross-origin Set-Cookie must not leak under credentials-downgrade"
+        );
+    }
+
+    /// Regression for Copilot R5 finding 2: a SIMPLE cors-mode
+    /// GET (no preflight needed per §4.8.1) with `origin=None`
+    /// must STILL fail closed — pre-R5 the broker entry only
+    /// gated through `requires_preflight`, so simple cors GET
+    /// without origin context bypassed the §4.4 / §4.8 fail-
+    /// closed gate entirely.  Closed at the broker entry now,
+    /// before middleware / preflight detection / dispatch.
+    #[tokio::test]
+    async fn simple_cors_mode_without_origin_fails_closed() {
+        let (port, recorded) = spawn_scripted_server(vec![
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+        let client = test_client();
+        let request = Request {
+            // Simple safelisted-method request — would NOT trigger
+            // preflight under §4.8.1, so the R2 origin-None gate
+            // inside `run_preflight` doesn't catch it.
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{port}/data")).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            origin: None, // ← the bug condition
+            mode: RequestMode::Cors,
+            credentials: CredentialsMode::SameOrigin,
+            redirect: RedirectMode::Follow,
+        };
+        let err = client.send(request).await.unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+        let recorded = recorded.lock().unwrap();
+        assert!(
+            recorded.is_empty(),
+            "simple cors-mode without origin must NOT be dispatched"
         );
     }
 

@@ -403,55 +403,44 @@ pub fn validate_preflight_response(
         ));
     }
 
-    // ACAM check (allowed methods)
-    let allow_methods_raw = header_value(&resp.headers, "access-control-allow-methods");
+    // ACAM check (allowed methods).  Same `extracting header
+    // list values` failure semantics as Max-Age (Copilot R5
+    // PR #134): treat duplicate occurrence as a network error
+    // rather than silently falling through to the empty list
+    // (which would let a request with a safelisted method pass
+    // even when the server emitted contradictory duplicate
+    // ACAM headers).
+    let allow_methods_raw =
+        extract_single_header_or_fail_closed(&resp.headers, "access-control-allow-methods")?;
     let allowed_methods = parse_method_list(allow_methods_raw.as_deref(), credentialed)?;
     method_must_be_allowed(&orig.method, allowed_methods.as_ref())?;
 
-    // ACAH check (allowed headers)
-    let allow_headers_raw = header_value(&resp.headers, "access-control-allow-headers");
+    // ACAH check (allowed headers).  Same duplicate-fail-closed
+    // semantics — duplicate ACAH must not silently fall through
+    // to an empty list when only safelisted-author headers are
+    // present (Copilot R5 PR #134).
+    let allow_headers_raw =
+        extract_single_header_or_fail_closed(&resp.headers, "access-control-allow-headers")?;
     let allowed_headers = parse_header_list(allow_headers_raw.as_deref(), credentialed)?;
     headers_must_be_allowed(&orig.headers, allowed_headers.as_ref())?;
 
     // Max-Age (single-valued integer per WHATWG Fetch §4.8 step 19).
-    //
-    // Spec contract: if "extracting header list values" returns
-    // failure (i.e. duplicate header occurrences or invalid
-    // shape), the entire preflight is a network error — NOT a
-    // silent fall-through to the missing-header default of 5s
-    // (Copilot R4 PR #134).  Distinguish "missing" from
-    // "present-but-malformed" by probing both helpers:
-    //   - `header_value` returns Some(_) when ≥ 1 occurrence, None on 0 or duplicates
-    //   - `header_value_single` returns None additionally on comma-lists
-    let max_age = match header_value(&resp.headers, "access-control-max-age") {
-        // Header absent → spec default (5s).
-        None if !resp
-            .headers
-            .iter()
-            .any(|(k, _)| k.eq_ignore_ascii_case("access-control-max-age")) =>
-        {
-            parse_max_age(None)
-        }
-        // Header has exactly one occurrence.
-        Some(_) => {
-            let raw =
-                header_value_single(&resp.headers, "access-control-max-age").ok_or_else(|| {
-                    NetError::new(
-                        NetErrorKind::CorsBlocked,
-                        "preflight: malformed Access-Control-Max-Age (comma-list)",
-                    )
-                })?;
-            parse_max_age(Some(raw.as_str()))
-        }
-        // Header is present but `header_value` returned None →
-        // duplicate occurrence detected; fail closed per spec.
-        None => {
+    // Duplicate / comma-list / malformed → network error per the
+    // §4.8 step 19 "extracting header list values returning
+    // failure" contract (Copilot R4 + R5 PR #134).
+    let max_age_raw =
+        extract_single_header_or_fail_closed(&resp.headers, "access-control-max-age")?;
+    let max_age_raw = match max_age_raw {
+        None => None,
+        Some(raw) if raw.contains(',') => {
             return Err(NetError::new(
                 NetErrorKind::CorsBlocked,
-                "preflight: duplicate Access-Control-Max-Age",
+                "preflight: malformed Access-Control-Max-Age (comma-list)",
             ));
         }
+        Some(raw) => Some(raw),
     };
+    let max_age = parse_max_age(max_age_raw.as_deref());
 
     Ok(PreflightAllowance {
         allowed_methods,
@@ -510,6 +499,37 @@ fn header_value_single(headers: &[(String, String)], name: &str) -> Option<Strin
         return None;
     }
     Some(value)
+}
+
+/// Distinguish "header absent" from "header present but
+/// duplicate" and surface the latter as a `CorsBlocked` network
+/// error per WHATWG Fetch §4.8 step 19 "extracting header list
+/// values returning failure".  Returns:
+///
+/// - `Ok(None)` — header is absent (caller may apply spec default)
+/// - `Ok(Some(value))` — exactly one occurrence; trimmed value
+/// - `Err(CorsBlocked)` — header has 2+ occurrences (fail closed)
+///
+/// Used for ACAM / ACAH / Max-Age which all share the same
+/// "duplicate is a server bug" semantics — silent fall-through
+/// to `None` would let a request with safelisted method/headers
+/// pass even when the server emitted contradictory duplicates
+/// (Copilot R5 PR #134).
+fn extract_single_header_or_fail_closed(
+    headers: &[(String, String)],
+    name: &str,
+) -> Result<Option<String>, NetError> {
+    let present = headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));
+    if !present {
+        return Ok(None);
+    }
+    match header_value(headers, name) {
+        Some(v) => Ok(Some(v)),
+        None => Err(NetError::new(
+            NetErrorKind::CorsBlocked,
+            format!("preflight: duplicate {name}"),
+        )),
+    }
 }
 
 /// Parse `Access-Control-Allow-Methods`.  Returns:
@@ -1379,6 +1399,60 @@ mod tests {
                 ("Access-Control-Allow-Methods", "PUT"),
                 ("Access-Control-Max-Age", "60"),
                 ("Access-Control-Max-Age", "120"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Regression for Copilot R5 finding 1: duplicate ACAM with
+    /// a safelisted method (GET/HEAD/POST) must fail closed.
+    /// Pre-fix the silent fall-through to an empty allow-list
+    /// passed because `method_must_be_allowed(GET, empty)`
+    /// returns Ok unconditionally for safelisted methods —
+    /// duplicate ACAM was effectively ignored.
+    #[test]
+    fn validate_response_duplicate_acam_with_safelisted_method_fails_closed() {
+        // GET + custom header → preflight needed.
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("X-Custom".into(), "1".into())],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "GET"),
+                ("Access-Control-Allow-Methods", "HEAD"),
+                ("Access-Control-Allow-Headers", "x-custom"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Duplicate ACAH with only-safelisted-author headers must
+    /// fail closed.  (Trigger preflight via non-safelisted PUT
+    /// method so requires_preflight=true while no actual headers
+    /// need ACAH validation — pre-fix the duplicate ACAH would
+    /// silently pass.)
+    #[test]
+    fn validate_response_duplicate_acah_with_safelisted_headers_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Accept".into(), "text/plain".into())],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Allow-Headers", "x-custom"),
+                ("Access-Control-Allow-Headers", "x-other"),
             ],
         );
         let err = validate_preflight_response(&r, &response).unwrap_err();
