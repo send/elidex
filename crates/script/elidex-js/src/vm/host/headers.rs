@@ -44,13 +44,25 @@
 //! ## Guard
 //!
 //! The WebIDL `guard` enum (`none` / `immutable` / `request` /
-//! `response` / `request-no-cors`) gates mutation.  Only `None`
-//! (fully mutable) and `Immutable` (every mutating method throws
-//! `TypeError`) are implemented here; the `Response` / `Request`
-//! ctors will install `Immutable` on their own companion Headers,
-//! and the `request` / `response` / `request-no-cors` variants
-//! arrive with those ctors (they demand richer validation than the
-//! plain mutable/immutable distinction can express).
+//! `response` / `request-no-cors`) gates mutation.  Three variants
+//! are implemented:
+//!
+//! - `None` — fully mutable; standalone `new Headers(...)` default.
+//! - `Immutable` — every mutating method throws `TypeError`;
+//!   installed by the `Response` ctor (and by `Response.error()` /
+//!   `.redirect()` / `.json()`, and by `fetch()` when wrapping a
+//!   broker response).
+//! - `Request` — silent no-op for WHATWG Fetch §4.6 forbidden
+//!   request header names (`Cookie`, `Host`, `Origin`, `Referer`,
+//!   `Set-Cookie`, the `Sec-` / `Proxy-` prefixes, …); mutations
+//!   on non-forbidden names succeed normally.  Installed on the
+//!   `Request` ctor's companion Headers.  Spec semantics are
+//!   "ignore", not "throw" — verified against Chrome / Firefox /
+//!   Safari and asserted in `tests_forbidden_headers.rs`.
+//!
+//! `response` / `request-no-cors` are not yet implemented; they
+//! arrive with PR5-cors (full mode/credentials/redirect
+//! enforcement) — see `m4-12-post-pr5a-fetch-roadmap.md`.
 //!
 //! ## Implemented
 //!
@@ -550,8 +562,7 @@ fn native_headers_set(
         value_sid,
         "Failed to execute 'set' on 'Headers'",
     )?;
-    let lower = ctx.vm.strings.get_utf8(name_sid);
-    if is_blocked_by_guard(ctx, id, &lower) {
+    if is_blocked_by_guard(ctx, id, name_sid) {
         return Ok(JsValue::Undefined);
     }
     if let Some(state) = ctx.vm.headers_states.get_mut(&id) {
@@ -573,8 +584,7 @@ fn native_headers_delete(
     let name_sid = take_name_arg(ctx, args, "delete")?;
     let name_sid =
         validate_and_normalise_name(ctx.vm, name_sid, "Failed to execute 'delete' on 'Headers'")?;
-    let lower = ctx.vm.strings.get_utf8(name_sid);
-    if is_blocked_by_guard(ctx, id, &lower) {
+    if is_blocked_by_guard(ctx, id, name_sid) {
         return Ok(JsValue::Undefined);
     }
     if let Some(state) = ctx.vm.headers_states.get_mut(&id) {
@@ -785,18 +795,27 @@ fn require_mutable(ctx: &NativeContext<'_>, id: ObjectId, method: &str) -> Resul
 }
 
 /// Look up the guard on `headers_id` and return `true` if the
-/// already-lowercased `name` should be silently ignored under that
-/// guard.  Currently only `HeadersGuard::Request` short-circuits
-/// (forbidden request header names per WHATWG Fetch §4.6); other
-/// guards return `false` so existing append/set/delete behaviour
-/// is unchanged.
-fn is_blocked_by_guard(ctx: &NativeContext<'_>, headers_id: ObjectId, name: &str) -> bool {
+/// already-lowercased `name_sid` should be silently ignored under
+/// that guard.  Currently only `HeadersGuard::Request` short-
+/// circuits (forbidden request header names per WHATWG Fetch §4.6);
+/// other guards return `false` so existing append/set/delete
+/// behaviour is unchanged.
+///
+/// Takes `StringId` (not `&str`) and resolves to UTF-8 *only* when
+/// the guard is actually `Request` — the common `None`/`Immutable`
+/// paths skip the [`super::super::pools::StringPool::get_utf8`]
+/// allocation entirely (R10.2).
+fn is_blocked_by_guard(ctx: &NativeContext<'_>, headers_id: ObjectId, name_sid: StringId) -> bool {
     let guard = ctx
         .vm
         .headers_states
         .get(&headers_id)
         .map_or(HeadersGuard::None, |s| s.guard);
-    matches!(guard, HeadersGuard::Request) && is_forbidden_request_header(name)
+    if !matches!(guard, HeadersGuard::Request) {
+        return false;
+    }
+    let name = ctx.vm.strings.get_utf8(name_sid);
+    is_forbidden_request_header(&name)
 }
 
 /// Extract `(name, value)` args from a 2-argument method call,
@@ -866,8 +885,7 @@ fn append_entry(
     // which is not in WHATWG Fetch §4.6's forbidden list.  Routing
     // those through `append_entry` would be redundant work on a
     // hot Request-clone path.
-    let lower = ctx.vm.strings.get_utf8(name_sid);
-    if is_blocked_by_guard(ctx, headers_id, &lower) {
+    if is_blocked_by_guard(ctx, headers_id, name_sid) {
         return Ok(());
     }
     if let Some(state) = ctx.vm.headers_states.get_mut(&headers_id) {
