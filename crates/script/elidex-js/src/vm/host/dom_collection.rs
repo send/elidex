@@ -317,55 +317,59 @@ fn resolve_needles(vm: &VmInner, kind: &LiveCollectionKind) -> ResolvedNeedles {
     }
 }
 
-/// Public resolver — materialises needles from the VM's string
-/// pool, then runs the ECS traversal (or returns the cached
-/// entity list when the subtree's
+/// Public resolver — returns the cached entity list when the
+/// subtree's
 /// [`inclusive_descendants_version`](EcsDom::inclusive_descendants_version)
-/// is unchanged).  Uses a matched pair of disjoint borrows
-/// (`&VmInner` for strings, then `&EcsDom` from host data) to
-/// avoid NativeContext's aliasing constraint.
+/// is unchanged, otherwise materialises needles from the VM's
+/// string pool and runs the ECS traversal.
+///
+/// **Cache-hit fast path** (hot): only consults `&EcsDom` for the
+/// version compare — no needle UTF-8 materialisation, no
+/// `String` allocations.  This is the load-bearing optimisation
+/// for SP2; making the `length` / `item(i)` reads on an
+/// unchanged subtree drop from ~25µs to a few hundred ns.
+///
+/// **Cache-miss / Snapshot path**: re-borrows host (the cache-hit
+/// borrow expired at the if-block exit), resolves needles via
+/// `&VmInner`, walks the descendants, and refreshes the cache
+/// when `cache_root` is `Some`.  Snapshot variants
+/// (`cache_root() == None`) just clone their pre-baked entity
+/// list inside `resolve_entities_with_needles`.
 pub(super) fn resolve_entities_for(
     ctx: &mut NativeContext<'_>,
     kind: &LiveCollectionKind,
     cache: &LiveCollectionCache,
 ) -> Vec<Entity> {
+    // Phase 1 — cache-hit check (no needle allocation).  The
+    // `host` borrow is scoped to this block; Phase 2 re-borrows.
+    let cur_version = if let Some(root) = kind.cache_root() {
+        // Post-unbind access to a retained collection wrapper must
+        // not panic; return an empty list so `.length` reads 0,
+        // `.item(i)` returns null, and `@@iterator` yields no
+        // elements.  `HostData::dom()` asserts `is_bound()`.
+        let Some(host) = ctx.host_if_bound() else {
+            return Vec::new();
+        };
+        let cur = host.dom().inclusive_descendants_version(root);
+        if cache.cached_version.get() == cur {
+            return cache.cached_entities.borrow().clone();
+        }
+        Some(cur)
+    } else {
+        None
+    };
+
+    // Phase 2 — cache miss (or Snapshot).  Needles only get
+    // materialised here, off the hot path.
     let needles = resolve_needles(ctx.vm, kind);
-    // Post-unbind access to a retained collection wrapper must
-    // not panic; return an empty list so `.length` reads 0,
-    // `.item(i)` returns null, and `@@iterator` yields no
-    // elements.  `HostData::dom()` asserts `is_bound()`.
     let Some(host) = ctx.host_if_bound() else {
         return Vec::new();
     };
-    resolve_with_cache(host.dom(), kind, cache, &needles)
-}
-
-/// Cache-aware wrapper over [`resolve_entities_with_needles`].
-///
-/// On hit (cached version matches `dom`'s current version for the
-/// kind's `cache_root`): clones the cached entity list and returns
-/// it immediately, skipping the descendant walk.
-///
-/// On miss (or `cache_root() == None` — i.e. `Snapshot`): runs the
-/// full re-resolve, and, when a `cache_root` is available, refreshes
-/// both the cached entity list and the cached version so the next
-/// read on an unchanged subtree hits.
-fn resolve_with_cache(
-    dom: &EcsDom,
-    kind: &LiveCollectionKind,
-    cache: &LiveCollectionCache,
-    needles: &ResolvedNeedles,
-) -> Vec<Entity> {
-    let Some(root) = kind.cache_root() else {
-        return resolve_entities_with_needles(dom, kind, needles);
-    };
-    let cur = dom.inclusive_descendants_version(root);
-    if cache.cached_version.get() == cur {
-        return cache.cached_entities.borrow().clone();
+    let fresh = resolve_entities_with_needles(host.dom(), kind, &needles);
+    if let Some(cur) = cur_version {
+        cache.cached_version.set(cur);
+        *cache.cached_entities.borrow_mut() = fresh.clone();
     }
-    let fresh = resolve_entities_with_needles(dom, kind, needles);
-    cache.cached_version.set(cur);
-    *cache.cached_entities.borrow_mut() = fresh.clone();
     fresh
 }
 
@@ -833,8 +837,28 @@ pub(crate) fn try_indexed_get(
     // lookup) and `dom` (for the traversal) without tripping the
     // aliasing rules.
     let (kind, cache) = vm.live_collection_states.remove(&id)?;
-    let needles = resolve_needles(vm, &kind);
-    let entities = resolve_with_cache(dom, &kind, &cache, &needles);
+
+    // Cache-hit fast path — no needle UTF-8 materialisation, no
+    // `String` allocations.  Mirrors the structure of
+    // `resolve_entities_for` so indexed access pays the same
+    // ~250 ns/op cost as the prototype-accessor path.
+    let entities = if let Some(root) = kind.cache_root() {
+        let cur = dom.inclusive_descendants_version(root);
+        if cache.cached_version.get() == cur {
+            cache.cached_entities.borrow().clone()
+        } else {
+            let needles = resolve_needles(vm, &kind);
+            let fresh = resolve_entities_with_needles(dom, &kind, &needles);
+            cache.cached_version.set(cur);
+            *cache.cached_entities.borrow_mut() = fresh.clone();
+            fresh
+        }
+    } else {
+        // Snapshot — pre-baked entity list, no walk, no cache.
+        let needles = resolve_needles(vm, &kind);
+        resolve_entities_with_needles(dom, &kind, &needles)
+    };
+
     vm.live_collection_states.insert(id, (kind, cache));
 
     match key {

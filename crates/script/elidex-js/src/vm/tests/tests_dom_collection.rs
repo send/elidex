@@ -685,8 +685,12 @@ fn cache_persists_across_iter_constructions() {
     // through `collection_iterator_impl` — the entity list cache is
     // consulted on each construction.  Two consecutive iters over an
     // unchanged collection must yield the same elements (cache-hit
-    // bypass on the second iter).  The visible test is the count
-    // equality plus identity preservation across the snapshots.
+    // bypass on the second iter).
+    //
+    // Pin the expected length explicitly: an empty result would let
+    // the per-index identity comparisons pass vacuously
+    // (`undefined === undefined`), masking a regression that
+    // collapsed the iter to zero elements.
     let out = run("var p = document.createElement('div'); \
          p.appendChild(document.createElement('a')); \
          p.appendChild(document.createElement('b')); \
@@ -694,7 +698,8 @@ fn cache_persists_across_iter_constructions() {
          var coll = p.children; \
          var seen1 = []; for (var e of coll) seen1.push(e); \
          var seen2 = []; for (var e of coll) seen2.push(e); \
-         (seen1.length === seen2.length \
+         (seen1.length === 2 \
+           && seen2.length === 2 \
            && seen1[0] === seen2[0] \
            && seen1[1] === seen2[1]) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
