@@ -189,6 +189,13 @@ fn cors_check_passes(source: &url::Origin, response_headers: &[(String, String)]
 /// for matching and returns a new vector with the filter
 /// applied, preserving each retained header's original
 /// name/value pair.
+///
+/// Forbidden-response-header names (§2.2.6 — `Set-Cookie` /
+/// `Set-Cookie2`) are **always dropped**, regardless of
+/// `Access-Control-Expose-Headers` content (Copilot R2 — without
+/// this guard, a server that explicitly listed `Set-Cookie` in
+/// expose-headers, or used the `*` wildcard, could leak HttpOnly
+/// cookies into cross-origin script).
 pub(crate) fn filter_headers_for_cors_response(
     headers: Vec<(String, String)>,
 ) -> Vec<(String, String)> {
@@ -204,6 +211,15 @@ pub(crate) fn filter_headers_for_cors_response(
         .into_iter()
         .filter(|(name, _)| {
             let lower = name.to_ascii_lowercase();
+            // Hard exclusion: forbidden-response-header names
+            // (`Set-Cookie` / `Set-Cookie2`) are never visible to
+            // cross-origin script even when the server explicitly
+            // opts them into expose-headers (the spec leaves no
+            // opt-in path for these so HttpOnly cookies stay
+            // protected).
+            if is_forbidden_response_header(&lower) {
+                return false;
+            }
             if is_cors_safelisted_response_header(&lower) {
                 return true;
             }
@@ -215,6 +231,17 @@ pub(crate) fn filter_headers_for_cors_response(
             exposed.contains(&lower)
         })
         .collect()
+}
+
+/// WHATWG Fetch §2.2.6 — names that must never be exposed to
+/// cross-origin script.  `Set-Cookie` / `Set-Cookie2` carry
+/// HttpOnly cookies whose exposure would defeat the HttpOnly
+/// guarantee.  The CORS filter at
+/// [`filter_headers_for_cors_response`] drops these
+/// unconditionally so a misconfigured `Access-Control-Expose-
+/// Headers` value cannot leak them.
+fn is_forbidden_response_header(name_lowercase: &str) -> bool {
+    matches!(name_lowercase, "set-cookie" | "set-cookie2")
 }
 
 /// WHATWG Fetch §3.2.6 — names always visible on a Cors / Basic
@@ -480,5 +507,54 @@ mod tests {
         let names: Vec<_> = filtered.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"x-custom"));
         assert!(!names.contains(&"authorization"));
+    }
+
+    /// Copilot R2 regression: `Set-Cookie` / `Set-Cookie2` must be
+    /// dropped from a Cors-filtered response even when the server
+    /// explicitly lists them in `Access-Control-Expose-Headers`.
+    /// Without this guard, a misconfigured CORS server could leak
+    /// HttpOnly cookies into cross-origin script.
+    #[test]
+    fn filter_drops_set_cookie_even_when_explicitly_exposed() {
+        let headers = vec![
+            (
+                "Access-Control-Expose-Headers".to_string(),
+                "Set-Cookie, Set-Cookie2, X-Custom".to_string(),
+            ),
+            (
+                "set-cookie".to_string(),
+                "session=abc; HttpOnly".to_string(),
+            ),
+            ("set-cookie2".to_string(), "legacy=def".to_string()),
+            ("x-custom".to_string(), "visible".to_string()),
+        ];
+        let filtered = filter_headers_for_cors_response(headers);
+        let names: Vec<_> = filtered.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(!names.contains(&"set-cookie"), "Set-Cookie must be dropped");
+        assert!(
+            !names.contains(&"set-cookie2"),
+            "Set-Cookie2 must be dropped"
+        );
+        assert!(names.contains(&"x-custom"), "non-forbidden expose passes");
+    }
+
+    /// Copilot R2 regression: wildcard `Access-Control-Expose-
+    /// Headers: *` must NOT expose `Set-Cookie` / `Set-Cookie2`
+    /// either — the forbidden-response-header guard takes
+    /// precedence over the wildcard expose path.
+    #[test]
+    fn filter_wildcard_expose_still_drops_set_cookie() {
+        let headers = vec![
+            ("Access-Control-Expose-Headers".to_string(), "*".to_string()),
+            (
+                "set-cookie".to_string(),
+                "session=abc; HttpOnly".to_string(),
+            ),
+            ("x-custom".to_string(), "visible".to_string()),
+        ];
+        let filtered = filter_headers_for_cors_response(headers);
+        let names: Vec<_> = filtered.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(!names.contains(&"set-cookie"));
+        assert!(names.contains(&"x-custom"));
     }
 }

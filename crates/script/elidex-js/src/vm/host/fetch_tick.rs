@@ -29,7 +29,6 @@ use super::super::VmInner;
 use super::blob::{reject_promise_sync, resolve_promise_sync};
 use super::cors::{classify_response_type, CorsOutcome};
 use super::fetch::create_response_from_net;
-use super::request_response::{RedirectMode, RequestMode};
 
 impl VmInner {
     /// Drain pending [`elidex_net::broker::NetworkToRenderer`] events
@@ -197,28 +196,33 @@ impl VmInner {
                 // `CorsClassification` (response_type + opaque-
                 // shape flag) or `NetworkError` (cors-mode failure
                 // → reject with TypeError).
-                let (request_mode, redirect_mode, request_origin, request_url) =
-                    cors_meta.as_ref().map_or(
-                        (
-                            RequestMode::Cors,
-                            RedirectMode::Follow,
-                            None,
-                            response.url.clone(),
-                        ),
-                        |m| {
-                            (
-                                m.request_mode,
-                                m.redirect_mode,
-                                m.request_origin.clone(),
-                                m.request_url.clone(),
-                            )
-                        },
+                //
+                // **Fail closed on missing meta** (Copilot R2):
+                // every successful broker reply for an in-flight
+                // fetch must have a `pending_fetch_cors` entry
+                // because `native_fetch` inserts both maps
+                // atomically.  An absent entry signals an
+                // internal bookkeeping bug — fall through to a
+                // permissive `Basic` default would silently
+                // disable CORS enforcement, so reject the Promise
+                // instead.  The success path therefore demands
+                // `cors_meta = Some(...)`; the abort/handle-swap
+                // paths drain both maps together, so this branch
+                // never fires for those.
+                let Some(cors_meta) = cors_meta.as_ref() else {
+                    let err = VmError::type_error(
+                        "Failed to fetch: missing CORS metadata for pending fetch (internal invariant)"
+                            .to_string(),
                     );
+                    let reason = g.vm_error_to_thrown(&err);
+                    reject_promise_sync(&mut g, promise, reason);
+                    return;
+                };
                 let outcome = classify_response_type(
-                    request_origin.as_ref(),
-                    &request_url,
-                    request_mode,
-                    redirect_mode,
+                    cors_meta.request_origin.as_ref(),
+                    &cors_meta.request_url,
+                    cors_meta.request_mode,
+                    cors_meta.redirect_mode,
                     &response.url,
                     response.status,
                     &response.headers,

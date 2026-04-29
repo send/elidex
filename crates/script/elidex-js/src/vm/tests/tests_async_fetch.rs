@@ -1076,3 +1076,45 @@ fn signal_back_refs_pruned_on_settlement() {
         other => panic!("late abort must not retro-reject: {other:?}"),
     }
 }
+
+/// Copilot R2 regression: when `settle_fetch` lands on a
+/// `FetchId` whose `pending_fetch_cors` entry is missing (an
+/// internal bookkeeping bug, not a user-visible state), the
+/// Promise must be **rejected** with a `TypeError` rather than
+/// silently fall through to a permissive `Basic` classification
+/// (which would disable CORS enforcement for that fetch).
+///
+/// We can't easily reproduce a "real" bookkeeping bug from the
+/// public API, so this test reaches into `vm.inner` to drop the
+/// CORS meta entry between dispatch and `tick_network` — the
+/// `pending_fetches` Promise survives but its meta is gone.
+#[test]
+fn settle_fetch_rejects_when_cors_meta_missing() {
+    let url = url::Url::parse("http://example.com/api").unwrap();
+    let mut vm = mock_vm(vec![(url, Ok(ok_response("http://example.com/api", "ok")))]);
+    vm.inner.navigation.current_url = url::Url::parse("http://example.com/page").unwrap();
+    vm.eval(
+        "globalThis.r = 'unset'; \
+         fetch('http://example.com/api') \
+             .then(resp => { globalThis.r = 'resolved-' + resp.status; }) \
+             .catch(e => { globalThis.r = 'rejected-' + e.message; });",
+    )
+    .unwrap();
+    // Sanity: dispatch installed both maps.
+    assert_eq!(vm.inner.pending_fetches.len(), 1);
+    assert_eq!(vm.inner.pending_fetch_cors.len(), 1);
+    // Drop the CORS meta entry only — this simulates the
+    // bookkeeping bug Copilot R2 flagged.
+    vm.inner.pending_fetch_cors.clear();
+    drain(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => {
+            let msg = vm.get_string(id);
+            assert!(
+                msg.starts_with("rejected-") && msg.contains("missing CORS metadata"),
+                "expected fail-closed rejection, got: {msg}"
+            );
+        }
+        other => panic!("expected rejection, got {other:?}"),
+    }
+}
