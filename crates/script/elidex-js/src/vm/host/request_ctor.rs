@@ -106,7 +106,10 @@ pub(super) fn native_request_constructor(
     // future GC-enabled path.  `inst_id` is the constructor receiver
     // and is already rooted by the caller.  Same invariant as R16
     // (Response clone) / R18.2 (broker Response) (R18-audit).
-    let headers_id = ctx.vm.create_headers(HeadersGuard::None);
+    // WHATWG Fetch §5.3 step 31: companion Headers carry the
+    // `request` guard, so forbidden-name mutations (init.headers,
+    // post-ctor `req.headers.append`) silently no-op per §4.6.
+    let headers_id = ctx.vm.create_headers(HeadersGuard::Request);
     let mut g = ctx.vm.push_temp_root(JsValue::Object(headers_id));
     let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
     let ctx = &mut rooted_holder;

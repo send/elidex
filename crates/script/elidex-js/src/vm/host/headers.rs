@@ -73,15 +73,22 @@ use super::super::{NativeFn, VmInner};
 /// WebIDL `Headers` guard — WHATWG Fetch §5.2.
 ///
 /// Gates mutation.  `None` is fully mutable; `Immutable` rejects
-/// every modifying method with `TypeError`.  The request /
-/// response / request-no-cors variants will arrive with the
-/// `Request` / `Response` ctors when they grow their own
-/// companion Headers — those guards demand richer validation than
-/// the plain mutable/immutable distinction can express.
+/// every modifying method with `TypeError`.  `Request` rejects
+/// **silently** (no throw) for WHATWG Fetch §4.6 forbidden request
+/// header names; mutations on non-forbidden names succeed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HeadersGuard {
     /// Fully mutable (standalone `new Headers(...)` default).
     None,
+    /// Companion Headers of a `Request` instance (WHATWG Fetch
+    /// §5.3).  Mutating methods that target a §4.6 forbidden
+    /// request header name silently return without modifying the
+    /// list — the spec says these are "ignored", not "throw".
+    /// Non-forbidden names mutate normally.  Switching guard from
+    /// `None` to `Request` blocks late drift: a script that does
+    /// `req.headers.set('Cookie', '...')` after construction is
+    /// also silently dropped, matching browsers.
+    Request,
     /// Every mutating method throws `TypeError`.  Installed by
     /// the `Response` ctor (WHATWG Fetch §5.5 step 11), by
     /// `Response.error()` / `.redirect()` / `.json()`, and by
@@ -520,6 +527,10 @@ fn native_headers_append(
         value_sid,
         "Failed to execute 'append' on 'Headers'",
     )?;
+    let lower = ctx.vm.strings.get_utf8(name_sid);
+    if is_blocked_by_guard(ctx, id, &lower) {
+        return Ok(JsValue::Undefined);
+    }
     append_entry(ctx, id, name_sid, value_sid)?;
     Ok(JsValue::Undefined)
 }
@@ -538,6 +549,10 @@ fn native_headers_set(
         value_sid,
         "Failed to execute 'set' on 'Headers'",
     )?;
+    let lower = ctx.vm.strings.get_utf8(name_sid);
+    if is_blocked_by_guard(ctx, id, &lower) {
+        return Ok(JsValue::Undefined);
+    }
     if let Some(state) = ctx.vm.headers_states.get_mut(&id) {
         // Remove every existing entry with the same lowercase name,
         // then append once — WHATWG Fetch §5.2 "set a header".
@@ -557,6 +572,10 @@ fn native_headers_delete(
     let name_sid = take_name_arg(ctx, args, "delete")?;
     let name_sid =
         validate_and_normalise_name(ctx.vm, name_sid, "Failed to execute 'delete' on 'Headers'")?;
+    let lower = ctx.vm.strings.get_utf8(name_sid);
+    if is_blocked_by_guard(ctx, id, &lower) {
+        return Ok(JsValue::Undefined);
+    }
     if let Some(state) = ctx.vm.headers_states.get_mut(&id) {
         state.list.retain(|(n, _)| *n != name_sid);
     }
@@ -764,6 +783,21 @@ fn require_mutable(ctx: &NativeContext<'_>, id: ObjectId, method: &str) -> Resul
     Ok(())
 }
 
+/// Look up the guard on `headers_id` and return `true` if the
+/// already-lowercased `name` should be silently ignored under that
+/// guard.  Currently only `HeadersGuard::Request` short-circuits
+/// (forbidden request header names per WHATWG Fetch §4.6); other
+/// guards return `false` so existing append/set/delete behaviour
+/// is unchanged.
+fn is_blocked_by_guard(ctx: &NativeContext<'_>, headers_id: ObjectId, name: &str) -> bool {
+    let guard = ctx
+        .vm
+        .headers_states
+        .get(&headers_id)
+        .map_or(HeadersGuard::None, |s| s.guard);
+    matches!(guard, HeadersGuard::Request) && is_forbidden_request_header(name)
+}
+
 /// Extract `(name, value)` args from a 2-argument method call,
 /// coercing each via `ToString`.  Missing args → `TypeError`
 /// matching Chromium's wording.
@@ -804,7 +838,9 @@ fn take_name_arg(
 // routes broker response headers through it) so external call
 // sites stay at `super::headers::validate_and_normalise` (R23.1
 // split keeps this file under the project's 1000-line convention).
-pub(super) use super::headers_validation::{validate_and_normalise, validate_and_normalise_name};
+pub(super) use super::headers_validation::{
+    is_forbidden_request_header, validate_and_normalise, validate_and_normalise_name,
+};
 
 /// Low-level append.  Callers are responsible for validation (we
 /// deliberately do not re-validate here — e.g. `Headers` → `Headers`
@@ -815,6 +851,14 @@ fn append_entry(
     name_sid: StringId,
     value_sid: StringId,
 ) -> Result<(), VmError> {
+    // Forbidden-name filter applies to every internal append site
+    // (init.headers parse during ctor, default Content-Type splice,
+    // copy_headers_entries from another Headers instance — all of
+    // which call here).  Spec semantics: silent ignore, not throw.
+    let lower = ctx.vm.strings.get_utf8(name_sid);
+    if is_blocked_by_guard(ctx, headers_id, &lower) {
+        return Ok(());
+    }
     if let Some(state) = ctx.vm.headers_states.get_mut(&headers_id) {
         state.list.push((name_sid, value_sid));
     }

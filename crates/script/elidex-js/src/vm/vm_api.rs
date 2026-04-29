@@ -318,6 +318,28 @@ impl Vm {
         }
     }
 
+    /// Drain pending network events (broker `FetchResponse` replies)
+    /// and dispatch them to the JS side.  For each reply, settles
+    /// the associated pending Promise — fulfil with a
+    /// freshly-constructed `Response` on success, reject with a
+    /// `TypeError("Failed to fetch: ...")` on broker-side failure.
+    /// Late replies for fetches whose Promise was already settled by
+    /// an abort fan-out (`controller.abort()` between dispatch and
+    /// reply) are silently dropped because their entry in
+    /// [`super::VmInner::pending_fetches`] was already removed.
+    ///
+    /// Runs a microtask checkpoint at the end so `.then` reactions
+    /// fire before this call returns.
+    ///
+    /// Idempotent and cheap when no events are pending — the shell
+    /// event loop calls this every tick; tests that need to observe
+    /// Promise settlement after a mock fetch call this explicitly
+    /// between dispatch and assertion.
+    #[cfg(feature = "engine")]
+    pub fn tick_network(&mut self) {
+        self.inner.tick_network();
+    }
+
     /// Install the `NetworkHandle` used by the `fetch()` host
     /// global.  Without a handle, every `fetch()` call rejects
     /// with a `TypeError` (matches `NetworkHandle::disconnected()`

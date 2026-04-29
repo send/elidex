@@ -2,10 +2,35 @@
 //!
 //! Routes a JS-level fetch request through the embedding-supplied
 //! [`NetworkHandle`] (see `Vm::install_network_handle`) and returns
-//! a Promise that settles synchronously against the blocking
-//! broker call.
+//! a Promise that settles when the broker reply lands on a
+//! subsequent [`super::super::Vm::tick_network`] call.
 //!
-//! ## Phase 2 scope
+//! ## Async lifecycle (M4-12 PR5-async-fetch)
+//!
+//! 1. `native_fetch` parses arguments, builds an
+//!    [`elidex_net::Request`], and calls
+//!    [`elidex_net::broker::NetworkHandle::fetch_async`] which
+//!    returns a [`FetchId`] immediately.
+//! 2. The Promise is created Pending and stored in
+//!    [`super::super::VmInner::pending_fetches`] keyed by `FetchId`.
+//!    If `init.signal` is set, the fetch_id is also pushed to
+//!    [`super::super::VmInner::fetch_abort_observers`]`[signal_id]`
+//!    and a reverse entry written to
+//!    [`super::super::VmInner::fetch_signal_back_refs`] for O(1)
+//!    prune on broker reply.
+//! 3. The shell event loop later calls `vm.tick_network()`, which
+//!    drains [`elidex_net::broker::NetworkHandle::drain_events`].
+//!    For each `FetchResponse(id, result)`, the matching entry is
+//!    removed from `pending_fetches`; the Promise is fulfilled with
+//!    a fresh `Response` (success path) or rejected with a
+//!    `TypeError("Failed to fetch: ...")` (broker error / abort).
+//! 4. Mid-flight `controller.abort()` settles the Promise
+//!    synchronously via [`super::abort::abort_signal`] (see that
+//!    module for the fan-out).  The eventual broker reply for
+//!    that fetch is silently dropped because its `pending_fetches`
+//!    entry was already removed.
+//!
+//! ## Phase 2 scope (preserved)
 //!
 //! - Input as URL string or as a [`Request`] instance.  The VM's
 //!   existing `Request` constructor handles the canonicalisation
@@ -14,10 +39,9 @@
 //!   behaviour matches byte-for-byte.
 //! - `init.method` / `init.headers` / `init.body` / `init.signal`
 //!   parsed in the obvious way.  `signal` is brand-checked and
-//!   pre-flight-aborted (see the Phase 2 limitation below).
-//!   `mode` / `credentials` / `cache` / `redirect` are accepted
-//!   silently and ignored until the async fetch refactor threads
-//!   them through the broker.
+//!   pre-flight-aborted.  `mode` / `credentials` / `cache` /
+//!   `redirect` are accepted silently — full enforcement lands
+//!   with subsequent stages of the PR5 series.
 //! - Errors map per WHATWG §5.2: network failures / missing
 //!   handle / bad URL / bad body all reject with **`TypeError`**
 //!   (not `DOMException`).  Spec-prescribed text is
@@ -27,29 +51,14 @@
 //!   scaffolding: new `ObjectKind::Response`, companion `Headers`
 //!   with `Immutable` guard, body bytes in the shared
 //!   `body_data` map.  `response_type` is `Basic` for successful
-//!   responses (CORS classification lands with the fetch refactor
-//!   that threads through an Origin).
-//!
-//! ## Phase 2 limitation (intentional)
-//!
-//! `NetworkHandle::fetch_blocking` blocks the content thread, so
-//! the Promise is fulfilled / rejected *before* `fetch()` returns
-//! to JS.  User code still observes the expected asynchronous
-//! shape (`.then` / `await` schedule a microtask), but `signal`-
-//! based mid-flight cancellation cannot fire — there is no JS
-//! tick between the broker send and the broker reply.  The only
-//! effective `signal` path in Phase 2 is the **pre-flight** check
-//! implemented below: if `signal.aborted === true` before the
-//! broker call, we reject immediately with `signal.reason`.
-//! `VmInner::fetch_abort_observers` holds the wire for the
-//! mid-flight path; it stays empty in Phase 2 and will be
-//! populated by the PR5-async-fetch refactor.
+//!   responses (CORS classification lands with PR5-cors).
 
 #![cfg(feature = "engine")]
 
 use std::sync::Arc;
 
 use bytes::Bytes;
+use elidex_net::broker::{FetchId, NetworkToRenderer};
 use url::Url;
 
 use super::super::shape;
@@ -201,25 +210,22 @@ fn native_fetch(
         return Ok(JsValue::Object(promise));
     };
 
-    // Blocking broker call.  `signal` is not registered in
-    // `fetch_abort_observers` here: the blocking broker call is
-    // synchronous, so no JS listener can fire
-    // `controller.abort()` before the reply.  The PR5-async-fetch
-    // refactor will insert `(signal, broker-fetch-id)` registration
-    // + broker-reply pruning at exactly this site.
-    match handle.fetch_blocking(request) {
-        Ok(response) => {
-            let resp_id = create_response_from_net(ctx.vm, response);
-            resolve_promise_sync(ctx.vm, promise, JsValue::Object(resp_id));
-        }
-        Err(msg) => {
-            // Spec §5.2 "Network error" → TypeError, not
-            // DOMException.  Preserve the broker's message for
-            // diagnostics but wrap in the spec-prescribed wording.
-            let err = VmError::type_error(format!("Failed to fetch: {msg}"));
-            let reason = ctx.vm.vm_error_to_thrown(&err);
-            reject_promise_sync(ctx.vm, promise, reason);
-        }
+    // Async broker dispatch.  Returns a `FetchId` immediately; the
+    // reply lands on a future `vm.tick_network()` invocation.  The
+    // pending Promise is registered in `pending_fetches` so the
+    // tick handler can find it; if `signal` was supplied, the
+    // fetch_id is also added to the abort fan-out so a
+    // `controller.abort()` can route a CancelFetch to the broker
+    // and reject the Promise synchronously.
+    let fetch_id = handle.fetch_async(request);
+    ctx.vm.pending_fetches.insert(fetch_id, promise);
+    if let Some(signal_id) = signal {
+        ctx.vm
+            .fetch_abort_observers
+            .entry(signal_id)
+            .or_default()
+            .push(fetch_id);
+        ctx.vm.fetch_signal_back_refs.insert(fetch_id, signal_id);
     }
 
     Ok(JsValue::Object(promise))
@@ -350,6 +356,7 @@ fn build_net_request(
                 headers,
                 body: final_body.unwrap_or_else(Bytes::new),
             };
+            attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
             attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
             return Ok(request);
         }
@@ -379,6 +386,7 @@ fn build_net_request(
         headers,
         body: final_body.unwrap_or_else(Bytes::new),
     };
+    attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
     attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
     Ok(request)
 }
@@ -397,6 +405,46 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
         .any(|(name, _)| name.eq_ignore_ascii_case("content-type"));
     if !already_set {
         headers.push(("Content-Type".to_string(), ct.to_string()));
+    }
+}
+
+/// Attach the `Origin` header for cross-origin requests (WHATWG
+/// Fetch §3.2 / §5.4).  Always set on cross-origin requests
+/// regardless of mode (CORS protocol, navigation, websocket — the
+/// header itself is informational; the response-side gate that
+/// rejects opaque CORS responses without `Access-Control-Allow-Origin`
+/// is the policy enforcement point and lives with the CORS
+/// follow-up PR).
+///
+/// Same-origin requests do not attach `Origin` — the header is
+/// reserved for cross-origin disclosure per browser convention.
+/// Skips when the caller already provided an `Origin` header
+/// (forbidden-header enforcement will additionally drop user-set
+/// values once that stage lands; until then we leave caller-set
+/// values alone, matching how `attach_default_referer` behaves).
+fn attach_default_origin(source: &Url, request: &mut elidex_net::Request) {
+    const ORIGIN: &str = "Origin";
+    if request
+        .headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case(ORIGIN))
+    {
+        return;
+    }
+    if !matches!(source.scheme(), "http" | "https") {
+        return;
+    }
+    if !matches!(request.url.scheme(), "http" | "https") {
+        return;
+    }
+    let source_origin = source.origin();
+    if source_origin == request.url.origin() {
+        return;
+    }
+    if source_origin.is_tuple() {
+        request
+            .headers
+            .push((ORIGIN.to_string(), source_origin.ascii_serialization()));
     }
 }
 
@@ -631,9 +679,22 @@ fn parse_init_overrides(
                         headers_val,
                         "Failed to execute 'fetch'",
                     )?;
+                    // WHATWG Fetch §4.6 forbidden-request-header
+                    // filter applies to the URL-input path too.
+                    // The Request-input path filters via the
+                    // companion Headers' `Request` guard during
+                    // ctor; this path has no companion, so the
+                    // filter happens here at snapshot time.
                     let snapshot: Vec<(String, String)> = entries
                         .into_iter()
-                        .map(|(n, v)| (ctx.vm.strings.get_utf8(n), ctx.vm.strings.get_utf8(v)))
+                        .filter_map(|(n, v)| {
+                            let name = ctx.vm.strings.get_utf8(n);
+                            if super::headers::is_forbidden_request_header(&name) {
+                                None
+                            } else {
+                                Some((name, ctx.vm.strings.get_utf8(v)))
+                            }
+                        })
                         .collect();
                     Some(snapshot)
                 }
@@ -791,4 +852,83 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
     // so dropping the root is safe.
     drop(g);
     inst_id
+}
+
+// ---------------------------------------------------------------------------
+// Tick: broker reply → Promise settlement
+// ---------------------------------------------------------------------------
+
+impl VmInner {
+    /// Drain pending [`elidex_net::broker::NetworkToRenderer`] events
+    /// from the installed [`NetworkHandle`](elidex_net::broker::NetworkHandle)
+    /// and dispatch them to the JS side.  See
+    /// [`super::super::Vm::tick_network`] for the public-API
+    /// contract.
+    ///
+    /// No-op when no handle is installed (the `pending_fetches`
+    /// map can never be populated in that case anyway, since
+    /// `native_fetch` rejects synchronously).
+    pub(in crate::vm) fn tick_network(&mut self) {
+        let Some(handle) = self.network_handle.clone() else {
+            return;
+        };
+        let events = handle.drain_events();
+        for event in events {
+            match event {
+                NetworkToRenderer::FetchResponse(fetch_id, result) => {
+                    self.settle_fetch(fetch_id, result);
+                }
+                // WS / SSE forwarding lands when those surfaces
+                // migrate from boa to the VM (M4-12 PR5-streams +
+                // residual events).  Drop them with a debug-build
+                // breadcrumb so a stray reply during the transition
+                // is visible.
+                NetworkToRenderer::WebSocketEvent(_, _)
+                | NetworkToRenderer::EventSourceEvent(_, _) => {
+                    debug_assert!(
+                        false,
+                        "tick_network: WS/SSE event arrived without a VM-side handler",
+                    );
+                }
+            }
+        }
+        // Microtask checkpoint — `.then` reactions attached to the
+        // settled Promise must run before this call returns so the
+        // shell event loop's per-tick observable order matches a
+        // real browser's microtask drain at the end of every task.
+        self.drain_microtasks();
+    }
+
+    /// Settle a single in-flight fetch's Promise.  Removes the
+    /// `pending_fetches` entry; if absent (already settled by
+    /// abort), the late reply is silently dropped.  Prunes the
+    /// reverse signal-back-refs entry and the abort fan-out list
+    /// so a subsequent `controller.abort()` does not send a
+    /// redundant CancelFetch for an already-completed fetch.
+    fn settle_fetch(&mut self, fetch_id: FetchId, result: Result<elidex_net::Response, String>) {
+        let Some(promise) = self.pending_fetches.remove(&fetch_id) else {
+            return;
+        };
+        // Prune the reverse index — drops a stale entry, harmless if
+        // the fetch had no signal (entry never existed).
+        if let Some(signal_id) = self.fetch_signal_back_refs.remove(&fetch_id) {
+            if let Some(observers) = self.fetch_abort_observers.get_mut(&signal_id) {
+                observers.retain(|&id| id != fetch_id);
+                if observers.is_empty() {
+                    self.fetch_abort_observers.remove(&signal_id);
+                }
+            }
+        }
+        match result {
+            Ok(response) => {
+                let resp_id = create_response_from_net(self, response);
+                resolve_promise_sync(self, promise, JsValue::Object(resp_id));
+            }
+            Err(msg) => {
+                let err = VmError::type_error(format!("Failed to fetch: {msg}"));
+                let reason = self.vm_error_to_thrown(&err);
+                reject_promise_sync(self, promise, reason);
+            }
+        }
+    }
 }

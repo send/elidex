@@ -732,18 +732,21 @@ fn fetch_strips_userinfo_and_fragment_from_referer() {
 }
 
 #[test]
-fn fetch_user_set_referer_is_left_alone_in_phase_2() {
-    // Phase 2 (no forbidden-header enforcement): a caller-set Referer
-    // is preserved.  When PR5-async-fetch lands, the same script will
-    // observe its `Referer` silently dropped before this auto-attach
-    // step runs.
+fn fetch_user_set_referer_is_dropped_by_forbidden_header_filter() {
+    // M4-12 PR5-async-fetch: WHATWG Fetch §4.6 forbidden-request-
+    // header enforcement silently drops a caller-set `Referer`
+    // before the auto-attach step runs, so the outgoing Request
+    // carries the policy-derived value (cross-origin → source
+    // origin only) rather than the user override.  Pre-PR5 (no
+    // guard) the override won — that test reflected the legacy
+    // behaviour and is updated alongside the guard landing.
     let (mut vm, handle) =
         vm_with_url_and_mock("https://example.com/page", vec!["https://other.com/api"]);
     vm.eval("fetch('https://other.com/api', {headers: {'Referer': 'https://manual.example/'}});")
         .unwrap();
     let req = single_logged_request(&handle);
     let referer = header_value(&req.headers, "referer").expect("referer present");
-    assert_eq!(referer, "https://manual.example/");
+    assert_eq!(referer, "https://example.com");
 }
 
 #[test]

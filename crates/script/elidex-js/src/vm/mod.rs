@@ -879,20 +879,11 @@ pub(crate) struct VmInner {
     pub(crate) network_handle: Option<std::rc::Rc<elidex_net::broker::NetworkHandle>>,
     /// Fan-out map for `AbortSignal` → in-flight `FetchId`s.  When a
     /// signal aborts, [`host::abort::abort_signal`] drains the entry
-    /// for that signal's `ObjectId` and sends
+    /// for that signal's `ObjectId`, sends
     /// [`elidex_net::broker::RendererToNetwork::CancelFetch`] for each
-    /// recorded fetch so the broker can discard the response.
-    ///
-    /// ## Phase 2 limitation (documented)
-    ///
-    /// `NetworkHandle::fetch_blocking` blocks the content thread, so
-    /// JS never runs between `fetch()` entry and the broker reply.
-    /// No user code can therefore fire an abort mid-flight — the
-    /// map stays empty for the lifetime of a blocking fetch and the
-    /// drain loop in `abort_signal` is dead code until the PR5-async-
-    /// fetch refactor lands.  The wire is in place so the async
-    /// refactor only has to populate on entry and prune on broker
-    /// reply.
+    /// recorded fetch so the broker can post an early `Err("aborted")`
+    /// reply, and rejects the matching pending Promise via
+    /// [`Self::pending_fetches`].
     ///
     /// GC contract: sweep prunes entries whose key (signal) was
     /// collected, matching [`Self::abort_signal_states`] /
@@ -901,6 +892,43 @@ pub(crate) struct VmInner {
     /// that carry no GC obligations.
     #[cfg(feature = "engine")]
     pub(crate) fetch_abort_observers: HashMap<ObjectId, Vec<elidex_net::broker::FetchId>>,
+    /// In-flight async `fetch()` requests: broker `FetchId` → pending
+    /// Promise [`ObjectId`].  Populated when [`host::fetch::native_fetch`]
+    /// enqueues a request via [`elidex_net::broker::NetworkHandle::fetch_async`]
+    /// and drained when [`Self::tick_network`] sees the matching
+    /// `FetchResponse` (broker success / error / synthesised abort).
+    /// A late reply for an entry already removed by an earlier abort
+    /// fan-out lands here as a `None` and is silently dropped — the
+    /// dedupe path that lets [`host::abort::abort_signal`] reject the
+    /// Promise synchronously without coordinating with the broker.
+    ///
+    /// GC contract: values (Promise `ObjectId`s) are **strong roots**
+    /// — without them, a Promise whose only reference is the user's
+    /// `let p = fetch(url)` (and which they never store anywhere
+    /// else) would be collected before the broker reply lands and
+    /// the `tick_network` settlement step would target a recycled
+    /// slot.  Sweep does not prune by value-mark because the value
+    /// is *kept alive* by being a root; entries are removed
+    /// explicitly on settlement / abort fan-out.
+    #[cfg(feature = "engine")]
+    pub(crate) pending_fetches: HashMap<elidex_net::broker::FetchId, ObjectId>,
+    /// Reverse index for `FetchId → AbortSignal ObjectId` so the
+    /// `tick_network` reply handler can prune
+    /// [`Self::fetch_abort_observers`]`[signal_id]` in O(1) without
+    /// scanning every signal's observer list.  Populated alongside
+    /// [`Self::pending_fetches`] when the originating `fetch()` call
+    /// carried an `init.signal`; absent when no signal was supplied.
+    /// Drained on settlement (matching `pending_fetches`) and on
+    /// abort fan-out.
+    ///
+    /// GC contract: values are signals which already carry their
+    /// own root path through [`Self::abort_signal_states`] (and the
+    /// user's `controller.signal` reference).  Sweep prunes entries
+    /// whose signal value was collected so a recycled slot can't
+    /// claim a stale fan-out — same defensive pattern as
+    /// `fetch_abort_observers`.
+    #[cfg(feature = "engine")]
+    pub(crate) fetch_signal_back_refs: HashMap<elidex_net::broker::FetchId, ObjectId>,
     /// Terminal `ShapeId` per `EventPayload` variant, built once
     /// during `register_globals`.  `None` on non-engine builds
     /// (events don't dispatch there), `Some` on engine builds after

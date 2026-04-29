@@ -201,6 +201,10 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 fetch_abort_observers: HashMap::new(),
                 #[cfg(feature = "engine")]
+                pending_fetches: HashMap::new(),
+                #[cfg(feature = "engine")]
+                fetch_signal_back_refs: HashMap::new(),
+                #[cfg(feature = "engine")]
                 abort_signal_prototype: None,
                 #[cfg(feature = "engine")]
                 abort_signal_states: HashMap::new(),
