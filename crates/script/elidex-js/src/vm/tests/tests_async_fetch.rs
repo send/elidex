@@ -710,7 +710,8 @@ fn fetch_default_mode_is_cors() {
     let logged = handle.drain_recorded_requests();
     assert_eq!(logged.len(), 1);
     // Spec default for the fetch() URL-string input path is
-    // `Cors` (see `build_net_request` in fetch.rs line 410).
+    // `Cors` (see the `build_net_request` URL-input branch in
+    // fetch.rs).
     assert_eq!(logged[0].mode, elidex_net::RequestMode::Cors);
 }
 

@@ -79,11 +79,13 @@ struct PreflightCacheEntry {
     expiry: Instant,
 }
 
-/// Sweep threshold — opportunistically purge expired entries
-/// during [`PreflightCache::store`] when the live entry count
-/// exceeds this value.  Bounded memory growth on unique-key
-/// churn (Copilot R4 PR #134) at the cost of an O(N) scan
-/// every ~N inserts when N hovers around the threshold.
+/// Sweep low-water mark — opportunistically purge expired
+/// entries during [`PreflightCache::store`] when the live entry
+/// count reaches the **high-water mark** (`2 * SWEEP_THRESHOLD`).
+/// Using a 2× high-water mark amortizes the O(N) `retain` scan
+/// to one sweep per ~`SWEEP_THRESHOLD` inserts (vs. one sweep
+/// per insert at a single-threshold trigger — Copilot R8
+/// PR #134).
 const SWEEP_THRESHOLD: usize = 256;
 
 /// In-memory preflight cache.
@@ -127,8 +129,11 @@ impl PreflightCache {
     /// no-op (spec says don't cache).
     ///
     /// Opportunistically sweeps expired entries when the cache
-    /// grows past `SWEEP_THRESHOLD` so unique-key churn
-    /// doesn't accumulate dead entries indefinitely.
+    /// reaches the **high-water mark** (`2 * SWEEP_THRESHOLD`),
+    /// then refills back up to that mark before sweeping
+    /// again.  This amortises the O(N) `retain` scan to one
+    /// sweep per `SWEEP_THRESHOLD` inserts rather than one per
+    /// insert once the cache is large (Copilot R8 PR #134).
     pub fn store(&self, key: PreflightCacheKey, allowance: PreflightAllowance) {
         if allowance.max_age.is_zero() {
             return;
@@ -136,7 +141,7 @@ impl PreflightCache {
         let now = Instant::now();
         let expiry = now + allowance.max_age;
         let mut guard = self.entries.lock().expect("preflight cache mutex poisoned");
-        if guard.len() >= SWEEP_THRESHOLD {
+        if guard.len() >= 2 * SWEEP_THRESHOLD {
             guard.retain(|_, entry| entry.expiry > now);
         }
         guard.insert(key, PreflightCacheEntry { allowance, expiry });
@@ -365,18 +370,19 @@ mod tests {
     #[test]
     fn store_sweeps_expired_entries_when_threshold_exceeded() {
         let cache = PreflightCache::new();
-        // Fill the cache with `SWEEP_THRESHOLD` already-expired
+        // Fill the cache with `2 * SWEEP_THRESHOLD` already-expired
         // entries (bypassing `store()` so we can plant pre-
-        // expired data).  Then call `store()` with a fresh
-        // entry — the sweep should evict all `SWEEP_THRESHOLD`
-        // expired entries, leaving only the new one.
+        // expired data) — the high-water mark for sweep.  Then
+        // call `store()` with a fresh entry — the sweep should
+        // evict all `2 * SWEEP_THRESHOLD` expired entries,
+        // leaving only the new one.
         let now = Instant::now();
         let past = now
             .checked_sub(Duration::from_secs(1))
             .expect("monotonic clock supports 1s rewind");
         {
             let mut guard = cache.entries.lock().unwrap();
-            for i in 0..SWEEP_THRESHOLD {
+            for i in 0..(2 * SWEEP_THRESHOLD) {
                 let r = req(
                     "PUT",
                     &format!("https://api.other.com/x{i}"),
@@ -394,7 +400,7 @@ mod tests {
             }
         }
         // Now insert one fresh entry — should trigger sweep
-        // because cache size == SWEEP_THRESHOLD.
+        // because cache size == 2 * SWEEP_THRESHOLD.
         let fresh = req(
             "PUT",
             "https://api.other.com/fresh",
