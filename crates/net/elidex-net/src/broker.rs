@@ -423,6 +423,21 @@ impl NetworkHandle {
     /// the broker thread (currently kept stateless to bound
     /// memory under unbounded cancel-then-leak scenarios).
     ///
+    /// **Concurrency-counter saturation** (R7.1): because the
+    /// in-flight thread is not actually stopped, the per-broker
+    /// `MAX_CONCURRENT_FETCHES` inflight counter stays bumped
+    /// until the underlying network IO completes (success, error,
+    /// or transport timeout — the latter ~30s for HTTP requests
+    /// that connect but never respond).  A workload that issues
+    /// many fetches and aborts each one immediately can therefore
+    /// transiently saturate the global concurrency limit and
+    /// starve subsequent un-cancelled fetches until the cancelled
+    /// IO drains.  True request cancellation (passing a tokio
+    /// cancellation token through `client.send`) belongs with
+    /// the broader broker-state work in PR5-cors / PR5-streams.
+    /// For now, embedders that anticipate cancel-heavy workloads
+    /// should size `MAX_CONCURRENT_FETCHES` accordingly.
+    ///
     /// Returns `true` if the cancel was queued, `false` if the
     /// broker is disconnected.
     pub fn cancel_fetch(&self, id: FetchId) -> bool {
