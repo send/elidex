@@ -41,9 +41,14 @@ pub(crate) struct FetchCorsMeta {
     /// for `response.url` rewriting under opaque shapes.
     pub(crate) request_url: Url,
     /// Document origin that initiated the fetch.  `None` for
-    /// embedder-driven loads with no JS-script-origin context;
-    /// the classifier short-circuits to `Basic` in that case.
-    pub(crate) request_origin: Option<Url>,
+    /// embedder-driven loads with no JS-script-origin context
+    /// or for opaque initiator origins; the classifier short-
+    /// circuits to `Basic` in that case.  Stored as
+    /// [`url::Origin`] so the classifier compares origin-to-
+    /// origin without a `.origin()` round-trip and so the
+    /// classifier never sees the initiator's path / query /
+    /// fragment (Copilot R1, PR #133).
+    pub(crate) request_origin: Option<url::Origin>,
     /// `init.mode` (or the source `Request`'s mode for the
     /// Request-input path).
     pub(crate) request_mode: RequestMode,
@@ -94,7 +99,7 @@ pub(crate) enum CorsOutcome {
 /// (matches embedder-driven loads — initial navigation, favicon
 /// prefetch — that don't have a JS-script-origin context).
 pub(crate) fn classify_response_type(
-    request_origin: Option<&Url>,
+    request_origin: Option<&url::Origin>,
     request_url: &Url,
     request_mode: RequestMode,
     redirect_mode: RedirectMode,
@@ -123,8 +128,7 @@ pub(crate) fn classify_response_type(
         });
     };
 
-    let same_origin =
-        source.origin() == response_url.origin() && source.origin() == request_url.origin();
+    let same_origin = *source == response_url.origin() && *source == request_url.origin();
     if same_origin {
         return CorsOutcome::Ok(CorsClassification {
             response_type: ResponseType::Basic,
@@ -160,7 +164,7 @@ pub(crate) fn classify_response_type(
     }
 }
 
-fn cors_check_passes(source: &Url, response_headers: &[(String, String)]) -> bool {
+fn cors_check_passes(source: &url::Origin, response_headers: &[(String, String)]) -> bool {
     let allowed = response_headers
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("access-control-allow-origin"))
@@ -169,7 +173,7 @@ fn cors_check_passes(source: &Url, response_headers: &[(String, String)]) -> boo
         None => false,
         Some("*") => true,
         Some(value) => {
-            let serialised = source.origin().ascii_serialization();
+            let serialised = source.ascii_serialization();
             value.eq_ignore_ascii_case(&serialised)
         }
     }
@@ -180,9 +184,11 @@ fn cors_check_passes(source: &Url, response_headers: &[(String, String)]) -> boo
 /// CORS-safelisted-response-header-names plus any names listed
 /// in `Access-Control-Expose-Headers` — every other entry is
 /// dropped before the headers are handed to the Response's
-/// companion `Headers` object.  Caller pre-collected
-/// `(lowercased-name, value)` pairs; this function returns a
-/// new vector with the filter applied.
+/// companion `Headers` object.  Header names may be provided
+/// in any casing; this function lowercases names internally
+/// for matching and returns a new vector with the filter
+/// applied, preserving each retained header's original
+/// name/value pair.
 pub(crate) fn filter_headers_for_cors_response(
     headers: Vec<(String, String)>,
 ) -> Vec<(String, String)> {
@@ -236,9 +242,15 @@ mod tests {
         Url::parse(s).expect("valid url")
     }
 
+    /// Helper: build a [`url::Origin`] from a URL string for
+    /// the classifier's `request_origin` parameter.
+    fn origin(s: &str) -> url::Origin {
+        url(s).origin()
+    }
+
     #[test]
     fn same_origin_classifies_as_basic() {
-        let source = url("http://example.com/page");
+        let source = origin("http://example.com/page");
         let target = url("http://example.com/api");
         let out = classify_response_type(
             Some(&source),
@@ -260,7 +272,7 @@ mod tests {
 
     #[test]
     fn no_cors_cross_origin_is_opaque() {
-        let source = url("http://example.com/page");
+        let source = origin("http://example.com/page");
         let target = url("http://other.com/api");
         let out = classify_response_type(
             Some(&source),
@@ -282,7 +294,7 @@ mod tests {
 
     #[test]
     fn cors_cross_origin_with_acao_passes() {
-        let source = url("http://example.com/page");
+        let source = origin("http://example.com/page");
         let target = url("http://other.com/api");
         let headers = vec![(
             "Access-Control-Allow-Origin".to_string(),
@@ -308,7 +320,7 @@ mod tests {
 
     #[test]
     fn cors_cross_origin_wildcard_passes() {
-        let source = url("http://example.com/page");
+        let source = origin("http://example.com/page");
         let target = url("http://other.com/api");
         let headers = vec![("access-control-allow-origin".to_string(), "*".to_string())];
         let out = classify_response_type(
@@ -331,7 +343,7 @@ mod tests {
 
     #[test]
     fn cors_cross_origin_without_acao_is_network_error() {
-        let source = url("http://example.com/page");
+        let source = origin("http://example.com/page");
         let target = url("http://other.com/api");
         let out = classify_response_type(
             Some(&source),
@@ -347,7 +359,7 @@ mod tests {
 
     #[test]
     fn cors_cross_origin_wrong_acao_is_network_error() {
-        let source = url("http://example.com/page");
+        let source = origin("http://example.com/page");
         let target = url("http://other.com/api");
         let headers = vec![(
             "Access-Control-Allow-Origin".to_string(),
@@ -367,7 +379,7 @@ mod tests {
 
     #[test]
     fn manual_redirect_3xx_classifies_as_opaque_redirect() {
-        let source = url("http://example.com/page");
+        let source = origin("http://example.com/page");
         let target = url("http://example.com/api");
         let out = classify_response_type(
             Some(&source),
@@ -389,7 +401,7 @@ mod tests {
 
     #[test]
     fn manual_redirect_non_3xx_falls_through_to_normal_classification() {
-        let source = url("http://example.com/page");
+        let source = origin("http://example.com/page");
         let target = url("http://example.com/api");
         let out = classify_response_type(
             Some(&source),

@@ -462,16 +462,23 @@ fn reject_same_origin_cross_origin(
 /// Pick the origin to thread through to the broker as
 /// `request.origin`.  Used by the cookie-attach gate (WHATWG
 /// Fetch §3.1.7) and by the Stage-4 response_type CORS
-/// classifier.  Returns `Some(source)` when the document is on
-/// an HTTP/HTTPS origin (script-initiated fetches always have a
-/// document origin); `None` for `about:blank` / `data:` / etc.
-/// initiators where no meaningful origin exists — broker
-/// `SameOrigin` credentials gating treats `None` as
-/// "always-attach" (matches pre-PR top-level navigation
-/// behaviour).
-fn origin_for_request(source: &Url, _target: &Url) -> Option<Url> {
+/// classifier.  Returns the source's [`url::Origin`] when the
+/// document is on an HTTP/HTTPS scheme (script-initiated
+/// fetches always have a tuple origin); `None` for `about:blank`
+/// / `data:` / etc. initiators with opaque origins where no
+/// meaningful tuple-origin exists — broker `SameOrigin`
+/// credentials gating treats `None` as "always-attach" (matches
+/// pre-PR top-level navigation behaviour).
+///
+/// Returning [`url::Origin`] (rather than a full URL) ensures
+/// the broker never sees the initiator's path / query /
+/// fragment — Copilot R1 finding (PR #133): a `Url`-shaped
+/// field with origin-only semantics is a misuse trap because
+/// every consumer would have to remember to call `.origin()`
+/// before comparing.
+fn origin_for_request(source: &Url, _target: &Url) -> Option<url::Origin> {
     if matches!(source.scheme(), "http" | "https") {
-        Some(source.clone())
+        Some(source.origin())
     } else {
         None
     }

@@ -644,7 +644,7 @@ fn fetch_threads_same_origin_credentials_redirect_to_broker() {
     assert_eq!(req.redirect, elidex_net::RedirectMode::Manual);
     assert_eq!(
         req.origin,
-        Some(url::Url::parse("http://example.com/page").unwrap())
+        Some(url::Url::parse("http://example.com/page").unwrap().origin())
     );
 }
 

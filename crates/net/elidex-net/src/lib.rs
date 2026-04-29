@@ -78,10 +78,12 @@ pub enum RedirectMode {
 /// - [`CredentialsMode::Omit`]: never attach Cookie / never
 ///   store Set-Cookie from the response.
 /// - [`CredentialsMode::SameOrigin`] (default): attach + store
-///   only when `request.url.origin() == request.origin`.  When
-///   `request.origin` is `None` (no document origin context —
-///   e.g. embedder-driven loads), behaves as `Include` since
-///   there's no cross-origin boundary to gate.
+///   only when `request.origin == request.url.origin()` (both
+///   are [`url::Origin`] values; the comparison is opaque-aware
+///   per WHATWG HTML §3.2.1.2).  When `request.origin` is
+///   `None` (no document origin context — e.g. embedder-driven
+///   loads), behaves as `Include` since there's no cross-origin
+///   boundary to gate.
 /// - [`CredentialsMode::Include`]: always attach + always store.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CredentialsMode {
@@ -114,10 +116,16 @@ pub struct Request {
     /// Document / worker-script origin that initiated the
     /// request, when available.  `None` for embedder-driven
     /// loads with no document context (initial navigation,
-    /// favicon prefetch, etc.).  Used for cookie attach gating
+    /// favicon prefetch, etc.) and for opaque initiator origins
+    /// (`about:blank`, `data:`, etc., where the initiator URL
+    /// has no tuple origin).  Used for cookie attach gating
     /// when [`Request::credentials`] is
-    /// [`CredentialsMode::SameOrigin`].
-    pub origin: Option<url::Url>,
+    /// [`CredentialsMode::SameOrigin`].  Stored as
+    /// [`url::Origin`] (rather than a full URL) so the broker
+    /// never sees the initiator's path / query / fragment —
+    /// the comparison surface matches the cookie-attach
+    /// contract exactly.
+    pub origin: Option<url::Origin>,
     /// How the broker should handle 3xx redirects.  Default:
     /// [`RedirectMode::Follow`].
     pub redirect: RedirectMode,
@@ -131,9 +139,10 @@ pub struct Request {
 /// §3.1.7).
 ///
 /// - `Omit`: never attach.
-/// - `SameOrigin`: attach iff the request URL's origin matches
-///   `request.origin`.  When `request.origin` is `None` (no
-///   document context — embedder-driven loads), attach
+/// - `SameOrigin`: attach iff `request.origin` (an
+///   [`url::Origin`]) equals the request URL's origin.  When
+///   `request.origin` is `None` (no document context —
+///   embedder-driven loads or opaque initiator origins), attach
 ///   unconditionally so the navigation pipeline keeps the
 ///   pre-PR5-cors behaviour for top-level loads.
 /// - `Include`: always attach.
@@ -143,7 +152,7 @@ fn should_attach_cookies(request: &Request) -> bool {
         CredentialsMode::Include => true,
         CredentialsMode::SameOrigin => match &request.origin {
             None => true,
-            Some(source) => source.origin() == request.url.origin(),
+            Some(source) => *source == request.url.origin(),
         },
     }
 }
@@ -439,7 +448,7 @@ mod tests {
     fn should_attach_cookies_include_always_true() {
         let request = Request {
             url: url::Url::parse("http://example.com/").unwrap(),
-            origin: Some(url::Url::parse("http://other.com/").unwrap()),
+            origin: Some(url::Url::parse("http://other.com/").unwrap().origin()),
             credentials: CredentialsMode::Include,
             ..Default::default()
         };
@@ -464,7 +473,7 @@ mod tests {
     fn should_attach_cookies_same_origin_blocks_cross_origin() {
         let request = Request {
             url: url::Url::parse("http://api.other.com/data").unwrap(),
-            origin: Some(url::Url::parse("http://example.com/").unwrap()),
+            origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
             credentials: CredentialsMode::SameOrigin,
             ..Default::default()
         };
@@ -475,10 +484,41 @@ mod tests {
     fn should_attach_cookies_same_origin_passes_same_origin_match() {
         let request = Request {
             url: url::Url::parse("http://example.com/data").unwrap(),
-            origin: Some(url::Url::parse("http://example.com/page").unwrap()),
+            origin: Some(url::Url::parse("http://example.com/page").unwrap().origin()),
             credentials: CredentialsMode::SameOrigin,
             ..Default::default()
         };
         assert!(should_attach_cookies(&request));
+    }
+
+    /// Regression test for Copilot R1 finding: `Request.origin`
+    /// must be a [`url::Origin`] (not a full URL) so the broker
+    /// never sees the initiator's path / query / fragment.  This
+    /// test exercises the type-level guarantee — if `Request.origin`
+    /// is ever changed back to `Option<url::Url>`, the
+    /// `.origin()` call below would become a no-op round-trip
+    /// and this test wouldn't catch the regression — but the
+    /// surrounding `should_attach_cookies` semantics would
+    /// silently regress to the path-leaking comparison the type
+    /// change is meant to prevent.
+    #[test]
+    fn request_origin_is_origin_not_url_with_path() {
+        let initiator = url::Url::parse("http://example.com/page?secret=1#frag").unwrap();
+        let request = Request {
+            url: url::Url::parse("http://example.com/api").unwrap(),
+            // The path / query / fragment of the initiator are
+            // discarded by `.origin()` — this is the contract.
+            origin: Some(initiator.origin()),
+            credentials: CredentialsMode::SameOrigin,
+            ..Default::default()
+        };
+        assert!(should_attach_cookies(&request));
+        // ascii_serialization() of the Origin must NOT contain
+        // path / query / fragment.
+        let serialised = request.origin.as_ref().unwrap().ascii_serialization();
+        assert_eq!(serialised, "http://example.com");
+        assert!(!serialised.contains("/page"));
+        assert!(!serialised.contains("secret"));
+        assert!(!serialised.contains("frag"));
     }
 }
