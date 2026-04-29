@@ -46,6 +46,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_js::vm::host_data::HostData;
+use elidex_js::vm::value::{JsValue, ObjectId};
 use elidex_js::vm::Vm;
 use elidex_script_session::SessionCore;
 
@@ -58,11 +59,11 @@ const TREE_SIZE: usize = 1000;
 /// Inner-loop iteration counts for each bench.  Throughput is reported
 /// as `Elements(LOOP_…)` so the per-element time is the per-access
 /// cost of the underlying `resolve_entities_for` walk plus JS dispatch
-/// overhead.  `Elements` scaling makes the constant per-`vm.eval`
-/// parse cost (the loop body is parsed once via `__lenLoop` /
-/// `__iterLoop` / `__itemLoop` indirection — see `setup_globals`)
-/// visible only as a small additive bias, dominated by the loop
-/// itself for any meaningful tree size.
+/// overhead.  Each criterion iteration calls a pre-resolved JS function
+/// object via [`Vm::call`] (see `setup_globals`) — no per-iter parse
+/// or microtask drain — so the only constant overhead is one JS call
+/// dispatch per criterion iter, far below the inner-loop cost for any
+/// meaningful tree size.
 ///
 /// `length` and `item` are O(1) JS-side per access and amortise the
 /// per-element cost easily at 10k iters.  `iter` allocates a fresh
@@ -117,9 +118,9 @@ fn setup(tree_size: usize) -> (Box<Vm>, Box<SessionCore>, Box<EcsDom>) {
 
 /// Install the live HTMLCollection on `globalThis.__coll` and define
 /// the per-bench JS hot loops once, so each criterion iteration only
-/// pays a tiny `__fn()` call dispatch instead of re-parsing the loop
-/// body.  `__divs` is the count of div children for the iter bench,
-/// `__mid` is the index used by the item bench.
+/// pays a single [`Vm::call`] dispatch instead of re-parsing source or
+/// running `eval`'s microtask drain on every sample.  `__mid` is the
+/// item-bench index (middle of the div-only result).
 fn setup_globals(vm: &mut Vm, tree_size: usize) {
     let div_count = tree_size - tree_size.div_ceil(5); // matches the i%5==0 pattern in `setup`
     let mid = div_count / 2;
@@ -130,7 +131,6 @@ fn setup_globals(vm: &mut Vm, tree_size: usize) {
     // assignments to `globalThis.X` persist across evals.
     let bootstrap = format!(
         "globalThis.__coll = document.getElementsByTagName('div');
-         globalThis.__divs = {div_count};
          globalThis.__mid  = {mid};
          globalThis.__lenLoop  = function() {{ var n = 0; for (var i = 0; i < {LEN}; i++) {{ n += __coll.length; }} return n; }};
          globalThis.__iterLoop = function() {{ var n = 0; for (var i = 0; i < {ITER}; i++) {{ for (var e of __coll) n++; }} return n; }};
@@ -143,9 +143,20 @@ fn setup_globals(vm: &mut Vm, tree_size: usize) {
         .expect("bench bootstrap script must compile and run");
 }
 
+/// Resolve a function pre-installed on `globalThis` by name to a raw
+/// `ObjectId` callable via [`Vm::call`].  Panics if the global is
+/// missing or non-Object — both are bench-wiring bugs.
+fn resolve_global_fn(vm: &Vm, name: &str) -> ObjectId {
+    match vm.get_global(name) {
+        Some(JsValue::Object(id)) => id,
+        other => panic!("bench: globalThis.{name} must be a function, got {other:?}"),
+    }
+}
+
 fn bench_length(c: &mut Criterion) {
     let (mut vm, _session, _dom) = setup(TREE_SIZE);
     setup_globals(&mut vm, TREE_SIZE);
+    let fn_id = resolve_global_fn(&vm, "__lenLoop");
 
     let mut group = c.benchmark_group("dom_collection/length");
     group.throughput(Throughput::Elements(LOOP_LENGTH));
@@ -153,7 +164,7 @@ fn bench_length(c: &mut Criterion) {
         BenchmarkId::from_parameter(format!("tree_{TREE_SIZE}_loop_{LOOP_LENGTH}")),
         |b| {
             b.iter(|| {
-                std::hint::black_box(vm.eval("__lenLoop()").unwrap());
+                std::hint::black_box(vm.call(fn_id, JsValue::Undefined, &[]).unwrap());
             });
         },
     );
@@ -165,6 +176,7 @@ fn bench_length(c: &mut Criterion) {
 fn bench_iter(c: &mut Criterion) {
     let (mut vm, _session, _dom) = setup(TREE_SIZE);
     setup_globals(&mut vm, TREE_SIZE);
+    let fn_id = resolve_global_fn(&vm, "__iterLoop");
 
     // Iter throughput is `Elements(LOOP_ITER)` so per-element time
     // is the per-iter-construction cost (each iteration of the outer
@@ -177,7 +189,7 @@ fn bench_iter(c: &mut Criterion) {
         BenchmarkId::from_parameter(format!("tree_{TREE_SIZE}_loop_{LOOP_ITER}")),
         |b| {
             b.iter(|| {
-                std::hint::black_box(vm.eval("__iterLoop()").unwrap());
+                std::hint::black_box(vm.call(fn_id, JsValue::Undefined, &[]).unwrap());
             });
         },
     );
@@ -189,6 +201,7 @@ fn bench_iter(c: &mut Criterion) {
 fn bench_item(c: &mut Criterion) {
     let (mut vm, _session, _dom) = setup(TREE_SIZE);
     setup_globals(&mut vm, TREE_SIZE);
+    let fn_id = resolve_global_fn(&vm, "__itemLoop");
 
     let mut group = c.benchmark_group("dom_collection/item");
     group.throughput(Throughput::Elements(LOOP_ITEM));
@@ -196,7 +209,7 @@ fn bench_item(c: &mut Criterion) {
         BenchmarkId::from_parameter(format!("tree_{TREE_SIZE}_loop_{LOOP_ITEM}")),
         |b| {
             b.iter(|| {
-                std::hint::black_box(vm.eval("__itemLoop()").unwrap());
+                std::hint::black_box(vm.call(fn_id, JsValue::Undefined, &[]).unwrap());
             });
         },
     );
