@@ -18,27 +18,22 @@
 //! - `reverse()` (§23.2.3.23)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
 //! - `join(separator?)` (§23.2.3.19)
+//! - `toLocaleString(reserved1?, reserved2?)` (§23.2.3.31) —
+//!   no-Intl per-element `Invoke("toLocaleString")`, joined `","`
 //!
 //! Higher-order callback methods (`forEach` / `every` / `some` /
 //! `find` / `findIndex` / `findLast` / `findLastIndex` / `map` /
-//! `filter`) live in [`super::typed_array_hof`] (PR-spec-polish
-//! SP8b split — keeps both files under the 1000-line convention
-//! once SpeciesConstructor + the `findLast` family expanded the
-//! HOF surface).
-//!
-//! ## Deferred (PR-spec-polish SP8c)
-//!
-//! `sort` / `reduce` / `reduceRight` / `flatMap` /
-//! `toLocaleString` — `sort` needs a comparator-driven in-place
-//! shuffle, `flatMap` needs a two-pass collect-then-flatten, and
-//! `toLocaleString` requires ICU.
+//! `filter` / `reduce` / `reduceRight` / `sort` / `flatMap`) live in
+//! [`super::typed_array_hof`] (PR-spec-polish SP8b/c split — keeps
+//! both files under the 1000-line convention as the HOF surface
+//! grew with SpeciesConstructor + the `findLast` family).
 
 #![cfg(feature = "engine")]
 
 use super::super::coerce;
 use super::super::shape;
 use super::super::value::{
-    ArrayIterState, ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind,
+    ArrayIterState, ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
     PropertyStorage, VmError,
 };
 use super::super::VmInner;
@@ -827,23 +822,153 @@ pub(crate) fn native_typed_array_join(
         element_kind: ek,
         ..
     } = parts;
-    let sep = match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined => ",".to_string(),
+    // WTF-16 accumulation — preserves lone surrogates that user
+    // overrides on `Number.prototype.toString` /
+    // `BigInt.prototype.toString` could return.  The lossy
+    // `StringPool::get_utf8` path would clobber them; mirror
+    // `native_array_join`'s `Vec<u16>` + `intern_utf16` shape.
+    let sep: Vec<u16> = match args.first().copied().unwrap_or(JsValue::Undefined) {
+        JsValue::Undefined => vec![u16::from(b',')],
         other => {
             let sid = ctx.to_string_val(other)?;
-            ctx.vm.strings.get_utf8(sid)
+            ctx.vm.strings.get(sid).to_vec()
         }
     };
-    let mut out = String::new();
+    let mut out: Vec<u16> = Vec::new();
     for i in 0..len_elem {
         if i > 0 {
-            out.push_str(&sep);
+            out.extend_from_slice(&sep);
         }
         let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i, ek);
         let sid = ctx.to_string_val(v)?;
-        out.push_str(&ctx.vm.strings.get_utf8(sid));
+        out.extend_from_slice(ctx.vm.strings.get(sid));
     }
-    let out_sid = ctx.vm.strings.intern(&out);
+    let out_sid = ctx.vm.strings.intern_utf16(&out);
+    Ok(JsValue::String(out_sid))
+}
+
+// ---------------------------------------------------------------------------
+// toLocaleString(reserved1?, reserved2?)
+// ---------------------------------------------------------------------------
+
+/// `%TypedArray%.prototype.toLocaleString(reserved1?, reserved2?)`
+/// (ES §23.2.3.31).  Per-element `? ToString(? Invoke(elem,
+/// "toLocaleString", « locales, options »))`, joined with `","`.
+///
+/// elidex has no `Intl` support yet, so `(locales, options)` flow
+/// through to per-element overrides unobserved by the built-in
+/// [`super::super::natives_symbol::native_object_prototype_to_locale_string`]
+/// shim (which redirects to `toString`).  Forwarding the reserved
+/// args still matters for user overrides on
+/// `Number.prototype.toLocaleString` /
+/// `BigInt.prototype.toLocaleString`, which can read them.
+///
+/// TypedArray elements are always non-nullish (Number or BigInt),
+/// so the `Array.prototype.toLocaleString` empty-or-nullish skip
+/// (spec §22.1.3.30 step 7.a) doesn't apply here — every index
+/// contributes a string segment.
+///
+/// ## Rooting
+///
+/// Boxed primitive wrappers (`coerce::to_object` outputs) are
+/// pinned in a single rooted slot for the duration of each
+/// iteration's `try_get_property_value` + `call_function` GC
+/// points.  Without it a sufficiently aggressive GC could collect
+/// the wrapper between the lookup-time accessor (which `GetV`
+/// permits) and the call-time receiver dispatch, leaving
+/// `obj_id` dangling.  Today GC is disabled across native calls
+/// (`interpreter.rs:81`), so the pin is future-proofing —
+/// matching the SP8c-A reduce-accumulator slot pattern.
+pub(crate) fn native_typed_array_to_locale_string(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let parts = require_typed_array_parts(ctx, this, "toLocaleString")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        buffer_id,
+        byte_offset,
+        element_kind: ek,
+        ..
+    } = parts;
+    let to_locale_key = PropertyKey::String(ctx.vm.well_known.to_locale_string);
+    // §23.2.3.31 step 7 forwards exactly `« locales, options »` to
+    // each per-element `Invoke` — extra caller-supplied args must
+    // not reach the override.  Materialise the pair once outside the
+    // loop so every iteration calls with the same fixed-arity slice.
+    let invoke_args = [
+        args.first().copied().unwrap_or(JsValue::Undefined),
+        args.get(1).copied().unwrap_or(JsValue::Undefined),
+    ];
+
+    // Single rooted slot for the boxed-primitive wrapper.  Object
+    // elements skip the box and overwrite the slot with the
+    // already-pinned receiver id; primitive elements box and pin
+    // their fresh wrapper.  Drop on early `?` is panic-safe via
+    // the scope guard's truncate-on-drop.
+    let mut frame = ctx.vm.push_stack_scope();
+    let wrapper_slot = frame.saved_len();
+    frame.stack.push(JsValue::Undefined);
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+
+    // WTF-16 accumulation preserves lone surrogates: a user
+    // override returning `'\uD800'` must round-trip exactly,
+    // which the lossy `StringPool::get_utf8` path would clobber.
+    // Mirrors `native_array_to_locale_string` / `native_array_join`.
+    let mut out: Vec<u16> = Vec::new();
+    for i in 0..len_elem {
+        if i > 0 {
+            out.push(u16::from(b','));
+        }
+        let elem = read_element_raw(sub_ctx.vm, buffer_id, byte_offset, i, ek);
+        // Invoke(V, P, args) — GetV boxes the primitive element
+        // via ToObject for the property lookup, but the call
+        // receiver stays the original primitive so user overrides
+        // see the raw element value rather than the wrapper.
+        let (obj_id, receiver) = match elem {
+            JsValue::Object(id) => (id, elem),
+            primitive => (coerce::to_object(sub_ctx.vm, primitive)?, primitive),
+        };
+        sub_ctx.vm.stack[wrapper_slot] = JsValue::Object(obj_id);
+        // GetV(V, P) (§7.3.2): the wrapper is just the prototype-
+        // chain anchor for the *lookup*; an accessor getter must
+        // see the original primitive `receiver` as `this`, not the
+        // wrapper.  `try_get_property_value` resolves getters with
+        // `this = Object(obj_id)` and would diverge from spec for
+        // strict-mode user getters on `Number.prototype.toLocaleString`.
+        // The `get_property` + `resolve_property` pair preserves
+        // the spec receiver semantics — same shape as
+        // `super::typed_array_static::lookup_iterator_method`.
+        let method = match coerce::get_property(sub_ctx.vm, obj_id, to_locale_key) {
+            Some(prop) => Some(sub_ctx.vm.resolve_property(prop, receiver)?),
+            None => None,
+        };
+        let str_sid = match method {
+            Some(JsValue::Object(fn_id)) if sub_ctx.get_object(fn_id).kind.is_callable() => {
+                let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
+                sub_ctx.to_string_val(ret)?
+            }
+            // Per `Invoke` semantics (§7.3.16) `?Call(?GetV(V, P), …)`
+            // throws TypeError when the resolved property is either
+            // present-but-non-callable OR absent.  The `None` branch
+            // covers the user-reachable case where `toLocaleString`
+            // has been removed from the chain (e.g. via
+            // `delete Object.prototype.toLocaleString`); silent
+            // fallback to `ToString(receiver)` would mask user
+            // mistakes like `Number.prototype.toLocaleString = 42`
+            // and diverge from observable `Invoke` semantics.
+            Some(_) | None => {
+                return Err(VmError::type_error(
+                    "Failed to execute 'toLocaleString' on 'TypedArray': \
+                     element's toLocaleString is not callable",
+                ));
+            }
+        };
+        out.extend_from_slice(sub_ctx.vm.strings.get(str_sid));
+    }
+    drop(frame);
+    let out_sid = ctx.vm.strings.intern_utf16(&out);
     Ok(JsValue::String(out_sid))
 }
 

@@ -580,20 +580,52 @@ pub(super) fn native_array_to_string(
     super::natives_symbol::native_object_prototype_to_string(ctx, this, &[])
 }
 
-/// `Array.prototype.toLocaleString()` — same as toString (locale not supported).
-/// §22.1.3.28 Array.prototype.toLocaleString: invoke `.toLocaleString()`
-/// on each element (honoring user overrides), then join with `","`.
-/// Locale-aware separator is not implemented (elidex has no Intl yet).
-/// Holes / undefined / null elements produce empty string (spec step 7.a).
+/// `Array.prototype.toLocaleString(locales?, options?)` — locale-
+/// aware string conversion (§22.1.3.30).  Per spec step 6 each
+/// non-nullish element is invoked as `? ToString(? Invoke(elem,
+/// "toLocaleString", « locales, options »))`, then joined with
+/// `","`.  Holes / undefined / null produce empty string per
+/// step 7.a.  elidex has no Intl yet, so the locale arguments
+/// flow through to per-element overrides unobserved by the
+/// built-in `Object.prototype.toLocaleString` (which redirects
+/// to `toString`).
+///
+/// Forwards `(locales, options)` to each per-element invocation
+/// so user overrides on `Number.prototype.toLocaleString` /
+/// `BigInt.prototype.toLocaleString` see them.  Throws TypeError
+/// on a present-but-non-callable `toLocaleString` per `Invoke`
+/// (§7.3.16); the `None` branch covers the user-reachable case
+/// where `toLocaleString` is absent (for example because
+/// `Object.prototype.toLocaleString` was deleted), which is part
+/// of the observable `Invoke` semantics.
+///
+/// Boxed-primitive wrappers are pinned in a single rooted stack
+/// slot across the property lookup + call points — same shape as
+/// `super::host::typed_array_methods::native_typed_array_to_locale_string`
+/// (SP8c-B Copilot R1 same-pattern fix).
 pub(super) fn native_array_to_locale_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = this_object_id(this)?;
     array_len(ctx, id)?;
     let elements = clone_elements(ctx, id);
-    let to_locale_key = super::value::PropertyKey::String(ctx.intern("toLocaleString"));
+    let to_locale_key = super::value::PropertyKey::String(ctx.vm.well_known.to_locale_string);
+    // §22.1.3.30 step 6 forwards exactly `« locales, options »` to
+    // each per-element `Invoke` — extra caller-supplied args must
+    // not reach the override.  Materialise the pair once outside the
+    // loop so every iteration calls with the same fixed-arity slice.
+    let invoke_args = [
+        args.first().copied().unwrap_or(JsValue::Undefined),
+        args.get(1).copied().unwrap_or(JsValue::Undefined),
+    ];
+
+    let mut frame = ctx.vm.push_stack_scope();
+    let wrapper_slot = frame.saved_len();
+    frame.stack.push(JsValue::Undefined);
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+
     let mut result: Vec<u16> = Vec::new();
     for (i, v) in elements.iter().enumerate() {
         if i > 0 {
@@ -602,27 +634,42 @@ pub(super) fn native_array_to_locale_string(
         if v.is_empty() || v.is_nullish() {
             continue;
         }
-        // §22.1.3.28 step 7.c: `? ToString(? Invoke(nextElement, "toLocaleString"))`.
-        // Invoke(V, P) = ? Call(? GetV(V, P), V); GetV boxes primitives via
-        // ToObject for the property lookup but passes the original V as the
-        // receiver/this.  So we box primitives only to reach the prototype
-        // chain (Number.prototype.toLocaleString / etc.) while the call
-        // receiver stays the primitive — enabling `Number.prototype.toLocaleString`
-        // overrides to be observed for `[1].toLocaleString()`.
         let (obj_id, receiver) = match *v {
             JsValue::Object(obj_id) => (obj_id, *v),
-            primitive => (super::coerce::to_object(ctx.vm, primitive)?, primitive),
+            primitive => (super::coerce::to_object(sub_ctx.vm, primitive)?, primitive),
         };
-        let method = ctx.try_get_property_value(obj_id, to_locale_key)?;
+        sub_ctx.vm.stack[wrapper_slot] = JsValue::Object(obj_id);
+        // GetV(V, P) (§7.3.2): an accessor getter must see the
+        // original primitive `receiver` as `this`, not the boxed
+        // wrapper (which is only the prototype-chain anchor for
+        // the lookup).  `try_get_property_value` resolves getters
+        // with `this = Object(obj_id)` — wrong for strict-mode
+        // user getters on `Number.prototype.toLocaleString`.
+        let method = match super::coerce::get_property(sub_ctx.vm, obj_id, to_locale_key) {
+            Some(prop) => Some(sub_ctx.vm.resolve_property(prop, receiver)?),
+            None => None,
+        };
         let str_sid = match method {
-            Some(JsValue::Object(fn_id)) if ctx.get_object(fn_id).kind.is_callable() => {
-                let ret = ctx.call_function(fn_id, receiver, &[])?;
-                ctx.to_string_val(ret)?
+            Some(JsValue::Object(fn_id)) if sub_ctx.get_object(fn_id).kind.is_callable() => {
+                let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
+                sub_ctx.to_string_val(ret)?
             }
-            _ => ctx.to_string_val(receiver)?,
+            // Per `Invoke` semantics (§7.3.16) `?Call(?GetV(V, P), …)`
+            // throws TypeError when the resolved property is either
+            // present-but-non-callable OR absent (GetV returns
+            // undefined → Call rejects undefined as not-a-function).
+            // Reachable only if the user has deleted
+            // `Object.prototype.toLocaleString` from the chain.
+            Some(_) | None => {
+                return Err(VmError::type_error(
+                    "Failed to execute 'toLocaleString' on 'Array': \
+                     element's toLocaleString is not callable",
+                ));
+            }
         };
-        result.extend_from_slice(ctx.vm.strings.get(str_sid));
+        result.extend_from_slice(sub_ctx.vm.strings.get(str_sid));
     }
+    drop(frame);
     let sid = ctx.vm.strings.intern_utf16(&result);
     Ok(JsValue::String(sid))
 }

@@ -19,11 +19,10 @@
 //!   re-exported `pub(super)` for [`super::typed_array_hof`]
 //!   (`map` / `filter`).
 //!
-//! Species-sensitive instance methods land in [`super::typed_array_hof`].
-//! `sort` / `reduce` / `reduceRight` / `flatMap` / `toLocaleString`
-//! defer to SP8c (spec abstract op names — backticked rather than
-//! intra-doc-linked because no Rust items by those names exist in
-//! the crate).
+//! Species-sensitive instance methods + accumulator HOFs +
+//! `flatMap` land in [`super::typed_array_hof`] (SP8b / SP8c-A /
+//! SP8c-B); the no-Intl `toLocaleString` lands in
+//! [`super::typed_array_methods`] alongside `join` (SP8c-B).
 
 #![cfg(feature = "engine")]
 

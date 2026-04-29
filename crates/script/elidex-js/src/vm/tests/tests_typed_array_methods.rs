@@ -669,3 +669,216 @@ fn join_custom_separator() {
         "1-2-3"
     );
 }
+
+// ---------------------------------------------------------------------------
+// toLocaleString (SP8c-B — no-Intl, mirrors Array.prototype.toLocaleString)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn to_locale_string_basic_numeric() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new Uint8Array([1, 2, 3]).toLocaleString();"),
+        "1,2,3"
+    );
+}
+
+#[test]
+fn to_locale_string_empty_array_returns_empty_string() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new Uint8Array(0).toLocaleString();"),
+        ""
+    );
+}
+
+#[test]
+fn to_locale_string_single_element_no_separator() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new Float32Array([3.5]).toLocaleString();"),
+        "3.5"
+    );
+}
+
+#[test]
+fn to_locale_string_bigint_array_strips_n_suffix() {
+    let mut vm = Vm::new();
+    // BigInt.prototype.toLocaleString → toString shape: "1,2,3"
+    // (no `n` suffix per BigInt.prototype.toString contract).
+    assert_eq!(
+        eval_string(&mut vm, "new BigInt64Array([1n, 2n, 3n]).toLocaleString();"),
+        "1,2,3"
+    );
+}
+
+#[test]
+fn to_locale_string_locale_args_ignored() {
+    let mut vm = Vm::new();
+    // No Intl support — locale + options arguments are accepted
+    // but ignored, so the result matches the no-arg form.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "new Uint8Array([1, 2]).toLocaleString('de-DE', { useGrouping: false });"
+        ),
+        "1,2"
+    );
+}
+
+#[test]
+fn to_locale_string_observes_number_prototype_override() {
+    let mut vm = Vm::new();
+    // §23.2.3.31 Invoke(elem, "toLocaleString") → finds the
+    // user override on Number.prototype because the call's GetV
+    // boxes the primitive for property lookup.  The override
+    // sees `this === <primitive>` (after non-strict boxing) and
+    // can read `.valueOf()`.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return '<' + this.valueOf() + '>'; }; \
+             new Uint8Array([1, 2, 3]).toLocaleString();"
+        ),
+        "<1>,<2>,<3>"
+    );
+}
+
+#[test]
+fn to_locale_string_throws_on_non_typed_array_receiver() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval("Uint8Array.prototype.toLocaleString.call({});")
+        .unwrap_err()
+        .message
+        .contains("non-TypedArray"));
+}
+
+#[test]
+fn to_locale_string_propagates_throw_from_per_element_method() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval(
+            "Number.prototype.toLocaleString = function() { throw new Error('boom'); }; \
+             new Uint8Array([1]).toLocaleString();"
+        )
+        .is_err());
+}
+
+#[test]
+fn to_locale_string_forwards_reserved_args() {
+    let mut vm = Vm::new();
+    // §23.2.3.31 step 7: per-element `Invoke(elem, "toLocaleString",
+    // « locales, options »)` must forward the reserved args to user
+    // overrides.  Capture the args via an override that joins them
+    // (no Intl in elidex, so the built-in shim ignores them — but
+    // overrides MUST observe them).
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Number.prototype.toLocaleString = function(loc, opt) { \
+                 return String(loc) + ':' + (opt && opt.tag); \
+             }; \
+             new Uint8Array([1, 2]).toLocaleString('de-DE', { tag: 'X' });"
+        ),
+        "de-DE:X,de-DE:X"
+    );
+}
+
+#[test]
+fn to_locale_string_passes_exactly_two_args_to_override() {
+    let mut vm = Vm::new();
+    // §23.2.3.31 step 7: `Invoke(elem, "toLocaleString",
+    // « locales, options »)` always materialises a 2-element
+    // arg list.  Extra caller args (3rd+) MUST NOT reach the
+    // override; missing args (0 / 1) MUST be undefined-padded
+    // so `arguments.length === 2` always holds.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return String(arguments.length); }; \
+             new Uint8Array([1]).toLocaleString('a', 'b', 'c', 'd');"
+        ),
+        "2"
+    );
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return String(arguments.length); }; \
+             new Uint8Array([1]).toLocaleString();"
+        ),
+        "2"
+    );
+}
+
+#[test]
+fn to_locale_string_preserves_lone_surrogate_from_override() {
+    let mut vm = Vm::new();
+    // WTF-16 round-trip — a user override returning `'\uD800'`
+    // (a lone high surrogate) must survive accumulation intact.
+    // The lossy `StringPool::get_utf8` path would replace it with
+    // U+FFFD; the `Vec<u16>` + `intern_utf16` shape preserves it.
+    // Length 3 = U+D800 + ',' + U+D800 → 3 UTF-16 code units.
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return '\\uD800'; }; \
+             new Uint8Array([1, 2]).toLocaleString().length;"
+        ),
+        3.0
+    );
+    // charCodeAt(0) confirms the surrogate is preserved (not the
+    // U+FFFD replacement that lossy UTF-8 round-trip would yield).
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return '\\uD800'; }; \
+             new Uint8Array([1]).toLocaleString().charCodeAt(0);"
+        ),
+        f64::from(0xD800_u32)
+    );
+}
+
+#[test]
+fn to_locale_string_accessor_getter_sees_primitive_receiver() {
+    let mut vm = Vm::new();
+    // §7.3.2 GetV(V, P): when `toLocaleString` resolves through
+    // an accessor getter on the prototype chain, the getter
+    // receives the *original* primitive value as `this`, not the
+    // throw-away wrapper used for the prototype-chain lookup.
+    // Pre-R6 the `try_get_property_value` path passed the wrapper
+    // as receiver — observable in non-strict mode by capturing
+    // `typeof this`, which boxes back to "object" for the wrapper
+    // but stays "object" for primitive→box-on-non-strict-call too.
+    // Strict-mode getter is the cleanest way to observe the
+    // primitive: `'use strict'` keeps the receiver unboxed, so
+    // `typeof this === 'number'` confirms primitive identity.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Object.defineProperty(Number.prototype, 'toLocaleString', { \
+                 configurable: true, \
+                 get: function() { 'use strict'; var t = this; return function() { return typeof t; }; } \
+             }); \
+             new Uint8Array([1]).toLocaleString();"
+        ),
+        "number"
+    );
+}
+
+#[test]
+fn to_locale_string_throws_on_non_callable_method() {
+    let mut vm = Vm::new();
+    // Per `Invoke` semantics (§7.3.16) a present-but-non-callable
+    // `toLocaleString` is a TypeError, not a silent fallback to
+    // `ToString(receiver)` — the prior behaviour masked user
+    // mistakes like the assignment below.
+    assert!(vm
+        .eval(
+            "Number.prototype.toLocaleString = 42; \
+             new Uint8Array([1]).toLocaleString();"
+        )
+        .unwrap_err()
+        .message
+        .contains("not callable"));
+}

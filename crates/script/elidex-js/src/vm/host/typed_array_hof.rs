@@ -10,8 +10,8 @@
 //! - `forEach` / `every` / `some` / `find` / `findIndex` (forward)
 //! - `findLast` / `findLastIndex` (reverse)
 //! - `reduce` / `reduceRight` (linear with accumulator)
-//! - `map` / `filter` (species-sensitive — allocate a fresh
-//!   destination view via
+//! - `map` / `filter` / `flatMap` (species-sensitive — allocate a
+//!   fresh destination view via
 //!   [`super::typed_array_static::species_constructor_for_typed_array`]
 //!   + [`super::typed_array_static::create_typed_array_for_length`])
 //! - `sort` (in-place; default numeric / `BigInt` ordering or
@@ -446,6 +446,113 @@ pub(crate) fn native_typed_array_filter(
         // mutable `&mut deeper` borrow on the next line.  The
         // stack entry remains rooted under the parent
         // `push_stack_scope` frame.
+        let value = deeper.vm.stack[elem_start + i];
+        #[allow(clippy::cast_possible_truncation)]
+        let dst_i = i as u32;
+        write_element_raw(&mut deeper, dst_buf, dst_off, dst_i, dst_ek, value)?;
+    }
+    drop(g);
+    drop(frame);
+    Ok(JsValue::Object(dst_view_id))
+}
+
+/// `%TypedArray%.prototype.flatMap(callbackfn, thisArg?)` —
+/// per-element callback whose result is spliced (when a TypedArray)
+/// or pushed (otherwise) into a fresh species-allocated destination.
+///
+/// Not in ES2024 (the spec omits `flatMap` from `%TypedArray%.prototype`
+/// because flat-then-collect produces a length unknown to the
+/// destination until the callback loop finishes — incompatible with
+/// the spec's species-allocate-then-fill TypedArray method shape).
+/// elidex installs it as an extension that mirrors the
+/// [`super::super::natives_array_hof::native_array_flat_map`]
+/// shape with TypedArray-aware splicing: a callback returning a
+/// TypedArray (any subclass) splices each element through the
+/// destination's per-element coercion; any other return value is
+/// pushed as a singleton.  Mismatched BigInt/Number element brands
+/// surface naturally as a per-element `write_element_raw`
+/// TypeError during the splice (e.g. splicing a `BigInt64Array`
+/// into a `Uint8Array` destination).
+///
+/// Two-phase like `filter`: collect into a stack scope, then
+/// resolve species + write back.  Atomic-on-throw in two stages:
+/// a throwing callback or other collection-time failure surfaces
+/// before species resolution or any destination view allocation;
+/// per-element coercion / write failures (`write_element_raw`)
+/// surface later during the write-back loop, after the
+/// destination TypedArray has already been allocated, but still
+/// before any value is returned to the caller — so the receiver
+/// is never observably mutated either way.
+pub(crate) fn native_typed_array_flat_map(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let parts = require_typed_array_parts(ctx, this, "flatMap")?;
+    let len_elem = parts.len_elem();
+    let TypedArrayParts {
+        id: receiver_id,
+        buffer_id: src_buf,
+        byte_offset: src_off,
+        element_kind: src_ek,
+        ..
+    } = parts;
+    let cb = require_callback(ctx, args, "flatMap")?;
+    let this_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+
+    let mut frame = ctx.vm.push_stack_scope();
+    let elem_start = frame.saved_len();
+    let mut sub_ctx = NativeContext { vm: &mut frame };
+    for i in 0..len_elem {
+        let elem = read_element_raw(sub_ctx.vm, src_buf, src_off, i, src_ek);
+        #[allow(clippy::cast_precision_loss)]
+        let idx_val = JsValue::Number(f64::from(i));
+        let cb_args = [elem, idx_val, this];
+        let mapped = sub_ctx.call_function(cb, this_arg, &cb_args)?;
+        // Splice when the callback returned any TypedArray
+        // subclass — read each inner element and push onto the
+        // collected stack frame.  Mixed BigInt/Number element
+        // kinds defer their TypeError to the destination's
+        // per-element write loop (atomic-on-throw still holds:
+        // the destination view is allocated only after this
+        // collection completes).
+        if let JsValue::Object(mapped_id) = mapped {
+            if let ObjectKind::TypedArray {
+                buffer_id: inner_buf,
+                byte_offset: inner_off,
+                byte_length: inner_len,
+                element_kind: inner_ek,
+            } = sub_ctx.vm.get_object(mapped_id).kind
+            {
+                let inner_count = inner_len / u32::from(inner_ek.bytes_per_element());
+                for j in 0..inner_count {
+                    let v = read_element_raw(sub_ctx.vm, inner_buf, inner_off, j, inner_ek);
+                    sub_ctx.vm.stack.push(v);
+                }
+                continue;
+            }
+        }
+        sub_ctx.vm.stack.push(mapped);
+    }
+    let kept_len = sub_ctx.vm.stack.len() - elem_start;
+    // `kept_len` is the sum of singleton + spliced pushes; it can
+    // exceed `len_elem` (each callback may splice an arbitrarily
+    // long inner TypedArray) so the `u32` ceiling check is
+    // load-bearing — unlike `filter`, where it's belt-and-braces.
+    let kept_u32 = u32::try_from(kept_len).map_err(|_| {
+        VmError::range_error(
+            "Failed to execute 'flatMap' on 'TypedArray': result length exceeds the supported maximum",
+        )
+    })?;
+
+    let (dst_ek, proto_override) =
+        species_constructor_for_typed_array(&mut sub_ctx, receiver_id, src_ek, "flatMap")?;
+    let dst_view_id =
+        create_typed_array_for_length(&mut sub_ctx, dst_ek, proto_override, kept_u32)?;
+    let mut g = sub_ctx.vm.push_temp_root(JsValue::Object(dst_view_id));
+    let mut deeper = NativeContext { vm: &mut g };
+    let (dst_buf, dst_off) = destructure_view(deeper.vm, dst_view_id);
+    for i in 0..kept_len {
         let value = deeper.vm.stack[elem_start + i];
         #[allow(clippy::cast_possible_truncation)]
         let dst_i = i as u32;

@@ -594,6 +594,8 @@ define_well_known_strings! {
         reduce => "reduce",
         reduce_right => "reduceRight",
         sort => "sort",
+        flat_map => "flatMap",
+        to_locale_string => "toLocaleString",
     }
 
     "DataView.prototype method names" {

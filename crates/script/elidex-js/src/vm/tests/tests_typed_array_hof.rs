@@ -1,14 +1,15 @@
 //! `%TypedArray%.prototype` higher-order method tests
 //! (ES2024 §23.2.3): `forEach` / `every` / `some` / `find` /
-//! `findIndex` / `findLast` / `findLastIndex` / `map` / `filter`
-//! plus the species-resolution and `thisArg`-binding contracts
-//! that the species-allocating HOFs (`map` / `filter`) share.
+//! `findIndex` / `findLast` / `findLastIndex` / `map` / `filter` /
+//! `flatMap` plus the species-resolution and `thisArg`-binding
+//! contracts that the species-allocating HOFs (`map` / `filter` /
+//! `flatMap`) share.
 //!
 //! Split from sibling [`super::tests_typed_array_methods`]
 //! (basic prototype methods) and
 //! [`super::tests_typed_array_reduce_sort`] (accumulator +
 //! in-place HOFs) so each file stays well below the project's
-//! 1000-line convention.  `flatMap` will land here in SP8c-B.
+//! 1000-line convention.
 //!
 //! HOF *implementation* lives in
 //! [`crate::vm::host::typed_array_hof`]; this module exercises
@@ -540,5 +541,169 @@ fn map_default_species_falls_back_when_constructor_undefined() {
 }
 
 // ---------------------------------------------------------------------------
-// reduce / reduceRight (SP8c-A — accumulator HOFs)
+// flatMap (SP8c-B — collect-then-species-allocate, splices inner TypedArrays)
 // ---------------------------------------------------------------------------
+
+#[test]
+fn flat_map_singleton_callbacks_keep_each_value() {
+    let mut vm = Vm::new();
+    // Callback returning a non-TypedArray is treated as a singleton
+    // (no flatten), so `flatMap` collapses into the same shape as
+    // `map` for this case.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([1, 2, 3]); \
+         var b = a.flatMap(function(v) { return v * 2; }); \
+         b instanceof Uint8Array && b.length === 3 && \
+         b[0] === 2 && b[1] === 4 && b[2] === 6;"
+    ));
+}
+
+#[test]
+fn flat_map_typed_array_callback_splices_inner_elements() {
+    let mut vm = Vm::new();
+    // Callback returning a TypedArray gets every element spliced
+    // into the destination — same as `Array.prototype.flatMap`'s
+    // Array-flatten case but TypedArray-only.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([1, 2, 3]); \
+         var b = a.flatMap(function(v) { return new Uint8Array([v, v * 10]); }); \
+         b.length === 6 && b[0] === 1 && b[1] === 10 && \
+         b[2] === 2 && b[3] === 20 && b[4] === 3 && b[5] === 30;"
+    ));
+}
+
+#[test]
+fn flat_map_mixed_singleton_and_splice() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([1, 2, 3]); \
+         var b = a.flatMap(function(v, i) { \
+             return i === 1 ? new Uint8Array([20, 21, 22]) : v; \
+         }); \
+         b.length === 5 && b[0] === 1 && \
+         b[1] === 20 && b[2] === 21 && b[3] === 22 && b[4] === 3;"
+    ));
+}
+
+#[test]
+fn flat_map_empty_inner_array_skips_index() {
+    let mut vm = Vm::new();
+    // An empty inner TypedArray contributes zero elements;
+    // result is the same as filtering those indices out.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([1, 2, 3]); \
+         var b = a.flatMap(function(v) { \
+             return v === 2 ? new Uint8Array(0) : new Uint8Array([v]); \
+         }); \
+         b.length === 2 && b[0] === 1 && b[1] === 3;"
+    ));
+}
+
+#[test]
+fn flat_map_callback_receives_index_and_array() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([10, 20, 30]); var ok = true; \
+         var b = a.flatMap(function(v, i, arr) { \
+             if (arr !== a) ok = false; if (arr[i] !== v) ok = false; return v; \
+         }); \
+         ok && b.length === 3;"
+    ));
+}
+
+#[test]
+fn flat_map_on_empty_returns_empty_view() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var b = new Uint8Array(0).flatMap(function() { return [1, 2]; }); \
+         b instanceof Uint8Array && b.length === 0;"
+    ));
+}
+
+#[test]
+fn flat_map_throws_when_callback_not_callable() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval("new Uint8Array([1]).flatMap('nope');")
+        .unwrap_err()
+        .message
+        .contains("callback is not a function"));
+}
+
+#[test]
+fn flat_map_propagates_callback_error() {
+    let mut vm = Vm::new();
+    assert!(vm
+        .eval("new Uint8Array([1, 2, 3]).flatMap(function() { throw new Error('boom'); });")
+        .is_err());
+}
+
+#[test]
+fn flat_map_bigint_array_keeps_through_alloc_point() {
+    let mut vm = Vm::new();
+    // BigInt elements allocate fresh BigIntId on every read; the
+    // collect frame must keep them rooted across the destination
+    // view's `create_typed_array_for_length` allocation.  Same
+    // GC hazard as `filter`'s collect path.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new BigInt64Array([1n, 2n, 3n]); \
+         var b = a.flatMap(function(v) { return new BigInt64Array([v, v * 2n]); }); \
+         b instanceof BigInt64Array && b.length === 6 && \
+         b[0] === 1n && b[1] === 2n && b[2] === 2n && b[3] === 4n && \
+         b[4] === 3n && b[5] === 6n;"
+    ));
+}
+
+#[test]
+fn flat_map_user_subclass_preserves_species() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "function Sub() {} \
+         Object.setPrototypeOf(Sub, Uint8Array); \
+         Sub.prototype = Object.create(Uint8Array.prototype); \
+         Sub.prototype.constructor = Sub; \
+         var s = Sub.from([1, 2]); \
+         var f = s.flatMap(function(v) { return new Uint8Array([v, v + 1]); }); \
+         f instanceof Sub && f.length === 4 && \
+         f[0] === 1 && f[1] === 2 && f[2] === 2 && f[3] === 3;"
+    ));
+}
+
+#[test]
+fn flat_map_non_typed_array_object_treated_as_singleton() {
+    let mut vm = Vm::new();
+    // Callback returning any non-TypedArray (here a plain Object,
+    // but the same applies to Array literals) does NOT splice —
+    // it's pushed as a singleton, then per-element coercion
+    // through `write_element_raw` runs ToNumber on the object
+    // which falls back to NaN → 0 for `Uint8Array`.  This matches
+    // the documented "splice only for TypedArray" rule.
+    assert!(eval_bool(
+        &mut vm,
+        "var a = new Uint8Array([1, 2]); \
+         var b = a.flatMap(function() { return {}; }); \
+         b instanceof Uint8Array && b.length === 2 && \
+         b[0] === 0 && b[1] === 0;"
+    ));
+}
+
+#[test]
+fn flat_map_binds_this_arg() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var marker = { id: 7 }; var ok = true; \
+         new Uint8Array([1, 2]).flatMap(function() { \
+             if (this !== marker) ok = false; return 0; \
+         }, marker); \
+         ok;"
+    ));
+}
