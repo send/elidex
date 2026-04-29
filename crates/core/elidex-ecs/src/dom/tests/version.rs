@@ -237,6 +237,54 @@ fn version_bumped_by_set_attribute() {
 }
 
 #[test]
+fn set_attribute_destroyed_entity_no_version_bump() {
+    // `set_attribute` returns `false` and does NOT call `rev_version`
+    // for destroyed entities — the doc-root version must therefore
+    // remain unchanged across the failed call (matching the
+    // "destroyed entities short-circuit" contract that
+    // `remove_attribute` mirrors).
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let e = elem(&mut dom, "div");
+    dom.append_child(doc, e);
+    let v_doc = dom.inclusive_descendants_version(doc);
+
+    dom.destroy_entity(e);
+    let v_doc_after_destroy = dom.inclusive_descendants_version(doc);
+
+    // remove_child during destroy_entity bumps doc; capture the
+    // post-destroy baseline.
+    assert!(!dom.set_attribute(e, "id", "x".into()));
+    assert_eq!(
+        dom.inclusive_descendants_version(doc),
+        v_doc_after_destroy,
+        "set_attribute on a destroyed entity must not bump version"
+    );
+    let _ = v_doc; // initial baseline retained for reference only
+}
+
+#[test]
+fn remove_attribute_destroyed_entity_no_version_bump() {
+    // Mirror of the set_attribute test: `remove_attribute` must
+    // short-circuit before touching `rev_version` so unrelated
+    // ancestors don't see a phantom mutation.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let e = elem(&mut dom, "div");
+    dom.append_child(doc, e);
+
+    dom.destroy_entity(e);
+    let v_doc_after_destroy = dom.inclusive_descendants_version(doc);
+
+    dom.remove_attribute(e, "id");
+    assert_eq!(
+        dom.inclusive_descendants_version(doc),
+        v_doc_after_destroy,
+        "remove_attribute on a destroyed entity must not bump version"
+    );
+}
+
+#[test]
 fn version_bumped_by_remove_attribute_even_when_absent() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();

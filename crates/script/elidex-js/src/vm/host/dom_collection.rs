@@ -162,9 +162,21 @@ impl LiveCollectionKind {
 /// cache fields are written via shared-ref methods so the dance
 /// is purely a borrow-aliasing accommodation, not a logical
 /// requirement.
+/// `cached_version` is `Option<u64>` rather than `u64` so the
+/// default `None` state can never collide with a real
+/// [`EcsDom::inclusive_descendants_version`] value of `0` (a
+/// freshly spawned entity that has not yet been mutated through
+/// any `rev_version`-bumping site).  Without the explicit
+/// "uninitialized" marker the very first read on such an entity
+/// would false-hit `cache.cached_version.get() == 0` and return
+/// the empty `cached_entities` even when the descendant walk
+/// would have yielded a non-empty list — load-bearing safety
+/// margin against any future change to the rev_version
+/// invariants under which a node could end up with descendants
+/// before its own version has been bumped.
 #[derive(Default)]
 pub(crate) struct LiveCollectionCache {
-    cached_version: Cell<u64>,
+    cached_version: Cell<Option<u64>>,
     cached_entities: RefCell<Vec<Entity>>,
 }
 
@@ -323,18 +335,14 @@ fn resolve_needles(vm: &VmInner, kind: &LiveCollectionKind) -> ResolvedNeedles {
 /// is unchanged, otherwise materialises needles from the VM's
 /// string pool and runs the ECS traversal.
 ///
-/// **Cache-hit fast path** (hot): only consults `&EcsDom` for the
-/// version compare — no needle UTF-8 materialisation, no
-/// `String` allocations.  This is the load-bearing optimisation
-/// for SP2; making the `length` / `item(i)` reads on an
-/// unchanged subtree drop from ~25µs to a few hundred ns.
-///
-/// **Cache-miss / Snapshot path**: re-borrows host (the cache-hit
-/// borrow expired at the if-block exit), resolves needles via
-/// `&VmInner`, walks the descendants, and refreshes the cache
-/// when `cache_root` is `Some`.  Snapshot variants
-/// (`cache_root() == None`) just clone their pre-baked entity
-/// list inside `resolve_entities_with_needles`.
+/// Hot-path semantics + drift-safety: the cache decision lives in
+/// [`resolve_with_cache_lazy`] so this function and
+/// [`try_indexed_get`] share identical version-check / needle-
+/// materialisation / cache-refresh logic.  The shape here is the
+/// `host_if_bound` plumbing — `host` is dropped between the
+/// cache-hit phase and the miss phase (re-borrowed below) so the
+/// shared `&VmInner` for needle materialisation does not alias
+/// the `&EcsDom` borrow used for the version check.
 pub(super) fn resolve_entities_for(
     ctx: &mut NativeContext<'_>,
     kind: &LiveCollectionKind,
@@ -351,7 +359,7 @@ pub(super) fn resolve_entities_for(
             return Vec::new();
         };
         let cur = host.dom().inclusive_descendants_version(root);
-        if cache.cached_version.get() == cur {
+        if cache.cached_version.get() == Some(cur) {
             return cache.cached_entities.borrow().clone();
         }
         Some(cur)
@@ -366,11 +374,18 @@ pub(super) fn resolve_entities_for(
         return Vec::new();
     };
     let fresh = resolve_entities_with_needles(host.dom(), kind, &needles);
-    if let Some(cur) = cur_version {
-        cache.cached_version.set(cur);
-        *cache.cached_entities.borrow_mut() = fresh.clone();
-    }
+    cache_store(cache, cur_version, &fresh);
     fresh
+}
+
+/// Refresh the cache after a successful descendant walk.  Skips
+/// the store when `cur_version == None` (Snapshot variants — see
+/// [`LiveCollectionKind::cache_root`]).
+fn cache_store(cache: &LiveCollectionCache, cur_version: Option<u64>, fresh: &[Entity]) {
+    if let Some(cur) = cur_version {
+        cache.cached_version.set(Some(cur));
+        *cache.cached_entities.borrow_mut() = fresh.to_vec();
+    }
 }
 
 /// Helper — collect every descendant Element with a given tag.
@@ -842,15 +857,16 @@ pub(crate) fn try_indexed_get(
     // `String` allocations.  Mirrors the structure of
     // `resolve_entities_for` so indexed access pays the same
     // ~250 ns/op cost as the prototype-accessor path.
-    let entities = if let Some(root) = kind.cache_root() {
-        let cur = dom.inclusive_descendants_version(root);
-        if cache.cached_version.get() == cur {
+    let cur_version = kind
+        .cache_root()
+        .map(|root| dom.inclusive_descendants_version(root));
+    let entities = if let Some(cur) = cur_version {
+        if cache.cached_version.get() == Some(cur) {
             cache.cached_entities.borrow().clone()
         } else {
             let needles = resolve_needles(vm, &kind);
             let fresh = resolve_entities_with_needles(dom, &kind, &needles);
-            cache.cached_version.set(cur);
-            *cache.cached_entities.borrow_mut() = fresh.clone();
+            cache_store(&cache, cur_version, &fresh);
             fresh
         }
     } else {
