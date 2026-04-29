@@ -1053,8 +1053,7 @@ mod preflight_integration_tests {
         // Server A: returns 302 → server B (cross-origin via
         // different port).  Server B: returns 200 with Set-Cookie.
         let (port_b, _rec_b) = spawn_scripted_server(vec![
-            b"HTTP/1.1 200 OK\r\nSet-Cookie: leak=cross_origin; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec()
-                .to_vec(),
+            b"HTTP/1.1 200 OK\r\nSet-Cookie: leak=cross_origin; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec(),
         ]).await;
         let location = format!("http://127.0.0.1:{port_b}/landing");
         let response_a = format!(
