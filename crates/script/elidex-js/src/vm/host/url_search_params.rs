@@ -527,21 +527,16 @@ fn native_usp_sort(
     // pool immutably; `state` borrow is `&mut` so split via a
     // local clone on the names being compared.  Cheaper: read each
     // name once into a `Vec<&[u16]>` for the comparison key.
+    // Field-disjoint borrows: `url_search_params_states` and
+    // `strings` are independent `VmInner` fields, so we can hold a
+    // `&mut` on the entry list while the comparator reads through
+    // `&strings`.  In-place stable `sort_by` avoids the extra
+    // index permutation + clone the prior implementation needed.
+    let pool = &ctx.vm.strings;
     let Some(state) = ctx.vm.url_search_params_states.get_mut(&id) else {
         return Ok(JsValue::Undefined);
     };
-    // The string pool is `&mut self.vm.strings` borrow-wise but
-    // `get` only needs `&self.0`; we drop the `&mut state` borrow
-    // before reading.  Build keys first, then sort by index.
-    let mut indices: Vec<usize> = (0..state.len()).collect();
-    let pool = &ctx.vm.strings;
-    indices.sort_by(|&a, &b| pool.get(state[a].0).cmp(pool.get(state[b].0)));
-    // Reorder via index permutation.  Take, then re-insert.
-    let mut new_state: Vec<(StringId, StringId)> = Vec::with_capacity(state.len());
-    for i in indices {
-        new_state.push(state[i]);
-    }
-    *state = new_state;
+    state.sort_by(|a, b| pool.get(a.0).cmp(pool.get(b.0)));
     Ok(JsValue::Undefined)
 }
 
