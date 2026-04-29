@@ -418,10 +418,14 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
 ///
 /// Same-origin requests do not attach `Origin` — the header is
 /// reserved for cross-origin disclosure per browser convention.
-/// Skips when the caller already provided an `Origin` header
-/// (forbidden-header enforcement will additionally drop user-set
-/// values once that stage lands; until then we leave caller-set
-/// values alone, matching how `attach_default_referer` behaves).
+/// In practice the early-return on a pre-existing `Origin` entry
+/// is unreachable for script-initiated fetches because
+/// [`super::headers::is_forbidden_request_header`] silently drops
+/// user-set `Origin` at both the Request-guard `Headers` and the
+/// URL-input init.headers snapshot step (WHATWG Fetch §4.6); the
+/// guard remains as a defensive belt-and-braces in case a future
+/// internal caller pre-populates `request.headers` before reaching
+/// `build_net_request`.
 fn attach_default_origin(source: &Url, request: &mut elidex_net::Request) {
     const ORIGIN: &str = "Origin";
     if request
@@ -449,15 +453,13 @@ fn attach_default_origin(source: &Url, request: &mut elidex_net::Request) {
 }
 
 /// Attach the `Referer` header that WHATWG Fetch's default referrer
-/// policy (`strict-origin-when-cross-origin`) would produce, but only
-/// if the caller has not already supplied one.
-///
-/// Phase 2 is opportunistic: forbidden-header enforcement (which
-/// would normally drop a script-supplied `Referer` per WHATWG Fetch
-/// §4.6) lives in PR5-async-fetch.  Until that lands we leave a
-/// caller-set value alone — that is the worst case for spec
-/// strictness but matches existing test expectations and never
-/// produces a duplicate header.
+/// policy (`strict-origin-when-cross-origin`) would produce.
+/// Script-initiated fetches no longer reach the early-return branch
+/// because §4.6 forbidden-header enforcement strips user-set
+/// `Referer` upstream — see [`attach_default_origin`] for the
+/// matching analysis.  The pre-existing-entry guard is retained as
+/// a belt-and-braces for future internal callers that pre-populate
+/// `request.headers`.
 ///
 /// Policy `strict-origin-when-cross-origin` (Fetch §3.2.5):
 ///
@@ -872,25 +874,29 @@ impl VmInner {
         let Some(handle) = self.network_handle.clone() else {
             return;
         };
+        // `drain_events` is the only consumer of the broker's
+        // response channel for this handle, so any non-fetch event
+        // we drain here cannot be re-fetched by another consumer.
+        // Re-buffer them onto the handle's `buffered` queue so a
+        // sibling consumer (boa bridge during the boa→VM cutover,
+        // or a future VM-side WS/SSE module) can observe them on a
+        // later `drain_events` (R1.2).  Order is preserved within
+        // the carried-over slice; new incoming events arrive after.
         let events = handle.drain_events();
+        let mut deferred: Vec<NetworkToRenderer> = Vec::new();
         for event in events {
             match event {
                 NetworkToRenderer::FetchResponse(fetch_id, result) => {
                     self.settle_fetch(fetch_id, result);
                 }
-                // WS / SSE forwarding lands when those surfaces
-                // migrate from boa to the VM (M4-12 PR5-streams +
-                // residual events).  Drop them with a debug-build
-                // breadcrumb so a stray reply during the transition
-                // is visible.
-                NetworkToRenderer::WebSocketEvent(_, _)
-                | NetworkToRenderer::EventSourceEvent(_, _) => {
-                    debug_assert!(
-                        false,
-                        "tick_network: WS/SSE event arrived without a VM-side handler",
-                    );
+                other @ (NetworkToRenderer::WebSocketEvent(_, _)
+                | NetworkToRenderer::EventSourceEvent(_, _)) => {
+                    deferred.push(other);
                 }
             }
+        }
+        if !deferred.is_empty() {
+            handle.rebuffer_events(deferred);
         }
         // Microtask checkpoint — `.then` reactions attached to the
         // settled Promise must run before this call returns so the

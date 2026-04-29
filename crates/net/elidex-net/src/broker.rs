@@ -386,9 +386,19 @@ impl NetworkHandle {
             return fetch_id;
         }
 
-        let _ = self
-            .request_tx
-            .send((self.client_id, RendererToNetwork::Fetch(fetch_id, request)));
+        // Send may fail when the broker has shut down or the handle
+        // was created via `disconnected()`; in that case buffer a
+        // synthetic `Err` reply so the renderer's `pending_fetches`
+        // table can settle on the next `drain_events()` instead of
+        // leaking the entry forever (R1.1).
+        if !self.send(RendererToNetwork::Fetch(fetch_id, request)) {
+            self.buffered
+                .borrow_mut()
+                .push(NetworkToRenderer::FetchResponse(
+                    fetch_id,
+                    Err("network process disconnected".into()),
+                ));
+        }
         fetch_id
     }
 
@@ -469,6 +479,25 @@ impl NetworkHandle {
     /// Returns `true` if the message was queued, `false` if the broker is disconnected.
     pub fn send(&self, msg: RendererToNetwork) -> bool {
         self.request_tx.send((self.client_id, msg)).is_ok()
+    }
+
+    /// Push events back onto the internal buffer so the next
+    /// [`Self::drain_events`] returns them.  Used by partial drainers
+    /// (e.g. the elidex-js VM's `tick_network`, which only handles
+    /// fetch replies and re-buffers WS/SSE events for sibling
+    /// consumers during the boa→VM cutover) to avoid stealing
+    /// events from another module that owns the same handle.
+    /// Events appear in front of any newly-arrived events on the
+    /// channel; relative order within the re-buffered slice is
+    /// preserved.
+    pub fn rebuffer_events(&self, events: Vec<NetworkToRenderer>) {
+        if events.is_empty() {
+            return;
+        }
+        let mut buf = self.buffered.borrow_mut();
+        // Re-buffered events come before anything arriving on the
+        // channel since `drain_events` reads `buffered` first.
+        buf.splice(0..0, events);
     }
 }
 
@@ -1111,6 +1140,32 @@ mod tests {
         assert!(err.contains("aborted"), "expected 'aborted' got: {err}");
 
         np.shutdown();
+    }
+
+    #[test]
+    fn fetch_async_on_disconnected_handle_buffers_terminal_error() {
+        // R1.1: when the request channel is closed (broker shut down,
+        // or `NetworkHandle::disconnected()` test fixture), `fetch_async`
+        // must still produce a `FetchResponse(id, Err(...))` so the
+        // renderer's `pending_fetches` table can settle on the next
+        // drain instead of leaking the entry.
+        let renderer = NetworkHandle::disconnected();
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse("http://example.invalid/").unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+        };
+        let id = renderer.fetch_async(request);
+        let events = renderer.drain_events();
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            NetworkToRenderer::FetchResponse(rid, Err(msg)) => {
+                assert_eq!(*rid, id);
+                assert!(msg.contains("disconnected"), "got: {msg}");
+            }
+            other => panic!("expected disconnected error, got {other:?}"),
+        }
     }
 
     #[test]

@@ -527,10 +527,10 @@ fn native_headers_append(
         value_sid,
         "Failed to execute 'append' on 'Headers'",
     )?;
-    let lower = ctx.vm.strings.get_utf8(name_sid);
-    if is_blocked_by_guard(ctx, id, &lower) {
-        return Ok(JsValue::Undefined);
-    }
+    // Forbidden-name filter lives inside `append_entry` so internal
+    // callers (init.headers parse / `copy_headers_entries` / default
+    // Content-Type splice) get the same silent-drop behaviour as
+    // `Headers.append`.  No second check here.
     append_entry(ctx, id, name_sid, value_sid)?;
     Ok(JsValue::Undefined)
 }

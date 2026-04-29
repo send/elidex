@@ -42,8 +42,12 @@ fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
 
 fn drain(vm: &mut Vm) {
     for _ in 0..16 {
+        if vm.inner.pending_fetches.is_empty() {
+            break;
+        }
         vm.tick_network();
     }
+    vm.tick_network();
 }
 
 #[test]
@@ -219,7 +223,7 @@ fn cancel_fetch_reaches_broker_on_abort() {
     // `inflight_abort_rejects_with_signal_reason_synchronously`.
     // This test exercises the integration via the real broker
     // handle.
-    use elidex_net::broker::{spawn_network_process, NetworkToRenderer};
+    use elidex_net::broker::spawn_network_process;
     use elidex_net::{NetClient, NetClientConfig, TransportConfig};
 
     let np = spawn_network_process(NetClient::with_config(NetClientConfig {
@@ -261,15 +265,36 @@ fn cancel_fetch_reaches_broker_on_abort() {
     }
 
     // Drop the VM (and its NetworkHandle) before the broker —
-    // unregisters the renderer cleanly.
+    // unregisters the renderer cleanly.  The reach of this test is
+    // the JS-observable Promise rejection above; deeper assertions
+    // about broker-side state (e.g. CancelFetch arrival counts) are
+    // covered by `cancel_fetch_delivers_aborted_reply` in
+    // `crates/net/elidex-net/src/broker.rs`'s test module.
     drop(vm);
-
-    // Verify the broker actually received some fetch traffic from
-    // the renderer (sanity).  The `_` prefix on `events` signals
-    // the count is not deterministic across timing; the key check
-    // is that the test reached this line without a panic.
-    let _events: Vec<NetworkToRenderer> = Vec::new();
     np.shutdown();
+}
+
+#[test]
+fn tick_network_re_buffers_unhandled_ws_sse_events() {
+    // R1.2: the VM's `tick_network` only consumes `FetchResponse`
+    // events; any `WebSocketEvent` / `EventSourceEvent` that hits
+    // the same handle must be re-buffered so a sibling consumer
+    // (boa bridge during the boa→VM cutover, or future VM-side
+    // WS module) still observes them on its own `drain_events`.
+    use elidex_net::broker::NetworkToRenderer;
+    use elidex_net::ws::WsEvent;
+    let mut vm = mock_vm(vec![]);
+    let handle = vm.inner.network_handle.clone().expect("handle installed");
+    handle.rebuffer_events(vec![
+        NetworkToRenderer::WebSocketEvent(7, WsEvent::TextMessage("hi".to_string())),
+        NetworkToRenderer::WebSocketEvent(7, WsEvent::BytesSent(2)),
+    ]);
+    vm.tick_network();
+    let leftover = handle.drain_events();
+    assert_eq!(leftover.len(), 2, "WS events must survive tick_network");
+    for ev in &leftover {
+        assert!(matches!(ev, NetworkToRenderer::WebSocketEvent(_, _)));
+    }
 }
 
 #[test]
