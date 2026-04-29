@@ -346,6 +346,38 @@ fn request_with_url_search_params_sets_form_urlencoded() {
 }
 
 #[test]
+fn multipart_encoder_handles_large_blob_bytes() {
+    // Regression for R1 perf finding: Blob bytes flow through the
+    // encoder via `Arc<[u8]>` rather than a per-call clone.  The
+    // 64 KiB payload exercises every code path (materialise →
+    // collision-check → final-body extend) at a size that would
+    // make a copy-then-copy implementation observably slower; the
+    // structural assertions verify functional correctness.
+    let body = eval_global_string(
+        "globalThis.s = ''; \
+         let chunk = 'x'.repeat(65536); \
+         let f = new FormData(); f.append('big', new Blob([chunk], {type: 'application/octet-stream'})); \
+         new Response(f).text().then(t => { globalThis.s = t; });",
+        "s",
+    );
+    // Body should contain exactly 65536 'x' bytes between the
+    // post-headers separator and the trailing CRLF.
+    let needle = "\r\n\r\n";
+    let header_end = body.find(needle).expect("missing header/value separator");
+    let value_start = header_end + needle.len();
+    let value_section = &body[value_start..];
+    let value_end = value_section
+        .find("\r\n--")
+        .expect("missing trailing boundary after value");
+    assert_eq!(
+        value_end,
+        65536,
+        "blob bytes truncated or duplicated; body len={}",
+        body.len()
+    );
+}
+
+#[test]
 fn explicit_content_type_in_init_headers_is_not_overridden() {
     let mut vm = Vm::new();
     assert_eq!(

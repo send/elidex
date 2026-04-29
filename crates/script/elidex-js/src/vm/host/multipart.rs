@@ -5,14 +5,24 @@
 //! returns `(body_bytes, boundary)` ready to be threaded into a
 //! `Content-Type: multipart/form-data; boundary=…` header.
 //!
+//! ## Allocation discipline
+//!
+//! Blob payloads are not cloned: each entry's `bytes` field is an
+//! `Arc<[u8]>` carried directly from [`super::blob::BlobData::bytes`]
+//! (cheap `Arc::clone`).  String entries materialise the value once
+//! into an owned `Arc<[u8]>`.  The collision-check pass operates on
+//! `&[u8]` views without further copies, and the final body
+//! `Vec<u8>` is pre-allocated to the exact total length so the
+//! encode loop never reallocates.
+//!
 //! ## Boundary generation
 //!
 //! Boundaries must not appear inside the encoded body.  We derive a
-//! deterministic boundary from a `std::hash::DefaultHasher` over the
-//! concatenated entry bytes, then test for collision against the
-//! body and bump a salt counter if necessary.  In practice the
-//! 16-hex-digit fingerprint collides with arbitrary user data with
-//! probability ≪ 2⁻⁶⁴, so the loop terminates after one pass for
+//! salt-only fingerprint (no payload bytes) and test for collision
+//! against every entry's `name` / `filename` / `content_type` /
+//! `bytes`; on collision the salt counter increments and we retry.
+//! A 64-bit fingerprint collides with arbitrary user data with
+//! probability ≪ 2⁻⁶⁴, so the loop exits on the first salt for
 //! every realistic input — but the explicit collision check keeps
 //! the encoder correct against pathological inputs that intentionally
 //! contain the would-be boundary string.
@@ -23,6 +33,7 @@
 #![cfg(feature = "engine")]
 
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use super::super::value::ObjectId;
 use super::super::VmInner;
@@ -34,20 +45,22 @@ use super::form_data::{FormDataEntry, FormDataValue};
 /// suffix that goes into the `Content-Type` header (without the
 /// `multipart/form-data; boundary=` prefix).
 pub(super) fn encode(vm: &VmInner, entries: &[FormDataEntry]) -> (Vec<u8>, String) {
-    // 1. Materialise each entry's name/value/filename + bytes once
-    //    so the boundary-collision loop reads the same payload it
-    //    will eventually emit.  Snapshotting up front also keeps
-    //    the borrow on `vm` immutable for the entire encode pass.
+    // 1. Materialise each entry once.  String values intern into
+    //    owned `Arc<[u8]>` (small, one allocation each); Blob
+    //    values share the `Arc<[u8]>` from the BlobData side
+    //    table without copying — the bytes flow through to
+    //    `body.extend_from_slice` later.
     let materialised: Vec<MaterialisedEntry> = entries.iter().map(|e| materialise(vm, e)).collect();
 
-    // 2. Derive a candidate boundary, looping with a salt increment
-    //    if the candidate appears in any entry's bytes.  Practically
-    //    bounded: a 64-bit fingerprint collides with adversarial
-    //    user data only when the user pre-computes the hash, which
-    //    cannot succeed against a per-call salt.
+    // 2. Salt-only boundary derivation, looping with a salt
+    //    increment if the candidate appears in any entry's bytes.
+    //    No payload hashing — practically bounded because a
+    //    64-bit space collides with adversarial user data only at
+    //    ≪ 2⁻⁶⁴ rate, and the salt counter increments on
+    //    collision.
     let mut salt: u64 = 0;
     let boundary = loop {
-        let candidate = derive_boundary(&materialised, salt);
+        let candidate = derive_boundary(salt);
         let needle = format!("--{candidate}");
         let needle_bytes = needle.as_bytes();
         let collides = materialised.iter().any(|e| {
@@ -66,13 +79,20 @@ pub(super) fn encode(vm: &VmInner, entries: &[FormDataEntry]) -> (Vec<u8>, Strin
         salt = salt.wrapping_add(1);
     };
 
-    // 3. Serialise.  Per RFC 7578 each part is preceded by `--<boundary>\r\n`,
+    // 3. Pre-compute the exact body length so the encode loop never
+    //    triggers a reallocation.  `total_len` covers every
+    //    boundary marker, header line, separator and value byte;
+    //    matches the writes in step 4 byte-for-byte.
+    let bdash = format!("--{boundary}");
+    let total_len = compute_body_len(&materialised, bdash.len());
+
+    // 4. Serialise.  Per RFC 7578 each part is preceded by `--<boundary>\r\n`,
     //    headers terminate with `\r\n\r\n`, the value is followed by `\r\n`,
     //    and the body ends with `--<boundary>--\r\n`.
-    let mut body: Vec<u8> = Vec::new();
-    let bdash = format!("--{boundary}");
+    let mut body: Vec<u8> = Vec::with_capacity(total_len);
+    let bdash_bytes = bdash.as_bytes();
     for entry in &materialised {
-        body.extend_from_slice(bdash.as_bytes());
+        body.extend_from_slice(bdash_bytes);
         body.extend_from_slice(b"\r\n");
         body.extend_from_slice(b"Content-Disposition: form-data; name=\"");
         body.extend_from_slice(&header_quote(&entry.name));
@@ -92,15 +112,21 @@ pub(super) fn encode(vm: &VmInner, entries: &[FormDataEntry]) -> (Vec<u8>, Strin
         body.extend_from_slice(&entry.bytes);
         body.extend_from_slice(b"\r\n");
     }
-    body.extend_from_slice(bdash.as_bytes());
+    body.extend_from_slice(bdash_bytes);
     body.extend_from_slice(b"--\r\n");
+    debug_assert_eq!(
+        body.len(),
+        total_len,
+        "multipart pre-reserved capacity must match actual write length"
+    );
 
     (body, boundary)
 }
 
-/// Per-entry snapshot the encoder operates on.  All four byte
-/// vectors are `Vec<u8>` so the caller's `&VmInner` borrow can be
-/// released immediately after [`materialise`] returns.
+/// Per-entry snapshot the encoder operates on.  `bytes` is an
+/// `Arc<[u8]>` so Blob payloads flow through reference-counted
+/// rather than cloned; string entries spend one allocation per
+/// entry on the small-string path.
 struct MaterialisedEntry {
     name: Vec<u8>,
     filename: Option<Vec<u8>>,
@@ -108,7 +134,7 @@ struct MaterialisedEntry {
     /// prefix or the trailing `\r\n` — those are written by [`encode`].
     /// `None` for string entries (no header line emitted).
     content_type: Option<Vec<u8>>,
-    bytes: Vec<u8>,
+    bytes: Arc<[u8]>,
 }
 
 fn materialise(vm: &VmInner, entry: &FormDataEntry) -> MaterialisedEntry {
@@ -118,7 +144,7 @@ fn materialise(vm: &VmInner, entry: &FormDataEntry) -> MaterialisedEntry {
             name,
             filename: None,
             content_type: None,
-            bytes: vm.strings.get_utf8(*sid).into_bytes(),
+            bytes: Arc::from(vm.strings.get_utf8(*sid).into_bytes()),
         },
         FormDataValue::Blob(blob_id) => {
             let filename = entry
@@ -135,34 +161,81 @@ fn materialise(vm: &VmInner, entry: &FormDataEntry) -> MaterialisedEntry {
             } else {
                 Some(vm.strings.get_utf8(blob_type_sid).into_bytes())
             };
-            let bytes = blob_bytes_owned(vm, *blob_id);
             MaterialisedEntry {
                 name,
                 filename: Some(filename),
                 content_type,
-                bytes,
+                // Reference-counted handoff from BlobData — no
+                // payload clone, even for multi-MB Blobs.
+                bytes: blob_bytes_arc(vm, *blob_id),
             }
         }
     }
 }
 
-fn blob_bytes_owned(vm: &VmInner, blob_id: ObjectId) -> Vec<u8> {
-    super::blob::blob_bytes(vm, blob_id).to_vec()
+fn blob_bytes_arc(vm: &VmInner, blob_id: ObjectId) -> Arc<[u8]> {
+    super::blob::blob_bytes(vm, blob_id)
 }
 
-/// Derive a hex boundary string from a hasher seeded over every
-/// materialised entry's bytes plus `salt`.  Always 24 hex chars +
-/// the `elidexFormBoundary` prefix, well within RFC 2046's 70-char
-/// limit and unique enough to avoid collisions in practice.
-fn derive_boundary(entries: &[MaterialisedEntry], salt: u64) -> String {
+/// Sum the byte length the encode loop will write.  Mirrors the
+/// `extend_from_slice` calls in [`encode`] step 4 1:1; the
+/// `debug_assert_eq!` at the end of `encode` catches any drift.
+fn compute_body_len(entries: &[MaterialisedEntry], bdash_len: usize) -> usize {
+    // Per-entry: `--<boundary>\r\n`
+    //          + `Content-Disposition: form-data; name="..."`
+    //          + (optional `; filename="..."`)
+    //          + `\r\n`
+    //          + (optional `Content-Type: ...\r\n`)
+    //          + `\r\n` + value + `\r\n`.
+    // Plus the closing `--<boundary>--\r\n`.
+    const CD_PREFIX: usize = "Content-Disposition: form-data; name=\"".len();
+    const FILENAME_PREFIX: usize = "; filename=\"".len();
+    const CT_PREFIX: usize = "Content-Type: ".len();
+    let mut sum = 0usize;
+    for entry in entries {
+        sum += bdash_len + 2; // `--<boundary>\r\n`
+        sum += CD_PREFIX + header_quoted_len(&entry.name) + 1; // ...name="..."`
+        if let Some(filename) = &entry.filename {
+            sum += FILENAME_PREFIX + header_quoted_len(filename) + 1;
+        }
+        sum += 2; // `\r\n` (end of Content-Disposition line)
+        if let Some(ct) = &entry.content_type {
+            sum += CT_PREFIX + ct.len() + 2;
+        }
+        sum += 2; // header/value separator
+        sum += entry.bytes.len();
+        sum += 2; // value terminator
+    }
+    sum += bdash_len + 4; // closing `--<boundary>--\r\n`
+    sum
+}
+
+/// Length of `header_quote(input)` without allocating.  Mirrors
+/// the substitution table in [`header_quote`]: each CR / LF / `"`
+/// expands from 1 to 3 bytes.
+fn header_quoted_len(input: &[u8]) -> usize {
+    let mut len = input.len();
+    for &b in input {
+        if matches!(b, b'\r' | b'\n' | b'"') {
+            len += 2;
+        }
+    }
+    len
+}
+
+/// Derive a hex boundary string from the `salt` only — no payload
+/// bytes touched.  Always 25 hex chars + the `elidexFormBoundary`
+/// prefix, well within RFC 2046's 70-char limit and unique enough
+/// to avoid collisions in practice (the explicit collision check
+/// in [`encode`] retries with an incremented salt if it ever does).
+fn derive_boundary(salt: u64) -> String {
+    // Hash the salt through DefaultHasher to spread the bits — a
+    // simple `format!("{:016x}", salt)` would emit predictable
+    // mostly-zero prefixes for small salt values, raising the
+    // (already ≪ 2⁻⁶⁴) collision probability against pathological
+    // inputs.
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     salt.hash(&mut hasher);
-    for e in entries {
-        e.name.hash(&mut hasher);
-        e.filename.hash(&mut hasher);
-        e.content_type.hash(&mut hasher);
-        e.bytes.hash(&mut hasher);
-    }
     let h = hasher.finish();
     format!("----elidexFormBoundary{:016x}{:08x}", h, salt as u32)
 }
@@ -186,7 +259,7 @@ fn byte_slice_contains(haystack: &[u8], needle: &[u8]) -> bool {
 /// forms, leaving every other byte untouched (matching Chromium /
 /// Firefox; the spec calls for HTML form-data escape rules).
 fn header_quote(input: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(input.len());
+    let mut out = Vec::with_capacity(header_quoted_len(input));
     for &b in input {
         match b {
             b'\r' => out.extend_from_slice(b"%0D"),

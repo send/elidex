@@ -30,12 +30,17 @@
 //!
 //! ## Implemented
 //!
-//! - `new FormData(form?)` — `form` argument: a `<form>` element.
-//!   The form-element submission path requires the
-//!   `submit()`-equivalent control walk in WHATWG HTML §5.4 which
-//!   is out of scope for this PR; passing a non-form / non-element
-//!   throws `TypeError`, passing an element initialises an empty
-//!   FormData (the equivalent of a form with no controls).
+//! - `new FormData(form?)` — the optional `form` argument is not
+//!   yet processed with HTML's form-submission control walk
+//!   (WHATWG HTML §5.4 — out of scope for this PR).  Current
+//!   behaviour:
+//!   - missing / `undefined` / `null` → empty FormData.
+//!   - any `Object` (form element or otherwise) → empty FormData
+//!     (matches an `<form>` with no submittable controls; the
+//!     element's controls are not yet enumerated).
+//!   - any primitive (number / boolean / string / Symbol / BigInt)
+//!     → `TypeError`, matching the WebIDL `optional HTMLFormElement
+//!     form` coercion of a non-Object operand.
 //! - `.append(name, value, filename?)` /
 //!   `.delete(name)` / `.get(name)` / `.getAll(name)` /
 //!   `.has(name)` / `.set(name, value, filename?)`.
