@@ -94,6 +94,7 @@ pub async fn follow_redirects(
         if !is_redirect(response.status) {
             response.url_list = url_list;
             response.is_redirect_tainted = tainted;
+            response.credentialed_network = request.credentials == CredentialsMode::Include;
             return Ok((response, request.credentials));
         }
         // Honour the request's redirect mode (WHATWG Fetch §5.3).
@@ -105,6 +106,7 @@ pub async fn follow_redirects(
             RedirectMode::Manual => {
                 response.url_list = url_list;
                 response.is_redirect_tainted = tainted;
+                response.credentialed_network = request.credentials == CredentialsMode::Include;
                 return Ok((response, request.credentials));
             }
             RedirectMode::Error => {
@@ -267,10 +269,26 @@ async fn cors_redirect_handle(
     if is_same_origin(&request.url, next_url) {
         return Ok(request.credentials);
     }
+    // §4.4 step 14.5 — `Include` downgrades to `SameOrigin` on
+    // cross-origin redirects.  Compute the downgrade **before**
+    // building the probe so the re-preflight validation runs
+    // against the credentials mode the redirected hop will
+    // actually use (Copilot R2): leaving `Include` on the probe
+    // would force `validate_preflight_response` into the strict
+    // credentialed branch (`ACAO: *` rejected, `ACAC: true`
+    // required) even though the actual redirected request gets
+    // sent without credentials, mis-rejecting otherwise-valid
+    // server allowances.
+    let post_redirect_credentials = if request.credentials == CredentialsMode::Include {
+        CredentialsMode::SameOrigin
+    } else {
+        request.credentials
+    };
     // Probe representing the request that would actually go to
-    // `next_url` after method / header / body adjustments.  Used
-    // both for `requires_preflight` detection and as the input to
-    // `build_preflight_request` inside `run_preflight`.
+    // `next_url` after method / header / body / credentials
+    // adjustments.  Used both for `requires_preflight` detection
+    // and as the input to `build_preflight_request` inside
+    // `run_preflight`.
     let probe = Request {
         method: method.to_string(),
         headers: headers.to_vec(),
@@ -278,7 +296,7 @@ async fn cors_redirect_handle(
         body: body.clone(),
         origin: request.origin.clone(),
         redirect: request.redirect,
-        credentials: request.credentials,
+        credentials: post_redirect_credentials,
         mode: request.mode,
     };
     if requires_preflight(&probe) {
@@ -300,11 +318,7 @@ async fn cors_redirect_handle(
         })?;
         run_preflight(transport, cache, &probe).await?;
     }
-    Ok(if request.credentials == CredentialsMode::Include {
-        CredentialsMode::SameOrigin
-    } else {
-        request.credentials
-    })
+    Ok(post_redirect_credentials)
 }
 
 /// Check if a status code is a redirect.

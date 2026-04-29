@@ -299,6 +299,18 @@ pub struct Response {
     /// loads but defaults to `false` so all callers that don't
     /// destructure this field behave as before.
     pub is_redirect_tainted: bool,
+    /// Whether the **final-hop** request was sent with credentials
+    /// per WHATWG Fetch §3.2.5 *credentialed network*.  Equals
+    /// `true` iff the post-redirect credentials mode is
+    /// [`CredentialsMode::Include`] — the dispatch-time mode is
+    /// not authoritative because §4.4 step 14.5 downgrades
+    /// `Include` to `SameOrigin` on cross-origin redirects.  The
+    /// JS-side response classifier reads this so the strict
+    /// credentialed CORS rules (`ACAO: *` rejected, `ACAC: true`
+    /// required) only fire when the final hop actually carried
+    /// credentials (Copilot R2 PR-cors-redirect-preflight).
+    /// Defaults to `false` for non-cors-mode loads.
+    pub credentialed_network: bool,
 }
 
 /// Configuration for [`NetClient`].

@@ -177,6 +177,11 @@ impl HttpTransport {
                 // promotes this to `true` when a chain crosses
                 // origin (WHATWG Fetch §4.4 step 14.3).
                 is_redirect_tainted: false,
+                // Authoritative credentialed-network value is
+                // stamped by the redirect loop / `NetClient::send`
+                // post-redirect; the transport (which sees no
+                // redirects) leaves a conservative `false`.
+                credentialed_network: false,
             })
         })
         .await

@@ -222,12 +222,12 @@ impl VmInner {
                     cors_meta.request_origin.as_ref(),
                     &cors_meta.request_url,
                     cors_meta.request_mode,
-                    cors_meta.request_credentials,
                     cors_meta.redirect_mode,
                     &response.url,
                     response.status,
                     &response.headers,
                     response.is_redirect_tainted,
+                    response.credentialed_network,
                 );
                 match outcome {
                     CorsOutcome::Ok(classification) => {

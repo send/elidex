@@ -29,6 +29,7 @@ fn ok_response(url: &str) -> NetResponse {
         version: HttpVersion::H1,
         url_list: vec![parsed],
         is_redirect_tainted: false,
+        credentialed_network: false,
     }
 }
 

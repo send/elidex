@@ -369,7 +369,6 @@ fn build_net_request(
                 request_url: url.clone(),
                 request_origin: origin.clone(),
                 request_mode: mode,
-                request_credentials: credentials,
                 redirect_mode: redirect,
             };
             let mut request = elidex_net::Request {
@@ -421,7 +420,6 @@ fn build_net_request(
         request_url: url.clone(),
         request_origin: origin.clone(),
         request_mode: mode,
-        request_credentials: credentials,
         redirect_mode: redirect,
     };
     let mut request = elidex_net::Request {

@@ -1176,6 +1176,7 @@ mod tests {
             version: crate::HttpVersion::H1,
             url_list: vec![url],
             is_redirect_tainted: false,
+            credentialed_network: false,
         }
     }
 

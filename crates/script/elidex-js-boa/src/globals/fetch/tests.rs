@@ -162,6 +162,7 @@ fn response_object_properties() {
         version: elidex_net::HttpVersion::H1,
         url_list: vec![url::Url::parse("https://example.com/page").unwrap()],
         is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let request_url = url::Url::parse("https://example.com/page").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -222,6 +223,7 @@ fn response_redirected_flag() {
             url::Url::parse("https://example.com/final").unwrap(),
         ],
         is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let request_url = url::Url::parse("https://example.com/original").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -242,6 +244,7 @@ fn response_404_not_ok() {
         version: elidex_net::HttpVersion::H1,
         url_list: vec![url::Url::parse("https://example.com/missing").unwrap()],
         is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let request_url = url::Url::parse("https://example.com/missing").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -268,6 +271,7 @@ fn response_text_method() {
         version: elidex_net::HttpVersion::H1,
         url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -306,6 +310,7 @@ fn response_json_method() {
         version: elidex_net::HttpVersion::H1,
         url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -346,6 +351,7 @@ fn response_json_invalid_rejects() {
         version: elidex_net::HttpVersion::H1,
         url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -377,6 +383,7 @@ fn response_clone_method() {
         version: elidex_net::HttpVersion::H1,
         url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
@@ -424,6 +431,7 @@ fn response_clone_has_clone() {
         version: elidex_net::HttpVersion::H1,
         url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
     let obj = create_response_object(&response, &request_url, &mut ctx);
