@@ -205,28 +205,37 @@ pub fn is_cors_safelisted_request_header(name: &str, value: &str) -> bool {
 }
 
 /// Check that a byte is **not** a CORS-unsafe-request-header-byte
-/// (§4.6.5).  The unsafe set is `0x00-0x08`, `0x10-0x19`, `"`,
-/// `(`, `)`, `:`, `<`, `>`, `?`, `@`, `[`, `\`, `]`, `{`, `}`,
-/// `0x7F`.
+/// (WHATWG Fetch §4.6.5).
+///
+/// A byte is **unsafe** iff:
+/// - it is less than `0x20` AND not `0x09` (HT), OR
+/// - it is one of `"`, `(`, `)`, `:`, `<`, `>`, `?`, `@`, `[`,
+///   `\`, `]`, `{`, `}`, `0x7F` (DEL).
+///
+/// Therefore newline (`0x0A`), carriage return (`0x0D`), and the
+/// rest of the C0 control range (`0x00..=0x08` + `0x0B` + `0x0C` +
+/// `0x0E..=0x1F`) are all unsafe — they could enable header
+/// injection if accepted into safelisted-request-header values
+/// (Copilot R4 PR #134).
 fn is_cors_unsafe_request_header_byte_safe(b: u8) -> bool {
+    if b < 0x20 && b != 0x09 {
+        return false;
+    }
     !matches!(
         b,
-        0x00..=0x08
-        | 0x10..=0x19
-        | b'"'
-        | b'('
-        | b')'
-        | b':'
-        | b'<'
-        | b'>'
-        | b'?'
-        | b'@'
-        | b'['
-        | b'\\'
-        | b']'
-        | b'{'
-        | b'}'
-        | 0x7F
+        b'"' | b'('
+            | b')'
+            | b':'
+            | b'<'
+            | b'>'
+            | b'?'
+            | b'@'
+            | b'['
+            | b'\\'
+            | b']'
+            | b'{'
+            | b'}'
+            | 0x7F
     )
 }
 
@@ -404,10 +413,45 @@ pub fn validate_preflight_response(
     let allowed_headers = parse_header_list(allow_headers_raw.as_deref(), credentialed)?;
     headers_must_be_allowed(&orig.headers, allowed_headers.as_ref())?;
 
-    // Max-Age (single-valued integer per WHATWG Fetch §4.8 step 19
-    // — duplicates / comma-lists fail closed per Copilot R2 PR #134)
-    let max_age =
-        parse_max_age(header_value_single(&resp.headers, "access-control-max-age").as_deref());
+    // Max-Age (single-valued integer per WHATWG Fetch §4.8 step 19).
+    //
+    // Spec contract: if "extracting header list values" returns
+    // failure (i.e. duplicate header occurrences or invalid
+    // shape), the entire preflight is a network error — NOT a
+    // silent fall-through to the missing-header default of 5s
+    // (Copilot R4 PR #134).  Distinguish "missing" from
+    // "present-but-malformed" by probing both helpers:
+    //   - `header_value` returns Some(_) when ≥ 1 occurrence, None on 0 or duplicates
+    //   - `header_value_single` returns None additionally on comma-lists
+    let max_age = match header_value(&resp.headers, "access-control-max-age") {
+        // Header absent → spec default (5s).
+        None if !resp
+            .headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("access-control-max-age")) =>
+        {
+            parse_max_age(None)
+        }
+        // Header has exactly one occurrence.
+        Some(_) => {
+            let raw =
+                header_value_single(&resp.headers, "access-control-max-age").ok_or_else(|| {
+                    NetError::new(
+                        NetErrorKind::CorsBlocked,
+                        "preflight: malformed Access-Control-Max-Age (comma-list)",
+                    )
+                })?;
+            parse_max_age(Some(raw.as_str()))
+        }
+        // Header is present but `header_value` returned None →
+        // duplicate occurrence detected; fail closed per spec.
+        None => {
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                "preflight: duplicate Access-Control-Max-Age",
+            ));
+        }
+    };
 
     Ok(PreflightAllowance {
         allowed_methods,
@@ -835,6 +879,48 @@ mod tests {
         assert!(!is_cors_safelisted_request_header(
             "Accept",
             "text/html: bad"
+        ));
+    }
+
+    /// Regression for Copilot R4 finding 1: §4.6.5
+    /// CORS-unsafe-request-header-byte set covers the **full**
+    /// `0x00..=0x1F` range minus `0x09` (HT).  Previously the
+    /// implementation only flagged `0x00..=0x08` and
+    /// `0x10..=0x19` as unsafe, which meant `\n` (0x0A), `\r`
+    /// (0x0D), and ESC (0x1B) etc. would be considered safe in
+    /// safelisted-header values — a header-injection footgun.
+    #[test]
+    fn safelisted_accept_rejects_newline() {
+        assert!(!is_cors_safelisted_request_header(
+            "Accept",
+            "text/html\nX-Injected: y"
+        ));
+    }
+
+    #[test]
+    fn safelisted_accept_rejects_carriage_return() {
+        assert!(!is_cors_safelisted_request_header(
+            "Accept",
+            "text/html\rX-Injected: y"
+        ));
+    }
+
+    #[test]
+    fn safelisted_accept_rejects_esc_control() {
+        // ESC (0x1B) — was in the previous "safe" 0x1A..=0x1F gap.
+        assert!(!is_cors_safelisted_request_header(
+            "Accept",
+            "text/html\x1bsneaky"
+        ));
+    }
+
+    /// Sentinel: HT (`0x09`) is the **only** byte below `0x20`
+    /// that's safelisted (§4.6.5 explicitly excludes it).
+    #[test]
+    fn safelisted_accept_allows_horizontal_tab() {
+        assert!(is_cors_safelisted_request_header(
+            "Accept",
+            "text/html\ttext/plain"
         ));
     }
 
@@ -1271,12 +1357,15 @@ mod tests {
         assert_eq!(err.kind, NetErrorKind::CorsBlocked);
     }
 
-    /// Duplicate Max-Age (single-valued) is treated as missing
-    /// by `header_value_single` (returns `None`), so the cache
-    /// lifetime falls back to the §4.8 step 19 default (5s)
-    /// rather than honouring either occurrence.
+    /// Regression for Copilot R4 finding 2: per WHATWG Fetch
+    /// §4.8 step 19, "extracting header list values" returning
+    /// failure (which covers duplicate occurrence of a single-
+    /// valued header) must surface as a network error — NOT
+    /// silently fall back to the missing-header 5s default.
+    /// The earlier R3 fix only renamed the test; R4 requires
+    /// the actual behaviour to fail closed.
     #[test]
-    fn validate_response_duplicate_max_age_falls_back_to_default() {
+    fn validate_response_duplicate_max_age_fails_closed() {
         let r = req_with(
             "PUT",
             "https://api.other.com/",
@@ -1292,13 +1381,29 @@ mod tests {
                 ("Access-Control-Max-Age", "120"),
             ],
         );
-        let allowance = validate_preflight_response(&r, &response).unwrap();
-        // Duplicate Max-Age treated as missing; falls back to
-        // default (5s) per §4.8 step 19.
-        assert_eq!(
-            allowance.max_age,
-            Duration::from_secs(DEFAULT_MAX_AGE_SECONDS)
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Comma-list Max-Age (single-valued) must also fail closed.
+    #[test]
+    fn validate_response_max_age_comma_list_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
         );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Max-Age", "60,120"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
     }
 
     /// Duplicate ACAM (multi-valued list header) must also fail

@@ -79,10 +79,24 @@ struct PreflightCacheEntry {
     expiry: Instant,
 }
 
+/// Sweep threshold — opportunistically purge expired entries
+/// during [`PreflightCache::store`] when the live entry count
+/// exceeds this value.  Bounded memory growth on unique-key
+/// churn (Copilot R4 PR #134) at the cost of an O(N) scan
+/// every ~N inserts when N hovers around the threshold.
+const SWEEP_THRESHOLD: usize = 256;
+
 /// In-memory preflight cache.
 ///
 /// Thread-safe: the inner `Mutex` is held only for the
 /// `lookup`/`store` ops, never across `await`.
+///
+/// **Memory policy**: lookups evict the matched-key entry on
+/// expiry; stores opportunistically sweep ALL expired entries
+/// once the cache exceeds `SWEEP_THRESHOLD`.  This bounds
+/// memory growth even when a misbehaving caller issues many
+/// unique `(origin, url, method, header-set)` tuples that are
+/// never re-queried (Copilot R4 PR #134).
 #[derive(Debug, Default)]
 pub struct PreflightCache {
     entries: Mutex<HashMap<PreflightCacheKey, PreflightCacheEntry>>,
@@ -111,12 +125,20 @@ impl PreflightCache {
 
     /// Store a cache entry.  `max_age == Duration::ZERO` is a
     /// no-op (spec says don't cache).
+    ///
+    /// Opportunistically sweeps expired entries when the cache
+    /// grows past `SWEEP_THRESHOLD` so unique-key churn
+    /// doesn't accumulate dead entries indefinitely.
     pub fn store(&self, key: PreflightCacheKey, allowance: PreflightAllowance) {
         if allowance.max_age.is_zero() {
             return;
         }
-        let expiry = Instant::now() + allowance.max_age;
+        let now = Instant::now();
+        let expiry = now + allowance.max_age;
         let mut guard = self.entries.lock().expect("preflight cache mutex poisoned");
+        if guard.len() >= SWEEP_THRESHOLD {
+            guard.retain(|_, entry| entry.expiry > now);
+        }
         guard.insert(key, PreflightCacheEntry { allowance, expiry });
     }
 
@@ -332,6 +354,99 @@ mod tests {
         );
         r.origin = None;
         assert!(PreflightCacheKey::from_request(&r).is_none());
+    }
+
+    /// Regression for Copilot R4 finding 3: the cache must
+    /// opportunistically evict expired entries during
+    /// [`PreflightCache::store`] so unique-key churn doesn't
+    /// accumulate dead entries indefinitely.  Pre-fix only the
+    /// matched-key entry was evicted on lookup; never-queried
+    /// expired keys would leak.
+    #[test]
+    fn store_sweeps_expired_entries_when_threshold_exceeded() {
+        let cache = PreflightCache::new();
+        // Fill the cache with `SWEEP_THRESHOLD` already-expired
+        // entries (bypassing `store()` so we can plant pre-
+        // expired data).  Then call `store()` with a fresh
+        // entry — the sweep should evict all `SWEEP_THRESHOLD`
+        // expired entries, leaving only the new one.
+        let now = Instant::now();
+        let past = now
+            .checked_sub(Duration::from_secs(1))
+            .expect("monotonic clock supports 1s rewind");
+        {
+            let mut guard = cache.entries.lock().unwrap();
+            for i in 0..SWEEP_THRESHOLD {
+                let r = req(
+                    "PUT",
+                    &format!("https://api.other.com/x{i}"),
+                    "https://example.com/",
+                    vec![],
+                );
+                let key = PreflightCacheKey::from_request(&r).unwrap();
+                guard.insert(
+                    key,
+                    PreflightCacheEntry {
+                        allowance: allowance(60),
+                        expiry: past,
+                    },
+                );
+            }
+        }
+        // Now insert one fresh entry — should trigger sweep
+        // because cache size == SWEEP_THRESHOLD.
+        let fresh = req(
+            "PUT",
+            "https://api.other.com/fresh",
+            "https://example.com/",
+            vec![],
+        );
+        let fresh_key = PreflightCacheKey::from_request(&fresh).unwrap();
+        cache.store(fresh_key.clone(), allowance(60));
+
+        let live_count = cache.entries.lock().unwrap().len();
+        assert_eq!(
+            live_count, 1,
+            "sweep must evict expired entries; only the fresh one remains"
+        );
+        assert!(cache.lookup(&fresh_key).is_some());
+    }
+
+    /// Sentinel: stores below the sweep threshold do NOT evict —
+    /// avoiding the O(N) scan on every store when the cache is
+    /// small.
+    #[test]
+    fn store_below_threshold_does_not_sweep() {
+        let cache = PreflightCache::new();
+        let r1 = req(
+            "PUT",
+            "https://api.other.com/a",
+            "https://example.com/",
+            vec![],
+        );
+        let r2 = req(
+            "PUT",
+            "https://api.other.com/b",
+            "https://example.com/",
+            vec![],
+        );
+        let key1 = PreflightCacheKey::from_request(&r1).unwrap();
+        let key2 = PreflightCacheKey::from_request(&r2).unwrap();
+        // Plant an expired entry directly.
+        let past = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .expect("monotonic clock supports 1s rewind");
+        cache.entries.lock().unwrap().insert(
+            key1.clone(),
+            PreflightCacheEntry {
+                allowance: allowance(60),
+                expiry: past,
+            },
+        );
+        cache.store(key2, allowance(60));
+        // Below the threshold, the expired entry is still
+        // present (lazy eviction on lookup only).
+        assert_eq!(cache.entries.lock().unwrap().len(), 2);
     }
 
     #[test]
