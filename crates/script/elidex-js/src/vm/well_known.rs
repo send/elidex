@@ -646,6 +646,24 @@ define_well_known_strings! {
         utf_16le => "utf-16le",
         utf_16be => "utf-16be",
     }
+
+    "URLSearchParams / FormData (WHATWG URL §6 / XHR §4.3)" {
+        // Constructor globals + method / accessor names that are
+        // unique to these two interfaces.  `append` / `delete_str` /
+        // `get` / `has` / `set` / `for_each` / `keys` / `values` /
+        // `entries` / `sort` are reused from earlier sections.
+        url_search_params_global => "URLSearchParams",
+        form_data_global => "FormData",
+        get_all => "getAll",
+        to_string_method => "toString",
+        application_form_urlencoded =>
+            "application/x-www-form-urlencoded;charset=UTF-8",
+        multipart_form_data_prefix => "multipart/form-data; boundary=",
+        // Default filename used when a `Blob` (not a `File`) is appended
+        // without an explicit filename argument — matches WHATWG XHR
+        // §4.3 step "create an entry" and Chromium / Firefox behaviour.
+        blob_default_filename => "blob",
+    }
 }
 
 /// Well-known symbol IDs, allocated at VM creation.

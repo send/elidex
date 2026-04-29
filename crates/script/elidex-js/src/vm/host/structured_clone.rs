@@ -262,6 +262,8 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::NodeList => CloneKind::Unclonable("NodeList"),
         ObjectKind::NamedNodeMap => CloneKind::Unclonable("NamedNodeMap"),
         ObjectKind::Attr => CloneKind::Unclonable("Attr"),
+        ObjectKind::URLSearchParams => CloneKind::Unclonable("URLSearchParams"),
+        ObjectKind::FormData => CloneKind::Unclonable("FormData"),
         // TypedArray / DataView clone via shared underlying
         // buffer — see `clone_typed_array` / `clone_data_view`
         // for the memo-threaded handling that preserves

@@ -65,6 +65,8 @@ pub(super) mod events_extras;
 pub(super) mod events_ui;
 #[cfg(feature = "engine")]
 pub(super) mod fetch;
+#[cfg(feature = "engine")]
+pub(crate) mod form_data;
 pub(super) mod globals;
 #[cfg(feature = "engine")]
 pub(crate) mod headers;
@@ -74,6 +76,8 @@ pub(super) mod history;
 pub(super) mod html_element_proto;
 pub(super) mod html_iframe_proto;
 pub(super) mod location;
+#[cfg(feature = "engine")]
+pub(super) mod multipart;
 pub(super) mod named_node_map;
 pub(super) mod navigation;
 pub(super) mod navigator;
@@ -108,4 +112,6 @@ pub(super) mod typed_array_methods;
 pub(super) mod typed_array_parts;
 #[cfg(feature = "engine")]
 pub(super) mod typed_array_static;
+#[cfg(feature = "engine")]
+pub(crate) mod url_search_params;
 pub(super) mod window;

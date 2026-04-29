@@ -321,7 +321,8 @@ fn build_net_request(
     let input = args[0];
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    let (method_override, headers_override, body_override) = parse_init_overrides(ctx, init)?;
+    let (method_override, headers_override, body_override, body_ct_default) =
+        parse_init_overrides(ctx, init)?;
 
     // Case 1: input is a Request instance — start with its state.
     if let JsValue::Object(obj_id) = input {
@@ -342,6 +343,7 @@ fn build_net_request(
                 Some(Some(b)) => Some(b),
             };
             reject_get_head_with_body(&method, final_body.is_some())?;
+            apply_default_content_type(&mut headers, body_ct_default.as_deref());
             let mut request = elidex_net::Request {
                 method,
                 url,
@@ -369,14 +371,33 @@ fn build_net_request(
         Some(Some(b)) => Some(b),
     };
     reject_get_head_with_body(&method, final_body.is_some())?;
+    let mut headers = headers_override.unwrap_or_default();
+    apply_default_content_type(&mut headers, body_ct_default.as_deref());
     let mut request = elidex_net::Request {
         method,
         url,
-        headers: headers_override.unwrap_or_default(),
+        headers,
         body: final_body.unwrap_or_else(Bytes::new),
     };
     attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
     Ok(request)
+}
+
+/// Splice `Content-Type: <ct>` into a broker-bound headers list
+/// when the caller did not already provide one (case-insensitive
+/// match — broker headers retain their original casing, but
+/// duplicate `Content-Type` entries violate WHATWG §5 "extract a
+/// body" step 2).  No-op when `ct` is `None`.
+fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&str>) {
+    let Some(ct) = ct else {
+        return;
+    };
+    let already_set = headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("content-type"));
+    if !already_set {
+        headers.push(("Content-Type".to_string(), ct.to_string()));
+    }
 }
 
 /// Attach the `Referer` header that WHATWG Fetch's default referrer
@@ -530,10 +551,22 @@ fn request_base_from_vm(
 ///   with `b`.  Any non-`null`, non-`undefined` input lands here,
 ///   including the empty string which still counts as "has a
 ///   body" for the GET/HEAD check in `build_net_request`.
+// Tuple fields:
+// - `0` method override (string).
+// - `1` headers override (entry list); see "Null vs undefined" block.
+// - `2` body override (tri-state); see [`InitOverrides`] doc.
+// - `3` default Content-Type for the chosen body (WHATWG Fetch §5
+//   "extract a body" step 4 / §5.3 step 38).  `None` when no
+//   default applies (e.g. ArrayBuffer / clone path) or when
+//   `init.body` was not present.  The fetch-call path splices
+//   this header before relaying to the broker so a `fetch(...,
+//   {body: new FormData()})` request goes out with the
+//   boundary-bearing `multipart/form-data` Content-Type.
 type InitOverrides = (
     Option<String>,
     Option<Vec<(String, String)>>,
     Option<Option<Bytes>>,
+    Option<String>,
 );
 
 /// Parse the `init` dict.  Every field is `Option<_>`; a present
@@ -551,7 +584,7 @@ fn parse_init_overrides(
     init: JsValue,
 ) -> Result<InitOverrides, VmError> {
     match init {
-        JsValue::Undefined | JsValue::Null => Ok((None, None, None)),
+        JsValue::Undefined | JsValue::Null => Ok((None, None, None, None)),
         JsValue::Object(opts_id) => {
             let method_sid_key = PropertyKey::String(ctx.vm.well_known.method);
             let headers_key = PropertyKey::String(ctx.vm.well_known.headers);
@@ -620,13 +653,30 @@ fn parse_init_overrides(
             //   check in `build_net_request` can fire only when a
             //   body is actually present.
             // - anything else: explicit replace.
-            let body_override = match body_val {
-                JsValue::Undefined => None,
-                JsValue::Null => Some(None),
-                _ => Some(extract_body_bytes(ctx, body_val)?.map(Bytes::from_owner)),
+            let (body_override, body_ct_default) = match body_val {
+                JsValue::Undefined => (None, None),
+                JsValue::Null => (Some(None), None),
+                _ => match extract_body_bytes(ctx, body_val)? {
+                    None => (Some(None), None),
+                    Some((bytes, Some(ct_override))) => {
+                        let ct = ctx.vm.strings.get_utf8(ct_override);
+                        (Some(Some(Bytes::from_owner(bytes))), Some(ct))
+                    }
+                    Some((bytes, None)) => {
+                        let ct_default =
+                            super::request_response::content_type_for_body(ctx, body_val)
+                                .map(|sid| ctx.vm.strings.get_utf8(sid));
+                        (Some(Some(Bytes::from_owner(bytes))), ct_default)
+                    }
+                },
             };
 
-            Ok((method_override, headers_override, body_override))
+            Ok((
+                method_override,
+                headers_override,
+                body_override,
+                body_ct_default,
+            ))
         }
         _ => Err(VmError::type_error(
             "Failed to execute 'fetch': init must be an object",

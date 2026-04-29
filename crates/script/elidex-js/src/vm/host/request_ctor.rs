@@ -22,8 +22,9 @@ use super::super::value::{
 };
 use super::headers::HeadersGuard;
 use super::request_response::{
-    copy_headers_entries, extract_body_bytes, fill_headers_like, parse_url, validate_http_method,
-    RedirectMode, RequestCache, RequestCredentials, RequestMode, RequestState,
+    content_type_for_body, copy_headers_entries, ensure_content_type, extract_body_bytes,
+    fill_headers_like, parse_url, validate_http_method, RedirectMode, RequestCache,
+    RequestCredentials, RequestMode, RequestState,
 };
 
 /// Tuple returned by [`resolve_request_input`]: the URL StringId
@@ -35,18 +36,27 @@ type RequestInputParts = (StringId, StringId, Option<ObjectId>, Option<Vec<u8>>)
 
 /// Tuple returned by [`parse_request_init`]: optional method
 /// override, optional headers-init source (copied into the
-/// companion Headers), optional body bytes.
+/// companion Headers), optional body bytes (with optional
+/// override Content-Type that supersedes the static
+/// [`content_type_for_body`] mapping — needed for FormData where
+/// the boundary is only known after serialisation).
 ///
 /// The `body` slot is **tri-state**: `None` means the caller
 /// didn't set `body` at all (preserve the Request clone's base
 /// body); `Some(None)` means the caller explicitly set `body:
-/// null` and expects the base body to be cleared; `Some(Some(b))`
-/// is an explicit replacement with `b`.  The distinction matters
-/// because WHATWG Fetch §5.3 step 40 forbids `GET`/`HEAD`
+/// null` and expects the base body to be cleared; `Some(Some((b,
+/// ct)))` is an explicit replacement with `b` and the override CT
+/// (`None` when the static mapping suffices).  The distinction
+/// matters because WHATWG Fetch §5.3 step 40 forbids `GET`/`HEAD`
 /// requests from carrying a body — a cleared body must not
 /// trigger that check, while an explicit empty-string body must
 /// (R25.1 / R25.3).
-type RequestInitParts = (Option<StringId>, Option<JsValue>, Option<Option<Vec<u8>>>);
+type RequestInitParts = (
+    Option<StringId>,
+    Option<JsValue>,
+    Option<Option<Vec<u8>>>,
+    Option<StringId>,
+);
 
 /// `new Request(input, init?)` (WHATWG §5.3).
 pub(super) fn native_request_constructor(
@@ -72,7 +82,8 @@ pub(super) fn native_request_constructor(
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
     let (url_sid, method_sid, headers_source, body_bytes) = resolve_request_input(ctx, input)?;
-    let (override_method, headers_init_arg, body_init_arg) = parse_request_init(ctx, init)?;
+    let (override_method, headers_init_arg, body_init_arg, body_ct_default) =
+        parse_request_init(ctx, init)?;
     let method_sid = override_method.unwrap_or(method_sid);
 
     // Allocate companion Headers (guard = None; a later PR tightens
@@ -102,6 +113,14 @@ pub(super) fn native_request_constructor(
                 copy_headers_entries(ctx, src_headers_id, headers_id);
             }
         }
+    }
+    // WHATWG §5.3 step 38: when the body sets a default Content-
+    // Type and the caller did not splice one in via init.headers,
+    // populate it.  Only fires for `init.body` paths (a Request-
+    // clone path preserves the source's CT through
+    // `copy_headers_entries`).
+    if let Some(ct_sid) = body_ct_default {
+        ensure_content_type(ctx, headers_id, ct_sid);
     }
 
     // Body: resolve the tri-state `init.body` against the source
@@ -206,7 +225,7 @@ fn parse_request_init(
     init: JsValue,
 ) -> Result<RequestInitParts, VmError> {
     match init {
-        JsValue::Undefined | JsValue::Null => Ok((None, None, None)),
+        JsValue::Undefined | JsValue::Null => Ok((None, None, None, None)),
         JsValue::Object(opts_id) => {
             let wk = &ctx.vm.well_known;
             let method_key = PropertyKey::String(wk.method);
@@ -240,12 +259,30 @@ fn parse_request_init(
             // body present" afterward.  The GET/HEAD check
             // (`native_request_constructor`) now needs the
             // distinction.
-            let body_override = match body_val {
-                JsValue::Undefined => None,
-                JsValue::Null => Some(None),
-                _ => Some(extract_body_bytes(ctx, body_val)?),
+            //
+            // The default Content-Type (§5.3 step 38 "If r's
+            // header list does not contain `Content-Type`, set
+            // it") is computed alongside the body extraction so
+            // FormData's encoder-derived boundary string isn't
+            // re-derived on the caller side.
+            let (body_override, body_ct_default) = match body_val {
+                JsValue::Undefined => (None, None),
+                JsValue::Null => (Some(None), None),
+                _ => match extract_body_bytes(ctx, body_val)? {
+                    None => (Some(None), None),
+                    Some((bytes, Some(ct_override))) => (Some(Some(bytes)), Some(ct_override)),
+                    Some((bytes, None)) => {
+                        let ct_default = content_type_for_body(ctx, body_val);
+                        (Some(Some(bytes)), ct_default)
+                    }
+                },
             };
-            Ok((method_override, headers_override, body_override))
+            Ok((
+                method_override,
+                headers_override,
+                body_override,
+                body_ct_default,
+            ))
         }
         _ => Err(VmError::type_error(
             "Failed to construct 'Request': init must be an object",
