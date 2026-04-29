@@ -361,11 +361,24 @@ impl Vm {
     /// permanently un-settleable (R3.3).  Reactions attached via
     /// `.then` / `.catch` fire on the next microtask drain (next
     /// `eval` / `tick_network` call), not synchronously here.
+    ///
+    /// Re-installing the *same* `Rc<NetworkHandle>` (pointer-equal
+    /// to the one already stored) is a no-op — pending fetches
+    /// are preserved because the broker-reply channel is the same
+    /// physical handle (R6.1).  This keeps benign re-install
+    /// patterns (e.g. an embedder cloning + re-installing through
+    /// a shared accessor) from spuriously cancelling in-flight
+    /// requests.
     #[cfg(feature = "engine")]
     pub fn install_network_handle(
         &mut self,
         handle: std::rc::Rc<elidex_net::broker::NetworkHandle>,
     ) {
+        if let Some(ref current) = self.inner.network_handle {
+            if std::rc::Rc::ptr_eq(current, &handle) {
+                return;
+            }
+        }
         self.inner
             .reject_pending_fetches_with_error("NetworkHandle replaced while request in flight");
         self.inner.network_handle = Some(handle);

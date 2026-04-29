@@ -542,6 +542,39 @@ fn install_network_handle_rejects_pending_fetches_against_old_handle() {
 }
 
 #[test]
+fn install_network_handle_same_rc_is_noop_for_pending_fetches() {
+    // R6.1 regression: re-installing the same Rc<NetworkHandle>
+    // (pointer-equal) must NOT spuriously reject in-flight
+    // requests.  This protects benign re-install patterns where
+    // an embedder threads the handle through a shared accessor.
+    let url = url::Url::parse("http://example.com/same-rc").expect("valid");
+    let handle = Rc::new(NetworkHandle::mock_with_responses(vec![(
+        url,
+        Ok(ok_response("http://example.com/same-rc", "ok")),
+    )]));
+    let mut vm = Vm::new();
+    vm.install_network_handle(Rc::clone(&handle));
+    vm.eval(
+        "globalThis.r = 0; \
+         fetch('http://example.com/same-rc').then(resp => { globalThis.r = resp.status; });",
+    )
+    .unwrap();
+    assert_eq!(vm.inner.pending_fetches.len(), 1, "fetch dispatched");
+    // Re-install the SAME Rc — must preserve pending_fetches.
+    vm.install_network_handle(Rc::clone(&handle));
+    assert_eq!(
+        vm.inner.pending_fetches.len(),
+        1,
+        "same-Rc re-install must not drain pending_fetches"
+    );
+    drain(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
+        other => panic!("expected r to be 200, got {other:?}"),
+    }
+}
+
+#[test]
 fn install_network_handle_rejects_signal_bound_pending_fetch() {
     // Variant of the above where the pending fetch carried a
     // signal — verify the back-refs + abort observers maps are

@@ -101,6 +101,15 @@ impl VmInner {
         if self.pending_fetches.is_empty() {
             return;
         }
+        // Snapshot the *current* handle (if any) for the cancel
+        // wave below — we want each pending fetch's broker-side
+        // work to halt promptly so the network thread doesn't
+        // keep running IO whose result will never be observed
+        // (R6.3).  The handle becomes unreachable from `self`
+        // immediately after the caller's `network_handle =
+        // Some(...)` swap, so the Rc clone here is the last
+        // chance to drive cancels through the old handle.
+        let outgoing_handle = self.network_handle.as_ref().map(std::rc::Rc::clone);
         let stale: Vec<(FetchId, ObjectId)> = self.pending_fetches.drain().collect();
         for (fetch_id, promise) in stale {
             // Tear down the back-refs so a subsequent
@@ -113,6 +122,17 @@ impl VmInner {
                         self.fetch_abort_observers.remove(&signal_id);
                     }
                 }
+            }
+            // Best-effort cancel through the outgoing handle
+            // (R6.3).  Disconnected handles silently no-op via
+            // `send`'s bool return.  A successful send routes the
+            // broker through the same synthesised `Err("aborted")`
+            // path as a normal `controller.abort()`, but the
+            // renderer-side reply is unobservable from this point
+            // (the Promise was just rejected and `pending_fetches`
+            // drained).
+            if let Some(ref h) = outgoing_handle {
+                let _ = h.cancel_fetch(fetch_id);
             }
             // Defensive root mirroring `settle_fetch` /
             // `abort_signal` (R2 fixes): `vm_error_to_thrown`

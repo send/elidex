@@ -409,6 +409,20 @@ impl NetworkHandle {
     /// replies (the second arrival's `remove` returns `None` and is
     /// silently dropped).
     ///
+    /// **Multi-reply contract** (R6.2): the broker emits the
+    /// synthesised `FetchResponse(id, Err("aborted"))` immediately
+    /// on the cancel, but the in-flight fetch thread continues
+    /// running until its underlying tokio call returns and may
+    /// post a *second* `FetchResponse` for the same `FetchId`.
+    /// Direct embedders driving [`Self::drain_events`] themselves
+    /// must therefore treat the first terminal reply per `FetchId`
+    /// as authoritative and silently drop subsequent ones; the
+    /// elidex-js VM does this via its `pending_fetches.remove`
+    /// dedup.  Tightening the broker to suppress the late real
+    /// reply would require per-`FetchId` cancellation state on
+    /// the broker thread (currently kept stateless to bound
+    /// memory under unbounded cancel-then-leak scenarios).
+    ///
     /// Returns `true` if the cancel was queued, `false` if the
     /// broker is disconnected.
     pub fn cancel_fetch(&self, id: FetchId) -> bool {
