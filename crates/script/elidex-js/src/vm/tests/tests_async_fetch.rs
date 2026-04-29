@@ -606,6 +606,154 @@ fn install_network_handle_rejects_signal_bound_pending_fetch() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// PR5-cors Stage 3: same-origin reject + Origin / redirect / credentials
+// thread.  Verifies the broker-bound `elidex_net::Request` carries the
+// values selected by `init.*` plus the source document's origin.
+// ---------------------------------------------------------------------------
+
+fn vm_with_origin_and_mock(
+    document_url: &str,
+    target: &str,
+    response: Result<NetResponse, String>,
+) -> (Vm, Rc<NetworkHandle>) {
+    let mut vm = Vm::new();
+    vm.inner.navigation.current_url = url::Url::parse(document_url).expect("valid document URL");
+    let parsed = url::Url::parse(target).expect("valid target URL");
+    let handle = Rc::new(NetworkHandle::mock_with_responses(vec![(parsed, response)]));
+    vm.install_network_handle(handle.clone());
+    (vm, handle)
+}
+
+#[test]
+fn fetch_threads_same_origin_credentials_redirect_to_broker() {
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval(
+        "fetch('http://example.com/api', \
+              {credentials: 'omit', redirect: 'manual'});",
+    )
+    .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    let req = &logged[0];
+    assert_eq!(req.credentials, elidex_net::CredentialsMode::Omit);
+    assert_eq!(req.redirect, elidex_net::RedirectMode::Manual);
+    assert_eq!(
+        req.origin,
+        Some(url::Url::parse("http://example.com/page").unwrap())
+    );
+}
+
+#[test]
+fn fetch_threads_request_state_to_broker_when_input_is_request() {
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval(
+        "var req = new Request('http://example.com/api', \
+             {credentials: 'include', redirect: 'error'}); \
+         fetch(req);",
+    )
+    .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    let req = &logged[0];
+    assert_eq!(req.credentials, elidex_net::CredentialsMode::Include);
+    assert_eq!(req.redirect, elidex_net::RedirectMode::Error);
+}
+
+#[test]
+fn fetch_init_overrides_request_state_for_redirect_credentials() {
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval(
+        "var req = new Request('http://example.com/api', \
+             {credentials: 'include', redirect: 'follow'}); \
+         fetch(req, {credentials: 'omit', redirect: 'manual'});",
+    )
+    .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    let req = &logged[0];
+    assert_eq!(req.credentials, elidex_net::CredentialsMode::Omit);
+    assert_eq!(req.redirect, elidex_net::RedirectMode::Manual);
+}
+
+#[test]
+fn fetch_same_origin_mode_rejects_cross_origin_url_with_typeerror() {
+    // mode='same-origin' + cross-origin URL → synchronous rejection
+    // before the broker is even contacted.  The mock has no entry
+    // for the target, so a successful broker dispatch would return
+    // a "no response for ..." error — different from the
+    // TypeError we expect.
+    let (mut vm, _handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://other.com/api",
+        Ok(ok_response("http://other.com/api", "should-not-reach")),
+    );
+    vm.eval(
+        "globalThis.r = 'unset'; \
+         fetch('http://other.com/api', {mode: 'same-origin'}) \
+             .catch(e => { globalThis.r = e.message; });",
+    )
+    .unwrap();
+    drain(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => {
+            let msg = vm.get_string(id);
+            assert!(
+                msg.contains("cross-origin") || msg.contains("same-origin"),
+                "expected same-origin rejection, got {msg:?}"
+            );
+        }
+        other => panic!("expected rejection, got {other:?}"),
+    }
+}
+
+#[test]
+fn fetch_same_origin_mode_passes_same_origin_url() {
+    let (mut vm, _handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval(
+        "globalThis.r = 0; \
+         fetch('http://example.com/api', {mode: 'same-origin'}) \
+             .then(resp => { globalThis.r = resp.status; });",
+    )
+    .unwrap();
+    drain(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
+        other => panic!("expected 200, got {other:?}"),
+    }
+}
+
+#[test]
+fn fetch_origin_threaded_only_for_http_https_documents() {
+    // `about:blank` document → origin is `None` so cookie gating
+    // falls back to "always attach" (matches embedder-driven loads).
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "about:blank",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval("fetch('http://example.com/api');").unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    assert_eq!(logged[0].origin, None);
+}
+
 #[test]
 fn signal_back_refs_pruned_on_settlement() {
     // After a successful `tick_network` settle, the back-refs

@@ -668,7 +668,7 @@ fn single_logged_request(handle: &NetworkHandle) -> elidex_net::Request {
         "expected exactly one fetch request, got {}",
         logged.len()
     );
-    logged.remove(0)..Default::default()
+    logged.remove(0)
 }
 
 #[test]

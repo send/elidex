@@ -490,7 +490,7 @@ mod fetch_default_content_type {
     fn single_request(handle: &NetworkHandle) -> elidex_net::Request {
         let mut logged = handle.drain_recorded_requests();
         assert_eq!(logged.len(), 1, "expected exactly one fetch call");
-        logged.remove(0)..Default::default()
+        logged.remove(0)
     }
 
     #[test]

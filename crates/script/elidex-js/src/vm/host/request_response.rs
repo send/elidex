@@ -91,12 +91,11 @@ use super::request_response_accessors::{
 /// to `max_redirects`; `Error` rejects with `NetError` on the
 /// first 3xx; `Manual` returns the 3xx as-is so the JS path can
 /// surface an `OpaqueRedirect`-typed Response.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RedirectMode {
-    Follow,
-    Error,
-    Manual,
-}
+///
+/// Re-exported from `elidex-net` so the broker `Request` field
+/// and the JS-side state share a single type without round-trip
+/// conversion.
+pub(crate) use elidex_net::RedirectMode;
 
 /// `RequestMode` (WHATWG §5.3).  `Cors` / `NoCors` / `SameOrigin`
 /// are reachable from the Request constructor and `fetch()`;
@@ -117,14 +116,10 @@ pub(crate) enum RequestMode {
 /// `RequestCredentials` (WHATWG §5.3).  Threaded through the
 /// broker so `Omit` suppresses the cookie attach, `SameOrigin`
 /// (default) attaches only on same-origin, and `Include` always
-/// attaches.  See `attach_cookies_for_credentials_mode` in the
-/// elidex-net crate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RequestCredentials {
-    Omit,
-    SameOrigin,
-    Include,
-}
+/// attaches.  Re-exported from `elidex-net` (where the type is
+/// named `CredentialsMode`) so the JS-side state and the broker
+/// `Request` field share a single value without conversion.
+pub(crate) use elidex_net::CredentialsMode as RequestCredentials;
 
 /// `RequestCache` (WHATWG §5.3).  HTTP cache modes; PR5-cors
 /// injects the spec-prescribed `Cache-Control` / `Pragma`
