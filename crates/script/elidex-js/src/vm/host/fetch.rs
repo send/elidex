@@ -361,6 +361,8 @@ fn build_net_request(
             let mode = overrides.mode.unwrap_or(base_state.mode);
             let credentials = overrides.credentials.unwrap_or(base_state.credentials);
             let redirect = overrides.redirect.unwrap_or(base_state.redirect);
+            let cache = overrides.cache.unwrap_or(base_state.cache);
+            apply_cache_mode_headers(&mut headers, cache);
             reject_same_origin_cross_origin(&ctx.vm.navigation.current_url, &url, mode)?;
             let origin = origin_for_request(&ctx.vm.navigation.current_url, &url);
             let cors_meta = super::cors::FetchCorsMeta {
@@ -409,6 +411,8 @@ fn build_net_request(
         .credentials
         .unwrap_or(RequestCredentials::SameOrigin);
     let redirect = overrides.redirect.unwrap_or(RedirectMode::Follow);
+    let cache = overrides.cache.unwrap_or(RequestCache::Default);
+    apply_cache_mode_headers(&mut headers, cache);
     reject_same_origin_cross_origin(&ctx.vm.navigation.current_url, &url, mode)?;
     let origin = origin_for_request(&ctx.vm.navigation.current_url, &url);
     let cors_meta = super::cors::FetchCorsMeta {
@@ -470,6 +474,52 @@ fn origin_for_request(source: &Url, _target: &Url) -> Option<Url> {
         Some(source.clone())
     } else {
         None
+    }
+}
+
+/// Inject the spec-prescribed `Cache-Control` / `Pragma`
+/// headers based on `init.cache` (WHATWG Fetch §5.3 step 30
+/// onward).  Existing user-set entries are left untouched —
+/// per spec the cache-mode injection only fires when the same
+/// header is not already present, mirroring the
+/// `Content-Type` default path.
+///
+/// - `Default`: no-op.
+/// - `NoStore`: append `Cache-Control: no-store`.
+/// - `Reload`: append `Cache-Control: no-cache` + `Pragma:
+///   no-cache` (matches Chrome / Firefox behaviour for
+///   `cache: 'reload'`).
+/// - `NoCache`: append `Cache-Control: max-age=0` (forces
+///   server validation).
+/// - `ForceCache` / `OnlyIfCached`: documented gap.  These
+///   modes require an HTTP cache layer that isn't yet
+///   implemented in elidex-net; the broker treats them as
+///   `Default`.  Future work: wire to a dedicated
+///   `PR-http-cache` slot once a cache backend lands.
+fn apply_cache_mode_headers(headers: &mut Vec<(String, String)>, cache: RequestCache) {
+    let already_set = |needle: &str, hs: &[(String, String)]| {
+        hs.iter().any(|(name, _)| name.eq_ignore_ascii_case(needle))
+    };
+    match cache {
+        RequestCache::Default | RequestCache::ForceCache | RequestCache::OnlyIfCached => {}
+        RequestCache::NoStore => {
+            if !already_set("cache-control", headers) {
+                headers.push(("Cache-Control".to_string(), "no-store".to_string()));
+            }
+        }
+        RequestCache::Reload => {
+            if !already_set("cache-control", headers) {
+                headers.push(("Cache-Control".to_string(), "no-cache".to_string()));
+            }
+            if !already_set("pragma", headers) {
+                headers.push(("Pragma".to_string(), "no-cache".to_string()));
+            }
+        }
+        RequestCache::NoCache => {
+            if !already_set("cache-control", headers) {
+                headers.push(("Cache-Control".to_string(), "max-age=0".to_string()));
+            }
+        }
     }
 }
 
@@ -647,6 +697,7 @@ fn request_base_from_vm(
         mode: state.mode,
         credentials: state.credentials,
         redirect: state.redirect,
+        cache: state.cache,
     };
 
     let headers: Vec<(String, String)> = ctx
@@ -679,15 +730,16 @@ fn request_base_from_vm(
     Ok((method, url, headers, body, base_state))
 }
 
-/// `mode` / `credentials` / `redirect` carried over from a
-/// source `Request` into [`build_net_request`]'s Request-input
-/// path.  Returned alongside the URL/method/headers/body tuple
-/// from [`request_base_from_vm`] so the caller can layer
-/// `init.*` overrides on top.
+/// `mode` / `credentials` / `redirect` / `cache` carried over
+/// from a source `Request` into [`build_net_request`]'s
+/// Request-input path.  Returned alongside the URL/method/
+/// headers/body tuple from [`request_base_from_vm`] so the
+/// caller can layer `init.*` overrides on top.
 struct BaseState {
     mode: RequestMode,
     credentials: RequestCredentials,
     redirect: RedirectMode,
+    cache: RequestCache,
 }
 
 /// Returned by [`parse_init_overrides`].

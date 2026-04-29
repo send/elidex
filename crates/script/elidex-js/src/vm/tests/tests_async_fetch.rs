@@ -937,6 +937,108 @@ fn opaque_redirect_response_for_manual_redirect_3xx() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// PR5-cors Stage 5: cache-mode header injection (WHATWG Fetch §5.3 step 30).
+// `force-cache` / `only-if-cached` are documented no-ops because elidex-net
+// does not yet implement an HTTP cache layer.
+// ---------------------------------------------------------------------------
+
+fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+}
+
+#[test]
+fn cache_no_store_appends_cache_control_no_store() {
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval("fetch('http://example.com/api', {cache: 'no-store'});")
+        .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    assert_eq!(
+        header_value(&logged[0].headers, "cache-control"),
+        Some("no-store")
+    );
+}
+
+#[test]
+fn cache_reload_appends_cache_control_no_cache_and_pragma() {
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval("fetch('http://example.com/api', {cache: 'reload'});")
+        .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    assert_eq!(
+        header_value(&logged[0].headers, "cache-control"),
+        Some("no-cache")
+    );
+    assert_eq!(header_value(&logged[0].headers, "pragma"), Some("no-cache"));
+}
+
+#[test]
+fn cache_no_cache_appends_max_age_zero() {
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval("fetch('http://example.com/api', {cache: 'no-cache'});")
+        .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    assert_eq!(
+        header_value(&logged[0].headers, "cache-control"),
+        Some("max-age=0")
+    );
+}
+
+#[test]
+fn cache_default_does_not_inject_headers() {
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval("fetch('http://example.com/api', {cache: 'default'});")
+        .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    assert!(header_value(&logged[0].headers, "cache-control").is_none());
+    assert!(header_value(&logged[0].headers, "pragma").is_none());
+}
+
+#[test]
+fn user_set_cache_control_is_preserved() {
+    // PR5-cors's cache-mode injection only fires when the same
+    // header isn't already present — user-set headers win.
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval(
+        "fetch('http://example.com/api', \
+             {cache: 'no-store', headers: {'Cache-Control': 'public, max-age=60'}});",
+    )
+    .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    assert_eq!(
+        header_value(&logged[0].headers, "cache-control"),
+        Some("public, max-age=60")
+    );
+}
+
 #[test]
 fn signal_back_refs_pruned_on_settlement() {
     // After a successful `tick_network` settle, the back-refs
