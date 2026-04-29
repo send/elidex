@@ -678,17 +678,18 @@ fn flat_map_user_subclass_preserves_species() {
 }
 
 #[test]
-fn flat_map_non_array_object_treated_as_singleton() {
+fn flat_map_non_typed_array_object_treated_as_singleton() {
     let mut vm = Vm::new();
-    // Callback returning a plain Object (not a TypedArray) does
-    // NOT splice — it's pushed as a singleton, then per-element
-    // coercion through `write_element_raw` runs ToNumber on the
-    // object which falls back to NaN → 0 for `Uint8Array`.  This
-    // matches the documented "splice only for TypedArray" rule.
+    // Callback returning any non-TypedArray (here a plain Object,
+    // but the same applies to Array literals) does NOT splice —
+    // it's pushed as a singleton, then per-element coercion
+    // through `write_element_raw` runs ToNumber on the object
+    // which falls back to NaN → 0 for `Uint8Array`.  This matches
+    // the documented "splice only for TypedArray" rule.
     assert!(eval_bool(
         &mut vm,
         "var a = new Uint8Array([1, 2]); \
-         var b = a.flatMap(function() { return [10, 20]; }); \
+         var b = a.flatMap(function() { return {}; }); \
          b instanceof Uint8Array && b.length === 2 && \
          b[0] === 0 && b[1] === 0;"
     ));

@@ -475,11 +475,14 @@ pub(crate) fn native_typed_array_filter(
 /// into a `Uint8Array` destination).
 ///
 /// Two-phase like `filter`: collect into a stack scope, then
-/// resolve species + write back.  Atomic-on-throw — a throwing
-/// callback or coercion surfaces before any destination view is
-/// produced (collection runs on the rooted stack frame; species
-/// resolution + the destination view's allocation only happen on
-/// successful drain).
+/// resolve species + write back.  Atomic-on-throw in two stages:
+/// a throwing callback or other collection-time failure surfaces
+/// before species resolution or any destination view allocation;
+/// per-element coercion / write failures (`write_element_raw`)
+/// surface later during the write-back loop, after the
+/// destination TypedArray has already been allocated, but still
+/// before any value is returned to the caller — so the receiver
+/// is never observably mutated either way.
 pub(crate) fn native_typed_array_flat_map(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
