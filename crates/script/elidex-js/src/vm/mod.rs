@@ -807,11 +807,12 @@ pub(crate) struct VmInner {
     /// GC contract: the stored `(LiveCollectionKind,
     /// LiveCollectionCache)` tuple holds only `Entity`, `StringId`,
     /// `Vec<StringId>` (class names), `Vec<Entity>` (querySelectorAll
-    /// snapshot + per-wrapper SP2 entity-list cache), and `Cell<u64>`
-    /// (cache version) — **no `ObjectId` references**, so the trace
-    /// step does nothing.  The sweep tail prunes entries whose key
-    /// `ObjectId` was collected, same pattern as `headers_states` /
-    /// `blob_data`.
+    /// snapshot + per-wrapper SP2 entity-list cache), and
+    /// `Cell<Option<u64>>` (cache version, `None` until the first
+    /// miss-path populates it) — **no `ObjectId` references**, so
+    /// the trace step does nothing.  The sweep tail prunes entries
+    /// whose key `ObjectId` was collected, same pattern as
+    /// `headers_states` / `blob_data`.
     #[cfg(feature = "engine")]
     pub(crate) live_collection_states: HashMap<
         ObjectId,

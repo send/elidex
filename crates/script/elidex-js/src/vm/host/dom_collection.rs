@@ -41,10 +41,12 @@
 //! The prototypes are rooted via the `proto_roots` array (gc.rs).
 //! `LiveCollectionKind` and `LiveCollectionCache` together store
 //! only `Entity`, `StringId`, `Vec<StringId>`, `Vec<Entity>`, and
-//! `Cell<u64>` — **no `ObjectId` references** — so the trace
-//! step has nothing to fan out.  The sweep tail prunes
-//! `live_collection_states` entries whose key `ObjectId` was
-//! collected, same pattern as `headers_states` / `blob_data`.
+//! `Cell<Option<u64>>` (the cached subtree version, `None` until
+//! the first miss-path populates it) — **no `ObjectId`
+//! references** — so the trace step has nothing to fan out.  The
+//! sweep tail prunes `live_collection_states` entries whose key
+//! `ObjectId` was collected, same pattern as
+//! `headers_states` / `blob_data`.
 //!
 //! ## Brand check
 //!
@@ -335,14 +337,17 @@ fn resolve_needles(vm: &VmInner, kind: &LiveCollectionKind) -> ResolvedNeedles {
 /// is unchanged, otherwise materialises needles from the VM's
 /// string pool and runs the ECS traversal.
 ///
-/// Hot-path semantics + drift-safety: the cache decision lives in
-/// [`resolve_with_cache_lazy`] so this function and
-/// [`try_indexed_get`] share identical version-check / needle-
-/// materialisation / cache-refresh logic.  The shape here is the
-/// `host_if_bound` plumbing — `host` is dropped between the
-/// cache-hit phase and the miss phase (re-borrowed below) so the
-/// shared `&VmInner` for needle materialisation does not alias
-/// the `&EcsDom` borrow used for the version check.
+/// Hot-path semantics + drift-safety: the post-walk refresh runs
+/// through [`cache_store`], which is the single store-side helper
+/// shared with [`try_indexed_get`].  The version-check halves
+/// still differ between the two call sites because they have
+/// different borrow shapes — `NativeContext` / `host_if_bound`
+/// here vs an explicit `&EcsDom` arg in `try_indexed_get` — so
+/// the read sides are mirrored manually rather than abstracted.
+/// `host` is dropped between the cache-hit phase and the miss
+/// phase (re-borrowed below) so the shared `&VmInner` for needle
+/// materialisation does not alias the `&EcsDom` borrow used for
+/// the version check.
 pub(super) fn resolve_entities_for(
     ctx: &mut NativeContext<'_>,
     kind: &LiveCollectionKind,
@@ -381,10 +386,18 @@ pub(super) fn resolve_entities_for(
 /// Refresh the cache after a successful descendant walk.  Skips
 /// the store when `cur_version == None` (Snapshot variants — see
 /// [`LiveCollectionKind::cache_root`]).
+///
+/// Reuses the existing `cached_entities` `Vec` capacity via
+/// `clear()` + `extend_from_slice` rather than re-allocating
+/// (`fresh.to_vec()`); on mutation-heavy workloads the cache buffer
+/// quickly stabilises at the result-set's high-water mark, after
+/// which subsequent miss-path refreshes become allocation-free.
 fn cache_store(cache: &LiveCollectionCache, cur_version: Option<u64>, fresh: &[Entity]) {
     if let Some(cur) = cur_version {
         cache.cached_version.set(Some(cur));
-        *cache.cached_entities.borrow_mut() = fresh.to_vec();
+        let mut buf = cache.cached_entities.borrow_mut();
+        buf.clear();
+        buf.extend_from_slice(fresh);
     }
 }
 
