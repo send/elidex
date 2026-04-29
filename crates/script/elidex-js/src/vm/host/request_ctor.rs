@@ -23,46 +23,62 @@ use super::super::value::{
 use super::headers::HeadersGuard;
 use super::request_response::{
     content_type_for_body, copy_headers_entries, ensure_content_type, extract_body_bytes,
-    fill_headers_like, parse_url, validate_http_method, RedirectMode, RequestCache,
+    fill_headers_like, parse_request_cache, parse_request_credentials, parse_request_mode,
+    parse_request_redirect, parse_url, validate_http_method, RedirectMode, RequestCache,
     RequestCredentials, RequestMode, RequestState,
 };
 
-/// Tuple returned by [`resolve_request_input`]: the URL StringId
-/// is canonicalised; method defaults to `GET` unless the input was
-/// itself a `Request` (then its method carries over); `source_headers`
-/// is `Some` for the Request-clone case; `source_body` is the cloned
-/// body Vec (may be `None`).
-type RequestInputParts = (StringId, StringId, Option<ObjectId>, Option<Vec<u8>>);
+/// Returned by [`resolve_request_input`]: when the input is a
+/// `Request` instance, the resolved fields carry that Request's
+/// state (URL / method / headers / body / mode / credentials /
+/// redirect / cache); for a URL-string input the four enum
+/// fields default per spec (`Cors` / `SameOrigin` / `Follow` /
+/// `Default`) and headers / body are absent.
+struct RequestInputParts {
+    url_sid: StringId,
+    method_sid: StringId,
+    source_headers: Option<ObjectId>,
+    source_body: Option<Vec<u8>>,
+    base_mode: RequestMode,
+    base_credentials: RequestCredentials,
+    base_redirect: RedirectMode,
+    base_cache: RequestCache,
+}
 
-/// Tuple returned by [`parse_request_init`].  Per-field shape:
+/// Returned by [`parse_request_init`].  Each enum override is
+/// `None` when `init` did not set the corresponding member; the
+/// constructor preserves the base Request's value (or the
+/// per-input default for the URL-string path) in that case.
 ///
-/// - `0` — optional method override.
-/// - `1` — optional headers-init source (copied into the companion
-///   Headers).
-/// - `2` — optional body bytes, **tri-state**: `None` means the
-///   caller didn't set `body` at all (preserve the Request clone's
-///   base body); `Some(None)` means the caller explicitly set
-///   `body: null` and expects the base body to be cleared;
-///   `Some(Some(b))` is an explicit replacement with `b`.  The
-///   distinction matters because WHATWG Fetch §5.3 step 40 forbids
-///   `GET`/`HEAD` requests from carrying a body — a cleared body
-///   must not trigger that check, while an explicit empty-string
-///   body must (R25.1 / R25.3).
-/// - `3` — optional default Content-Type for the chosen body
-///   (WHATWG Fetch §5.3 step 38 / §5 "extract a body").  Carried
-///   separately from the body bytes so the FormData boundary-
-///   bearing `multipart/form-data; boundary=…` Content-Type
-///   (only known after serialisation) and the static
-///   [`content_type_for_body`] mapping for String /
-///   URLSearchParams / Blob bodies share one channel.  `None`
-///   when no default applies (e.g. ArrayBuffer body, or `body:
-///   null` cleared path).
-type RequestInitParts = (
-    Option<StringId>,
-    Option<JsValue>,
-    Option<Option<Vec<u8>>>,
-    Option<StringId>,
-);
+/// The `body` slot is **tri-state**: `None` means the caller
+/// didn't set `body` at all (preserve the Request clone's base
+/// body); `Some(None)` means the caller explicitly set
+/// `body: null` and expects the base body to be cleared;
+/// `Some(Some(b))` is an explicit replacement with `b`.  The
+/// distinction matters because WHATWG Fetch §5.3 step 40 forbids
+/// `GET`/`HEAD` requests from carrying a body — a cleared body
+/// must not trigger that check, while an explicit empty-string
+/// body must (R25.1 / R25.3).
+///
+/// `body_ct_default` is the optional default `Content-Type`
+/// derived from the body type (WHATWG Fetch §5.3 step 38 /
+/// §5 "extract a body").  Carried separately from `body` so the
+/// FormData boundary-bearing `multipart/form-data; boundary=…`
+/// Content-Type (only known after serialisation) and the static
+/// [`content_type_for_body`] mapping for String /
+/// URLSearchParams / Blob bodies share one channel.  `None`
+/// when no default applies (e.g. ArrayBuffer body, or `body:
+/// null` cleared path).
+struct RequestInitParts {
+    method: Option<StringId>,
+    headers: Option<JsValue>,
+    body: Option<Option<Vec<u8>>>,
+    body_ct_default: Option<StringId>,
+    mode: Option<RequestMode>,
+    credentials: Option<RequestCredentials>,
+    redirect: Option<RedirectMode>,
+    cache: Option<RequestCache>,
+}
 
 /// `new Request(input, init?)` (WHATWG §5.3).
 pub(super) fn native_request_constructor(
@@ -87,10 +103,31 @@ pub(super) fn native_request_constructor(
     let input = args[0];
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    let (url_sid, method_sid, headers_source, body_bytes) = resolve_request_input(ctx, input)?;
-    let (override_method, headers_init_arg, body_init_arg, body_ct_default) =
-        parse_request_init(ctx, init)?;
-    let method_sid = override_method.unwrap_or(method_sid);
+    let RequestInputParts {
+        url_sid,
+        method_sid: base_method_sid,
+        source_headers,
+        source_body: body_bytes,
+        base_mode,
+        base_credentials,
+        base_redirect,
+        base_cache,
+    } = resolve_request_input(ctx, input)?;
+    let RequestInitParts {
+        method: override_method,
+        headers: headers_init_arg,
+        body: body_init_arg,
+        body_ct_default,
+        mode: mode_override,
+        credentials: credentials_override,
+        redirect: redirect_override,
+        cache: cache_override,
+    } = parse_request_init(ctx, init)?;
+    let method_sid = override_method.unwrap_or(base_method_sid);
+    let mode = mode_override.unwrap_or(base_mode);
+    let credentials = credentials_override.unwrap_or(base_credentials);
+    let redirect = redirect_override.unwrap_or(base_redirect);
+    let cache = cache_override.unwrap_or(base_cache);
 
     // Allocate companion Headers under the `Request` guard
     // (WHATWG Fetch §5.3 step 31): forbidden-name mutations from
@@ -117,7 +154,7 @@ pub(super) fn native_request_constructor(
     match headers_init_arg {
         Some(h) => fill_headers_like(ctx, headers_id, h, "Failed to construct 'Request'")?,
         None => {
-            if let Some(src_headers_id) = headers_source {
+            if let Some(src_headers_id) = source_headers {
                 copy_headers_entries(ctx, src_headers_id, headers_id);
             }
         }
@@ -168,10 +205,10 @@ pub(super) fn native_request_constructor(
             method_sid,
             url_sid,
             headers_id,
-            redirect: RedirectMode::Follow,
-            mode: RequestMode::Cors,
-            credentials: RequestCredentials::SameOrigin,
-            cache: RequestCache::Default,
+            redirect,
+            mode,
+            credentials,
+            cache,
         },
     );
     Ok(JsValue::Object(inst_id))
@@ -199,8 +236,16 @@ fn resolve_request_input(
             let raw = ctx.vm.strings.get_utf8(sid);
             let url = parse_url(ctx.vm, &raw)?;
             let url_sid = ctx.vm.strings.intern(url.as_str());
-            let method_sid = ctx.vm.well_known.http_get;
-            Ok((url_sid, method_sid, None, None))
+            Ok(RequestInputParts {
+                url_sid,
+                method_sid: ctx.vm.well_known.http_get,
+                source_headers: None,
+                source_body: None,
+                base_mode: RequestMode::Cors,
+                base_credentials: RequestCredentials::SameOrigin,
+                base_redirect: RedirectMode::Follow,
+                base_cache: RequestCache::Default,
+            })
         }
         JsValue::Object(obj_id) => {
             if !matches!(ctx.vm.get_object(obj_id).kind, ObjectKind::Request) {
@@ -216,8 +261,21 @@ fn resolve_request_input(
             let url_sid = state.url_sid;
             let method_sid = state.method_sid;
             let headers_id = state.headers_id;
+            let base_mode = state.mode;
+            let base_credentials = state.credentials;
+            let base_redirect = state.redirect;
+            let base_cache = state.cache;
             let body = ctx.vm.body_data.get(&obj_id).cloned();
-            Ok((url_sid, method_sid, Some(headers_id), body))
+            Ok(RequestInputParts {
+                url_sid,
+                method_sid,
+                source_headers: Some(headers_id),
+                source_body: body,
+                base_mode,
+                base_credentials,
+                base_redirect,
+                base_cache,
+            })
         }
         _ => Err(VmError::type_error(
             "Failed to construct 'Request': input must be a URL string or Request",
@@ -225,24 +283,43 @@ fn resolve_request_input(
     }
 }
 
-/// Parse the `init` dict (§5.3 step 27-38).  Returns the
-/// optional method override, optional headers source, and
-/// optional body bytes.  Unknown members are ignored silently.
+/// Parse the `init` dict (§5.3 step 27-38).  Each member is
+/// independent — unset members map to `None` so the caller can
+/// preserve the source Request's value (or fall back to the
+/// per-input default for the URL-string path).  Invalid enum
+/// strings throw TypeError per WebIDL §3.10.7.
 fn parse_request_init(
     ctx: &mut NativeContext<'_>,
     init: JsValue,
 ) -> Result<RequestInitParts, VmError> {
     match init {
-        JsValue::Undefined | JsValue::Null => Ok((None, None, None, None)),
+        JsValue::Undefined | JsValue::Null => Ok(RequestInitParts {
+            method: None,
+            headers: None,
+            body: None,
+            body_ct_default: None,
+            mode: None,
+            credentials: None,
+            redirect: None,
+            cache: None,
+        }),
         JsValue::Object(opts_id) => {
             let wk = &ctx.vm.well_known;
             let method_key = PropertyKey::String(wk.method);
             let headers_key = PropertyKey::String(wk.headers);
             let body_key = PropertyKey::String(wk.body);
+            let mode_key = PropertyKey::String(wk.mode);
+            let credentials_key = PropertyKey::String(wk.credentials);
+            let redirect_key = PropertyKey::String(wk.redirect);
+            let cache_key = PropertyKey::String(wk.cache);
 
             let method_val = ctx.get_property_value(opts_id, method_key)?;
             let headers_val = ctx.get_property_value(opts_id, headers_key)?;
             let body_val = ctx.get_property_value(opts_id, body_key)?;
+            let mode_val = ctx.get_property_value(opts_id, mode_key)?;
+            let credentials_val = ctx.get_property_value(opts_id, credentials_key)?;
+            let redirect_val = ctx.get_property_value(opts_id, redirect_key)?;
+            let cache_val = ctx.get_property_value(opts_id, cache_key)?;
 
             let method_override = match method_val {
                 JsValue::Undefined => None,
@@ -252,6 +329,13 @@ fn parse_request_init(
                 JsValue::Undefined => None,
                 other => Some(other),
             };
+            let mode_override = parse_request_mode(ctx, mode_val, "Failed to construct 'Request'")?;
+            let credentials_override =
+                parse_request_credentials(ctx, credentials_val, "Failed to construct 'Request'")?;
+            let redirect_override =
+                parse_request_redirect(ctx, redirect_val, "Failed to construct 'Request'")?;
+            let cache_override =
+                parse_request_cache(ctx, cache_val, "Failed to construct 'Request'")?;
             // WebIDL nullable body, tri-state (R25.3):
             // - `undefined` → `None` — field absent, preserve the
             //   Request clone's base body.
@@ -285,12 +369,16 @@ fn parse_request_init(
                     }
                 },
             };
-            Ok((
-                method_override,
-                headers_override,
-                body_override,
+            Ok(RequestInitParts {
+                method: method_override,
+                headers: headers_override,
+                body: body_override,
                 body_ct_default,
-            ))
+                mode: mode_override,
+                credentials: credentials_override,
+                redirect: redirect_override,
+                cache: cache_override,
+            })
         }
         _ => Err(VmError::type_error(
             "Failed to construct 'Request': init must be an object",

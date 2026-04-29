@@ -67,7 +67,11 @@ use super::super::value::{
 use super::super::VmInner;
 use super::blob::reject_promise_sync;
 use super::headers::HeadersGuard;
-use super::request_response::{extract_body_bytes, parse_url, ResponseState, ResponseType};
+use super::request_response::{
+    extract_body_bytes, parse_request_cache, parse_request_credentials, parse_request_mode,
+    parse_request_redirect, parse_url, RedirectMode, RequestCache, RequestCredentials, RequestMode,
+    ResponseState, ResponseType,
+};
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -326,29 +330,28 @@ fn build_net_request(
     let input = args[0];
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    let (method_override, headers_override, body_override, body_ct_default) =
-        parse_init_overrides(ctx, init)?;
+    let overrides = parse_init_overrides(ctx, init)?;
 
     // Case 1: input is a Request instance — start with its state.
     if let JsValue::Object(obj_id) = input {
         if matches!(ctx.vm.get_object(obj_id).kind, ObjectKind::Request) {
             let (mut method, url, mut headers, base_body) = request_base_from_vm(ctx, obj_id)?;
-            if let Some(m) = method_override {
+            if let Some(m) = overrides.method {
                 method = m;
             }
-            if let Some(h) = headers_override {
+            if let Some(h) = overrides.headers {
                 headers = h;
             }
             // Tri-state body resolution (R25.3): `None` preserves
             // the source Request's body; `Some(None)` clears it;
             // `Some(Some(b))` replaces.
-            let final_body: Option<Bytes> = match body_override {
+            let final_body: Option<Bytes> = match overrides.body {
                 None => base_body,
                 Some(None) => None,
                 Some(Some(b)) => Some(b),
             };
             reject_get_head_with_body(&method, final_body.is_some())?;
-            apply_default_content_type(&mut headers, body_ct_default.as_deref());
+            apply_default_content_type(&mut headers, overrides.body_ct_default.as_deref());
             let mut request = elidex_net::Request {
                 method,
                 url,
@@ -369,16 +372,16 @@ fn build_net_request(
             "Failed to execute 'fetch': Invalid URL '{raw_url_owned}'"
         ))
     })?;
-    let method = method_override.unwrap_or_else(|| "GET".to_string());
+    let method = overrides.method.unwrap_or_else(|| "GET".to_string());
     // URL-input path has no base body; the tri-state's outer
     // `Some(None)` / `None` both yield "no body".
-    let final_body: Option<Bytes> = match body_override {
+    let final_body: Option<Bytes> = match overrides.body {
         None | Some(None) => None,
         Some(Some(b)) => Some(b),
     };
     reject_get_head_with_body(&method, final_body.is_some())?;
-    let mut headers = headers_override.unwrap_or_default();
-    apply_default_content_type(&mut headers, body_ct_default.as_deref());
+    let mut headers = overrides.headers.unwrap_or_default();
+    apply_default_content_type(&mut headers, overrides.body_ct_default.as_deref());
     let mut request = elidex_net::Request {
         method,
         url,
@@ -587,7 +590,7 @@ fn request_base_from_vm(
     Ok((method, url, headers, body))
 }
 
-/// `(method?, headers?, body?)` returned by [`parse_init_overrides`].
+/// Returned by [`parse_init_overrides`].
 ///
 /// Method and headers are plain `Option<_>` — `None` means absent,
 /// `Some(_)` means explicit.
@@ -602,23 +605,36 @@ fn request_base_from_vm(
 ///   with `b`.  Any non-`null`, non-`undefined` input lands here,
 ///   including the empty string which still counts as "has a
 ///   body" for the GET/HEAD check in `build_net_request`.
-// Tuple fields:
-// - `0` method override (string).
-// - `1` headers override (entry list); see "Null vs undefined" block.
-// - `2` body override (tri-state); see [`InitOverrides`] doc.
-// - `3` default Content-Type for the chosen body (WHATWG Fetch §5
-//   "extract a body" step 4 / §5.3 step 38).  `None` when no
-//   default applies (e.g. ArrayBuffer / clone path) or when
-//   `init.body` was not present.  The fetch-call path splices
-//   this header before relaying to the broker so a `fetch(...,
-//   {body: new FormData()})` request goes out with the
-//   boundary-bearing `multipart/form-data` Content-Type.
-type InitOverrides = (
-    Option<String>,
-    Option<Vec<(String, String)>>,
-    Option<Option<Bytes>>,
-    Option<String>,
-);
+///
+/// `body_ct_default` is the optional default `Content-Type`
+/// derived from the body type (WHATWG Fetch §5 "extract a body"
+/// step 4 / §5.3 step 38).  `None` when no default applies (e.g.
+/// ArrayBuffer / clone path) or when `init.body` was not
+/// present.  The fetch-call path splices this header before
+/// relaying to the broker so a `fetch(..., {body: new FormData()})`
+/// request goes out with the boundary-bearing
+/// `multipart/form-data` Content-Type.
+///
+/// The four enum overrides — `mode` / `credentials` / `redirect`
+/// / `cache` — are `None` when `init` did not set the member,
+/// allowing the Request-input path to preserve the source's
+/// values.  The URL-input path falls back to spec defaults
+/// (`Cors` / `SameOrigin` / `Follow` / `Default`).  The Stage 1
+/// landing in PR5-cors only validates and round-trips the values
+/// through Request state; broker-side enforcement (same-origin
+/// reject, redirect mode, credentials gating, cache header
+/// injection) lands with Stages 2-5.
+#[allow(dead_code)]
+struct InitOverrides {
+    method: Option<String>,
+    headers: Option<Vec<(String, String)>>,
+    body: Option<Option<Bytes>>,
+    body_ct_default: Option<String>,
+    mode: Option<RequestMode>,
+    credentials: Option<RequestCredentials>,
+    redirect: Option<RedirectMode>,
+    cache: Option<RequestCache>,
+}
 
 /// Parse the `init` dict.  Every field is `Option<_>`; a present
 /// value means `init` explicitly set it.  `undefined` (including
@@ -635,15 +651,39 @@ fn parse_init_overrides(
     init: JsValue,
 ) -> Result<InitOverrides, VmError> {
     match init {
-        JsValue::Undefined | JsValue::Null => Ok((None, None, None, None)),
+        JsValue::Undefined | JsValue::Null => Ok(InitOverrides {
+            method: None,
+            headers: None,
+            body: None,
+            body_ct_default: None,
+            mode: None,
+            credentials: None,
+            redirect: None,
+            cache: None,
+        }),
         JsValue::Object(opts_id) => {
             let method_sid_key = PropertyKey::String(ctx.vm.well_known.method);
             let headers_key = PropertyKey::String(ctx.vm.well_known.headers);
             let body_key = PropertyKey::String(ctx.vm.well_known.body);
+            let mode_key = PropertyKey::String(ctx.vm.well_known.mode);
+            let credentials_key = PropertyKey::String(ctx.vm.well_known.credentials);
+            let redirect_key = PropertyKey::String(ctx.vm.well_known.redirect);
+            let cache_key = PropertyKey::String(ctx.vm.well_known.cache);
 
             let method_val = ctx.get_property_value(opts_id, method_sid_key)?;
             let headers_val = ctx.get_property_value(opts_id, headers_key)?;
             let body_val = ctx.get_property_value(opts_id, body_key)?;
+            let mode_val = ctx.get_property_value(opts_id, mode_key)?;
+            let credentials_val = ctx.get_property_value(opts_id, credentials_key)?;
+            let redirect_val = ctx.get_property_value(opts_id, redirect_key)?;
+            let cache_val = ctx.get_property_value(opts_id, cache_key)?;
+
+            let mode_override = parse_request_mode(ctx, mode_val, "Failed to execute 'fetch'")?;
+            let credentials_override =
+                parse_request_credentials(ctx, credentials_val, "Failed to execute 'fetch'")?;
+            let redirect_override =
+                parse_request_redirect(ctx, redirect_val, "Failed to execute 'fetch'")?;
+            let cache_override = parse_request_cache(ctx, cache_val, "Failed to execute 'fetch'")?;
 
             // Method — shared forbidden-method filter with
             // `Request`'s ctor.
@@ -735,12 +775,16 @@ fn parse_init_overrides(
                 },
             };
 
-            Ok((
-                method_override,
-                headers_override,
-                body_override,
+            Ok(InitOverrides {
+                method: method_override,
+                headers: headers_override,
+                body: body_override,
                 body_ct_default,
-            ))
+                mode: mode_override,
+                credentials: credentials_override,
+                redirect: redirect_override,
+                cache: cache_override,
+            })
         }
         _ => Err(VmError::type_error(
             "Failed to execute 'fetch': init must be an object",
