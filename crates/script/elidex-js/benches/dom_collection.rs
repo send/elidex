@@ -1,6 +1,6 @@
 //! Live `HTMLCollection` accessor throughput (PR-spec-polish SP2).
 //!
-//! Measures the per-access cost of the four hot paths exercised when
+//! Measures the per-access cost of the three hot paths exercised when
 //! JavaScript reads a live HTMLCollection wrapper retained across
 //! many accesses:
 //!
