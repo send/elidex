@@ -353,12 +353,21 @@ impl Vm {
     ///
     /// Replaces any previously installed handle.  Dropping the
     /// `Vm` (or calling this with a fresh handle) releases the
-    /// previous `Rc`.
+    /// previous `Rc`.  Any in-flight async fetches against the
+    /// previous handle are rejected with `TypeError("Failed to
+    /// fetch: NetworkHandle replaced while request in flight")`
+    /// before the swap, since their broker-reply channel becomes
+    /// unreachable; without this the Promises would be
+    /// permanently un-settleable (R3.3).  Reactions attached via
+    /// `.then` / `.catch` fire on the next microtask drain (next
+    /// `eval` / `tick_network` call), not synchronously here.
     #[cfg(feature = "engine")]
     pub fn install_network_handle(
         &mut self,
         handle: std::rc::Rc<elidex_net::broker::NetworkHandle>,
     ) {
+        self.inner
+            .reject_pending_fetches_with_error("NetworkHandle replaced while request in flight");
         self.inner.network_handle = Some(handle);
     }
 

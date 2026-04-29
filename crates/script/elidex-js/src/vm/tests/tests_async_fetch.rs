@@ -363,6 +363,166 @@ fn tick_network_re_buffers_unhandled_ws_sse_events() {
 }
 
 #[test]
+fn tick_network_preserves_event_order_across_fetch_and_ws() {
+    // R3.2 regression: when WS / SSE events are interleaved with
+    // fetch replies in the broker buffer, `tick_network` must NOT
+    // reorder fetch settlements ahead of preceding WS/SSE events.
+    // The fix is to settle fetch replies only up to the first
+    // non-fetch event, then re-buffer that event AND every event
+    // after it.  Sibling consumers see the original sequence; a
+    // later VM tick picks up trailing fetch replies once the WS
+    // events have been drained externally.
+    use elidex_net::broker::NetworkToRenderer;
+    use elidex_net::ws::WsEvent;
+    let url = url::Url::parse("http://example.com/ordered").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(ok_response("http://example.com/ordered", "ok")),
+    )]);
+    let handle = vm.inner.network_handle.clone().expect("handle installed");
+    // Stage: [WS_a, Fetch_b (already buffered by mock fetch_async),
+    // WS_c].  We dispatch the fetch first to seed the FetchResponse
+    // into `buffered`, then prepend a WS event before it via
+    // rebuffer + append a trailing WS event.
+    vm.eval(
+        "globalThis.r = 0; \
+         fetch('http://example.com/ordered').then(resp => { globalThis.r = resp.status; });",
+    )
+    .unwrap();
+    // After eval, `buffered` contains exactly [FetchResponse(...)].
+    // Insert a WS event before it (rebuffer is splice-front), and
+    // a WS event after it.  Use rebuffer for the front-prepend.
+    handle.rebuffer_events(vec![NetworkToRenderer::WebSocketEvent(
+        1,
+        WsEvent::TextMessage("before".to_string()),
+    )]);
+    // Append the trailing WS event by re-buffering after the
+    // fetch reply: we drain everything, then re-buffer in the
+    // desired order [WS_a, FetchResponse, WS_c].
+    let drained = handle.drain_events();
+    let mut staged: Vec<NetworkToRenderer> = drained;
+    staged.push(NetworkToRenderer::WebSocketEvent(
+        1,
+        WsEvent::TextMessage("after".to_string()),
+    ));
+    handle.rebuffer_events(staged);
+
+    vm.tick_network();
+    // The first event was a WS, so tick_network must NOT have
+    // settled the fetch — the entire sequence must be re-buffered
+    // verbatim.
+    let leftover = handle.drain_events();
+    assert_eq!(
+        leftover.len(),
+        3,
+        "all events must remain when WS comes first"
+    );
+    assert!(matches!(
+        leftover[0],
+        NetworkToRenderer::WebSocketEvent(_, _)
+    ));
+    assert!(matches!(
+        leftover[1],
+        NetworkToRenderer::FetchResponse(_, _)
+    ));
+    assert!(matches!(
+        leftover[2],
+        NetworkToRenderer::WebSocketEvent(_, _)
+    ));
+    // Promise still pending — fetch reply not consumed yet.
+    match vm.get_global("r") {
+        Some(JsValue::Number(n)) => assert!((n - 0.0).abs() < f64::EPSILON),
+        other => panic!("fetch must NOT have settled, got {other:?}"),
+    }
+}
+
+#[test]
+fn install_network_handle_rejects_pending_fetches_against_old_handle() {
+    // R3.3 regression: replacing the NetworkHandle while
+    // `pending_fetches` is non-empty would otherwise leave those
+    // Promises permanently un-settleable (the old handle's
+    // response channel is no longer drained).  Install must
+    // proactively reject every pending Promise with TypeError
+    // before swapping.
+    let url = url::Url::parse("http://example.com/replaced").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(ok_response("http://example.com/replaced", "ok")),
+    )]);
+    vm.eval(
+        "globalThis.r = ''; \
+         fetch('http://example.com/replaced') \
+             .catch(e => { globalThis.r = e instanceof TypeError && e.message; });",
+    )
+    .unwrap();
+    // Promise is pending — fetch dispatched, no tick_network yet.
+    assert_eq!(vm.inner.pending_fetches.len(), 1);
+    // Replace the handle with a fresh disconnected one.
+    vm.install_network_handle(Rc::new(NetworkHandle::disconnected()));
+    assert_eq!(
+        vm.inner.pending_fetches.len(),
+        0,
+        "install_network_handle must drain pending_fetches"
+    );
+    assert_eq!(
+        vm.inner.fetch_signal_back_refs.len(),
+        0,
+        "back-refs must also be cleared"
+    );
+    // The reject reaction's microtask still needs to drain.  Any
+    // subsequent eval / tick_network triggers it.
+    vm.tick_network();
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => {
+            let s = vm.get_string(id);
+            assert!(s.contains("Failed to fetch"), "got: {s}");
+            assert!(s.contains("NetworkHandle replaced"), "got: {s}");
+        }
+        other => panic!("expected TypeError message, got {other:?}"),
+    }
+}
+
+#[test]
+fn install_network_handle_rejects_signal_bound_pending_fetch() {
+    // Variant of the above where the pending fetch carried a
+    // signal — verify the back-refs + abort observers maps are
+    // also cleared so a subsequent `controller.abort()` becomes a
+    // pure no-op (no panic, no orphan CancelFetch send).
+    let url = url::Url::parse("http://example.com/sig-replaced").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(ok_response("http://example.com/sig-replaced", "ok")),
+    )]);
+    vm.eval(
+        "globalThis.r = ''; \
+         globalThis.c = new AbortController(); \
+         fetch('http://example.com/sig-replaced', {signal: c.signal}) \
+             .catch(e => { globalThis.r = e && e.message; });",
+    )
+    .unwrap();
+    assert_eq!(vm.inner.pending_fetches.len(), 1);
+    assert_eq!(vm.inner.fetch_signal_back_refs.len(), 1);
+    assert_eq!(vm.inner.fetch_abort_observers.len(), 1);
+    vm.install_network_handle(Rc::new(NetworkHandle::disconnected()));
+    assert_eq!(vm.inner.pending_fetches.len(), 0);
+    assert_eq!(vm.inner.fetch_signal_back_refs.len(), 0);
+    assert_eq!(
+        vm.inner.fetch_abort_observers.len(),
+        0,
+        "observer entry must be removed when its only fetch_id was rejected"
+    );
+    // Aborting now is a no-op.
+    vm.eval("c.abort();").unwrap();
+    vm.tick_network();
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => {
+            assert!(vm.get_string(id).contains("NetworkHandle replaced"));
+        }
+        other => panic!("expected reject message, got {other:?}"),
+    }
+}
+
+#[test]
 fn signal_back_refs_pruned_on_settlement() {
     // After a successful `tick_network` settle, the back-refs
     // table must be empty — otherwise a subsequent `controller.

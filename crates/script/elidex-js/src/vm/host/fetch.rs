@@ -877,32 +877,79 @@ impl VmInner {
         // `drain_events` is the only consumer of the broker's
         // response channel for this handle, so any non-fetch event
         // we drain here cannot be re-fetched by another consumer.
-        // Re-buffer them onto the handle's `buffered` queue so a
-        // sibling consumer (boa bridge during the boa→VM cutover,
-        // or a future VM-side WS/SSE module) can observe them on a
-        // later `drain_events` (R1.2).  Order is preserved within
-        // the carried-over slice; new incoming events arrive after.
+        // To preserve the original arrival order between fetch
+        // replies and WS/SSE events (matters when the handle is
+        // shared with a sibling consumer during the boa→VM cutover),
+        // we settle fetch replies *only up to the first non-fetch
+        // event*, then re-buffer that event AND every event after
+        // it — including any subsequent fetch replies — onto the
+        // handle's `buffered` queue (R1.2 + R3.2).  A sibling
+        // consumer's next `drain_events` then sees the original
+        // sequence; later VM `tick_network` calls pick up the
+        // trailing fetch replies once the sibling has consumed the
+        // intervening WS/SSE events.
         let events = handle.drain_events();
-        let mut deferred: Vec<NetworkToRenderer> = Vec::new();
-        for event in events {
+        let mut iter = events.into_iter();
+        let mut tail: Vec<NetworkToRenderer> = Vec::new();
+        for event in iter.by_ref() {
             match event {
                 NetworkToRenderer::FetchResponse(fetch_id, result) => {
                     self.settle_fetch(fetch_id, result);
                 }
                 other @ (NetworkToRenderer::WebSocketEvent(_, _)
                 | NetworkToRenderer::EventSourceEvent(_, _)) => {
-                    deferred.push(other);
+                    tail.push(other);
+                    break;
                 }
             }
         }
-        if !deferred.is_empty() {
-            handle.rebuffer_events(deferred);
+        tail.extend(iter);
+        if !tail.is_empty() {
+            handle.rebuffer_events(tail);
         }
         // Microtask checkpoint — `.then` reactions attached to the
         // settled Promise must run before this call returns so the
         // shell event loop's per-tick observable order matches a
         // real browser's microtask drain at the end of every task.
         self.drain_microtasks();
+    }
+
+    /// Reject every entry in [`Self::pending_fetches`] with a
+    /// `TypeError` carrying `msg`, tearing down the matching
+    /// `fetch_signal_back_refs` / `fetch_abort_observers` entries.
+    /// Used by [`super::super::Vm::install_network_handle`] before a
+    /// handle swap (R3.3): the old handle's broker-reply channel
+    /// becomes unreachable, so otherwise-pending Promises would be
+    /// permanently un-settleable from the user's perspective.
+    /// No-op when `pending_fetches` is empty (the common case —
+    /// production embedders install the handle once at VM
+    /// construction).
+    pub(in crate::vm) fn reject_pending_fetches_with_error(&mut self, msg: &str) {
+        if self.pending_fetches.is_empty() {
+            return;
+        }
+        let stale: Vec<(FetchId, ObjectId)> = self.pending_fetches.drain().collect();
+        for (fetch_id, promise) in stale {
+            // Tear down the back-refs so a subsequent
+            // `controller.abort()` does not chase a stale FetchId
+            // through the old handle.
+            if let Some(signal_id) = self.fetch_signal_back_refs.remove(&fetch_id) {
+                if let Some(observers) = self.fetch_abort_observers.get_mut(&signal_id) {
+                    observers.retain(|&id| id != fetch_id);
+                    if observers.is_empty() {
+                        self.fetch_abort_observers.remove(&signal_id);
+                    }
+                }
+            }
+            // Defensive root mirroring `settle_fetch` /
+            // `abort_signal` (R2 fixes): `vm_error_to_thrown`
+            // allocates an Error object before settlement.
+            let mut g = self.push_temp_root(JsValue::Object(promise));
+            let err = VmError::type_error(format!("Failed to fetch: {msg}"));
+            let reason = g.vm_error_to_thrown(&err);
+            reject_promise_sync(&mut g, promise, reason);
+            drop(g);
+        }
     }
 
     /// Settle a single in-flight fetch's Promise.  Removes the
