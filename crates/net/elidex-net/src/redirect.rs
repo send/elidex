@@ -5,8 +5,9 @@
 //! rules before connecting.
 
 use crate::error::{NetError, NetErrorKind};
+use crate::preflight::requires_preflight;
 use crate::transport::HttpTransport;
-use crate::{RedirectMode, Request, Response};
+use crate::{CredentialsMode, RedirectMode, Request, RequestMode, Response};
 use bytes::Bytes;
 
 /// Follow redirects for a request, returning the final response.
@@ -136,14 +137,62 @@ pub async fn follow_redirects(
             });
         }
 
+        let credentials = cors_redirect_credentials(&request, &next_url, &method, &headers, &body)?;
+
         request = Request {
             method,
             headers,
             url: next_url,
             body,
+            credentials,
             ..request
         };
     }
+}
+
+/// Apply WHATWG Fetch §4.4 step 14 paired-infra for a
+/// `mode = Cors` cross-origin redirect: fail closed when the
+/// redirected request would require a preflight (we don't
+/// re-issue preflight against the new origin yet — see
+/// `PR-cors-redirect-preflight` slot), and downgrade
+/// `Include` credentials to `SameOrigin` so the redirected
+/// hop doesn't surface cookies / Authorization picked up
+/// from the new origin's cookie jar.  Returns the credentials
+/// mode to use on the redirected request.
+fn cors_redirect_credentials(
+    request: &Request,
+    next_url: &url::Url,
+    method: &str,
+    headers: &[(String, String)],
+    body: &Bytes,
+) -> Result<CredentialsMode, NetError> {
+    if request.mode != RequestMode::Cors {
+        return Ok(request.credentials);
+    }
+    if is_same_origin(&request.url, next_url) {
+        return Ok(request.credentials);
+    }
+    let probe = Request {
+        method: method.to_string(),
+        headers: headers.to_vec(),
+        url: next_url.clone(),
+        body: body.clone(),
+        origin: request.origin.clone(),
+        redirect: request.redirect,
+        credentials: request.credentials,
+        mode: request.mode,
+    };
+    if requires_preflight(&probe) {
+        return Err(NetError::new(
+            NetErrorKind::CorsBlocked,
+            "cross-origin CORS redirect requiring preflight is not supported",
+        ));
+    }
+    Ok(if request.credentials == CredentialsMode::Include {
+        CredentialsMode::SameOrigin
+    } else {
+        request.credentials
+    })
 }
 
 /// Check if a status code is a redirect.

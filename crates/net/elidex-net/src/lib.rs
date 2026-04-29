@@ -29,6 +29,8 @@ pub(crate) mod fetch_handle;
 pub mod https_upgrade;
 pub mod middleware;
 pub(crate) mod pool;
+pub mod preflight;
+pub mod preflight_cache;
 pub(crate) mod redirect;
 pub mod resource_loader;
 pub mod sse;
@@ -46,6 +48,11 @@ pub use cors::CorsContext;
 pub use error::{NetError, NetErrorKind};
 pub use fetch_handle::FetchHandle;
 pub use middleware::MiddlewareChain;
+pub use preflight::{
+    build_preflight_request, requires_preflight, validate_actual_against_allowance,
+    validate_preflight_response, PreflightAllowance,
+};
+pub use preflight_cache::{PreflightCache, PreflightCacheKey};
 pub use resource_loader::{ResourceLoader, ResourceResponse, SchemeDispatcher};
 pub use transport::{HttpTransport, HttpVersion, TransportConfig};
 
@@ -96,6 +103,40 @@ pub enum CredentialsMode {
     Include,
 }
 
+/// `RequestMode` (WHATWG Fetch §5.3) — selects the broker's
+/// CORS treatment for this request.
+///
+/// - [`RequestMode::Cors`]: cross-origin requests are subject to
+///   the §4.4 CORS check and §4.8 preflight.  This is the
+///   default for `fetch()` but **not** the broker's default
+///   (embedder-driven paths typically have no document context).
+/// - [`RequestMode::NoCors`] (default): no preflight, no CORS
+///   check; embedder-driven loads (initial navigation, favicon
+///   prefetch) and `<img>` / `<script>` `crossorigin=""` loads
+///   take this path.  The broker treats this as a transparent
+///   fetch with no CORS gating.
+/// - [`RequestMode::SameOrigin`]: cross-origin requests are
+///   rejected at the broker level (§5.3 step 14 — we surface
+///   `NetErrorKind::CorsBlocked`).
+/// - [`RequestMode::Navigate`]: reserved for the navigation
+///   pipeline's internal Request construction; the JS-facing
+///   `init` parser rejects `"navigate"` per §5.3 step 23.  The
+///   broker treats Navigate exactly like NoCors (no preflight,
+///   no CORS check).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RequestMode {
+    /// CORS mode — preflight + ACAO check applies.
+    Cors,
+    /// No CORS — transparent fetch (broker default).
+    #[default]
+    NoCors,
+    /// Same-origin only — cross-origin is a network error.
+    SameOrigin,
+    /// Navigation request — internal to the navigation
+    /// pipeline; the JS-facing init parser rejects this string.
+    Navigate,
+}
+
 /// An outgoing HTTP request (internal type with body).
 ///
 /// Constructed by JS-facing fetch paths (`elidex-js` /
@@ -135,6 +176,13 @@ pub struct Request {
     /// Whether to attach cookies on this request.  Default:
     /// [`CredentialsMode::SameOrigin`].
     pub credentials: CredentialsMode,
+    /// CORS mode (WHATWG Fetch §5.3).  Default:
+    /// [`RequestMode::NoCors`] — embedder-driven paths bypass
+    /// the §4.8 preflight + §4.4 CORS check.  VM-side
+    /// `fetch()` paths set [`RequestMode::Cors`] (the JS
+    /// default) so cross-origin custom-header / non-simple-method
+    /// fetches go through preflight.
+    pub mode: RequestMode,
 }
 
 /// Decide whether to attach the cookie jar's contents to a
@@ -206,6 +254,7 @@ impl Default for Request {
             origin: None,
             redirect: RedirectMode::Follow,
             credentials: CredentialsMode::SameOrigin,
+            mode: RequestMode::NoCors,
         }
     }
 }
@@ -252,6 +301,9 @@ pub struct NetClient {
     /// When `true`, Cookie headers are not sent and `Set-Cookie` headers are
     /// not stored. Used for iframe `credentialless` attribute (WHATWG HTML §4.8.5).
     credentialless: bool,
+    /// CORS preflight cache (WHATWG Fetch §4.8 step 22) shared
+    /// across all requests routed through this client.
+    preflight_cache: Arc<PreflightCache>,
 }
 
 impl std::fmt::Debug for NetClient {
@@ -302,6 +354,7 @@ impl NetClient {
             dispatcher,
             config,
             credentialless: false,
+            preflight_cache: Arc::new(PreflightCache::new()),
         }
     }
 
@@ -320,6 +373,15 @@ impl NetClient {
 
         // Apply middleware (pre-request)
         self.middleware.process_request(&mut request)?;
+
+        // CORS preflight (WHATWG Fetch §4.8) — for `mode = Cors`
+        // cross-origin non-simple requests, issue an OPTIONS
+        // preflight (or hit the cache) before the actual request
+        // so the server gets a chance to allow / deny the
+        // method + non-safelisted headers up front.
+        if requires_preflight(&request) {
+            self.run_preflight(&request).await?;
+        }
 
         // Add cookies — gated by `request.credentials` (WHATWG
         // Fetch §5.3) AND the client-level `credentialless`
@@ -375,6 +437,43 @@ impl NetClient {
             .process_response(response.status, &mut response.headers)?;
 
         Ok(response)
+    }
+
+    /// Run the CORS preflight stage for `request`.  Either hits
+    /// the cache (no OPTIONS round-trip, just re-validate the
+    /// actual request against the cached allowance) or dispatches
+    /// an OPTIONS preflight and stores the parsed allowance for
+    /// subsequent same-key requests.
+    ///
+    /// On any spec-required failure (preflight 5xx, ACAO mismatch,
+    /// method/header not allowed, ACAC mismatch for credentialed)
+    /// returns `NetError(CorsBlocked)` and the actual request is
+    /// **not** dispatched.
+    async fn run_preflight(&self, request: &Request) -> Result<(), NetError> {
+        let Some(key) = PreflightCacheKey::from_request(request) else {
+            // No origin → preflight isn't applicable; let the
+            // request proceed (defensive — `requires_preflight`
+            // already filtered same-origin).
+            return Ok(());
+        };
+        if let Some(allowance) = self.preflight_cache.lookup(&key) {
+            return validate_actual_against_allowance(request, &allowance);
+        }
+        let preflight_req = build_preflight_request(request);
+        let preflight_resp = self.transport.send(&preflight_req).await?;
+        let allowance = validate_preflight_response(request, &preflight_resp)?;
+        // Re-validate the actual request before storing — the
+        // cache should never hold an entry that the actual
+        // request itself can't satisfy.
+        validate_actual_against_allowance(request, &allowance)?;
+        self.preflight_cache.store(key, allowance);
+        Ok(())
+    }
+
+    /// Access the shared preflight cache (for embedder reset /
+    /// tests).
+    pub fn preflight_cache(&self) -> &Arc<PreflightCache> {
+        &self.preflight_cache
     }
 
     /// Load a resource by URL (http/https, data:, file://).
@@ -633,5 +732,246 @@ mod tests {
         assert!(!serialised.contains("/page"));
         assert!(!serialised.contains("secret"));
         assert!(!serialised.contains("frag"));
+    }
+}
+
+#[cfg(test)]
+mod preflight_integration_tests {
+    use super::*;
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use transport::TransportConfig;
+
+    /// Stand up a TCP server that answers each accepted
+    /// connection with the next scripted response, recording the
+    /// raw request bytes seen on each connection so test
+    /// assertions can verify the OPTIONS preflight + actual
+    /// request shape.
+    ///
+    /// The returned `Arc<Mutex<Vec<String>>>` accumulates request
+    /// strings (UTF-8-lossy) in accept order.  The function
+    /// shuts down once `responses.len()` connections have been
+    /// served.
+    async fn spawn_scripted_server(
+        responses: Vec<&'static [u8]>,
+    ) -> (u16, StdArc<StdMutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let recorded: StdArc<StdMutex<Vec<String>>> = StdArc::new(StdMutex::new(Vec::new()));
+        let recorded_clone = StdArc::clone(&recorded);
+        tokio::spawn(async move {
+            for body in responses {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 4096];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                recorded_clone.lock().unwrap().push(req);
+                stream.write_all(body).await.ok();
+            }
+        });
+        (port, recorded)
+    }
+
+    fn test_client() -> NetClient {
+        NetClient::with_config(NetClientConfig {
+            transport: TransportConfig {
+                allow_private_ips: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+    }
+
+    fn cors_request(method: &str, port: u16, headers: Vec<(String, String)>) -> Request {
+        Request {
+            method: method.to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{port}/data")).unwrap(),
+            headers,
+            body: Bytes::new(),
+            origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+            mode: RequestMode::Cors,
+            credentials: CredentialsMode::SameOrigin,
+            redirect: RedirectMode::Follow,
+        }
+    }
+
+    #[tokio::test]
+    async fn cors_simple_request_skips_preflight() {
+        // Single-response server: cross-origin GET with no custom
+        // headers → no preflight needed; a single GET round-trip
+        // suffices.
+        let (port, recorded) = spawn_scripted_server(vec![
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: http://example.com\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+        ]).await;
+
+        let client = test_client();
+        let request = cors_request("GET", port, vec![]);
+        let response = client.send(request).await.unwrap();
+        assert_eq!(response.status, 200);
+        let recorded = recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert!(recorded[0].starts_with("GET "));
+    }
+
+    #[tokio::test]
+    async fn cors_custom_header_issues_preflight_first() {
+        // Two-response server: OPTIONS (204 with allow headers) → GET (200).
+        let (port, recorded) = spawn_scripted_server(vec![
+            b"HTTP/1.1 204 No Content\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Access-Control-Allow-Headers: x-custom\r\n\
+              Access-Control-Allow-Methods: GET\r\n\
+              Access-Control-Max-Age: 60\r\n\
+              Content-Length: 0\r\n\
+              Connection: close\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Content-Length: 2\r\nConnection: close\r\n\r\nok",
+        ])
+        .await;
+
+        let client = test_client();
+        let request = cors_request("GET", port, vec![("X-Custom".into(), "1".into())]);
+        let response = client.send(request).await.unwrap();
+        assert_eq!(response.status, 200);
+        let recorded = recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 2, "expected OPTIONS + GET");
+        assert!(
+            recorded[0].starts_with("OPTIONS "),
+            "first request should be OPTIONS, got: {}",
+            recorded[0]
+        );
+        assert!(
+            recorded[0]
+                .to_ascii_lowercase()
+                .contains("access-control-request-method: get"),
+            "OPTIONS should include ACRM"
+        );
+        assert!(
+            recorded[0]
+                .to_ascii_lowercase()
+                .contains("access-control-request-headers: x-custom"),
+            "OPTIONS should include ACRH"
+        );
+        assert!(recorded[1].starts_with("GET "));
+    }
+
+    #[tokio::test]
+    async fn preflight_method_rejection_blocks_request() {
+        // OPTIONS responds without listing PUT in ACAM → preflight
+        // fails closed; actual PUT is never sent.
+        let (port, recorded) = spawn_scripted_server(vec![
+            b"HTTP/1.1 204 No Content\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Access-Control-Allow-Methods: GET\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+        let client = test_client();
+        let request = cors_request("PUT", port, vec![]);
+        let err = client.send(request).await.unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+        let recorded = recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 1, "actual PUT must NOT be dispatched");
+        assert!(recorded[0].starts_with("OPTIONS "));
+    }
+
+    #[tokio::test]
+    async fn preflight_5xx_blocks_request() {
+        let (port, recorded) = spawn_scripted_server(vec![
+            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+        let client = test_client();
+        let request = cors_request("PUT", port, vec![]);
+        let err = client.send(request).await.unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+        let recorded = recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn preflight_acao_mismatch_blocks_request() {
+        let (port, _recorded) = spawn_scripted_server(vec![
+            b"HTTP/1.1 204 No Content\r\n\
+              Access-Control-Allow-Origin: http://attacker.com\r\n\
+              Access-Control-Allow-Methods: PUT\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+        let client = test_client();
+        let request = cors_request("PUT", port, vec![]);
+        let err = client.send(request).await.unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    #[tokio::test]
+    async fn preflight_cache_hit_skips_options_round_trip() {
+        // First request: OPTIONS + actual.  Cache stores
+        // allowance with max-age=60.  Second identical request
+        // should skip OPTIONS and dispatch only the actual.
+        let (port, recorded) = spawn_scripted_server(vec![
+            b"HTTP/1.1 204 No Content\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Access-Control-Allow-Headers: x-custom\r\n\
+              Access-Control-Allow-Methods: GET\r\n\
+              Access-Control-Max-Age: 60\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Content-Length: 2\r\nConnection: close\r\n\r\nok",
+            b"HTTP/1.1 200 OK\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Content-Length: 2\r\nConnection: close\r\n\r\nok",
+        ])
+        .await;
+
+        let client = test_client();
+        let request1 = cors_request("GET", port, vec![("X-Custom".into(), "1".into())]);
+        let request2 = cors_request("GET", port, vec![("X-Custom".into(), "1".into())]);
+        client.send(request1).await.unwrap();
+        client.send(request2).await.unwrap();
+        let recorded = recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 3, "OPTIONS + GET + GET (cache hit on 2nd)");
+        assert!(recorded[0].starts_with("OPTIONS "));
+        assert!(recorded[1].starts_with("GET "));
+        assert!(recorded[2].starts_with("GET "));
+    }
+
+    #[tokio::test]
+    async fn cors_redirect_requiring_preflight_fails_closed() {
+        // Same-origin first hop with non-simple method redirects
+        // cross-origin → would require re-preflight which is
+        // deferred; broker fails closed with CorsBlocked.
+        let (origin_port, _origin_rec) = spawn_scripted_server(vec![
+            b"HTTP/1.1 200 OK\r\n\
+              Access-Control-Allow-Origin: http://example.com\r\n\
+              Access-Control-Allow-Methods: PUT\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n",
+            b"HTTP/1.1 302 Found\r\n\
+              Location: http://127.0.0.2:1/dest\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+
+        let client = test_client();
+        // Request from example.com to 127.0.0.1 (cross-origin),
+        // PUT triggers preflight on the original URL; the 302
+        // redirects to 127.0.0.2, which is cross-origin from BOTH
+        // example.com and 127.0.0.1 — the broker fails closed
+        // because re-preflight against 127.0.0.2 is deferred.
+        let request = Request {
+            method: "PUT".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{origin_port}/start")).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+            mode: RequestMode::Cors,
+            credentials: CredentialsMode::SameOrigin,
+            redirect: RedirectMode::Follow,
+        };
+        let err = client.send(request).await.unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
     }
 }
