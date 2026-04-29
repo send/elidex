@@ -237,6 +237,7 @@ fn execute_submission(
                 "application/x-www-form-urlencoded".to_string(),
             )],
             body: bytes::Bytes::from(encoded),
+            ..Default::default()
         };
         super::navigation::handle_navigate(state, target_url, false, Some(request));
     }

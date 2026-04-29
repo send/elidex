@@ -365,6 +365,7 @@ mod tests {
             url: url::Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap(),
             headers: Vec::new(),
             body: Bytes::new(),
+            ..Default::default()
         };
 
         let response = transport.send(&request).await.unwrap();
@@ -409,6 +410,7 @@ mod tests {
             url: url::Url::parse("http://127.0.0.1:1/").unwrap(),
             headers: Vec::new(),
             body: Bytes::new(),
+            ..Default::default()
         };
 
         let result = transport.send(&request).await;

@@ -88,6 +88,9 @@ pub enum NetErrorKind {
     SsrfBlocked,
     /// Too many redirects.
     TooManyRedirects,
+    /// Redirect blocked by `request.redirect = "error"` (WHATWG
+    /// Fetch §5.3).
+    BadRedirect,
     /// CORS policy violation.
     CorsBlocked,
     /// Response body exceeded the size limit.
@@ -110,6 +113,7 @@ impl fmt::Display for NetErrorKind {
             Self::TlsFailure => f.write_str("TLS failure"),
             Self::SsrfBlocked => f.write_str("SSRF blocked"),
             Self::TooManyRedirects => f.write_str("too many redirects"),
+            Self::BadRedirect => f.write_str("redirect blocked by request.redirect=error"),
             Self::CorsBlocked => f.write_str("CORS blocked"),
             Self::ResponseTooLarge => f.write_str("response too large"),
             Self::InvalidUrl => f.write_str("invalid URL"),

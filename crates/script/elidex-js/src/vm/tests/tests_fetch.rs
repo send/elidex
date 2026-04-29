@@ -25,6 +25,13 @@ use super::super::Vm;
 
 fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
     let mut vm = Vm::new();
+    // Same-origin context so HTTP fetches classify as Basic.
+    // Copilot R3 (PR #133): without setting `current_url` to an
+    // HTTP origin, the default `about:blank` would now serialize
+    // to an opaque origin, forcing the cors path and rejecting
+    // every fetch in this happy-path test suite.
+    vm.inner.navigation.current_url =
+        url::Url::parse("http://example.com/page").expect("valid base URL");
     vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(responses)));
     vm
 }
@@ -129,8 +136,13 @@ fn fetch_with_no_handle_rejects_type_error() {
 fn fetch_invalid_url_rejects_type_error() {
     let url = url::Url::parse("http://example.com/").expect("valid");
     let mut vm = mock_vm(vec![(url, Ok(ok_response("http://example.com/", 200, "")))]);
-    // Relative URL against the default `about:blank` base fails
-    // `Url::join` → `TypeError`.
+    // Override the helper's HTTP default with `about:blank` so
+    // the relative URL has no base to join against — `Url::join`
+    // fails → `TypeError`.  (`mock_vm` post-Copilot R3 defaults
+    // to `http://example.com/page` for same-origin classification
+    // in the rest of this suite, but this test specifically
+    // exercises the no-base failure mode.)
+    vm.inner.navigation.current_url = url::Url::parse("about:blank").expect("valid");
     vm.eval(
         "globalThis.r = null; \
          fetch('/relative').catch(e => { globalThis.r = e instanceof TypeError; });",

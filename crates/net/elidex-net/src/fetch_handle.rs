@@ -117,6 +117,7 @@ mod tests {
             url: url::Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap(),
             headers: Vec::new(),
             body: bytes::Bytes::new(),
+            ..Default::default()
         };
 
         let response = handle.send_blocking(request).unwrap();
@@ -137,6 +138,7 @@ mod tests {
             url: url::Url::parse("http://127.0.0.1:1/").unwrap(),
             headers: Vec::new(),
             body: bytes::Bytes::new(),
+            ..Default::default()
         };
 
         let result = handle.send_blocking(request);

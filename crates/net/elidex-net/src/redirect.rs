@@ -6,7 +6,7 @@
 
 use crate::error::{NetError, NetErrorKind};
 use crate::transport::HttpTransport;
-use crate::{Request, Response};
+use crate::{RedirectMode, Request, Response};
 use bytes::Bytes;
 
 /// Follow redirects for a request, returning the final response.
@@ -15,6 +15,14 @@ use bytes::Bytes;
 /// - 307, 308: preserve method and body
 /// - Each redirect URL is validated against SSRF rules (unless
 ///   `allow_private_ips` is true, for testing)
+///
+/// Honours [`Request::redirect`]:
+/// - [`RedirectMode::Follow`] (default): auto-follow as above.
+/// - [`RedirectMode::Error`]: return [`NetErrorKind::BadRedirect`]
+///   on the first 3xx (no further hops).
+/// - [`RedirectMode::Manual`]: return the 3xx response as-is so
+///   callers can construct an `OpaqueRedirect`-typed Response
+///   (WHATWG Fetch §4.4).
 ///
 /// # Limitations (M2-1)
 ///
@@ -34,12 +42,30 @@ pub async fn follow_redirects(
 ) -> Result<Response, NetError> {
     let skip_ssrf = transport.config().allow_private_ips;
     let mut redirects = 0u32;
+    let redirect_mode = request.redirect;
 
     loop {
         let response = transport.send(&request).await?;
 
         if !is_redirect(response.status) {
             return Ok(response);
+        }
+        // Honour the request's redirect mode (WHATWG Fetch §5.3).
+        // `Manual` returns the 3xx as-is for opaque-redirect
+        // Response wrapping; `Error` short-circuits so the JS
+        // path surfaces a `TypeError("Failed to fetch")`.
+        match redirect_mode {
+            RedirectMode::Follow => {}
+            RedirectMode::Manual => return Ok(response),
+            RedirectMode::Error => {
+                return Err(NetError::new(
+                    NetErrorKind::BadRedirect,
+                    format!(
+                        "{} redirect blocked by request.redirect=error",
+                        response.status
+                    ),
+                ));
+            }
         }
         if redirects >= max_redirects {
             return Err(NetError::new(
@@ -115,6 +141,7 @@ pub async fn follow_redirects(
             headers,
             url: next_url,
             body,
+            ..request
         };
     }
 }
@@ -220,6 +247,7 @@ mod tests {
             url: url::Url::parse(&format!("http://127.0.0.1:{port}/src")).unwrap(),
             headers: Vec::new(),
             body: Bytes::new(),
+            ..Default::default()
         };
 
         let response = follow_redirects(&transport, request, 20).await.unwrap();
@@ -262,6 +290,7 @@ mod tests {
             url: url::Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap(),
             headers: Vec::new(),
             body: Bytes::new(),
+            ..Default::default()
         };
 
         let result = follow_redirects(&transport, request, 20).await;
@@ -328,6 +357,7 @@ mod tests {
             url: url::Url::parse(&format!("http://127.0.0.1:{port}/src")).unwrap(),
             headers: Vec::new(),
             body: Bytes::new(),
+            ..Default::default()
         };
 
         let response = follow_redirects(&transport, request, 20).await.unwrap();
@@ -393,5 +423,68 @@ mod tests {
 
         let e = url::Url::parse("https://example.com:8443/a").unwrap();
         assert!(!is_same_origin(&a, &e)); // different port
+    }
+
+    /// Spawn a TCP listener that always answers with the supplied
+    /// raw bytes on the first accepted connection.  Returns the
+    /// bound port.  Used by the redirect-mode tests below.
+    async fn spawn_one_shot(response_bytes: &'static [u8]) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            stream.write_all(response_bytes).await.unwrap();
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn redirect_mode_error_rejects_3xx() {
+        use crate::transport::TransportConfig;
+        let port = spawn_one_shot(
+            b"HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        let transport = HttpTransport::with_config(TransportConfig {
+            allow_private_ips: true,
+            ..Default::default()
+        });
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            redirect: RedirectMode::Error,
+            ..Default::default()
+        };
+        let err = follow_redirects(&transport, request, 20).await.unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::BadRedirect);
+    }
+
+    #[tokio::test]
+    async fn redirect_mode_manual_returns_3xx_unfollowed() {
+        use crate::transport::TransportConfig;
+        let port = spawn_one_shot(
+            b"HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        let transport = HttpTransport::with_config(TransportConfig {
+            allow_private_ips: true,
+            ..Default::default()
+        });
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            redirect: RedirectMode::Manual,
+            ..Default::default()
+        };
+        let response = follow_redirects(&transport, request, 20).await.unwrap();
+        assert_eq!(response.status, 302);
     }
 }

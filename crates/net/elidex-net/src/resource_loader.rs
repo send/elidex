@@ -114,6 +114,7 @@ impl SchemeDispatcher {
             url: url.clone(),
             headers,
             body: Bytes::new(),
+            ..Default::default()
         };
 
         let max_redirects = self.transport.config().max_redirects;

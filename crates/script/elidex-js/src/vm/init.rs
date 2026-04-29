@@ -203,6 +203,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 pending_fetches: HashMap::new(),
                 #[cfg(feature = "engine")]
+                pending_fetch_cors: HashMap::new(),
+                #[cfg(feature = "engine")]
                 fetch_signal_back_refs: HashMap::new(),
                 #[cfg(feature = "engine")]
                 abort_signal_prototype: None,

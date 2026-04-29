@@ -42,6 +42,7 @@ pub fn sw_thread_main(
         url: script_url.clone(),
         headers: vec![("Service-Worker".to_string(), "script".to_string())],
         body: bytes::Bytes::new(),
+        ..Default::default()
     };
 
     let response = match network_handle.fetch_blocking(request) {

@@ -53,6 +53,7 @@ pub fn worker_thread_main(
         url: script_url.clone(),
         headers: Vec::new(),
         body: bytes::Bytes::new(),
+        ..Default::default()
     };
 
     let response = match network_handle.fetch_blocking(request) {

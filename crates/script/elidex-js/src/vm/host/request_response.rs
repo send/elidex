@@ -83,45 +83,50 @@ use super::request_response_accessors::{
 };
 
 // ---------------------------------------------------------------------------
-// Enums — stored on state but not enforced in Phase 2
+// Enums (WHATWG Fetch §5.3 / §5.5)
 // ---------------------------------------------------------------------------
 
-/// `RequestRedirect` (WHATWG §5.3).  Phase 2 stores the selected
-/// mode verbatim but does not change `fetch()` behaviour yet —
-/// the full redirect state machine lands with async fetch.  The
-/// unused variants are kept so the upcoming `init.redirect`
-/// parse path can select them without redefining the enum when
-/// `fetch()` integration lands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(crate) enum RedirectMode {
-    Follow,
-    Error,
-    Manual,
-}
+/// `RequestRedirect` (WHATWG §5.3).  Honoured by the broker
+/// `redirect::follow_redirects` loop: `Follow` auto-follows up
+/// to `max_redirects`; `Error` rejects with `NetError` on the
+/// first 3xx; `Manual` returns the 3xx as-is so the JS path can
+/// surface an `OpaqueRedirect`-typed Response.
+///
+/// Re-exported from `elidex-net` so the broker `Request` field
+/// and the JS-side state share a single type without round-trip
+/// conversion.
+pub(crate) use elidex_net::RedirectMode;
 
-/// `RequestMode` (WHATWG §5.3).
+/// `RequestMode` (WHATWG §5.3).  `Cors` / `NoCors` / `SameOrigin`
+/// are reachable from the Request constructor and `fetch()`;
+/// `Navigate` is internal to navigation requests and rejected
+/// with `TypeError` when set on `init` (spec §5.3 step 23).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum RequestMode {
     Cors,
     NoCors,
     SameOrigin,
+    /// Reserved for the navigation pipeline's internal Request
+    /// construction; never reached from JS-facing init parsing
+    /// (the parser throws TypeError on the string).
+    #[allow(dead_code)]
     Navigate,
 }
 
-/// `RequestCredentials` (WHATWG §5.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(crate) enum RequestCredentials {
-    Omit,
-    SameOrigin,
-    Include,
-}
+/// `RequestCredentials` (WHATWG §5.3).  Threaded through the
+/// broker so `Omit` suppresses the cookie attach, `SameOrigin`
+/// (default) attaches only on same-origin, and `Include` always
+/// attaches.  Re-exported from `elidex-net` (where the type is
+/// named `CredentialsMode`) so the JS-side state and the broker
+/// `Request` field share a single value without conversion.
+pub(crate) use elidex_net::CredentialsMode as RequestCredentials;
 
-/// `RequestCache` (WHATWG §5.3).
+/// `RequestCache` (WHATWG §5.3).  HTTP cache modes; PR5-cors
+/// injects the spec-prescribed `Cache-Control` / `Pragma`
+/// headers but does not implement an on-disk HTTP cache, so
+/// `ForceCache` / `OnlyIfCached` round-trip without affecting
+/// network behaviour (documented gap — see PR5-cors plan).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum RequestCache {
     Default,
     NoStore,
@@ -131,13 +136,14 @@ pub(crate) enum RequestCache {
     OnlyIfCached,
 }
 
-/// `ResponseType` (WHATWG §5.5).  Stored on Response state and
-/// surfaced via the `.type` IDL attribute.  The `Basic` / `Cors`
-/// / `Opaque` / `OpaqueRedirect` arms are selected only by the
-/// upcoming `fetch()` path once CORS resolution runs, so they
-/// appear unused here.
+/// `ResponseType` (WHATWG §5.5).  Surfaced via the `.type` IDL
+/// attribute.  All six variants (`Basic` / `Cors` / `Default` /
+/// `Error` / `Opaque` / `OpaqueRedirect`) are constructible
+/// today: `Basic` / `Cors` / `Opaque` / `OpaqueRedirect` from
+/// the fetch settlement path's CORS classifier
+/// ([`super::cors::classify_response_type`]); `Default` from
+/// `new Response(...)`; `Error` from `Response.error()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum ResponseType {
     Basic,
     Cors,
@@ -145,6 +151,122 @@ pub(crate) enum ResponseType {
     Error,
     Opaque,
     OpaqueRedirect,
+}
+
+// ---------------------------------------------------------------------------
+// `init.*` enum-value parsing (WHATWG WebIDL §3.10.7 dictionary
+// member conversion: invalid enum strings throw TypeError; an
+// absent member falls through to the caller-provided default).
+// ---------------------------------------------------------------------------
+
+/// Parse `init.mode`'s string into a [`RequestMode`].  Returns
+/// `Ok(None)` when the input is `undefined` (member absent).
+/// `null` is rejected: WebIDL enum members are not nullable so
+/// `null` ToString-coerces to `"null"`, which is not a valid
+/// enum value (throws).  `"navigate"` is also rejected from the
+/// JS-facing init dictionary per WHATWG Fetch §5.3 step 23
+/// (navigate is reserved for navigation requests built
+/// internally).
+pub(crate) fn parse_request_mode(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    operation: &str,
+) -> Result<Option<RequestMode>, VmError> {
+    if matches!(value, JsValue::Undefined) {
+        return Ok(None);
+    }
+    let sid = super::super::coerce::to_string(ctx.vm, value)?;
+    let raw = ctx.vm.strings.get_utf8(sid);
+    Ok(Some(match raw.as_str() {
+        "cors" => RequestMode::Cors,
+        "no-cors" => RequestMode::NoCors,
+        "same-origin" => RequestMode::SameOrigin,
+        "navigate" => {
+            return Err(VmError::type_error(format!(
+                "{operation}: 'navigate' is not a valid request mode"
+            )));
+        }
+        other => {
+            return Err(VmError::type_error(format!(
+                "{operation}: '{other}' is not a valid request mode"
+            )));
+        }
+    }))
+}
+
+/// Parse `init.credentials` into a [`RequestCredentials`].  `Ok(None)`
+/// for `undefined`; invalid strings throw TypeError per WebIDL.
+pub(crate) fn parse_request_credentials(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    operation: &str,
+) -> Result<Option<RequestCredentials>, VmError> {
+    if matches!(value, JsValue::Undefined) {
+        return Ok(None);
+    }
+    let sid = super::super::coerce::to_string(ctx.vm, value)?;
+    let raw = ctx.vm.strings.get_utf8(sid);
+    Ok(Some(match raw.as_str() {
+        "omit" => RequestCredentials::Omit,
+        "same-origin" => RequestCredentials::SameOrigin,
+        "include" => RequestCredentials::Include,
+        other => {
+            return Err(VmError::type_error(format!(
+                "{operation}: '{other}' is not a valid credentials mode"
+            )));
+        }
+    }))
+}
+
+/// Parse `init.redirect` into a [`RedirectMode`].  `Ok(None)` for
+/// `undefined`; invalid strings throw TypeError per WebIDL.
+pub(crate) fn parse_request_redirect(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    operation: &str,
+) -> Result<Option<RedirectMode>, VmError> {
+    if matches!(value, JsValue::Undefined) {
+        return Ok(None);
+    }
+    let sid = super::super::coerce::to_string(ctx.vm, value)?;
+    let raw = ctx.vm.strings.get_utf8(sid);
+    Ok(Some(match raw.as_str() {
+        "follow" => RedirectMode::Follow,
+        "error" => RedirectMode::Error,
+        "manual" => RedirectMode::Manual,
+        other => {
+            return Err(VmError::type_error(format!(
+                "{operation}: '{other}' is not a valid redirect mode"
+            )));
+        }
+    }))
+}
+
+/// Parse `init.cache` into a [`RequestCache`].  `Ok(None)` for
+/// `undefined`; invalid strings throw TypeError per WebIDL.
+pub(crate) fn parse_request_cache(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    operation: &str,
+) -> Result<Option<RequestCache>, VmError> {
+    if matches!(value, JsValue::Undefined) {
+        return Ok(None);
+    }
+    let sid = super::super::coerce::to_string(ctx.vm, value)?;
+    let raw = ctx.vm.strings.get_utf8(sid);
+    Ok(Some(match raw.as_str() {
+        "default" => RequestCache::Default,
+        "no-store" => RequestCache::NoStore,
+        "reload" => RequestCache::Reload,
+        "no-cache" => RequestCache::NoCache,
+        "force-cache" => RequestCache::ForceCache,
+        "only-if-cached" => RequestCache::OnlyIfCached,
+        other => {
+            return Err(VmError::type_error(format!(
+                "{operation}: '{other}' is not a valid cache mode"
+            )));
+        }
+    }))
 }
 
 // Request constructor tuple aliases (`RequestInputParts` /
@@ -166,13 +288,9 @@ pub(crate) struct RequestState {
     /// Paired Headers instance (guard = `request` in full spec;
     /// Phase 2 uses `none` with loose validation).
     pub(crate) headers_id: ObjectId,
-    #[allow(dead_code)]
     pub(crate) redirect: RedirectMode,
-    #[allow(dead_code)]
     pub(crate) mode: RequestMode,
-    #[allow(dead_code)]
     pub(crate) credentials: RequestCredentials,
-    #[allow(dead_code)]
     pub(crate) cache: RequestCache,
 }
 

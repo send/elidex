@@ -799,6 +799,7 @@ pub(super) fn abort_signal(
             // routing) and reclaim `promise` mid-settle.  Defensive
             // root matches the surrounding codebase's invariant.
             if let Some(promise) = ctx.vm.pending_fetches.remove(&fetch_id) {
+                ctx.vm.pending_fetch_cors.remove(&fetch_id);
                 let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
                 super::blob::reject_promise_sync(&mut g, promise, materialised_reason);
                 drop(g);
