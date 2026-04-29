@@ -558,7 +558,7 @@ impl EcsDom {
             return false;
         }
         let has_component = self.world.get::<&Attributes>(entity).is_ok();
-        let inserted = if has_component {
+        let did_set = if has_component {
             if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
                 attrs.set(name, value);
                 true
@@ -570,20 +570,22 @@ impl EcsDom {
             attrs.set(name, value);
             self.world.insert_one(entity, attrs).is_ok()
         };
-        if inserted {
+        if did_set {
             self.rev_version(entity);
         }
-        inserted
+        did_set
     }
 
-    /// Remove attribute `name` from `entity`.  No-op if the entity is
-    /// destroyed, the `Attributes` component is absent, or the key is
-    /// missing.
+    /// Remove attribute `name` from `entity` if present, then
+    /// unconditionally bump [`rev_version`](Self::rev_version).
     ///
-    /// Bumps [`rev_version`](Self::rev_version) unconditionally —
-    /// even when the attribute was absent — so attribute-filtered
-    /// live collections invalidate cleanly.  See the SP2 entity-
-    /// list cache in `elidex-js::vm::host::dom_collection`.  The
+    /// The attribute-storage write is a no-op when the entity is
+    /// destroyed, the `Attributes` component is absent, or the key
+    /// is missing — but the version bump fires regardless, so
+    /// attribute-filtered live collections invalidate cleanly even
+    /// for these spurious calls (the next read pays one walk and
+    /// re-caches at the same version).  See the SP2 entity-list
+    /// cache in `elidex-js::vm::host::dom_collection`; the
     /// `set_attribute` rationale on over-invalidation applies here
     /// too.
     pub fn remove_attribute(&mut self, entity: Entity, name: &str) {
