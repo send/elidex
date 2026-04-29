@@ -66,6 +66,8 @@ pub(super) mod events_ui;
 #[cfg(feature = "engine")]
 pub(super) mod fetch;
 #[cfg(feature = "engine")]
+pub(super) mod fetch_tick;
+#[cfg(feature = "engine")]
 pub(crate) mod form_data;
 pub(super) mod globals;
 #[cfg(feature = "engine")]

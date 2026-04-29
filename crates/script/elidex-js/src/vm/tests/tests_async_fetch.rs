@@ -90,6 +90,36 @@ fn tick_network_with_no_pending_is_noop() {
 }
 
 #[test]
+fn tick_network_drains_microtasks_without_handle() {
+    // R4.1 regression: the public `Vm::tick_network` contract
+    // promises a microtask checkpoint at the end "unconditionally";
+    // earlier impl skipped the drain when no NetworkHandle was
+    // installed, leaving queued reactions un-drained on
+    // handle-less embedders.  Verify by enqueuing a Promise
+    // reaction inside an immediate-fulfilled `.then` chain (which
+    // the eval microtask drain already runs), then a *second*
+    // `.then` whose reaction is queued for the next drain.  After
+    // a handle-less `tick_network`, the deferred reaction must
+    // have run.
+    let mut vm = Vm::new();
+    // No `install_network_handle` — handle is None.
+    vm.eval(
+        "globalThis.r = 0; \
+         Promise.resolve(7).then(v => Promise.resolve(v).then(w => { globalThis.r = w; }));",
+    )
+    .unwrap();
+    // Eval drains microtasks once at end-of-script, but the
+    // chained .then queues a second reaction that runs at the
+    // *next* drain.  Verify with a simple counter: r should be 7
+    // after the second drain.
+    vm.tick_network();
+    match vm.get_global("r") {
+        Some(JsValue::Number(n)) => assert!((n - 7.0).abs() < f64::EPSILON),
+        other => panic!("expected r to be 7 after handle-less tick, got {other:?}"),
+    }
+}
+
+#[test]
 fn inflight_abort_rejects_with_signal_reason_synchronously() {
     // Mid-flight `controller.abort()` (between dispatch and tick)
     // settles the Promise with the signal's reason synchronously.
