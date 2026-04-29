@@ -297,6 +297,7 @@ fn resolve_and_fetch(
             url: resolved,
             version: elidex_net::HttpVersion::H1,
             url_list: vec![],
+            is_redirect_tainted: false,
         });
     }
     let response = network_handle

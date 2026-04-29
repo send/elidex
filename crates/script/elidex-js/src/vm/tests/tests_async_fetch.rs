@@ -31,6 +31,7 @@ fn ok_response(url: &str, body: &'static str) -> NetResponse {
         url: parsed.clone(),
         version: HttpVersion::H1,
         url_list: vec![parsed],
+        is_redirect_tainted: false,
     }
 }
 
@@ -866,6 +867,7 @@ fn cors_response(url: &str, allow_origin: Option<&str>) -> NetResponse {
         url: parsed.clone(),
         version: HttpVersion::H1,
         url_list: vec![parsed],
+        is_redirect_tainted: false,
     }
 }
 
@@ -878,6 +880,7 @@ fn redirect_302_response(url: &str) -> NetResponse {
         url: parsed.clone(),
         version: HttpVersion::H1,
         url_list: vec![parsed],
+        is_redirect_tainted: false,
     }
 }
 

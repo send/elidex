@@ -5,7 +5,8 @@
 //! rules before connecting.
 
 use crate::error::{NetError, NetErrorKind};
-use crate::preflight::requires_preflight;
+use crate::preflight::{requires_preflight, run_preflight};
+use crate::preflight_cache::PreflightCache;
 use crate::transport::HttpTransport;
 use crate::{CredentialsMode, RedirectMode, Request, RequestMode, Response};
 use bytes::Bytes;
@@ -25,6 +26,34 @@ use bytes::Bytes;
 ///   callers can construct an `OpaqueRedirect`-typed Response
 ///   (WHATWG Fetch §4.4).
 ///
+/// `preflight_cache` participates in the WHATWG Fetch §4.4 step 14
+/// re-preflight on cross-origin CORS redirects: when the redirect
+/// target would itself require a preflight ([`requires_preflight`]
+/// against the post-redirect probe), an OPTIONS round-trip is
+/// dispatched against `next_url` (or short-circuited via the
+/// cache) before the actual redirected request is sent.  Pass
+/// `None` for embedder-driven paths that never run cors-mode
+/// fetches (e.g. [`crate::resource_loader::ResourceLoader`]); the
+/// cors-redirect handling silently no-ops for `mode != Cors`
+/// requests so a `None` cache is only observable when a misconfigured
+/// caller routes a cors-mode request through such a path —
+/// `cors_redirect_handle` then fails closed.
+///
+/// On success the returned [`Response`] carries:
+/// - `url_list` = full redirect chain (one entry per hop, original
+///   request URL first, [`Response::url`] last) — WHATWG Fetch §3.1.4.
+/// - `is_redirect_tainted` = `true` once **any** hop crossed origin
+///   per §4.4 step 14.3 (the *redirect-tainted origin flag*).  The
+///   classifier in `crates/script/elidex-js/src/vm/host/cors.rs`
+///   reads this so a chain that crossed origin even once is routed
+///   through the cors path even when the final URL happens to be
+///   same-origin with the initiator.
+///
+/// The second tuple element is the post-chain credentials mode —
+/// an `Include` that crossed origin gets downgraded to `SameOrigin`
+/// per §4.4 step 14.5.  [`crate::NetClient::send`] threads this
+/// through the cookie-storage gate.
+///
 /// # Limitations (M2-1)
 ///
 /// Cookies are not re-attached or stored on intermediate redirect hops.
@@ -40,15 +69,31 @@ pub async fn follow_redirects(
     transport: &HttpTransport,
     mut request: Request,
     max_redirects: u32,
+    preflight_cache: Option<&PreflightCache>,
 ) -> Result<(Response, CredentialsMode), NetError> {
     let skip_ssrf = transport.config().allow_private_ips;
     let mut redirects = 0u32;
     let redirect_mode = request.redirect;
+    // Accumulate the spec's "request URL list" (§3.1.4) across
+    // hops.  The transport stamps a single-URL list onto each
+    // hop's response; we override the *final* response's
+    // `url_list` with the full chain so callers see one entry per
+    // hop.  Seeded with the original request URL so even a
+    // single-hop (no-redirect) response surfaces a one-element
+    // list rather than the transport's identical clone.
+    let mut url_list: Vec<url::Url> = vec![request.url.clone()];
+    // Redirect-tainted origin flag (§4.4 step 14.3) — `true` once
+    // any hop crossed origin.  Persists across subsequent hops so
+    // a chain that briefly returned to the initiator origin still
+    // surfaces tainted=true to the classifier.
+    let mut tainted = false;
 
     loop {
-        let response = transport.send(&request).await?;
+        let mut response = transport.send(&request).await?;
 
         if !is_redirect(response.status) {
+            response.url_list = url_list;
+            response.is_redirect_tainted = tainted;
             return Ok((response, request.credentials));
         }
         // Honour the request's redirect mode (WHATWG Fetch §5.3).
@@ -57,7 +102,11 @@ pub async fn follow_redirects(
         // path surfaces a `TypeError("Failed to fetch")`.
         match redirect_mode {
             RedirectMode::Follow => {}
-            RedirectMode::Manual => return Ok((response, request.credentials)),
+            RedirectMode::Manual => {
+                response.url_list = url_list;
+                response.is_redirect_tainted = tainted;
+                return Ok((response, request.credentials));
+            }
             RedirectMode::Error => {
                 return Err(NetError::new(
                     NetErrorKind::BadRedirect,
@@ -77,67 +126,27 @@ pub async fn follow_redirects(
 
         redirects += 1;
 
-        // Extract Location header
-        let location = response
-            .headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("location"))
-            .map(|(_, v)| v.clone());
+        let next_url = resolve_next_url(&request, &response, skip_ssrf)?;
+        let (method, body, headers) = prepare_next_hop_request(&request, &response, &next_url);
 
-        let location = location.ok_or_else(|| {
-            NetError::new(
-                NetErrorKind::Other,
-                format!("{} redirect without Location header", response.status),
-            )
-        })?;
+        let credentials = cors_redirect_handle(
+            transport,
+            preflight_cache,
+            &request,
+            &next_url,
+            &method,
+            &headers,
+            &body,
+        )
+        .await?;
 
-        // Resolve relative URL against the current request URL
-        let next_url = request.url.join(&location).map_err(|e| {
-            NetError::with_source(
-                NetErrorKind::InvalidUrl,
-                format!("invalid redirect URL: {location}"),
-                e,
-            )
-        })?;
-
-        // SSRF re-validation on the redirect target (defense-in-depth).
-        //
-        // This is a URL-level check only. The real DNS-level guard is in
-        // `Connector::resolve_and_validate()`, which validates resolved IPs.
-        if !skip_ssrf {
-            elidex_plugin::url_security::validate_url(&next_url)?;
+        // Update the redirect-tainted flag *after* any cors-mode
+        // gating so a §4.4 step 14 fail-closed branch doesn't leak
+        // a partially-tainted state through a returned error.
+        if !is_same_origin(&request.url, &next_url) {
+            tainted = true;
         }
-
-        // Determine method/body for redirected request.
-        //
-        // RFC 9110 §15.4:
-        // - 303: always change to GET
-        // - 301, 302: change POST to GET (browser behavior), preserve other methods
-        // - 307, 308: preserve method and body
-        let changes_method = matches!(
-            (response.status, request.method.as_str()),
-            (303, _) | (301 | 302, "POST")
-        );
-        let (method, body) = if changes_method {
-            ("GET".to_string(), Bytes::new())
-        } else {
-            (request.method.clone(), request.body.clone())
-        };
-
-        let mut headers = filter_headers_for_redirect(&request.headers, &request.url, &next_url);
-
-        // RFC 9110 §15.4: when changing method to GET, strip request body headers.
-        if changes_method {
-            headers.retain(|(k, _)| {
-                let lower = k.to_ascii_lowercase();
-                lower != "content-type"
-                    && lower != "content-length"
-                    && lower != "content-encoding"
-                    && lower != "transfer-encoding"
-            });
-        }
-
-        let credentials = cors_redirect_credentials(&request, &next_url, &method, &headers, &body)?;
+        url_list.push(next_url.clone());
 
         request = Request {
             method,
@@ -150,16 +159,102 @@ pub async fn follow_redirects(
     }
 }
 
+/// Resolve the redirect target URL from a 3xx response's
+/// `Location` header against the current request URL, then run
+/// SSRF revalidation on the resolved URL (skipped when the
+/// transport is configured for private-IP testing).  Returns a
+/// `NetError` of kind `Other` when no `Location` is present and
+/// `InvalidUrl` for unparseable Locations.
+fn resolve_next_url(
+    request: &Request,
+    response: &Response,
+    skip_ssrf: bool,
+) -> Result<url::Url, NetError> {
+    let location = response
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("location"))
+        .map(|(_, v)| v.clone())
+        .ok_or_else(|| {
+            NetError::new(
+                NetErrorKind::Other,
+                format!("{} redirect without Location header", response.status),
+            )
+        })?;
+    let next_url = request.url.join(&location).map_err(|e| {
+        NetError::with_source(
+            NetErrorKind::InvalidUrl,
+            format!("invalid redirect URL: {location}"),
+            e,
+        )
+    })?;
+    // SSRF re-validation on the redirect target (defense-in-depth).
+    // This is a URL-level check only — the real DNS-level guard is
+    // in `Connector::resolve_and_validate()`, which validates
+    // resolved IPs.
+    if !skip_ssrf {
+        elidex_plugin::url_security::validate_url(&next_url)?;
+    }
+    Ok(next_url)
+}
+
+/// Build the method / body / headers triple for the redirected
+/// request per RFC 9110 §15.4:
+/// - 303: always change to GET (and drop body)
+/// - 301, 302: change POST to GET (browser behaviour), preserve
+///   other methods
+/// - 307, 308: preserve method and body
+///
+/// Cross-origin redirects strip credential headers
+/// ([`filter_headers_for_redirect`]), and method-changing
+/// redirects additionally drop request-body headers.
+fn prepare_next_hop_request(
+    request: &Request,
+    response: &Response,
+    next_url: &url::Url,
+) -> (String, Bytes, Vec<(String, String)>) {
+    let changes_method = matches!(
+        (response.status, request.method.as_str()),
+        (303, _) | (301 | 302, "POST")
+    );
+    let (method, body) = if changes_method {
+        ("GET".to_string(), Bytes::new())
+    } else {
+        (request.method.clone(), request.body.clone())
+    };
+    let mut headers = filter_headers_for_redirect(&request.headers, &request.url, next_url);
+    if changes_method {
+        headers.retain(|(k, _)| {
+            let lower = k.to_ascii_lowercase();
+            lower != "content-type"
+                && lower != "content-length"
+                && lower != "content-encoding"
+                && lower != "transfer-encoding"
+        });
+    }
+    (method, body, headers)
+}
+
 /// Apply WHATWG Fetch §4.4 step 14 paired-infra for a
-/// `mode = Cors` cross-origin redirect: fail closed when the
-/// redirected request would require a preflight (we don't
-/// re-issue preflight against the new origin yet — see
-/// `PR-cors-redirect-preflight` slot), and downgrade
-/// `Include` credentials to `SameOrigin` so the redirected
-/// hop doesn't surface cookies / Authorization picked up
-/// from the new origin's cookie jar.  Returns the credentials
-/// mode to use on the redirected request.
-fn cors_redirect_credentials(
+/// `mode = Cors` cross-origin redirect:
+///
+/// 1. Detect whether the redirected request would itself be
+///    "non-simple" (per [`requires_preflight`]).  If so,
+///    re-dispatch a preflight against `next_url` via
+///    [`run_preflight`] (or short-circuit via the cache).  A
+///    failed preflight is surfaced as
+///    [`NetErrorKind::CorsBlocked`] so the JS-side fetch rejects
+///    with `TypeError("Failed to fetch")`.
+/// 2. Downgrade `Include` credentials to `SameOrigin` so the
+///    redirected hop doesn't surface cookies / Authorization
+///    picked up from the new origin's cookie jar (§4.4 step 14.5).
+///
+/// `mode != Cors` paths short-circuit with the input credentials
+/// so embedder-driven loads (no `preflight_cache`) skip the §4.8
+/// machinery entirely.
+async fn cors_redirect_handle(
+    transport: &HttpTransport,
+    preflight_cache: Option<&PreflightCache>,
     request: &Request,
     next_url: &url::Url,
     method: &str,
@@ -172,6 +267,10 @@ fn cors_redirect_credentials(
     if is_same_origin(&request.url, next_url) {
         return Ok(request.credentials);
     }
+    // Probe representing the request that would actually go to
+    // `next_url` after method / header / body adjustments.  Used
+    // both for `requires_preflight` detection and as the input to
+    // `build_preflight_request` inside `run_preflight`.
     let probe = Request {
         method: method.to_string(),
         headers: headers.to_vec(),
@@ -183,10 +282,23 @@ fn cors_redirect_credentials(
         mode: request.mode,
     };
     if requires_preflight(&probe) {
-        return Err(NetError::new(
-            NetErrorKind::CorsBlocked,
-            "cross-origin CORS redirect requiring preflight is not supported",
-        ));
+        // §4.4 step 14.4 — re-issue preflight against the
+        // redirect target.  Without a cache reference (e.g.
+        // embedder-driven `ResourceLoader` paths) we must fail
+        // closed since dispatching a preflight without populating
+        // a cache would silently re-OPTIONS on every same-target
+        // redirect — a perf bug at minimum, and a contract
+        // violation since the embedder has no way to scope or
+        // reset the implicit cache.  In practice such callers
+        // never set `mode = Cors`, so this branch is only reached
+        // for misconfigured callers.
+        let cache = preflight_cache.ok_or_else(|| {
+            NetError::new(
+                NetErrorKind::CorsBlocked,
+                "cors-redirect preflight: cors-mode request routed through a path without a preflight cache",
+            )
+        })?;
+        run_preflight(transport, cache, &probe).await?;
     }
     Ok(if request.credentials == CredentialsMode::Include {
         CredentialsMode::SameOrigin
@@ -299,7 +411,9 @@ mod tests {
             ..Default::default()
         };
 
-        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20, None)
+            .await
+            .unwrap();
         assert_eq!(response.status, 200);
     }
 
@@ -342,7 +456,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = follow_redirects(&transport, request, 20).await;
+        let result = follow_redirects(&transport, request, 20, None).await;
         assert!(result.is_err());
     }
 
@@ -409,7 +523,9 @@ mod tests {
             ..Default::default()
         };
 
-        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20, None)
+            .await
+            .unwrap();
         assert_eq!(response.status, 200);
         assert_eq!(response.body.as_ref(), b"ok");
     }
@@ -510,7 +626,9 @@ mod tests {
             redirect: RedirectMode::Error,
             ..Default::default()
         };
-        let err = follow_redirects(&transport, request, 20).await.unwrap_err();
+        let err = follow_redirects(&transport, request, 20, None)
+            .await
+            .unwrap_err();
         assert_eq!(err.kind, NetErrorKind::BadRedirect);
     }
 
@@ -533,7 +651,9 @@ mod tests {
             redirect: RedirectMode::Manual,
             ..Default::default()
         };
-        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20, None)
+            .await
+            .unwrap();
         assert_eq!(response.status, 302);
     }
 }

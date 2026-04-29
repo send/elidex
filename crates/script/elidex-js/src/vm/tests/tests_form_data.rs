@@ -464,6 +464,7 @@ mod fetch_default_content_type {
             url: parsed.clone(),
             version: HttpVersion::H1,
             url_list: vec![parsed],
+            is_redirect_tainted: false,
         }
     }
 

@@ -166,7 +166,17 @@ impl HttpTransport {
                 body,
                 url: request.url.clone(),
                 version,
-                url_list: vec![],
+                // WHATWG Fetch §3.1.4 — a request's URL list is
+                // always at least one URL (the request URL).  The
+                // redirect loop overrides this with the full chain;
+                // for direct (non-redirected) sends the single-hop
+                // list mirrors the spec contract.
+                url_list: vec![request.url.clone()],
+                // The transport never sees redirects; only the
+                // redirect loop in `redirect::follow_redirects`
+                // promotes this to `true` when a chain crosses
+                // origin (WHATWG Fetch §4.4 step 14.3).
+                is_redirect_tainted: false,
             })
         })
         .await

@@ -227,6 +227,7 @@ impl VmInner {
                     &response.url,
                     response.status,
                     &response.headers,
+                    response.is_redirect_tainted,
                 );
                 match outcome {
                     CorsOutcome::Ok(classification) => {
