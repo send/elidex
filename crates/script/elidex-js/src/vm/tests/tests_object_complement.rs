@@ -748,6 +748,28 @@ fn to_locale_string_returns_string() {
     assert_eq!(eval_string("({}).toLocaleString();"), "[object Object]");
 }
 
+#[test]
+fn to_locale_string_accessor_getter_sees_primitive_receiver() {
+    // §7.3.2 GetV: when `Object.prototype.toLocaleString` resolves
+    // `toString` through an accessor getter on the prototype chain,
+    // the getter must receive the original primitive value as `this`,
+    // not the throw-away wrapper used for the prototype-chain lookup.
+    // Strict-mode keeps the receiver unboxed so `typeof this ===
+    // 'number'` confirms primitive identity (the wrapper would yield
+    // `'object'`).  Same shape as the R6 fix on
+    // `%TypedArray%.prototype.toLocaleString` (PR #126).
+    assert_eq!(
+        eval_string(
+            "Object.defineProperty(Number.prototype, 'toString', { \
+                 configurable: true, \
+                 get: function() { 'use strict'; var t = this; return function() { return typeof t; }; } \
+             }); \
+             (5).toLocaleString();"
+        ),
+        "number"
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // P2 Tier 6: P1 deferred fixes
 // ═══════════════════════════════════════════════════════════════════════════

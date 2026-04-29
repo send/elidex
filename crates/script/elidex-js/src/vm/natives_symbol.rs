@@ -276,9 +276,20 @@ pub(super) fn native_object_prototype_to_locale_string(
         primitive => (super::coerce::to_object(ctx.vm, primitive)?, primitive),
     };
     let to_string_key = PropertyKey::String(ctx.intern("toString"));
-    let method = ctx
-        .try_get_property_value(obj_id, to_string_key)?
-        .unwrap_or(JsValue::Undefined);
+    // GetV(V, P) (§7.3.2): an accessor getter on `toString` must
+    // see the original primitive `receiver` as `this`, not the
+    // boxed wrapper used as the prototype-chain anchor for the
+    // lookup.  `try_get_property_value` resolves getters with
+    // `this = Object(obj_id)` — wrong for strict-mode user
+    // overrides (e.g. `Object.defineProperty(Number.prototype,
+    // 'toString', { get: function() { 'use strict'; … } })`).
+    // Same shape as `super::host::typed_array_static::lookup_iterator_method`
+    // and the SP8c-B Copilot R6 fix on
+    // `super::host::typed_array_methods::native_typed_array_to_locale_string`.
+    let method = match super::coerce::get_property(ctx.vm, obj_id, to_string_key) {
+        Some(prop) => ctx.vm.resolve_property(prop, receiver)?,
+        None => JsValue::Undefined,
+    };
     let JsValue::Object(fn_id) = method else {
         return Err(VmError::type_error("toString is not callable"));
     };
