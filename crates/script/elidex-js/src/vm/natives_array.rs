@@ -610,7 +610,7 @@ pub(super) fn native_array_to_locale_string(
     let id = this_object_id(this)?;
     array_len(ctx, id)?;
     let elements = clone_elements(ctx, id);
-    let to_locale_key = super::value::PropertyKey::String(ctx.intern("toLocaleString"));
+    let to_locale_key = super::value::PropertyKey::String(ctx.vm.well_known.to_locale_string);
     // §22.1.3.30 step 6 forwards exactly `« locales, options »` to
     // each per-element `Invoke` — extra caller-supplied args must
     // not reach the override.  Materialise the pair once outside the
@@ -644,13 +644,18 @@ pub(super) fn native_array_to_locale_string(
                 let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
                 sub_ctx.to_string_val(ret)?
             }
-            Some(_) => {
+            // Per `Invoke` semantics (§7.3.16) `?Call(?GetV(V, P), …)`
+            // throws TypeError when the resolved property is either
+            // present-but-non-callable OR absent (GetV returns
+            // undefined → Call rejects undefined as not-a-function).
+            // Reachable only if the user has deleted
+            // `Object.prototype.toLocaleString` from the chain.
+            Some(_) | None => {
                 return Err(VmError::type_error(
                     "Failed to execute 'toLocaleString' on 'Array': \
                      element's toLocaleString is not callable",
                 ));
             }
-            None => sub_ctx.to_string_val(receiver)?,
         };
         result.extend_from_slice(sub_ctx.vm.strings.get(str_sid));
     }

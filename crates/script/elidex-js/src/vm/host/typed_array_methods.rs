@@ -850,12 +850,13 @@ pub(crate) fn native_typed_array_join(
 /// (ES §23.2.3.31).  Per-element `? ToString(? Invoke(elem,
 /// "toLocaleString", « locales, options »))`, joined with `","`.
 ///
-/// elidex has no Intl yet (see memory `intl-icu-deferral.md`), so
-/// `(locales, options)` flow through to per-element overrides
-/// unobserved by the built-in `Object.prototype.toLocaleString`
+/// elidex has no `Intl` support yet, so `(locales, options)` flow
+/// through to per-element overrides unobserved by the built-in
+/// [`super::super::natives_symbol::native_object_prototype_to_locale_string`]
 /// shim (which redirects to `toString`).  Forwarding the reserved
-/// args matters for user overrides on `Number.prototype.toLocaleString`
-/// / `BigInt.prototype.toLocaleString`, which can read them.
+/// args still matters for user overrides on
+/// `Number.prototype.toLocaleString` /
+/// `BigInt.prototype.toLocaleString`, which can read them.
 ///
 /// TypedArray elements are always non-nullish (Number or BigInt),
 /// so the `Array.prototype.toLocaleString` empty-or-nullish skip
@@ -927,21 +928,19 @@ pub(crate) fn native_typed_array_to_locale_string(
                 let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
                 sub_ctx.to_string_val(ret)?
             }
-            // Per `Invoke` semantics (§7.3.16) a present-but-non-
-            // callable property throws TypeError — silent fallback
-            // to `ToString(receiver)` would mask user mistakes
-            // like `Number.prototype.toLocaleString = 42`.
-            Some(_) => {
+            // Per `Invoke` semantics (§7.3.16) `?Call(?GetV(V, P), …)`
+            // throws TypeError when the resolved property is either
+            // present-but-non-callable OR absent (GetV returns
+            // undefined → Call rejects undefined as not-a-function).
+            // Silent fallback to `ToString(receiver)` would mask
+            // user mistakes like `Number.prototype.toLocaleString = 42`
+            // and diverge from spec on the chain-deletion path.
+            Some(_) | None => {
                 return Err(VmError::type_error(
                     "Failed to execute 'toLocaleString' on 'TypedArray': \
                      element's toLocaleString is not callable",
                 ));
             }
-            // Property absent on the prototype chain — defensive
-            // arm that fires only if the user has deleted
-            // `Object.prototype.toLocaleString` (otherwise
-            // unreachable, since elidex installs it eagerly).
-            None => sub_ctx.to_string_val(receiver)?,
         };
         out.push_str(&sub_ctx.vm.strings.get_utf8(str_sid));
     }
