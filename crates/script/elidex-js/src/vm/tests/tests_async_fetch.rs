@@ -183,6 +183,71 @@ fn shared_signal_aborts_multiple_inflight_fetches_atomically() {
 }
 
 #[test]
+fn settle_fetch_roots_promise_across_response_alloc() {
+    // R2.2 regression: `settle_fetch` removes the Promise from
+    // `pending_fetches` (its sole root for user-discarded promises)
+    // before allocating the `Response` + companion `Headers` + body
+    // bytes via `create_response_from_net`.  The defensive
+    // `push_temp_root` introduced in R2 must keep the Promise alive
+    // across that allocation.  Today `gc_enabled = false` inside
+    // native calls keeps the bare-remove path "safe" by accident; a
+    // forced GC immediately *after* tick_network confirms no stale
+    // Promise slot was recycled (the `.then` reaction would reach a
+    // collected slot and panic / observe garbage).
+    let url = url::Url::parse("http://example.com/gc-settle").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(ok_response("http://example.com/gc-settle", "ok")),
+    )]);
+    vm.eval(
+        "globalThis.r = 0; \
+         (function () { \
+              fetch('http://example.com/gc-settle') \
+                  .then(resp => resp.text()) \
+                  .then(body => { globalThis.r = body.length; }); \
+         })();",
+    )
+    .unwrap();
+    drain(&mut vm);
+    vm.inner.collect_garbage();
+    drain(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::Number(n)) => assert!((n - 2.0).abs() < f64::EPSILON),
+        other => panic!("expected r to be body.length=2, got {other:?}"),
+    }
+}
+
+#[test]
+fn abort_fan_out_roots_promise_across_rejection() {
+    // R2.1 regression: same root-before-settle pattern in
+    // `abort_signal`'s fan-out.  Each pending Promise is removed
+    // from `pending_fetches` and rejected; the temp root must hold
+    // it across `reject_promise_sync`.  Forced GC after the abort
+    // confirms no slot was recycled.
+    let url = url::Url::parse("http://example.com/gc-abort").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(ok_response("http://example.com/gc-abort", "x")),
+    )]);
+    vm.eval(
+        "globalThis.r = ''; \
+         (function () { \
+              var c = new AbortController(); \
+              fetch('http://example.com/gc-abort', {signal: c.signal}) \
+                  .catch(e => { globalThis.r = e instanceof DOMException && e.name; }); \
+              c.abort(); \
+         })();",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    drain(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "AbortError"),
+        other => panic!("expected r to be 'AbortError', got {other:?}"),
+    }
+}
+
+#[test]
 fn promise_survives_user_dropping_reference() {
     // The user dropped every JS-side reference to the returned
     // Promise; the only path keeping it alive is

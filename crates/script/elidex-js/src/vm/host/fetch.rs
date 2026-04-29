@@ -925,15 +925,28 @@ impl VmInner {
                 }
             }
         }
+        // GC root the Promise across the settlement work (R2.2):
+        // `pending_fetches` was its only root for the
+        // user-discarded case (`promise_survives_user_dropping_reference`),
+        // and the success branch's `create_response_from_net`
+        // allocates an Object + Headers + body inserts that could
+        // trigger GC under a future runtime that relaxes the
+        // `gc_enabled = false` invariant inside native calls.  The
+        // Err branch's `vm_error_to_thrown` also allocates an Error
+        // object.  Match the rest of the codebase
+        // (`wrap_in_array_iterator` / `native_fetch` / etc.) by
+        // routing the post-remove work through a `push_temp_root`
+        // guard.
+        let mut g = self.push_temp_root(JsValue::Object(promise));
         match result {
             Ok(response) => {
-                let resp_id = create_response_from_net(self, response);
-                resolve_promise_sync(self, promise, JsValue::Object(resp_id));
+                let resp_id = create_response_from_net(&mut g, response);
+                resolve_promise_sync(&mut g, promise, JsValue::Object(resp_id));
             }
             Err(msg) => {
                 let err = VmError::type_error(format!("Failed to fetch: {msg}"));
-                let reason = self.vm_error_to_thrown(&err);
-                reject_promise_sync(self, promise, reason);
+                let reason = g.vm_error_to_thrown(&err);
+                reject_promise_sync(&mut g, promise, reason);
             }
         }
     }
