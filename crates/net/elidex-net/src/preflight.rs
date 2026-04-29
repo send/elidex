@@ -165,19 +165,22 @@ fn is_non_safelisted_author_header(name: &str, value: &str) -> bool {
 ///
 /// A header is safelisted iff:
 /// - name (case-insensitive) is in `{Accept, Accept-Language,
-///   Content-Language, Content-Type, Range}` AND
+///   Content-Language, Content-Type, Range, Save-Data}` AND
 /// - the **value** matches the per-name shape constraints below.
 ///
 /// Special cases:
 /// - `Authorization` (§4.6.5 step 4) is **always non-safelisted**
 ///   regardless of value — it triggers preflight.
-/// - `Content-Type` value must parse to one of three MIME types
-///   (`application/x-www-form-urlencoded`, `multipart/form-data`,
-///   `text/plain`); other values trigger preflight.
+/// - `Content-Type` value must (a) contain only safe bytes (no
+///   CORS-unsafe-request-header-byte such as `:` outside MIME
+///   delimiters — Copilot R6) AND (b) parse to one of three
+///   MIME types (`application/x-www-form-urlencoded`,
+///   `multipart/form-data`, `text/plain`); other values trigger
+///   preflight.
 /// - `Range` value must match `bytes=N-` or `bytes=N-M` form.
-/// - `Accept` / `Accept-Language` / `Content-Language` values
-///   must contain only the §4.6.5 byte set (subset of ASCII
-///   excluding CORS-unsafe-request-header-byte).
+/// - `Accept` / `Accept-Language` / `Content-Language` /
+///   `Save-Data` values must contain only the §4.6.5 byte set
+///   (subset of ASCII excluding CORS-unsafe-request-header-byte).
 ///
 /// **Note**: this function answers the per-header §4.6.5 question
 /// in isolation; callers that need the "is this header an
@@ -195,10 +198,13 @@ pub fn is_cors_safelisted_request_header(name: &str, value: &str) -> bool {
         return false;
     }
     match lower.as_str() {
-        "accept" | "accept-language" | "content-language" => {
+        "accept" | "accept-language" | "content-language" | "save-data" => {
             value.bytes().all(is_cors_unsafe_request_header_byte_safe)
         }
-        "content-type" => is_safelisted_content_type(value),
+        "content-type" => {
+            value.bytes().all(is_cors_unsafe_request_header_byte_safe)
+                && is_safelisted_content_type(value)
+        }
         "range" => is_safelisted_range(value),
         _ => false,
     }
@@ -942,6 +948,58 @@ mod tests {
             "Accept",
             "text/html\ttext/plain"
         ));
+    }
+
+    /// Regression for Copilot R6 finding 1: `Content-Type` value
+    /// must pass the byte-check **before** the MIME-prefix
+    /// match.  Pre-fix `text/plain; x=y:z` (contains unsafe `:`
+    /// in the parameters) was silently classified as safelisted.
+    #[test]
+    fn safelisted_content_type_rejects_unsafe_byte_in_parameters() {
+        assert!(!is_cors_safelisted_request_header(
+            "Content-Type",
+            "text/plain; x=y:z"
+        ));
+    }
+
+    /// Sentinel: a Content-Type with safe parameter syntax
+    /// (e.g. `; charset=utf-8`) still safelists.
+    #[test]
+    fn safelisted_content_type_with_safe_params_passes() {
+        assert!(is_cors_safelisted_request_header(
+            "Content-Type",
+            "text/plain; charset=utf-8"
+        ));
+    }
+
+    /// Regression for Copilot R6 finding 2: `Save-Data` is in
+    /// the §4.6.5 safelist (formerly deferred as SP-CORS-4 in
+    /// PR-spec-polish; closed inline during R6).  Values must
+    /// pass the same byte-check as `Accept` etc.
+    #[test]
+    fn safelisted_save_data_on() {
+        assert!(is_cors_safelisted_request_header("Save-Data", "on"));
+    }
+
+    #[test]
+    fn safelisted_save_data_rejects_unsafe_byte() {
+        assert!(!is_cors_safelisted_request_header(
+            "Save-Data",
+            "on:malicious"
+        ));
+    }
+
+    /// Sentinel: a Save-Data header alone does NOT trigger
+    /// preflight on a cross-origin simple request.
+    #[test]
+    fn requires_preflight_save_data_only_returns_false() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Save-Data".into(), "on".into())],
+        );
+        assert!(!requires_preflight(&r));
     }
 
     #[test]
