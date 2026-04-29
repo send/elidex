@@ -407,13 +407,15 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
     }
 }
 
-/// Attach the `Origin` header for cross-origin requests (WHATWG
-/// Fetch §3.2 / §5.4).  Always set on cross-origin requests
-/// regardless of mode (CORS protocol, navigation, websocket — the
-/// header itself is informational; the response-side gate that
-/// rejects opaque CORS responses without `Access-Control-Allow-Origin`
-/// is the policy enforcement point and lives with the CORS
-/// follow-up PR).
+/// Attach the `Origin` header for cross-origin `fetch()` requests
+/// (WHATWG Fetch §3.2 / §5.4).  Always set on cross-origin
+/// HTTP(S) fetches regardless of `init.mode` — the header itself
+/// is informational; the response-side gate that rejects opaque
+/// CORS responses without `Access-Control-Allow-Origin` is the
+/// policy enforcement point and lives with PR5-cors.  Non-fetch
+/// paths (navigation, WebSocket, EventSource) attach their own
+/// `Origin` upstream and never reach this helper, which returns
+/// early for any non-HTTP/S source or target.
 ///
 /// Same-origin requests do not attach `Origin` — the header is
 /// reserved for cross-origin disclosure per browser convention.
