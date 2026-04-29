@@ -864,39 +864,55 @@ pub(crate) fn try_indexed_get(
     // aliasing rules.
     let (kind, cache) = vm.live_collection_states.remove(&id)?;
 
-    // Cache-hit fast path — no needle UTF-8 materialisation, no
-    // `String` allocations.  Mirrors the structure of
-    // `resolve_entities_for` so indexed access pays the same
-    // ~250 ns/op cost as the prototype-accessor path.
-    let cur_version = kind
-        .cache_root()
-        .map(|root| dom.inclusive_descendants_version(root));
-    let entities = if let Some(cur) = cur_version {
+    // Resolve `entities` to a slice borrow.  Three branches:
+    //
+    // 1. `Snapshot` — slice directly into the stored `Vec`, no
+    //    clone (`querySelectorAll(...)[i]` is now O(1) through
+    //    here, not O(N) via the previous `entities.clone()`).
+    // 2. Cache hit — clone the cached `Vec` once.  Cloning rather
+    //    than re-borrowing keeps the `RefCell` borrow short so
+    //    the wrapper can be re-inserted into
+    //    `live_collection_states` below; the resulting `Vec` is
+    //    owned by `entities_storage` for the rest of the function.
+    // 3. Cache miss — materialise needles, walk descendants,
+    //    refresh the cache, and own the freshly walked `Vec`.
+    //
+    // `entities_storage` only carries the owned `Vec` for cases 2
+    // and 3; `entities: &[Entity]` is the unified slice the
+    // index / named-property logic reads from.
+    let entities_storage: Vec<Entity>;
+    let entities: &[Entity] = if let LiveCollectionKind::Snapshot { entities } = &kind {
+        entities.as_slice()
+    } else {
+        // Every non-Snapshot variant has `cache_root() == Some`
+        // (see [`LiveCollectionKind::cache_root`]).  Materialising
+        // `cur` outside the inner branches keeps it shared between
+        // the hit / miss arms.
+        let cur = dom.inclusive_descendants_version(
+            kind.cache_root()
+                .expect("non-Snapshot variants always have cache_root() == Some"),
+        );
         if cache.cached_version.get() == Some(cur) {
-            cache.cached_entities.borrow().clone()
+            entities_storage = cache.cached_entities.borrow().clone();
         } else {
             let needles = resolve_needles(vm, &kind);
             let fresh = resolve_entities_with_needles(dom, &kind, &needles);
-            cache_store(&cache, cur_version, &fresh);
-            fresh
+            cache_store(&cache, Some(cur), &fresh);
+            entities_storage = fresh;
         }
-    } else {
-        // Snapshot — pre-baked entity list, no walk, no cache.
-        let needles = resolve_needles(vm, &kind);
-        resolve_entities_with_needles(dom, &kind, &needles)
+        entities_storage.as_slice()
     };
 
-    vm.live_collection_states.insert(id, (kind, cache));
-
-    match key {
+    let result = match key {
         JsValue::Number(n) if n.is_finite() => {
             let trunc = n.trunc();
             if (trunc - n).abs() > f64::EPSILON || trunc < 0.0 {
-                return None;
+                None
+            } else {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let idx = trunc as usize;
+                entities.get(idx).copied()
             }
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let idx = trunc as usize;
-            entities.get(idx).copied()
         }
         JsValue::String(sid) => {
             // Canonical array-index parse (ES §6.1.7 "array index" /
@@ -908,31 +924,37 @@ pub(crate) fn try_indexed_get(
             let key_units = vm.strings.get(sid);
             if let Some(idx_u32) = super::super::coerce_format::parse_array_index_u32(key_units) {
                 let idx = idx_u32 as usize;
-                return entities.get(idx).copied();
-            }
-            let key_str = vm.strings.get_utf8(sid);
-            // Non-canonical-index string on HTMLCollection → legacy
-            // named property access (WHATWG HTML spec §4.2.10): `id`
-            // attribute first, then `name` restricted to the tag
-            // allowlist.  NodeList has no named-property path, so
-            // return None for it.
-            if !is_html_collection {
-                return None;
-            }
-            let mut name_hit: Option<Entity> = None;
-            for &e in &entities {
-                if dom.with_attribute(e, "id", |v| v == Some(key_str.as_str())) {
-                    return Some(e);
+                entities.get(idx).copied()
+            } else if !is_html_collection {
+                // Non-canonical-index string on a NodeList → no
+                // named-property path (WHATWG; see HTMLCollection-
+                // only `namedItem` below).
+                None
+            } else {
+                // HTMLCollection legacy named property access
+                // (WHATWG HTML §4.2.10): `id` attribute first, then
+                // `name` restricted to the tag allowlist.
+                let key_str = vm.strings.get_utf8(sid);
+                let mut name_hit: Option<Entity> = None;
+                let mut id_hit: Option<Entity> = None;
+                for &e in entities {
+                    if dom.with_attribute(e, "id", |v| v == Some(key_str.as_str())) {
+                        id_hit = Some(e);
+                        break;
+                    }
+                    if name_hit.is_none()
+                        && dom.with_tag_name(e, |t| t.is_some_and(tag_allows_name_lookup))
+                        && dom.with_attribute(e, "name", |v| v == Some(key_str.as_str()))
+                    {
+                        name_hit = Some(e);
+                    }
                 }
-                if name_hit.is_none()
-                    && dom.with_tag_name(e, |t| t.is_some_and(tag_allows_name_lookup))
-                    && dom.with_attribute(e, "name", |v| v == Some(key_str.as_str()))
-                {
-                    name_hit = Some(e);
-                }
+                id_hit.or(name_hit)
             }
-            name_hit
         }
         _ => None,
-    }
+    };
+
+    vm.live_collection_states.insert(id, (kind, cache));
+    result
 }
