@@ -18,23 +18,21 @@
 //! live *except* when returned by `querySelectorAll` (§4.2.6).
 //! That single static case is represented by
 //! [`LiveCollectionKind::Snapshot`], which carries a pre-captured
-//! `Vec<Entity>`; every other kind re-traverses the ECS on each
-//! read, so mutations made after the collection is obtained are
-//! observable on subsequent `length` / `item(i)` / indexed
+//! `Vec<Entity>`; every other kind exposes the *observable*
+//! semantics that mutations made after the collection is obtained
+//! are visible on subsequent `length` / `item(i)` / indexed
 //! accesses.
 //!
-//! Each live collection wrapper carries a [`LiveCollectionCache`]
+//! Each non-snapshot wrapper carries a [`LiveCollectionCache`]
 //! validated against [`EcsDom::inclusive_descendants_version`] of
 //! the collection's root: cache hit on an unchanged subtree skips
 //! the descendant walk, cache miss on a bumped version re-walks
 //! and refreshes.  Snapshot variants bypass the cache entirely
 //! (their entity list is frozen at construction).  This is a pure
-//! performance optimisation — the observable per-read semantics
-//! still match "re-traverse on every read" because the cache
-//! version check tracks every tree mutation site that bumps
-//! `rev_version` (`tree.rs::{append_child, remove_child,
-//! insert_before, replace_child}` plus
-//! `EcsDom::{set_attribute, remove_attribute}`).
+//! performance optimisation — the cache version check is driven
+//! by [`EcsDom::rev_version`], which is invoked from every tree-
+//! and attribute-mutation site so the cache stays observably
+//! equivalent to a per-read re-walk.
 //!
 //! ## GC contract
 //!

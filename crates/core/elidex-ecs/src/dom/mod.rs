@@ -587,10 +587,10 @@ impl EcsDom {
     /// but the version bump still fires for live entities so
     /// attribute-filtered live collections invalidate cleanly even
     /// on spurious removals (the next read pays one walk and
-    /// re-caches at the same version).  See the SP2 entity-list
-    /// cache in `elidex-js::vm::host::dom_collection`; the
-    /// `set_attribute` rationale on over-invalidation applies here
-    /// too.
+    /// re-caches under the freshly bumped version).  See the SP2
+    /// entity-list cache in `elidex-js::vm::host::dom_collection`;
+    /// the `set_attribute` rationale on over-invalidation applies
+    /// here too.
     pub fn remove_attribute(&mut self, entity: Entity, name: &str) {
         if !self.contains(entity) {
             return;
