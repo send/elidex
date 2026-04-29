@@ -40,15 +40,7 @@ fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
     vm
 }
 
-fn drain(vm: &mut Vm) {
-    for _ in 0..16 {
-        if vm.inner.pending_fetches.is_empty() {
-            break;
-        }
-        vm.tick_network();
-    }
-    vm.tick_network();
-}
+use super::drain_fetch_replies as drain;
 
 #[test]
 fn promise_stays_pending_until_tick_network() {

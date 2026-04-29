@@ -91,6 +91,24 @@ mod tests_window_iframe_props;
 use super::value::{JsValue, Object, ObjectKind, VmError};
 use super::Vm;
 
+/// Drive `vm.tick_network()` until `pending_fetches` is empty, with a
+/// 16-iteration ceiling to guard against unbounded reaction loops.
+/// Always runs one trailing tick so a chain whose final reaction
+/// did not allocate a new pending fetch still gets its microtask
+/// drain.  Shared helper for the M4-12 PR5-async-fetch test suite
+/// (R9.2 dedup) — used by `tests_fetch`, `tests_integration_fetch`,
+/// and `tests_async_fetch`.
+#[cfg(feature = "engine")]
+pub(crate) fn drain_fetch_replies(vm: &mut Vm) {
+    for _ in 0..16 {
+        if vm.inner.pending_fetches.is_empty() {
+            break;
+        }
+        vm.tick_network();
+    }
+    vm.tick_network();
+}
+
 fn eval(source: &str) -> Result<JsValue, VmError> {
     let mut vm = Vm::new();
     vm.eval(source)

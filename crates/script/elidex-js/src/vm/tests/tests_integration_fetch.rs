@@ -27,18 +27,7 @@ fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
     vm
 }
 
-/// Drive `tick_network` until `pending_fetches` is empty.  Mirror
-/// of the helper in `tests_fetch.rs`; see that file for the
-/// rationale on the 16-iteration ceiling and trailing tick.
-fn drain_fetch_replies(vm: &mut Vm) {
-    for _ in 0..16 {
-        if vm.inner.pending_fetches.is_empty() {
-            break;
-        }
-        vm.tick_network();
-    }
-    vm.tick_network();
-}
+use super::drain_fetch_replies;
 
 fn json_response(url: &str, body: &'static str) -> NetResponse {
     let parsed = url::Url::parse(url).expect("valid URL");

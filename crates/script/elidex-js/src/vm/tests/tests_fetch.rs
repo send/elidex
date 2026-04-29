@@ -29,25 +29,7 @@ fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
     vm
 }
 
-/// Drive `tick_network` until `pending_fetches` is empty.  Async
-/// fetch settlement is split across (broker reply arrives) →
-/// (Promise resolved) → (.then reaction schedules another fetch?)
-/// etc.; tests that chain `.text()` / `.json()` settle inside the
-/// first tick because those bodies are read synchronously off
-/// `body_data`.  A 16-iteration ceiling guards against an unbounded
-/// reaction loop wedging the test runner.
-fn drain_fetch_replies(vm: &mut Vm) {
-    for _ in 0..16 {
-        if vm.inner.pending_fetches.is_empty() {
-            break;
-        }
-        vm.tick_network();
-    }
-    // One trailing tick so a `.then` chain whose final reaction
-    // does not allocate a new pending fetch still gets its
-    // microtask drain.
-    vm.tick_network();
-}
+use super::drain_fetch_replies;
 
 fn no_handle_vm() -> Vm {
     Vm::new()
