@@ -67,5 +67,14 @@ name = "event_dispatch"
 harness = false
 required-features = ["engine"]
 
+# Live HTMLCollection accessor throughput (PR-spec-polish SP2) —
+# measures the per-access cost of `length` / `iter` / `item` against
+# a populated tree.  Input to the SP2-impl decision gate; see the
+# bench's own module docstring for the cost-thresholds the gate uses.
+[[bench]]
+name = "dom_collection"
+harness = false
+required-features = ["engine"]
+
 [lints]
 workspace = true
