@@ -50,7 +50,7 @@ pub use resource_loader::{ResourceLoader, ResourceResponse, SchemeDispatcher};
 pub use transport::{HttpTransport, HttpVersion, TransportConfig};
 
 /// `RequestRedirect` (WHATWG Fetch §5.3) — controls how the
-/// broker [`redirect::follow_redirects`] loop reacts to a 3xx
+/// broker `redirect::follow_redirects` loop reacts to a 3xx
 /// response.
 ///
 /// - [`RedirectMode::Follow`] (default): auto-follow up to the
@@ -99,8 +99,8 @@ pub enum CredentialsMode {
 /// Constructed by JS-facing fetch paths (`elidex-js` /
 /// `elidex-js-boa`) and by shell navigation / form-submit
 /// paths.  Threaded through [`NetClient::send`] which honours
-/// the [`redirect`] / [`credentials`] modes during the broker
-/// dispatch loop.
+/// the [`Request::redirect`] / [`Request::credentials`] modes
+/// during the broker dispatch loop.
 #[derive(Clone, Debug)]
 pub struct Request {
     /// HTTP method.
