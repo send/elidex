@@ -543,31 +543,62 @@ impl EcsDom {
     /// Set attribute `name = value` on `entity`, inserting an
     /// `Attributes` component if one does not exist.
     ///
+    /// On success, bumps [`rev_version`](Self::rev_version) so that
+    /// live collections filtering on attribute state (e.g.
+    /// `getElementsByClassName`, `getElementsByName`,
+    /// `document.links`) invalidate any cached entity list at the
+    /// next read.  Tag-only / topology-only filters (e.g.
+    /// `getElementsByTagName`) over-invalidate harmlessly — the
+    /// next read pays one walk and re-caches.  See the SP2 entity-
+    /// list cache in `elidex-js::vm::host::dom_collection`.
+    ///
     /// Returns `false` if the entity has been destroyed.
     pub fn set_attribute(&mut self, entity: Entity, name: &str, value: String) -> bool {
         if !self.contains(entity) {
             return false;
         }
         let has_component = self.world.get::<&Attributes>(entity).is_ok();
-        if has_component {
+        let did_set = if has_component {
             if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
                 attrs.set(name, value);
-                return true;
+                true
+            } else {
+                false
             }
-            return false;
+        } else {
+            let mut attrs = Attributes::default();
+            attrs.set(name, value);
+            self.world.insert_one(entity, attrs).is_ok()
+        };
+        if did_set {
+            self.rev_version(entity);
         }
-        let mut attrs = Attributes::default();
-        attrs.set(name, value);
-        self.world.insert_one(entity, attrs).is_ok()
+        did_set
     }
 
-    /// Remove attribute `name` from `entity`.  No-op if the entity is
-    /// destroyed, the `Attributes` component is absent, or the key is
-    /// missing.
+    /// Remove attribute `name` from `entity` if present, then bump
+    /// [`rev_version`](Self::rev_version) — both gated on the
+    /// entity still being live.
+    ///
+    /// Destroyed entities short-circuit before either write,
+    /// matching [`set_attribute`](Self::set_attribute)'s contract.
+    /// The attribute-storage write is itself a no-op when the
+    /// `Attributes` component is absent or the key is missing,
+    /// but the version bump still fires for live entities so
+    /// attribute-filtered live collections invalidate cleanly even
+    /// on spurious removals (the next read pays one walk and
+    /// re-caches under the freshly bumped version).  See the SP2
+    /// entity-list cache in `elidex-js::vm::host::dom_collection`;
+    /// the `set_attribute` rationale on over-invalidation applies
+    /// here too.
     pub fn remove_attribute(&mut self, entity: Entity, name: &str) {
+        if !self.contains(entity) {
+            return;
+        }
         if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
             attrs.remove(name);
         }
+        self.rev_version(entity);
     }
 }
 
