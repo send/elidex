@@ -1164,6 +1164,7 @@ mod tests {
     }
 
     fn resp(status: u16, headers: Vec<(&str, &str)>) -> Response {
+        let url = url::Url::parse("https://api.other.com/").unwrap();
         Response {
             status,
             headers: headers
@@ -1171,9 +1172,9 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
             body: Bytes::new(),
-            url: url::Url::parse("https://api.other.com/").unwrap(),
+            url: url.clone(),
             version: crate::HttpVersion::H1,
-            url_list: Vec::new(),
+            url_list: vec![url],
             is_redirect_tainted: false,
         }
     }

@@ -160,7 +160,7 @@ fn response_object_properties() {
         body: bytes::Bytes::from("hello world"),
         url: url::Url::parse("https://example.com/page").unwrap(),
         version: elidex_net::HttpVersion::H1,
-        url_list: vec![],
+        url_list: vec![url::Url::parse("https://example.com/page").unwrap()],
         is_redirect_tainted: false,
     };
     let request_url = url::Url::parse("https://example.com/page").unwrap();
@@ -213,7 +213,14 @@ fn response_redirected_flag() {
         body: bytes::Bytes::new(),
         url: url::Url::parse("https://example.com/final").unwrap(),
         version: elidex_net::HttpVersion::H1,
-        url_list: vec![],
+        // Redirect chain: original → final.  Mirrors the broker's
+        // `redirect::follow_redirects` contract for the
+        // `Response.redirected` flag (Copilot R1 PR-cors-redirect-
+        // preflight).
+        url_list: vec![
+            url::Url::parse("https://example.com/original").unwrap(),
+            url::Url::parse("https://example.com/final").unwrap(),
+        ],
         is_redirect_tainted: false,
     };
     let request_url = url::Url::parse("https://example.com/original").unwrap();
@@ -233,7 +240,7 @@ fn response_404_not_ok() {
         body: bytes::Bytes::from("not found"),
         url: url::Url::parse("https://example.com/missing").unwrap(),
         version: elidex_net::HttpVersion::H1,
-        url_list: vec![],
+        url_list: vec![url::Url::parse("https://example.com/missing").unwrap()],
         is_redirect_tainted: false,
     };
     let request_url = url::Url::parse("https://example.com/missing").unwrap();
@@ -259,7 +266,7 @@ fn response_text_method() {
         body: bytes::Bytes::from("body content"),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
-        url_list: vec![],
+        url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
@@ -297,7 +304,7 @@ fn response_json_method() {
         body: bytes::Bytes::from(r#"{"key":"value","num":42}"#),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
-        url_list: vec![],
+        url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
@@ -337,7 +344,7 @@ fn response_json_invalid_rejects() {
         body: bytes::Bytes::from("not json at all"),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
-        url_list: vec![],
+        url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
@@ -368,7 +375,7 @@ fn response_clone_method() {
         body: bytes::Bytes::from("cloned body"),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
-        url_list: vec![],
+        url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();
@@ -415,7 +422,7 @@ fn response_clone_has_clone() {
         body: bytes::Bytes::from("deep clone"),
         url: url::Url::parse("https://example.com/").unwrap(),
         version: elidex_net::HttpVersion::H1,
-        url_list: vec![],
+        url_list: vec![url::Url::parse("https://example.com/").unwrap()],
         is_redirect_tainted: false,
     };
     let request_url = url::Url::parse("https://example.com/").unwrap();

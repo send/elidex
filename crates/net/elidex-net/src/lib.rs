@@ -291,10 +291,11 @@ pub struct Response {
     /// WHATWG Fetch *redirect-tainted origin flag* (§4.4 step 14.3).
     /// `true` when the redirect chain crossed origin at least once
     /// — the broker's redirect loop sets this so the JS-side
-    /// classifier ([`crate::cors`]) can drop the "current URL is
-    /// same-origin" Basic shortcut and run the cors path even when
-    /// the **final** URL happens to land back on the initiator
-    /// origin.  Not relevant for embedder-driven (NoCors)
+    /// response classifier (in `elidex-js`'s `vm/host/cors.rs`,
+    /// **not** [`crate::cors`] which is the broker-side §4.4 ACAO
+    /// check) can drop the "current URL is same-origin" Basic
+    /// shortcut and run the cors path even when the **final** URL
+    /// happens to land back on the initiator origin.  Not relevant for embedder-driven (NoCors)
     /// loads but defaults to `false` so all callers that don't
     /// destructure this field behave as before.
     pub is_redirect_tainted: bool,
