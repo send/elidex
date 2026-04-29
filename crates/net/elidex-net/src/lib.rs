@@ -301,15 +301,15 @@ pub struct Response {
     pub is_redirect_tainted: bool,
     /// Whether the **final-hop** request was sent with credentials
     /// per WHATWG Fetch §3.2.5 *credentialed network*.  Equals
-    /// `true` iff the post-redirect credentials mode is
-    /// [`CredentialsMode::Include`] — the dispatch-time mode is
-    /// not authoritative because §4.4 step 14.5 downgrades
-    /// `Include` to `SameOrigin` on cross-origin redirects.  The
-    /// JS-side response classifier reads this so the strict
-    /// credentialed CORS rules (`ACAO: *` rejected, `ACAC: true`
-    /// required) only fire when the final hop actually carried
-    /// credentials (Copilot R2 PR-cors-redirect-preflight).
-    /// Defaults to `false` for non-cors-mode loads.
+    /// `true` iff the final-hop credentials mode is
+    /// [`CredentialsMode::Include`], independent of
+    /// [`Request::mode`] — the broker stamps this from
+    /// `request.credentials` after any §4.4 step 14.5 cross-
+    /// origin redirect downgrade has been applied.  The JS-side
+    /// response classifier reads this so the strict credentialed
+    /// CORS rules (`ACAO: *` rejected, `ACAC: true` required)
+    /// only fire when the final hop actually carried credentials
+    /// (Copilot R2 PR-cors-redirect-preflight).
     pub credentialed_network: bool,
 }
 
@@ -828,12 +828,16 @@ mod preflight_integration_tests {
     /// shuts down once `responses.len()` connections have been
     /// served.
     async fn spawn_scripted_server(
-        responses: Vec<&'static [u8]>,
+        responses: Vec<Vec<u8>>,
     ) -> (u16, StdArc<StdMutex<Vec<String>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let recorded: StdArc<StdMutex<Vec<String>>> = StdArc::new(StdMutex::new(Vec::new()));
         let recorded_clone = StdArc::clone(&recorded);
+        // `Vec<u8>` (not `&'static [u8]`) so callers can build
+        // dynamically formatted bodies without `Box::leak`'ing for
+        // a `'static` upgrade (Copilot R4).  Literal slices use
+        // `.to_vec()`; formatted strings use `.into_bytes()`.
         tokio::spawn(async move {
             for body in responses {
                 let (mut stream, _) = listener.accept().await.unwrap();
@@ -856,7 +860,10 @@ mod preflight_integration_tests {
                 }
                 let req = String::from_utf8_lossy(&buf).to_string();
                 recorded_clone.lock().unwrap().push(req);
-                stream.write_all(body).await.expect("scripted server write");
+                stream
+                    .write_all(&body)
+                    .await
+                    .expect("scripted server write");
             }
         });
         (port, recorded)
@@ -891,7 +898,7 @@ mod preflight_integration_tests {
         // headers → no preflight needed; a single GET round-trip
         // suffices.
         let (port, recorded) = spawn_scripted_server(vec![
-            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: http://example.com\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: http://example.com\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec(),
         ]).await;
 
         let client = test_client();
@@ -913,10 +920,12 @@ mod preflight_integration_tests {
               Access-Control-Allow-Methods: GET\r\n\
               Access-Control-Max-Age: 60\r\n\
               Content-Length: 0\r\n\
-              Connection: close\r\n\r\n",
+              Connection: close\r\n\r\n"
+                .to_vec(),
             b"HTTP/1.1 200 OK\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
-              Content-Length: 2\r\nConnection: close\r\n\r\nok",
+              Content-Length: 2\r\nConnection: close\r\n\r\nok"
+                .to_vec(),
         ])
         .await;
 
@@ -950,12 +959,11 @@ mod preflight_integration_tests {
     async fn preflight_method_rejection_blocks_request() {
         // OPTIONS responds without listing PUT in ACAM → preflight
         // fails closed; actual PUT is never sent.
-        let (port, recorded) = spawn_scripted_server(vec![
-            b"HTTP/1.1 204 No Content\r\n\
+        let (port, recorded) = spawn_scripted_server(vec![b"HTTP/1.1 204 No Content\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
               Access-Control-Allow-Methods: GET\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n",
-        ])
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_vec()])
         .await;
         let client = test_client();
         let request = cors_request("PUT", port, vec![]);
@@ -969,7 +977,8 @@ mod preflight_integration_tests {
     #[tokio::test]
     async fn preflight_5xx_blocks_request() {
         let (port, recorded) = spawn_scripted_server(vec![
-            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec(),
         ])
         .await;
         let client = test_client();
@@ -982,12 +991,11 @@ mod preflight_integration_tests {
 
     #[tokio::test]
     async fn preflight_acao_mismatch_blocks_request() {
-        let (port, _recorded) = spawn_scripted_server(vec![
-            b"HTTP/1.1 204 No Content\r\n\
+        let (port, _recorded) = spawn_scripted_server(vec![b"HTTP/1.1 204 No Content\r\n\
               Access-Control-Allow-Origin: http://attacker.com\r\n\
               Access-Control-Allow-Methods: PUT\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n",
-        ])
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_vec()])
         .await;
         let client = test_client();
         let request = cors_request("PUT", port, vec![]);
@@ -1006,13 +1014,16 @@ mod preflight_integration_tests {
               Access-Control-Allow-Headers: x-custom\r\n\
               Access-Control-Allow-Methods: GET\r\n\
               Access-Control-Max-Age: 60\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n",
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec(),
             b"HTTP/1.1 200 OK\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
-              Content-Length: 2\r\nConnection: close\r\n\r\nok",
+              Content-Length: 2\r\nConnection: close\r\n\r\nok"
+                .to_vec(),
             b"HTTP/1.1 200 OK\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
-              Content-Length: 2\r\nConnection: close\r\n\r\nok",
+              Content-Length: 2\r\nConnection: close\r\n\r\nok"
+                .to_vec(),
         ])
         .await;
 
@@ -1042,14 +1053,14 @@ mod preflight_integration_tests {
         // Server A: returns 302 → server B (cross-origin via
         // different port).  Server B: returns 200 with Set-Cookie.
         let (port_b, _rec_b) = spawn_scripted_server(vec![
-            b"HTTP/1.1 200 OK\r\nSet-Cookie: leak=cross_origin; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+            b"HTTP/1.1 200 OK\r\nSet-Cookie: leak=cross_origin; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_vec()
+                .to_vec(),
         ]).await;
         let location = format!("http://127.0.0.1:{port_b}/landing");
         let response_a = format!(
             "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         );
-        let response_a: &'static [u8] = Box::leak(response_a.into_bytes().into_boxed_slice());
-        let (port_a, _rec_a) = spawn_scripted_server(vec![response_a]).await;
+        let (port_a, _rec_a) = spawn_scripted_server(vec![response_a.into_bytes()]).await;
 
         let client = test_client();
         let request = Request {
@@ -1085,7 +1096,7 @@ mod preflight_integration_tests {
     #[tokio::test]
     async fn simple_cors_mode_without_origin_fails_closed() {
         let (port, recorded) = spawn_scripted_server(vec![
-            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
         ])
         .await;
         let client = test_client();
@@ -1123,7 +1134,7 @@ mod preflight_integration_tests {
         // Server should never be hit — preflight must reject
         // before dispatch.
         let (port, recorded) = spawn_scripted_server(vec![
-            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
         ])
         .await;
         let client = test_client();
@@ -1161,31 +1172,29 @@ mod preflight_integration_tests {
             b"HTTP/1.1 204 No Content\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
               Access-Control-Allow-Methods: PUT\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n",
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec(),
             b"HTTP/1.1 200 OK\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
-              Content-Length: 7\r\nConnection: close\r\n\r\nlanding",
+              Content-Length: 7\r\nConnection: close\r\n\r\nlanding"
+                .to_vec(),
         ])
         .await;
         // Origin server: receives the initial PUT preflight
         // (`OPTIONS /start`), responds with allowance, then
         // receives the actual PUT and emits a 302 to the
-        // cross-origin landing server.  The 302's `Location`
-        // is built dynamically because `spawn_scripted_server`
-        // accepts only `&'static [u8]` — `Box::leak` upgrades
-        // the formatted bytes to a `'static` lifetime.
+        // cross-origin landing server.
         let location_header = format!("http://127.0.0.1:{land_port}/dest");
         let redirect_response = format!(
             "HTTP/1.1 302 Found\r\nLocation: {location_header}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         );
-        let redirect_static: &'static [u8] =
-            Box::leak(redirect_response.into_bytes().into_boxed_slice());
         let (origin_port, origin_rec) = spawn_scripted_server(vec![
             b"HTTP/1.1 204 No Content\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
               Access-Control-Allow-Methods: PUT\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n",
-            redirect_static,
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec(),
+            redirect_response.into_bytes(),
         ])
         .await;
 
@@ -1238,21 +1247,20 @@ mod preflight_integration_tests {
         // First spawn the landing server with a *failing*
         // preflight response (no ACAO).
         let (land_port, _land_rec) = spawn_scripted_server(vec![
-            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
         ])
         .await;
         let location_header = format!("http://127.0.0.1:{land_port}/dest");
         let response_2 = format!(
             "HTTP/1.1 302 Found\r\nLocation: {location_header}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         );
-        let response_2_static: &'static [u8] =
-            Box::leak(response_2.into_bytes().into_boxed_slice());
         let (origin_port, _origin_rec) = spawn_scripted_server(vec![
             b"HTTP/1.1 204 No Content\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
               Access-Control-Allow-Methods: PUT\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n",
-            response_2_static,
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec(),
+            response_2.into_bytes(),
         ])
         .await;
 
@@ -1280,20 +1288,17 @@ mod preflight_integration_tests {
         // Landing: single GET response (no OPTIONS ahead of it
         // — if the broker mis-issues a preflight, this single-
         // response server hangs and the test times out).
-        let (land_port, land_rec) = spawn_scripted_server(vec![
-            b"HTTP/1.1 200 OK\r\n\
+        let (land_port, land_rec) = spawn_scripted_server(vec![b"HTTP/1.1 200 OK\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
-              Content-Length: 4\r\nConnection: close\r\n\r\nland",
-        ])
+              Content-Length: 4\r\nConnection: close\r\n\r\nland"
+            .to_vec()])
         .await;
         let location_header = format!("http://127.0.0.1:{land_port}/dest");
         let response_redirect = format!(
             "HTTP/1.1 302 Found\r\nLocation: {location_header}\r\nAccess-Control-Allow-Origin: http://example.com\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         );
-        let response_redirect_static: &'static [u8] =
-            Box::leak(response_redirect.into_bytes().into_boxed_slice());
         let (origin_port, _origin_rec) =
-            spawn_scripted_server(vec![response_redirect_static]).await;
+            spawn_scripted_server(vec![response_redirect.into_bytes()]).await;
 
         let client = test_client();
         let request = Request {
@@ -1336,31 +1341,37 @@ mod preflight_integration_tests {
               Access-Control-Allow-Origin: http://example.com\r\n\
               Access-Control-Allow-Methods: PUT\r\n\
               Access-Control-Max-Age: 3600\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n",
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_vec(),
             b"HTTP/1.1 200 OK\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
-              Content-Length: 1\r\nConnection: close\r\n\r\nA",
+              Content-Length: 1\r\nConnection: close\r\n\r\nA"
+                .to_vec(),
             b"HTTP/1.1 200 OK\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
-              Content-Length: 1\r\nConnection: close\r\n\r\nB",
+              Content-Length: 1\r\nConnection: close\r\n\r\nB"
+                .to_vec(),
         ])
         .await;
         let location_header = format!("http://127.0.0.1:{land_port}/dest");
         let redirect_response = format!(
             "HTTP/1.1 302 Found\r\nLocation: {location_header}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         );
-        let redirect_static: &'static [u8] =
-            Box::leak(redirect_response.into_bytes().into_boxed_slice());
-        let preflight_static: &'static [u8] = b"HTTP/1.1 204 No Content\r\n\
+        let preflight: Vec<u8> = b"HTTP/1.1 204 No Content\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
               Access-Control-Allow-Methods: PUT\r\n\
               Access-Control-Max-Age: 3600\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n";
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_vec();
         // Origin server: run1 sees OPTIONS+PUT, run2's OPTIONS
         // is short-circuited by the cache hit on `/start` so it
         // sees only PUT.  Total 3 responses.
-        let (origin_port, _origin_rec) =
-            spawn_scripted_server(vec![preflight_static, redirect_static, redirect_static]).await;
+        let (origin_port, _origin_rec) = spawn_scripted_server(vec![
+            preflight,
+            redirect_response.clone().into_bytes(),
+            redirect_response.into_bytes(),
+        ])
+        .await;
 
         let client = test_client();
         let mk_request = |port| Request {
@@ -1407,7 +1418,7 @@ mod preflight_integration_tests {
         // setup by aligning the request `origin` with the
         // landing port.
         let (land_port, _land_rec) = spawn_scripted_server(vec![
-            b"HTTP/1.1 200 OK\r\nSet-Cookie: tainted=yes; Path=/\r\nContent-Length: 1\r\nConnection: close\r\n\r\nL",
+            b"HTTP/1.1 200 OK\r\nSet-Cookie: tainted=yes; Path=/\r\nContent-Length: 1\r\nConnection: close\r\n\r\nL".to_vec(),
         ])
         .await;
         let initiator_origin = url::Url::parse(&format!("http://127.0.0.1:{land_port}/page"))
@@ -1419,9 +1430,8 @@ mod preflight_integration_tests {
             "HTTP/1.1 302 Found\r\nLocation: {location_header}\r\nAccess-Control-Allow-Origin: {origin_str}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             origin_str = initiator_origin.ascii_serialization(),
         );
-        let redirect_static: &'static [u8] =
-            Box::leak(redirect_response.into_bytes().into_boxed_slice());
-        let (origin_port, _origin_rec) = spawn_scripted_server(vec![redirect_static]).await;
+        let (origin_port, _origin_rec) =
+            spawn_scripted_server(vec![redirect_response.into_bytes()]).await;
 
         let client = test_client();
         let request = Request {
@@ -1468,29 +1478,28 @@ mod preflight_integration_tests {
         // /dest).  /dest gets its own OPTIONS+PUT.  All on the
         // same port (= same origin from the initiator's POV) but
         // different URLs.
-        let preflight_static: &'static [u8] = b"HTTP/1.1 204 No Content\r\n\
+        let preflight: Vec<u8> = b"HTTP/1.1 204 No Content\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
               Access-Control-Allow-Methods: PUT\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n";
-        // We need to know the server's port to build the 302
-        // Location header before we spawn it — bind a listener
-        // first to discover the port, then drop+rebind via
-        // `spawn_scripted_server` is racy.  Use a relative
-        // Location instead so the port doesn't need to be
-        // pre-known: `Location: /dest` resolves against the
-        // current request URL.
-        let redirect_response: &'static [u8] = b"HTTP/1.1 302 Found\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_vec();
+        // We use a relative `Location: /dest` so the port doesn't
+        // need to be pre-known: it resolves against the current
+        // request URL.
+        let redirect_response: Vec<u8> = b"HTTP/1.1 302 Found\r\n\
               Location: /dest\r\n\
-              Content-Length: 0\r\nConnection: close\r\n\r\n";
-        let final_response: &'static [u8] = b"HTTP/1.1 200 OK\r\n\
+              Content-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_vec();
+        let final_response: Vec<u8> = b"HTTP/1.1 200 OK\r\n\
               Access-Control-Allow-Origin: http://example.com\r\n\
-              Content-Length: 1\r\nConnection: close\r\n\r\nD";
+              Content-Length: 1\r\nConnection: close\r\n\r\nD"
+            .to_vec();
         // Server scripted: OPTIONS /start → PUT /start (302) →
         // OPTIONS /dest → PUT /dest (200).
         let (port, recorded) = spawn_scripted_server(vec![
-            preflight_static,
+            preflight.clone(),
             redirect_response,
-            preflight_static,
+            preflight,
             final_response,
         ])
         .await;
