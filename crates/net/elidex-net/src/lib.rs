@@ -774,11 +774,26 @@ mod preflight_integration_tests {
         tokio::spawn(async move {
             for body in responses {
                 let (mut stream, _) = listener.accept().await.unwrap();
-                let mut buf = vec![0u8; 4096];
-                let n = stream.read(&mut buf).await.unwrap_or(0);
-                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                // Read until end-of-headers `\r\n\r\n` (or EOF) so
+                // we don't truncate on a TCP fragment boundary —
+                // tests assert on header content (ACRM / ACRH /
+                // method line) which can land arbitrarily late
+                // depending on hyper's write batching (Copilot R3).
+                let mut buf = Vec::with_capacity(4096);
+                let mut chunk = [0u8; 1024];
+                loop {
+                    let n = stream.read(&mut chunk).await.expect("scripted server read");
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let req = String::from_utf8_lossy(&buf).to_string();
                 recorded_clone.lock().unwrap().push(req);
-                stream.write_all(body).await.ok();
+                stream.write_all(body).await.expect("scripted server write");
             }
         });
         (port, recorded)

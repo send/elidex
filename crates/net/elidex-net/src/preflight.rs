@@ -1271,9 +1271,12 @@ mod tests {
         assert_eq!(err.kind, NetErrorKind::CorsBlocked);
     }
 
-    /// Duplicate Max-Age (single-valued) must fail closed.
+    /// Duplicate Max-Age (single-valued) is treated as missing
+    /// by `header_value_single` (returns `None`), so the cache
+    /// lifetime falls back to the §4.8 step 19 default (5s)
+    /// rather than honouring either occurrence.
     #[test]
-    fn validate_response_duplicate_max_age_treated_as_no_cache() {
+    fn validate_response_duplicate_max_age_falls_back_to_default() {
         let r = req_with(
             "PUT",
             "https://api.other.com/",
