@@ -418,14 +418,18 @@ pub(super) fn validate_http_method(raw: &str, error_prefix: &str) -> Result<Stri
     }
 }
 
-/// Coerce a body init value into raw UTF-8 bytes.  Accepts
-/// `String` / `ArrayBuffer` / `Blob` directly (per WHATWG §5
-/// "extract a body"); any other non-null / non-undefined value is
-/// `ToString`-coerced, matching browsers' forgiving
+/// Coerce a body init value into raw UTF-8 bytes plus, when
+/// applicable, an override Content-Type that supersedes the
+/// generic [`content_type_for_body`] mapping (the encoder-derived
+/// boundary for `multipart/form-data` is only known after the body
+/// is serialised, so it has to be returned together with the
+/// bytes).  Accepts `String` / `ArrayBuffer` / `Blob` /
+/// `URLSearchParams` / `FormData` / `BufferSource` views (per
+/// WHATWG §5 "extract a body"); any other non-null / non-undefined
+/// value is `ToString`-coerced, matching browsers' forgiving
 /// `new Request(url, {body: 42})` → `"42"` behaviour.
 ///
-/// `FormData` / `URLSearchParams` / `ReadableStream` land with
-/// their own tranches.
+/// `ReadableStream` lands with the PR5-streams tranche.
 ///
 /// `pub(super)` so the `fetch()` host (`vm/host/fetch.rs`) can
 /// reuse the exact same coercion path for `init.body` without
@@ -434,23 +438,27 @@ pub(super) fn validate_http_method(raw: &str, error_prefix: &str) -> Result<Stri
 pub(super) fn extract_body_bytes(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
-) -> Result<Option<Vec<u8>>, VmError> {
+) -> Result<Option<(Vec<u8>, Option<StringId>)>, VmError> {
     match val {
         JsValue::Undefined | JsValue::Null => Ok(None),
         JsValue::String(sid) => {
             let raw = ctx.vm.strings.get_utf8(sid);
-            Ok(Some(raw.into_bytes()))
+            Ok(Some((raw.into_bytes(), None)))
         }
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
-            ObjectKind::ArrayBuffer => Ok(Some(super::array_buffer::array_buffer_bytes(
-                ctx.vm, obj_id,
+            ObjectKind::ArrayBuffer => Ok(Some((
+                super::array_buffer::array_buffer_bytes(ctx.vm, obj_id),
+                None,
             ))),
             ObjectKind::Blob => {
                 // `BlobData.bytes` is the source of truth as
                 // `Arc<[u8]>` (per-spec immutable).  Snapshot the
                 // bytes into a fresh Vec at the pool boundary so
                 // the new body owns its bytes independently.
-                Ok(Some(super::blob::blob_bytes(ctx.vm, obj_id).to_vec()))
+                Ok(Some((
+                    super::blob::blob_bytes(ctx.vm, obj_id).to_vec(),
+                    None,
+                )))
             }
             // TypedArray / DataView as BufferSource (WHATWG Fetch
             // §5 — BodyInit union accepts any BufferSource).
@@ -466,18 +474,48 @@ pub(super) fn extract_body_bytes(
                 buffer_id,
                 byte_offset,
                 byte_length,
-            } => Ok(Some(super::array_buffer::array_buffer_view_bytes(
-                ctx.vm,
-                buffer_id,
-                byte_offset,
-                byte_length,
+            } => Ok(Some((
+                super::array_buffer::array_buffer_view_bytes(
+                    ctx.vm,
+                    buffer_id,
+                    byte_offset,
+                    byte_length,
+                ),
+                None,
             ))),
+            ObjectKind::URLSearchParams => {
+                // Always serialise via the `serialize_for_body`
+                // helper so the wire bytes match `toString()`'s
+                // observable output.
+                let serialized = super::url_search_params::serialize_for_body(ctx.vm, obj_id);
+                Ok(Some((serialized.into_bytes(), None)))
+            }
+            ObjectKind::FormData => {
+                // Snapshot the entry list because the multipart
+                // encoder needs `&VmInner` (read-only) and we
+                // cannot keep a `&mut` borrow open across the
+                // subsequent `intern` of the boundary string.
+                let entries = ctx
+                    .vm
+                    .form_data_states
+                    .get(&obj_id)
+                    .cloned()
+                    .unwrap_or_default();
+                let (body, boundary) = super::multipart::encode(ctx.vm, &entries);
+                let prefix = ctx
+                    .vm
+                    .strings
+                    .get_utf8(ctx.vm.well_known.multipart_form_data_prefix);
+                let ct_string = format!("{prefix}{boundary}");
+                let ct_sid = ctx.vm.strings.intern(&ct_string);
+                Ok(Some((body, Some(ct_sid))))
+            }
             _ => {
                 // Generic fallback: stringify.  Covers plain
                 // objects / Arrays / numbers once wrapped.
                 let sid = super::super::coerce::to_string(ctx.vm, val)?;
                 let raw = ctx.vm.strings.get_utf8(sid);
-                Ok(Some(raw.into_bytes()))
+                Ok(Some((raw.into_bytes(), None)))
             }
         },
         _ => {
@@ -485,7 +523,7 @@ pub(super) fn extract_body_bytes(
             // matching browsers' `new Request(url, {body: 42})` → "42".
             let sid = super::super::coerce::to_string(ctx.vm, val)?;
             let raw = ctx.vm.strings.get_utf8(sid);
-            Ok(Some(raw.into_bytes()))
+            Ok(Some((raw.into_bytes(), None)))
         }
     }
 }
@@ -531,8 +569,18 @@ fn native_response_constructor(
     };
     let body_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let body_bytes = extract_body_bytes(ctx, body_arg)?;
-    let body_default_content_type = content_type_for_body(ctx, body_arg);
+    let extracted = extract_body_bytes(ctx, body_arg)?;
+    let body_default_content_type = match &extracted {
+        // FormData returns a boundary-bearing override that
+        // supersedes the static `content_type_for_body` mapping
+        // (the boundary is only known after serialisation).  For
+        // every other body kind the helper agrees with
+        // `content_type_for_body`, so falling back to the latter
+        // keeps the wiring deterministic.
+        Some((_, Some(ct))) => Some(*ct),
+        _ => content_type_for_body(ctx, body_arg),
+    };
+    let body_bytes = extracted.map(|(b, _)| b);
     build_response_instance(
         ctx,
         inst_id,
@@ -705,10 +753,20 @@ fn parse_response_init(
 /// Default `Content-Type` for a body argument (WHATWG §5 "extract
 /// a body").  `String` bodies default to
 /// `"text/plain;charset=UTF-8"`; `Blob` bodies carry their own
-/// `type` (or nothing if the Blob's type is empty).  `ArrayBuffer`
-/// has no default CT — matches spec (§5 step 4.7 "If object is a
-/// BufferSource, ... set Content-Type to null").
-fn content_type_for_body(ctx: &NativeContext<'_>, body: JsValue) -> Option<StringId> {
+/// `type` (or nothing if the Blob's type is empty);
+/// `URLSearchParams` bodies default to
+/// `"application/x-www-form-urlencoded;charset=UTF-8"`.
+/// `ArrayBuffer` has no default CT — matches spec (§5 step 4.7
+/// "If object is a BufferSource, ... set Content-Type to null").
+///
+/// `FormData` is **not** handled here — its boundary-bearing
+/// `Content-Type` is computed inline by [`extract_body_bytes`]
+/// because the boundary is only known after serialisation.  Builds
+/// that consult `content_type_for_body` for a FormData body
+/// receive `None`; the [`build_response_instance`] /
+/// [`request_ctor`] paths thread the override returned by
+/// `extract_body_bytes` ahead of this fallback.
+pub(super) fn content_type_for_body(ctx: &NativeContext<'_>, body: JsValue) -> Option<StringId> {
     match body {
         JsValue::String(_) => Some(ctx.vm.well_known.text_plain_charset_utf8),
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
@@ -724,9 +782,9 @@ fn content_type_for_body(ctx: &NativeContext<'_>, body: JsValue) -> Option<Strin
                     Some(ty)
                 }
             }
-            // `ArrayBuffer` bodies fall through to `None` — spec
-            // §5 step 4.7 "If object is a BufferSource, ... set
-            // Content-Type to null".
+            ObjectKind::URLSearchParams => Some(ctx.vm.well_known.application_form_urlencoded),
+            // `ArrayBuffer` / `FormData` / others fall through to
+            // `None` — see fn doc.
             _ => None,
         },
         _ => None,
@@ -777,7 +835,7 @@ pub(super) fn copy_headers_entries(
 /// Set `Content-Type: <ct_sid>` on `headers_id` only when the user
 /// did not already provide a `content-type` entry.  Mirrors the
 /// §5 "extract a body" default-content-type logic.
-fn ensure_content_type(
+pub(super) fn ensure_content_type(
     ctx: &mut NativeContext<'_>,
     headers_id: ObjectId,
     default_ct_sid: StringId,

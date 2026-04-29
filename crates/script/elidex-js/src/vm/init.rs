@@ -189,6 +189,14 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 text_decoder_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                url_search_params_prototype: None,
+                #[cfg(feature = "engine")]
+                url_search_params_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                form_data_prototype: None,
+                #[cfg(feature = "engine")]
+                form_data_states: HashMap::new(),
+                #[cfg(feature = "engine")]
                 network_handle: None,
                 #[cfg(feature = "engine")]
                 fetch_abort_observers: HashMap::new(),

@@ -468,6 +468,33 @@ pub enum ObjectKind {
     /// Sweep tail prunes entries whose key `ObjectId` was collected.
     #[cfg(feature = "engine")]
     TextDecoder,
+    /// `URLSearchParams` instance (WHATWG URL §6).  Payload-free;
+    /// the entry list (`Vec<(StringId, StringId)>` of name/value
+    /// pairs in insertion order) lives out-of-band in
+    /// [`super::VmInner::url_search_params_states`] keyed by this
+    /// `ObjectId`.  Same model as `Headers` — keeping the variant
+    /// payload-free preserves per-variant size discipline.
+    ///
+    /// GC contract: the entry list holds only interned `StringId`s
+    /// (pool-permanent, no `ObjectId` references), so the trace
+    /// step does nothing.  Sweep tail prunes entries whose key
+    /// `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    URLSearchParams,
+    /// `FormData` instance (WHATWG XHR §4.3).  Payload-free;
+    /// the entry list lives out-of-band in
+    /// [`super::VmInner::form_data_states`] keyed by this
+    /// `ObjectId`.  Each entry is `(name, value, filename?)`,
+    /// where `value` is either a `StringId` (string entry) or a
+    /// `Blob` `ObjectId` (file entry).
+    ///
+    /// GC contract: the trace step marks every Blob `ObjectId`
+    /// referenced by the state's entry list so a Blob that was
+    /// appended to a FormData survives as long as the FormData
+    /// itself is reachable.  Sweep tail prunes entries whose key
+    /// `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    FormData,
 }
 
 impl ObjectKind {

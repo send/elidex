@@ -394,6 +394,21 @@ impl VmInner {
             self.install_body_mixin_methods(response_proto);
         }
 
+        // `URLSearchParams` + `FormData` (WHATWG URL §6 / XHR §4.3).
+        // Both rely only on `Object.prototype` (URLSearchParams) +
+        // `Blob.prototype` (FormData reads `ObjectKind::Blob` in its
+        // append fast path), so they land after both are installed.
+        // Fetch body extraction (`extract_body_bytes` /
+        // `content_type_for_body` in `request_response.rs`) consults
+        // their states, but the wiring stays static (variant pattern
+        // match), so registration order with `register_fetch_global`
+        // does not matter.
+        #[cfg(feature = "engine")]
+        {
+            self.register_url_search_params_global();
+            self.register_form_data_global();
+        }
+
         // `fetch()` global (WHATWG Fetch §5.1).  Must run after
         // `register_response_global` so `response_prototype`
         // exists when the first fetched Response is constructed

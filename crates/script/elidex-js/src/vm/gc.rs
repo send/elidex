@@ -109,7 +109,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 50],
+    proto_roots: [Option<ObjectId>; 52],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -176,6 +176,15 @@ struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     response_states:
         &'a std::collections::HashMap<ObjectId, super::host::request_response::ResponseState>,
+    /// `FormData` entry list — each entry's `Blob` ObjectId must
+    /// be marked so `formData.append("file", blob)` keeps the
+    /// Blob alive as long as the FormData is reachable.  Same
+    /// shape as `request_states` / `response_states`: `trace_work_list`
+    /// looks up the entry list when an `ObjectKind::FormData`
+    /// instance pops off the work list.
+    #[cfg(feature = "engine")]
+    form_data_states:
+        &'a std::collections::HashMap<ObjectId, Vec<super::host::form_data::FormDataEntry>>,
     /// Pending `AbortSignal.timeout(ms)` registrations — the
     /// `ObjectId` values are signals that must survive until the
     /// timer fires (see `VmInner::pending_timeout_signals` for the
@@ -675,6 +684,25 @@ impl VmInner {
                 self.text_decoder_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 50 + 2 (M4-12 PR-form-url: URLSearchParams + FormData) = 52.
+                // Both chain directly to Object.prototype.  Without
+                // marking these intrinsic prototypes here, user code
+                // that severs the global binding (e.g. `delete
+                // globalThis.URLSearchParams`) could let the
+                // prototype be collected while `VmInner::
+                // url_search_params_prototype` retains a stale id;
+                // the next `new URLSearchParams()` would then bind
+                // its instance to a recycled slot of an unrelated
+                // type.  Same invariant as every other intrinsic
+                // prototype in this list.
+                #[cfg(feature = "engine")]
+                self.url_search_params_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.form_data_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -702,6 +730,8 @@ impl VmInner {
             #[cfg(feature = "engine")]
             response_states: &self.response_states,
             #[cfg(feature = "engine")]
+            form_data_states: &self.form_data_states,
+            #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
             #[cfg(feature = "engine")]
             pending_tasks: &self.pending_tasks,
@@ -727,6 +757,8 @@ impl VmInner {
             roots.request_states,
             #[cfg(feature = "engine")]
             roots.response_states,
+            #[cfg(feature = "engine")]
+            roots.form_data_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -844,6 +876,20 @@ impl VmInner {
             self.named_node_map_states
                 .retain(|id, _| bit_get(marks, id.0));
             self.attr_states.retain(|id, _| bit_get(marks, id.0));
+            // `url_search_params_states` — payload is `StringId` only
+            // (pool-permanent), so no trace fan-out.  Sweep prunes
+            // entries whose key `URLSearchParams` instance was
+            // collected.  Same pattern as `headers_states`.
+            self.url_search_params_states
+                .retain(|id, _| bit_get(marks, id.0));
+            // `form_data_states` — payload includes Blob ObjectIds
+            // for `FormDataValue::Blob` entries; those are marked
+            // through the `trace_work_list` arm so by sweep time the
+            // Blobs are alive whenever the FormData is alive.  Drop
+            // entries whose key `FormData` instance was collected
+            // (the entry's Blob references are no longer reachable
+            // through the FormData wrapper anyway).
+            self.form_data_states.retain(|id, _| bit_get(marks, id.0));
             // `attr_wrapper_cache` — drop entries whose wrapper was
             // collected in this sweep.  Owner-wrapper destruction
             // via `remove_wrapper` flows through this prune because

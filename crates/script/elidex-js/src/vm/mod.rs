@@ -793,6 +793,42 @@ pub(crate) struct VmInner {
     /// `blob_data` / `headers_states`.
     #[cfg(feature = "engine")]
     pub(crate) text_decoder_states: HashMap<ObjectId, host::text_encoding::TextDecoderState>,
+    /// `URLSearchParams.prototype` (WHATWG URL §6).  Chains to
+    /// `Object.prototype`.  `None` until
+    /// `register_url_search_params_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) url_search_params_prototype: Option<ObjectId>,
+    /// Per-`URLSearchParams` entry list keyed by the instance's own
+    /// `ObjectId` (WHATWG URL §6 "list of name-value pairs").  Names
+    /// and values are stored as interned `StringId`s in insertion
+    /// order — `Vec<(StringId, StringId)>`.
+    ///
+    /// GC contract: the entry list holds only `StringId`s
+    /// (pool-permanent), so the trace step does nothing.  Sweep
+    /// tail prunes entries whose key `ObjectId` was collected —
+    /// same pattern as `headers_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) url_search_params_states: HashMap<ObjectId, Vec<(StringId, StringId)>>,
+    /// `FormData.prototype` (WHATWG XHR §4.3).  Chains to
+    /// `Object.prototype`.  `None` until
+    /// `register_form_data_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) form_data_prototype: Option<ObjectId>,
+    /// Per-`FormData` entry list keyed by the instance's own
+    /// `ObjectId` (WHATWG XHR §4.3 "entry list").  Each entry
+    /// carries a name + value (`String` or `Blob`-backed) +
+    /// optional filename.
+    ///
+    /// GC contract: the trace step marks every Blob `ObjectId`
+    /// referenced by [`host::form_data::FormDataValue::Blob`] so
+    /// Blobs appended to a FormData survive as long as the
+    /// FormData is reachable.  String entries hold only interned
+    /// `StringId`s.  Sweep tail prunes entries whose key
+    /// `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    pub(crate) form_data_states: HashMap<ObjectId, Vec<host::form_data::FormDataEntry>>,
     /// Backing state for `ObjectKind::HtmlCollection` /
     /// `ObjectKind::NodeList` wrappers (WHATWG DOM §4.2.10 / §4.2.10.1).
     ///

@@ -41,6 +41,10 @@ pub(super) fn trace_work_list(
         ObjectId,
         super::host::request_response::ResponseState,
     >,
+    #[cfg(feature = "engine")] form_data_states: &std::collections::HashMap<
+        ObjectId,
+        Vec<super::host::form_data::FormDataEntry>,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -334,6 +338,29 @@ pub(super) fn trace_work_list(
             // `ObjectId` was collected.
             #[cfg(feature = "engine")]
             ObjectKind::TextEncoder | ObjectKind::TextDecoder => {}
+            // `URLSearchParams`'s entry list lives in
+            // `url_search_params_states` and carries only interned
+            // `StringId`s (pool-permanent), so the trace step does
+            // nothing.  Sweep tail prunes dead-key entries — same
+            // pattern as `headers_states`.
+            #[cfg(feature = "engine")]
+            ObjectKind::URLSearchParams => {}
+            // `FormData`'s entry list (`form_data_states`) carries
+            // Blob `ObjectId`s for `FormDataValue::Blob` entries;
+            // mark each one so the Blobs survive as long as the
+            // FormData itself is reachable.  String entries hold
+            // only pool-permanent `StringId`s.  Filenames are
+            // `StringId`s too (no marking required).
+            #[cfg(feature = "engine")]
+            ObjectKind::FormData => {
+                if let Some(entries) = form_data_states.get(&ObjectId(obj_idx)) {
+                    for entry in entries {
+                        if let super::host::form_data::FormDataValue::Blob(blob_id) = entry.value {
+                            mark_object(blob_id, obj_marks, work);
+                        }
+                    }
+                }
+            }
         }
     }
 }
