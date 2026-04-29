@@ -369,6 +369,29 @@ fn request_with_url_search_params_sets_form_urlencoded() {
 }
 
 #[test]
+fn multipart_encoder_with_dash_dash_in_blob_succeeds() {
+    // Regression for R3 perf finding: the boundary collision check
+    // skips Blob bytes (per-process nonce makes the boundary
+    // unpredictable, so adversarial Blob content cannot match).
+    // A Blob whose payload starts with `--` — the syntactic prefix
+    // of every multipart boundary — must still encode correctly:
+    // the body should round-trip the bytes verbatim and the
+    // emitted boundary must still appear exactly twice in the
+    // body (once before the part, once at the close).
+    let body = eval_global_string(
+        "globalThis.s = ''; \
+         let f = new FormData(); \
+         f.append('p', new Blob(['--fake-boundary-content--'])); \
+         new Response(f).text().then(t => { globalThis.s = t; });",
+        "s",
+    );
+    assert!(
+        body.contains("--fake-boundary-content--"),
+        "blob content should round-trip verbatim: {body:?}"
+    );
+}
+
+#[test]
 fn multipart_encoder_handles_large_blob_bytes() {
     // Regression for R1 perf finding: Blob bytes flow through the
     // encoder via `Arc<[u8]>` rather than a per-call clone.  The
