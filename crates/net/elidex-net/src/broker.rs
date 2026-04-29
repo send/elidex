@@ -355,6 +355,95 @@ impl NetworkHandle {
             .unwrap_or_default()
     }
 
+    /// Async dispatch: enqueue a fetch and return its [`FetchId`]
+    /// immediately.  The reply arrives via [`Self::drain_events`] as
+    /// [`NetworkToRenderer::FetchResponse`] some time later.  Used by
+    /// the elidex-js VM's async fetch path (M4-12 PR5) and by any
+    /// embedder that drives its own event loop.
+    ///
+    /// Mock handles short-circuit identically to
+    /// [`Self::fetch_blocking`] — the configured response is dropped
+    /// onto the internal `buffered` queue under the freshly-allocated
+    /// id, so a follow-up [`Self::drain_events`] returns the matching
+    /// `FetchResponse(id, ...)`.  Each mock URL still answers exactly
+    /// once (the `HashMap` `remove` is consumed on first match).
+    pub fn fetch_async(&self, request: Request) -> FetchId {
+        let fetch_id = FetchId::next();
+
+        #[cfg(feature = "test-hooks")]
+        if let Some(ref map) = self.mock_responses {
+            if let Some(ref log) = self.recorded_requests {
+                log.borrow_mut().push(request.clone());
+            }
+            let url_str = request.url.to_string();
+            let result = map
+                .borrow_mut()
+                .remove(&url_str)
+                .unwrap_or_else(|| Err(format!("mock: no response for {url_str}")));
+            self.buffered
+                .borrow_mut()
+                .push(NetworkToRenderer::FetchResponse(fetch_id, result));
+            return fetch_id;
+        }
+
+        // Send may fail when the broker has shut down or the handle
+        // was created via `disconnected()`; in that case buffer a
+        // synthetic `Err` reply so the renderer's `pending_fetches`
+        // table can settle on the next `drain_events()` instead of
+        // leaking the entry forever (R1.1).
+        if !self.send(RendererToNetwork::Fetch(fetch_id, request)) {
+            self.buffered
+                .borrow_mut()
+                .push(NetworkToRenderer::FetchResponse(
+                    fetch_id,
+                    Err("network process disconnected".into()),
+                ));
+        }
+        fetch_id
+    }
+
+    /// Cancel an in-flight fetch.  Idempotent — calling on a
+    /// completed / unknown id is harmless because the broker thread
+    /// merely posts an `Err("aborted")` reply for that id, and the
+    /// renderer's pending-fetch table already deduplicates late
+    /// replies (the second arrival's `remove` returns `None` and is
+    /// silently dropped).
+    ///
+    /// **Multi-reply contract** (R6.2): the broker emits the
+    /// synthesised `FetchResponse(id, Err("aborted"))` immediately
+    /// on the cancel, but the in-flight fetch thread continues
+    /// running until its underlying tokio call returns and may
+    /// post a *second* `FetchResponse` for the same `FetchId`.
+    /// Direct embedders driving [`Self::drain_events`] themselves
+    /// must therefore treat the first terminal reply per `FetchId`
+    /// as authoritative and silently drop subsequent ones; the
+    /// elidex-js VM does this via its `pending_fetches.remove`
+    /// dedup.  Tightening the broker to suppress the late real
+    /// reply would require per-`FetchId` cancellation state on
+    /// the broker thread (currently kept stateless to bound
+    /// memory under unbounded cancel-then-leak scenarios).
+    ///
+    /// **Concurrency-counter saturation** (R7.1): because the
+    /// in-flight thread is not actually stopped, the per-broker
+    /// `MAX_CONCURRENT_FETCHES` inflight counter stays bumped
+    /// until the underlying network IO completes (success, error,
+    /// or transport timeout — the latter ~30s for HTTP requests
+    /// that connect but never respond).  A workload that issues
+    /// many fetches and aborts each one immediately can therefore
+    /// transiently saturate the global concurrency limit and
+    /// starve subsequent un-cancelled fetches until the cancelled
+    /// IO drains.  True request cancellation (passing a tokio
+    /// cancellation token through `client.send`) belongs with
+    /// the broader broker-state work in PR5-cors / PR5-streams.
+    /// For now, embedders that anticipate cancel-heavy workloads
+    /// should size `MAX_CONCURRENT_FETCHES` accordingly.
+    ///
+    /// Returns `true` if the cancel was queued, `false` if the
+    /// broker is disconnected.
+    pub fn cancel_fetch(&self, id: FetchId) -> bool {
+        self.send(RendererToNetwork::CancelFetch(id))
+    }
+
     /// Send a blocking fetch request.
     ///
     /// The content thread blocks until the fetch completes (or times out
@@ -419,6 +508,25 @@ impl NetworkHandle {
     /// Returns `true` if the message was queued, `false` if the broker is disconnected.
     pub fn send(&self, msg: RendererToNetwork) -> bool {
         self.request_tx.send((self.client_id, msg)).is_ok()
+    }
+
+    /// Push events back onto the internal buffer so the next
+    /// [`Self::drain_events`] returns them.  Used by partial drainers
+    /// (e.g. the elidex-js VM's `tick_network`, which only handles
+    /// fetch replies and re-buffers WS/SSE events for sibling
+    /// consumers during the boa→VM cutover) to avoid stealing
+    /// events from another module that owns the same handle.
+    /// Events appear in front of any newly-arrived events on the
+    /// channel; relative order within the re-buffered slice is
+    /// preserved.
+    pub fn rebuffer_events(&self, events: Vec<NetworkToRenderer>) {
+        if events.is_empty() {
+            return;
+        }
+        let mut buf = self.buffered.borrow_mut();
+        // Re-buffered events come before anything arriving on the
+        // channel since `drain_events` reads `buffered` first.
+        buf.splice(0..0, events);
     }
 }
 
@@ -577,10 +685,27 @@ impl NetworkProcessState {
             RendererToNetwork::Fetch(fetch_id, request) => {
                 self.handle_fetch(cid, fetch_id, request, client);
             }
-            RendererToNetwork::CancelFetch(_fetch_id) => {
-                // No-op (M4-10): fetch_blocking blocks the content thread,
-                // so abort signals cannot be delivered mid-flight. Requires
-                // async fetch with the elidex-js event loop.
+            RendererToNetwork::CancelFetch(fetch_id) => {
+                // Synthesise an immediate `Err("aborted")` reply so the
+                // renderer can settle its Promise without waiting for
+                // the in-flight fetch thread to finish.  The thread
+                // continues running until the underlying tokio call
+                // returns; its real response, when delivered, hits the
+                // renderer's pending-fetch table after `pending_fetches
+                // .remove(id)` has already returned `Some` for the
+                // abort, so the duplicate reply is silently dropped on
+                // the JS side.  This keeps the broker-side state model
+                // empty (no per-FetchId cancellation tracking) at the
+                // cost of letting the network IO complete in the
+                // background — matching what most browsers do
+                // observationally for `controller.abort()` on an
+                // in-flight HTTP request.
+                if let Some(tx) = self.clients.get(&cid) {
+                    let _ = tx.send(NetworkToRenderer::FetchResponse(
+                        fetch_id,
+                        Err("aborted".into()),
+                    ));
+                }
             }
             RendererToNetwork::WebSocketOpen {
                 conn_id,
@@ -944,5 +1069,161 @@ mod tests {
         let debug = format!("{renderer:?}");
         assert!(debug.contains("NetworkHandle"));
         handle.shutdown();
+    }
+
+    #[test]
+    fn fetch_async_returns_id_and_drain_picks_up_response() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_thread = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let resp = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+            stream.write_all(resp).unwrap();
+        });
+
+        let np = spawn_network_process(test_client());
+        let renderer = np.create_renderer_handle();
+
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+        };
+
+        let id = renderer.fetch_async(request);
+        assert!(id.0 > 0);
+
+        // Poll drain_events until the matching FetchResponse arrives.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut got = None;
+        while std::time::Instant::now() < deadline {
+            for ev in renderer.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                    if rid == id {
+                        got = Some(result);
+                    }
+                }
+            }
+            if got.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let resp = got.expect("FetchResponse not delivered").unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body.as_ref(), b"ok");
+
+        server_thread.join().unwrap();
+        np.shutdown();
+    }
+
+    #[test]
+    fn cancel_fetch_delivers_aborted_reply() {
+        // Bind a sync server that *never replies* — the only way the
+        // renderer sees a FetchResponse is via the broker's CancelFetch
+        // synthesised reply.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Hold the listener open for the whole test so the connect
+        // succeeds; never accept-and-reply (so the real fetch hangs).
+        let _listener = listener;
+
+        let np = spawn_network_process(test_client());
+        let renderer = np.create_renderer_handle();
+
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+        };
+
+        let id = renderer.fetch_async(request);
+        assert!(renderer.cancel_fetch(id));
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut got = None;
+        while std::time::Instant::now() < deadline {
+            for ev in renderer.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                    if rid == id && result.is_err() {
+                        got = Some(result);
+                    }
+                }
+            }
+            if got.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        let err = got.expect("aborted reply not delivered").unwrap_err();
+        assert!(err.contains("aborted"), "expected 'aborted' got: {err}");
+
+        np.shutdown();
+    }
+
+    #[test]
+    fn fetch_async_on_disconnected_handle_buffers_terminal_error() {
+        // R1.1: when the request channel is closed (broker shut down,
+        // or `NetworkHandle::disconnected()` test fixture), `fetch_async`
+        // must still produce a `FetchResponse(id, Err(...))` so the
+        // renderer's `pending_fetches` table can settle on the next
+        // drain instead of leaking the entry.
+        let renderer = NetworkHandle::disconnected();
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse("http://example.invalid/").unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+        };
+        let id = renderer.fetch_async(request);
+        let events = renderer.drain_events();
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            NetworkToRenderer::FetchResponse(rid, Err(msg)) => {
+                assert_eq!(*rid, id);
+                assert!(msg.contains("disconnected"), "got: {msg}");
+            }
+            other => panic!("expected disconnected error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cancel_fetch_unknown_id_is_idempotent() {
+        let np = spawn_network_process(test_client());
+        let renderer = np.create_renderer_handle();
+        // Allocate an id never sent as a Fetch — broker still posts an
+        // aborted reply (renderer-side dedupe handles the mismatch).
+        let id = FetchId::next();
+        assert!(renderer.cancel_fetch(id));
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let mut got = None;
+        while std::time::Instant::now() < deadline {
+            for ev in renderer.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                    if rid == id {
+                        got = Some(result);
+                    }
+                }
+            }
+            if got.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let err = got.expect("aborted reply not delivered").unwrap_err();
+        assert!(err.contains("aborted"));
+
+        np.shutdown();
     }
 }

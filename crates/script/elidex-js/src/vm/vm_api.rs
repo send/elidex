@@ -318,6 +318,28 @@ impl Vm {
         }
     }
 
+    /// Drain pending network events (broker `FetchResponse` replies)
+    /// and dispatch them to the JS side.  For each reply, settles
+    /// the associated pending Promise — fulfil with a
+    /// freshly-constructed `Response` on success, reject with a
+    /// `TypeError("Failed to fetch: ...")` on broker-side failure.
+    /// Late replies for fetches whose Promise was already settled by
+    /// an abort fan-out (`controller.abort()` between dispatch and
+    /// reply) are silently dropped because their entry in
+    /// `VmInner::pending_fetches` was already removed.
+    ///
+    /// Runs a microtask checkpoint at the end so `.then` reactions
+    /// fire before this call returns.
+    ///
+    /// Idempotent and cheap when no events are pending — the shell
+    /// event loop calls this every tick; tests that need to observe
+    /// Promise settlement after a mock fetch call this explicitly
+    /// between dispatch and assertion.
+    #[cfg(feature = "engine")]
+    pub fn tick_network(&mut self) {
+        self.inner.tick_network();
+    }
+
     /// Install the `NetworkHandle` used by the `fetch()` host
     /// global.  Without a handle, every `fetch()` call rejects
     /// with a `TypeError` (matches `NetworkHandle::disconnected()`
@@ -331,12 +353,34 @@ impl Vm {
     ///
     /// Replaces any previously installed handle.  Dropping the
     /// `Vm` (or calling this with a fresh handle) releases the
-    /// previous `Rc`.
+    /// previous `Rc`.  Any in-flight async fetches against the
+    /// previous handle are rejected with `TypeError("Failed to
+    /// fetch: NetworkHandle replaced while request in flight")`
+    /// before the swap, since their broker-reply channel becomes
+    /// unreachable; without this the Promises would be
+    /// permanently un-settleable (R3.3).  Reactions attached via
+    /// `.then` / `.catch` fire on the next microtask drain (next
+    /// `eval` / `tick_network` call), not synchronously here.
+    ///
+    /// Re-installing the *same* `Rc<NetworkHandle>` (pointer-equal
+    /// to the one already stored) is a no-op — pending fetches
+    /// are preserved because the broker-reply channel is the same
+    /// physical handle (R6.1).  This keeps benign re-install
+    /// patterns (e.g. an embedder cloning + re-installing through
+    /// a shared accessor) from spuriously cancelling in-flight
+    /// requests.
     #[cfg(feature = "engine")]
     pub fn install_network_handle(
         &mut self,
         handle: std::rc::Rc<elidex_net::broker::NetworkHandle>,
     ) {
+        if let Some(ref current) = self.inner.network_handle {
+            if std::rc::Rc::ptr_eq(current, &handle) {
+                return;
+            }
+        }
+        self.inner
+            .reject_pending_fetches_with_error("NetworkHandle replaced while request in flight");
         self.inner.network_handle = Some(handle);
     }
 

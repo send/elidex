@@ -27,6 +27,8 @@ fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
     vm
 }
 
+use super::drain_fetch_replies;
+
 fn json_response(url: &str, body: &'static str) -> NetResponse {
     let parsed = url::Url::parse(url).expect("valid URL");
     NetResponse {
@@ -61,6 +63,7 @@ fn fetch_clone_lets_body_be_consumed_twice() {
          });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r_json") {
         Some(JsValue::Number(n)) => assert!((n - 42.0).abs() < f64::EPSILON),
         other => panic!("expected r_json to be 42, got {other:?}"),
@@ -270,6 +273,7 @@ fn fetch_request_input_with_init_method_override() {
          globalThis.m = new Request(req, {method: 'POST'}).method;",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("expected r to be 200, got {other:?}"),
@@ -301,6 +305,7 @@ fn fetch_request_input_without_init_preserves_request_method() {
          fetch(req).then(resp => { globalThis.r = resp.status; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("expected r to be 200, got {other:?}"),
@@ -368,6 +373,7 @@ fn fetch_response_headers_go_through_normalisation() {
          });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     // Header name lookup is case-insensitive on our side (`.get`
     // calls `validate_and_normalise_name` which lowercases), so
     // both accesses resolve to the same entry.
@@ -586,6 +592,7 @@ fn fetch_null_headers_completes_without_crashing() {
          fetch(req, {headers: null}).then(resp => { globalThis.r = resp.status; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("expected r to be 200, got {other:?}"),

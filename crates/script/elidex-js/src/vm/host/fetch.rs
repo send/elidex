@@ -2,10 +2,35 @@
 //!
 //! Routes a JS-level fetch request through the embedding-supplied
 //! [`NetworkHandle`] (see `Vm::install_network_handle`) and returns
-//! a Promise that settles synchronously against the blocking
-//! broker call.
+//! a Promise that settles when the broker reply lands on a
+//! subsequent [`super::super::Vm::tick_network`] call.
 //!
-//! ## Phase 2 scope
+//! ## Async lifecycle (M4-12 PR5-async-fetch)
+//!
+//! 1. `native_fetch` parses arguments, builds an
+//!    [`elidex_net::Request`], and calls
+//!    [`elidex_net::broker::NetworkHandle::fetch_async`] which
+//!    returns a [`FetchId`] immediately.
+//! 2. The Promise is created Pending and stored in
+//!    [`super::super::VmInner::pending_fetches`] keyed by `FetchId`.
+//!    If `init.signal` is set, the fetch_id is also pushed to
+//!    [`super::super::VmInner::fetch_abort_observers`]`[signal_id]`
+//!    and a reverse entry written to
+//!    [`super::super::VmInner::fetch_signal_back_refs`] for O(1)
+//!    prune on broker reply.
+//! 3. The shell event loop later calls `vm.tick_network()`, which
+//!    drains [`elidex_net::broker::NetworkHandle::drain_events`].
+//!    For each `FetchResponse(id, result)`, the matching entry is
+//!    removed from `pending_fetches`; the Promise is fulfilled with
+//!    a fresh `Response` (success path) or rejected with a
+//!    `TypeError("Failed to fetch: ...")` (broker error / abort).
+//! 4. Mid-flight `controller.abort()` settles the Promise
+//!    synchronously via [`super::abort::abort_signal`] (see that
+//!    module for the fan-out).  The eventual broker reply for
+//!    that fetch is silently dropped because its `pending_fetches`
+//!    entry was already removed.
+//!
+//! ## Phase 2 scope (preserved)
 //!
 //! - Input as URL string or as a [`Request`] instance.  The VM's
 //!   existing `Request` constructor handles the canonicalisation
@@ -14,10 +39,9 @@
 //!   behaviour matches byte-for-byte.
 //! - `init.method` / `init.headers` / `init.body` / `init.signal`
 //!   parsed in the obvious way.  `signal` is brand-checked and
-//!   pre-flight-aborted (see the Phase 2 limitation below).
-//!   `mode` / `credentials` / `cache` / `redirect` are accepted
-//!   silently and ignored until the async fetch refactor threads
-//!   them through the broker.
+//!   pre-flight-aborted.  `mode` / `credentials` / `cache` /
+//!   `redirect` are accepted silently — full enforcement lands
+//!   with subsequent stages of the PR5 series.
 //! - Errors map per WHATWG §5.2: network failures / missing
 //!   handle / bad URL / bad body all reject with **`TypeError`**
 //!   (not `DOMException`).  Spec-prescribed text is
@@ -27,23 +51,7 @@
 //!   scaffolding: new `ObjectKind::Response`, companion `Headers`
 //!   with `Immutable` guard, body bytes in the shared
 //!   `body_data` map.  `response_type` is `Basic` for successful
-//!   responses (CORS classification lands with the fetch refactor
-//!   that threads through an Origin).
-//!
-//! ## Phase 2 limitation (intentional)
-//!
-//! `NetworkHandle::fetch_blocking` blocks the content thread, so
-//! the Promise is fulfilled / rejected *before* `fetch()` returns
-//! to JS.  User code still observes the expected asynchronous
-//! shape (`.then` / `await` schedule a microtask), but `signal`-
-//! based mid-flight cancellation cannot fire — there is no JS
-//! tick between the broker send and the broker reply.  The only
-//! effective `signal` path in Phase 2 is the **pre-flight** check
-//! implemented below: if `signal.aborted === true` before the
-//! broker call, we reject immediately with `signal.reason`.
-//! `VmInner::fetch_abort_observers` holds the wire for the
-//! mid-flight path; it stays empty in Phase 2 and will be
-//! populated by the PR5-async-fetch refactor.
+//!   responses (CORS classification lands with PR5-cors).
 
 #![cfg(feature = "engine")]
 
@@ -57,7 +65,7 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, VmError,
 };
 use super::super::VmInner;
-use super::blob::{reject_promise_sync, resolve_promise_sync};
+use super::blob::reject_promise_sync;
 use super::headers::HeadersGuard;
 use super::request_response::{extract_body_bytes, parse_url, ResponseState, ResponseType};
 
@@ -201,25 +209,22 @@ fn native_fetch(
         return Ok(JsValue::Object(promise));
     };
 
-    // Blocking broker call.  `signal` is not registered in
-    // `fetch_abort_observers` here: the blocking broker call is
-    // synchronous, so no JS listener can fire
-    // `controller.abort()` before the reply.  The PR5-async-fetch
-    // refactor will insert `(signal, broker-fetch-id)` registration
-    // + broker-reply pruning at exactly this site.
-    match handle.fetch_blocking(request) {
-        Ok(response) => {
-            let resp_id = create_response_from_net(ctx.vm, response);
-            resolve_promise_sync(ctx.vm, promise, JsValue::Object(resp_id));
-        }
-        Err(msg) => {
-            // Spec §5.2 "Network error" → TypeError, not
-            // DOMException.  Preserve the broker's message for
-            // diagnostics but wrap in the spec-prescribed wording.
-            let err = VmError::type_error(format!("Failed to fetch: {msg}"));
-            let reason = ctx.vm.vm_error_to_thrown(&err);
-            reject_promise_sync(ctx.vm, promise, reason);
-        }
+    // Async broker dispatch.  Returns a `FetchId` immediately; the
+    // reply lands on a future `vm.tick_network()` invocation.  The
+    // pending Promise is registered in `pending_fetches` so the
+    // tick handler can find it; if `signal` was supplied, the
+    // fetch_id is also added to the abort fan-out so a
+    // `controller.abort()` can route a CancelFetch to the broker
+    // and reject the Promise synchronously.
+    let fetch_id = handle.fetch_async(request);
+    ctx.vm.pending_fetches.insert(fetch_id, promise);
+    if let Some(signal_id) = signal {
+        ctx.vm
+            .fetch_abort_observers
+            .entry(signal_id)
+            .or_default()
+            .push(fetch_id);
+        ctx.vm.fetch_signal_back_refs.insert(fetch_id, signal_id);
     }
 
     Ok(JsValue::Object(promise))
@@ -350,6 +355,7 @@ fn build_net_request(
                 headers,
                 body: final_body.unwrap_or_else(Bytes::new),
             };
+            attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
             attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
             return Ok(request);
         }
@@ -379,6 +385,7 @@ fn build_net_request(
         headers,
         body: final_body.unwrap_or_else(Bytes::new),
     };
+    attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
     attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
     Ok(request)
 }
@@ -400,16 +407,60 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
     }
 }
 
-/// Attach the `Referer` header that WHATWG Fetch's default referrer
-/// policy (`strict-origin-when-cross-origin`) would produce, but only
-/// if the caller has not already supplied one.
+/// Attach the `Origin` header for cross-origin `fetch()` requests
+/// (WHATWG Fetch §3.2 / §5.4).  Always set on cross-origin
+/// HTTP(S) fetches regardless of `init.mode` — the header itself
+/// is informational; the response-side gate that rejects opaque
+/// CORS responses without `Access-Control-Allow-Origin` is the
+/// policy enforcement point and lives with PR5-cors.  Non-fetch
+/// paths (navigation, WebSocket, EventSource) attach their own
+/// `Origin` upstream and never reach this helper, which returns
+/// early for any non-HTTP/S source or target.
 ///
-/// Phase 2 is opportunistic: forbidden-header enforcement (which
-/// would normally drop a script-supplied `Referer` per WHATWG Fetch
-/// §4.6) lives in PR5-async-fetch.  Until that lands we leave a
-/// caller-set value alone — that is the worst case for spec
-/// strictness but matches existing test expectations and never
-/// produces a duplicate header.
+/// Same-origin requests do not attach `Origin` — the header is
+/// reserved for cross-origin disclosure per browser convention.
+/// In practice the early-return on a pre-existing `Origin` entry
+/// is unreachable for script-initiated fetches because
+/// [`super::headers::is_forbidden_request_header`] silently drops
+/// user-set `Origin` at both the Request-guard `Headers` and the
+/// URL-input init.headers snapshot step (WHATWG Fetch §4.6); the
+/// guard remains as a defensive belt-and-braces in case a future
+/// internal caller pre-populates `request.headers` before reaching
+/// `build_net_request`.
+fn attach_default_origin(source: &Url, request: &mut elidex_net::Request) {
+    const ORIGIN: &str = "Origin";
+    if request
+        .headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case(ORIGIN))
+    {
+        return;
+    }
+    if !matches!(source.scheme(), "http" | "https") {
+        return;
+    }
+    if !matches!(request.url.scheme(), "http" | "https") {
+        return;
+    }
+    let source_origin = source.origin();
+    if source_origin == request.url.origin() {
+        return;
+    }
+    if source_origin.is_tuple() {
+        request
+            .headers
+            .push((ORIGIN.to_string(), source_origin.ascii_serialization()));
+    }
+}
+
+/// Attach the `Referer` header that WHATWG Fetch's default referrer
+/// policy (`strict-origin-when-cross-origin`) would produce.
+/// Script-initiated fetches no longer reach the early-return branch
+/// because §4.6 forbidden-header enforcement strips user-set
+/// `Referer` upstream — see [`attach_default_origin`] for the
+/// matching analysis.  The pre-existing-entry guard is retained as
+/// a belt-and-braces for future internal callers that pre-populate
+/// `request.headers`.
 ///
 /// Policy `strict-origin-when-cross-origin` (Fetch §3.2.5):
 ///
@@ -631,9 +682,22 @@ fn parse_init_overrides(
                         headers_val,
                         "Failed to execute 'fetch'",
                     )?;
+                    // WHATWG Fetch §4.6 forbidden-request-header
+                    // filter applies to the URL-input path too.
+                    // The Request-input path filters via the
+                    // companion Headers' `Request` guard during
+                    // ctor; this path has no companion, so the
+                    // filter happens here at snapshot time.
                     let snapshot: Vec<(String, String)> = entries
                         .into_iter()
-                        .map(|(n, v)| (ctx.vm.strings.get_utf8(n), ctx.vm.strings.get_utf8(v)))
+                        .filter_map(|(n, v)| {
+                            let name = ctx.vm.strings.get_utf8(n);
+                            if super::headers::is_forbidden_request_header(&name) {
+                                None
+                            } else {
+                                Some((name, ctx.vm.strings.get_utf8(v)))
+                            }
+                        })
                         .collect();
                     Some(snapshot)
                 }
@@ -693,7 +757,10 @@ fn parse_init_overrides(
 /// `new Response`'s behaviour) and guarded Immutable.  Body bytes
 /// land in the shared `body_data` map so `.text()` / `.json()`
 /// / `.arrayBuffer()` / `.blob()` work without further copies.
-fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) -> ObjectId {
+pub(super) fn create_response_from_net(
+    vm: &mut VmInner,
+    response: elidex_net::Response,
+) -> ObjectId {
     let proto = vm.response_prototype;
     let inst_id = vm.alloc_object(Object {
         kind: ObjectKind::Response,
@@ -792,3 +859,9 @@ fn create_response_from_net(vm: &mut VmInner, response: elidex_net::Response) ->
     drop(g);
     inst_id
 }
+
+// `tick_network` / `settle_fetch` / `reject_pending_fetches_with_error`
+// implementations live in [`super::fetch_tick`] to keep this file under
+// the project's 1000-line convention (Copilot R4.2).  The split has
+// no observable effect on call sites; both modules are sibling
+// `pub(super)` peers under `host::`.

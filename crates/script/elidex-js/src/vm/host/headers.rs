@@ -44,13 +44,25 @@
 //! ## Guard
 //!
 //! The WebIDL `guard` enum (`none` / `immutable` / `request` /
-//! `response` / `request-no-cors`) gates mutation.  Only `None`
-//! (fully mutable) and `Immutable` (every mutating method throws
-//! `TypeError`) are implemented here; the `Response` / `Request`
-//! ctors will install `Immutable` on their own companion Headers,
-//! and the `request` / `response` / `request-no-cors` variants
-//! arrive with those ctors (they demand richer validation than the
-//! plain mutable/immutable distinction can express).
+//! `response` / `request-no-cors`) gates mutation.  Three variants
+//! are implemented:
+//!
+//! - `None` — fully mutable; standalone `new Headers(...)` default.
+//! - `Immutable` — every mutating method throws `TypeError`;
+//!   installed by the `Response` ctor (and by `Response.error()` /
+//!   `.redirect()` / `.json()`, and by `fetch()` when wrapping a
+//!   broker response).
+//! - `Request` — silent no-op for WHATWG Fetch §4.6 forbidden
+//!   request header names (`Cookie`, `Host`, `Origin`, `Referer`,
+//!   `Set-Cookie`, the `Sec-` / `Proxy-` prefixes, …); mutations
+//!   on non-forbidden names succeed normally.  Installed on the
+//!   `Request` ctor's companion Headers.  Spec semantics are
+//!   "ignore", not "throw" — verified against Chrome / Firefox /
+//!   Safari and asserted in `tests_forbidden_headers.rs`.
+//!
+//! `response` / `request-no-cors` are not yet implemented; they
+//! arrive with PR5-cors (full mode/credentials/redirect
+//! enforcement) — see `m4-12-post-pr5a-fetch-roadmap.md`.
 //!
 //! ## Implemented
 //!
@@ -73,15 +85,22 @@ use super::super::{NativeFn, VmInner};
 /// WebIDL `Headers` guard — WHATWG Fetch §5.2.
 ///
 /// Gates mutation.  `None` is fully mutable; `Immutable` rejects
-/// every modifying method with `TypeError`.  The request /
-/// response / request-no-cors variants will arrive with the
-/// `Request` / `Response` ctors when they grow their own
-/// companion Headers — those guards demand richer validation than
-/// the plain mutable/immutable distinction can express.
+/// every modifying method with `TypeError`.  `Request` rejects
+/// **silently** (no throw) for WHATWG Fetch §4.6 forbidden request
+/// header names; mutations on non-forbidden names succeed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HeadersGuard {
     /// Fully mutable (standalone `new Headers(...)` default).
     None,
+    /// Companion Headers of a `Request` instance (WHATWG Fetch
+    /// §5.3).  Mutating methods that target a §4.6 forbidden
+    /// request header name silently return without modifying the
+    /// list — the spec says these are "ignored", not "throw".
+    /// Non-forbidden names mutate normally.  Switching guard from
+    /// `None` to `Request` blocks late drift: a script that does
+    /// `req.headers.set('Cookie', '...')` after construction is
+    /// also silently dropped, matching browsers.
+    Request,
     /// Every mutating method throws `TypeError`.  Installed by
     /// the `Response` ctor (WHATWG Fetch §5.5 step 11), by
     /// `Response.error()` / `.redirect()` / `.json()`, and by
@@ -520,6 +539,11 @@ fn native_headers_append(
         value_sid,
         "Failed to execute 'append' on 'Headers'",
     )?;
+    // Forbidden-name filter lives inside `append_entry`, which is
+    // the funnel for the JS-facing `Headers.append` (this site)
+    // and the `init.headers` parse path
+    // (`fill_headers_from_init` → `parse_headers_init_entries`).
+    // No second check here.
     append_entry(ctx, id, name_sid, value_sid)?;
     Ok(JsValue::Undefined)
 }
@@ -538,6 +562,9 @@ fn native_headers_set(
         value_sid,
         "Failed to execute 'set' on 'Headers'",
     )?;
+    if is_blocked_by_guard(ctx, id, name_sid) {
+        return Ok(JsValue::Undefined);
+    }
     if let Some(state) = ctx.vm.headers_states.get_mut(&id) {
         // Remove every existing entry with the same lowercase name,
         // then append once — WHATWG Fetch §5.2 "set a header".
@@ -557,6 +584,9 @@ fn native_headers_delete(
     let name_sid = take_name_arg(ctx, args, "delete")?;
     let name_sid =
         validate_and_normalise_name(ctx.vm, name_sid, "Failed to execute 'delete' on 'Headers'")?;
+    if is_blocked_by_guard(ctx, id, name_sid) {
+        return Ok(JsValue::Undefined);
+    }
     if let Some(state) = ctx.vm.headers_states.get_mut(&id) {
         state.list.retain(|(n, _)| *n != name_sid);
     }
@@ -764,6 +794,30 @@ fn require_mutable(ctx: &NativeContext<'_>, id: ObjectId, method: &str) -> Resul
     Ok(())
 }
 
+/// Look up the guard on `headers_id` and return `true` if the
+/// already-lowercased `name_sid` should be silently ignored under
+/// that guard.  Currently only `HeadersGuard::Request` short-
+/// circuits (forbidden request header names per WHATWG Fetch §4.6);
+/// other guards return `false` so existing append/set/delete
+/// behaviour is unchanged.
+///
+/// Takes `StringId` (not `&str`) and resolves to UTF-8 *only* when
+/// the guard is actually `Request` — the common `None`/`Immutable`
+/// paths skip the [`super::super::pools::StringPool::get_utf8`]
+/// allocation entirely (R10.2).
+fn is_blocked_by_guard(ctx: &NativeContext<'_>, headers_id: ObjectId, name_sid: StringId) -> bool {
+    let guard = ctx
+        .vm
+        .headers_states
+        .get(&headers_id)
+        .map_or(HeadersGuard::None, |s| s.guard);
+    if !matches!(guard, HeadersGuard::Request) {
+        return false;
+    }
+    let name = ctx.vm.strings.get_utf8(name_sid);
+    is_forbidden_request_header(&name)
+}
+
 /// Extract `(name, value)` args from a 2-argument method call,
 /// coercing each via `ToString`.  Missing args → `TypeError`
 /// matching Chromium's wording.
@@ -804,7 +858,9 @@ fn take_name_arg(
 // routes broker response headers through it) so external call
 // sites stay at `super::headers::validate_and_normalise` (R23.1
 // split keeps this file under the project's 1000-line convention).
-pub(super) use super::headers_validation::{validate_and_normalise, validate_and_normalise_name};
+pub(super) use super::headers_validation::{
+    is_forbidden_request_header, validate_and_normalise, validate_and_normalise_name,
+};
 
 /// Low-level append.  Callers are responsible for validation (we
 /// deliberately do not re-validate here — e.g. `Headers` → `Headers`
@@ -815,6 +871,23 @@ fn append_entry(
     name_sid: StringId,
     value_sid: StringId,
 ) -> Result<(), VmError> {
+    // Forbidden-name filter for the two callers that funnel here:
+    // [`native_headers_append`] (JS-facing `Headers.append`) and
+    // [`fill_headers_from_init`] (init.headers ctor parse).
+    // Spec semantics: silent ignore, not throw.
+    //
+    // Other internal mutators (`copy_headers_entries` /
+    // `ensure_content_type` in `request_response.rs`) bypass this
+    // filter by pushing onto `state.list` directly — the bypass is
+    // safe because (a) `copy_headers_entries` only ever copies from
+    // an already-filtered Request-guarded source, and (b)
+    // `ensure_content_type` only adds the `content-type` header,
+    // which is not in WHATWG Fetch §4.6's forbidden list.  Routing
+    // those through `append_entry` would be redundant work on a
+    // hot Request-clone path.
+    if is_blocked_by_guard(ctx, headers_id, name_sid) {
+        return Ok(());
+    }
     if let Some(state) = ctx.vm.headers_states.get_mut(&headers_id) {
         state.list.push((name_sid, value_sid));
     }

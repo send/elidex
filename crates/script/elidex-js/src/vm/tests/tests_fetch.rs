@@ -29,6 +29,8 @@ fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
     vm
 }
 
+use super::drain_fetch_replies;
+
 fn no_handle_vm() -> Vm {
     Vm::new()
 }
@@ -152,6 +154,7 @@ fn fetch_200_returns_response() {
          fetch('http://example.com/ok').then(resp => { globalThis.r = resp.status; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("expected r to be 200, got {other:?}"),
@@ -170,6 +173,7 @@ fn fetch_404_reports_status_not_ok() {
          fetch('http://example.com/missing').then(resp => { globalThis.r = resp.ok; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Boolean(b)) => assert!(!b),
         other => panic!("expected r to be false, got {other:?}"),
@@ -190,6 +194,7 @@ fn fetch_text_round_trip() {
              .then(body => { globalThis.r = body; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "hello body"),
         other => panic!("expected r to be body string, got {other:?}"),
@@ -208,6 +213,7 @@ fn fetch_propagates_response_headers() {
          fetch('http://example.com/hdr').then(resp => { globalThis.r = resp.headers.get('content-type'); });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "text/plain"),
         other => panic!("expected r to be 'text/plain', got {other:?}"),
@@ -227,6 +233,7 @@ fn fetch_from_request_instance() {
          fetch(req).then(resp => { globalThis.r = resp.status; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("expected r to be 200, got {other:?}"),
@@ -250,6 +257,7 @@ fn fetch_method_override_canonicalises() {
          fetch('http://example.com/post', {method: 'post'}).then(resp => { globalThis.r = resp.status; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 201.0).abs() < f64::EPSILON),
         other => panic!("expected r to be 201, got {other:?}"),
@@ -270,6 +278,7 @@ fn fetch_missing_response_in_mock_rejects_type_error() {
          fetch('http://example.com/unregistered').catch(e => { globalThis.r = e instanceof TypeError; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Boolean(b)) => assert!(b),
         other => panic!("expected r to be true, got {other:?}"),
@@ -285,6 +294,7 @@ fn fetch_broker_error_surfaces_as_type_error() {
          fetch('http://example.com/err').catch(e => { globalThis.r = e.message; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::String(id)) => {
             let s = vm.get_string(id);
@@ -445,6 +455,7 @@ fn fetch_undefined_signal_completes_normally() {
              .then(resp => { globalThis.r = resp.status; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("expected r to be 200, got {other:?}"),
@@ -466,6 +477,7 @@ fn fetch_null_signal_completes_normally() {
              .then(resp => { globalThis.r = resp.status; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("expected r to be 200, got {other:?}"),
@@ -475,11 +487,13 @@ fn fetch_null_signal_completes_normally() {
 #[test]
 fn fetch_signal_aborted_after_settle_has_no_effect() {
     // Abort firing *after* a successful fetch must not retroactively
-    // reject the already-fulfilled Promise.  This exercises the
-    // Phase 2 no-mid-flight contract: the observer map is empty
-    // once the response landed, so the later `controller.abort()`
-    // sees no fetches to cancel and does not synthesise a second
-    // settlement on the Promise.
+    // reject the already-fulfilled Promise.  M4-12 PR5-async-fetch
+    // contract: the observer map is drained by `tick_network`'s
+    // settlement step (`pending_fetches.remove`), so the later
+    // `controller.abort()` sees no fetches to cancel and does not
+    // synthesise a second settlement on the Promise.  Drives the
+    // network event loop explicitly between dispatch and abort to
+    // make the order observable.
     let url = url::Url::parse("http://example.com/ok").expect("valid");
     let mut vm = mock_vm(vec![(
         url,
@@ -488,13 +502,15 @@ fn fetch_signal_aborted_after_settle_has_no_effect() {
     vm.eval(
         "globalThis.status = 0; \
          globalThis.caught = false; \
-         var c = new AbortController(); \
+         globalThis.c = new AbortController(); \
          fetch('http://example.com/ok', {signal: c.signal}) \
              .then(resp => { globalThis.status = resp.status; }) \
-             .catch(() => { globalThis.caught = true; }); \
-         c.abort();",
+             .catch(() => { globalThis.caught = true; });",
     )
     .unwrap();
+    drain_fetch_replies(&mut vm);
+    vm.eval("c.abort();").unwrap();
+    drain_fetch_replies(&mut vm);
     match vm.get_global("status") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("expected status to be 200, got {other:?}"),
@@ -507,5 +523,34 @@ fn fetch_signal_aborted_after_settle_has_no_effect() {
             );
         }
         other => panic!("expected caught to be a boolean, got {other:?}"),
+    }
+}
+
+#[test]
+fn fetch_signal_aborted_mid_flight_rejects_with_abort_reason() {
+    // Mid-flight `controller.abort()` (between fetch dispatch and
+    // the broker reply being drained) must reject the Promise
+    // synchronously with the signal's reason — the abort fan-out
+    // in `host::abort::abort_signal` removes the entry from
+    // `pending_fetches` and rejects directly, so a subsequent
+    // `tick_network` sees no pending fetch and the broker's
+    // synthesised aborted-reply is silently dropped.
+    let url = url::Url::parse("http://example.com/inflight").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(ok_response("http://example.com/inflight", 200, "never")),
+    )]);
+    vm.eval(
+        "globalThis.r = ''; \
+         var c = new AbortController(); \
+         fetch('http://example.com/inflight', {signal: c.signal}) \
+             .catch(e => { globalThis.r = e instanceof DOMException && e.name; }); \
+         c.abort();",
+    )
+    .unwrap();
+    drain_fetch_replies(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "AbortError"),
+        other => panic!("expected r to be 'AbortError', got {other:?}"),
     }
 }

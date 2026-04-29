@@ -207,6 +207,14 @@ struct GcRoots<'a> {
     /// tail prunes entries whose value `ObjectId` was collected.
     #[cfg(feature = "engine")]
     attr_wrapper_cache: &'a HashMap<(elidex_ecs::Entity, super::value::StringId), ObjectId>,
+    /// In-flight async `fetch()` Promise pins.  Values are Promise
+    /// ObjectIds that must survive until the broker reply (or abort
+    /// fan-out) settles them — see [`super::VmInner::pending_fetches`]
+    /// for the full lifecycle.  Without rooting, a `let p =
+    /// fetch(url)` whose `p` is never stored elsewhere would let
+    /// the Promise be collected before its settlement target lands.
+    #[cfg(feature = "engine")]
+    pending_fetches: &'a HashMap<elidex_net::broker::FetchId, ObjectId>,
     // `any_composite_map` is weak bookkeeping only — no GC roots
     // live there.  The sweep pass prunes dead ObjectIds post-GC
     // and `abort_signal`'s fan-out tolerates missing state — both
@@ -403,6 +411,23 @@ fn mark_roots(
                 }
             }
         }
+    }
+
+    // (j.3) Pending async-fetch Promises.  Each entry's Promise
+    // ObjectId must survive between `fetch_async` enqueue and the
+    // `tick_network` settlement step — without this root, a fetch
+    // whose Promise the user never stored (e.g. `fetch(url).then(...)`
+    // where `.then` returns a derived Promise reachable only via
+    // its own reaction queue) could be collected mid-flight.  The
+    // Signal back-refs map (`fetch_signal_back_refs`) is *not*
+    // rooted here: signals are kept alive by their own
+    // `abort_signal_states` entry, which is reached via the user's
+    // `controller.signal` reference — collecting a signal whose
+    // user references are gone is the correct outcome (its abort
+    // handler can never fire again).
+    #[cfg(feature = "engine")]
+    for &promise_id in roots.pending_fetches.values() {
+        mark_object(promise_id, obj_marks, work);
     }
 
     // (k) `AbortSignal.any` composite fan-out entries are weak
@@ -737,6 +762,8 @@ impl VmInner {
             pending_tasks: &self.pending_tasks,
             #[cfg(feature = "engine")]
             attr_wrapper_cache: &self.attr_wrapper_cache,
+            #[cfg(feature = "engine")]
+            pending_fetches: &self.pending_fetches,
         };
 
         self.gc_work_list.clear();
@@ -905,6 +932,19 @@ impl VmInner {
             // `abort_signal_states`.
             self.fetch_abort_observers
                 .retain(|id, _| bit_get(marks, id.0));
+            // `fetch_signal_back_refs` — prune entries whose Signal
+            // value was collected.  The reverse-index is consulted
+            // by `tick_network` to find the signal that registered
+            // the fetch; a dead signal means the abort fan-out can
+            // never fire for this fetch, so the entry's only
+            // remaining purpose is to occupy a slot.  Keys
+            // (`FetchId`) carry no GC obligation; surviving entries
+            // are removed explicitly when the broker reply lands.
+            // `pending_fetches` is *not* swept here because its
+            // values are roots (still live by definition); entries
+            // are removed explicitly at settlement / abort fan-out.
+            self.fetch_signal_back_refs
+                .retain(|_, signal_id| bit_get(marks, signal_id.0));
         }
 
         // 5. IC invalidation.

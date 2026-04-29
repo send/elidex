@@ -96,6 +96,47 @@ pub(super) fn validate_and_normalise(
     Ok((name_sid, value_sid))
 }
 
+/// WHATWG Fetch §4.6 forbidden request header names.  Compared
+/// against the lowercased name returned by
+/// [`validate_and_normalise_name`].  Includes the `proxy-` and
+/// `sec-` byte-prefix matches.
+///
+/// Used by [`super::headers`]'s `Request`-guard mutation gate and
+/// by [`super::fetch`]'s URL-input init.headers snapshot path.
+/// Spec semantics: matched names are *silently ignored*, not
+/// rejected with TypeError — matches browsers (Chrome / Firefox /
+/// Safari) and is what user code expects from `Headers.append`.
+#[must_use]
+pub(super) fn is_forbidden_request_header(lower_name: &str) -> bool {
+    if lower_name.starts_with("proxy-") || lower_name.starts_with("sec-") {
+        return true;
+    }
+    matches!(
+        lower_name,
+        "accept-charset"
+            | "accept-encoding"
+            | "access-control-request-headers"
+            | "access-control-request-method"
+            | "connection"
+            | "content-length"
+            | "cookie"
+            | "cookie2"
+            | "date"
+            | "dnt"
+            | "expect"
+            | "host"
+            | "keep-alive"
+            | "origin"
+            | "referer"
+            | "set-cookie"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+            | "via"
+    )
+}
+
 /// `pub(super)` so `Headers.prototype.{get,has,delete}` can reuse
 /// the name-only validation path for their single-name argument
 /// (§5.2 validation covers both name and value, but those methods

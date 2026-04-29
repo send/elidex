@@ -768,19 +768,43 @@ pub(super) fn abort_signal(
     }
 
     // Fan out to every in-flight `fetch()` that registered this
-    // signal in `VmInner::fetch_abort_observers` — send a
-    // `CancelFetch` to the broker so it can drop the response
-    // (WHATWG Fetch §5.1 step 13: if abort signal is aborted, set
-    // request's done flag).  Phase 2 blocking fetch never
-    // registers (the map is empty on the in-flight path), so this
-    // loop is a no-op until the async refactor lands; see the
-    // field's doc on `VmInner`.  The Promise rejection itself is
-    // the async refactor's responsibility — this site only
-    // issues the cancellation so the broker can hang up early.
+    // signal in `VmInner::fetch_abort_observers` (WHATWG Fetch §5.1
+    // step 13: if abort signal is aborted, set request's done flag).
+    //
+    // For each fetch_id we (a) reject its pending Promise
+    // synchronously with the signal's materialised reason — this is
+    // the user-visible "Promise rejected at the abort moment", not
+    // queued behind the broker round-trip — and (b) send
+    // `CancelFetch` so the broker can stop waiting on the network
+    // and post an early aborted-reply.  The eventual broker reply
+    // for this fetch is silently dropped because
+    // `pending_fetches.remove` returned `Some` here, so the
+    // `tick_network` settle-step's lookup will return `None`.
     if let Some(fetch_ids) = ctx.vm.fetch_abort_observers.remove(&signal_id) {
-        if let Some(handle) = ctx.vm.network_handle.as_ref().map(std::rc::Rc::clone) {
-            for fetch_id in fetch_ids {
-                let _ = handle.send(elidex_net::broker::RendererToNetwork::CancelFetch(fetch_id));
+        let handle = ctx.vm.network_handle.as_ref().map(std::rc::Rc::clone);
+        for fetch_id in fetch_ids {
+            // Drop the reverse index up front — the fetch is no
+            // longer signal-bound from this map's perspective.
+            ctx.vm.fetch_signal_back_refs.remove(&fetch_id);
+            // Reject the pending Promise.  Late broker replies for
+            // this fetch_id will see `pending_fetches.remove` return
+            // `None` and skip settlement — the user only ever
+            // observes one rejection.
+            //
+            // GC root the Promise across `reject_promise_sync` (R2.1):
+            // `pending_fetches` was its only root for the
+            // user-discarded case, and a future runtime relaxing the
+            // native-call `gc_enabled = false` gate could see the
+            // settlement path allocate (microtask record, capability
+            // routing) and reclaim `promise` mid-settle.  Defensive
+            // root matches the surrounding codebase's invariant.
+            if let Some(promise) = ctx.vm.pending_fetches.remove(&fetch_id) {
+                let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
+                super::blob::reject_promise_sync(&mut g, promise, materialised_reason);
+                drop(g);
+            }
+            if let Some(ref h) = handle {
+                let _ = h.cancel_fetch(fetch_id);
             }
         }
     }
