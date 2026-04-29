@@ -242,9 +242,13 @@ fn process_nonce() -> u64 {
     static NONCE: OnceLock<u64> = OnceLock::new();
     *NONCE.get_or_init(|| {
         // `RandomState::build_hasher()` returns a `DefaultHasher`
-        // whose initial state is already seeded from random data;
-        // `finish()` returns that seed verbatim, giving us a
-        // stable per-process 64-bit nonce.
+        // keyed with per-process random state.  With no input
+        // written, `finish()` yields the hash output for an empty
+        // input under those random keys — the keys themselves are
+        // not exposed, so this 64-bit value is sufficient as a
+        // per-process nonce (an attacker cannot recover the keys
+        // from the output, and we re-hash it through a fresh
+        // `DefaultHasher` in `derive_boundary` anyway).
         RandomState::new().build_hasher().finish()
     })
 }

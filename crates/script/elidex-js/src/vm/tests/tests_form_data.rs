@@ -436,3 +436,128 @@ fn explicit_content_type_in_init_headers_is_not_overridden() {
         "application/x-custom"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `apply_default_content_type` (fetch-path Content-Type splice)
+// ---------------------------------------------------------------------------
+
+/// `fetch(url, {body: ...})` must surface the body's default
+/// Content-Type on the broker-bound request when the caller did
+/// not splice their own.  Regression for R5 IMPORTANT: prior to
+/// these checks the fetch path had body-extraction logic but no
+/// test verifying the outgoing request headers carry the spliced
+/// CT for URLSearchParams / FormData / String bodies.
+mod fetch_default_content_type {
+    use std::rc::Rc;
+
+    use elidex_net::broker::NetworkHandle;
+    use elidex_net::{HttpVersion, Response as NetResponse};
+
+    use super::super::super::Vm;
+
+    fn ok_response(url: &str) -> NetResponse {
+        let parsed = url::Url::parse(url).expect("valid URL");
+        NetResponse {
+            status: 200,
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            url: parsed.clone(),
+            version: HttpVersion::H1,
+            url_list: vec![parsed],
+        }
+    }
+
+    fn vm_with_mock(target: &str) -> (Vm, Rc<NetworkHandle>) {
+        let mut vm = Vm::new();
+        vm.inner.navigation.current_url =
+            url::Url::parse("https://example.test/").expect("valid base URL");
+        let parsed = url::Url::parse(target).expect("valid target URL");
+        let handle = Rc::new(NetworkHandle::mock_with_responses(vec![(
+            parsed.clone(),
+            Ok(ok_response(target)),
+        )]));
+        vm.install_network_handle(handle.clone());
+        (vm, handle)
+    }
+
+    fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+        headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+
+    fn single_request(handle: &NetworkHandle) -> elidex_net::Request {
+        let mut logged = handle.drain_recorded_requests();
+        assert_eq!(logged.len(), 1, "expected exactly one fetch call");
+        logged.remove(0)
+    }
+
+    #[test]
+    fn fetch_string_body_attaches_text_plain() {
+        let (mut vm, handle) = vm_with_mock("https://example.test/api");
+        vm.eval("fetch('https://example.test/api', {method: 'POST', body: 'hi'});")
+            .unwrap();
+        let req = single_request(&handle);
+        assert_eq!(
+            header_value(&req.headers, "content-type"),
+            Some("text/plain;charset=UTF-8")
+        );
+    }
+
+    #[test]
+    fn fetch_url_search_params_body_attaches_form_urlencoded() {
+        let (mut vm, handle) = vm_with_mock("https://example.test/api");
+        vm.eval(
+            "fetch('https://example.test/api', \
+                 {method: 'POST', body: new URLSearchParams('a=1&b=2')});",
+        )
+        .unwrap();
+        let req = single_request(&handle);
+        assert_eq!(
+            header_value(&req.headers, "content-type"),
+            Some("application/x-www-form-urlencoded;charset=UTF-8")
+        );
+        assert_eq!(req.body.as_ref(), b"a=1&b=2");
+    }
+
+    #[test]
+    fn fetch_form_data_body_attaches_multipart_with_boundary() {
+        let (mut vm, handle) = vm_with_mock("https://example.test/api");
+        vm.eval(
+            "let f = new FormData(); f.append('a', '1'); \
+             fetch('https://example.test/api', {method: 'POST', body: f});",
+        )
+        .unwrap();
+        let req = single_request(&handle);
+        let ct = header_value(&req.headers, "content-type").expect("content-type header missing");
+        assert!(
+            ct.starts_with("multipart/form-data; boundary="),
+            "unexpected Content-Type: {ct:?}"
+        );
+        let boundary = ct.strip_prefix("multipart/form-data; boundary=").unwrap();
+        let body = std::str::from_utf8(&req.body).expect("body is utf-8");
+        assert!(
+            body.contains(&format!("--{boundary}\r\n")),
+            "body must reference the spliced boundary: {body:?}"
+        );
+        assert!(body.contains("Content-Disposition: form-data; name=\"a\""));
+        assert!(body.ends_with(&format!("--{boundary}--\r\n")));
+    }
+
+    #[test]
+    fn fetch_explicit_content_type_is_not_overridden() {
+        let (mut vm, handle) = vm_with_mock("https://example.test/api");
+        vm.eval(
+            "fetch('https://example.test/api', \
+                 {method: 'POST', body: new URLSearchParams('a=1'), \
+                  headers: {'Content-Type': 'application/x-custom'}});",
+        )
+        .unwrap();
+        let req = single_request(&handle);
+        assert_eq!(
+            header_value(&req.headers, "content-type"),
+            Some("application/x-custom")
+        );
+    }
+}
