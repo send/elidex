@@ -151,6 +151,7 @@ mod tests {
             url: url::Url::parse("https://example.com").unwrap(),
             headers: Vec::new(),
             body: Bytes::new(),
+            ..Default::default()
         };
 
         chain.process_request(&mut request).unwrap();
@@ -172,6 +173,7 @@ mod tests {
             url: url::Url::parse("https://example.com").unwrap(),
             headers: Vec::new(),
             body: Bytes::new(),
+            ..Default::default()
         };
 
         let result = chain.process_request(&mut request);
@@ -205,6 +207,7 @@ mod tests {
             url: url::Url::parse("https://example.com").unwrap(),
             headers: Vec::new(),
             body: Bytes::new(),
+            ..Default::default()
         };
 
         chain.process_request(&mut request).unwrap();

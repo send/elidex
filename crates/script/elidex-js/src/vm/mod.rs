@@ -912,6 +912,16 @@ pub(crate) struct VmInner {
     /// explicitly on settlement / abort fan-out.
     #[cfg(feature = "engine")]
     pub(crate) pending_fetches: HashMap<elidex_net::broker::FetchId, ObjectId>,
+    /// Per-`FetchId` CORS metadata captured at dispatch time so
+    /// the `tick_network` settlement step can run the response-
+    /// type classifier ([`host::cors::classify_response_type`]).
+    /// Holds the request URL / origin / mode + redirect mode so
+    /// the classifier doesn't depend on threading those values
+    /// through the broker (which is intentionally CORS-blind).
+    /// Drained on settlement / abort / handle-swap reject —
+    /// same lifecycle as `pending_fetches`.
+    #[cfg(feature = "engine")]
+    pub(crate) pending_fetch_cors: HashMap<elidex_net::broker::FetchId, host::cors::FetchCorsMeta>,
     /// Reverse index for `FetchId → AbortSignal ObjectId` so the
     /// `tick_network` reply handler can prune
     /// [`Self::fetch_abort_observers`]`[signal_id]` in O(1) without

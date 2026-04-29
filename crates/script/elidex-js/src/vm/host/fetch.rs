@@ -67,7 +67,11 @@ use super::super::value::{
 use super::super::VmInner;
 use super::blob::reject_promise_sync;
 use super::headers::HeadersGuard;
-use super::request_response::{extract_body_bytes, parse_url, ResponseState, ResponseType};
+use super::request_response::{
+    extract_body_bytes, parse_request_cache, parse_request_credentials, parse_request_mode,
+    parse_request_redirect, parse_url, RedirectMode, RequestCache, RequestCredentials, RequestMode,
+    ResponseState, ResponseType,
+};
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -190,8 +194,8 @@ fn native_fetch(
 
     // Build the broker-level Request.  Any validation failure
     // settles the Promise directly — no synchronous throw.
-    let request = match build_net_request(ctx, args) {
-        Ok(req) => req,
+    let (request, cors_meta) = match build_net_request(ctx, args) {
+        Ok(pair) => pair,
         Err(err) => {
             let reason = ctx.vm.vm_error_to_thrown(&err);
             reject_promise_sync(ctx.vm, promise, reason);
@@ -218,6 +222,7 @@ fn native_fetch(
     // and reject the Promise synchronously.
     let fetch_id = handle.fetch_async(request);
     ctx.vm.pending_fetches.insert(fetch_id, promise);
+    ctx.vm.pending_fetch_cors.insert(fetch_id, cors_meta);
     if let Some(signal_id) = signal {
         ctx.vm
             .fetch_abort_observers
@@ -310,10 +315,14 @@ fn pre_flight_abort_reason(ctx: &NativeContext<'_>, signal_id: ObjectId) -> Opti
 /// which returns `None` for each field that the caller's `init`
 /// did not explicitly set — `None` preserves the base, `Some`
 /// replaces it.
+///
+/// Returns the broker `Request` plus a [`FetchCorsMeta`]
+/// snapshot so the settlement step can run the CORS classifier
+/// without re-deriving any of these values.
 fn build_net_request(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
-) -> Result<elidex_net::Request, VmError> {
+) -> Result<(elidex_net::Request, super::cors::FetchCorsMeta), VmError> {
     // `native_fetch` rejects the empty-args case with a synchronous
     // `VmError::type_error` before calling us (R19.1 — WebIDL
     // binding "not enough arguments").  An empty slice here would
@@ -326,38 +335,54 @@ fn build_net_request(
     let input = args[0];
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    let (method_override, headers_override, body_override, body_ct_default) =
-        parse_init_overrides(ctx, init)?;
+    let overrides = parse_init_overrides(ctx, init)?;
 
     // Case 1: input is a Request instance — start with its state.
     if let JsValue::Object(obj_id) = input {
         if matches!(ctx.vm.get_object(obj_id).kind, ObjectKind::Request) {
-            let (mut method, url, mut headers, base_body) = request_base_from_vm(ctx, obj_id)?;
-            if let Some(m) = method_override {
+            let (mut method, url, mut headers, base_body, base_state) =
+                request_base_from_vm(ctx, obj_id)?;
+            if let Some(m) = overrides.method {
                 method = m;
             }
-            if let Some(h) = headers_override {
+            if let Some(h) = overrides.headers {
                 headers = h;
             }
             // Tri-state body resolution (R25.3): `None` preserves
             // the source Request's body; `Some(None)` clears it;
             // `Some(Some(b))` replaces.
-            let final_body: Option<Bytes> = match body_override {
+            let final_body: Option<Bytes> = match overrides.body {
                 None => base_body,
                 Some(None) => None,
                 Some(Some(b)) => Some(b),
             };
             reject_get_head_with_body(&method, final_body.is_some())?;
-            apply_default_content_type(&mut headers, body_ct_default.as_deref());
+            apply_default_content_type(&mut headers, overrides.body_ct_default.as_deref());
+            let mode = overrides.mode.unwrap_or(base_state.mode);
+            let credentials = overrides.credentials.unwrap_or(base_state.credentials);
+            let redirect = overrides.redirect.unwrap_or(base_state.redirect);
+            let cache = overrides.cache.unwrap_or(base_state.cache);
+            apply_cache_mode_headers(&mut headers, cache);
+            reject_same_origin_cross_origin(&ctx.vm.navigation.current_url, &url, mode)?;
+            let origin = origin_for_request(&ctx.vm.navigation.current_url, &url);
+            let cors_meta = super::cors::FetchCorsMeta {
+                request_url: url.clone(),
+                request_origin: origin.clone(),
+                request_mode: mode,
+                redirect_mode: redirect,
+            };
             let mut request = elidex_net::Request {
                 method,
                 url,
                 headers,
                 body: final_body.unwrap_or_else(Bytes::new),
+                origin,
+                redirect,
+                credentials,
             };
             attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
             attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
-            return Ok(request);
+            return Ok((request, cors_meta));
         }
     }
 
@@ -369,25 +394,140 @@ fn build_net_request(
             "Failed to execute 'fetch': Invalid URL '{raw_url_owned}'"
         ))
     })?;
-    let method = method_override.unwrap_or_else(|| "GET".to_string());
+    let method = overrides.method.unwrap_or_else(|| "GET".to_string());
     // URL-input path has no base body; the tri-state's outer
     // `Some(None)` / `None` both yield "no body".
-    let final_body: Option<Bytes> = match body_override {
+    let final_body: Option<Bytes> = match overrides.body {
         None | Some(None) => None,
         Some(Some(b)) => Some(b),
     };
     reject_get_head_with_body(&method, final_body.is_some())?;
-    let mut headers = headers_override.unwrap_or_default();
-    apply_default_content_type(&mut headers, body_ct_default.as_deref());
+    let mut headers = overrides.headers.unwrap_or_default();
+    apply_default_content_type(&mut headers, overrides.body_ct_default.as_deref());
+    // URL-input path: spec defaults for the four enums unless
+    // `init.*` overrides them.
+    let mode = overrides.mode.unwrap_or(RequestMode::Cors);
+    let credentials = overrides
+        .credentials
+        .unwrap_or(RequestCredentials::SameOrigin);
+    let redirect = overrides.redirect.unwrap_or(RedirectMode::Follow);
+    let cache = overrides.cache.unwrap_or(RequestCache::Default);
+    apply_cache_mode_headers(&mut headers, cache);
+    reject_same_origin_cross_origin(&ctx.vm.navigation.current_url, &url, mode)?;
+    let origin = origin_for_request(&ctx.vm.navigation.current_url, &url);
+    let cors_meta = super::cors::FetchCorsMeta {
+        request_url: url.clone(),
+        request_origin: origin.clone(),
+        request_mode: mode,
+        redirect_mode: redirect,
+    };
     let mut request = elidex_net::Request {
         method,
         url,
         headers,
         body: final_body.unwrap_or_else(Bytes::new),
+        origin,
+        redirect,
+        credentials,
     };
     attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
     attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
-    Ok(request)
+    Ok((request, cors_meta))
+}
+
+/// Reject a cross-origin fetch when `mode = "same-origin"`
+/// (WHATWG Fetch §5.1 main-fetch step "If request's mode is
+/// 'same-origin' and request's origin is not same origin with
+/// request's URL, then return a network error.").  Returns
+/// `Ok(())` when the request is same-origin or when `mode` is
+/// not `SameOrigin`.  The synchronous `TypeError` is funnelled
+/// through the caller's `reject_promise_sync` so observable
+/// shape is a rejected Promise.
+fn reject_same_origin_cross_origin(
+    source: &Url,
+    target: &Url,
+    mode: RequestMode,
+) -> Result<(), VmError> {
+    if mode != RequestMode::SameOrigin {
+        return Ok(());
+    }
+    if source.origin() == target.origin() {
+        return Ok(());
+    }
+    Err(VmError::type_error(
+        "Failed to fetch: cross-origin request blocked by mode='same-origin'",
+    ))
+}
+
+/// Pick the origin to thread through to the broker as
+/// `request.origin`.  Used by the cookie-attach gate (WHATWG
+/// Fetch §3.1.7) and by the Stage-4 response_type CORS
+/// classifier.  Returns the source's [`url::Origin`] when the
+/// document is on an HTTP/HTTPS scheme (script-initiated
+/// fetches always have a tuple origin); `None` for `about:blank`
+/// / `data:` / etc. initiators with opaque origins where no
+/// meaningful tuple-origin exists — broker `SameOrigin`
+/// credentials gating treats `None` as "always-attach" (matches
+/// pre-PR top-level navigation behaviour).
+///
+/// Returning [`url::Origin`] (rather than a full URL) ensures
+/// the broker never sees the initiator's path / query /
+/// fragment — Copilot R1 finding (PR #133): a `Url`-shaped
+/// field with origin-only semantics is a misuse trap because
+/// every consumer would have to remember to call `.origin()`
+/// before comparing.
+fn origin_for_request(source: &Url, _target: &Url) -> Option<url::Origin> {
+    if matches!(source.scheme(), "http" | "https") {
+        Some(source.origin())
+    } else {
+        None
+    }
+}
+
+/// Inject the spec-prescribed `Cache-Control` / `Pragma`
+/// headers based on `init.cache` (WHATWG Fetch §5.3 step 30
+/// onward).  Existing user-set entries are left untouched —
+/// per spec the cache-mode injection only fires when the same
+/// header is not already present, mirroring the
+/// `Content-Type` default path.
+///
+/// - `Default`: no-op.
+/// - `NoStore`: append `Cache-Control: no-store`.
+/// - `Reload`: append `Cache-Control: no-cache` + `Pragma:
+///   no-cache` (matches Chrome / Firefox behaviour for
+///   `cache: 'reload'`).
+/// - `NoCache`: append `Cache-Control: max-age=0` (forces
+///   server validation).
+/// - `ForceCache` / `OnlyIfCached`: documented gap.  These
+///   modes require an HTTP cache layer that isn't yet
+///   implemented in elidex-net; the broker treats them as
+///   `Default`.  Future work: wire to a dedicated
+///   `PR-http-cache` slot once a cache backend lands.
+fn apply_cache_mode_headers(headers: &mut Vec<(String, String)>, cache: RequestCache) {
+    let already_set = |needle: &str, hs: &[(String, String)]| {
+        hs.iter().any(|(name, _)| name.eq_ignore_ascii_case(needle))
+    };
+    match cache {
+        RequestCache::Default | RequestCache::ForceCache | RequestCache::OnlyIfCached => {}
+        RequestCache::NoStore => {
+            if !already_set("cache-control", headers) {
+                headers.push(("Cache-Control".to_string(), "no-store".to_string()));
+            }
+        }
+        RequestCache::Reload => {
+            if !already_set("cache-control", headers) {
+                headers.push(("Cache-Control".to_string(), "no-cache".to_string()));
+            }
+            if !already_set("pragma", headers) {
+                headers.push(("Pragma".to_string(), "no-cache".to_string()));
+            }
+        }
+        RequestCache::NoCache => {
+            if !already_set("cache-control", headers) {
+                headers.push(("Cache-Control".to_string(), "max-age=0".to_string()));
+            }
+        }
+    }
 }
 
 /// Splice `Content-Type: <ct>` into a broker-bound headers list
@@ -529,20 +669,24 @@ fn reject_get_head_with_body(method: &str, has_body: bool) -> Result<(), VmError
     Ok(())
 }
 
-/// Extract the `(method, url, headers, body)` tuple from a VM
-/// `Request` instance.  Used as the base for the Request-input
-/// path of `fetch()` before `init` overrides are layered on.
-/// Returns `body: Option<Bytes>` where `None` means "the source
-/// Request has no body at all" (key absent in `body_data`) and
-/// `Some(bytes)` means "has body with these bytes" (possibly
-/// empty).  The presence distinction matters for the WHATWG Fetch
-/// §5.3 step 40 GET/HEAD-without-body check (R25.1): a cloned
-/// Request whose source has no body may switch to `GET`/`HEAD`
-/// freely, but one whose source carries a body cannot.
+/// Extract the `(method, url, headers, body, base_state)`
+/// tuple from a VM `Request` instance.  Used as the base for the
+/// Request-input path of `fetch()` before `init` overrides are
+/// layered on.  Returns `body: Option<Bytes>` where `None` means
+/// "the source Request has no body at all" (key absent in
+/// `body_data`) and `Some(bytes)` means "has body with these
+/// bytes" (possibly empty).  The presence distinction matters
+/// for the WHATWG Fetch §5.3 step 40 GET/HEAD-without-body check
+/// (R25.1): a cloned Request whose source has no body may switch
+/// to `GET`/`HEAD` freely, but one whose source carries a body
+/// cannot.  `base_state` carries the source's `mode` /
+/// `credentials` / `redirect` enums so `init.*` overrides on
+/// `fetch(req, init)` can replace them per WHATWG Fetch §5.1
+/// step 12.
 fn request_base_from_vm(
     ctx: &NativeContext<'_>,
     obj_id: ObjectId,
-) -> Result<(String, Url, Vec<(String, String)>, Option<Bytes>), VmError> {
+) -> Result<(String, Url, Vec<(String, String)>, Option<Bytes>, BaseState), VmError> {
     let state = ctx
         .vm
         .request_states
@@ -556,6 +700,12 @@ fn request_base_from_vm(
             "Failed to execute 'fetch': Request URL '{url_str}' did not re-parse"
         ))
     })?;
+    let base_state = BaseState {
+        mode: state.mode,
+        credentials: state.credentials,
+        redirect: state.redirect,
+        cache: state.cache,
+    };
 
     let headers: Vec<(String, String)> = ctx
         .vm
@@ -584,10 +734,22 @@ fn request_base_from_vm(
         Bytes::from_owner(arc)
     });
 
-    Ok((method, url, headers, body))
+    Ok((method, url, headers, body, base_state))
 }
 
-/// `(method?, headers?, body?)` returned by [`parse_init_overrides`].
+/// `mode` / `credentials` / `redirect` / `cache` carried over
+/// from a source `Request` into [`build_net_request`]'s
+/// Request-input path.  Returned alongside the URL/method/
+/// headers/body tuple from [`request_base_from_vm`] so the
+/// caller can layer `init.*` overrides on top.
+struct BaseState {
+    mode: RequestMode,
+    credentials: RequestCredentials,
+    redirect: RedirectMode,
+    cache: RequestCache,
+}
+
+/// Returned by [`parse_init_overrides`].
 ///
 /// Method and headers are plain `Option<_>` — `None` means absent,
 /// `Some(_)` means explicit.
@@ -602,23 +764,36 @@ fn request_base_from_vm(
 ///   with `b`.  Any non-`null`, non-`undefined` input lands here,
 ///   including the empty string which still counts as "has a
 ///   body" for the GET/HEAD check in `build_net_request`.
-// Tuple fields:
-// - `0` method override (string).
-// - `1` headers override (entry list); see "Null vs undefined" block.
-// - `2` body override (tri-state); see [`InitOverrides`] doc.
-// - `3` default Content-Type for the chosen body (WHATWG Fetch §5
-//   "extract a body" step 4 / §5.3 step 38).  `None` when no
-//   default applies (e.g. ArrayBuffer / clone path) or when
-//   `init.body` was not present.  The fetch-call path splices
-//   this header before relaying to the broker so a `fetch(...,
-//   {body: new FormData()})` request goes out with the
-//   boundary-bearing `multipart/form-data` Content-Type.
-type InitOverrides = (
-    Option<String>,
-    Option<Vec<(String, String)>>,
-    Option<Option<Bytes>>,
-    Option<String>,
-);
+///
+/// `body_ct_default` is the optional default `Content-Type`
+/// derived from the body type (WHATWG Fetch §5 "extract a body"
+/// step 4 / §5.3 step 38).  `None` when no default applies (e.g.
+/// ArrayBuffer / clone path) or when `init.body` was not
+/// present.  The fetch-call path splices this header before
+/// relaying to the broker so a `fetch(..., {body: new FormData()})`
+/// request goes out with the boundary-bearing
+/// `multipart/form-data` Content-Type.
+///
+/// The four enum overrides — `mode` / `credentials` / `redirect`
+/// / `cache` — are `None` when `init` did not set the member,
+/// allowing the Request-input path to preserve the source's
+/// values.  The URL-input path falls back to spec defaults
+/// (`Cors` / `SameOrigin` / `Follow` / `Default`).  The Stage 1
+/// landing in PR5-cors only validates and round-trips the values
+/// through Request state; broker-side enforcement (same-origin
+/// reject, redirect mode, credentials gating, cache header
+/// injection) lands with Stages 2-5.
+#[allow(dead_code)]
+struct InitOverrides {
+    method: Option<String>,
+    headers: Option<Vec<(String, String)>>,
+    body: Option<Option<Bytes>>,
+    body_ct_default: Option<String>,
+    mode: Option<RequestMode>,
+    credentials: Option<RequestCredentials>,
+    redirect: Option<RedirectMode>,
+    cache: Option<RequestCache>,
+}
 
 /// Parse the `init` dict.  Every field is `Option<_>`; a present
 /// value means `init` explicitly set it.  `undefined` (including
@@ -635,15 +810,39 @@ fn parse_init_overrides(
     init: JsValue,
 ) -> Result<InitOverrides, VmError> {
     match init {
-        JsValue::Undefined | JsValue::Null => Ok((None, None, None, None)),
+        JsValue::Undefined | JsValue::Null => Ok(InitOverrides {
+            method: None,
+            headers: None,
+            body: None,
+            body_ct_default: None,
+            mode: None,
+            credentials: None,
+            redirect: None,
+            cache: None,
+        }),
         JsValue::Object(opts_id) => {
             let method_sid_key = PropertyKey::String(ctx.vm.well_known.method);
             let headers_key = PropertyKey::String(ctx.vm.well_known.headers);
             let body_key = PropertyKey::String(ctx.vm.well_known.body);
+            let mode_key = PropertyKey::String(ctx.vm.well_known.mode);
+            let credentials_key = PropertyKey::String(ctx.vm.well_known.credentials);
+            let redirect_key = PropertyKey::String(ctx.vm.well_known.redirect);
+            let cache_key = PropertyKey::String(ctx.vm.well_known.cache);
 
             let method_val = ctx.get_property_value(opts_id, method_sid_key)?;
             let headers_val = ctx.get_property_value(opts_id, headers_key)?;
             let body_val = ctx.get_property_value(opts_id, body_key)?;
+            let mode_val = ctx.get_property_value(opts_id, mode_key)?;
+            let credentials_val = ctx.get_property_value(opts_id, credentials_key)?;
+            let redirect_val = ctx.get_property_value(opts_id, redirect_key)?;
+            let cache_val = ctx.get_property_value(opts_id, cache_key)?;
+
+            let mode_override = parse_request_mode(ctx, mode_val, "Failed to execute 'fetch'")?;
+            let credentials_override =
+                parse_request_credentials(ctx, credentials_val, "Failed to execute 'fetch'")?;
+            let redirect_override =
+                parse_request_redirect(ctx, redirect_val, "Failed to execute 'fetch'")?;
+            let cache_override = parse_request_cache(ctx, cache_val, "Failed to execute 'fetch'")?;
 
             // Method — shared forbidden-method filter with
             // `Request`'s ctor.
@@ -735,12 +934,16 @@ fn parse_init_overrides(
                 },
             };
 
-            Ok((
-                method_override,
-                headers_override,
-                body_override,
+            Ok(InitOverrides {
+                method: method_override,
+                headers: headers_override,
+                body: body_override,
                 body_ct_default,
-            ))
+                mode: mode_override,
+                credentials: credentials_override,
+                redirect: redirect_override,
+                cache: cache_override,
+            })
         }
         _ => Err(VmError::type_error(
             "Failed to execute 'fetch': init must be an object",
@@ -757,9 +960,20 @@ fn parse_init_overrides(
 /// `new Response`'s behaviour) and guarded Immutable.  Body bytes
 /// land in the shared `body_data` map so `.text()` / `.json()`
 /// / `.arrayBuffer()` / `.blob()` work without further copies.
+///
+/// The [`CorsClassification`] argument selects the Response
+/// shape:
+/// - `Basic`: full headers, full body, status / url verbatim.
+/// - `Cors`: headers filtered to CORS-safelisted +
+///   `Access-Control-Expose-Headers` names; body / status / url
+///   passed through.
+/// - `Opaque` / `OpaqueRedirect` (`opaque_shape: true`): empty
+///   headers, body dropped, status forced to 0, url emptied.
+///   Spec-mandated to prevent leakage of cross-origin data.
 pub(super) fn create_response_from_net(
     vm: &mut VmInner,
     response: elidex_net::Response,
+    classification: super::cors::CorsClassification,
 ) -> ObjectId {
     let proto = vm.response_prototype;
     let inst_id = vm.alloc_object(Object {
@@ -796,6 +1010,23 @@ pub(super) fn create_response_from_net(
     // to keep both `inst_id` and `headers_id` rooted across the
     // `strings.intern` / `body_data.insert` / `response_states
     // .insert` sequence below (R18.2).
+    // Apply the CORS classification to the response shape.  An
+    // opaque-shape response (Opaque / OpaqueRedirect) discards
+    // all headers, body, status, and URL so cross-origin data
+    // never leaks into JS.  A Cors-typed response filters
+    // headers down to CORS-safelisted +
+    // `Access-Control-Expose-Headers` names.  Basic / Default
+    // pass through verbatim.
+    let opaque_shape = classification.opaque_shape;
+    let response_type = classification.response_type;
+    let header_pairs: Vec<(String, String)> = if opaque_shape {
+        Vec::new()
+    } else if matches!(response_type, ResponseType::Cors) {
+        super::cors::filter_headers_for_cors_response(response.headers)
+    } else {
+        response.headers
+    };
+
     let headers_id = g.create_headers(HeadersGuard::None);
     let mut g2 = g.push_temp_root(JsValue::Object(headers_id));
     {
@@ -808,7 +1039,7 @@ pub(super) fn create_response_from_net(
         // (broker-side bug, not user input) are silently
         // skipped — defensive, preserves the invariant even if
         // the network layer later relaxes its own filters.
-        for (name, value) in response.headers {
+        for (name, value) in header_pairs {
             let name_sid = g2.strings.intern(&name);
             let value_sid = g2.strings.intern(&value);
             if let Ok((nn, nv)) =
@@ -826,29 +1057,38 @@ pub(super) fn create_response_from_net(
 
     // Body bytes.  Skip the map insert for zero-byte responses
     // so `.body_data.contains_key(id)` keeps meaning "this
-    // response actually carries bytes".
+    // response actually carries bytes".  Opaque-shape responses
+    // also skip the insert — body must be `null` (= absent).
     //
     // The HTTP response body is owned by `bytes::Bytes` (its own
     // ref-counted handle); we copy it into a fresh `Vec<u8>` for
     // installation in `body_data`, since that map's storage type
     // is owned `Vec<u8>` so subsequent TypedArray / DataView
     // writes can mutate it in place via `byte_io`.
-    if !response.body.is_empty() {
+    if !opaque_shape && !response.body.is_empty() {
         g2.body_data.insert(inst_id, response.body.to_vec());
     }
 
-    let url_sid = g2.strings.intern(response.url.as_str());
+    // Status / url rewrite for opaque-shape responses (WHATWG
+    // Fetch §3.1.4 / §3.1.6): status 0, url empty.  Basic /
+    // Cors pass through.
+    let final_status = if opaque_shape { 0 } else { response.status };
+    let url_sid = if opaque_shape {
+        g2.well_known.empty
+    } else {
+        g2.strings.intern(response.url.as_str())
+    };
     let status_text_sid = g2.well_known.empty;
     let redirected = response.url_list.len() > 1;
 
     g2.response_states.insert(
         inst_id,
         ResponseState {
-            status: response.status,
+            status: final_status,
             status_text_sid,
             url_sid,
             headers_id,
-            response_type: ResponseType::Basic,
+            response_type,
             redirected,
         },
     );

@@ -143,6 +143,211 @@ fn request_ctor_rejects_non_string_non_request_input() {
 }
 
 // ---------------------------------------------------------------------------
+// `init.{mode, credentials, redirect, cache}` parsing — PR5-cors Stage 1.
+// Spec defaults flow from the URL-input path; Request-clone path
+// inherits unless `init.*` overrides.  Invalid enum strings throw
+// TypeError per WebIDL §3.10.7.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn request_init_mode_no_cors_round_trips() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/', {mode: 'no-cors'}); r.mode;"
+        ),
+        "no-cors"
+    );
+}
+
+#[test]
+fn request_init_mode_same_origin_round_trips() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/', {mode: 'same-origin'}); r.mode;"
+        ),
+        "same-origin"
+    );
+}
+
+#[test]
+fn request_init_mode_navigate_throws() {
+    let mut vm = Vm::new();
+    // Spec §5.3 step 23: `init["mode"]` of "navigate" is reserved
+    // for navigation requests and must throw from JS-facing ctors.
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; \
+         try { new Request('http://x/', {mode: 'navigate'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_init_mode_unknown_throws() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; \
+         try { new Request('http://x/', {mode: 'cors-please'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_init_credentials_omit_round_trips() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/', {credentials: 'omit'}); r.credentials;"
+        ),
+        "omit"
+    );
+}
+
+#[test]
+fn request_init_credentials_include_round_trips() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/', {credentials: 'include'}); r.credentials;"
+        ),
+        "include"
+    );
+}
+
+#[test]
+fn request_init_credentials_unknown_throws() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; \
+         try { new Request('http://x/', {credentials: 'always'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_init_redirect_error_round_trips() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/', {redirect: 'error'}); r.redirect;"
+        ),
+        "error"
+    );
+}
+
+#[test]
+fn request_init_redirect_manual_round_trips() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/', {redirect: 'manual'}); r.redirect;"
+        ),
+        "manual"
+    );
+}
+
+#[test]
+fn request_init_redirect_unknown_throws() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; \
+         try { new Request('http://x/', {redirect: 'sometimes'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_init_cache_no_store_round_trips() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/', {cache: 'no-store'}); r.cache;"
+        ),
+        "no-store"
+    );
+}
+
+#[test]
+fn request_init_cache_force_cache_round_trips() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/', {cache: 'force-cache'}); r.cache;"
+        ),
+        "force-cache"
+    );
+}
+
+#[test]
+fn request_init_cache_unknown_throws() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; \
+         try { new Request('http://x/', {cache: 'cache-it'}); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
+fn request_init_defaults_when_not_set() {
+    let mut vm = Vm::new();
+    // Spec defaults for the URL-input path.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var r = new Request('http://x/'); \
+             r.mode + '|' + r.credentials + '|' + r.redirect + '|' + r.cache;"
+        ),
+        "cors|same-origin|follow|default"
+    );
+}
+
+#[test]
+fn request_clone_inherits_mode_credentials_redirect_cache() {
+    let mut vm = Vm::new();
+    // Cloning a Request with non-default options must carry them
+    // forward when no override is supplied.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var a = new Request('http://x/', \
+                 {mode: 'no-cors', credentials: 'omit', redirect: 'manual', cache: 'reload'}); \
+             var b = new Request(a); \
+             b.mode + '|' + b.credentials + '|' + b.redirect + '|' + b.cache;"
+        ),
+        "no-cors|omit|manual|reload"
+    );
+}
+
+#[test]
+fn request_clone_init_overrides_inherited_state() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var a = new Request('http://x/', {mode: 'no-cors', cache: 'reload'}); \
+             var b = new Request(a, {mode: 'same-origin'}); \
+             b.mode + '|' + b.cache;"
+        ),
+        "same-origin|reload"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Response
 // ---------------------------------------------------------------------------
 

@@ -110,6 +110,7 @@ fn make_get_request(url: url::Url) -> elidex_net::Request {
         url,
         headers: Vec::new(),
         body: bytes::Bytes::new(),
+        ..Default::default()
     }
 }
 
