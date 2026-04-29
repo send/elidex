@@ -346,12 +346,13 @@ pub fn validate_preflight_response(
 
     let credentialed = orig.credentials == CredentialsMode::Include;
 
-    // ACAO check
-    let acao = header_value(&resp.headers, "access-control-allow-origin");
+    // ACAO check (single-valued — duplicates / comma-lists fail
+    // closed per Copilot R2 PR #134)
+    let acao = header_value_single(&resp.headers, "access-control-allow-origin");
     let acao = acao.ok_or_else(|| {
         NetError::new(
             NetErrorKind::CorsBlocked,
-            "preflight: missing Access-Control-Allow-Origin",
+            "preflight: missing or duplicate Access-Control-Allow-Origin",
         )
     })?;
     let request_origin = orig
@@ -380,8 +381,9 @@ pub fn validate_preflight_response(
 
     // ACAC check (case-insensitive ASCII comparison per WHATWG
     // Fetch §4.8 step 14 + parity with `sse/connect.rs::EventSource`
-    // header parsing — Copilot R1).
-    let allow_credentials_raw = header_value(&resp.headers, "access-control-allow-credentials");
+    // header parsing — Copilot R1; single-valued — Copilot R2).
+    let allow_credentials_raw =
+        header_value_single(&resp.headers, "access-control-allow-credentials");
     let allow_credentials = allow_credentials_raw
         .as_deref()
         .is_some_and(|v| v.eq_ignore_ascii_case("true"));
@@ -402,8 +404,10 @@ pub fn validate_preflight_response(
     let allowed_headers = parse_header_list(allow_headers_raw.as_deref(), credentialed)?;
     headers_must_be_allowed(&orig.headers, allowed_headers.as_ref())?;
 
-    // Max-Age
-    let max_age = parse_max_age(header_value(&resp.headers, "access-control-max-age").as_deref());
+    // Max-Age (single-valued integer per WHATWG Fetch §4.8 step 19
+    // — duplicates / comma-lists fail closed per Copilot R2 PR #134)
+    let max_age =
+        parse_max_age(header_value_single(&resp.headers, "access-control-max-age").as_deref());
 
     Ok(PreflightAllowance {
         allowed_methods,
@@ -432,11 +436,36 @@ pub fn validate_actual_against_allowance(
     Ok(())
 }
 
+/// Look up a header by name, returning the trimmed field-value.
+///
+/// Returns `None` when the header is absent **or** when more
+/// than one occurrence of the name is present in the response —
+/// CORS-sensitive headers must not silently merge duplicate
+/// occurrences (Copilot R2).  Servers that emit ACAO/ACAC/etc.
+/// twice (whether by misconfiguration or deliberate cache-key
+/// confusion) must fail the §4.8 validation rather than be
+/// accepted with first-match semantics.
 fn header_value(headers: &[(String, String)], name: &str) -> Option<String> {
-    headers
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(name))
-        .map(|(_, v)| v.trim().to_string())
+    let mut matches = headers.iter().filter(|(k, _)| k.eq_ignore_ascii_case(name));
+    let value = matches.next()?.1.trim().to_string();
+    if matches.next().is_some() {
+        return None;
+    }
+    Some(value)
+}
+
+/// Like [`header_value`] but additionally rejects comma-separated
+/// values — used for the **single-valued** CORS response headers
+/// (`Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials`,
+/// `Access-Control-Max-Age`) where comma in the field-value is
+/// either a server bug or an attempt to smuggle a list into a
+/// single-value slot.
+fn header_value_single(headers: &[(String, String)], name: &str) -> Option<String> {
+    let value = header_value(headers, name)?;
+    if value.contains(',') {
+        return None;
+    }
+    Some(value)
 }
 
 /// Parse `Access-Control-Allow-Methods`.  Returns:
@@ -1167,6 +1196,131 @@ mod tests {
             ],
         );
         assert!(validate_preflight_response(&r, &response).is_ok());
+    }
+
+    /// Regression for Copilot R2 finding 2: duplicate ACAO →
+    /// fail closed (the spec defines ACAO as single-valued; a
+    /// server emitting it twice is misconfigured / suspicious
+    /// and must not be silently accepted via first-match
+    /// semantics).
+    #[test]
+    fn validate_response_duplicate_acao_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Origin", "https://attacker.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// ACAO with comma-separated value must fail closed —
+    /// single-valued header per spec.
+    #[test]
+    fn validate_response_acao_comma_list_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                (
+                    "Access-Control-Allow-Origin",
+                    "https://example.com,https://attacker.com",
+                ),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Duplicate ACAC (single-valued) must fail closed for
+    /// credentialed requests.
+    #[test]
+    fn validate_response_duplicate_acac_fails_closed() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Credentials", "true"),
+                ("Access-Control-Allow-Credentials", "true"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Duplicate Max-Age (single-valued) must fail closed.
+    #[test]
+    fn validate_response_duplicate_max_age_treated_as_no_cache() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Max-Age", "60"),
+                ("Access-Control-Max-Age", "120"),
+            ],
+        );
+        let allowance = validate_preflight_response(&r, &response).unwrap();
+        // Duplicate Max-Age treated as missing; falls back to
+        // default (5s) per §4.8 step 19.
+        assert_eq!(
+            allowance.max_age,
+            Duration::from_secs(DEFAULT_MAX_AGE_SECONDS)
+        );
+    }
+
+    /// Duplicate ACAM (multi-valued list header) must also fail
+    /// closed at the helper level (`header_value` rejects
+    /// duplicates uniformly, even for headers that are normally
+    /// list-valued — multiple field instances in a CORS context
+    /// is still suspicious).
+    #[test]
+    fn validate_response_duplicate_acam_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Allow-Methods", "DELETE"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
     }
 
     /// Sentinel: non-"true" values still fail (e.g. "false",

@@ -453,10 +453,19 @@ impl NetClient {
     /// **not** dispatched.
     async fn run_preflight(&self, request: &Request) -> Result<(), NetError> {
         let Some(key) = PreflightCacheKey::from_request(request) else {
-            // No origin → preflight isn't applicable; let the
-            // request proceed (defensive — `requires_preflight`
-            // already filtered same-origin).
-            return Ok(());
+            // `run_preflight` is only entered after
+            // `requires_preflight(&request)` returned true, which
+            // already requires `mode = Cors`.  A `None` origin at
+            // this point is a contract violation — the request
+            // reached the preflight stage but has no document
+            // context to gate against.  Fail closed (`CorsBlocked`)
+            // rather than silently passing through, which would
+            // bypass the §4.8 preflight gate for misconfigured
+            // callers (Copilot R2).
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                "preflight: cors-mode request reached preflight stage without origin context",
+            ));
         };
         if let Some(allowance) = self.preflight_cache.lookup(&key) {
             return validate_actual_against_allowance(request, &allowance);
@@ -985,6 +994,41 @@ mod preflight_integration_tests {
         assert!(
             client.cookie_jar().is_empty(),
             "cross-origin Set-Cookie must not leak under credentials-downgrade"
+        );
+    }
+
+    /// Regression for Copilot R2 finding 1: a `mode = Cors`
+    /// request that reaches the preflight stage but has no
+    /// origin must fail closed rather than silently bypass the
+    /// CORS gate.  In normal flow the VM-side fetch path always
+    /// sets `Request.origin` (see `attach_default_origin`), so
+    /// reaching this branch means a misconfigured embedder
+    /// caller — fail closed defensively.
+    #[tokio::test]
+    async fn cors_mode_without_origin_fails_closed_at_preflight() {
+        // Server should never be hit — preflight must reject
+        // before dispatch.
+        let (port, recorded) = spawn_scripted_server(vec![
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+        let client = test_client();
+        let request = Request {
+            method: "PUT".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{port}/data")).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            origin: None, // ← the bug condition
+            mode: RequestMode::Cors,
+            credentials: CredentialsMode::SameOrigin,
+            redirect: RedirectMode::Follow,
+        };
+        let err = client.send(request).await.unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+        let recorded = recorded.lock().unwrap();
+        assert!(
+            recorded.is_empty(),
+            "actual request must NOT be dispatched when origin is missing in cors mode"
         );
     }
 
