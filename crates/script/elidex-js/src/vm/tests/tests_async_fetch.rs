@@ -309,16 +309,26 @@ fn promise_survives_user_dropping_reference() {
 
 #[test]
 fn cancel_fetch_reaches_broker_on_abort() {
-    // Verify the broker side: aborting an in-flight fetch with a
-    // real (non-mock) NetworkHandle would call
-    // `handle.cancel_fetch(id)` which sends a CancelFetch over the
-    // request channel.  The mock handle does not stage this wire
-    // (its `send` is a no-op on disconnected channels), but the
-    // observable JS-side effect — Promise rejected — is asserted in
-    // `inflight_abort_rejects_with_signal_reason_synchronously`.
-    // This test exercises the integration via the real broker
-    // handle.
-    use elidex_net::broker::spawn_network_process;
+    // Verify both halves of the abort wire against a real (non-mock)
+    // NetworkHandle:
+    //
+    //   (a) JS-observable: Promise rejects with AbortError
+    //       synchronously inside `controller.abort()` via the VM's
+    //       abort fan-out.
+    //   (b) Broker-observable: the broker receives the
+    //       `RendererToNetwork::CancelFetch` and synthesises an
+    //       `Err("aborted")` `FetchResponse` for the same FetchId,
+    //       which arrives on the renderer's response channel.
+    //       Without (b), `NetworkHandle::cancel_fetch` could be a
+    //       no-op and the JS-side test would still pass — that is
+    //       the gap R5.1 flagged.
+    //
+    // We pre-clone the handle Rc so the test can drain events
+    // *before* `vm.tick_network()` consumes them; otherwise the
+    // VM's settle-fetch path would silently absorb the aborted
+    // reply (the Promise was already settled by abort fan-out) and
+    // the broker side would be unobservable from the test.
+    use elidex_net::broker::{spawn_network_process, NetworkHandle, NetworkToRenderer};
     use elidex_net::{NetClient, NetClientConfig, TransportConfig};
 
     let np = spawn_network_process(NetClient::with_config(NetClientConfig {
@@ -328,9 +338,9 @@ fn cancel_fetch_reaches_broker_on_abort() {
         },
         ..Default::default()
     }));
-    let renderer_handle = np.create_renderer_handle();
+    let renderer_handle: Rc<NetworkHandle> = Rc::new(np.create_renderer_handle());
     let mut vm = Vm::new();
-    vm.install_network_handle(Rc::new(renderer_handle));
+    vm.install_network_handle(Rc::clone(&renderer_handle));
 
     // Bind a sync server that never replies.  The test relies on
     // the broker's CancelFetch handler synthesising an Err("aborted")
@@ -348,24 +358,43 @@ fn cancel_fetch_reaches_broker_on_abort() {
         addr.port()
     );
     vm.eval(&script).unwrap();
-    // Synchronous abort fires the rejection inline; tick to sweep
-    // the broker's eventual aborted-reply (silently dropped).
-    for _ in 0..32 {
-        vm.tick_network();
-        std::thread::sleep(std::time::Duration::from_millis(5));
+
+    // (b) Drain handle events directly (without going through
+    // `vm.tick_network`) and wait for the broker-synthesised
+    // aborted reply to land.  Polling because the broker thread
+    // is asynchronous; deadline guards against test hangs.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let mut got_aborted_reply = false;
+    while std::time::Instant::now() < deadline && !got_aborted_reply {
+        for ev in renderer_handle.drain_events() {
+            if let NetworkToRenderer::FetchResponse(_, Err(msg)) = ev {
+                if msg.contains("aborted") {
+                    got_aborted_reply = true;
+                }
+            }
+        }
+        if !got_aborted_reply {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
+    assert!(
+        got_aborted_reply,
+        "broker must synthesise an Err(\"aborted\") FetchResponse on CancelFetch"
+    );
+
+    // (a) JS-observable: Promise was rejected synchronously inside
+    // `c.abort()`; the eval microtask drain ran the `.catch`
+    // reaction.  No `tick_network` needed for this assertion
+    // because the broker reply was already drained out manually.
     match vm.get_global("r") {
         Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "AbortError"),
         other => panic!("expected r to be 'AbortError', got {other:?}"),
     }
 
-    // Drop the VM (and its NetworkHandle) before the broker —
-    // unregisters the renderer cleanly.  The reach of this test is
-    // the JS-observable Promise rejection above; deeper assertions
-    // about broker-side state (e.g. CancelFetch arrival counts) are
-    // covered by `cancel_fetch_delivers_aborted_reply` in
-    // `crates/net/elidex-net/src/broker.rs`'s test module.
+    // Drop the VM (and its NetworkHandle Rc) before the broker —
+    // unregisters the renderer cleanly.
     drop(vm);
+    drop(renderer_handle);
     np.shutdown();
 }
 
