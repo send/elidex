@@ -380,6 +380,7 @@ fn build_net_request(
                 origin,
                 redirect,
                 credentials,
+                mode,
             };
             attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
             attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
@@ -431,6 +432,7 @@ fn build_net_request(
         origin,
         redirect,
         credentials,
+        mode,
     };
     attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
     attach_default_referer(&ctx.vm.navigation.current_url, &mut request);

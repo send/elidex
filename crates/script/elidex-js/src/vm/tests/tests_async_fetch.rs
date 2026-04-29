@@ -682,6 +682,40 @@ fn fetch_threads_request_state_to_broker_when_input_is_request() {
 }
 
 #[test]
+fn fetch_threads_request_mode_to_broker() {
+    // PR5-cors-preflight: `init.mode` is threaded into the broker
+    // `Request.mode` so the NetClient::send preflight stage can
+    // distinguish Cors / NoCors / SameOrigin without round-trip
+    // conversion.  Default for `fetch()` is `Cors`.
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval("fetch('http://example.com/api', {mode: 'no-cors'});")
+        .unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    assert_eq!(logged[0].mode, elidex_net::RequestMode::NoCors);
+}
+
+#[test]
+fn fetch_default_mode_is_cors() {
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "http://example.com/page",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval("fetch('http://example.com/api');").unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    // Spec default for the fetch() URL-string input path is
+    // `Cors` (see the `build_net_request` URL-input branch in
+    // fetch.rs).
+    assert_eq!(logged[0].mode, elidex_net::RequestMode::Cors);
+}
+
+#[test]
 fn fetch_init_overrides_request_state_for_redirect_credentials() {
     let (mut vm, handle) = vm_with_origin_and_mock(
         "http://example.com/page",

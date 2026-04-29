@@ -1,0 +1,1702 @@
+//! CORS preflight (WHATWG Fetch §4.8) + non-simple-request
+//! detection (§4.6.5 CORS-safelisted-request-header).
+//!
+//! For cross-origin requests with `mode = Cors`, the broker must
+//! issue an `OPTIONS` preflight to confirm the server permits the
+//! actual method + author-specified non-safelisted headers before
+//! dispatching the real request.
+//!
+//! The flow:
+//!
+//! 1. [`requires_preflight`] decides whether the request is "non
+//!    simple" — non-`GET`/`HEAD`/`POST` method or any author
+//!    header outside the §4.6.5 safelist.
+//! 2. [`build_preflight_request`] constructs the OPTIONS request
+//!    with `Access-Control-Request-Method` (ACRM) and
+//!    `Access-Control-Request-Headers` (ACRH, sorted +
+//!    lowercased).  Preflight is always credentials=Omit and
+//!    redirect=Error per spec.
+//! 3. [`validate_preflight_response`] parses the OPTIONS response
+//!    headers (`Access-Control-Allow-Origin` /
+//!    `-Allow-Credentials` / `-Allow-Methods` /
+//!    `-Allow-Headers` / `-Max-Age`) and either returns a
+//!    [`PreflightAllowance`] (cacheable) or a
+//!    [`NetErrorKind::CorsBlocked`] error.
+//! 4. [`validate_actual_against_allowance`] is the second-stage
+//!    check that re-asserts the actual request's method/headers
+//!    against the cached allowance (so a cache hit short-circuits
+//!    the OPTIONS round-trip).
+//!
+//! `cors.rs` (the pre-existing module) is intentionally separate
+//! — it implements only the §4.4 `Access-Control-Allow-Origin`
+//! check on the actual response, not preflight.
+
+use std::time::Duration;
+
+use crate::error::{NetError, NetErrorKind};
+use crate::{CredentialsMode, RedirectMode, Request, RequestMode, Response};
+use bytes::Bytes;
+
+/// Conservative cap on `Access-Control-Max-Age` (§4.8 step 19).
+///
+/// Spec allows arbitrary integers; browsers cap differently
+/// (Chromium 7200s, Firefox 86400s).  We pick **7200s** to match
+/// the more conservative behaviour — preflight cache entries
+/// never live longer than 2 hours regardless of what the server
+/// asserts.
+pub const MAX_AGE_CAP_SECONDS: u64 = 7200;
+
+/// Default `Access-Control-Max-Age` when the response omits the
+/// header (§4.8 step 19 — "5 seconds" default).
+pub const DEFAULT_MAX_AGE_SECONDS: u64 = 5;
+
+/// Result of validating a preflight response.  Cached by
+/// [`crate::preflight_cache::PreflightCache`] so subsequent
+/// requests with the same `(origin, url, method, header-set)` key
+/// can skip the OPTIONS round-trip.
+#[derive(Clone, Debug)]
+pub struct PreflightAllowance {
+    /// `Access-Control-Allow-Methods` parsed value.  `None` means
+    /// the response permitted `*` (which is only allowed for
+    /// non-credentialed requests — see [`validate_preflight_response`]).
+    pub allowed_methods: Option<Vec<String>>,
+    /// `Access-Control-Allow-Headers` parsed value (lowercased).
+    /// `None` means the response permitted `*`.
+    pub allowed_headers: Option<Vec<String>>,
+    /// Whether `Access-Control-Allow-Credentials: true` was
+    /// present.  Required when the actual request has
+    /// [`CredentialsMode::Include`].
+    pub allow_credentials: bool,
+    /// Cached lifetime, capped to [`MAX_AGE_CAP_SECONDS`].  When
+    /// `Duration::ZERO`, callers must NOT cache the entry.
+    pub max_age: Duration,
+}
+
+/// Decide whether a request requires a CORS preflight per
+/// WHATWG Fetch §4.8.1 ("CORS-preflight fetch flag").
+///
+/// Returns `true` iff:
+/// - request is `Cors` mode AND
+/// - request is cross-origin AND
+/// - method is **not** in `{GET, HEAD, POST}`, OR
+/// - any author-specified header is **not**
+///   CORS-safelisted-request-header (§4.6.5).
+pub fn requires_preflight(request: &Request) -> bool {
+    if request.mode != RequestMode::Cors {
+        return false;
+    }
+    if is_same_origin(request) {
+        return false;
+    }
+    if !is_cors_safelisted_method(&request.method) {
+        return true;
+    }
+    request
+        .headers
+        .iter()
+        .any(|(name, value)| is_non_safelisted_author_header(name, value))
+}
+
+/// Same-origin check between `request.origin` and
+/// `request.url.origin()`.
+///
+/// `origin == None` (embedder-driven loads) returns `false` so
+/// the broker conservatively never preflights an embedder load
+/// — those paths set `mode = NoCors` already, so this branch is
+/// only reachable from a misconfigured caller.
+fn is_same_origin(request: &Request) -> bool {
+    match &request.origin {
+        Some(origin) => *origin == request.url.origin(),
+        None => false,
+    }
+}
+
+/// CORS-safelisted method check (§4.6.4): `GET`, `HEAD`, `POST`
+/// (case-sensitive per spec — methods are normalised earlier).
+fn is_cors_safelisted_method(method: &str) -> bool {
+    matches!(method, "GET" | "HEAD" | "POST")
+}
+
+/// Header names that the broker / VM-side fetch path auto-injects
+/// (NOT author-controllable per WHATWG Fetch §4.6 forbidden-request-
+/// header list + the broker's Origin / Referer attachments in
+/// `crates/script/elidex-js/src/vm/host/fetch.rs::attach_default_origin`
+/// / `::attach_default_referer`).
+///
+/// These headers MUST be excluded from:
+/// - the §4.8.1 preflight detection (`requires_preflight`)
+/// - the `Access-Control-Request-Headers` enumeration
+///   (`collect_acrh_value`)
+/// - the `Access-Control-Allow-Headers` validation
+///   (`headers_must_be_allowed`)
+/// - the [`crate::preflight_cache::PreflightCacheKey`] header set
+///
+/// Otherwise a normal cross-origin `fetch()` would be classified
+/// as non-simple (because `request.headers` carries `Origin` /
+/// `Referer`), force a preflight, and require servers to list
+/// `origin` / `referer` in `Access-Control-Allow-Headers` —
+/// neither of which is spec-compliant.
+pub fn is_broker_injected_header(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        // §4.6 forbidden + broker auto-injected.
+        "origin"
+            | "referer"
+            | "host"
+            | "content-length"
+            | "connection"
+            | "transfer-encoding"
+            | "upgrade"
+            | "user-agent"
+            | "cookie"
+    )
+}
+
+/// "Author-specified non-safelisted-request-header" predicate: the
+/// header participates in §4.8 preflight decisions iff it is both
+/// (a) author-controlled (not [`is_broker_injected_header`]) AND
+/// (b) not [`is_cors_safelisted_request_header`].
+fn is_non_safelisted_author_header(name: &str, value: &str) -> bool {
+    !is_broker_injected_header(name) && !is_cors_safelisted_request_header(name, value)
+}
+
+/// CORS-safelisted-request-header check (WHATWG Fetch §4.6.5).
+///
+/// A header is safelisted iff:
+/// - name (case-insensitive) is in `{Accept, Accept-Language,
+///   Content-Language, Content-Type, Range, Save-Data}` AND
+/// - the **value** matches the per-name shape constraints below.
+///
+/// Special cases:
+/// - `Authorization` (§4.6.5 step 4) is **always non-safelisted**
+///   regardless of value — it triggers preflight.
+/// - `Content-Type` value must (a) contain only safe bytes (no
+///   CORS-unsafe-request-header-byte such as `:` outside MIME
+///   delimiters — Copilot R6) AND (b) parse to one of three
+///   MIME types (`application/x-www-form-urlencoded`,
+///   `multipart/form-data`, `text/plain`); other values trigger
+///   preflight.
+/// - `Range` value must match `bytes=N-` or `bytes=N-M` form.
+/// - `Accept` / `Accept-Language` / `Content-Language` /
+///   `Save-Data` values must contain only the §4.6.5 byte set
+///   (subset of ASCII excluding CORS-unsafe-request-header-byte).
+///
+/// **Note**: this function answers the per-header §4.6.5 question
+/// in isolation; callers that need the "is this header an
+/// author-specified non-safelisted header (so it counts toward
+/// preflight)" question should compose with [`is_broker_injected_header`]
+/// (e.g. `!is_broker_injected_header(name) && !is_cors_safelisted_request_header(name, value)`)
+/// to additionally filter out auto-injected headers like `Origin` /
+/// `Referer`.
+pub fn is_cors_safelisted_request_header(name: &str, value: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if lower == "authorization" {
+        return false;
+    }
+    if value.len() > 128 {
+        return false;
+    }
+    match lower.as_str() {
+        "accept" | "accept-language" | "content-language" | "save-data" => {
+            value.bytes().all(is_cors_unsafe_request_header_byte_safe)
+        }
+        "content-type" => {
+            value.bytes().all(is_cors_unsafe_request_header_byte_safe)
+                && is_safelisted_content_type(value)
+        }
+        "range" => is_safelisted_range(value),
+        _ => false,
+    }
+}
+
+/// Check that a byte is **not** a CORS-unsafe-request-header-byte
+/// (WHATWG Fetch §4.6.5).
+///
+/// A byte is **unsafe** iff:
+/// - it is less than `0x20` AND not `0x09` (HT), OR
+/// - it is one of `"`, `(`, `)`, `:`, `<`, `>`, `?`, `@`, `[`,
+///   `\`, `]`, `{`, `}`, `0x7F` (DEL).
+///
+/// Therefore newline (`0x0A`), carriage return (`0x0D`), and the
+/// rest of the C0 control range (`0x00..=0x08` + `0x0B` + `0x0C` +
+/// `0x0E..=0x1F`) are all unsafe — they could enable header
+/// injection if accepted into safelisted-request-header values
+/// (Copilot R4 PR #134).
+fn is_cors_unsafe_request_header_byte_safe(b: u8) -> bool {
+    if b < 0x20 && b != 0x09 {
+        return false;
+    }
+    !matches!(
+        b,
+        b'"' | b'('
+            | b')'
+            | b':'
+            | b'<'
+            | b'>'
+            | b'?'
+            | b'@'
+            | b'['
+            | b'\\'
+            | b']'
+            | b'{'
+            | b'}'
+            | 0x7F
+    )
+}
+
+/// `Content-Type` safelist check.  The MIME type (before any
+/// `;` parameters) must match `application/x-www-form-urlencoded`,
+/// `multipart/form-data`, or `text/plain` (case-insensitive).
+fn is_safelisted_content_type(value: &str) -> bool {
+    let mime = value.split(';').next().unwrap_or("").trim();
+    matches!(
+        mime.to_ascii_lowercase().as_str(),
+        "application/x-www-form-urlencoded" | "multipart/form-data" | "text/plain"
+    )
+}
+
+/// `Range` safelist check (§4.6.5): only `bytes=N-` or
+/// `bytes=N-M` with non-negative integers, no multi-range.
+fn is_safelisted_range(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix("bytes=") else {
+        return false;
+    };
+    let mut parts = rest.splitn(2, '-');
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    let Some(second) = parts.next() else {
+        return false;
+    };
+    if first.is_empty() {
+        return false;
+    }
+    if !first.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    if second.is_empty() {
+        return true;
+    }
+    second.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Build the OPTIONS preflight request for an actual cross-origin
+/// CORS request (WHATWG Fetch §4.8 steps 1-9).
+///
+/// The preflight is always:
+/// - method = `OPTIONS`
+/// - URL = original request's URL (fragment dropped by `url::Url`)
+/// - body = empty
+/// - mode = `NoCors` (the preflight is internal — never itself
+///   subject to CORS gating)
+/// - credentials = `Omit` (preflight is never credentialed; the
+///   `Access-Control-Allow-Credentials: true` response header
+///   gates the **actual** request)
+/// - redirect = `Error` (3xx responses to a preflight are network
+///   errors per §4.8 step 11)
+/// - headers = `Access-Control-Request-Method` (ACRM) +
+///   `Access-Control-Request-Headers` (ACRH, lowercased + sorted
+///   non-safelisted header names) + `Origin`
+pub fn build_preflight_request(orig: &Request) -> Request {
+    let mut headers = vec![(
+        "Access-Control-Request-Method".to_string(),
+        orig.method.clone(),
+    )];
+
+    let acrh = collect_acrh_value(&orig.headers);
+    if !acrh.is_empty() {
+        headers.push(("Access-Control-Request-Headers".to_string(), acrh));
+    }
+
+    if let Some(origin) = &orig.origin {
+        headers.push(("Origin".to_string(), origin.ascii_serialization()));
+    }
+
+    Request {
+        method: "OPTIONS".to_string(),
+        url: orig.url.clone(),
+        headers,
+        body: Bytes::new(),
+        origin: orig.origin.clone(),
+        redirect: RedirectMode::Error,
+        credentials: CredentialsMode::Omit,
+        mode: RequestMode::NoCors,
+    }
+}
+
+/// Collect the lowercased + sorted comma-joined non-safelisted
+/// header-name list for `Access-Control-Request-Headers` (§4.6.5
+/// + §4.8 step 5).
+///
+/// Caller passes the actual request headers; safelisted names
+/// (and `Authorization` in safelisted positions, but it's never
+/// safelisted) are filtered out, the remaining names are
+/// lowercased, deduplicated, sorted alphabetically, and joined
+/// with `,` (no whitespace per spec).
+fn collect_acrh_value(headers: &[(String, String)]) -> String {
+    let mut names: Vec<String> = headers
+        .iter()
+        .filter(|(name, value)| is_non_safelisted_author_header(name, value))
+        .map(|(name, _)| name.to_ascii_lowercase())
+        .collect();
+    names.sort();
+    names.dedup();
+    names.join(",")
+}
+
+/// Validate the OPTIONS preflight response per WHATWG Fetch §4.8
+/// steps 11-21.  Returns a [`PreflightAllowance`] on success, or
+/// `NetError(CorsBlocked)` on any spec-required failure.
+pub fn validate_preflight_response(
+    orig: &Request,
+    resp: &Response,
+) -> Result<PreflightAllowance, NetError> {
+    if !(200..300).contains(&resp.status) {
+        return Err(NetError::new(
+            NetErrorKind::CorsBlocked,
+            format!("preflight: status {} is not 2xx", resp.status),
+        ));
+    }
+
+    let credentialed = orig.credentials == CredentialsMode::Include;
+
+    // ACAO check (single-valued — duplicates / comma-lists fail
+    // closed per Copilot R2 PR #134)
+    let acao = header_value_single(&resp.headers, "access-control-allow-origin");
+    let acao = acao.ok_or_else(|| {
+        NetError::new(
+            NetErrorKind::CorsBlocked,
+            "preflight: missing or duplicate Access-Control-Allow-Origin",
+        )
+    })?;
+    let request_origin = orig
+        .origin
+        .as_ref()
+        .map(url::Origin::ascii_serialization)
+        .unwrap_or_default();
+    match acao.as_str() {
+        "*" if credentialed => {
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                "preflight: Access-Control-Allow-Origin '*' rejected for credentialed request",
+            ));
+        }
+        "*" => {}
+        allowed if allowed.eq_ignore_ascii_case(&request_origin) => {}
+        allowed => {
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                format!(
+                    "preflight: Access-Control-Allow-Origin '{allowed}' does not match origin '{request_origin}'"
+                ),
+            ));
+        }
+    }
+
+    // ACAC check (case-insensitive ASCII comparison per WHATWG
+    // Fetch §4.8 step 14 + parity with `sse/connect.rs::EventSource`
+    // header parsing — Copilot R1; single-valued — Copilot R2).
+    let allow_credentials_raw =
+        header_value_single(&resp.headers, "access-control-allow-credentials");
+    let allow_credentials = allow_credentials_raw
+        .as_deref()
+        .is_some_and(|v| v.eq_ignore_ascii_case("true"));
+    if credentialed && !allow_credentials {
+        return Err(NetError::new(
+            NetErrorKind::CorsBlocked,
+            "preflight: credentialed request requires Access-Control-Allow-Credentials: true",
+        ));
+    }
+
+    // ACAM check (allowed methods).  Same `extracting header
+    // list values` failure semantics as Max-Age (Copilot R5
+    // PR #134): treat duplicate occurrence as a network error
+    // rather than silently falling through to the empty list
+    // (which would let a request with a safelisted method pass
+    // even when the server emitted contradictory duplicate
+    // ACAM headers).
+    let allow_methods_raw =
+        extract_single_header_or_fail_closed(&resp.headers, "access-control-allow-methods")?;
+    let allowed_methods = parse_method_list(allow_methods_raw.as_deref(), credentialed)?;
+    method_must_be_allowed(&orig.method, allowed_methods.as_ref())?;
+
+    // ACAH check (allowed headers).  Same duplicate-fail-closed
+    // semantics — duplicate ACAH must not silently fall through
+    // to an empty list when only safelisted-author headers are
+    // present (Copilot R5 PR #134).
+    let allow_headers_raw =
+        extract_single_header_or_fail_closed(&resp.headers, "access-control-allow-headers")?;
+    let allowed_headers = parse_header_list(allow_headers_raw.as_deref(), credentialed)?;
+    headers_must_be_allowed(&orig.headers, allowed_headers.as_ref())?;
+
+    // Max-Age (single-valued integer per WHATWG Fetch §4.8 step 19).
+    // Duplicate / comma-list / malformed → network error per the
+    // §4.8 step 19 "extracting header list values returning
+    // failure" contract (Copilot R4 + R5 PR #134).
+    let max_age_raw =
+        extract_single_header_or_fail_closed(&resp.headers, "access-control-max-age")?;
+    let max_age_raw = match max_age_raw {
+        None => None,
+        Some(raw) if raw.contains(',') => {
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                "preflight: malformed Access-Control-Max-Age (comma-list)",
+            ));
+        }
+        Some(raw) => Some(raw),
+    };
+    let max_age = parse_max_age(max_age_raw.as_deref());
+
+    Ok(PreflightAllowance {
+        allowed_methods,
+        allowed_headers,
+        allow_credentials,
+        max_age,
+    })
+}
+
+/// Re-validate the actual request against a cached
+/// [`PreflightAllowance`].  Used by the cache-hit path to skip
+/// the OPTIONS round-trip while still rejecting requests whose
+/// method or headers are not covered by the cached allowance.
+pub fn validate_actual_against_allowance(
+    orig: &Request,
+    allowance: &PreflightAllowance,
+) -> Result<(), NetError> {
+    if orig.credentials == CredentialsMode::Include && !allowance.allow_credentials {
+        return Err(NetError::new(
+            NetErrorKind::CorsBlocked,
+            "preflight cache: credentialed request requires Access-Control-Allow-Credentials: true",
+        ));
+    }
+    method_must_be_allowed(&orig.method, allowance.allowed_methods.as_ref())?;
+    headers_must_be_allowed(&orig.headers, allowance.allowed_headers.as_ref())?;
+    Ok(())
+}
+
+/// Look up a header by name, returning the trimmed field-value.
+///
+/// Returns `None` when the header is absent **or** when more
+/// than one occurrence of the name is present in the response —
+/// CORS-sensitive headers must not silently merge duplicate
+/// occurrences (Copilot R2).  Servers that emit ACAO/ACAC/etc.
+/// twice (whether by misconfiguration or deliberate cache-key
+/// confusion) must fail the §4.8 validation rather than be
+/// accepted with first-match semantics.
+fn header_value(headers: &[(String, String)], name: &str) -> Option<String> {
+    let mut matches = headers.iter().filter(|(k, _)| k.eq_ignore_ascii_case(name));
+    let value = matches.next()?.1.trim().to_string();
+    if matches.next().is_some() {
+        return None;
+    }
+    Some(value)
+}
+
+/// Like [`header_value`] but additionally rejects comma-separated
+/// values — used for the **single-valued** CORS response headers
+/// (`Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials`,
+/// `Access-Control-Max-Age`) where comma in the field-value is
+/// either a server bug or an attempt to smuggle a list into a
+/// single-value slot.
+fn header_value_single(headers: &[(String, String)], name: &str) -> Option<String> {
+    let value = header_value(headers, name)?;
+    if value.contains(',') {
+        return None;
+    }
+    Some(value)
+}
+
+/// Distinguish "header absent" from "header present but
+/// duplicate" and surface the latter as a `CorsBlocked` network
+/// error per WHATWG Fetch §4.8 step 19 "extracting header list
+/// values returning failure".  Returns:
+///
+/// - `Ok(None)` — header is absent (caller may apply spec default)
+/// - `Ok(Some(value))` — exactly one occurrence; trimmed value
+/// - `Err(CorsBlocked)` — header has 2+ occurrences (fail closed)
+///
+/// Used for ACAM / ACAH / Max-Age which all share the same
+/// "duplicate is a server bug" semantics — silent fall-through
+/// to `None` would let a request with safelisted method/headers
+/// pass even when the server emitted contradictory duplicates
+/// (Copilot R5 PR #134).
+fn extract_single_header_or_fail_closed(
+    headers: &[(String, String)],
+    name: &str,
+) -> Result<Option<String>, NetError> {
+    let present = headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));
+    if !present {
+        return Ok(None);
+    }
+    match header_value(headers, name) {
+        Some(v) => Ok(Some(v)),
+        None => Err(NetError::new(
+            NetErrorKind::CorsBlocked,
+            format!("preflight: duplicate {name}"),
+        )),
+    }
+}
+
+/// Parse `Access-Control-Allow-Methods`.  Returns:
+/// - `Ok(None)` for `*` (allowed only for non-credentialed),
+/// - `Ok(Some(list))` for explicit comma-separated methods,
+/// - `Err(CorsBlocked)` for `*` with credentialed.
+fn parse_method_list(
+    raw: Option<&str>,
+    credentialed: bool,
+) -> Result<Option<Vec<String>>, NetError> {
+    let Some(raw) = raw else {
+        // §4.8 step 16 — no ACAM means no extra methods beyond
+        // safelisted ones; an empty list rejects non-safelisted
+        // methods (the typical preflight trigger).
+        return Ok(Some(Vec::new()));
+    };
+    let trimmed = raw.trim();
+    if trimmed == "*" {
+        if credentialed {
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                "preflight: Access-Control-Allow-Methods '*' rejected for credentialed request",
+            ));
+        }
+        return Ok(None);
+    }
+    Ok(Some(
+        trimmed
+            .split(',')
+            .map(|s| s.trim().to_ascii_uppercase())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    ))
+}
+
+/// Parse `Access-Control-Allow-Headers`.  Same shape as
+/// [`parse_method_list`] but lowercased for case-insensitive
+/// comparison against actual request header names.
+fn parse_header_list(
+    raw: Option<&str>,
+    credentialed: bool,
+) -> Result<Option<Vec<String>>, NetError> {
+    let Some(raw) = raw else {
+        return Ok(Some(Vec::new()));
+    };
+    let trimmed = raw.trim();
+    if trimmed == "*" {
+        if credentialed {
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                "preflight: Access-Control-Allow-Headers '*' rejected for credentialed request",
+            ));
+        }
+        return Ok(None);
+    }
+    Ok(Some(
+        trimmed
+            .split(',')
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    ))
+}
+
+/// Check that the actual method is in the parsed allow-methods
+/// list (or the list is `None`, i.e. wildcard).  CORS-safelisted
+/// methods are always allowed regardless of ACAM (spec §4.8
+/// step 17).
+fn method_must_be_allowed(
+    method: &str,
+    allowed_methods: Option<&Vec<String>>,
+) -> Result<(), NetError> {
+    if is_cors_safelisted_method(method) {
+        return Ok(());
+    }
+    let Some(list) = allowed_methods else {
+        return Ok(());
+    };
+    let upper = method.to_ascii_uppercase();
+    if list.iter().any(|m| m == &upper) {
+        return Ok(());
+    }
+    Err(NetError::new(
+        NetErrorKind::CorsBlocked,
+        format!("preflight: method '{method}' not in Access-Control-Allow-Methods"),
+    ))
+}
+
+/// Check that every author-specified non-safelisted header is in
+/// the parsed allow-headers list (or the list is `None`).
+/// Safelisted headers are always allowed regardless of ACAH (spec
+/// §4.8 step 18).
+fn headers_must_be_allowed(
+    actual_headers: &[(String, String)],
+    allowed_headers: Option<&Vec<String>>,
+) -> Result<(), NetError> {
+    let Some(list) = allowed_headers else {
+        return Ok(());
+    };
+    for (name, value) in actual_headers {
+        // Skip safelisted headers (always allowed, §4.8 step 18)
+        // AND broker-injected ones (`Origin` / `Referer` etc. —
+        // not author-specified, so they don't participate in the
+        // ACAH allow-list check).  Otherwise compliant servers
+        // that don't echo `origin` / `referer` in ACAH would be
+        // rejected.
+        if !is_non_safelisted_author_header(name, value) {
+            continue;
+        }
+        let lower = name.to_ascii_lowercase();
+        if !list.iter().any(|h| h == &lower) {
+            return Err(NetError::new(
+                NetErrorKind::CorsBlocked,
+                format!("preflight: header '{name}' not in Access-Control-Allow-Headers"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Parse `Access-Control-Max-Age` per §4.8 step 19.
+///
+/// - Missing → [`DEFAULT_MAX_AGE_SECONDS`]
+/// - Negative or non-numeric → `Duration::ZERO` (don't cache)
+/// - Capped to [`MAX_AGE_CAP_SECONDS`]
+fn parse_max_age(raw: Option<&str>) -> Duration {
+    let Some(raw) = raw else {
+        return Duration::from_secs(DEFAULT_MAX_AGE_SECONDS);
+    };
+    let trimmed = raw.trim();
+    // Reject if not a non-negative integer (negatives + floats +
+    // empty all become "don't cache").
+    let secs = match trimmed.parse::<i64>() {
+        Ok(n) if n > 0 => n.cast_unsigned(),
+        _ => return Duration::ZERO,
+    };
+    Duration::from_secs(secs.min(MAX_AGE_CAP_SECONDS))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req_with(method: &str, url: &str, origin: &str, headers: Vec<(String, String)>) -> Request {
+        Request {
+            method: method.to_string(),
+            url: url::Url::parse(url).unwrap(),
+            headers,
+            body: Bytes::new(),
+            origin: Some(url::Url::parse(origin).unwrap().origin()),
+            mode: RequestMode::Cors,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn requires_preflight_simple_get_returns_false() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_same_origin_returns_false() {
+        let r = req_with(
+            "DELETE",
+            "https://example.com/data",
+            "https://example.com/",
+            vec![],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_no_cors_mode_returns_false() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.mode = RequestMode::NoCors;
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_custom_method_returns_true() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        assert!(requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_delete_returns_true() {
+        let r = req_with(
+            "DELETE",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        assert!(requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_custom_header_returns_true() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("X-Custom".into(), "1".into())],
+        );
+        assert!(requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_authorization_header_returns_true() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Authorization".into(), "Bearer token".into())],
+        );
+        assert!(requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_safelisted_content_type_form_urlencoded() {
+        let r = req_with(
+            "POST",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![(
+                "Content-Type".into(),
+                "application/x-www-form-urlencoded".into(),
+            )],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_safelisted_content_type_multipart() {
+        let r = req_with(
+            "POST",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![(
+                "Content-Type".into(),
+                "multipart/form-data; boundary=abc".into(),
+            )],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_safelisted_content_type_text_plain() {
+        let r = req_with(
+            "POST",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Content-Type".into(), "text/plain;charset=utf-8".into())],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_unsafe_content_type_application_json() {
+        let r = req_with(
+            "POST",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Content-Type".into(), "application/json".into())],
+        );
+        assert!(requires_preflight(&r));
+    }
+
+    /// Regression for Copilot R1 finding 1 + 4: broker-injected
+    /// `Origin` / `Referer` (auto-injected by `attach_default_origin`
+    /// / `attach_default_referer` on the VM-side fetch path) must
+    /// NOT count toward the §4.8.1 preflight detection — they are
+    /// not author-controllable headers.  Without the filter, a
+    /// normal cross-origin `fetch()` would force a preflight just
+    /// because the broker put `Origin` into `request.headers`.
+    #[test]
+    fn requires_preflight_skips_broker_injected_origin() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Origin".into(), "https://example.com".into())],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_skips_broker_injected_referer() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Referer".into(), "https://example.com/page".into())],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_skips_broker_injected_origin_and_referer_combined() {
+        // Both auto-injected headers + safelisted Accept → still
+        // simple, no preflight.
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("Referer".into(), "https://example.com/page".into()),
+                ("Accept".into(), "text/plain".into()),
+            ],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    /// Sentinel: an unsafe header alongside broker-injected ones
+    /// still triggers preflight.
+    #[test]
+    fn requires_preflight_unsafe_header_with_broker_injected_present() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("X-Custom".into(), "1".into()),
+            ],
+        );
+        assert!(requires_preflight(&r));
+    }
+
+    #[test]
+    fn safelisted_range_simple() {
+        assert!(is_cors_safelisted_request_header("Range", "bytes=0-100"));
+        assert!(is_cors_safelisted_request_header("Range", "bytes=500-"));
+        assert!(!is_cors_safelisted_request_header(
+            "Range",
+            "bytes=0-100,200-300"
+        ));
+        assert!(!is_cors_safelisted_request_header("Range", "items=0-100"));
+    }
+
+    #[test]
+    fn safelisted_value_length_limit() {
+        // 129 bytes is over the 128-byte limit
+        let long = "a".repeat(129);
+        assert!(!is_cors_safelisted_request_header("Accept", &long));
+    }
+
+    #[test]
+    fn safelisted_accept_rejects_unsafe_byte() {
+        // ':' is in the unsafe byte set
+        assert!(!is_cors_safelisted_request_header(
+            "Accept",
+            "text/html: bad"
+        ));
+    }
+
+    /// Regression for Copilot R4 finding 1: §4.6.5
+    /// CORS-unsafe-request-header-byte set covers the **full**
+    /// `0x00..=0x1F` range minus `0x09` (HT).  Previously the
+    /// implementation only flagged `0x00..=0x08` and
+    /// `0x10..=0x19` as unsafe, which meant `\n` (0x0A), `\r`
+    /// (0x0D), and ESC (0x1B) etc. would be considered safe in
+    /// safelisted-header values — a header-injection footgun.
+    #[test]
+    fn safelisted_accept_rejects_newline() {
+        assert!(!is_cors_safelisted_request_header(
+            "Accept",
+            "text/html\nX-Injected: y"
+        ));
+    }
+
+    #[test]
+    fn safelisted_accept_rejects_carriage_return() {
+        assert!(!is_cors_safelisted_request_header(
+            "Accept",
+            "text/html\rX-Injected: y"
+        ));
+    }
+
+    #[test]
+    fn safelisted_accept_rejects_esc_control() {
+        // ESC (0x1B) — was in the previous "safe" 0x1A..=0x1F gap.
+        assert!(!is_cors_safelisted_request_header(
+            "Accept",
+            "text/html\x1bsneaky"
+        ));
+    }
+
+    /// Sentinel: HT (`0x09`) is the **only** byte below `0x20`
+    /// that's safelisted (§4.6.5 explicitly excludes it).
+    #[test]
+    fn safelisted_accept_allows_horizontal_tab() {
+        assert!(is_cors_safelisted_request_header(
+            "Accept",
+            "text/html\ttext/plain"
+        ));
+    }
+
+    /// Regression for Copilot R6 finding 1: `Content-Type` value
+    /// must pass the byte-check **before** the MIME-prefix
+    /// match.  Pre-fix `text/plain; x=y:z` (contains unsafe `:`
+    /// in the parameters) was silently classified as safelisted.
+    #[test]
+    fn safelisted_content_type_rejects_unsafe_byte_in_parameters() {
+        assert!(!is_cors_safelisted_request_header(
+            "Content-Type",
+            "text/plain; x=y:z"
+        ));
+    }
+
+    /// Sentinel: a Content-Type with safe parameter syntax
+    /// (e.g. `; charset=utf-8`) still safelists.
+    #[test]
+    fn safelisted_content_type_with_safe_params_passes() {
+        assert!(is_cors_safelisted_request_header(
+            "Content-Type",
+            "text/plain; charset=utf-8"
+        ));
+    }
+
+    /// Regression for Copilot R6 finding 2: `Save-Data` is in
+    /// the §4.6.5 safelist (formerly deferred as SP-CORS-4 in
+    /// PR-spec-polish; closed inline during R6).  Values must
+    /// pass the same byte-check as `Accept` etc.
+    #[test]
+    fn safelisted_save_data_on() {
+        assert!(is_cors_safelisted_request_header("Save-Data", "on"));
+    }
+
+    #[test]
+    fn safelisted_save_data_rejects_unsafe_byte() {
+        assert!(!is_cors_safelisted_request_header(
+            "Save-Data",
+            "on:malicious"
+        ));
+    }
+
+    /// Sentinel: a Save-Data header alone does NOT trigger
+    /// preflight on a cross-origin simple request.
+    #[test]
+    fn requires_preflight_save_data_only_returns_false() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Save-Data".into(), "on".into())],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn build_preflight_uses_options_method_and_omit_credentials() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("X-Custom".into(), "1".into())],
+        );
+        let p = build_preflight_request(&r);
+        assert_eq!(p.method, "OPTIONS");
+        assert_eq!(p.credentials, CredentialsMode::Omit);
+        assert_eq!(p.redirect, RedirectMode::Error);
+        assert_eq!(p.mode, RequestMode::NoCors);
+        assert!(p.body.is_empty());
+    }
+
+    #[test]
+    fn build_preflight_includes_acrm() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let p = build_preflight_request(&r);
+        let acrm = header_value(&p.headers, "access-control-request-method").unwrap();
+        assert_eq!(acrm, "PUT");
+    }
+
+    #[test]
+    fn build_preflight_acrh_lowercase_sorted() {
+        let r = req_with(
+            "POST",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("X-Zebra".into(), "1".into()),
+                ("X-Alpha".into(), "1".into()),
+                ("Authorization".into(), "Bearer t".into()),
+            ],
+        );
+        let p = build_preflight_request(&r);
+        let acrh = header_value(&p.headers, "access-control-request-headers").unwrap();
+        assert_eq!(acrh, "authorization,x-alpha,x-zebra");
+    }
+
+    #[test]
+    fn build_preflight_acrh_omits_safelisted_names() {
+        let r = req_with(
+            "POST",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Accept".into(), "text/plain".into()),
+                ("Content-Type".into(), "text/plain".into()),
+                ("X-Custom".into(), "1".into()),
+            ],
+        );
+        let p = build_preflight_request(&r);
+        let acrh = header_value(&p.headers, "access-control-request-headers").unwrap();
+        assert_eq!(acrh, "x-custom");
+    }
+
+    /// Regression for Copilot R1 finding 1: ACRH must omit
+    /// broker-injected headers like `Origin` / `Referer`,
+    /// otherwise compliant servers that don't list those names in
+    /// `Access-Control-Allow-Headers` would reject the preflight.
+    #[test]
+    fn build_preflight_acrh_omits_broker_injected_origin_and_referer() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("Referer".into(), "https://example.com/page".into()),
+                ("X-Custom".into(), "1".into()),
+            ],
+        );
+        let p = build_preflight_request(&r);
+        let acrh = header_value(&p.headers, "access-control-request-headers").unwrap();
+        assert_eq!(acrh, "x-custom");
+    }
+
+    #[test]
+    fn build_preflight_skips_acrh_when_no_unsafe_headers() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Accept".into(), "text/plain".into())],
+        );
+        let p = build_preflight_request(&r);
+        assert!(header_value(&p.headers, "access-control-request-headers").is_none());
+    }
+
+    #[test]
+    fn build_preflight_includes_origin_header() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/page",
+            vec![],
+        );
+        let p = build_preflight_request(&r);
+        let origin = header_value(&p.headers, "origin").unwrap();
+        assert_eq!(origin, "https://example.com");
+    }
+
+    fn resp(status: u16, headers: Vec<(&str, &str)>) -> Response {
+        Response {
+            status,
+            headers: headers
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            body: Bytes::new(),
+            url: url::Url::parse("https://api.other.com/").unwrap(),
+            version: crate::HttpVersion::H1,
+            url_list: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn validate_response_status_must_be_2xx() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(403, vec![]);
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    #[test]
+    fn validate_response_acao_match() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT, DELETE"),
+            ],
+        );
+        let allowance = validate_preflight_response(&r, &response).unwrap();
+        assert!(allowance.allowed_methods.is_some());
+    }
+
+    #[test]
+    fn validate_response_acao_mismatch_fails() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![("Access-Control-Allow-Origin", "https://attacker.com")],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    #[test]
+    fn validate_response_acao_wildcard_credentialed_fails() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "*"),
+                ("Access-Control-Allow-Credentials", "true"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    #[test]
+    fn validate_response_credentialed_requires_acac_true() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+        assert!(err.message.contains("Access-Control-Allow-Credentials"));
+    }
+
+    #[test]
+    fn validate_response_method_not_allowed_fails() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "DELETE"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    #[test]
+    fn validate_response_method_wildcard_non_credentialed_passes() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "*"),
+            ],
+        );
+        let allowance = validate_preflight_response(&r, &response).unwrap();
+        assert!(allowance.allowed_methods.is_none());
+    }
+
+    #[test]
+    fn validate_response_header_not_allowed_fails() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("X-Custom".into(), "1".into())],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Headers", "x-other"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    #[test]
+    fn validate_response_header_allowed_passes() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("X-Custom".into(), "1".into())],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Headers", "x-custom, x-other"),
+            ],
+        );
+        assert!(validate_preflight_response(&r, &response).is_ok());
+    }
+
+    /// Regression for Copilot R1 finding 2: ACAH validation must
+    /// skip broker-injected headers (`Origin` / `Referer` etc.)
+    /// — compliant servers don't echo those names in ACAH and we
+    /// must not reject them.
+    #[test]
+    fn validate_response_skips_broker_injected_in_acah_check() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("Referer".into(), "https://example.com/page".into()),
+                ("X-Custom".into(), "1".into()),
+            ],
+        );
+        // Server lists only "x-custom" — Origin/Referer must
+        // not cause rejection.
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Headers", "x-custom"),
+            ],
+        );
+        assert!(validate_preflight_response(&r, &response).is_ok());
+    }
+
+    /// Regression for Copilot R1 finding 3: ACAC parsing must be
+    /// ASCII case-insensitive — `True` / `TRUE` / `true` all
+    /// satisfy the credentialed check.
+    #[test]
+    fn validate_response_acac_case_insensitive_true_uppercase() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Credentials", "TRUE"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let allowance = validate_preflight_response(&r, &response).unwrap();
+        assert!(allowance.allow_credentials);
+    }
+
+    #[test]
+    fn validate_response_acac_case_insensitive_true_mixed() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Credentials", "True"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        assert!(validate_preflight_response(&r, &response).is_ok());
+    }
+
+    /// Regression for Copilot R2 finding 2: duplicate ACAO →
+    /// fail closed (the spec defines ACAO as single-valued; a
+    /// server emitting it twice is misconfigured / suspicious
+    /// and must not be silently accepted via first-match
+    /// semantics).
+    #[test]
+    fn validate_response_duplicate_acao_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Origin", "https://attacker.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// ACAO with comma-separated value must fail closed —
+    /// single-valued header per spec.
+    #[test]
+    fn validate_response_acao_comma_list_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                (
+                    "Access-Control-Allow-Origin",
+                    "https://example.com,https://attacker.com",
+                ),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Duplicate ACAC (single-valued) must fail closed for
+    /// credentialed requests.
+    #[test]
+    fn validate_response_duplicate_acac_fails_closed() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Credentials", "true"),
+                ("Access-Control-Allow-Credentials", "true"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Regression for Copilot R4 finding 2: per WHATWG Fetch
+    /// §4.8 step 19, "extracting header list values" returning
+    /// failure (which covers duplicate occurrence of a single-
+    /// valued header) must surface as a network error — NOT
+    /// silently fall back to the missing-header 5s default.
+    /// The earlier R3 fix only renamed the test; R4 requires
+    /// the actual behaviour to fail closed.
+    #[test]
+    fn validate_response_duplicate_max_age_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Max-Age", "60"),
+                ("Access-Control-Max-Age", "120"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Regression for Copilot R5 finding 1: duplicate ACAM with
+    /// a safelisted method (GET/HEAD/POST) must fail closed.
+    /// Pre-fix the silent fall-through to an empty allow-list
+    /// passed because `method_must_be_allowed(GET, empty)`
+    /// returns Ok unconditionally for safelisted methods —
+    /// duplicate ACAM was effectively ignored.
+    #[test]
+    fn validate_response_duplicate_acam_with_safelisted_method_fails_closed() {
+        // GET + custom header → preflight needed.
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("X-Custom".into(), "1".into())],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "GET"),
+                ("Access-Control-Allow-Methods", "HEAD"),
+                ("Access-Control-Allow-Headers", "x-custom"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Duplicate ACAH with only-safelisted-author headers must
+    /// fail closed.  (Trigger preflight via non-safelisted PUT
+    /// method so requires_preflight=true while no actual headers
+    /// need ACAH validation — pre-fix the duplicate ACAH would
+    /// silently pass.)
+    #[test]
+    fn validate_response_duplicate_acah_with_safelisted_headers_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Accept".into(), "text/plain".into())],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Allow-Headers", "x-custom"),
+                ("Access-Control-Allow-Headers", "x-other"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Comma-list Max-Age (single-valued) must also fail closed.
+    #[test]
+    fn validate_response_max_age_comma_list_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Max-Age", "60,120"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Duplicate ACAM (multi-valued list header) must also fail
+    /// closed at the helper level (`header_value` rejects
+    /// duplicates uniformly, even for headers that are normally
+    /// list-valued — multiple field instances in a CORS context
+    /// is still suspicious).
+    #[test]
+    fn validate_response_duplicate_acam_fails_closed() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Allow-Methods", "DELETE"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    /// Sentinel: non-"true" values still fail (e.g. "false",
+    /// "yes") for credentialed requests.
+    #[test]
+    fn validate_response_acac_non_true_rejects_credentialed() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Credentials", "yes"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
+    }
+
+    #[test]
+    fn validate_response_max_age_capped() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Max-Age", "999999"),
+            ],
+        );
+        let allowance = validate_preflight_response(&r, &response).unwrap();
+        assert_eq!(allowance.max_age, Duration::from_secs(MAX_AGE_CAP_SECONDS));
+    }
+
+    #[test]
+    fn validate_response_max_age_negative_zero() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+                ("Access-Control-Max-Age", "-5"),
+            ],
+        );
+        let allowance = validate_preflight_response(&r, &response).unwrap();
+        assert_eq!(allowance.max_age, Duration::ZERO);
+    }
+
+    #[test]
+    fn validate_response_max_age_default_when_missing() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let allowance = validate_preflight_response(&r, &response).unwrap();
+        assert_eq!(
+            allowance.max_age,
+            Duration::from_secs(DEFAULT_MAX_AGE_SECONDS)
+        );
+    }
+
+    #[test]
+    fn validate_actual_against_allowance_credentialed_requires_acac() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let allowance = PreflightAllowance {
+            allowed_methods: Some(vec!["PUT".into()]),
+            allowed_headers: Some(Vec::new()),
+            allow_credentials: false,
+            max_age: Duration::from_secs(60),
+        };
+        assert!(validate_actual_against_allowance(&r, &allowance).is_err());
+    }
+
+    #[test]
+    fn validate_actual_against_allowance_method_must_match() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        let allowance = PreflightAllowance {
+            allowed_methods: Some(vec!["DELETE".into()]),
+            allowed_headers: Some(Vec::new()),
+            allow_credentials: false,
+            max_age: Duration::from_secs(60),
+        };
+        assert!(validate_actual_against_allowance(&r, &allowance).is_err());
+    }
+
+    #[test]
+    fn validate_actual_against_allowance_safelisted_method_always_allowed() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("X-Custom".into(), "1".into())],
+        );
+        let allowance = PreflightAllowance {
+            allowed_methods: Some(Vec::new()),
+            allowed_headers: Some(vec!["x-custom".into()]),
+            allow_credentials: false,
+            max_age: Duration::from_secs(60),
+        };
+        assert!(validate_actual_against_allowance(&r, &allowance).is_ok());
+    }
+}

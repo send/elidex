@@ -5,8 +5,9 @@
 //! rules before connecting.
 
 use crate::error::{NetError, NetErrorKind};
+use crate::preflight::requires_preflight;
 use crate::transport::HttpTransport;
-use crate::{RedirectMode, Request, Response};
+use crate::{CredentialsMode, RedirectMode, Request, RequestMode, Response};
 use bytes::Bytes;
 
 /// Follow redirects for a request, returning the final response.
@@ -39,7 +40,7 @@ pub async fn follow_redirects(
     transport: &HttpTransport,
     mut request: Request,
     max_redirects: u32,
-) -> Result<Response, NetError> {
+) -> Result<(Response, CredentialsMode), NetError> {
     let skip_ssrf = transport.config().allow_private_ips;
     let mut redirects = 0u32;
     let redirect_mode = request.redirect;
@@ -48,7 +49,7 @@ pub async fn follow_redirects(
         let response = transport.send(&request).await?;
 
         if !is_redirect(response.status) {
-            return Ok(response);
+            return Ok((response, request.credentials));
         }
         // Honour the request's redirect mode (WHATWG Fetch §5.3).
         // `Manual` returns the 3xx as-is for opaque-redirect
@@ -56,7 +57,7 @@ pub async fn follow_redirects(
         // path surfaces a `TypeError("Failed to fetch")`.
         match redirect_mode {
             RedirectMode::Follow => {}
-            RedirectMode::Manual => return Ok(response),
+            RedirectMode::Manual => return Ok((response, request.credentials)),
             RedirectMode::Error => {
                 return Err(NetError::new(
                     NetErrorKind::BadRedirect,
@@ -136,14 +137,62 @@ pub async fn follow_redirects(
             });
         }
 
+        let credentials = cors_redirect_credentials(&request, &next_url, &method, &headers, &body)?;
+
         request = Request {
             method,
             headers,
             url: next_url,
             body,
+            credentials,
             ..request
         };
     }
+}
+
+/// Apply WHATWG Fetch §4.4 step 14 paired-infra for a
+/// `mode = Cors` cross-origin redirect: fail closed when the
+/// redirected request would require a preflight (we don't
+/// re-issue preflight against the new origin yet — see
+/// `PR-cors-redirect-preflight` slot), and downgrade
+/// `Include` credentials to `SameOrigin` so the redirected
+/// hop doesn't surface cookies / Authorization picked up
+/// from the new origin's cookie jar.  Returns the credentials
+/// mode to use on the redirected request.
+fn cors_redirect_credentials(
+    request: &Request,
+    next_url: &url::Url,
+    method: &str,
+    headers: &[(String, String)],
+    body: &Bytes,
+) -> Result<CredentialsMode, NetError> {
+    if request.mode != RequestMode::Cors {
+        return Ok(request.credentials);
+    }
+    if is_same_origin(&request.url, next_url) {
+        return Ok(request.credentials);
+    }
+    let probe = Request {
+        method: method.to_string(),
+        headers: headers.to_vec(),
+        url: next_url.clone(),
+        body: body.clone(),
+        origin: request.origin.clone(),
+        redirect: request.redirect,
+        credentials: request.credentials,
+        mode: request.mode,
+    };
+    if requires_preflight(&probe) {
+        return Err(NetError::new(
+            NetErrorKind::CorsBlocked,
+            "cross-origin CORS redirect requiring preflight is not supported",
+        ));
+    }
+    Ok(if request.credentials == CredentialsMode::Include {
+        CredentialsMode::SameOrigin
+    } else {
+        request.credentials
+    })
 }
 
 /// Check if a status code is a redirect.
@@ -250,7 +299,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
         assert_eq!(response.status, 200);
     }
 
@@ -360,7 +409,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
         assert_eq!(response.status, 200);
         assert_eq!(response.body.as_ref(), b"ok");
     }
@@ -484,7 +533,7 @@ mod tests {
             redirect: RedirectMode::Manual,
             ..Default::default()
         };
-        let response = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
         assert_eq!(response.status, 302);
     }
 }

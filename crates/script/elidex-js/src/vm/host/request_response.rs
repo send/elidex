@@ -101,17 +101,12 @@ pub(crate) use elidex_net::RedirectMode;
 /// are reachable from the Request constructor and `fetch()`;
 /// `Navigate` is internal to navigation requests and rejected
 /// with `TypeError` when set on `init` (spec §5.3 step 23).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RequestMode {
-    Cors,
-    NoCors,
-    SameOrigin,
-    /// Reserved for the navigation pipeline's internal Request
-    /// construction; never reached from JS-facing init parsing
-    /// (the parser throws TypeError on the string).
-    #[allow(dead_code)]
-    Navigate,
-}
+///
+/// Re-exported from `elidex-net` so the broker `Request` field
+/// and the JS-side state share a single type without round-trip
+/// conversion (mirrors the [`RedirectMode`] / [`RequestCredentials`]
+/// re-export pattern).
+pub(crate) use elidex_net::RequestMode;
 
 /// `RequestCredentials` (WHATWG §5.3).  Threaded through the
 /// broker so `Omit` suppresses the cookie attach, `SameOrigin`
