@@ -786,6 +786,32 @@ fn to_locale_string_forwards_reserved_args() {
 }
 
 #[test]
+fn to_locale_string_passes_exactly_two_args_to_override() {
+    let mut vm = Vm::new();
+    // §23.2.3.31 step 7: `Invoke(elem, "toLocaleString",
+    // « locales, options »)` always materialises a 2-element
+    // arg list.  Extra caller args (3rd+) MUST NOT reach the
+    // override; missing args (0 / 1) MUST be undefined-padded
+    // so `arguments.length === 2` always holds.
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return String(arguments.length); }; \
+             new Uint8Array([1]).toLocaleString('a', 'b', 'c', 'd');"
+        ),
+        "2"
+    );
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "Number.prototype.toLocaleString = function() { return String(arguments.length); }; \
+             new Uint8Array([1]).toLocaleString();"
+        ),
+        "2"
+    );
+}
+
+#[test]
 fn to_locale_string_throws_on_non_callable_method() {
     let mut vm = Vm::new();
     // Per `Invoke` semantics (§7.3.16) a present-but-non-callable

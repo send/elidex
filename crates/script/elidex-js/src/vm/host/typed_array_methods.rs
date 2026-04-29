@@ -887,6 +887,14 @@ pub(crate) fn native_typed_array_to_locale_string(
         ..
     } = parts;
     let to_locale_key = PropertyKey::String(ctx.vm.well_known.to_locale_string);
+    // §23.2.3.31 step 7 forwards exactly `« locales, options »` to
+    // each per-element `Invoke` — extra caller-supplied args must
+    // not reach the override.  Materialise the pair once outside the
+    // loop so every iteration calls with the same fixed-arity slice.
+    let invoke_args = [
+        args.first().copied().unwrap_or(JsValue::Undefined),
+        args.get(1).copied().unwrap_or(JsValue::Undefined),
+    ];
 
     // Single rooted slot for the boxed-primitive wrapper.  Object
     // elements skip the box and overwrite the slot with the
@@ -916,10 +924,7 @@ pub(crate) fn native_typed_array_to_locale_string(
         let method = sub_ctx.try_get_property_value(obj_id, to_locale_key)?;
         let str_sid = match method {
             Some(JsValue::Object(fn_id)) if sub_ctx.get_object(fn_id).kind.is_callable() => {
-                // §23.2.3.31 step 7: forward `(locales, options)` to
-                // each per-element invocation so user overrides
-                // observe them.
-                let ret = sub_ctx.call_function(fn_id, receiver, args)?;
+                let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
                 sub_ctx.to_string_val(ret)?
             }
             // Per `Invoke` semantics (§7.3.16) a present-but-non-

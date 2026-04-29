@@ -357,6 +357,27 @@ fn array_to_locale_string_forwards_reserved_args() {
 }
 
 #[test]
+fn array_to_locale_string_passes_exactly_two_args_to_override() {
+    // §22.1.3.30 step 6: per-element `Invoke` always passes
+    // exactly « locales, options ».  Extra caller args must not
+    // reach the override; missing args are undefined-padded.
+    assert_eq!(
+        eval_string(
+            "Number.prototype.toLocaleString = function() { return String(arguments.length); }; \
+             [1].toLocaleString('a', 'b', 'c');"
+        ),
+        "2"
+    );
+    assert_eq!(
+        eval_string(
+            "Number.prototype.toLocaleString = function() { return String(arguments.length); }; \
+             [1].toLocaleString();"
+        ),
+        "2"
+    );
+}
+
+#[test]
 fn array_to_locale_string_throws_on_non_callable_method() {
     // Spec `Invoke` (§7.3.16) throws TypeError when the resolved
     // method is non-callable; silent ToString fallback would mask

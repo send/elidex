@@ -611,6 +611,14 @@ pub(super) fn native_array_to_locale_string(
     array_len(ctx, id)?;
     let elements = clone_elements(ctx, id);
     let to_locale_key = super::value::PropertyKey::String(ctx.intern("toLocaleString"));
+    // §22.1.3.30 step 6 forwards exactly `« locales, options »` to
+    // each per-element `Invoke` — extra caller-supplied args must
+    // not reach the override.  Materialise the pair once outside the
+    // loop so every iteration calls with the same fixed-arity slice.
+    let invoke_args = [
+        args.first().copied().unwrap_or(JsValue::Undefined),
+        args.get(1).copied().unwrap_or(JsValue::Undefined),
+    ];
 
     let mut frame = ctx.vm.push_stack_scope();
     let wrapper_slot = frame.saved_len();
@@ -633,7 +641,7 @@ pub(super) fn native_array_to_locale_string(
         let method = sub_ctx.try_get_property_value(obj_id, to_locale_key)?;
         let str_sid = match method {
             Some(JsValue::Object(fn_id)) if sub_ctx.get_object(fn_id).kind.is_callable() => {
-                let ret = sub_ctx.call_function(fn_id, receiver, args)?;
+                let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
                 sub_ctx.to_string_val(ret)?
             }
             Some(_) => {
