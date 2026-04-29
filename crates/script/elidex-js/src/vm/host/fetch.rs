@@ -194,8 +194,8 @@ fn native_fetch(
 
     // Build the broker-level Request.  Any validation failure
     // settles the Promise directly — no synchronous throw.
-    let request = match build_net_request(ctx, args) {
-        Ok(req) => req,
+    let (request, cors_meta) = match build_net_request(ctx, args) {
+        Ok(pair) => pair,
         Err(err) => {
             let reason = ctx.vm.vm_error_to_thrown(&err);
             reject_promise_sync(ctx.vm, promise, reason);
@@ -222,6 +222,7 @@ fn native_fetch(
     // and reject the Promise synchronously.
     let fetch_id = handle.fetch_async(request);
     ctx.vm.pending_fetches.insert(fetch_id, promise);
+    ctx.vm.pending_fetch_cors.insert(fetch_id, cors_meta);
     if let Some(signal_id) = signal {
         ctx.vm
             .fetch_abort_observers
@@ -314,10 +315,14 @@ fn pre_flight_abort_reason(ctx: &NativeContext<'_>, signal_id: ObjectId) -> Opti
 /// which returns `None` for each field that the caller's `init`
 /// did not explicitly set — `None` preserves the base, `Some`
 /// replaces it.
+///
+/// Returns the broker `Request` plus a [`FetchCorsMeta`]
+/// snapshot so the settlement step can run the CORS classifier
+/// without re-deriving any of these values.
 fn build_net_request(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
-) -> Result<elidex_net::Request, VmError> {
+) -> Result<(elidex_net::Request, super::cors::FetchCorsMeta), VmError> {
     // `native_fetch` rejects the empty-args case with a synchronous
     // `VmError::type_error` before calling us (R19.1 — WebIDL
     // binding "not enough arguments").  An empty slice here would
@@ -358,6 +363,12 @@ fn build_net_request(
             let redirect = overrides.redirect.unwrap_or(base_state.redirect);
             reject_same_origin_cross_origin(&ctx.vm.navigation.current_url, &url, mode)?;
             let origin = origin_for_request(&ctx.vm.navigation.current_url, &url);
+            let cors_meta = super::cors::FetchCorsMeta {
+                request_url: url.clone(),
+                request_origin: origin.clone(),
+                request_mode: mode,
+                redirect_mode: redirect,
+            };
             let mut request = elidex_net::Request {
                 method,
                 url,
@@ -369,7 +380,7 @@ fn build_net_request(
             };
             attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
             attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
-            return Ok(request);
+            return Ok((request, cors_meta));
         }
     }
 
@@ -400,6 +411,12 @@ fn build_net_request(
     let redirect = overrides.redirect.unwrap_or(RedirectMode::Follow);
     reject_same_origin_cross_origin(&ctx.vm.navigation.current_url, &url, mode)?;
     let origin = origin_for_request(&ctx.vm.navigation.current_url, &url);
+    let cors_meta = super::cors::FetchCorsMeta {
+        request_url: url.clone(),
+        request_origin: origin.clone(),
+        request_mode: mode,
+        redirect_mode: redirect,
+    };
     let mut request = elidex_net::Request {
         method,
         url,
@@ -411,7 +428,7 @@ fn build_net_request(
     };
     attach_default_origin(&ctx.vm.navigation.current_url, &mut request);
     attach_default_referer(&ctx.vm.navigation.current_url, &mut request);
-    Ok(request)
+    Ok((request, cors_meta))
 }
 
 /// Reject a cross-origin fetch when `mode = "same-origin"`
@@ -884,9 +901,20 @@ fn parse_init_overrides(
 /// `new Response`'s behaviour) and guarded Immutable.  Body bytes
 /// land in the shared `body_data` map so `.text()` / `.json()`
 /// / `.arrayBuffer()` / `.blob()` work without further copies.
+///
+/// The [`CorsClassification`] argument selects the Response
+/// shape:
+/// - `Basic`: full headers, full body, status / url verbatim.
+/// - `Cors`: headers filtered to CORS-safelisted +
+///   `Access-Control-Expose-Headers` names; body / status / url
+///   passed through.
+/// - `Opaque` / `OpaqueRedirect` (`opaque_shape: true`): empty
+///   headers, body dropped, status forced to 0, url emptied.
+///   Spec-mandated to prevent leakage of cross-origin data.
 pub(super) fn create_response_from_net(
     vm: &mut VmInner,
     response: elidex_net::Response,
+    classification: super::cors::CorsClassification,
 ) -> ObjectId {
     let proto = vm.response_prototype;
     let inst_id = vm.alloc_object(Object {
@@ -923,6 +951,23 @@ pub(super) fn create_response_from_net(
     // to keep both `inst_id` and `headers_id` rooted across the
     // `strings.intern` / `body_data.insert` / `response_states
     // .insert` sequence below (R18.2).
+    // Apply the CORS classification to the response shape.  An
+    // opaque-shape response (Opaque / OpaqueRedirect) discards
+    // all headers, body, status, and URL so cross-origin data
+    // never leaks into JS.  A Cors-typed response filters
+    // headers down to CORS-safelisted +
+    // `Access-Control-Expose-Headers` names.  Basic / Default
+    // pass through verbatim.
+    let opaque_shape = classification.opaque_shape;
+    let response_type = classification.response_type;
+    let header_pairs: Vec<(String, String)> = if opaque_shape {
+        Vec::new()
+    } else if matches!(response_type, ResponseType::Cors) {
+        super::cors::filter_headers_for_cors_response(response.headers)
+    } else {
+        response.headers
+    };
+
     let headers_id = g.create_headers(HeadersGuard::None);
     let mut g2 = g.push_temp_root(JsValue::Object(headers_id));
     {
@@ -935,7 +980,7 @@ pub(super) fn create_response_from_net(
         // (broker-side bug, not user input) are silently
         // skipped — defensive, preserves the invariant even if
         // the network layer later relaxes its own filters.
-        for (name, value) in response.headers {
+        for (name, value) in header_pairs {
             let name_sid = g2.strings.intern(&name);
             let value_sid = g2.strings.intern(&value);
             if let Ok((nn, nv)) =
@@ -953,29 +998,38 @@ pub(super) fn create_response_from_net(
 
     // Body bytes.  Skip the map insert for zero-byte responses
     // so `.body_data.contains_key(id)` keeps meaning "this
-    // response actually carries bytes".
+    // response actually carries bytes".  Opaque-shape responses
+    // also skip the insert — body must be `null` (= absent).
     //
     // The HTTP response body is owned by `bytes::Bytes` (its own
     // ref-counted handle); we copy it into a fresh `Vec<u8>` for
     // installation in `body_data`, since that map's storage type
     // is owned `Vec<u8>` so subsequent TypedArray / DataView
     // writes can mutate it in place via `byte_io`.
-    if !response.body.is_empty() {
+    if !opaque_shape && !response.body.is_empty() {
         g2.body_data.insert(inst_id, response.body.to_vec());
     }
 
-    let url_sid = g2.strings.intern(response.url.as_str());
+    // Status / url rewrite for opaque-shape responses (WHATWG
+    // Fetch §3.1.4 / §3.1.6): status 0, url empty.  Basic /
+    // Cors pass through.
+    let final_status = if opaque_shape { 0 } else { response.status };
+    let url_sid = if opaque_shape {
+        g2.well_known.empty
+    } else {
+        g2.strings.intern(response.url.as_str())
+    };
     let status_text_sid = g2.well_known.empty;
     let redirected = response.url_list.len() > 1;
 
     g2.response_states.insert(
         inst_id,
         ResponseState {
-            status: response.status,
+            status: final_status,
             status_text_sid,
             url_sid,
             headers_id,
-            response_type: ResponseType::Basic,
+            response_type,
             redirected,
         },
     );

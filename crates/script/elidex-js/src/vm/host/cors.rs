@@ -1,0 +1,472 @@
+//! WHATWG Fetch CORS (Cross-Origin Resource Sharing) classifier.
+//!
+//! Lives between the broker (which is mode-agnostic — it just
+//! delivers an HTTP exchange) and the JS-facing Response object
+//! (which surfaces a `.type` IDL attribute and gates header
+//! visibility by the chosen filter).
+//!
+//! ## Spec mapping
+//!
+//! WHATWG Fetch §3.1.4-§3.1.7 describe the four filtered-response
+//! kinds; this module supplies the per-fetch decision that selects
+//! one:
+//!
+//! - `Basic` — same-origin response.
+//! - `Cors` — cross-origin response that satisfied the CORS check
+//!   (`Access-Control-Allow-Origin` matched the request's origin
+//!   or was `*`).
+//! - `Opaque` — `mode: "no-cors"` cross-origin response (always
+//!   succeeds at the network level but body / headers / url
+//!   are stripped from JS).
+//! - `OpaqueRedirect` — `mode: "manual"` redirect response (a 3xx
+//!   surfaced as if it had no body and no headers).
+//! - Network error — `mode: "cors"` cross-origin response without
+//!   ACAO; the JS Promise rejects with `TypeError`.
+
+#![cfg(feature = "engine")]
+
+use url::Url;
+
+use super::request_response::{RedirectMode, RequestMode, ResponseType};
+
+/// Per-pending-fetch metadata captured at dispatch time so the
+/// `tick_network` settlement step can run the CORS classifier
+/// without re-deriving any of these values from the broker reply.
+/// Stored in [`super::super::VmInner::pending_fetch_cors`] keyed
+/// by `FetchId`; same drain lifecycle as
+/// [`super::super::VmInner::pending_fetches`].
+#[derive(Debug, Clone)]
+pub(crate) struct FetchCorsMeta {
+    /// Original request URL — used for the same-origin check and
+    /// for `response.url` rewriting under opaque shapes.
+    pub(crate) request_url: Url,
+    /// Document origin that initiated the fetch.  `None` for
+    /// embedder-driven loads with no JS-script-origin context;
+    /// the classifier short-circuits to `Basic` in that case.
+    pub(crate) request_origin: Option<Url>,
+    /// `init.mode` (or the source `Request`'s mode for the
+    /// Request-input path).
+    pub(crate) request_mode: RequestMode,
+    /// `init.redirect` — `Manual` triggers the OpaqueRedirect
+    /// classification when the response status is 3xx.
+    pub(crate) redirect_mode: RedirectMode,
+}
+
+/// Classification + filter outcome: which `ResponseType` the JS
+/// Response should expose, plus a flag signalling that the
+/// response should rewrite to opaque-shape (empty headers, body
+/// dropped, url empty, status 0).  The flag is `true` for both
+/// `Opaque` and `OpaqueRedirect`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CorsClassification {
+    pub(crate) response_type: ResponseType,
+    pub(crate) opaque_shape: bool,
+}
+
+/// Outcome of [`classify_response_type`]: either a successful
+/// classification, or a network error.  The latter rejects the
+/// Promise with `TypeError("Failed to fetch")`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CorsOutcome {
+    Ok(CorsClassification),
+    NetworkError,
+}
+
+/// Classify a broker response per WHATWG Fetch §3.2.5 / §4.4.
+///
+/// - Same-origin → `Basic`.
+/// - `mode = "no-cors"` cross-origin → `Opaque` (body / headers
+///   / url stripped).
+/// - `redirect = "manual"` returning a 3xx (regardless of
+///   origin) → `OpaqueRedirect`.
+/// - `mode = "cors"` cross-origin:
+///   - `Access-Control-Allow-Origin` matches request origin or is
+///     `*` → `Cors`.
+///   - else → `NetworkError`.
+/// - `mode = "navigate"` is internal and cannot be reached from
+///   JS-facing fetch (parser rejects it).
+///
+/// `request_origin` is the document / worker origin that
+/// initiated the fetch (the value populated by
+/// [`super::fetch::origin_for_request`]).  When `None`, every
+/// classification falls through to `Basic` because there's no
+/// origin context against which to compute "cross-origin"
+/// (matches embedder-driven loads — initial navigation, favicon
+/// prefetch — that don't have a JS-script-origin context).
+pub(crate) fn classify_response_type(
+    request_origin: Option<&Url>,
+    request_url: &Url,
+    request_mode: RequestMode,
+    redirect_mode: RedirectMode,
+    response_url: &Url,
+    response_status: u16,
+    response_headers: &[(String, String)],
+) -> CorsOutcome {
+    // `manual` redirect mode + 3xx response → OpaqueRedirect
+    // regardless of cross-origin status (spec §4.4 "main fetch"
+    // step 13.2).
+    if matches!(redirect_mode, RedirectMode::Manual) && (300..400).contains(&response_status) {
+        return CorsOutcome::Ok(CorsClassification {
+            response_type: ResponseType::OpaqueRedirect,
+            opaque_shape: true,
+        });
+    }
+
+    let Some(source) = request_origin else {
+        // No origin context — treat as Basic.  The cookie /
+        // referrer plumbing already handles this case (no
+        // attach), and there's no origin to compare against
+        // here.
+        return CorsOutcome::Ok(CorsClassification {
+            response_type: ResponseType::Basic,
+            opaque_shape: false,
+        });
+    };
+
+    let same_origin =
+        source.origin() == response_url.origin() && source.origin() == request_url.origin();
+    if same_origin {
+        return CorsOutcome::Ok(CorsClassification {
+            response_type: ResponseType::Basic,
+            opaque_shape: false,
+        });
+    }
+
+    match request_mode {
+        RequestMode::SameOrigin => {
+            // The earlier same-origin reject in `build_net_request`
+            // makes this branch unreachable for normal flows, but
+            // a redirect chain can land on a different origin
+            // mid-flight.  Fail closed.
+            CorsOutcome::NetworkError
+        }
+        RequestMode::NoCors => CorsOutcome::Ok(CorsClassification {
+            response_type: ResponseType::Opaque,
+            opaque_shape: true,
+        }),
+        RequestMode::Cors | RequestMode::Navigate => {
+            // WHATWG Fetch §3.2.5 "CORS check" — the response must
+            // carry an `Access-Control-Allow-Origin` whose value
+            // is `*` or matches the request's origin.
+            if cors_check_passes(source, response_headers) {
+                CorsOutcome::Ok(CorsClassification {
+                    response_type: ResponseType::Cors,
+                    opaque_shape: false,
+                })
+            } else {
+                CorsOutcome::NetworkError
+            }
+        }
+    }
+}
+
+fn cors_check_passes(source: &Url, response_headers: &[(String, String)]) -> bool {
+    let allowed = response_headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("access-control-allow-origin"))
+        .map(|(_, v)| v.trim());
+    match allowed {
+        None => false,
+        Some("*") => true,
+        Some(value) => {
+            let serialised = source.origin().ascii_serialization();
+            value.eq_ignore_ascii_case(&serialised)
+        }
+    }
+}
+
+/// Apply the CORS-mode header filter (WHATWG Fetch §3.1.5 +
+/// §3.2.6).  Cors-typed responses expose only the
+/// CORS-safelisted-response-header-names plus any names listed
+/// in `Access-Control-Expose-Headers` — every other entry is
+/// dropped before the headers are handed to the Response's
+/// companion `Headers` object.  Caller pre-collected
+/// `(lowercased-name, value)` pairs; this function returns a
+/// new vector with the filter applied.
+pub(crate) fn filter_headers_for_cors_response(
+    headers: Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    let exposed: std::collections::HashSet<String> = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("access-control-expose-headers"))
+        .flat_map(|(_, value)| value.split(','))
+        .map(|tok| tok.trim().to_ascii_lowercase())
+        .filter(|tok| !tok.is_empty())
+        .collect();
+    let wildcard_expose = exposed.contains("*");
+    headers
+        .into_iter()
+        .filter(|(name, _)| {
+            let lower = name.to_ascii_lowercase();
+            if is_cors_safelisted_response_header(&lower) {
+                return true;
+            }
+            if wildcard_expose {
+                // `Access-Control-Expose-Headers: *` exposes every
+                // header except `Authorization` (spec §3.2.6).
+                return lower != "authorization";
+            }
+            exposed.contains(&lower)
+        })
+        .collect()
+}
+
+/// WHATWG Fetch §3.2.6 — names always visible on a Cors / Basic
+/// filtered response.  Used by [`filter_headers_for_cors_response`]
+/// to retain the spec-mandated minimum set even when the server
+/// did not list them in `Access-Control-Expose-Headers`.
+fn is_cors_safelisted_response_header(name_lowercase: &str) -> bool {
+    matches!(
+        name_lowercase,
+        "cache-control"
+            | "content-language"
+            | "content-length"
+            | "content-type"
+            | "expires"
+            | "last-modified"
+            | "pragma"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(s: &str) -> Url {
+        Url::parse(s).expect("valid url")
+    }
+
+    #[test]
+    fn same_origin_classifies_as_basic() {
+        let source = url("http://example.com/page");
+        let target = url("http://example.com/api");
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &[],
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Basic,
+                opaque_shape: false
+            })
+        ));
+    }
+
+    #[test]
+    fn no_cors_cross_origin_is_opaque() {
+        let source = url("http://example.com/page");
+        let target = url("http://other.com/api");
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::NoCors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &[],
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Opaque,
+                opaque_shape: true
+            })
+        ));
+    }
+
+    #[test]
+    fn cors_cross_origin_with_acao_passes() {
+        let source = url("http://example.com/page");
+        let target = url("http://other.com/api");
+        let headers = vec![(
+            "Access-Control-Allow-Origin".to_string(),
+            "http://example.com".to_string(),
+        )];
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers,
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Cors,
+                opaque_shape: false
+            })
+        ));
+    }
+
+    #[test]
+    fn cors_cross_origin_wildcard_passes() {
+        let source = url("http://example.com/page");
+        let target = url("http://other.com/api");
+        let headers = vec![("access-control-allow-origin".to_string(), "*".to_string())];
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers,
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Cors,
+                opaque_shape: false
+            })
+        ));
+    }
+
+    #[test]
+    fn cors_cross_origin_without_acao_is_network_error() {
+        let source = url("http://example.com/page");
+        let target = url("http://other.com/api");
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &[],
+        );
+        assert!(matches!(out, CorsOutcome::NetworkError));
+    }
+
+    #[test]
+    fn cors_cross_origin_wrong_acao_is_network_error() {
+        let source = url("http://example.com/page");
+        let target = url("http://other.com/api");
+        let headers = vec![(
+            "Access-Control-Allow-Origin".to_string(),
+            "http://attacker.com".to_string(),
+        )];
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers,
+        );
+        assert!(matches!(out, CorsOutcome::NetworkError));
+    }
+
+    #[test]
+    fn manual_redirect_3xx_classifies_as_opaque_redirect() {
+        let source = url("http://example.com/page");
+        let target = url("http://example.com/api");
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Manual,
+            &target,
+            302,
+            &[],
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::OpaqueRedirect,
+                opaque_shape: true
+            })
+        ));
+    }
+
+    #[test]
+    fn manual_redirect_non_3xx_falls_through_to_normal_classification() {
+        let source = url("http://example.com/page");
+        let target = url("http://example.com/api");
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Manual,
+            &target,
+            200,
+            &[],
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Basic,
+                opaque_shape: false
+            })
+        ));
+    }
+
+    #[test]
+    fn no_origin_falls_through_to_basic() {
+        let target = url("http://example.com/api");
+        let out = classify_response_type(
+            None,
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &[],
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Basic,
+                opaque_shape: false
+            })
+        ));
+    }
+
+    #[test]
+    fn filter_drops_non_safelisted_when_no_expose_header() {
+        let headers = vec![
+            ("content-type".to_string(), "application/json".to_string()),
+            ("x-custom".to_string(), "secret".to_string()),
+        ];
+        let filtered = filter_headers_for_cors_response(headers);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].0, "content-type");
+    }
+
+    #[test]
+    fn filter_keeps_explicitly_exposed_headers() {
+        let headers = vec![
+            (
+                "Access-Control-Expose-Headers".to_string(),
+                "X-Custom, X-Another".to_string(),
+            ),
+            ("x-custom".to_string(), "ok".to_string()),
+            ("x-other".to_string(), "drop".to_string()),
+        ];
+        let filtered = filter_headers_for_cors_response(headers);
+        let names: Vec<_> = filtered.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"x-custom"));
+        assert!(!names.contains(&"x-other"));
+    }
+
+    #[test]
+    fn filter_wildcard_expose_keeps_all_except_authorization() {
+        let headers = vec![
+            ("Access-Control-Expose-Headers".to_string(), "*".to_string()),
+            ("x-custom".to_string(), "ok".to_string()),
+            ("authorization".to_string(), "Bearer t".to_string()),
+        ];
+        let filtered = filter_headers_for_cors_response(headers);
+        let names: Vec<_> = filtered.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"x-custom"));
+        assert!(!names.contains(&"authorization"));
+    }
+}

@@ -43,6 +43,8 @@ mod byte_io;
 pub(super) mod character_data_proto;
 pub(super) mod childnode;
 #[cfg(feature = "engine")]
+pub(crate) mod cors;
+#[cfg(feature = "engine")]
 pub(crate) mod data_view;
 pub(super) mod document;
 pub(super) mod document_type_proto;

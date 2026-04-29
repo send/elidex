@@ -27,7 +27,9 @@ use elidex_net::broker::{FetchId, NetworkToRenderer};
 use super::super::value::{JsValue, ObjectId, VmError};
 use super::super::VmInner;
 use super::blob::{reject_promise_sync, resolve_promise_sync};
+use super::cors::{classify_response_type, CorsOutcome};
 use super::fetch::create_response_from_net;
+use super::request_response::{RedirectMode, RequestMode};
 
 impl VmInner {
     /// Drain pending [`elidex_net::broker::NetworkToRenderer`] events
@@ -101,6 +103,9 @@ impl VmInner {
         if self.pending_fetches.is_empty() {
             return;
         }
+        // Drain CORS meta alongside `pending_fetches` so the
+        // entries don't outlive their owning Promises.
+        self.pending_fetch_cors.clear();
         // Snapshot the *current* handle (if any) for the cancel
         // wave below — we want each pending fetch's broker-side
         // work to halt promptly so the network thread doesn't
@@ -153,6 +158,11 @@ impl VmInner {
     /// redundant CancelFetch for an already-completed fetch.
     fn settle_fetch(&mut self, fetch_id: FetchId, result: Result<elidex_net::Response, String>) {
         let Some(promise) = self.pending_fetches.remove(&fetch_id) else {
+            // Late reply for a fetch already settled by abort —
+            // the meta entry was already drained alongside the
+            // Promise, but a defensive `remove` keeps the map
+            // sized when an out-of-order arrival occurs.
+            self.pending_fetch_cors.remove(&fetch_id);
             return;
         };
         // Prune the reverse index — drops a stale entry, harmless
@@ -165,6 +175,7 @@ impl VmInner {
                 }
             }
         }
+        let cors_meta = self.pending_fetch_cors.remove(&fetch_id);
         // GC root the Promise across the settlement work (R2.2):
         // `pending_fetches` was its only root for the
         // user-discarded case
@@ -181,8 +192,51 @@ impl VmInner {
         let mut g = self.push_temp_root(JsValue::Object(promise));
         match result {
             Ok(response) => {
-                let resp_id = create_response_from_net(&mut g, response);
-                resolve_promise_sync(&mut g, promise, JsValue::Object(resp_id));
+                // PR5-cors Stage 4: classify the response per
+                // request mode + redirect mode.  Returns either a
+                // `CorsClassification` (response_type + opaque-
+                // shape flag) or `NetworkError` (cors-mode failure
+                // → reject with TypeError).
+                let (request_mode, redirect_mode, request_origin, request_url) =
+                    cors_meta.as_ref().map_or(
+                        (
+                            RequestMode::Cors,
+                            RedirectMode::Follow,
+                            None,
+                            response.url.clone(),
+                        ),
+                        |m| {
+                            (
+                                m.request_mode,
+                                m.redirect_mode,
+                                m.request_origin.clone(),
+                                m.request_url.clone(),
+                            )
+                        },
+                    );
+                let outcome = classify_response_type(
+                    request_origin.as_ref(),
+                    &request_url,
+                    request_mode,
+                    redirect_mode,
+                    &response.url,
+                    response.status,
+                    &response.headers,
+                );
+                match outcome {
+                    CorsOutcome::Ok(classification) => {
+                        let resp_id = create_response_from_net(&mut g, response, classification);
+                        resolve_promise_sync(&mut g, promise, JsValue::Object(resp_id));
+                    }
+                    CorsOutcome::NetworkError => {
+                        let err = VmError::type_error(
+                            "Failed to fetch: CORS check failed (no matching Access-Control-Allow-Origin)"
+                                .to_string(),
+                        );
+                        let reason = g.vm_error_to_thrown(&err);
+                        reject_promise_sync(&mut g, promise, reason);
+                    }
+                }
             }
             Err(msg) => {
                 let err = VmError::type_error(format!("Failed to fetch: {msg}"));
