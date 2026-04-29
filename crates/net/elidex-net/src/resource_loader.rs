@@ -118,7 +118,8 @@ impl SchemeDispatcher {
         };
 
         let max_redirects = self.transport.config().max_redirects;
-        let response = redirect::follow_redirects(&self.transport, request, max_redirects).await?;
+        let (response, _credentials) =
+            redirect::follow_redirects(&self.transport, request, max_redirects).await?;
 
         // Store cookies from response
         self.cookie_jar

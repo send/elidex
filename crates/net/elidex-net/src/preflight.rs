@@ -94,7 +94,7 @@ pub fn requires_preflight(request: &Request) -> bool {
     request
         .headers
         .iter()
-        .any(|(name, value)| !is_cors_safelisted_request_header(name, value))
+        .any(|(name, value)| is_non_safelisted_author_header(name, value))
 }
 
 /// Same-origin check between `request.origin` and
@@ -117,6 +117,50 @@ fn is_cors_safelisted_method(method: &str) -> bool {
     matches!(method, "GET" | "HEAD" | "POST")
 }
 
+/// Header names that the broker / VM-side fetch path auto-injects
+/// (NOT author-controllable per WHATWG Fetch §4.6 forbidden-request-
+/// header list + the broker's Origin / Referer attachments in
+/// `crates/script/elidex-js/src/vm/host/fetch.rs::attach_default_origin`
+/// / `::attach_default_referer`).
+///
+/// These headers MUST be excluded from:
+/// - the §4.8.1 preflight detection (`requires_preflight`)
+/// - the `Access-Control-Request-Headers` enumeration
+///   (`collect_acrh_value`)
+/// - the `Access-Control-Allow-Headers` validation
+///   (`headers_must_be_allowed`)
+/// - the [`crate::preflight_cache::PreflightCacheKey`] header set
+///
+/// Otherwise a normal cross-origin `fetch()` would be classified
+/// as non-simple (because `request.headers` carries `Origin` /
+/// `Referer`), force a preflight, and require servers to list
+/// `origin` / `referer` in `Access-Control-Allow-Headers` —
+/// neither of which is spec-compliant.
+pub fn is_broker_injected_header(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        // §4.6 forbidden + broker auto-injected.
+        "origin"
+            | "referer"
+            | "host"
+            | "content-length"
+            | "connection"
+            | "transfer-encoding"
+            | "upgrade"
+            | "user-agent"
+            | "cookie"
+    )
+}
+
+/// "Author-specified non-safelisted-request-header" predicate: the
+/// header participates in §4.8 preflight decisions iff it is both
+/// (a) author-controlled (not [`is_broker_injected_header`]) AND
+/// (b) not [`is_cors_safelisted_request_header`].
+fn is_non_safelisted_author_header(name: &str, value: &str) -> bool {
+    !is_broker_injected_header(name) && !is_cors_safelisted_request_header(name, value)
+}
+
 /// CORS-safelisted-request-header check (WHATWG Fetch §4.6.5).
 ///
 /// A header is safelisted iff:
@@ -134,6 +178,14 @@ fn is_cors_safelisted_method(method: &str) -> bool {
 /// - `Accept` / `Accept-Language` / `Content-Language` values
 ///   must contain only the §4.6.5 byte set (subset of ASCII
 ///   excluding CORS-unsafe-request-header-byte).
+///
+/// **Note**: this function answers the per-header §4.6.5 question
+/// in isolation; callers that need the "is this header an
+/// author-specified non-safelisted header (so it counts toward
+/// preflight)" question should compose with [`is_broker_injected_header`]
+/// (e.g. `!is_broker_injected_header(name) && !is_cors_safelisted_request_header(name, value)`)
+/// to additionally filter out auto-injected headers like `Origin` /
+/// `Referer`.
 pub fn is_cors_safelisted_request_header(name: &str, value: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     if lower == "authorization" {
@@ -270,7 +322,7 @@ pub fn build_preflight_request(orig: &Request) -> Request {
 fn collect_acrh_value(headers: &[(String, String)]) -> String {
     let mut names: Vec<String> = headers
         .iter()
-        .filter(|(name, value)| !is_cors_safelisted_request_header(name, value))
+        .filter(|(name, value)| is_non_safelisted_author_header(name, value))
         .map(|(name, _)| name.to_ascii_lowercase())
         .collect();
     names.sort();
@@ -326,9 +378,13 @@ pub fn validate_preflight_response(
         }
     }
 
-    // ACAC check
+    // ACAC check (case-insensitive ASCII comparison per WHATWG
+    // Fetch §4.8 step 14 + parity with `sse/connect.rs::EventSource`
+    // header parsing — Copilot R1).
     let allow_credentials_raw = header_value(&resp.headers, "access-control-allow-credentials");
-    let allow_credentials = allow_credentials_raw.as_deref() == Some("true");
+    let allow_credentials = allow_credentials_raw
+        .as_deref()
+        .is_some_and(|v| v.eq_ignore_ascii_case("true"));
     if credentialed && !allow_credentials {
         return Err(NetError::new(
             NetErrorKind::CorsBlocked,
@@ -481,7 +537,13 @@ fn headers_must_be_allowed(
         return Ok(());
     };
     for (name, value) in actual_headers {
-        if is_cors_safelisted_request_header(name, value) {
+        // Skip safelisted headers (always allowed, §4.8 step 18)
+        // AND broker-injected ones (`Origin` / `Referer` etc. —
+        // not author-specified, so they don't participate in the
+        // ACAH allow-list check).  Otherwise compliant servers
+        // that don't echo `origin` / `referer` in ACAH would be
+        // rejected.
+        if !is_non_safelisted_author_header(name, value) {
             continue;
         }
         let lower = name.to_ascii_lowercase();
@@ -658,6 +720,68 @@ mod tests {
         assert!(requires_preflight(&r));
     }
 
+    /// Regression for Copilot R1 finding 1 + 4: broker-injected
+    /// `Origin` / `Referer` (auto-injected by `attach_default_origin`
+    /// / `attach_default_referer` on the VM-side fetch path) must
+    /// NOT count toward the §4.8.1 preflight detection — they are
+    /// not author-controllable headers.  Without the filter, a
+    /// normal cross-origin `fetch()` would force a preflight just
+    /// because the broker put `Origin` into `request.headers`.
+    #[test]
+    fn requires_preflight_skips_broker_injected_origin() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Origin".into(), "https://example.com".into())],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_skips_broker_injected_referer() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![("Referer".into(), "https://example.com/page".into())],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    #[test]
+    fn requires_preflight_skips_broker_injected_origin_and_referer_combined() {
+        // Both auto-injected headers + safelisted Accept → still
+        // simple, no preflight.
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("Referer".into(), "https://example.com/page".into()),
+                ("Accept".into(), "text/plain".into()),
+            ],
+        );
+        assert!(!requires_preflight(&r));
+    }
+
+    /// Sentinel: an unsafe header alongside broker-injected ones
+    /// still triggers preflight.
+    #[test]
+    fn requires_preflight_unsafe_header_with_broker_injected_present() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("X-Custom".into(), "1".into()),
+            ],
+        );
+        assert!(requires_preflight(&r));
+    }
+
     #[test]
     fn safelisted_range_simple() {
         assert!(is_cors_safelisted_request_header("Range", "bytes=0-100"));
@@ -740,6 +864,27 @@ mod tests {
             vec![
                 ("Accept".into(), "text/plain".into()),
                 ("Content-Type".into(), "text/plain".into()),
+                ("X-Custom".into(), "1".into()),
+            ],
+        );
+        let p = build_preflight_request(&r);
+        let acrh = header_value(&p.headers, "access-control-request-headers").unwrap();
+        assert_eq!(acrh, "x-custom");
+    }
+
+    /// Regression for Copilot R1 finding 1: ACRH must omit
+    /// broker-injected headers like `Origin` / `Referer`,
+    /// otherwise compliant servers that don't list those names in
+    /// `Access-Control-Allow-Headers` would reject the preflight.
+    #[test]
+    fn build_preflight_acrh_omits_broker_injected_origin_and_referer() {
+        let r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("Referer".into(), "https://example.com/page".into()),
                 ("X-Custom".into(), "1".into()),
             ],
         );
@@ -950,6 +1095,101 @@ mod tests {
             ],
         );
         assert!(validate_preflight_response(&r, &response).is_ok());
+    }
+
+    /// Regression for Copilot R1 finding 2: ACAH validation must
+    /// skip broker-injected headers (`Origin` / `Referer` etc.)
+    /// — compliant servers don't echo those names in ACAH and we
+    /// must not reject them.
+    #[test]
+    fn validate_response_skips_broker_injected_in_acah_check() {
+        let r = req_with(
+            "GET",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("Referer".into(), "https://example.com/page".into()),
+                ("X-Custom".into(), "1".into()),
+            ],
+        );
+        // Server lists only "x-custom" — Origin/Referer must
+        // not cause rejection.
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Headers", "x-custom"),
+            ],
+        );
+        assert!(validate_preflight_response(&r, &response).is_ok());
+    }
+
+    /// Regression for Copilot R1 finding 3: ACAC parsing must be
+    /// ASCII case-insensitive — `True` / `TRUE` / `true` all
+    /// satisfy the credentialed check.
+    #[test]
+    fn validate_response_acac_case_insensitive_true_uppercase() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Credentials", "TRUE"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let allowance = validate_preflight_response(&r, &response).unwrap();
+        assert!(allowance.allow_credentials);
+    }
+
+    #[test]
+    fn validate_response_acac_case_insensitive_true_mixed() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Credentials", "True"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        assert!(validate_preflight_response(&r, &response).is_ok());
+    }
+
+    /// Sentinel: non-"true" values still fail (e.g. "false",
+    /// "yes") for credentialed requests.
+    #[test]
+    fn validate_response_acac_non_true_rejects_credentialed() {
+        let mut r = req_with(
+            "PUT",
+            "https://api.other.com/",
+            "https://example.com/",
+            vec![],
+        );
+        r.credentials = CredentialsMode::Include;
+        let response = resp(
+            204,
+            vec![
+                ("Access-Control-Allow-Origin", "https://example.com"),
+                ("Access-Control-Allow-Credentials", "yes"),
+                ("Access-Control-Allow-Methods", "PUT"),
+            ],
+        );
+        let err = validate_preflight_response(&r, &response).unwrap_err();
+        assert_eq!(err.kind, NetErrorKind::CorsBlocked);
     }
 
     #[test]

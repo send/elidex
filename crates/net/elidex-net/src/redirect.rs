@@ -40,7 +40,7 @@ pub async fn follow_redirects(
     transport: &HttpTransport,
     mut request: Request,
     max_redirects: u32,
-) -> Result<Response, NetError> {
+) -> Result<(Response, CredentialsMode), NetError> {
     let skip_ssrf = transport.config().allow_private_ips;
     let mut redirects = 0u32;
     let redirect_mode = request.redirect;
@@ -49,7 +49,7 @@ pub async fn follow_redirects(
         let response = transport.send(&request).await?;
 
         if !is_redirect(response.status) {
-            return Ok(response);
+            return Ok((response, request.credentials));
         }
         // Honour the request's redirect mode (WHATWG Fetch §5.3).
         // `Manual` returns the 3xx as-is for opaque-redirect
@@ -57,7 +57,7 @@ pub async fn follow_redirects(
         // path surfaces a `TypeError("Failed to fetch")`.
         match redirect_mode {
             RedirectMode::Follow => {}
-            RedirectMode::Manual => return Ok(response),
+            RedirectMode::Manual => return Ok((response, request.credentials)),
             RedirectMode::Error => {
                 return Err(NetError::new(
                     NetErrorKind::BadRedirect,
@@ -299,7 +299,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
         assert_eq!(response.status, 200);
     }
 
@@ -409,7 +409,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
         assert_eq!(response.status, 200);
         assert_eq!(response.body.as_ref(), b"ok");
     }
@@ -533,7 +533,7 @@ mod tests {
             redirect: RedirectMode::Manual,
             ..Default::default()
         };
-        let response = follow_redirects(&transport, request, 20).await.unwrap();
+        let (response, _) = follow_redirects(&transport, request, 20).await.unwrap();
         assert_eq!(response.status, 302);
     }
 }

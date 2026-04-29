@@ -13,7 +13,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crate::preflight::{is_cors_safelisted_request_header, PreflightAllowance};
+use crate::preflight::{
+    is_broker_injected_header, is_cors_safelisted_request_header, PreflightAllowance,
+};
 use crate::Request;
 
 /// Cache key for a preflight result (WHATWG Fetch §4.8 step 22).
@@ -43,12 +45,22 @@ impl PreflightCacheKey {
     /// Build a cache key from the actual request.  Returns
     /// `None` if the request has no origin (preflight only
     /// applies to requests with a document origin).
+    ///
+    /// The header set is built from non-safelisted **author**
+    /// header names only — broker-injected headers (`Origin` /
+    /// `Referer` etc. per [`is_broker_injected_header`]) are
+    /// excluded so the cache key matches the
+    /// `Access-Control-Request-Headers` shape.  Otherwise the key
+    /// would vary on auto-injected headers and force needless
+    /// cache misses (Copilot R1).
     pub fn from_request(request: &Request) -> Option<Self> {
         let origin = request.origin.as_ref()?.ascii_serialization();
         let header_set = request
             .headers
             .iter()
-            .filter(|(name, value)| !is_cors_safelisted_request_header(name, value))
+            .filter(|(name, value)| {
+                !is_broker_injected_header(name) && !is_cors_safelisted_request_header(name, value)
+            })
             .map(|(name, _)| name.to_ascii_lowercase())
             .collect();
         Some(Self {
@@ -262,6 +274,33 @@ mod tests {
         // Adding/removing a safelisted name does not change the
         // cache key — only non-safelisted names participate.
         assert_eq!(k1, k2);
+    }
+
+    /// Regression for Copilot R1 finding 4: cache key must not
+    /// vary on broker-injected headers (`Origin` / `Referer`),
+    /// otherwise the auto-injected values would force cache
+    /// misses on every cross-origin fetch.
+    #[test]
+    fn header_set_ignores_broker_injected_origin_and_referer() {
+        let r1 = req(
+            "POST",
+            "https://api.other.com/x",
+            "https://example.com/",
+            vec![("X-Custom".into(), "1".into())],
+        );
+        let r2 = req(
+            "POST",
+            "https://api.other.com/x",
+            "https://example.com/",
+            vec![
+                ("Origin".into(), "https://example.com".into()),
+                ("Referer".into(), "https://example.com/page".into()),
+                ("X-Custom".into(), "1".into()),
+            ],
+        );
+        let k1 = PreflightCacheKey::from_request(&r1).unwrap();
+        let k2 = PreflightCacheKey::from_request(&r2).unwrap();
+        assert_eq!(k1, k2, "broker-injected headers must not affect cache key");
     }
 
     #[test]

@@ -398,25 +398,27 @@ impl NetClient {
             }
         }
 
-        // Snapshot the credentials/origin pair before moving
-        // `request` into `follow_redirects`, so the post-
-        // redirect Set-Cookie storage decision can honour
-        // `SameOrigin` against the **final** response URL
-        // (Copilot R3): a request that started same-origin and
-        // got redirected cross-origin must NOT persist Set-
-        // Cookie from the cross-origin response under
-        // `SameOrigin` credentials.
-        let credentials_for_store = request.credentials;
+        // Snapshot the origin before moving `request` into
+        // `follow_redirects`, so the post-redirect Set-Cookie
+        // storage decision can honour `SameOrigin` against the
+        // **final** response URL (Copilot R3 PR #133): a request
+        // that started same-origin and got redirected cross-origin
+        // must NOT persist Set-Cookie from the cross-origin
+        // response under `SameOrigin` credentials.
         let origin_for_store = request.origin.clone();
 
-        // Send with redirect following
+        // Send with redirect following.  `follow_redirects`
+        // returns the **post-redirect** credentials so any
+        // §4.4 step 14 cors-redirect downgrade (`Include` →
+        // `SameOrigin`) is honoured by the Set-Cookie storage
+        // gate below — Copilot R1 PR #134.
         let max_redirects = self.transport.config().max_redirects;
-        let mut response =
+        let (mut response, credentials_for_store) =
             redirect::follow_redirects(&self.transport, request, max_redirects).await?;
 
         // Store cookies from response — re-evaluate gating
         // against the **final** response URL because the
-        // redirect chain may have crossed origin (Copilot R3).
+        // redirect chain may have crossed origin (Copilot R3 PR #133).
         // For `SameOrigin`, we compare the snapshotted initiator
         // origin against `response.url.origin()`; for `Omit` /
         // `Include` the decision is URL-independent so the
@@ -937,6 +939,53 @@ mod preflight_integration_tests {
         assert!(recorded[0].starts_with("OPTIONS "));
         assert!(recorded[1].starts_with("GET "));
         assert!(recorded[2].starts_with("GET "));
+    }
+
+    /// Regression for Copilot R1 finding 6: a `mode = Cors` +
+    /// `credentials = Include` request that gets redirected
+    /// cross-origin must NOT persist Set-Cookie from the
+    /// cross-origin response (per WHATWG Fetch §4.4 step 14
+    /// credentials downgrade).  Pre-fix `NetClient::send`
+    /// snapshotted credentials BEFORE `follow_redirects` so the
+    /// downgrade had no effect on the storage gate; post-fix
+    /// `follow_redirects` returns the post-redirect credentials
+    /// so the gate honours the downgrade.
+    #[tokio::test]
+    async fn cors_redirect_with_include_downgrades_credentials_for_set_cookie_storage() {
+        // Server A: returns 302 → server B (cross-origin via
+        // different port).  Server B: returns 200 with Set-Cookie.
+        let (port_b, _rec_b) = spawn_scripted_server(vec![
+            b"HTTP/1.1 200 OK\r\nSet-Cookie: leak=cross_origin; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+        ]).await;
+        let location = format!("http://127.0.0.1:{port_b}/landing");
+        let response_a = format!(
+            "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        let response_a: &'static [u8] = Box::leak(response_a.into_bytes().into_boxed_slice());
+        let (port_a, _rec_a) = spawn_scripted_server(vec![response_a]).await;
+
+        let client = test_client();
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{port_a}/start")).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            origin: Some(url::Url::parse("http://example.com/").unwrap().origin()),
+            mode: RequestMode::Cors,
+            credentials: CredentialsMode::Include,
+            redirect: RedirectMode::Follow,
+        };
+        let response = client.send(request).await.unwrap();
+        assert_eq!(response.status, 200);
+        // Cookie jar must remain empty: the §4.4 step 14
+        // downgrade flipped credentials Include → SameOrigin
+        // mid-redirect, and the cross-origin response URL fails
+        // the SameOrigin storage gate (response.url.origin() !=
+        // request.origin).
+        assert!(
+            client.cookie_jar().is_empty(),
+            "cross-origin Set-Cookie must not leak under credentials-downgrade"
+        );
     }
 
     #[tokio::test]
