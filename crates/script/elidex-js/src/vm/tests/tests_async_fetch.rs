@@ -753,6 +753,36 @@ fn fetch_same_origin_mode_passes_same_origin_url() {
 }
 
 #[test]
+fn opaque_origin_initiator_emits_origin_null_header() {
+    // Copilot R4 regression: an opaque-origin script (data: /
+    // about:blank) doing a CORS-mode cross-origin fetch must
+    // send `Origin: null` so the server can satisfy the CORS
+    // check against the spec-mandated serialisation of opaque
+    // origins.  Pre-R4, `attach_default_origin` skipped any
+    // non-HTTP(S) source, so opaque-origin fetches went out
+    // without an Origin header and CORS gates that key on its
+    // presence would silently fail.
+    let (mut vm, handle) = vm_with_origin_and_mock(
+        "about:blank",
+        "http://example.com/api",
+        Ok(ok_response("http://example.com/api", "ok")),
+    );
+    vm.eval("fetch('http://example.com/api');").unwrap();
+    let logged = handle.drain_recorded_requests();
+    assert_eq!(logged.len(), 1);
+    let origin_header = logged[0]
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("origin"))
+        .map(|(_, v)| v.as_str());
+    assert_eq!(
+        origin_header,
+        Some("null"),
+        "opaque initiator must send `Origin: null` for cross-origin HTTP target"
+    );
+}
+
+#[test]
 fn fetch_threads_opaque_origin_for_about_blank_initiator() {
     // Copilot R3 fix: `about:blank` script-initiated fetches
     // produce an opaque origin (Origin::Opaque, ascii_serialization

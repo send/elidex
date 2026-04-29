@@ -18,8 +18,8 @@
 //! - `Opaque` — `mode: "no-cors"` cross-origin response (always
 //!   succeeds at the network level but body / headers / url
 //!   are stripped from JS).
-//! - `OpaqueRedirect` — `mode: "manual"` redirect response (a 3xx
-//!   surfaced as if it had no body and no headers).
+//! - `OpaqueRedirect` — `redirect: "manual"` redirect response
+//!   (a 3xx surfaced as if it had no body and no headers).
 //! - Network error — `mode: "cors"` cross-origin response without
 //!   ACAO; the JS Promise rejects with `TypeError`.
 
@@ -40,14 +40,20 @@ pub(crate) struct FetchCorsMeta {
     /// Original request URL — used for the same-origin check and
     /// for `response.url` rewriting under opaque shapes.
     pub(crate) request_url: Url,
-    /// Document origin that initiated the fetch.  `None` for
-    /// embedder-driven loads with no JS-script-origin context
-    /// or for opaque initiator origins; the classifier short-
-    /// circuits to `Basic` in that case.  Stored as
-    /// [`url::Origin`] so the classifier compares origin-to-
-    /// origin without a `.origin()` round-trip and so the
-    /// classifier never sees the initiator's path / query /
-    /// fragment (Copilot R1, PR #133).
+    /// Document origin that initiated the fetch.  Script-
+    /// initiated VM-side fetches **always** carry
+    /// `Some(source.origin())` — including opaque origins from
+    /// `data:` / `about:blank` initiators (which serialise as
+    /// `"null"` and never match a tuple origin, so they always
+    /// fall through to the cors path).  `None` is reserved for
+    /// **embedder-driven callers** that bypass the VM fetch
+    /// path entirely (initial navigation pipeline, favicon
+    /// prefetch); those paths don't construct `FetchCorsMeta`
+    /// in practice but the option preserves the contract.
+    /// Stored as [`url::Origin`] so the classifier compares
+    /// origin-to-origin without a `.origin()` round-trip and so
+    /// the classifier never sees the initiator's path / query /
+    /// fragment (Copilot R1 + R3 + R4, PR #133).
     pub(crate) request_origin: Option<url::Origin>,
     /// `init.mode` (or the source `Request`'s mode for the
     /// Request-input path).

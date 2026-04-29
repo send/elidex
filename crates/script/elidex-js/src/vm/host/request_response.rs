@@ -137,12 +137,13 @@ pub(crate) enum RequestCache {
 }
 
 /// `ResponseType` (WHATWG §5.5).  Surfaced via the `.type` IDL
-/// attribute.  `Basic` / `Default` / `Error` / `OpaqueRedirect`
-/// are constructible today from the broker fetch path and the
-/// `Response.error()` factory; `Cors` and `Opaque` arms are
-/// reserved for the CORS classifier landing in PR5-cors Stage 4.
+/// attribute.  All six variants (`Basic` / `Cors` / `Default` /
+/// `Error` / `Opaque` / `OpaqueRedirect`) are constructible
+/// today: `Basic` / `Cors` / `Opaque` / `OpaqueRedirect` from
+/// the fetch settlement path's CORS classifier
+/// ([`super::cors::classify_response_type`]); `Default` from
+/// `new Response(...)`; `Error` from `Response.error()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum ResponseType {
     Basic,
     Cors,

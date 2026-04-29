@@ -114,13 +114,16 @@ pub struct Request {
     /// Request body.
     pub body: Bytes,
     /// Document / worker-script origin that initiated the
-    /// request, when available.  `None` for embedder-driven
-    /// loads with no document context (initial navigation,
-    /// favicon prefetch, etc.) and for opaque initiator origins
-    /// (`about:blank`, `data:`, etc., where the initiator URL
-    /// has no tuple origin).  Used for cookie attach gating
-    /// when [`Request::credentials`] is
-    /// [`CredentialsMode::SameOrigin`].  Stored as
+    /// request.  `None` is reserved for **embedder-driven
+    /// loads** with no document context (initial navigation,
+    /// favicon prefetch, etc.) — these set the field via
+    /// `..Default::default()`.  Script-initiated requests from
+    /// the VM-side fetch path **always** populate this field,
+    /// including opaque initiator origins (`about:blank` /
+    /// `data:` scripts), which use [`url::Origin::Opaque`] and
+    /// serialise as `"null"` (Copilot R3 + R4 PR #133).  Used
+    /// for cookie attach gating when [`Request::credentials`]
+    /// is [`CredentialsMode::SameOrigin`].  Stored as
     /// [`url::Origin`] (rather than a full URL) so the broker
     /// never sees the initiator's path / query / fragment —
     /// the comparison surface matches the cookie-attach

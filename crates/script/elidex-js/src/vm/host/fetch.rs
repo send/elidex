@@ -565,7 +565,15 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
 /// policy enforcement point and lives with PR5-cors.  Non-fetch
 /// paths (navigation, WebSocket, EventSource) attach their own
 /// `Origin` upstream and never reach this helper, which returns
-/// early for any non-HTTP/S source or target.
+/// early for any non-HTTP/S target.
+///
+/// **Source scheme**: any scheme is allowed.  Opaque-origin
+/// initiators (`data:` / `about:blank` scripts) emit
+/// `Origin: null` (the WHATWG-mandated serialisation of an
+/// opaque origin per HTML §3.2.1.2) so a CORS-mode cross-origin
+/// fetch from such a script can satisfy a server that gates
+/// ACAO on the `Origin` header's presence (Copilot R4 finding).
+/// Tuple origins emit the standard `scheme://host[:port]` form.
 ///
 /// Same-origin requests do not attach `Origin` — the header is
 /// reserved for cross-origin disclosure per browser convention.
@@ -586,9 +594,6 @@ fn attach_default_origin(source: &Url, request: &mut elidex_net::Request) {
     {
         return;
     }
-    if !matches!(source.scheme(), "http" | "https") {
-        return;
-    }
     if !matches!(request.url.scheme(), "http" | "https") {
         return;
     }
@@ -596,11 +601,13 @@ fn attach_default_origin(source: &Url, request: &mut elidex_net::Request) {
     if source_origin == request.url.origin() {
         return;
     }
-    if source_origin.is_tuple() {
-        request
-            .headers
-            .push((ORIGIN.to_string(), source_origin.ascii_serialization()));
-    }
+    // Always emit Origin for cross-origin HTTP(S) targets.
+    // `ascii_serialization()` returns `"null"` for opaque
+    // origins (HTML §3.2.1.2) — that's the spec-mandated value
+    // for opaque-initiator CORS requests.
+    request
+        .headers
+        .push((ORIGIN.to_string(), source_origin.ascii_serialization()));
 }
 
 /// Attach the `Referer` header that WHATWG Fetch's default referrer
