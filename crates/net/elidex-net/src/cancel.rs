@@ -61,15 +61,22 @@ impl CancelHandle {
     }
 
     /// Trigger cancellation.  Idempotent: subsequent calls are
-    /// no-ops.  Any task currently parked on
+    /// true no-ops (no atomic store, no `notify_waiters` wake
+    /// fan-out).  Any task currently parked on
     /// [`CancelHandle::cancelled`] resolves; subsequent
     /// `cancelled()` futures resolve immediately on the
     /// `is_cancelled()` fast-path.
     pub fn cancel(&self) {
-        // `Release` ensures the store is visible to any
-        // subsequent `is_cancelled()` `Acquire` load.
-        self.0.cancelled.store(true, Ordering::Release);
-        self.0.notify.notify_waiters();
+        // Only the first `false → true` transition has side
+        // effects: matches the documented contract and avoids
+        // redundant wake-ups under repeated `cancel()` calls
+        // (Copilot R6).  `AcqRel` keeps the release semantics
+        // for the transition (visible to subsequent `Acquire`
+        // loads in `is_cancelled`) while atomically observing
+        // the previous state.
+        if !self.0.cancelled.swap(true, Ordering::AcqRel) {
+            self.0.notify.notify_waiters();
+        }
     }
 
     /// Synchronous probe.  Useful for opportunistic abort
