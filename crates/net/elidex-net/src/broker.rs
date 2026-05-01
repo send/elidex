@@ -664,7 +664,16 @@ impl Drop for FetchInflightGuard {
 /// fetch count.  Wrapped in `Arc<Mutex<...>>` because the broker
 /// thread inserts/cancels and worker threads remove on
 /// completion.
-type CancelMap = Arc<std::sync::Mutex<HashMap<FetchId, crate::CancelHandle>>>;
+///
+/// **Key shape**: `(client_id, FetchId)` — keying on `FetchId`
+/// alone would let one renderer cancel another renderer's
+/// in-flight fetch by guessing/observing its id (the broker's
+/// synthetic `Err("aborted")` reply would also be misrouted to
+/// the *cancelling* client while the original client's promise
+/// stays unresolved).  Pairing with `client_id` mirrors the
+/// `ws_handles` / `sse_handles` ownership convention (Copilot
+/// R1).
+type CancelMap = Arc<std::sync::Mutex<HashMap<(u64, FetchId), crate::CancelHandle>>>;
 
 /// Internal state of the Network Process.
 struct NetworkProcessState {
@@ -814,6 +823,19 @@ impl NetworkProcessState {
     /// reply (see `handle_fetch`) so the renderer sees exactly
     /// one reply per fetch.
     ///
+    /// **Owner check**: the cancel-token map is keyed by
+    /// `(cid, fetch_id)` so the underlying [`crate::CancelHandle`]
+    /// is only triggered when the requesting client owns the
+    /// fetch.  Without this check a malicious or buggy renderer
+    /// could cancel another renderer's in-flight fetch by
+    /// guessing/observing its `FetchId`, leaving the owner's
+    /// promise stuck waiting on a worker that has been aborted
+    /// (Copilot R1).  The synthetic `Err("aborted")` reply still
+    /// fires unconditionally to the *requesting* client so its
+    /// own `pending_fetches.remove(id)` resolves promptly even
+    /// for unknown ids — the renderer-side dedup table absorbs
+    /// the no-op when the id was never registered locally.
+    ///
     /// Cancel-then-completion ordering: if the worker has
     /// already finished and removed its own cancel-token entry,
     /// this `remove` returns `None` and the cancel-trigger
@@ -824,7 +846,7 @@ impl NetworkProcessState {
             .cancel_tokens
             .lock()
             .expect("cancel_tokens mutex poisoned")
-            .remove(&fetch_id)
+            .remove(&(cid, fetch_id))
         {
             token.cancel();
         }
@@ -867,7 +889,7 @@ impl NetworkProcessState {
         cancel_map
             .lock()
             .expect("cancel_tokens mutex poisoned")
-            .insert(fetch_id, cancel.clone());
+            .insert((cid, fetch_id), cancel.clone());
         std::thread::spawn(move || {
             // Drop guard ensures the counter is decremented even if the
             // fetch panics (prevents permanent counter leak → fetch starvation).
@@ -886,7 +908,7 @@ impl NetworkProcessState {
             cancel_map
                 .lock()
                 .expect("cancel_tokens mutex poisoned")
-                .remove(&fetch_id);
+                .remove(&(cid, fetch_id));
             // When the worker observes `Cancelled` it means the
             // `CancelFetch` handler has already pushed the
             // synthesised `Err("aborted")` reply to the renderer
@@ -1016,6 +1038,18 @@ mod tests {
         NetClient::with_config(NetClientConfig {
             transport: TransportConfig {
                 allow_private_ips: true,
+                // Lift per-origin and global connection caps well
+                // above `MAX_CONCURRENT_FETCHES` so cancel-spam
+                // regression tests can keep ≥`MAX_CONCURRENT_FETCHES`
+                // workers genuinely stalled on transport IO.  With
+                // the production defaults (`6` per-origin, `256`
+                // total) most workers in those tests would fail
+                // fast on the per-origin cap inside
+                // `pool::create_connection` — that's a different
+                // error path than the cancel-vs-stall race those
+                // tests are meant to exercise (Copilot R1).
+                max_connections_per_origin: 256,
+                max_total_connections: 1024,
                 ..Default::default()
             },
             ..Default::default()
@@ -1503,5 +1537,90 @@ mod tests {
         assert!(err.contains("aborted"));
 
         np.shutdown();
+    }
+
+    /// Cross-client cancel isolation (Copilot R1, broker.rs):
+    /// renderer A cannot cancel renderer B's in-flight fetch by
+    /// sending `CancelFetch` with B's `FetchId`.  Pre-fix the
+    /// `cancel_tokens` map was keyed only by `FetchId` so A's
+    /// cancel triggered B's [`crate::CancelHandle`] — the worker
+    /// suppressed its own reply on observing
+    /// `NetErrorKind::Cancelled` and the synthetic `Err("aborted")`
+    /// reply was misrouted to A, leaving B's promise permanently
+    /// pending.  Post-fix the map is keyed by `(cid, FetchId)`,
+    /// so A's cancel is a no-op against B's fetch and B receives
+    /// the worker's real reply on completion.
+    #[test]
+    fn cancel_fetch_from_non_owner_is_isolated() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_addr = listener.local_addr().unwrap();
+        let server_thread = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            // Brief delay so the cross-client cancel races
+            // against an actually-in-flight request, not one that
+            // already completed.
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            std::thread::sleep(Duration::from_millis(80));
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
+            );
+        });
+
+        let np = spawn_network_process(test_client());
+        let owner = np.create_renderer_handle();
+        let attacker = np.create_renderer_handle();
+
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", server_addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        };
+        let owner_id = owner.fetch_async(request);
+        // Yield so the worker enters transport.send before the
+        // cross-client cancel arrives.
+        std::thread::sleep(Duration::from_millis(20));
+
+        // Attacker tries to cancel owner's FetchId.  Broker
+        // accepts the message but the (attacker, fetch_id) lookup
+        // misses, so the underlying CancelHandle is NOT triggered.
+        // The synthetic aborted reply goes back to the attacker
+        // and is silently dropped (attacker has no matching
+        // pending entry).
+        assert!(attacker.cancel_fetch(owner_id));
+
+        // Owner must observe a successful reply — the worker
+        // wasn't actually cancelled.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut owner_result = None;
+        while std::time::Instant::now() < deadline && owner_result.is_none() {
+            for ev in owner.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                    if rid == owner_id {
+                        owner_result = Some(result);
+                    }
+                }
+            }
+            if owner_result.is_none() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        let resp = owner_result
+            .expect("owner did not receive any reply — cross-client cancel hit owner's fetch")
+            .expect("owner saw aborted error — cross-client cancel triggered owner's CancelHandle");
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body.as_ref(), b"hello");
+
+        // Attacker may have observed the synthetic aborted reply
+        // (harmless — its pending_fetches table never had this
+        // id), but the *owner* must not have seen one in addition
+        // to the success.
+        np.shutdown();
+        server_thread.join().unwrap();
     }
 }
