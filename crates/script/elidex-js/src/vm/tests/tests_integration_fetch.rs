@@ -43,6 +43,8 @@ fn json_response(url: &str, body: &'static str) -> NetResponse {
         url: parsed.clone(),
         version: HttpVersion::H1,
         url_list: vec![parsed],
+        is_redirect_tainted: false,
+        credentialed_network: false,
     }
 }
 
@@ -367,6 +369,8 @@ fn fetch_response_headers_go_through_normalisation() {
         url: parsed.clone(),
         version: HttpVersion::H1,
         url_list: vec![parsed],
+        is_redirect_tainted: false,
+        credentialed_network: false,
     };
     let mut vm = mock_vm(vec![(url, Ok(response))]);
     vm.eval(

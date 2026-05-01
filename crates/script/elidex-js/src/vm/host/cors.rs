@@ -27,7 +27,7 @@
 
 use url::Url;
 
-use super::request_response::{RedirectMode, RequestCredentials, RequestMode, ResponseType};
+use super::request_response::{RedirectMode, RequestMode, ResponseType};
 
 /// Per-pending-fetch metadata captured at dispatch time so the
 /// `tick_network` settlement step can run the CORS classifier
@@ -58,12 +58,6 @@ pub(crate) struct FetchCorsMeta {
     /// `init.mode` (or the source `Request`'s mode for the
     /// Request-input path).
     pub(crate) request_mode: RequestMode,
-    /// `init.credentials` — gates the strict ACAO/ACAC checks
-    /// in [`cors_check_passes`].  Cross-origin requests with
-    /// `Include` credentials reject `Access-Control-Allow-
-    /// Origin: *` and require `Access-Control-Allow-Credentials:
-    /// true` per WHATWG Fetch §3.2.5 (Copilot R3 finding 5).
-    pub(crate) request_credentials: RequestCredentials,
     /// `init.redirect` — `Manual` triggers the OpaqueRedirect
     /// classification when the response status is 3xx.
     pub(crate) redirect_mode: RedirectMode,
@@ -91,19 +85,18 @@ pub(crate) enum CorsOutcome {
 
 /// Classify a broker response per WHATWG Fetch §3.2.5 / §4.4.
 ///
-/// - **Same-origin → `Basic`** (only when **both** the original
-///   request URL **and** the final response URL match the
-///   initiator origin).  WHATWG Fetch's actual algorithm tracks
-///   a *tainted-origin flag* across redirects so a chain that
-///   crossed origin can still get Basic when the final URL is
-///   same-origin; we don't propagate that flag through the
-///   broker yet, so the defensive `&&` here fails closed: a
-///   chain where any URL crossed origin runs the cors path
-///   (which would NetworkError unless the same-origin server
-///   explicitly opts in via ACAO — typically not the case).
-///   Tracking the tainted-origin flag belongs with PR5-cors-
-///   preflight broker-state work (Copilot R3 finding 4
-///   acknowledged; defensive logic kept).
+/// - **Same-origin → `Basic`** when the final response URL
+///   matches the initiator origin AND the broker's
+///   *redirect-tainted origin flag* is unset (`response.is_redirect_tainted == false`).
+///   The spec tracks the flag across redirect hops in §4.4 step
+///   14.3: any chain that crossed origin even once stays
+///   tainted forever, so a chain that briefly hopped to a
+///   different origin and landed back same-origin must still
+///   run the cors path (and is therefore subject to ACAO).
+///   Without the flag we'd silently expose cross-origin
+///   responses through a redirect-loop attack; with it the
+///   classifier matches the WHATWG algorithm (PR-cors-redirect-
+///   preflight).
 /// - `mode = "no-cors"` cross-origin → `Opaque` (body / headers
 ///   / url stripped).
 /// - `redirect = "manual"` returning a 3xx (regardless of
@@ -133,6 +126,21 @@ pub(crate) enum CorsOutcome {
 /// script-origin context against which to compute "cross-
 /// origin" so the classifier falls through to `Basic`.
 ///
+/// `is_redirect_tainted` is the broker's accumulated tainted
+/// flag — see [`elidex_net::Response::is_redirect_tainted`].
+///
+/// `credentialed_network` is the broker's authoritative answer to
+/// "did the **final-hop** request carry credentials?" — see
+/// [`elidex_net::Response::credentialed_network`].  Drives the
+/// §3.2.5 strict-credentialed CORS rules (`ACAO: *` rejected,
+/// `ACAC: true` required) so that an `Include`-mode fetch that
+/// was downgraded to `SameOrigin` on a cross-origin redirect
+/// does not mis-apply those rules even though the actual
+/// redirected request was sent without credentials (Copilot R2
+/// PR-cors-redirect-preflight).  Replaces the previous
+/// dispatch-time `request_credentials == Include` derivation
+/// which ignored the §4.4 step 14.5 redirect downgrade.
+///
 /// Copilot R3 (finding 3): before this PR, `origin_for_request`
 /// returned `None` for non-HTTP(S) initiators (`data:` /
 /// `about:blank`), which made the classifier short-circuit to
@@ -144,11 +152,12 @@ pub(crate) fn classify_response_type(
     request_origin: Option<&url::Origin>,
     request_url: &Url,
     request_mode: RequestMode,
-    request_credentials: RequestCredentials,
     redirect_mode: RedirectMode,
     response_url: &Url,
     response_status: u16,
     response_headers: &[(String, String)],
+    is_redirect_tainted: bool,
+    credentialed_network: bool,
 ) -> CorsOutcome {
     // `manual` redirect mode + 3xx response → OpaqueRedirect
     // regardless of cross-origin status (spec §4.4 "main fetch"
@@ -171,7 +180,15 @@ pub(crate) fn classify_response_type(
         });
     };
 
-    let same_origin = *source == response_url.origin() && *source == request_url.origin();
+    // §4.4 step 14.3 — once the tainted-origin flag is set the
+    // chain has already crossed origin, so we can't fall through
+    // to `Basic` even if the final URL happens to match the
+    // initiator origin.  A `request_url == source` check is left
+    // in place as a sanity sentinel: a tainted=false chain whose
+    // request URL is itself cross-origin (no redirects, just a
+    // direct cross-origin fetch) must run the cors path.
+    let same_origin =
+        !is_redirect_tainted && *source == response_url.origin() && *source == request_url.origin();
     if same_origin {
         return CorsOutcome::Ok(CorsClassification {
             response_type: ResponseType::Basic,
@@ -197,14 +214,14 @@ pub(crate) fn classify_response_type(
             // is `*` or matches the request's origin, and for
             // credentialed cross-origin requests the additional
             // `Access-Control-Allow-Credentials: true` rule
-            // applies (`*` rejected).
-            //
-            // The credentialed-network condition fires only when
-            // `init.credentials = "include"` because `SameOrigin`
-            // strips Cookie at `should_attach_cookies` for
-            // cross-origin paths — so the network response was
-            // not credentialed, and the relaxed `*` rule applies.
-            let credentialed_network = matches!(request_credentials, RequestCredentials::Include);
+            // applies (`*` rejected).  The strict-credentialed
+            // path fires off the broker's `credentialed_network`
+            // (the authoritative post-redirect value) rather
+            // than the dispatch-time `init.credentials` so a
+            // cross-origin redirect that downgraded `Include` to
+            // `SameOrigin` is correctly classified as non-
+            // credentialed (Copilot R2 PR-cors-redirect-
+            // preflight).
             if cors_check_passes(source, response_headers, credentialed_network) {
                 CorsOutcome::Ok(CorsClassification {
                     response_type: ResponseType::Cors,
@@ -373,11 +390,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
             &[],
+            false,
+            false,
         );
         assert!(matches!(
             out,
@@ -396,11 +414,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::NoCors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
             &[],
+            false,
+            false,
         );
         assert!(matches!(
             out,
@@ -423,11 +442,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
             &headers,
+            false,
+            false,
         );
         assert!(matches!(
             out,
@@ -447,11 +467,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
             &headers,
+            false,
+            false,
         );
         assert!(matches!(
             out,
@@ -470,11 +491,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
             &[],
+            false,
+            false,
         );
         assert!(matches!(out, CorsOutcome::NetworkError));
     }
@@ -491,11 +513,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
             &headers,
+            false,
+            false,
         );
         assert!(matches!(out, CorsOutcome::NetworkError));
     }
@@ -508,11 +531,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Manual,
             &target,
             302,
             &[],
+            false,
+            false,
         );
         assert!(matches!(
             out,
@@ -531,11 +555,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Manual,
             &target,
             200,
             &[],
+            false,
+            false,
         );
         assert!(matches!(
             out,
@@ -553,11 +578,12 @@ mod tests {
             None,
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
             &[],
+            false,
+            false,
         );
         assert!(matches!(
             out,
@@ -649,11 +675,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::Include,
             RedirectMode::Follow,
             &target,
             200,
             &headers,
+            false,
+            true,
         );
         assert!(matches!(out, CorsOutcome::NetworkError));
     }
@@ -674,11 +701,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::Include,
             RedirectMode::Follow,
             &target,
             200,
             &headers_no_acac,
+            false,
+            true,
         );
         assert!(matches!(out, CorsOutcome::NetworkError));
 
@@ -697,11 +725,12 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::Include,
             RedirectMode::Follow,
             &target,
             200,
             &headers_with_acac,
+            false,
+            true,
         );
         assert!(matches!(
             out,
@@ -724,17 +753,151 @@ mod tests {
             Some(&source),
             &target,
             RequestMode::Cors,
-            RequestCredentials::SameOrigin,
             RedirectMode::Follow,
             &target,
             200,
             &headers,
+            false,
+            false,
         );
         assert!(matches!(
             out,
             CorsOutcome::Ok(CorsClassification {
                 response_type: ResponseType::Cors,
                 ..
+            })
+        ));
+    }
+
+    /// PR-cors-redirect-preflight regression: a chain that
+    /// crossed origin and landed back on the initiator origin
+    /// must run the cors path, not short-circuit to `Basic`.
+    /// Without the §4.4 step 14.3 tainted-origin flag, a
+    /// malicious cross-origin server that redirects back to the
+    /// initiator could otherwise expose its body / headers
+    /// through the `Basic` filter.
+    #[test]
+    fn tainted_chain_landing_same_origin_is_not_basic() {
+        let source = origin("http://example.com/page");
+        let same_origin_target = url("http://example.com/api");
+        // Both request URL and final response URL are same-origin
+        // with the initiator — without the tainted flag this
+        // would be `Basic`.  With tainted=true the chain crossed
+        // origin somewhere in the middle, so the classifier runs
+        // the cors path; with no ACAO header on the response the
+        // result is `NetworkError`.
+        let out = classify_response_type(
+            Some(&source),
+            &same_origin_target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &same_origin_target,
+            200,
+            &[],
+            true,
+            false,
+        );
+        assert!(matches!(out, CorsOutcome::NetworkError));
+    }
+
+    /// Sentinel: the same chain shape but tainted=false (a
+    /// genuinely same-origin request with no redirects, or a
+    /// same-origin → same-origin redirect chain) classifies as
+    /// `Basic` — confirming the new flag does not regress the
+    /// non-tainted same-origin path.
+    #[test]
+    fn non_tainted_same_origin_chain_classifies_as_basic() {
+        let source = origin("http://example.com/page");
+        let target = url("http://example.com/api");
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &[],
+            false,
+            false,
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Basic,
+                opaque_shape: false
+            })
+        ));
+    }
+
+    /// PR-cors-redirect-preflight Copilot R2: an `Include`-mode
+    /// fetch that crossed origin and got downgraded to
+    /// `SameOrigin` (broker-side) must NOT apply the strict-
+    /// credentialed CORS rules at the classifier (Copilot R2):
+    /// the actual final-hop request was sent without
+    /// credentials, so `ACAO: *` is permitted again and the
+    /// `ACAC: true` requirement is dropped.  Without the
+    /// `credentialed_network: false` from the broker, the
+    /// classifier would still reject the response.
+    #[test]
+    fn downgraded_include_chain_accepts_wildcard_acao() {
+        let source = origin("http://example.com/page");
+        let target = url("http://other.com/api");
+        let headers = vec![("access-control-allow-origin".to_string(), "*".to_string())];
+        // Even though `init.credentials = Include` would normally
+        // reject `ACAO: *`, the broker downgraded the chain so
+        // the network actually went out without credentials —
+        // `credentialed_network = false`.  Wildcard must pass.
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers,
+            true,
+            false,
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Cors,
+                opaque_shape: false
+            })
+        ));
+    }
+
+    /// PR-cors-redirect-preflight regression: a tainted chain
+    /// landing same-origin where the cross-origin hop *did*
+    /// emit ACAO matching the initiator still classifies as
+    /// `Cors` — the tainted flag forces the classifier into the
+    /// cors path but cors-check success is still permitted (so
+    /// servers that explicitly opt in via ACAO continue to
+    /// surface their response body).
+    #[test]
+    fn tainted_chain_with_acao_classifies_as_cors() {
+        let source = origin("http://example.com/page");
+        let target = url("http://example.com/api");
+        let headers = vec![(
+            "Access-Control-Allow-Origin".to_string(),
+            "http://example.com".to_string(),
+        )];
+        let out = classify_response_type(
+            Some(&source),
+            &target,
+            RequestMode::Cors,
+            RedirectMode::Follow,
+            &target,
+            200,
+            &headers,
+            true,
+            false,
+        );
+        assert!(matches!(
+            out,
+            CorsOutcome::Ok(CorsClassification {
+                response_type: ResponseType::Cors,
+                opaque_shape: false
             })
         ));
     }

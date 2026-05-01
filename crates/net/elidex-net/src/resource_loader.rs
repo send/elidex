@@ -117,9 +117,15 @@ impl SchemeDispatcher {
             ..Default::default()
         };
 
+        // Embedder-driven loads bypass the §4.8 preflight machinery
+        // (`mode = NoCors` is the default for `Request`), so a
+        // `None` cache is fine — `cors_redirect_handle` short-circuits
+        // for non-cors requests.  The cors-mode entry guard in
+        // `NetClient::send` is the only path that can ever reach
+        // `requires_preflight` in the redirect loop.
         let max_redirects = self.transport.config().max_redirects;
         let (response, _credentials) =
-            redirect::follow_redirects(&self.transport, request, max_redirects).await?;
+            redirect::follow_redirects(&self.transport, request, max_redirects, None).await?;
 
         // Store cookies from response
         self.cookie_jar

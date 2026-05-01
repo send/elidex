@@ -39,6 +39,8 @@ fn ok_response(url: &str, status: u16, body: &'static str) -> NetResponse {
         url: parsed.clone(),
         version: HttpVersion::H1,
         url_list: vec![parsed],
+        is_redirect_tainted: false,
+        credentialed_network: false,
     }
 }
 

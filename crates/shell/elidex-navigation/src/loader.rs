@@ -294,9 +294,11 @@ fn resolve_and_fetch(
             status: 200,
             headers: Vec::new(),
             body: parsed.body,
-            url: resolved,
+            url: resolved.clone(),
             version: elidex_net::HttpVersion::H1,
-            url_list: vec![],
+            url_list: vec![resolved],
+            is_redirect_tainted: false,
+            credentialed_network: false,
         });
     }
     let response = network_handle

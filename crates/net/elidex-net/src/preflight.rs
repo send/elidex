@@ -34,6 +34,8 @@
 use std::time::Duration;
 
 use crate::error::{NetError, NetErrorKind};
+use crate::preflight_cache::{PreflightCache, PreflightCacheKey};
+use crate::transport::HttpTransport;
 use crate::{CredentialsMode, RedirectMode, Request, RequestMode, Response};
 use bytes::Bytes;
 
@@ -454,6 +456,56 @@ pub fn validate_preflight_response(
         allow_credentials,
         max_age,
     })
+}
+
+/// Run the CORS preflight stage for `request` against `transport`,
+/// using `cache` to short-circuit the OPTIONS round-trip on a hit.
+/// Either:
+///
+/// - hits the cache (no network round-trip; just re-validate the
+///   actual request against the cached allowance), or
+/// - dispatches an OPTIONS preflight, validates the response, and
+///   stores the parsed allowance for subsequent same-key requests.
+///
+/// On any spec-required failure (preflight non-2xx, ACAO mismatch,
+/// method / header not allowed, ACAC mismatch for credentialed)
+/// returns [`NetErrorKind::CorsBlocked`].  On a successful return
+/// the caller is free to dispatch the actual request.
+///
+/// Shared by [`crate::NetClient::send`] (initial preflight) and
+/// the broker's redirect loop (re-issued preflight on a
+/// cross-origin redirect target — WHATWG Fetch §4.4 step 14).
+/// The free-function form lets both call sites share the cache +
+/// validation logic without coupling to `NetClient`.
+pub async fn run_preflight(
+    transport: &HttpTransport,
+    cache: &PreflightCache,
+    request: &Request,
+) -> Result<(), NetError> {
+    let Some(key) = PreflightCacheKey::from_request(request) else {
+        // `run_preflight` is only entered after `requires_preflight`
+        // returned true, which already requires `mode = Cors` plus
+        // a populated `request.origin`.  Reaching here without an
+        // origin means the cors-mode entry guard upstream let a
+        // misconfigured request through — fail closed rather than
+        // silently bypass §4.8 (Copilot R2 PR #134).
+        return Err(NetError::new(
+            NetErrorKind::CorsBlocked,
+            "preflight: cors-mode request reached preflight stage without origin context",
+        ));
+    };
+    if let Some(allowance) = cache.lookup(&key) {
+        return validate_actual_against_allowance(request, &allowance);
+    }
+    let preflight_req = build_preflight_request(request);
+    let preflight_resp = transport.send(&preflight_req).await?;
+    let allowance = validate_preflight_response(request, &preflight_resp)?;
+    // Re-validate the actual request before storing — the cache
+    // should never hold an entry that the actual request itself
+    // can't satisfy.
+    validate_actual_against_allowance(request, &allowance)?;
+    cache.store(key, allowance);
+    Ok(())
 }
 
 /// Re-validate the actual request against a cached
@@ -1112,6 +1164,7 @@ mod tests {
     }
 
     fn resp(status: u16, headers: Vec<(&str, &str)>) -> Response {
+        let url = url::Url::parse("https://api.other.com/").unwrap();
         Response {
             status,
             headers: headers
@@ -1119,9 +1172,11 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
             body: Bytes::new(),
-            url: url::Url::parse("https://api.other.com/").unwrap(),
+            url: url.clone(),
             version: crate::HttpVersion::H1,
-            url_list: Vec::new(),
+            url_list: vec![url],
+            is_redirect_tainted: false,
+            credentialed_network: false,
         }
     }
 
