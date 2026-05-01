@@ -103,13 +103,43 @@ impl HttpTransport {
     }
 
     /// Send a single HTTP request (no redirect following).
-    pub async fn send(&self, request: &Request) -> Result<Response, NetError> {
+    ///
+    /// `cancel`, when `Some`, lets the caller abort an in-flight
+    /// request before its hyper future resolves —
+    /// [`crate::CancelHandle::cancel`] drops the future via
+    /// `tokio::select!` and the [`crate::FetchHandle`] /
+    /// `MAX_CONCURRENT_FETCHES` inflight slot is released
+    /// immediately rather than waiting on the underlying network
+    /// IO to drain.  Pass `None` for paths that don't need
+    /// cancellation (preflight OPTIONS, embedder-driven loads).
+    pub async fn send(
+        &self,
+        request: &Request,
+        cancel: Option<&crate::CancelHandle>,
+    ) -> Result<Response, NetError> {
+        // Fast-path: caller already cancelled before we even
+        // entered the transport.  Skip the connection checkout
+        // entirely so cancel-spam workloads don't consume pool
+        // slots for guaranteed-to-abort fetches.
+        if let Some(c) = cancel {
+            if c.is_cancelled() {
+                return Err(NetError::new(
+                    NetErrorKind::Cancelled,
+                    "request cancelled before dispatch",
+                ));
+            }
+        }
         // Validate HTTP method
         validate_method(&request.method)?;
 
-        // Wrap the entire operation (checkout + send + body read) in request_timeout
+        // Wrap the entire operation (checkout + send + body read) in request_timeout.
+        // When `cancel` is provided, `tokio::select!` drops the
+        // hyper future the moment cancel fires — the connection
+        // pool's `SendGuard` then returns the half-used H1
+        // socket as "broken" (closed) so the next checkout can't
+        // accidentally read a stale response.
         let url = request.url.clone();
-        let result = tokio::time::timeout(self.config.request_timeout, async {
+        let send_future = async {
             let conn = self.pool.checkout(&request.url).await?;
 
             // Build hyper request
@@ -188,9 +218,37 @@ impl HttpTransport {
                 // §4.4 step 14.5 downgrade applied.
                 credentialed_network: request.credentials == crate::CredentialsMode::Include,
             })
-        })
-        .await
-        .map_err(|_| NetError::new(NetErrorKind::Timeout, format!("request to {url} timed out")))?;
+        };
+        // Compose: cancel future races against the request future,
+        // both wrapped in the request_timeout.  The
+        // `cancellation_future` branch is only present when the
+        // caller passed a `CancelHandle` — the no-cancel path
+        // resolves identically to pre-PR behaviour (single
+        // timeout-wrapped future).
+        let cancelled_err = || {
+            NetError::new(
+                NetErrorKind::Cancelled,
+                format!("request to {url} cancelled"),
+            )
+        };
+        let result = match cancel {
+            Some(c) => tokio::time::timeout(self.config.request_timeout, async {
+                tokio::select! {
+                    biased;
+                    () = c.cancelled() => Err(cancelled_err()),
+                    res = send_future => res,
+                }
+            })
+            .await
+            .map_err(|_| {
+                NetError::new(NetErrorKind::Timeout, format!("request to {url} timed out"))
+            })?,
+            None => tokio::time::timeout(self.config.request_timeout, send_future)
+                .await
+                .map_err(|_| {
+                    NetError::new(NetErrorKind::Timeout, format!("request to {url} timed out"))
+                })?,
+        };
 
         result
     }
@@ -388,7 +446,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = transport.send(&request).await.unwrap();
+        let response = transport.send(&request, None).await.unwrap();
         assert_eq!(response.status, 200);
         assert_eq!(response.body.as_ref(), b"hello");
         assert_eq!(response.version, HttpVersion::H1);
@@ -433,7 +491,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = transport.send(&request).await;
+        let result = transport.send(&request, None).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, NetErrorKind::SsrfBlocked);
     }

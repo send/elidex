@@ -658,6 +658,14 @@ impl Drop for FetchInflightGuard {
     }
 }
 
+/// Per-fetch cancellation token map.  Worker threads drop their
+/// entry on completion (regardless of outcome) so the map is
+/// bounded by `MAX_CONCURRENT_FETCHES` rather than the total
+/// fetch count.  Wrapped in `Arc<Mutex<...>>` because the broker
+/// thread inserts/cancels and worker threads remove on
+/// completion.
+type CancelMap = Arc<std::sync::Mutex<HashMap<FetchId, crate::CancelHandle>>>;
+
 /// Internal state of the Network Process.
 struct NetworkProcessState {
     /// Registered renderer clients: `client_id` → response sender.
@@ -668,6 +676,11 @@ struct NetworkProcessState {
     sse_handles: HashMap<(u64, u64), SseHandle>,
     /// Counter of in-flight fetch threads (for limiting concurrency).
     inflight_fetches: Arc<std::sync::atomic::AtomicUsize>,
+    /// In-flight fetch cancellation tokens, keyed by `FetchId`.
+    /// `Fetch` inserts before spawning the worker; the worker
+    /// removes on completion; `CancelFetch` looks up + triggers
+    /// + removes (so the worker's later remove is a no-op).
+    cancel_tokens: CancelMap,
 }
 
 impl NetworkProcessState {
@@ -677,6 +690,7 @@ impl NetworkProcessState {
             ws_handles: HashMap::new(),
             sse_handles: HashMap::new(),
             inflight_fetches: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            cancel_tokens: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -686,26 +700,7 @@ impl NetworkProcessState {
                 self.handle_fetch(cid, fetch_id, request, client);
             }
             RendererToNetwork::CancelFetch(fetch_id) => {
-                // Synthesise an immediate `Err("aborted")` reply so the
-                // renderer can settle its Promise without waiting for
-                // the in-flight fetch thread to finish.  The thread
-                // continues running until the underlying tokio call
-                // returns; its real response, when delivered, hits the
-                // renderer's pending-fetch table after `pending_fetches
-                // .remove(id)` has already returned `Some` for the
-                // abort, so the duplicate reply is silently dropped on
-                // the JS side.  This keeps the broker-side state model
-                // empty (no per-FetchId cancellation tracking) at the
-                // cost of letting the network IO complete in the
-                // background — matching what most browsers do
-                // observationally for `controller.abort()` on an
-                // in-flight HTTP request.
-                if let Some(tx) = self.clients.get(&cid) {
-                    let _ = tx.send(NetworkToRenderer::FetchResponse(
-                        fetch_id,
-                        Err("aborted".into()),
-                    ));
-                }
+                self.handle_cancel_fetch(cid, fetch_id);
             }
             RendererToNetwork::WebSocketOpen {
                 conn_id,
@@ -802,6 +797,45 @@ impl NetworkProcessState {
         }
     }
 
+    /// Trigger true cancellation for an in-flight fetch
+    /// (R7.1): pull the per-fetch [`crate::CancelHandle`] out of
+    /// the map and call `cancel()` so the worker thread's
+    /// `tokio::select!` aborts the in-flight hyper future
+    /// immediately.  The worker's `FetchInflightGuard` then
+    /// drops on exit, releasing the `MAX_CONCURRENT_FETCHES`
+    /// slot for subsequent fetches (no more saturation under
+    /// cancel-spam workloads).
+    ///
+    /// The synthesised `Err("aborted")` reply still fires here
+    /// so the renderer-side `pending_fetches.remove(id)`
+    /// settles the JS Promise without waiting for the worker
+    /// thread to finish its teardown.  The worker, on observing
+    /// `NetErrorKind::Cancelled`, suppresses its own duplicate
+    /// reply (see `handle_fetch`) so the renderer sees exactly
+    /// one reply per fetch.
+    ///
+    /// Cancel-then-completion ordering: if the worker has
+    /// already finished and removed its own cancel-token entry,
+    /// this `remove` returns `None` and the cancel-trigger
+    /// becomes a no-op (the JS Promise was already settled by
+    /// the real reply).
+    fn handle_cancel_fetch(&self, cid: u64, fetch_id: FetchId) {
+        if let Some(token) = self
+            .cancel_tokens
+            .lock()
+            .expect("cancel_tokens mutex poisoned")
+            .remove(&fetch_id)
+        {
+            token.cancel();
+        }
+        if let Some(tx) = self.clients.get(&cid) {
+            let _ = tx.send(NetworkToRenderer::FetchResponse(
+                fetch_id,
+                Err("aborted".into()),
+            ));
+        }
+    }
+
     fn handle_fetch(&self, cid: u64, fetch_id: FetchId, request: Request, client: &Arc<NetClient>) {
         // Note: SSRF validation for fetch is handled by NetClient::send() which
         // checks validate_url() internally (respecting allow_private_ips config).
@@ -823,6 +857,17 @@ impl NetworkProcessState {
             }
             return;
         }
+        // Register a cancel token for this fetch *before* spawning
+        // the worker.  A `CancelFetch` arriving between this insert
+        // and the worker's first await is observed via
+        // `transport.send`'s pre-await `is_cancelled()` fast-path
+        // (no wasted connection checkout).
+        let cancel = crate::CancelHandle::new();
+        let cancel_map = Arc::clone(&self.cancel_tokens);
+        cancel_map
+            .lock()
+            .expect("cancel_tokens mutex poisoned")
+            .insert(fetch_id, cancel.clone());
         std::thread::spawn(move || {
             // Drop guard ensures the counter is decremented even if the
             // fetch panics (prevents permanent counter leak → fetch starvation).
@@ -832,9 +877,28 @@ impl NetworkProcessState {
                 .enable_all()
                 .build()
                 .expect("failed to create fetch runtime");
-            let result = rt
-                .block_on(client.send(request))
-                .map_err(|e| format!("{e:#}"));
+            let outcome = rt.block_on(client.send_cancellable(request, Some(&cancel)));
+            // Drop the cancel-token entry on completion — bounds
+            // the map by `MAX_CONCURRENT_FETCHES` rather than the
+            // total fetch count.  A late `CancelFetch` after this
+            // point is a no-op (the JS Promise was already
+            // settled by the worker's reply).
+            cancel_map
+                .lock()
+                .expect("cancel_tokens mutex poisoned")
+                .remove(&fetch_id);
+            // When the worker observes `Cancelled` it means the
+            // `CancelFetch` handler has already pushed the
+            // synthesised `Err("aborted")` reply to the renderer
+            // — suppress this duplicate so the renderer sees
+            // exactly one reply per fetch with a stable error
+            // message.  Any other outcome (success, real error
+            // from non-cancel paths) is forwarded as before.
+            let result = match outcome {
+                Err(ref e) if e.kind == crate::NetErrorKind::Cancelled => return,
+                Ok(r) => Ok(r),
+                Err(e) => Err(format!("{e:#}")),
+            };
             if let Some(tx) = tx {
                 let _ = tx.send(NetworkToRenderer::FetchResponse(fetch_id, result));
             }
@@ -1200,6 +1264,215 @@ mod tests {
             }
             other => panic!("expected disconnected error, got {other:?}"),
         }
+    }
+
+    /// True request cancellation: a `cancel_fetch` against a
+    /// fetch dispatched to a server that never responds must
+    /// release the in-flight slot promptly, so the next fetch
+    /// is not blocked behind the stalled IO.
+    ///
+    /// Pre-PR-true-request-cancellation behaviour: the worker
+    /// kept its `MAX_CONCURRENT_FETCHES` inflight slot until the
+    /// underlying `request_timeout` (~30s) — a workload that
+    /// cancelled aggressively could starve subsequent fetches.
+    /// With the [`crate::CancelHandle`] wired through to
+    /// `transport.send`, the hyper future is dropped immediately
+    /// and the inflight counter decrements via the `FetchInflight
+    /// Guard` drop.
+    #[test]
+    fn cancel_fetch_releases_inflight_slot_promptly() {
+        // Bind a sync server that holds the connection open
+        // forever (never replies), so any un-cancelled fetch
+        // would wait for the request_timeout to fire.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let stall_addr = listener.local_addr().unwrap();
+        let _stall_listener = listener; // hold open
+
+        // Second listener: the post-cancel "did the slot free up"
+        // probe.  Replies promptly so a successful fetch confirms
+        // the inflight counter is below MAX after the cancel.
+        let probe_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let probe_addr = probe_listener.local_addr().unwrap();
+        let probe_thread = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let Ok((mut stream, _)) = probe_listener.accept() else {
+                return;
+            };
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        });
+
+        let np = spawn_network_process(test_client());
+        let renderer = np.create_renderer_handle();
+
+        // Fire 1 fetch at the stalling server, then cancel it.
+        let stall_request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", stall_addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        };
+        let stall_id = renderer.fetch_async(stall_request);
+        // Yield briefly so the worker has a chance to enter
+        // `transport.send` before the cancel arrives.
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(renderer.cancel_fetch(stall_id));
+
+        // Drain the synth aborted reply.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut saw_aborted = false;
+        while std::time::Instant::now() < deadline && !saw_aborted {
+            for ev in renderer.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, Err(msg)) = ev {
+                    if rid == stall_id && msg.contains("aborted") {
+                        saw_aborted = true;
+                    }
+                }
+            }
+            if !saw_aborted {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(saw_aborted, "synth aborted reply not delivered");
+
+        // Now fire a probe fetch.  If the cancel actually
+        // released the inflight slot, this should complete
+        // promptly (well under the 30s request_timeout that
+        // would gate a saturated counter).
+        let probe_request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", probe_addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        };
+        let probe_id = renderer.fetch_async(probe_request);
+        let probe_deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut probe_got = None;
+        while std::time::Instant::now() < probe_deadline && probe_got.is_none() {
+            for ev in renderer.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                    if rid == probe_id {
+                        probe_got = Some(result);
+                    }
+                }
+            }
+            if probe_got.is_none() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        let probe_resp = probe_got
+            .expect("probe fetch did not complete — inflight slot likely not released")
+            .unwrap();
+        assert_eq!(probe_resp.status, 200);
+        assert_eq!(probe_resp.body.as_ref(), b"ok");
+
+        np.shutdown();
+        probe_thread.join().unwrap();
+    }
+
+    /// Cancel-spam workload regression (R7.1): dispatch
+    /// many fetches at a stalling server and cancel each
+    /// immediately.  Without true cancellation, the inflight
+    /// counter would saturate at `MAX_CONCURRENT_FETCHES` and
+    /// later fetches would receive `"too many concurrent
+    /// fetches"`.  With the [`crate::CancelHandle`] each cancel
+    /// decrements the counter promptly.
+    ///
+    /// Sized at 100 (rather than the doc'd 1000) to keep the
+    /// test under a few seconds of wall-clock; the assertion is
+    /// the same — subsequent fetch must not be starved.
+    #[test]
+    fn cancel_spam_does_not_saturate_inflight_counter() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let stall_addr = listener.local_addr().unwrap();
+        let _stall_listener = listener;
+
+        let probe_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let probe_addr = probe_listener.local_addr().unwrap();
+        let probe_thread = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let Ok((mut stream, _)) = probe_listener.accept() else {
+                return;
+            };
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        });
+
+        let np = spawn_network_process(test_client());
+        let renderer = np.create_renderer_handle();
+
+        let mk_stall = || Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", stall_addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        };
+
+        let mut ids = Vec::new();
+        for _ in 0..100 {
+            let id = renderer.fetch_async(mk_stall());
+            ids.push(id);
+        }
+        // Brief pause so a meaningful fraction of workers reach
+        // the transport's await point before the cancels fire —
+        // exercises the actual abort path more realistically
+        // than a pure pre-dispatch cancel.
+        std::thread::sleep(Duration::from_millis(50));
+        for id in &ids {
+            assert!(renderer.cancel_fetch(*id));
+        }
+
+        // Drain replies until all 100 cancels are observed.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut seen = std::collections::HashSet::new();
+        while std::time::Instant::now() < deadline && seen.len() < ids.len() {
+            for ev in renderer.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, _) = ev {
+                    seen.insert(rid);
+                }
+            }
+            if seen.len() < ids.len() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert_eq!(seen.len(), ids.len(), "not all cancels acknowledged");
+
+        // Probe: fresh fetch must succeed (counter not pinned at MAX).
+        let probe_id = renderer.fetch_async(Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", probe_addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        });
+        let probe_deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut probe_got = None;
+        while std::time::Instant::now() < probe_deadline && probe_got.is_none() {
+            for ev in renderer.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                    if rid == probe_id {
+                        probe_got = Some(result);
+                    }
+                }
+            }
+            if probe_got.is_none() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        let probe_resp = probe_got
+            .expect("probe fetch starved — inflight counter saturated by cancel-spam")
+            .unwrap();
+        assert_eq!(probe_resp.status, 200);
+
+        np.shutdown();
+        probe_thread.join().unwrap();
     }
 
     #[test]

@@ -481,6 +481,7 @@ pub async fn run_preflight(
     transport: &HttpTransport,
     cache: &PreflightCache,
     request: &Request,
+    cancel: Option<&crate::CancelHandle>,
 ) -> Result<(), NetError> {
     let Some(key) = PreflightCacheKey::from_request(request) else {
         // `run_preflight` is only entered after `requires_preflight`
@@ -498,7 +499,7 @@ pub async fn run_preflight(
         return validate_actual_against_allowance(request, &allowance);
     }
     let preflight_req = build_preflight_request(request);
-    let preflight_resp = transport.send(&preflight_req).await?;
+    let preflight_resp = transport.send(&preflight_req, cancel).await?;
     let allowance = validate_preflight_response(request, &preflight_resp)?;
     // Re-validate the actual request before storing — the cache
     // should never hold an entry that the actual request itself

@@ -99,6 +99,11 @@ pub enum NetErrorKind {
     InvalidUrl,
     /// Invalid data: URL.
     InvalidDataUrl,
+    /// Request cancelled by [`crate::CancelHandle`] before the
+    /// transport future resolved.  Surfaced as `aborted` to the
+    /// JS side via the broker's `FetchResponse(id, Err(...))`
+    /// channel.
+    Cancelled,
     /// An unclassified network error.
     #[default]
     Other,
@@ -118,6 +123,7 @@ impl fmt::Display for NetErrorKind {
             Self::ResponseTooLarge => f.write_str("response too large"),
             Self::InvalidUrl => f.write_str("invalid URL"),
             Self::InvalidDataUrl => f.write_str("invalid data URL"),
+            Self::Cancelled => f.write_str("request cancelled"),
             Self::Other => f.write_str("network error"),
         }
     }
