@@ -869,10 +869,16 @@ impl NetworkProcessState {
     /// becomes a no-op (the JS Promise was already settled by
     /// the real reply).
     fn handle_cancel_fetch(&self, cid: u64, fetch_id: FetchId) {
+        // Tolerate poison: a worker panic while *holding* the
+        // cancel-token lock would poison this mutex; bringing
+        // down the broker thread on every subsequent
+        // `CancelFetch` would amplify a single worker bug into
+        // permanent fetch-cancel breakage.  Match
+        // `CancelMapEntryGuard`'s recovery strategy (Copilot R5).
         if let Some(token) = self
             .cancel_tokens
             .lock()
-            .expect("cancel_tokens mutex poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&(cid, fetch_id))
         {
             token.cancel();
@@ -913,9 +919,11 @@ impl NetworkProcessState {
         // (no wasted connection checkout).
         let cancel = crate::CancelHandle::new();
         let cancel_map = Arc::clone(&self.cancel_tokens);
+        // Tolerate poison on the broker thread (Copilot R5) —
+        // see the matching comment in `handle_cancel_fetch`.
         cancel_map
             .lock()
-            .expect("cancel_tokens mutex poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert((cid, fetch_id), cancel.clone());
         std::thread::spawn(move || {
             // Drop guards ensure the counter is decremented and

@@ -244,9 +244,18 @@ impl ConnectionPool {
     ///
     /// Speculatively increments `active_h1` before the async connect to
     /// prevent TOCTOU races where multiple tasks exceed `max_per_origin`.
+    ///
+    /// **Cancellation safety**: the speculative slot is wrapped in
+    /// a [`SpeculativeSlotGuard`] so a future-drop mid-`connect` /
+    /// mid-handshake (e.g. via [`crate::CancelHandle`] or the
+    /// transport-level `request_timeout`) still releases the slot
+    /// via the guard's `Drop`.  Without this, every cancellation
+    /// landing inside the connect/handshake window leaked one
+    /// per-origin slot permanently and eventually pinned the
+    /// origin at `max_per_origin` (Copilot R5).
     async fn create_connection(&self, key: &OriginKey) -> Result<PooledConnection, NetError> {
-        // Speculatively reserve a slot before the async gap
-        {
+        // Speculatively reserve a slot before the async gap.
+        let mut slot = {
             let mut pools = self
                 .pools
                 .lock()
@@ -264,39 +273,26 @@ impl ConnectionPool {
                     ),
                 ));
             }
-            // Reserve slot speculatively — decremented on failure or H2 upgrade
+            // Reserve slot speculatively — guarded by
+            // SpeculativeSlotGuard so error / cancel / panic
+            // paths all release without explicit calls below.
             pool.active_h1 += 1;
-        }
+            SpeculativeSlotGuard::new(self, key.clone())
+        };
 
-        let stream = match self
+        let stream = self
             .connector
             .connect(&key.host, key.port, key.use_tls())
-            .await
-        {
-            Ok(s) => s,
-            Err(e) => {
-                // Connection failed — release the speculative slot
-                self.release_speculative(key);
-                return Err(e);
-            }
-        };
+            .await?;
 
         let is_h2 = stream.is_h2();
         let io = TokioIo::new(StreamWrapper(stream));
 
         if is_h2 {
             // HTTP/2: create multiplexed connection
-            let (sender, conn) = match http2::handshake(TokioExecutor, io).await {
-                Ok(r) => r,
-                Err(e) => {
-                    self.release_speculative(key);
-                    return Err(NetError::with_source(
-                        NetErrorKind::Other,
-                        "HTTP/2 handshake failed",
-                        e,
-                    ));
-                }
-            };
+            let (sender, conn) = http2::handshake(TokioExecutor, io).await.map_err(|e| {
+                NetError::with_source(NetErrorKind::Other, "HTTP/2 handshake failed", e)
+            })?;
 
             // Drive connection in background
             tokio::spawn(async move {
@@ -305,7 +301,12 @@ impl ConnectionPool {
                 }
             });
 
-            // H2 doesn't use the H1 slot — release it and store H2 sender
+            // H2 doesn't use the H1 slot — release the
+            // speculative reservation and store H2 sender.  We
+            // disarm the guard *after* the manual decrement: the
+            // guard only releases when armed, and disarming
+            // post-decrement is the cheapest way to encode "the
+            // slot has been handed off / released exactly once".
             let mut pools = self
                 .pools
                 .lock()
@@ -313,21 +314,15 @@ impl ConnectionPool {
             let pool = pools.entry(key.clone()).or_insert_with(OriginPool::new);
             pool.active_h1 = pool.active_h1.saturating_sub(1);
             pool.h2_sender = Some(sender.clone());
+            drop(pools);
+            slot.disarm();
 
             Ok(PooledConnection::H2(sender))
         } else {
             // HTTP/1.1: slot already reserved speculatively
-            let (sender, conn) = match http1::handshake(io).await {
-                Ok(r) => r,
-                Err(e) => {
-                    self.release_speculative(key);
-                    return Err(NetError::with_source(
-                        NetErrorKind::Other,
-                        "HTTP/1.1 handshake failed",
-                        e,
-                    ));
-                }
-            };
+            let (sender, conn) = http1::handshake(io).await.map_err(|e| {
+                NetError::with_source(NetErrorKind::Other, "HTTP/1.1 handshake failed", e)
+            })?;
 
             // Drive connection in background
             tokio::spawn(async move {
@@ -336,17 +331,61 @@ impl ConnectionPool {
                 }
             });
 
+            // Success: hand the slot off to the caller's
+            // `PooledConnection` lifecycle (release_h1 /
+            // checkin) by disarming the guard.
+            slot.disarm();
             Ok(PooledConnection::H1(sender))
         }
     }
+}
 
-    /// Release a speculatively reserved `active_h1` slot.
-    fn release_speculative(&self, key: &OriginKey) {
+/// RAII guard for the speculative `active_h1` reservation made
+/// inside [`ConnectionPool::create_connection`].  When armed,
+/// `Drop` decrements the per-origin counter — covering early-
+/// returns from `?`, panics, *and* cancellation drops of the
+/// containing future (Copilot R5).
+///
+/// Successful paths call [`Self::disarm`] to hand the slot off
+/// to the caller's `PooledConnection` lifecycle (`release_h1` on
+/// guarded send-failure or `checkin` on success); after disarm
+/// the guard's `Drop` is a no-op.
+///
+/// Borrows the pool by reference: the guard's lifetime is bound
+/// to a single `create_connection` invocation, and `&self`
+/// survives for the entire async call (including cancel-drop of
+/// the future), so a borrow is sufficient and avoids forcing
+/// the pool to be `Arc`-wrapped.
+struct SpeculativeSlotGuard<'a> {
+    pool: &'a ConnectionPool,
+    key: Option<OriginKey>,
+}
+
+impl<'a> SpeculativeSlotGuard<'a> {
+    fn new(pool: &'a ConnectionPool, key: OriginKey) -> Self {
+        Self {
+            pool,
+            key: Some(key),
+        }
+    }
+
+    /// Mark the slot as handed off — `Drop` will not decrement.
+    fn disarm(&mut self) {
+        self.key = None;
+    }
+}
+
+impl Drop for SpeculativeSlotGuard<'_> {
+    fn drop(&mut self) {
+        let Some(key) = self.key.take() else {
+            return;
+        };
         let mut pools = self
+            .pool
             .pools
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(pool) = pools.get_mut(key) {
+        if let Some(pool) = pools.get_mut(&key) {
             pool.active_h1 = pool.active_h1.saturating_sub(1);
         }
     }
@@ -422,5 +461,90 @@ mod tests {
         pool.evict_stale();
         assert!(pool.idle_h1.is_empty());
         assert!(pool.h2_sender.is_none());
+    }
+
+    /// Helper: build a `ConnectionPool` instance suitable for
+    /// guard-only tests (no real connect required).  We need a
+    /// `Connector` to construct one — use a `tokio::net::TcpStream`
+    /// connector pointing at an unused port; the connector is never
+    /// actually invoked by these tests.
+    fn empty_pool_for_guard_tests() -> ConnectionPool {
+        ConnectionPool::with_global_limit(Connector::new(), 4, 16)
+    }
+
+    /// Regression for Copilot R5 (pool.rs SpeculativeSlotGuard):
+    /// the guard must release the speculatively reserved
+    /// `active_h1` slot when the containing future is dropped
+    /// (cancel/timeout) mid-connect/handshake.  Pre-fix, the
+    /// in-line `release_speculative` calls only ran on the `Err`
+    /// arm of the explicit `match`, so a future-drop during the
+    /// `connect()` or `handshake()` `await` left the slot
+    /// permanently bumped.
+    ///
+    /// We test the guard itself: simulate the speculative
+    /// reserve, drop the guard via panic + `catch_unwind`, then
+    /// verify the per-origin counter is back to zero.
+    #[test]
+    fn speculative_slot_guard_releases_on_drop() {
+        let pool = empty_pool_for_guard_tests();
+        let url = url::Url::parse("http://example.test/").unwrap();
+        let key = OriginKey::from_url(&url).unwrap();
+
+        // Manually mimic the create_connection setup: speculative
+        // increment under the lock, then construct the guard.
+        {
+            let mut pools = pool.pools.lock().unwrap();
+            pools
+                .entry(key.clone())
+                .or_insert_with(OriginPool::new)
+                .active_h1 += 1;
+        }
+        assert_eq!(
+            pool.pools.lock().unwrap().get(&key).unwrap().active_h1,
+            1,
+            "precondition: slot reserved"
+        );
+
+        // Drop the guard via a panic-inside-scope: covers the
+        // future-cancellation Drop path.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _slot = SpeculativeSlotGuard::new(&pool, key.clone());
+            panic!("simulated mid-connect cancellation");
+        }));
+        assert!(result.is_err(), "panic was caught");
+        assert_eq!(
+            pool.pools.lock().unwrap().get(&key).unwrap().active_h1,
+            0,
+            "SpeculativeSlotGuard leaked the speculative slot on Drop"
+        );
+    }
+
+    /// Sibling assertion: a disarmed guard is a no-op on Drop —
+    /// the success path hands ownership of the slot to the
+    /// caller's `PooledConnection` lifecycle and must not
+    /// double-release.
+    #[test]
+    fn speculative_slot_guard_disarmed_does_not_release() {
+        let pool = empty_pool_for_guard_tests();
+        let url = url::Url::parse("http://example.test/").unwrap();
+        let key = OriginKey::from_url(&url).unwrap();
+
+        {
+            let mut pools = pool.pools.lock().unwrap();
+            pools
+                .entry(key.clone())
+                .or_insert_with(OriginPool::new)
+                .active_h1 += 1;
+        }
+        {
+            let mut slot = SpeculativeSlotGuard::new(&pool, key.clone());
+            slot.disarm();
+            // Drop happens at end of block.
+        }
+        assert_eq!(
+            pool.pools.lock().unwrap().get(&key).unwrap().active_h1,
+            1,
+            "disarmed guard erroneously decremented the slot"
+        );
     }
 }
