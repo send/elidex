@@ -658,6 +658,29 @@ impl Drop for FetchInflightGuard {
     }
 }
 
+/// RAII guard that removes the worker's `(cid, fetch_id)` entry
+/// from [`CancelMap`] on drop — including unwind paths.  Without
+/// this, a panic anywhere in the worker (tokio runtime build,
+/// `block_on`, future internals, downstream `.expect`s) would
+/// leave the entry in the map; over time those orphan entries
+/// would grow the map beyond the documented `MAX_CONCURRENT_FETCHES`
+/// bound (Copilot R2).  Uses `unwrap_or_else(into_inner)` so a
+/// poisoned mutex during panic teardown still releases the
+/// entry rather than double-panicking.
+struct CancelMapEntryGuard {
+    map: CancelMap,
+    key: (u64, FetchId),
+}
+
+impl Drop for CancelMapEntryGuard {
+    fn drop(&mut self) {
+        self.map
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.key);
+    }
+}
+
 /// Per-fetch cancellation token map.  Worker threads drop their
 /// entry on completion (regardless of outcome) so the map is
 /// bounded by `MAX_CONCURRENT_FETCHES` rather than the total
@@ -891,24 +914,27 @@ impl NetworkProcessState {
             .expect("cancel_tokens mutex poisoned")
             .insert((cid, fetch_id), cancel.clone());
         std::thread::spawn(move || {
-            // Drop guard ensures the counter is decremented even if the
-            // fetch panics (prevents permanent counter leak → fetch starvation).
+            // Drop guards ensure the counter is decremented and
+            // the cancel-token entry is removed even on panic
+            // (prevents permanent counter leak → fetch starvation,
+            // and unbounded growth of the cancel_tokens map past
+            // its `MAX_CONCURRENT_FETCHES` bound).
             let _guard = FetchInflightGuard(inflight);
+            let _cancel_entry = CancelMapEntryGuard {
+                map: cancel_map,
+                key: (cid, fetch_id),
+            };
 
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .expect("failed to create fetch runtime");
             let outcome = rt.block_on(client.send_cancellable(request, Some(&cancel)));
-            // Drop the cancel-token entry on completion — bounds
-            // the map by `MAX_CONCURRENT_FETCHES` rather than the
-            // total fetch count.  A late `CancelFetch` after this
-            // point is a no-op (the JS Promise was already
-            // settled by the worker's reply).
-            cancel_map
-                .lock()
-                .expect("cancel_tokens mutex poisoned")
-                .remove(&(cid, fetch_id));
+            // The `CancelMapEntryGuard` drops at the end of this
+            // scope (or on unwind) and removes our entry — a
+            // late `CancelFetch` after this point is a no-op
+            // (the JS Promise was already settled by the
+            // worker's reply).
             // When the worker observes `Cancelled` it means the
             // `CancelFetch` handler has already pushed the
             // synthesised `Err("aborted")` reply to the renderer
@@ -1622,5 +1648,57 @@ mod tests {
         // to the success.
         np.shutdown();
         server_thread.join().unwrap();
+    }
+
+    /// Regression for Copilot R2 (broker.rs cancel_map leak on
+    /// worker panic): the worker thread must remove its
+    /// `(cid, fetch_id)` entry from [`CancelMap`] even on
+    /// unwind, otherwise an `expect()` panic anywhere in the
+    /// hot path leaks the entry and grows the map past its
+    /// `MAX_CONCURRENT_FETCHES` bound.
+    ///
+    /// We can't easily force a panic inside the live worker
+    /// without test-only inject points, so we exercise the
+    /// guard directly: insert an entry, drop the guard via
+    /// `catch_unwind` after deliberately panicking, then
+    /// verify the map is empty.
+    #[test]
+    fn cancel_map_entry_guard_removes_on_panic() {
+        let map: CancelMap = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let key = (42_u64, FetchId::next());
+        map.lock().unwrap().insert(key, crate::CancelHandle::new());
+        assert_eq!(map.lock().unwrap().len(), 1);
+
+        let map_for_worker = Arc::clone(&map);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _entry = CancelMapEntryGuard {
+                map: map_for_worker,
+                key,
+            };
+            panic!("simulated worker panic");
+        }));
+        assert!(result.is_err(), "panic was caught");
+        // Guard's Drop ran during unwind → entry removed.
+        assert!(
+            map.lock().unwrap().is_empty(),
+            "CancelMapEntryGuard leaked entry on panic"
+        );
+    }
+
+    /// Sibling assertion: the guard removes the entry on
+    /// normal scope exit too (the success path).
+    #[test]
+    fn cancel_map_entry_guard_removes_on_normal_drop() {
+        let map: CancelMap = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let key = (7_u64, FetchId::next());
+        map.lock().unwrap().insert(key, crate::CancelHandle::new());
+        {
+            let _entry = CancelMapEntryGuard {
+                map: Arc::clone(&map),
+                key,
+            };
+            // No panic — guard drops at end of block.
+        }
+        assert!(map.lock().unwrap().is_empty());
     }
 }

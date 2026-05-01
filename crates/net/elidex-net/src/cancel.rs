@@ -98,12 +98,22 @@ impl CancelHandle {
         if self.is_cancelled() {
             return;
         }
-        // Race window: cancel() may have fired between the
-        // probe and the `notified()` future construction.
-        // `notify_waiters` only wakes parked-at-the-time
-        // waiters, so we re-check after registering interest
-        // to avoid losing a wake.
+        // Race-free wake handoff: `Notify::notify_waiters` does
+        // not store permits, and `Notify::notified()` only
+        // registers a waiter on first poll.  Without
+        // pre-registration, `cancel()` firing between the
+        // second `is_cancelled()` check and the implicit first
+        // poll inside `.await` could land its `notify_waiters`
+        // wake before the waiter exists — the wake is then lost
+        // and this future awaits forever (Copilot R2).
+        //
+        // `Notified::enable()` registers the waiter immediately
+        // (or returns `true` if a notification is already
+        // queued), closing the race: any `cancel()` after
+        // `enable()` is guaranteed to wake us.
         let notified = self.0.notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
         if self.is_cancelled() {
             return;
         }
@@ -113,6 +123,8 @@ impl CancelHandle {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[tokio::test]
@@ -159,5 +171,39 @@ mod tests {
         h.cancel();
         h.cancel();
         assert!(h.is_cancelled());
+    }
+
+    /// Regression for Copilot R2 (cancel.rs notify race):
+    /// without pre-registration via [`tokio::sync::Notified::enable`],
+    /// `cancel()` firing after the second `is_cancelled()` check
+    /// but before `notified.await` polls for the first time
+    /// could lose the wake — `notify_waiters` doesn't store
+    /// permits.  Stress the race window with many concurrent
+    /// `cancelled()` futures and a single `cancel()` after a
+    /// barrier; if any waiter never resolves, the test
+    /// ultimately fails on the join timeout.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cancelled_resolves_under_race_with_late_cancel() {
+        for _ in 0..50 {
+            let h = CancelHandle::new();
+            let mut joins = Vec::with_capacity(32);
+            for _ in 0..32 {
+                let h2 = h.clone();
+                joins.push(tokio::spawn(async move {
+                    h2.cancelled().await;
+                }));
+            }
+            // Don't yield extra: we *want* the cancel to land
+            // close to (or even before) the waiters' first
+            // poll, so the `enable()` pre-registration is the
+            // only thing keeping the wake from being lost.
+            h.cancel();
+            for j in joins {
+                tokio::time::timeout(Duration::from_secs(2), j)
+                    .await
+                    .expect("a `cancelled()` future never resolved — wake was lost")
+                    .expect("waiter task panicked");
+            }
+        }
     }
 }
