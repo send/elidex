@@ -708,10 +708,14 @@ struct NetworkProcessState {
     sse_handles: HashMap<(u64, u64), SseHandle>,
     /// Counter of in-flight fetch threads (for limiting concurrency).
     inflight_fetches: Arc<std::sync::atomic::AtomicUsize>,
-    /// In-flight fetch cancellation tokens, keyed by `FetchId`.
-    /// `Fetch` inserts before spawning the worker; the worker
-    /// removes on completion; `CancelFetch` looks up + triggers
-    /// + removes (so the worker's later remove is a no-op).
+    /// In-flight fetch cancellation tokens, keyed by
+    /// `(client_id, FetchId)` (see [`CancelMap`] for why the
+    /// composite key is required for cross-client cancel
+    /// isolation).  `Fetch` inserts before spawning the worker;
+    /// the worker removes on completion via
+    /// [`CancelMapEntryGuard`]; `CancelFetch` looks up the key
+    /// pair + triggers + removes (so the worker's later guard
+    /// drop is a no-op).
     cancel_tokens: CancelMap,
 }
 
