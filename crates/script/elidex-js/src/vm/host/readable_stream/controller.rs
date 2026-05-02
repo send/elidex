@@ -64,15 +64,32 @@ fn desired_size(state: &ReadableStreamState) -> f64 {
     state.high_water_mark - state.queue_total_size
 }
 
-/// Should the pull pump fire?  Spec §4.5.10 step 1-3:
+/// Should the pull pump fire?  Spec §4.5.13
+/// (ReadableStreamDefaultControllerShouldCallPull):
 /// - Stream must be `Readable`.
-/// - `[[desiredSize]] > 0`.
-/// - Either `start_called` (pull only fires after start settles).
-fn pull_should_fire(state: &ReadableStreamState) -> bool {
-    state.state == ReadableStreamStateKind::Readable
-        && !state.close_requested
-        && state.start_called
-        && desired_size(state) > 0.0
+/// - `start_called` is set (pull only fires after start settles).
+/// - **Either** there is a pending `read()` request on a locked
+///   reader **or** `[[desiredSize]] > 0`.  The pending-read
+///   branch is what makes `new ReadableStream({pull}, {highWaterMark: 0})`
+///   work — without a chunk in the queue and no headroom for one,
+///   the pull pump would otherwise never fire and `reader.read()`
+///   would hang forever (Copilot R3).
+fn pull_should_fire(vm: &VmInner, state: &ReadableStreamState) -> bool {
+    if state.state != ReadableStreamStateKind::Readable
+        || state.close_requested
+        || !state.start_called
+    {
+        return false;
+    }
+    if desired_size(state) > 0.0 {
+        return true;
+    }
+    // No headroom — fall through to spec §4.5.13 step 4: pull
+    // when a locked reader has at least one pending read request.
+    state
+        .reader_id
+        .and_then(|reader_id| vm.readable_stream_reader_states.get(&reader_id))
+        .is_some_and(|r| !r.pending_read_promises.is_empty())
 }
 
 /// Drive the pull pump (§4.5.10 ReadableStreamDefaultControllerCallPullIfNeeded).
@@ -80,7 +97,7 @@ pub(super) fn pull_if_needed(vm: &mut VmInner, stream_id: ObjectId) {
     let (should_pull, pull_cb, controller_id, underlying_source) = {
         let state = stream_state(vm, stream_id);
         (
-            pull_should_fire(state),
+            pull_should_fire(vm, state),
             state.source_pull,
             state.controller_id,
             state.underlying_source,

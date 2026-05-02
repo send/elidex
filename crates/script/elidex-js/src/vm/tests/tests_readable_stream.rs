@@ -946,3 +946,32 @@ fn stream_tee_method_not_installed() {
     let v = eval_bool(&mut vm, "'tee' in (new ReadableStream())");
     assert!(!v, "tee must not be installed in Phase 2");
 }
+
+/// PR-file-split-a Copilot R3 regression: `pull_should_fire`
+/// must honour spec §4.5.13 step 4 — pull is required while a
+/// locked reader has at least one pending read request, even
+/// when `desiredSize` is 0.  With `highWaterMark: 0`, an
+/// `enqueue`-on-`read` source pattern would otherwise leave
+/// `pull` un-fired and `read()` permanently pending.
+#[test]
+fn pull_fires_for_pending_read_with_high_water_mark_zero() {
+    let source = r#"
+        let pullCount = 0;
+        const s = new ReadableStream(
+            {
+                pull(c) {
+                    pullCount++;
+                    c.enqueue("chunk-" + pullCount);
+                }
+            },
+            { highWaterMark: 0 }
+        );
+        const r = s.getReader();
+        r.read().then(v => { globalThis.result = v.value; });
+    "#;
+    assert_eq!(
+        eval_global_string(source, "result"),
+        "chunk-1",
+        "with highWaterMark=0, pull() must fire on read() to satisfy the pending request"
+    );
+}
