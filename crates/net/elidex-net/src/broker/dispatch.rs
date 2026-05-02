@@ -365,7 +365,13 @@ impl NetworkProcessState {
                 true
             }
             NetworkProcessControl::UnregisterRenderer { client_id } => {
+                // Renderer is gone — tear down realtime channels
+                // AND cancel in-flight fetches.  The fetch cancel
+                // is intentional here (unlike the
+                // `RendererToNetwork::Shutdown` path which is used
+                // for realtime-only teardown, see Copilot R8).
                 self.close_all_for_client(client_id);
+                self.cancel_inflight_fetches_for(client_id);
                 self.clients.remove(&client_id);
                 true
             }
@@ -378,17 +384,10 @@ impl NetworkProcessState {
                 // captured at dispatch time, while WS/SSE I/O threads
                 // continue holding their handles (Copilot R7 finding,
                 // pre-existing — surfaced by the file-split review).
-                //
-                // Mirror the per-client `UnregisterRenderer` path so
-                // the cleanup is uniform: `close_all_for_client`
-                // closes WS/SSE handles and triggers cancel on every
-                // matching `(cid, FetchId)` token, which in turn lets
-                // worker threads observe `NetErrorKind::Cancelled`,
-                // suppress their (now-misrouted) reply, and drop
-                // their `FetchInflightGuard` + `CancelMapEntryGuard`.
                 let client_ids: Vec<u64> = self.clients.keys().copied().collect();
                 for cid in client_ids {
                     self.close_all_for_client(cid);
+                    self.cancel_inflight_fetches_for(cid);
                 }
                 self.clients.clear();
                 false
@@ -449,6 +448,31 @@ impl NetworkProcessState {
             .retain(|_, handle| handle.thread.as_ref().is_none_or(|t| !t.is_finished()));
     }
 
+    /// Close every WS / SSE connection registered against this
+    /// `client_id`.  Used by three call paths:
+    /// - [`Self::handle_request`]'s `RendererToNetwork::Shutdown`
+    ///   branch — used by `HostBridge::shutdown_all_realtime` to
+    ///   tear down only realtime connections (in-flight fetches
+    ///   keep running by design; the renderer is still alive).
+    /// - [`Self::handle_control`]'s `UnregisterRenderer` branch —
+    ///   pairs with [`Self::cancel_inflight_fetches_for`] to also
+    ///   cancel the renderer's fetches because the client is gone.
+    /// - [`Self::handle_control`]'s `Shutdown` branch — same as
+    ///   `UnregisterRenderer` but for every client.
+    ///
+    /// **Lifecycle gap (Copilot R8 follow-up)**: the WS/SSE
+    /// `JoinHandle`s are dropped after sending their close commands
+    /// but never `join()`ed.  The worker threads do exit on their
+    /// own once they observe the closed command channel, so this
+    /// is bounded leakage of detached threads (eventual cleanup,
+    /// not memory growth) — but a `shutdown()` call should
+    /// arguably block until all I/O threads finish.  Adding a
+    /// join step requires deadlock analysis (a worker stuck on a
+    /// never-completing socket await would hang the broker
+    /// shutdown), so it lands in a follow-up rather than this
+    /// mechanical-split PR.  Tracked in
+    /// `m4-12-broker-shutdown-join-followup.md` and the M4-12
+    /// post-cutover roadmap.
     fn close_all_for_client(&mut self, client_id: u64) {
         // Close WebSocket connections.
         let ws_keys: Vec<_> = self
@@ -477,23 +501,31 @@ impl NetworkProcessState {
                 let _ = handle.command_tx.send(SseCommand::Close);
             }
         }
+    }
 
-        // Cancel in-flight fetches owned by this client.  Without
-        // this, a tab/worker that drops while its fetches are
-        // stalled would leave the worker threads holding their
-        // `MAX_CONCURRENT_FETCHES` slots until network IO completes
-        // (request_timeout ~30s for HTTP requests that connect but
-        // never respond).  Other renderers' fetches would be
-        // starved for that whole window (Copilot R4, file-split-a).
-        //
-        // Mirror `handle_cancel_fetch`'s poison-tolerant remove +
-        // `cancel()` step but iterate every key matching this
-        // `client_id`.  No synthetic aborted reply is emitted —
-        // the client sender is removed in the same `handle_control`
-        // call right after this returns, so any reply would be
-        // dropped on send anyway, and the worker observes
-        // `NetErrorKind::Cancelled` and silently exits via its
-        // `FetchInflightGuard` + `CancelMapEntryGuard`.
+    /// Cancel every in-flight fetch keyed by this `client_id`.
+    /// Without this, a tab/worker that drops while its fetches are
+    /// stalled would leave the worker threads holding their
+    /// `MAX_CONCURRENT_FETCHES` slots until network IO completes
+    /// (request_timeout ~30s for HTTP requests that connect but
+    /// never respond).  Other renderers' fetches would be starved
+    /// for that whole window (Copilot R4, file-split-a).
+    ///
+    /// Mirrors `handle_cancel_fetch`'s poison-tolerant remove +
+    /// `cancel()` step but iterates every key matching this
+    /// `client_id`.  No synthetic aborted reply is emitted — every
+    /// caller pairs this with a sender-side teardown
+    /// (`UnregisterRenderer` removes the `clients` entry; broker
+    /// `Shutdown` clears the whole map), so any reply would be
+    /// dropped on send anyway, and the worker observes
+    /// `NetErrorKind::Cancelled` and silently exits via its
+    /// `FetchInflightGuard` + `CancelMapEntryGuard`.
+    ///
+    /// **Not** called from `RendererToNetwork::Shutdown` because
+    /// that path (used by `HostBridge::shutdown_all_realtime`)
+    /// only intends to tear down WS/SSE — the renderer is still
+    /// alive and its in-flight fetches must continue (Copilot R8).
+    fn cancel_inflight_fetches_for(&self, client_id: u64) {
         let mut cancel_map = self
             .cancel_tokens
             .lock()

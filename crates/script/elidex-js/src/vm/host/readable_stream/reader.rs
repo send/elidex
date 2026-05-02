@@ -124,10 +124,24 @@ pub(super) fn native_readable_stream_get_reader(
     // Spec §4.2.4 step 2: `options.mode` is undefined ⇒ default
     // reader; `"byob"` ⇒ BYOB reader (Phase 2 unsupported, throws);
     // any other value ⇒ TypeError per WebIDL `ReadableStreamReaderMode`
-    // enumeration.  WebIDL enum extraction (§2.7.5) `ToString`-coerces
-    // the value first so wrapper objects (`new String("byob")`) and
-    // any value with a `toString()` returning `"byob"` are accepted
-    // — Copilot R7 finding, carry-over from PR #138.
+    // enumeration.
+    //
+    // WebIDL enum extraction (§2.7.5) `ToString`-coerces the value
+    // first.  We route through `ctx.to_string_val`, which:
+    // - returns the inner string for primitive `String` and for
+    //   `String` wrapper objects (`new String("byob")`);
+    // - returns the placeholder `"[object Object]"` for plain
+    //   objects (a documented elidex-js limitation in
+    //   `vm/coerce.rs::to_string` — `OrdinaryToPrimitive` /
+    //   `toString()` are not yet implemented for non-wrapper
+    //   Objects).  Until that lands the value
+    //   `{ toString() { return "byob"; } }` does NOT reach the
+    //   BYOB branch — it is rejected as an invalid enum member,
+    //   which is wrong but is the same behaviour every elidex-js
+    //   site that calls `ToString` on objects observes.  Tracked
+    //   alongside the broader `ToString` / `ToNumber` rework in
+    //   `phase4-plan.md`; revisit when that infrastructure lands
+    //   (Copilot R7 / R8, carry-over from PR #138).
     if let JsValue::Object(opts_id) = opts_arg {
         let mode_sid = ctx.vm.strings.intern("mode");
         let mode_key = PropertyKey::String(mode_sid);
