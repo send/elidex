@@ -292,41 +292,27 @@ impl NetworkHandle {
         fetch_id
     }
 
-    /// Cancel an in-flight fetch.  Idempotent — calling on a
-    /// completed / unknown id is harmless because the broker thread
-    /// merely posts an `Err("aborted")` reply for that id, and the
-    /// renderer's pending-fetch table already deduplicates late
-    /// replies (the second arrival's `remove` returns `None` and is
-    /// silently dropped).
+    /// Cancel an in-flight fetch.  Idempotent: calling on a
+    /// completed / unknown id is harmless because the broker
+    /// merely posts a synthesised `Err("aborted")` reply for that
+    /// id and the renderer's pending-fetch table dedupes late
+    /// arrivals (the second `remove` returns `None`).
     ///
-    /// **Multi-reply contract** (R6.2): the broker emits the
-    /// synthesised `FetchResponse(id, Err("aborted"))` immediately
-    /// on the cancel, but the in-flight fetch thread continues
-    /// running until its underlying tokio call returns and may
-    /// post a *second* `FetchResponse` for the same `FetchId`.
-    /// Direct embedders driving [`Self::drain_events`] themselves
-    /// must therefore treat the first terminal reply per `FetchId`
-    /// as authoritative and silently drop subsequent ones; the
-    /// elidex-js VM does this via its `pending_fetches.remove`
-    /// dedup.  Tightening the broker to suppress the late real
-    /// reply would require per-`FetchId` cancellation state on
-    /// the broker thread (currently kept stateless to bound
-    /// memory under unbounded cancel-then-leak scenarios).
+    /// Cross-renderer isolation: the broker's cancel-token map is
+    /// keyed by `(client_id, FetchId)`, so a renderer cannot
+    /// cancel another renderer's in-flight fetch by guessing its
+    /// id — a non-owner cancel becomes a no-op against the actual
+    /// worker, and the synthetic aborted reply is delivered to
+    /// the cancelling renderer where the absent pending-fetch
+    /// entry causes it to be silently dropped.
     ///
-    /// **Concurrency-counter saturation** (R7.1): because the
-    /// in-flight thread is not actually stopped, the per-broker
-    /// `MAX_CONCURRENT_FETCHES` inflight counter stays bumped
-    /// until the underlying network IO completes (success, error,
-    /// or transport timeout — the latter ~30s for HTTP requests
-    /// that connect but never respond).  A workload that issues
-    /// many fetches and aborts each one immediately can therefore
-    /// transiently saturate the global concurrency limit and
-    /// starve subsequent un-cancelled fetches until the cancelled
-    /// IO drains.  True request cancellation (passing a tokio
-    /// cancellation token through `client.send`) belongs with
-    /// the broader broker-state work in PR5-cors / PR5-streams.
-    /// For now, embedders that anticipate cancel-heavy workloads
-    /// should size `MAX_CONCURRENT_FETCHES` accordingly.
+    /// On the worker side, the broker drives true cancellation:
+    /// the per-fetch `CancelHandle` aborts the in-flight hyper
+    /// future immediately, the `FetchInflightGuard` releases the
+    /// `MAX_CONCURRENT_FETCHES` slot promptly, and the worker
+    /// suppresses its own duplicate reply on observing
+    /// `NetErrorKind::Cancelled` so the renderer sees exactly one
+    /// terminal reply per fetch.
     ///
     /// Returns `true` if the cancel was queued, `false` if the
     /// broker is disconnected.

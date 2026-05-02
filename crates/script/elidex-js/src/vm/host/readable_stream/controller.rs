@@ -228,8 +228,8 @@ fn controller_enqueue(
         state.queue_total_size += chunk_size;
     }
 
-    // Wake any waiting reader — Stage 1b will plumb this into
-    // `pending_read_promises`.  For Stage 1a the queue just grows.
+    // Wake any waiting reader by popping freshly-queued chunks
+    // into pending `read()` promises (spec §4.5.4 step 5).
     deliver_pending_reads(vm, stream_id);
 
     pull_if_needed(vm, stream_id);

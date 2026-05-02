@@ -690,10 +690,10 @@ pub(super) fn do_stream_cancel(vm: &mut VmInner, stream_id: ObjectId, reason: Js
 
 impl VmInner {
     /// Register the `ReadableStream` + `ReadableStreamDefaultController`
-    /// globals + prototypes.  Stage 1b will append the
-    /// `ReadableStreamDefaultReader` registration in a follow-up
-    /// `register_readable_stream_reader_global` so the two halves
-    /// can land in distinct commits.
+    /// globals + prototypes.  The matching
+    /// [`Self::register_readable_stream_reader_global`] runs
+    /// afterwards (see `globals.rs`) and back-patches `getReader`
+    /// onto the stream prototype once the reader prototype exists.
     pub(in crate::vm) fn register_readable_stream_global(&mut self) {
         let object_proto = self
             .object_prototype
