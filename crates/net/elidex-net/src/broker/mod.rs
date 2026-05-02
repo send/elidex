@@ -743,4 +743,103 @@ mod tests {
         np.shutdown();
         server_thread.join().unwrap();
     }
+
+    /// PR-file-split-a Copilot R4: when a renderer is unregistered
+    /// (tab/worker drop) while it has in-flight fetches stalled on
+    /// network IO, those workers must be cancelled so the
+    /// `MAX_CONCURRENT_FETCHES` slots release promptly.  Pre-fix
+    /// the workers kept holding their slots until network timeout
+    /// (~30s), starving subsequent fetches issued by other
+    /// renderers.
+    #[test]
+    fn unregister_renderer_cancels_inflight_fetches_promptly() {
+        // Stalling server: hold connection open forever.
+        let stall_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let stall_addr = stall_listener.local_addr().unwrap();
+        let _stall_keep = stall_listener;
+
+        // Probe server: replies promptly so the post-unregister
+        // fetch confirms the inflight slot freed up.
+        let probe_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let probe_addr = probe_listener.local_addr().unwrap();
+        let probe_thread = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let Ok((mut stream, _)) = probe_listener.accept() else {
+                return;
+            };
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        });
+
+        let np = spawn_network_process(test_client());
+        let droppee = np.create_renderer_handle();
+        let droppee_cid = droppee.client_id();
+        let observer = np.create_renderer_handle();
+
+        // Saturate the dropping renderer's fetches against the
+        // stalling server.  Even one fetch is enough to expose
+        // the bug if it holds a slot past unregister, but several
+        // make the test less timing-sensitive.
+        let mk_stall = || Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", stall_addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        };
+        let mut stall_ids = Vec::new();
+        for _ in 0..10 {
+            stall_ids.push(droppee.fetch_async(mk_stall()));
+        }
+        // Yield so each worker reaches `transport.send`'s await
+        // point (otherwise cancel triggers the pre-await
+        // `is_cancelled` fast path which exits before holding the
+        // slot — true positive but doesn't exercise the
+        // mid-flight cancel path the fix targets).
+        std::thread::sleep(Duration::from_millis(40));
+
+        // Drop the renderer: the unregister handler must cancel
+        // every in-flight fetch keyed by `(droppee_cid, _)` and
+        // remove its `cancel_tokens` entries so the workers
+        // release their `MAX_CONCURRENT_FETCHES` slots.
+        np.unregister_renderer(droppee_cid);
+        // Drop the handle too so the broker doesn't see us as a
+        // live renderer when the probe goes out.
+        drop(droppee);
+
+        // The observer's probe fetch must complete promptly.  If
+        // the dropped renderer's slots leaked, this would wait
+        // for the underlying network timeout (~30s) and fail the
+        // 5-second deadline below.
+        let probe_id = observer.fetch_async(Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", probe_addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        });
+        let probe_deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut probe_got = None;
+        while std::time::Instant::now() < probe_deadline && probe_got.is_none() {
+            for ev in observer.drain_events() {
+                if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                    if rid == probe_id {
+                        probe_got = Some(result);
+                    }
+                }
+            }
+            if probe_got.is_none() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        let probe_resp = probe_got
+            .expect("probe fetch starved — UnregisterRenderer left dropped renderer's fetches holding inflight slots")
+            .unwrap();
+        assert_eq!(probe_resp.status, 200);
+
+        np.shutdown();
+        probe_thread.join().unwrap();
+    }
 }

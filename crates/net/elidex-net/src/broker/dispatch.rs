@@ -454,5 +454,36 @@ impl NetworkProcessState {
                 let _ = handle.command_tx.send(SseCommand::Close);
             }
         }
+
+        // Cancel in-flight fetches owned by this client.  Without
+        // this, a tab/worker that drops while its fetches are
+        // stalled would leave the worker threads holding their
+        // `MAX_CONCURRENT_FETCHES` slots until network IO completes
+        // (request_timeout ~30s for HTTP requests that connect but
+        // never respond).  Other renderers' fetches would be
+        // starved for that whole window (Copilot R4, file-split-a).
+        //
+        // Mirror `handle_cancel_fetch`'s poison-tolerant remove +
+        // `cancel()` step but iterate every key matching this
+        // `client_id`.  No synthetic aborted reply is emitted —
+        // the client sender is removed in the same `handle_control`
+        // call right after this returns, so any reply would be
+        // dropped on send anyway, and the worker observes
+        // `NetErrorKind::Cancelled` and silently exits via its
+        // `FetchInflightGuard` + `CancelMapEntryGuard`.
+        let mut cancel_map = self
+            .cancel_tokens
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cancelled_keys: Vec<(u64, FetchId)> = cancel_map
+            .keys()
+            .filter(|(cid, _)| *cid == client_id)
+            .copied()
+            .collect();
+        for key in cancelled_keys {
+            if let Some(token) = cancel_map.remove(&key) {
+                token.cancel();
+            }
+        }
     }
 }
