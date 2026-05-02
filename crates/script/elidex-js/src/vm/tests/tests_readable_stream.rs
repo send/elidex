@@ -804,6 +804,27 @@ fn pull_returning_undefined_does_not_infinite_loop() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// R8 regression: null-body status check
+// ---------------------------------------------------------------------------
+
+/// R8.2 (proxy): `new Response(null, {status: 204})` produces
+/// a Response whose `.body` must be `null` per WHATWG Fetch
+/// §4.1 null-body-status rule.  The same rule applies to fetch
+/// responses with status 204/205/304 — Copilot R8 caught that
+/// my R4.3 unconditional `body_data.insert` for non-opaque
+/// fetched responses violated this; the fetch path is now
+/// gated on `null_body_status`.  This test exercises the
+/// Response-ctor side which shares the `.body === null` invariant.
+#[test]
+fn null_body_status_response_has_null_body() {
+    let source = r#"
+        const r = new Response(null, { status: 204 });
+        globalThis.result = r.body === null;
+    "#;
+    assert!(eval_global_bool(source, "result"));
+}
+
 #[test]
 fn stream_tee_method_not_installed() {
     // Phase 2: `tee` is intentionally absent — `'tee' in stream`
