@@ -590,6 +590,62 @@ fn reader_constructor_rejects_locked_stream() {
     assert!(result.is_err());
 }
 
+// ---------------------------------------------------------------------------
+// R2 regression: spec-edge bugs caught in Copilot review round 2
+// ---------------------------------------------------------------------------
+
+/// R2.1: `null` is treated as `undefined` per WebIDL dict-from-null
+/// for both underlyingSource and queuingStrategy positions.
+#[test]
+fn ctor_accepts_null_underlying_source_and_strategy() {
+    let mut vm = Vm::new();
+    let v = eval_bool(
+        &mut vm,
+        "new ReadableStream(null, null) instanceof ReadableStream",
+    );
+    assert!(v);
+}
+
+/// R2.2: `stream.cancel()` on a locked stream returns a rejected
+/// Promise per spec §4.2.6 step 1 (IsReadableStreamLocked check).
+#[test]
+fn stream_cancel_on_locked_rejects_with_typeerror() {
+    let source = r#"
+        const s = new ReadableStream();
+        s.getReader();
+        s.cancel("nope").then(_ => { globalThis.result = "ok"; },
+                              _ => { globalThis.result = "rejected"; });
+    "#;
+    assert_eq!(eval_global_string(source, "result"), "rejected");
+}
+
+/// R2.3: `.body` identity is preserved across body-mixin
+/// consumption.  Reading `.text()` first then `.body` must NOT
+/// flip the slot back to `null` — spec models `.body` as the
+/// (now disturbed) stream regardless of observation order.
+#[test]
+fn body_returns_disturbed_stream_after_text_consumes_first() {
+    let source = r#"
+        const r = new Response("hi");
+        r.text();
+        // After mixin consumed body_data, .body must still
+        // present a (now closed) ReadableStream — not null.
+        globalThis.result = r.body instanceof ReadableStream;
+    "#;
+    assert!(eval_global_bool(source, "result"));
+}
+
+/// Companion: receiver that never had a body still returns null
+/// from `.body` so the no-body case isn't masked.
+#[test]
+fn body_returns_null_for_no_body_response() {
+    let source = r#"
+        const r = new Response();
+        globalThis.result = r.body === null;
+    "#;
+    assert!(eval_global_bool(source, "result"));
+}
+
 #[test]
 fn stream_tee_method_not_installed() {
     // Phase 2: `tee` is intentionally absent — `'tee' in stream`

@@ -236,7 +236,7 @@ fn stream_state_mut(vm: &mut VmInner, stream_id: ObjectId) -> &mut ReadableStrea
 fn normalize_high_water_mark(hwm: JsValue) -> Result<f64, VmError> {
     let n = match hwm {
         JsValue::Number(n) => n,
-        JsValue::Undefined => return Ok(1.0),
+        JsValue::Undefined | JsValue::Null => return Ok(1.0),
         _ => return Err(VmError::type_error(
             "Failed to construct 'ReadableStream': highWaterMark coercion not supported in Phase 2",
         )),
@@ -301,8 +301,11 @@ pub(super) fn native_readable_stream_constructor(
     let strategy_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
     // Underlying-source callbacks.  All three are optional.
+    // `null` is treated as `undefined` per WebIDL dict-from-null
+    // semantics (matches Chromium / Firefox `new
+    // ReadableStream(null)`).
     let (source_start, source_pull, source_cancel) = match source_arg {
-        JsValue::Undefined => (None, None, None),
+        JsValue::Undefined | JsValue::Null => (None, None, None),
         JsValue::Object(src_id) => {
             let start_sid = ctx.vm.well_known.start;
             let pull_sid = ctx.vm.well_known.pull;
@@ -325,7 +328,7 @@ pub(super) fn native_readable_stream_constructor(
     // strategy).  Phase 2 only supports a Number `highWaterMark` —
     // generic ToNumber coercion lands with the spec-polish PR.
     let (high_water_mark, size_algorithm) = match strategy_arg {
-        JsValue::Undefined => (1.0, None),
+        JsValue::Undefined | JsValue::Null => (1.0, None),
         JsValue::Object(strat_id) => {
             let hwm_key = PropertyKey::String(ctx.vm.well_known.high_water_mark);
             let hwm_value = match super::super::coerce::get_property(ctx.vm, strat_id, hwm_key) {
@@ -1554,12 +1557,28 @@ pub(super) fn native_readable_stream_get_locked(
 }
 
 /// `stream.cancel(reason?)` (WHATWG Streams §4.2.6).
+///
+/// Spec step 1: if `IsReadableStreamLocked(this) is true`, return
+/// a Promise rejected with TypeError.  The reader-side cancel
+/// (`reader.cancel`) goes through `do_stream_cancel` directly —
+/// it bypasses this lock check because the reader being attached
+/// is what `locked` describes, and reader-side cancel is
+/// exactly the spec-blessed way to cancel a locked stream.
 pub(super) fn native_readable_stream_cancel(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_stream_this(ctx, this, "cancel")?;
+    if stream_state(ctx.vm, id).reader_id.is_some() {
+        let p = create_promise(ctx.vm);
+        let err = VmError::type_error(
+            "Failed to execute 'cancel' on 'ReadableStream': cannot cancel a locked stream",
+        );
+        let reason = ctx.vm.vm_error_to_thrown(&err);
+        let _ = settle_promise(ctx.vm, p, true, reason);
+        return Ok(JsValue::Object(p));
+    }
     let reason = args.first().copied().unwrap_or(JsValue::Undefined);
     Ok(JsValue::Object(do_stream_cancel(ctx.vm, id, reason)))
 }

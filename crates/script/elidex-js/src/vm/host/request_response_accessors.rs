@@ -382,9 +382,12 @@ pub(super) fn native_response_get_body(
 /// from this Request / Response's `body_data` entry.  Identity is
 /// preserved across calls via `body_streams[receiver_id]`, so
 /// `r.body === r.body` per WHATWG Fetch §5 internal-slot
-/// semantics.  Returns `JsValue::Null` when the receiver carries
-/// no body bytes — a Phase-2 simplification covering the
-/// `Request` / `Response` no-body construction path.
+/// semantics.  Returns `JsValue::Null` only when the receiver
+/// has truly never carried a body — `disturbed` is the signal
+/// that body bytes were consumed via the body mixin first; in
+/// that case spec requires `.body` to remain a (now
+/// disturbed/closed) ReadableStream rather than flipping back
+/// to null based on observation order (Copilot R2 finding).
 ///
 /// Materialising the stream removes the bytes from `body_data`
 /// (single-chunk emit) and marks the receiver as `disturbed`.
@@ -400,16 +403,22 @@ pub(super) fn get_or_create_body_stream(vm: &mut super::super::VmInner, id: Obje
     }
     let bytes = vm.body_data.remove(&id);
     let stream_id = match bytes {
-        Some(bytes) if !bytes.is_empty() => {
-            super::readable_stream::create_body_backed_stream(vm, bytes)
-        }
-        Some(_) => {
-            // Empty bytes — still expose an empty (already-closed)
-            // stream so `r.body !== null` matches Chromium for
-            // empty-body responses.
+        Some(bytes) => super::readable_stream::create_body_backed_stream(vm, bytes),
+        None => {
+            // No `body_data` entry.  Two cases:
+            //   (a) `disturbed` is true → body_mixin consumed the
+            //       bytes earlier; spec says `.body` is still the
+            //       same (now disturbed/closed) ReadableStream, so
+            //       return an empty already-closed stream and
+            //       cache it for identity persistence (Copilot R2
+            //       finding).
+            //   (b) `disturbed` is false → receiver never had a
+            //       body (e.g. `new Response()`); return `null`.
+            if !vm.disturbed.contains(&id) {
+                return JsValue::Null;
+            }
             super::readable_stream::create_body_backed_stream(vm, Vec::new())
         }
-        None => return JsValue::Null,
     };
     vm.body_streams.insert(id, stream_id);
     vm.disturbed.insert(id);
