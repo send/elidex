@@ -402,12 +402,15 @@ fn cancel_fetch_reaches_broker_on_abort() {
 }
 
 #[test]
-fn tick_network_re_buffers_unhandled_ws_sse_events() {
-    // R1.2: the VM's `tick_network` only consumes `FetchResponse`
+fn tick_network_leaves_unhandled_ws_sse_events_in_buffer() {
+    // The VM's `tick_network` only consumes `FetchResponse`
     // events; any `WebSocketEvent` / `EventSourceEvent` that hits
-    // the same handle must be re-buffered so a sibling consumer
-    // (boa bridge during the boa→VM cutover, or future VM-side
-    // WS module) still observes them on its own `drain_events`.
+    // the same handle must remain in the broker handle's internal
+    // buffer so a sibling consumer (boa bridge during the boa→VM
+    // cutover, or future VM-side WS module) still observes them
+    // on its own `drain_events`.  Slot #6.8 implements this via
+    // `NetworkHandle::drain_fetch_responses_only`'s partition-in-
+    // place semantics.
     use elidex_net::broker::NetworkToRenderer;
     use elidex_net::ws::WsEvent;
     let mut vm = mock_vm(vec![]);
@@ -425,15 +428,14 @@ fn tick_network_re_buffers_unhandled_ws_sse_events() {
 }
 
 #[test]
-fn tick_network_preserves_event_order_across_fetch_and_ws() {
-    // R3.2 regression: when WS / SSE events are interleaved with
-    // fetch replies in the broker buffer, `tick_network` must NOT
-    // reorder fetch settlements ahead of preceding WS/SSE events.
-    // The fix is to settle fetch replies only up to the first
-    // non-fetch event, then re-buffer that event AND every event
-    // after it.  Sibling consumers see the original sequence; a
-    // later VM tick picks up trailing fetch replies once the WS
-    // events have been drained externally.
+fn tick_network_settles_fetch_and_keeps_surrounding_ws_in_order() {
+    // Slot #6.8 contract: `tick_network` partitions fetch replies
+    // out of the broker buffer in a single pass, settles them,
+    // and leaves every non-fetch event in the buffer in its
+    // original relative order.  Pre-#6.8 behaviour stopped at the
+    // first non-fetch event and re-buffered the tail (including
+    // any later fetch replies) — this test exercises the post-#6.8
+    // contract on a [WS_before, FetchResponse, WS_after] stage.
     use elidex_net::broker::NetworkToRenderer;
     use elidex_net::ws::WsEvent;
     let url = url::Url::parse("http://example.com/ordered").expect("valid");
@@ -442,27 +444,21 @@ fn tick_network_preserves_event_order_across_fetch_and_ws() {
         Ok(ok_response("http://example.com/ordered", "ok")),
     )]);
     let handle = vm.inner.network_handle.clone().expect("handle installed");
-    // Stage: [WS_a, Fetch_b (already buffered by mock fetch_async),
-    // WS_c].  We dispatch the fetch first to seed the FetchResponse
-    // into `buffered`, then prepend a WS event before it via
-    // rebuffer + append a trailing WS event.
+    // Stage: dispatch the fetch (mock seeds FetchResponse into
+    // `buffered`), then drain + re-stage as [WS_before, FetchResponse,
+    // WS_after] via a single rebuffer call.
     vm.eval(
         "globalThis.r = 0; \
          fetch('http://example.com/ordered').then(resp => { globalThis.r = resp.status; });",
     )
     .unwrap();
-    // After eval, `buffered` contains exactly [FetchResponse(...)].
-    // Insert a WS event before it (rebuffer is splice-front), and
-    // a WS event after it.  Use rebuffer for the front-prepend.
-    handle.rebuffer_events(vec![NetworkToRenderer::WebSocketEvent(
+    let drained = handle.drain_events();
+    assert_eq!(drained.len(), 1, "exactly one buffered FetchResponse");
+    let mut staged: Vec<NetworkToRenderer> = vec![NetworkToRenderer::WebSocketEvent(
         1,
         WsEvent::TextMessage("before".to_string()),
-    )]);
-    // Append the trailing WS event by re-buffering after the
-    // fetch reply: we drain everything, then re-buffer in the
-    // desired order [WS_a, FetchResponse, WS_c].
-    let drained = handle.drain_events();
-    let mut staged: Vec<NetworkToRenderer> = drained;
+    )];
+    staged.extend(drained);
     staged.push(NetworkToRenderer::WebSocketEvent(
         1,
         WsEvent::TextMessage("after".to_string()),
@@ -470,31 +466,27 @@ fn tick_network_preserves_event_order_across_fetch_and_ws() {
     handle.rebuffer_events(staged);
 
     vm.tick_network();
-    // The first event was a WS, so tick_network must NOT have
-    // settled the fetch — the entire sequence must be re-buffered
-    // verbatim.
-    let leftover = handle.drain_events();
-    assert_eq!(
-        leftover.len(),
-        3,
-        "all events must remain when WS comes first"
-    );
-    assert!(matches!(
-        leftover[0],
-        NetworkToRenderer::WebSocketEvent(_, _)
-    ));
-    assert!(matches!(
-        leftover[1],
-        NetworkToRenderer::FetchResponse(_, _)
-    ));
-    assert!(matches!(
-        leftover[2],
-        NetworkToRenderer::WebSocketEvent(_, _)
-    ));
-    // Promise still pending — fetch reply not consumed yet.
+
+    // FetchResponse extracted and settled — promise reaction ran.
     match vm.get_global("r") {
-        Some(JsValue::Number(n)) => assert!((n - 0.0).abs() < f64::EPSILON),
-        other => panic!("fetch must NOT have settled, got {other:?}"),
+        Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
+        other => panic!("fetch must have settled to 200, got {other:?}"),
+    }
+    // Both WS events remain in original order; no FetchResponse
+    // left over.
+    let leftover = handle.drain_events();
+    assert_eq!(leftover.len(), 2, "both WS events must remain");
+    match &leftover[0] {
+        NetworkToRenderer::WebSocketEvent(_, WsEvent::TextMessage(s)) => {
+            assert_eq!(s, "before");
+        }
+        other => panic!("expected WS('before'), got {other:?}"),
+    }
+    match &leftover[1] {
+        NetworkToRenderer::WebSocketEvent(_, WsEvent::TextMessage(s)) => {
+            assert_eq!(s, "after");
+        }
+        other => panic!("expected WS('after'), got {other:?}"),
     }
 }
 

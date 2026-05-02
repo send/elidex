@@ -3,10 +3,13 @@
 //! Hosts the three [`VmInner`] methods that drive the M4-12
 //! PR5-async-fetch lifecycle:
 //!
-//! - [`VmInner::tick_network`] — public-facing per-tick drain entry,
-//!   re-buffers WS/SSE events for sibling consumers (R3.2 ordering
-//!   fix), runs the post-tick microtask checkpoint unconditionally
-//!   (R4.1).
+//! - [`VmInner::tick_network`] — public-facing per-tick drain entry.
+//!   Pulls only fetch replies via
+//!   [`elidex_net::broker::NetworkHandle::drain_fetch_responses_only`]
+//!   so WS/SSE events stay in the broker handle's internal buffer
+//!   for a sibling consumer's later `drain_events`.  Always runs
+//!   the post-tick microtask checkpoint, even when no handle is
+//!   installed (R4.1).
 //! - [`VmInner::settle_fetch`] — private helper that settles a single
 //!   pending Promise from a `FetchResponse(id, result)` event,
 //!   pruning the matching back-refs / abort-observer entries.
@@ -22,7 +25,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_net::broker::{FetchId, NetworkToRenderer};
+use elidex_net::broker::FetchId;
 
 use super::super::value::{JsValue, ObjectId, VmError};
 use super::super::VmInner;
@@ -31,11 +34,20 @@ use super::cors::{classify_response_type, CorsOutcome};
 use super::fetch::create_response_from_net;
 
 impl VmInner {
-    /// Drain pending [`elidex_net::broker::NetworkToRenderer`] events
-    /// from the installed [`NetworkHandle`](elidex_net::broker::NetworkHandle)
-    /// and dispatch them to the JS side.  See
+    /// Drain pending fetch replies from the installed
+    /// [`NetworkHandle`](elidex_net::broker::NetworkHandle) and
+    /// dispatch them to the JS side.  See
     /// [`super::super::Vm::tick_network`] for the public-API
     /// contract.
+    ///
+    /// Uses
+    /// [`elidex_net::broker::NetworkHandle::drain_fetch_responses_only`]
+    /// so any WS/SSE events on the handle stay in its internal
+    /// buffer for a sibling consumer (e.g. the boa-side realtime
+    /// bridge during the boa→VM cutover) to drain on its own
+    /// schedule.  Non-fetch event ordering across the handle is
+    /// preserved by the broker API — see that method's doc for
+    /// the order guarantee.
     ///
     /// Always runs the microtask checkpoint at the end, even when
     /// no handle is installed — `tick_network` is also a generic
@@ -43,39 +55,8 @@ impl VmInner {
     /// only use the VM's microtask queue (R4.1).
     pub(in crate::vm) fn tick_network(&mut self) {
         if let Some(handle) = self.network_handle.clone() {
-            // `drain_events` is the only consumer of the broker's
-            // response channel for this handle, so any non-fetch
-            // event we drain here cannot be re-fetched by another
-            // consumer.  To preserve the original arrival order
-            // between fetch replies and WS/SSE events (matters when
-            // the handle is shared with a sibling consumer during
-            // the boa→VM cutover), we settle fetch replies *only up
-            // to the first non-fetch event*, then re-buffer that
-            // event AND every event after it — including any
-            // subsequent fetch replies — onto the handle's
-            // `buffered` queue (R1.2 + R3.2).  A sibling consumer's
-            // next `drain_events` then sees the original sequence;
-            // later VM `tick_network` calls pick up the trailing
-            // fetch replies once the sibling has consumed the
-            // intervening WS/SSE events.
-            let events = handle.drain_events();
-            let mut iter = events.into_iter();
-            let mut tail: Vec<NetworkToRenderer> = Vec::new();
-            for event in iter.by_ref() {
-                match event {
-                    NetworkToRenderer::FetchResponse(fetch_id, result) => {
-                        self.settle_fetch(fetch_id, result);
-                    }
-                    other @ (NetworkToRenderer::WebSocketEvent(_, _)
-                    | NetworkToRenderer::EventSourceEvent(_, _)) => {
-                        tail.push(other);
-                        break;
-                    }
-                }
-            }
-            tail.extend(iter);
-            if !tail.is_empty() {
-                handle.rebuffer_events(tail);
+            for (fetch_id, result) in handle.drain_fetch_responses_only() {
+                self.settle_fetch(fetch_id, result);
             }
         }
         // Microtask checkpoint — `.then` reactions attached to a
