@@ -971,3 +971,58 @@ fn unregistered_renderer_cannot_consume_inflight_slots() {
     np.shutdown();
     probe_thread.join().unwrap();
 }
+
+/// PR-file-split-a Copilot R11 (HJTc) regression: a still-live
+/// `NetworkHandle` clone whose owner was unregistered must observe
+/// a synthetic `aborted` reply for every in-flight fetch — without
+/// it, cancelled workers suppress their own `FetchResponse` on
+/// `NetErrorKind::Cancelled`, leaving the renderer-side Promises
+/// pending forever.  Symmetric to R9 HEld which fixed the same
+/// gap on the broker `Shutdown` path.
+#[test]
+fn unregister_renderer_delivers_synthetic_aborted_for_inflight_fetches() {
+    let stall_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let stall_addr = stall_listener.local_addr().unwrap();
+    let _stall_keep = stall_listener;
+
+    let np = spawn_network_process(test_client());
+    let renderer = np.create_renderer_handle();
+    let cid = renderer.client_id();
+
+    let request = Request {
+        method: "GET".to_string(),
+        url: url::Url::parse(&format!("http://127.0.0.1:{}/", stall_addr.port())).unwrap(),
+        headers: Vec::new(),
+        body: bytes::Bytes::new(),
+        ..Default::default()
+    };
+    let stall_id = renderer.fetch_async(request);
+    // Yield so the worker reaches `transport.send`.
+    std::thread::sleep(Duration::from_millis(40));
+
+    np.unregister_renderer(cid);
+
+    // Drain until the synthetic aborted reply arrives, or
+    // timeout.  Pre-fix the renderer would never observe a
+    // FetchResponse for this id.
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let mut saw_aborted = false;
+    while std::time::Instant::now() < deadline && !saw_aborted {
+        for ev in renderer.drain_events() {
+            if let NetworkToRenderer::FetchResponse(rid, Err(msg)) = ev {
+                if rid == stall_id && msg.contains("aborted") {
+                    saw_aborted = true;
+                }
+            }
+        }
+        if !saw_aborted {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    assert!(
+        saw_aborted,
+        "unregister_renderer left the in-flight fetch without a terminal reply — pending Promise leak"
+    );
+
+    np.shutdown();
+}

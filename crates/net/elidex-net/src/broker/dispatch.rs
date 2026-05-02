@@ -386,6 +386,14 @@ impl NetworkProcessState {
                 // is intentional here (unlike the
                 // `RendererToNetwork::Shutdown` path which is used
                 // for realtime-only teardown, see Copilot R8).
+                //
+                // Synthesise `aborted` replies first so a still-live
+                // `NetworkHandle` clone (whose owner is being
+                // unregistered, but whose Promise queue may still
+                // be observed) sees a terminal event for each
+                // in-flight fetch — Copilot R11 HJTc, pairs with
+                // R9 HEld for the broker `Shutdown` path.
+                self.synthesise_aborted_replies_for_client(client_id);
                 self.close_all_for_client(client_id);
                 self.cancel_inflight_fetches_for(client_id);
                 self.clients.remove(&client_id);
@@ -401,7 +409,7 @@ impl NetworkProcessState {
                 // continue holding their handles (Copilot R7 finding,
                 // pre-existing — surfaced by the file-split review).
                 //
-                // Order matters (Copilot R9 HEld): synthesise an
+                // Order matters (Copilot R9 HEld): synthesise the
                 // `aborted` reply for each in-flight fetch BEFORE
                 // we cancel the worker, because cancelled workers
                 // suppress their own `FetchResponse` on
@@ -412,22 +420,7 @@ impl NetworkProcessState {
                 // `handle_cancel_fetch`'s synthetic-reply step.
                 let client_ids: Vec<u64> = self.clients.keys().copied().collect();
                 for cid in client_ids {
-                    let inflight_for_client: Vec<FetchId> = self
-                        .cancel_tokens
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .keys()
-                        .filter(|(c, _)| *c == cid)
-                        .map(|(_, fid)| *fid)
-                        .collect();
-                    if let Some(tx) = self.clients.get(&cid) {
-                        for fid in &inflight_for_client {
-                            let _ = tx.send(NetworkToRenderer::FetchResponse(
-                                *fid,
-                                Err("aborted".into()),
-                            ));
-                        }
-                    }
+                    self.synthesise_aborted_replies_for_client(cid);
                     self.close_all_for_client(cid);
                     self.cancel_inflight_fetches_for(cid);
                 }
@@ -542,6 +535,41 @@ impl NetworkProcessState {
             if let Some(handle) = self.sse_handles.remove(&key) {
                 let _ = handle.command_tx.send(SseCommand::Close);
             }
+        }
+    }
+
+    /// Push a synthetic `FetchResponse(id, Err("aborted"))` to
+    /// `client_id` for every fetch currently in `cancel_tokens`
+    /// keyed by this client.  Mirrors `handle_cancel_fetch`'s
+    /// synthetic-reply step, but for every owned fetch in one
+    /// pass.
+    ///
+    /// **Order contract**: callers must invoke this BEFORE
+    /// triggering the cancel tokens (and before removing the
+    /// client from `clients`).  Cancelled workers suppress
+    /// their own `FetchResponse` on `NetErrorKind::Cancelled`,
+    /// so the synthetic reply is the *only* terminal event the
+    /// renderer-side Promise will ever see.  Doing this after
+    /// cancel — or after `clients.remove` — leaves the Promise
+    /// pending forever (Copilot R9 HEld for broker `Shutdown`,
+    /// R11 HJTc for `UnregisterRenderer`).
+    ///
+    /// No-op if `client_id` is not in `self.clients` (the
+    /// reply has nowhere to go).
+    fn synthesise_aborted_replies_for_client(&self, client_id: u64) {
+        let Some(tx) = self.clients.get(&client_id) else {
+            return;
+        };
+        let inflight: Vec<FetchId> = self
+            .cancel_tokens
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .filter(|(c, _)| *c == client_id)
+            .map(|(_, fid)| *fid)
+            .collect();
+        for fid in inflight {
+            let _ = tx.send(NetworkToRenderer::FetchResponse(fid, Err("aborted".into())));
         }
     }
 
