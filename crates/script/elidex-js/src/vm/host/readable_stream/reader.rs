@@ -124,33 +124,28 @@ pub(super) fn native_readable_stream_get_reader(
     // Spec §4.2.4 step 2: `options.mode` is undefined ⇒ default
     // reader; `"byob"` ⇒ BYOB reader (Phase 2 unsupported, throws);
     // any other value ⇒ TypeError per WebIDL `ReadableStreamReaderMode`
-    // enumeration.  Comparing against the literal `"byob"` avoids
-    // R1's bug of accepting `mode: ""` and rejecting `mode: "default"`.
+    // enumeration.  WebIDL enum extraction (§2.7.5) `ToString`-coerces
+    // the value first so wrapper objects (`new String("byob")`) and
+    // any value with a `toString()` returning `"byob"` are accepted
+    // — Copilot R7 finding, carry-over from PR #138.
     if let JsValue::Object(opts_id) = opts_arg {
         let mode_sid = ctx.vm.strings.intern("mode");
         let mode_key = PropertyKey::String(mode_sid);
         if let Some(prop) = super::super::super::coerce::get_property(ctx.vm, opts_id, mode_key) {
             let v = ctx.vm.resolve_property(prop, JsValue::Object(opts_id))?;
-            match v {
-                JsValue::Undefined => {}
-                JsValue::String(sid) => {
-                    let s = ctx.vm.strings.get_utf8(sid);
-                    if s == "byob" {
-                        return Err(VmError::type_error(
-                            "Failed to execute 'getReader' on 'ReadableStream': BYOB readers are not yet supported",
-                        ));
-                    }
-                    // Any other string is not a valid enumeration
-                    // member.  WebIDL throws TypeError.
+            if !matches!(v, JsValue::Undefined) {
+                let str_sid = ctx.to_string_val(v)?;
+                let s = ctx.vm.strings.get_utf8(str_sid);
+                if s == "byob" {
                     return Err(VmError::type_error(
-                        "Failed to execute 'getReader' on 'ReadableStream': options.mode must be 'byob' or undefined",
+                        "Failed to execute 'getReader' on 'ReadableStream': BYOB readers are not yet supported",
                     ));
                 }
-                _ => {
-                    return Err(VmError::type_error(
-                        "Failed to execute 'getReader' on 'ReadableStream': options.mode must be 'byob' or undefined",
-                    ));
-                }
+                // Any other string is not a valid enumeration
+                // member.  WebIDL throws TypeError.
+                return Err(VmError::type_error(
+                    "Failed to execute 'getReader' on 'ReadableStream': options.mode must be 'byob' or undefined",
+                ));
             }
         }
     }

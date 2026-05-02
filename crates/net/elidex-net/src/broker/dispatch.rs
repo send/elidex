@@ -369,7 +369,30 @@ impl NetworkProcessState {
                 self.clients.remove(&client_id);
                 true
             }
-            NetworkProcessControl::Shutdown => false,
+            NetworkProcessControl::Shutdown => {
+                // Close every renderer's connections + cancel its
+                // in-flight fetches before exiting the loop.  Without
+                // this, fetch worker threads keep their tokio futures
+                // running past `NetworkProcessHandle::shutdown()` and
+                // can deliver replies into channel clones the workers
+                // captured at dispatch time, while WS/SSE I/O threads
+                // continue holding their handles (Copilot R7 finding,
+                // pre-existing — surfaced by the file-split review).
+                //
+                // Mirror the per-client `UnregisterRenderer` path so
+                // the cleanup is uniform: `close_all_for_client`
+                // closes WS/SSE handles and triggers cancel on every
+                // matching `(cid, FetchId)` token, which in turn lets
+                // worker threads observe `NetErrorKind::Cancelled`,
+                // suppress their (now-misrouted) reply, and drop
+                // their `FetchInflightGuard` + `CancelMapEntryGuard`.
+                let client_ids: Vec<u64> = self.clients.keys().copied().collect();
+                for cid in client_ids {
+                    self.close_all_for_client(cid);
+                }
+                self.clients.clear();
+                false
+            }
         }
     }
 

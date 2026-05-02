@@ -1004,6 +1004,35 @@ fn stream_tee_method_not_installed() {
     assert!(!v, "tee must not be installed in Phase 2");
 }
 
+/// PR-file-split-a Copilot R7 regression: `getReader`'s
+/// `options.mode` is a WebIDL enum, so its value must go through
+/// `ToString` before membership-check.  A `String` wrapper
+/// (`new String("byob")`) should reach the BYOB branch — pre-fix
+/// the Rust `match` only accepted a primitive `JsValue::String`.
+///
+/// **Limitation**: full ToString for plain objects (calling
+/// `OrdinaryToPrimitive`/`toString()`) is not yet implemented in
+/// `vm/coerce.rs::to_string` — non-wrapper Objects still resolve
+/// to the `object_to_string` placeholder.  Once that lands the
+/// `{ toString() { return "byob"; } }` form will reach the BYOB
+/// branch automatically; tracked alongside the broader
+/// ToString/ToNumber rework in `phase4-plan.md`.
+#[test]
+fn get_reader_mode_string_wrapper_byob_throws_unsupported() {
+    let mut vm = Vm::new();
+    let result = vm.eval(
+        r#"
+        const s = new ReadableStream();
+        s.getReader({ mode: new String("byob") });
+        "#,
+    );
+    let err = result.expect_err("BYOB throw expected");
+    assert!(
+        err.to_string().contains("BYOB"),
+        "expected BYOB-unsupported message, got: {err}"
+    );
+}
+
 /// PR-file-split-a Copilot R3 regression: `pull_should_fire`
 /// must honour spec §4.5.13 step 4 — pull is required while a
 /// locked reader has at least one pending read request, even
