@@ -225,18 +225,27 @@ fn stream_state_mut(vm: &mut VmInner, stream_id: ObjectId) -> &mut ReadableStrea
 // Constructor + helpers
 // ---------------------------------------------------------------------------
 
-/// Coerce a `highWaterMark` user input to a non-negative finite f64
-/// per spec §4.7 / §4.8 (and §6.1 ValidateAndNormalizeHighWaterMark).
-/// Phase 2: rejects `NaN` and negative numbers with `RangeError`,
-/// and rejects non-Number / non-Undefined inputs with `TypeError`
-/// (full ToNumber coercion lands with M4-13 spec-polish — at that
-/// point the input would coerce to NaN and follow the RangeError
-/// path).  `+Infinity` is allowed (spec permits but pull algorithm
-/// checks `finite-ish` behaviour separately).
+/// Coerce a `highWaterMark` *property value* to a non-negative
+/// finite f64 per spec §4.7 / §4.8 (and §6.1
+/// ValidateAndNormalizeHighWaterMark).  Phase 2: rejects `NaN`
+/// and negative numbers with `RangeError`, and rejects
+/// non-Number / non-Undefined inputs (including `null`) with
+/// `TypeError`.  Full ToNumber coercion lands with M4-13
+/// spec-polish — at that point `null` would coerce to 0 and
+/// other non-numerics to NaN (RangeError path).  `+Infinity` is
+/// allowed (spec permits but pull algorithm checks `finite-ish`
+/// behaviour separately).
+///
+/// Note this is the *property-value* coercion path — distinct
+/// from the *positional argument* path in
+/// `native_readable_stream_constructor`, which treats both
+/// `undefined` and `null` as "no init object supplied" per
+/// WebIDL dict-from-null semantics (matches Chromium's
+/// `new ReadableStream(null)` acceptance).
 fn normalize_high_water_mark(hwm: JsValue) -> Result<f64, VmError> {
     let n = match hwm {
         JsValue::Number(n) => n,
-        JsValue::Undefined | JsValue::Null => return Ok(1.0),
+        JsValue::Undefined => return Ok(1.0),
         _ => return Err(VmError::type_error(
             "Failed to construct 'ReadableStream': highWaterMark coercion not supported in Phase 2",
         )),
