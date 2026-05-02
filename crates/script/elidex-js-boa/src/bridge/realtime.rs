@@ -2,7 +2,7 @@
 //!
 //! Manages JS callback state for active WebSocket and `EventSource` connections.
 //! Network I/O is handled by the Network Process (via `NetworkHandle` in
-//! `elidex-net/broker.rs`); this module only stores the JS-side state
+//! `elidex_net::broker`); this module only stores the JS-side state
 //! (event handlers, ready state, buffered amount, etc.).
 //!
 //! Connection lifecycle:
