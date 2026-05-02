@@ -69,8 +69,9 @@ impl Drop for CancelMapEntryGuard {
 mod tests {
     use super::*;
 
-    /// Regression for Copilot R2 (broker.rs cancel_map leak on
-    /// worker panic): the worker thread must remove its
+    /// Regression for Copilot R2 (PR-true-request-cancellation,
+    /// PR #136 — `cancel_map` leak on worker panic): the worker
+    /// thread must remove its
     /// `(cid, fetch_id)` entry from [`CancelMap`] even on
     /// unwind, otherwise an `expect()` panic anywhere in the
     /// hot path leaks the entry and grows the map past its

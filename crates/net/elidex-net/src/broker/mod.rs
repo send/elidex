@@ -658,8 +658,9 @@ mod tests {
         np.shutdown();
     }
 
-    /// Cross-client cancel isolation (Copilot R1, broker.rs):
-    /// renderer A cannot cancel renderer B's in-flight fetch by
+    /// Cross-client cancel isolation (Copilot R1,
+    /// PR-true-request-cancellation, PR #136): renderer A
+    /// cannot cancel renderer B's in-flight fetch by
     /// sending `CancelFetch` with B's `FetchId`.  Pre-fix the
     /// `cancel_tokens` map was keyed only by `FetchId` so A's
     /// cancel triggered B's [`crate::CancelHandle`] — the worker
