@@ -646,6 +646,43 @@ fn body_returns_null_for_no_body_response() {
     assert!(eval_global_bool(source, "result"));
 }
 
+// ---------------------------------------------------------------------------
+// R4 regression: spec-edge bugs caught in Copilot review round 4
+// ---------------------------------------------------------------------------
+
+/// R4.1: a size() that returns a negative number must error the
+/// stream with RangeError per spec §4.5.4 step 4 (negatives would
+/// invert `desiredSize` arithmetic).
+#[test]
+fn negative_size_algorithm_errors_stream() {
+    let source = r#"
+        let ctrl;
+        const s = new ReadableStream(
+            { start(c) { ctrl = c; } },
+            { highWaterMark: 1, size: () => -1 }
+        );
+        const r = s.getReader();
+        r.read().then(_ => { globalThis.result = "ok"; },
+                      _ => { globalThis.result = "rejected"; });
+        try { ctrl.enqueue("x"); } catch (_) {}
+    "#;
+    assert_eq!(eval_global_string(source, "result"), "rejected");
+}
+
+/// R4.3: empty fetch responses (or any non-opaque body-carrying
+/// response with zero bytes) must expose `.body` as a closed
+/// ReadableStream per spec §4.1, not `null`.  Verified
+/// indirectly via `new Response("")` since fetch tests need a
+/// broker.
+#[test]
+fn body_for_empty_response_is_a_readable_stream() {
+    let source = r#"
+        const r = new Response("");
+        globalThis.result = r.body instanceof ReadableStream;
+    "#;
+    assert!(eval_global_bool(source, "result"));
+}
+
 #[test]
 fn stream_tee_method_not_installed() {
     // Phase 2: `tee` is intentionally absent — `'tee' in stream`

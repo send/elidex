@@ -662,9 +662,14 @@ fn controller_enqueue(
             ctx.call_function(fn_id, JsValue::Undefined, &[chunk])
         };
         match res {
-            Ok(JsValue::Number(n)) if n.is_finite() => n,
+            // Spec §4.5.4 step 4: size must be a non-NaN, finite,
+            // non-negative number.  Negatives would invert
+            // `desiredSize` arithmetic and let `queue_total_size`
+            // grow above `highWaterMark` — pull would never fire.
+            Ok(JsValue::Number(n)) if n.is_finite() && n >= 0.0 => n,
             Ok(_) => {
-                let err = VmError::range_error("size algorithm returned a non-finite number");
+                let err =
+                    VmError::range_error("size algorithm returned a non-finite or negative number");
                 let reason = vm.vm_error_to_thrown(&err);
                 error_stream(vm, stream_id, reason);
                 return Err(err);
@@ -1226,10 +1231,19 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
     // Materialise a single `Uint8Array` chunk from `bytes`.  The
     // ArrayBuffer goes through `body_data` like any other buffer
     // — the stream's own ObjectKind doesn't carry the bytes.
+    //
+    // TypedArray's `byte_length` is stored as `u32`; bodies > 4GiB
+    // would silently truncate, exposing a Uint8Array view that
+    // doesn't cover the full payload.  Phase 2 doesn't yet split
+    // oversized bodies into multiple chunks (Phase 5
+    // PR-streams-network covers chunked emit), so for the rare
+    // >4GiB case we ship an immediately-errored stream rather
+    // than a half-truncated chunk.
     let buf_id = super::array_buffer::create_array_buffer_from_bytes(vm, bytes);
     let bytes_len = vm.body_data.get(&buf_id).map_or(0, std::vec::Vec::len);
+    let oversize = bytes_len > u32::MAX as usize;
     #[allow(clippy::cast_possible_truncation)]
-    let byte_length = bytes_len as u32;
+    let byte_length = if oversize { 0 } else { bytes_len as u32 };
     let byte_offset: u32 = 0;
     let element_kind = super::super::value::ElementKind::Uint8;
     let typed_proto = vm.subclass_array_prototypes[element_kind.index()];
@@ -1275,9 +1289,19 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
     // Stream is `Readable` with a queued chunk + close_requested
     // — the spec's "wait for the queue to drain before closing"
     // path matches exactly.  If the chunk is empty (`byte_length
-    // == 0`) the stream finalises Closed immediately.
+    // == 0`) the stream finalises Closed immediately.  Oversize
+    // bodies fall through here too: queue stays empty so close
+    // finalises, and the stream is then errored so a reader's
+    // first `read()` rejects with the body-too-large reason.
     if byte_length == 0 {
         finalize_close(vm, stream_id);
+    }
+    if oversize {
+        let err = VmError::range_error(
+            "Failed to materialise body stream: payload exceeds 4 GiB Uint8Array view limit",
+        );
+        let reason = vm.vm_error_to_thrown(&err);
+        error_stream(vm, stream_id, reason);
     }
     stream_id
 }
