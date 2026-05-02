@@ -505,20 +505,16 @@ pub(crate) fn run_pull_step(
         error_stream(vm, stream_id, value);
         return Ok(JsValue::Undefined);
     }
-    let pull_again = {
+    {
         let state = stream_state_mut(vm, stream_id);
         state.pull_in_flight = false;
-        let again = state.pull_again;
         state.pull_again = false;
-        again
-    };
-    if pull_again {
-        pull_if_needed(vm, stream_id);
-    } else {
-        // After pull settled, more chunks may be desired —
-        // recheck.  `pull_if_needed` self-gates on `desired_size`.
-        pull_if_needed(vm, stream_id);
     }
+    // Spec §4.5.10: regardless of whether `pull_again` was set
+    // during the pull or not, recheck `desired_size` here —
+    // `pull_if_needed` self-gates on `should_pull`, so the two
+    // branches collapse to one call.
+    pull_if_needed(vm, stream_id);
     Ok(JsValue::Undefined)
 }
 
@@ -1235,6 +1231,17 @@ pub(super) fn native_reader_cancel(
 /// Chunked streaming (e.g. broker push of partial response
 /// payloads) lands with Phase 5 PR-streams-network.
 pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> ObjectId {
+    // TypedArray's `byte_length` is stored as `u32`; bodies > 4 GiB
+    // would silently truncate, exposing a Uint8Array view that
+    // doesn't cover the full payload.  Phase 2 doesn't yet split
+    // oversized bodies into multiple chunks (Phase 5
+    // PR-streams-network covers chunked emit), so for the rare
+    // >4 GiB case we ship an immediately-errored stream — and we
+    // skip the ArrayBuffer / Uint8Array allocation entirely
+    // (Copilot R6 perf finding: there's no chunk to read so the
+    // huge `Vec<u8>` would be wasted in `body_data`).
+    let bytes_len = bytes.len();
+    let oversize = bytes_len > u32::MAX as usize;
     let stream_proto = vm.readable_stream_prototype;
     let stream_id = vm.alloc_object(Object {
         kind: ObjectKind::ReadableStream,
@@ -1251,42 +1258,37 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
         extensible: true,
     });
 
-    // Materialise a single `Uint8Array` chunk from `bytes`.  The
-    // ArrayBuffer goes through `body_data` like any other buffer
-    // — the stream's own ObjectKind doesn't carry the bytes.
-    //
-    // TypedArray's `byte_length` is stored as `u32`; bodies > 4GiB
-    // would silently truncate, exposing a Uint8Array view that
-    // doesn't cover the full payload.  Phase 2 doesn't yet split
-    // oversized bodies into multiple chunks (Phase 5
-    // PR-streams-network covers chunked emit), so for the rare
-    // >4GiB case we ship an immediately-errored stream rather
-    // than a half-truncated chunk.
-    let buf_id = super::array_buffer::create_array_buffer_from_bytes(vm, bytes);
-    let bytes_len = vm.body_data.get(&buf_id).map_or(0, std::vec::Vec::len);
-    let oversize = bytes_len > u32::MAX as usize;
-    #[allow(clippy::cast_possible_truncation)]
-    let byte_length = if oversize { 0 } else { bytes_len as u32 };
-    let byte_offset: u32 = 0;
-    let element_kind = super::super::value::ElementKind::Uint8;
-    let typed_proto = vm.subclass_array_prototypes[element_kind.index()];
-    let typed_id = vm.alloc_object(Object {
-        kind: ObjectKind::TypedArray {
-            buffer_id: buf_id,
-            byte_offset,
-            byte_length,
-            element_kind,
-        },
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: typed_proto,
-        extensible: true,
-    });
-
-    let mut queue = VecDeque::new();
-    if byte_length > 0 {
+    // Materialise a single `Uint8Array` chunk from `bytes` only
+    // when there's a non-empty payload to read.  Empty bodies and
+    // oversize bodies skip the buffer + view alloc — the stream
+    // closes (empty) or errors (oversize) without ever exposing
+    // a chunk to user code.  R6 perf: avoids allocating two
+    // unused `Object`s for those paths.
+    let mut queue: VecDeque<(JsValue, f64)> = VecDeque::new();
+    if !oversize && bytes_len > 0 {
+        let buf_id = super::array_buffer::create_array_buffer_from_bytes(vm, bytes);
+        #[allow(clippy::cast_possible_truncation)]
+        let byte_length = bytes_len as u32;
+        let element_kind = super::super::value::ElementKind::Uint8;
+        let typed_proto = vm.subclass_array_prototypes[element_kind.index()];
+        let typed_id = vm.alloc_object(Object {
+            kind: ObjectKind::TypedArray {
+                buffer_id: buf_id,
+                byte_offset: 0,
+                byte_length,
+                element_kind,
+            },
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: typed_proto,
+            extensible: true,
+        });
         queue.push_back((JsValue::Object(typed_id), 1.0));
     }
-    let queue_total_size = if byte_length > 0 { 1.0 } else { 0.0 };
+    // (For empty / oversize, `bytes` is dropped here — its
+    // backing allocation is freed at end of scope.  Oversize
+    // bodies in particular avoid moving GiBs into `body_data`
+    // only to error the stream right after.)
+    let queue_total_size = if queue.is_empty() { 0.0 } else { 1.0 };
 
     vm.readable_stream_states.insert(
         stream_id,
@@ -1316,14 +1318,15 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
     // `finalize_close` flips state to Closed, after which
     // `error_stream` early-returns and the oversize stream
     // would silently report `done: true` instead of rejecting
-    // (Copilot R5 finding).  So error before any close.
+    // (R5 finding).  Empty bodies have no chunk to read so the
+    // close finalises immediately.
     if oversize {
         let err = VmError::range_error(
             "Failed to materialise body stream: payload exceeds 4 GiB Uint8Array view limit",
         );
         let reason = vm.vm_error_to_thrown(&err);
         error_stream(vm, stream_id, reason);
-    } else if byte_length == 0 {
+    } else if bytes_len == 0 {
         finalize_close(vm, stream_id);
     }
     stream_id
