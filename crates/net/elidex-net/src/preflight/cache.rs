@@ -1,21 +1,19 @@
 //! CORS preflight cache (WHATWG Fetch §4.8 step 19 + step 22).
 //!
-//! Caches the [`crate::preflight::PreflightAllowance`] result of
-//! a successful preflight, keyed on `(origin, url, method,
-//! header-name-set)`.  Subsequent requests with the same key skip
-//! the OPTIONS round-trip while still re-validating the actual
-//! request's method/headers against the cached allowance.
+//! Caches the [`super::PreflightAllowance`] result of a successful
+//! preflight, keyed on `(origin, url, method, header-name-set)`.
+//! Subsequent requests with the same key skip the OPTIONS round-
+//! trip while still re-validating the actual request's method /
+//! headers against the cached allowance.
 //!
 //! Cache entries expire after `Access-Control-Max-Age` seconds
-//! (capped to [`crate::preflight::MAX_AGE_CAP_SECONDS`]).
+//! (capped to [`super::MAX_AGE_CAP_SECONDS`]).
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crate::preflight::{
-    is_broker_injected_header, is_cors_safelisted_request_header, PreflightAllowance,
-};
+use super::{is_broker_injected_header, is_cors_safelisted_request_header, PreflightAllowance};
 use crate::Request;
 
 /// Cache key for a preflight result (WHATWG Fetch §4.8 step 22).

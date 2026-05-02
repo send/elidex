@@ -5,8 +5,7 @@
 //! rules before connecting.
 
 use crate::error::{NetError, NetErrorKind};
-use crate::preflight::{requires_preflight, run_preflight};
-use crate::preflight_cache::PreflightCache;
+use crate::preflight::{requires_preflight, run_preflight, PreflightCache};
 use crate::transport::HttpTransport;
 use crate::{CredentialsMode, RedirectMode, Request, RequestMode, Response};
 use bytes::Bytes;

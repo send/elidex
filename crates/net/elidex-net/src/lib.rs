@@ -31,7 +31,6 @@ pub mod https_upgrade;
 pub mod middleware;
 pub(crate) mod pool;
 pub mod preflight;
-pub mod preflight_cache;
 pub(crate) mod redirect;
 pub mod resource_loader;
 pub mod sse;
@@ -52,9 +51,8 @@ pub use fetch_handle::FetchHandle;
 pub use middleware::MiddlewareChain;
 pub use preflight::{
     build_preflight_request, requires_preflight, run_preflight, validate_actual_against_allowance,
-    validate_preflight_response, PreflightAllowance,
+    validate_preflight_response, PreflightAllowance, PreflightCache, PreflightCacheKey,
 };
-pub use preflight_cache::{PreflightCache, PreflightCacheKey};
 pub use resource_loader::{ResourceLoader, ResourceResponse, SchemeDispatcher};
 pub use transport::{HttpTransport, HttpVersion, TransportConfig};
 

@@ -1,304 +1,24 @@
-//! `fetch(input, init?)` host global (WHATWG Fetch §5.1).
+//! [`elidex_net::Request`] construction for `fetch(input, init?)`.
 //!
-//! Routes a JS-level fetch request through the embedding-supplied
-//! [`NetworkHandle`] (see `Vm::install_network_handle`) and returns
-//! a Promise that settles when the broker reply lands on a
-//! subsequent [`super::super::Vm::tick_network`] call.
-//!
-//! ## Async lifecycle (M4-12 PR5-async-fetch)
-//!
-//! 1. `native_fetch` parses arguments, builds an
-//!    [`elidex_net::Request`], and calls
-//!    [`elidex_net::broker::NetworkHandle::fetch_async`] which
-//!    returns a [`FetchId`] immediately.
-//! 2. The Promise is created Pending and stored in
-//!    [`super::super::VmInner::pending_fetches`] keyed by `FetchId`.
-//!    If `init.signal` is set, the fetch_id is also pushed to
-//!    [`super::super::VmInner::fetch_abort_observers`]`[signal_id]`
-//!    and a reverse entry written to
-//!    [`super::super::VmInner::fetch_signal_back_refs`] for O(1)
-//!    prune on broker reply.
-//! 3. The shell event loop later calls `vm.tick_network()`, which
-//!    drains [`elidex_net::broker::NetworkHandle::drain_events`].
-//!    For each `FetchResponse(id, result)`, the matching entry is
-//!    removed from `pending_fetches`; the Promise is fulfilled with
-//!    a fresh `Response` (success path) or rejected with a
-//!    `TypeError("Failed to fetch: ...")` (broker error / abort).
-//! 4. Mid-flight `controller.abort()` settles the Promise
-//!    synchronously via [`super::abort::abort_signal`] (see that
-//!    module for the fan-out).  The eventual broker reply for
-//!    that fetch is silently dropped because its `pending_fetches`
-//!    entry was already removed.
-//!
-//! ## Phase 2 scope (preserved)
-//!
-//! - Input as URL string or as a [`Request`] instance.  The VM's
-//!   existing `Request` constructor handles the canonicalisation
-//!   work; `fetch()` calls the same helpers (`parse_url`,
-//!   `extract_body_bytes`) from `request_response.rs` so the
-//!   behaviour matches byte-for-byte.
-//! - `init.method` / `init.headers` / `init.body` / `init.signal`
-//!   parsed in the obvious way.  `signal` is brand-checked and
-//!   pre-flight-aborted.  `mode` / `credentials` / `cache` /
-//!   `redirect` are accepted silently — full enforcement lands
-//!   with subsequent stages of the PR5 series.
-//! - Errors map per WHATWG §5.2: network failures / missing
-//!   handle / bad URL / bad body all reject with **`TypeError`**
-//!   (not `DOMException`).  Spec-prescribed text is
-//!   `"Failed to fetch"`; the broker's error message is appended
-//!   for diagnostics.
-//! - Response is converted via the VM's existing Response
-//!   scaffolding: new `ObjectKind::Response`, companion `Headers`
-//!   with `Immutable` guard, body bytes in the shared
-//!   `body_data` map.  `response_type` is `Basic` for successful
-//!   responses (CORS classification lands with PR5-cors).
-
-#![cfg(feature = "engine")]
+//! Converts a JS-side `(input, init)` pair into the broker-level
+//! Request shape, layering `init.*` overrides on top of either a
+//! source [`elidex_net::Request`] instance or a URL string.
+//! Auto-attaches the WHATWG-mandated `Origin` and `Referer`
+//! headers; injects the `init.cache` mode's spec
+//! `Cache-Control` / `Pragma` defaults.
 
 use std::sync::Arc;
 
 use bytes::Bytes;
 use url::Url;
 
-use super::super::shape;
-use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, VmError,
+use super::super::super::value::{
+    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, VmError,
 };
-use super::super::VmInner;
-use super::blob::reject_promise_sync;
-use super::headers::HeadersGuard;
-use super::request_response::{
+use super::super::request_response::{
     extract_body_bytes, parse_request_cache, parse_request_credentials, parse_request_mode,
     parse_request_redirect, parse_url, RedirectMode, RequestCache, RequestCredentials, RequestMode,
-    ResponseState, ResponseType,
 };
-
-// ---------------------------------------------------------------------------
-// Registration
-// ---------------------------------------------------------------------------
-
-impl VmInner {
-    /// Install the `fetch` global.  Runs during `register_globals()`
-    /// after `register_response_global` (so `response_prototype` is
-    /// populated when the first fetch response is constructed).
-    pub(in crate::vm) fn register_fetch_global(&mut self) {
-        let name = "fetch";
-        let fn_id = self.create_native_function(name, native_fetch);
-        let name_sid = self.strings.intern(name);
-        self.globals.insert(name_sid, JsValue::Object(fn_id));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
-
-/// `fetch(input, init?)` (WHATWG Fetch §5.1).
-///
-/// Post-binding failures (URL parse, header validation, network
-/// error, pre-flight abort, invalid `signal`) all reject the
-/// returned Promise rather than throwing synchronously, matching
-/// the WHATWG Fetch contract that `fetch()` returns a Promise for
-/// every well-formed call.  The exceptions are WebIDL
-/// binding-level checks that run *before* the method body and
-/// must therefore throw synchronously (verified on Chrome /
-/// Firefox / Safari):
-///
-/// - No arguments at all → "not enough arguments" (R19.1).
-/// - `init` is a non-object / non-undefined / non-null — WebIDL
-///   dictionary type conversion rejects the value (R20.1).
-fn native_fetch(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // WebIDL binding: missing required `input` → synchronous
-    // TypeError, not a Promise rejection.  Must run *before*
-    // `create_promise` so callers that never handed any argument
-    // see the same shape (`try { fetch() } catch (e) { ... }`)
-    // as browsers.
-    if args.is_empty() {
-        return Err(VmError::type_error(
-            "Failed to execute 'fetch': 1 argument required, but only 0 present.",
-        ));
-    }
-
-    // WebIDL `RequestInit` is a dictionary argument.  Conversion
-    // of a non-object / non-undefined / non-null value to a
-    // dictionary fails at the binding layer, producing a
-    // synchronous TypeError (same shape as `new Request(..., 42)`
-    // and `new Response(..., 42)` — both already throw sync).
-    // Must run before `create_promise` so the observable shape
-    // matches browsers: `try { fetch(url, 42) } catch (e) { ... }`
-    // catches here rather than `.catch(e => ...)`-ing a rejected
-    // Promise (R20.1).
-    let init_raw = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    if !matches!(
-        init_raw,
-        JsValue::Undefined | JsValue::Null | JsValue::Object(_)
-    ) {
-        return Err(VmError::type_error(
-            "Failed to execute 'fetch': init must be an object",
-        ));
-    }
-
-    let promise = super::super::natives_promise::create_promise(ctx.vm);
-
-    // Root `promise` across every subsequent allocation.
-    // `alloc_object` contract requires callers to root any
-    // `ObjectId` reachable only through a Rust local whenever a
-    // later alloc could trigger GC (see `vm/mod.rs::alloc_object`
-    // and `vm/temp_root.rs`'s contract docs).  The guard below pushes the
-    // Promise onto the VM stack; `temp_holder` + shadowed `ctx`
-    // reborrow the guard so the rest of the function reads and
-    // writes vm state through the rooted path without touching
-    // the original outer `ctx` (whose `&mut vm` is borrowed by
-    // the guard and thus frozen until the guard drops).
-    //
-    // Current runtime has `gc_enabled = false` inside every
-    // native call, so the racy alloc-during-GC path this guards
-    // against is unreachable today — but matching the invariant
-    // elsewhere in the VM (`wrap_in_array_iterator`, event
-    // constructors) keeps the codebase uniform and protects
-    // against future refactors that relax the gate.
-    let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut temp_holder = super::super::value::NativeContext { vm: &mut *g };
-    let ctx = &mut temp_holder;
-
-    // Parse `init.signal` before building the Request so a bogus
-    // `signal` value (non-AbortSignal primitive or DOM object)
-    // rejects without first running the more expensive URL /
-    // headers / body parse.  WHATWG Fetch §5.4 Request
-    // constructor step 29 requires the brand check.  `init_raw`
-    // above is already normalised to `Undefined`/`Null`/`Object(_)`
-    // by the R20.1 binding-level guard — `extract_signal_from_init`
-    // only needs to handle those three shapes.
-    let signal = match extract_signal_from_init(ctx, init_raw) {
-        Ok(sid) => sid,
-        Err(err) => {
-            let reason = ctx.vm.vm_error_to_thrown(&err);
-            reject_promise_sync(ctx.vm, promise, reason);
-            return Ok(JsValue::Object(promise));
-        }
-    };
-
-    // Pre-flight abort: WHATWG Fetch §5.1 main-fetch step 3.
-    // Check *before* building the request so an already-aborted
-    // signal short-circuits the whole pipeline.
-    if let Some(signal_id) = signal {
-        if let Some(reason) = pre_flight_abort_reason(ctx, signal_id) {
-            reject_promise_sync(ctx.vm, promise, reason);
-            return Ok(JsValue::Object(promise));
-        }
-    }
-
-    // Build the broker-level Request.  Any validation failure
-    // settles the Promise directly — no synchronous throw.
-    let (request, cors_meta) = match build_net_request(ctx, args) {
-        Ok(pair) => pair,
-        Err(err) => {
-            let reason = ctx.vm.vm_error_to_thrown(&err);
-            reject_promise_sync(ctx.vm, promise, reason);
-            return Ok(JsValue::Object(promise));
-        }
-    };
-
-    // No handle installed → reject immediately.  Matches
-    // `NetworkHandle::disconnected()` semantics for callers that
-    // never wired up a broker.
-    let Some(handle) = ctx.vm.network_handle.clone() else {
-        let err = VmError::type_error("Failed to fetch: no NetworkHandle installed on this VM");
-        let reason = ctx.vm.vm_error_to_thrown(&err);
-        reject_promise_sync(ctx.vm, promise, reason);
-        return Ok(JsValue::Object(promise));
-    };
-
-    // Async broker dispatch.  Returns a `FetchId` immediately; the
-    // reply lands on a future `vm.tick_network()` invocation.  The
-    // pending Promise is registered in `pending_fetches` so the
-    // tick handler can find it; if `signal` was supplied, the
-    // fetch_id is also added to the abort fan-out so a
-    // `controller.abort()` can route a CancelFetch to the broker
-    // and reject the Promise synchronously.
-    let fetch_id = handle.fetch_async(request);
-    ctx.vm.pending_fetches.insert(fetch_id, promise);
-    ctx.vm.pending_fetch_cors.insert(fetch_id, cors_meta);
-    if let Some(signal_id) = signal {
-        ctx.vm
-            .fetch_abort_observers
-            .entry(signal_id)
-            .or_default()
-            .push(fetch_id);
-        ctx.vm.fetch_signal_back_refs.insert(fetch_id, signal_id);
-    }
-
-    Ok(JsValue::Object(promise))
-}
-
-// ---------------------------------------------------------------------------
-// Signal extraction + pre-flight abort (WHATWG Fetch §5.1 / §5.4)
-// ---------------------------------------------------------------------------
-
-/// Read `init.signal` and validate its brand.  Returns:
-/// - `Ok(None)` when `init` is `undefined` / `null`, when `init`
-///   is an object without a `signal` own/inherited property, or
-///   when the property value is `undefined` / `null` (WHATWG
-///   Fetch §5.4 step 29: `null` is the explicit "no signal"
-///   sentinel).
-/// - `Ok(Some(id))` for a genuine `AbortSignal` instance (brand
-///   checked via `ObjectKind::AbortSignal`).
-/// - `Err(TypeError)` for any other non-null value, matching
-///   WHATWG WebIDL §3.2.1 interface-type conversion.
-///
-/// Runs before `build_net_request` so a bad signal rejects early
-/// without paying for URL / headers parsing.
-fn extract_signal_from_init(
-    ctx: &mut NativeContext<'_>,
-    init: JsValue,
-) -> Result<Option<ObjectId>, VmError> {
-    let opts_id = match init {
-        JsValue::Undefined | JsValue::Null => return Ok(None),
-        JsValue::Object(id) => id,
-        _ => {
-            // Non-object init is already rejected in
-            // `parse_init_for_fetch` — this helper is called
-            // earlier, so treat the same way: reject with the
-            // same spec wording.
-            return Err(VmError::type_error(
-                "Failed to execute 'fetch': init must be an object",
-            ));
-        }
-    };
-    let signal_key = PropertyKey::String(ctx.vm.well_known.signal);
-    let signal_val = ctx.get_property_value(opts_id, signal_key)?;
-    match signal_val {
-        JsValue::Undefined | JsValue::Null => Ok(None),
-        JsValue::Object(sid) if matches!(ctx.vm.get_object(sid).kind, ObjectKind::AbortSignal) => {
-            Ok(Some(sid))
-        }
-        _ => Err(VmError::type_error(
-            "Failed to execute 'fetch': member signal is not of type AbortSignal.",
-        )),
-    }
-}
-
-/// Return `Some(reason)` if `signal.aborted === true`, else
-/// `None`.  The reason is materialised by `abort_signal()` at the
-/// time `controller.abort()` ran, so reading `state.reason`
-/// surfaces the already-constructed `DOMException("AbortError")`
-/// (or the user-supplied value) without re-allocating.
-fn pre_flight_abort_reason(ctx: &NativeContext<'_>, signal_id: ObjectId) -> Option<JsValue> {
-    let state = ctx.vm.abort_signal_states.get(&signal_id)?;
-    if state.aborted {
-        Some(state.reason)
-    } else {
-        None
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Request construction
-// ---------------------------------------------------------------------------
 
 /// Build an [`elidex_net::Request`] from `fetch()`'s arguments.
 ///
@@ -316,13 +36,14 @@ fn pre_flight_abort_reason(ctx: &NativeContext<'_>, signal_id: ObjectId) -> Opti
 /// did not explicitly set — `None` preserves the base, `Some`
 /// replaces it.
 ///
-/// Returns the broker `Request` plus a [`FetchCorsMeta`]
-/// snapshot so the settlement step can run the CORS classifier
-/// without re-deriving any of these values.
-fn build_net_request(
+/// Returns the broker `Request` plus a
+/// [`super::super::cors::FetchCorsMeta`] snapshot so the
+/// settlement step can run the CORS classifier without re-deriving
+/// any of these values.
+pub(super) fn build_net_request(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
-) -> Result<(elidex_net::Request, super::cors::FetchCorsMeta), VmError> {
+) -> Result<(elidex_net::Request, super::super::cors::FetchCorsMeta), VmError> {
     // `native_fetch` rejects the empty-args case with a synchronous
     // `VmError::type_error` before calling us (R19.1 — WebIDL
     // binding "not enough arguments").  An empty slice here would
@@ -365,7 +86,7 @@ fn build_net_request(
             apply_cache_mode_headers(&mut headers, cache);
             reject_same_origin_cross_origin(&ctx.vm.navigation.current_url, &url, mode)?;
             let origin = origin_for_request(&ctx.vm.navigation.current_url, &url);
-            let cors_meta = super::cors::FetchCorsMeta {
+            let cors_meta = super::super::cors::FetchCorsMeta {
                 request_url: url.clone(),
                 request_origin: origin.clone(),
                 request_mode: mode,
@@ -388,7 +109,7 @@ fn build_net_request(
     }
 
     // Case 2: input is a URL string (or ToString-coerced).
-    let url_sid = super::super::coerce::to_string(ctx.vm, input)?;
+    let url_sid = super::super::super::coerce::to_string(ctx.vm, input)?;
     let raw_url_owned = ctx.vm.strings.get_utf8(url_sid);
     let url = parse_url(ctx.vm, &raw_url_owned).map_err(|_| {
         VmError::type_error(format!(
@@ -416,7 +137,7 @@ fn build_net_request(
     apply_cache_mode_headers(&mut headers, cache);
     reject_same_origin_cross_origin(&ctx.vm.navigation.current_url, &url, mode)?;
     let origin = origin_for_request(&ctx.vm.navigation.current_url, &url);
-    let cors_meta = super::cors::FetchCorsMeta {
+    let cors_meta = super::super::cors::FetchCorsMeta {
         request_url: url.clone(),
         request_origin: origin.clone(),
         request_mode: mode,
@@ -579,7 +300,7 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
 /// reserved for cross-origin disclosure per browser convention.
 /// In practice the early-return on a pre-existing `Origin` entry
 /// is unreachable for script-initiated fetches because
-/// [`super::headers::is_forbidden_request_header`] silently drops
+/// [`super::super::headers::is_forbidden_request_header`] silently drops
 /// user-set `Origin` at both the Request-guard `Headers` and the
 /// URL-input init.headers snapshot step (WHATWG Fetch §4.6); the
 /// guard remains as a defensive belt-and-braces in case a future
@@ -717,6 +438,7 @@ fn request_base_from_vm(
             "Failed to execute 'fetch': Request URL '{url_str}' did not re-parse"
         ))
     })?;
+
     let base_state = BaseState {
         mode: state.mode,
         credentials: state.credentials,
@@ -876,9 +598,9 @@ fn parse_init_overrides(
             let method_override = if matches!(method_val, JsValue::Undefined) {
                 None
             } else {
-                let sid = super::super::coerce::to_string(ctx.vm, method_val)?;
+                let sid = super::super::super::coerce::to_string(ctx.vm, method_val)?;
                 let raw = ctx.vm.strings.get_utf8(sid);
-                Some(super::request_response::validate_http_method(
+                Some(super::super::request_response::validate_http_method(
                     &raw,
                     "Failed to execute 'fetch'",
                 )?)
@@ -903,7 +625,7 @@ fn parse_init_overrides(
                 JsValue::Undefined => None,
                 JsValue::Null => Some(Vec::new()),
                 _ => {
-                    let entries = super::headers::parse_headers_init_entries(
+                    let entries = super::super::headers::parse_headers_init_entries(
                         ctx,
                         headers_val,
                         "Failed to execute 'fetch'",
@@ -918,7 +640,7 @@ fn parse_init_overrides(
                         .into_iter()
                         .filter_map(|(n, v)| {
                             let name = ctx.vm.strings.get_utf8(n);
-                            if super::headers::is_forbidden_request_header(&name) {
+                            if super::super::headers::is_forbidden_request_header(&name) {
                                 None
                             } else {
                                 Some((name, ctx.vm.strings.get_utf8(v)))
@@ -954,7 +676,7 @@ fn parse_init_overrides(
                     }
                     Some((bytes, None)) => {
                         let ct_default =
-                            super::request_response::content_type_for_body(ctx, body_val)
+                            super::super::request_response::content_type_for_body(ctx, body_val)
                                 .map(|sid| ctx.vm.strings.get_utf8(sid));
                         (Some(Some(Bytes::from_owner(bytes))), ct_default)
                     }
@@ -977,164 +699,3 @@ fn parse_init_overrides(
         )),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Response construction (broker → VM)
-// ---------------------------------------------------------------------------
-
-/// Wrap a broker [`Response`](elidex_net::Response) in a VM
-/// `Response` object.  Headers are lowercased name-side (matches
-/// `new Response`'s behaviour) and guarded Immutable.  Body bytes
-/// land in the shared `body_data` map so `.text()` / `.json()`
-/// / `.arrayBuffer()` / `.blob()` work without further copies.
-///
-/// The [`CorsClassification`] argument selects the Response
-/// shape:
-/// - `Basic`: full headers, full body, status / url verbatim.
-/// - `Cors`: headers filtered to CORS-safelisted +
-///   `Access-Control-Expose-Headers` names; body / status / url
-///   passed through.
-/// - `Opaque` / `OpaqueRedirect` (`opaque_shape: true`): empty
-///   headers, body dropped, status forced to 0, url emptied.
-///   Spec-mandated to prevent leakage of cross-origin data.
-pub(super) fn create_response_from_net(
-    vm: &mut VmInner,
-    response: elidex_net::Response,
-    classification: super::cors::CorsClassification,
-) -> ObjectId {
-    let proto = vm.response_prototype;
-    let inst_id = vm.alloc_object(Object {
-        kind: ObjectKind::Response,
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: proto,
-        extensible: true,
-    });
-
-    // Root the freshly-allocated Response across the next two
-    // allocations (the companion `create_headers` + the per-name
-    // / per-value `intern` calls).  Before `response_states`
-    // stores `inst_id` near the end of this function, the new
-    // Response is reachable only through this Rust local — per
-    // `alloc_object`'s contract, any subsequent alloc that
-    // triggers GC would reclaim it.  Same defensive invariant
-    // as `wrap_in_array_iterator` (R10) and `native_fetch`
-    // (R13).  The current runtime runs this site with
-    // `gc_enabled = false` (called from inside `native_fetch`),
-    // so the hazard is unreachable today; the guard future-
-    // proofs it.
-    let mut g = vm.push_temp_root(JsValue::Object(inst_id));
-
-    // Companion Headers — allocate mutable, splice, then flip
-    // to Immutable (matches `new Response(...)` contract).
-    //
-    // `headers_id` is also rooted across the header-splice work.
-    // `headers_states` is **not** itself a GC root (see
-    // `gc::mark_roots` — the entry is reached only via
-    // `response_states[inst_id].headers_id`), so until
-    // `response_states.insert(...)` links the Headers into the
-    // Response, `headers_id` is reachable only through this
-    // Rust local.  Route every subsequent allocation through `g2`
-    // to keep both `inst_id` and `headers_id` rooted across the
-    // `strings.intern` / `body_data.insert` / `response_states
-    // .insert` sequence below (R18.2).
-    // Apply the CORS classification to the response shape.  An
-    // opaque-shape response (Opaque / OpaqueRedirect) discards
-    // all headers, body, status, and URL so cross-origin data
-    // never leaks into JS.  A Cors-typed response filters
-    // headers down to CORS-safelisted +
-    // `Access-Control-Expose-Headers` names.  Basic / Default
-    // pass through verbatim.
-    let opaque_shape = classification.opaque_shape;
-    let response_type = classification.response_type;
-    let header_pairs: Vec<(String, String)> = if opaque_shape {
-        Vec::new()
-    } else if matches!(response_type, ResponseType::Cors) {
-        super::cors::filter_headers_for_cors_response(response.headers)
-    } else {
-        response.headers
-    };
-
-    let headers_id = g.create_headers(HeadersGuard::None);
-    let mut g2 = g.push_temp_root(JsValue::Object(headers_id));
-    {
-        // Route each broker-delivered header through the shared
-        // `validate_and_normalise` helper so the resulting
-        // `HeadersState` carries the **same** invariants as a
-        // script-constructed `Headers` instance: lowercased
-        // name, RFC 7230 token-valid name, CR/LF/NUL-free value,
-        // HTTP-whitespace-trimmed value.  Malformed entries
-        // (broker-side bug, not user input) are silently
-        // skipped — defensive, preserves the invariant even if
-        // the network layer later relaxes its own filters.
-        for (name, value) in header_pairs {
-            let name_sid = g2.strings.intern(&name);
-            let value_sid = g2.strings.intern(&value);
-            if let Ok((nn, nv)) =
-                super::headers::validate_and_normalise(&mut g2, name_sid, value_sid, "response")
-            {
-                if let Some(state) = g2.headers_states.get_mut(&headers_id) {
-                    state.list.push((nn, nv));
-                }
-            }
-        }
-        if let Some(state) = g2.headers_states.get_mut(&headers_id) {
-            state.guard = HeadersGuard::Immutable;
-        }
-    }
-
-    // Body bytes.  Insert (even an empty `Vec`) for non-opaque
-    // responses so `Response.body` materialises a ReadableStream
-    // — spec §4.1: a non-opaque response has a body that is a
-    // stream (possibly empty), never `null`.  Two exceptions
-    // skip the insert so `.body` stays `null`:
-    //   - opaque-shape responses (per §3.1.4: `.body` must be
-    //     `null` for opaque / opaque-redirect)
-    //   - null-body statuses 204 / 205 / 304 (per §4.1: those
-    //     statuses MUST have a null body — Copilot R8 finding).
-    //
-    // The HTTP response body is owned by `bytes::Bytes` (its own
-    // ref-counted handle); we copy it into a fresh `Vec<u8>` for
-    // installation in `body_data`, since that map's storage type
-    // is owned `Vec<u8>` so subsequent TypedArray / DataView
-    // writes can mutate it in place via `byte_io`.
-    let null_body_status = matches!(response.status, 204 | 205 | 304);
-    if !opaque_shape && !null_body_status {
-        g2.body_data.insert(inst_id, response.body.to_vec());
-    }
-
-    // Status / url rewrite for opaque-shape responses (WHATWG
-    // Fetch §3.1.4 / §3.1.6): status 0, url empty.  Basic /
-    // Cors pass through.
-    let final_status = if opaque_shape { 0 } else { response.status };
-    let url_sid = if opaque_shape {
-        g2.well_known.empty
-    } else {
-        g2.strings.intern(response.url.as_str())
-    };
-    let status_text_sid = g2.well_known.empty;
-    let redirected = response.url_list.len() > 1;
-
-    g2.response_states.insert(
-        inst_id,
-        ResponseState {
-            status: final_status,
-            status_text_sid,
-            url_sid,
-            headers_id,
-            response_type,
-            redirected,
-        },
-    );
-    drop(g2);
-    // `inst_id` is now referenced from `response_states` (and
-    // `headers_id` is referenced from its ResponseState field),
-    // so dropping the root is safe.
-    drop(g);
-    inst_id
-}
-
-// `tick_network` / `settle_fetch` / `reject_pending_fetches_with_error`
-// implementations live in [`super::fetch_tick`] to keep this file under
-// the project's 1000-line convention (Copilot R4.2).  The split has
-// no observable effect on call sites; both modules are sibling
-// `pub(super)` peers under `host::`.
