@@ -167,7 +167,7 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 body_data: HashMap::new(),
                 #[cfg(feature = "engine")]
-                body_used: HashSet::new(),
+                disturbed: HashSet::new(),
                 #[cfg(feature = "engine")]
                 array_buffer_prototype: None,
                 #[cfg(feature = "engine")]
@@ -196,6 +196,22 @@ impl Vm {
                 form_data_prototype: None,
                 #[cfg(feature = "engine")]
                 form_data_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                readable_stream_prototype: None,
+                #[cfg(feature = "engine")]
+                readable_stream_default_reader_prototype: None,
+                #[cfg(feature = "engine")]
+                readable_stream_default_controller_prototype: None,
+                #[cfg(feature = "engine")]
+                readable_stream_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                readable_stream_reader_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                body_streams: HashMap::new(),
+                #[cfg(feature = "engine")]
+                count_queuing_strategy_prototype: None,
+                #[cfg(feature = "engine")]
+                byte_length_queuing_strategy_prototype: None,
                 #[cfg(feature = "engine")]
                 network_handle: None,
                 #[cfg(feature = "engine")]

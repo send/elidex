@@ -26,11 +26,6 @@
 //!
 //! ## Deferred
 //!
-//! - `.stream()` — needs `ReadableStream`; not yet installed on
-//!   `Blob.prototype` at all.  Calling `blob.stream()` currently
-//!   surfaces the generic "method is not a function" TypeError
-//!   from the property-access path, since no method is registered.
-//!   Lands with the PR5-streams tranche.
 //! - `File` subclass / `FileList`.
 //! - Line-ending normalisation for `endings: "native"`.
 //! - MIME type validation — Phase 2 accepts any ASCII string and
@@ -141,9 +136,10 @@ impl VmInner {
             );
         }
 
-        let methods: [(StringId, NativeFn); 3] = [
+        let methods: [(StringId, NativeFn); 4] = [
             (self.well_known.slice, native_blob_slice as NativeFn),
             (self.well_known.text, native_blob_text as NativeFn),
+            (self.well_known.stream, native_blob_stream as NativeFn),
             (
                 self.well_known.array_buffer,
                 native_blob_array_buffer as NativeFn,
@@ -582,6 +578,20 @@ fn native_blob_text(
     resolve_promise_sync(&mut g, promise, JsValue::String(sid));
     drop(g);
     Ok(JsValue::Object(promise))
+}
+
+/// `Blob.prototype.stream()` → ReadableStream<Uint8Array>
+/// (File API §3.2.6).  Returns a fresh stream on every call —
+/// Blob is immutable so re-streaming the bytes is always safe.
+fn native_blob_stream(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_blob_this(ctx, this, "stream")?;
+    let bytes = blob_bytes(ctx.vm, id).to_vec();
+    let stream_id = super::readable_stream::create_body_backed_stream(ctx.vm, bytes);
+    Ok(JsValue::Object(stream_id))
 }
 
 /// `Blob.prototype.arrayBuffer()` → Promise<ArrayBuffer>

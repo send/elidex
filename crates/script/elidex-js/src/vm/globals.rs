@@ -409,6 +409,23 @@ impl VmInner {
             self.register_form_data_global();
         }
 
+        // `ReadableStream` + `ReadableStreamDefaultController` +
+        // `ReadableStreamDefaultReader` (WHATWG Streams §4).
+        // Registered after `Object.prototype` is up; the body
+        // integration in `request_response_accessors` /
+        // `blob.rs::stream()` then references the prototypes
+        // installed here.  The reader registration follows in a
+        // separate call so the stream / controller pair can land
+        // first (Stage 1a) and the reader chains onto the existing
+        // stream prototype (Stage 1b's `install_native_method` for
+        // `getReader`).
+        #[cfg(feature = "engine")]
+        {
+            self.register_readable_stream_global();
+            self.register_readable_stream_reader_global();
+            self.register_queuing_strategy_globals();
+        }
+
         // `fetch()` global (WHATWG Fetch §5.1).  Must run after
         // `register_response_global` so `response_prototype`
         // exists when the first fetched Response is constructed

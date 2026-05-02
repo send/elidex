@@ -15,8 +15,9 @@
 //!
 //! ## Contracts
 //!
-//! - `bodyUsed` tracking: every consumer marks the receiver in
-//!   [`super::super::VmInner::body_used`].  A second consumer
+//! - `disturbed` tracking (the JS-visible `bodyUsed` IDL getter
+//!   reads this set): every consumer marks the receiver in
+//!   [`super::super::VmInner::disturbed`].  A second consumer
 //!   call rejects the returned Promise with `TypeError`.
 //! - Promise settlement is synchronous (uses
 //!   [`super::blob::resolve_promise_sync`] /
@@ -79,12 +80,13 @@ fn body_illegal_invocation(method: &str) -> VmError {
     ))
 }
 
-/// Record the receiver as body-consumed.  Called before any read
-/// path so a concurrent re-read in the same tick still observes
-/// the consumed state (relevant for `r.text(); r.text()` back-to-
-/// back: the second call must reject immediately).
-fn mark_body_used(ctx: &mut NativeContext<'_>, id: ObjectId) {
-    ctx.vm.body_used.insert(id);
+/// Record the receiver as body-consumed (spec `[[disturbed]]`).
+/// Called before any read path so a concurrent re-read in the
+/// same tick still observes the consumed state (relevant for
+/// `r.text(); r.text()` back-to-back: the second call must reject
+/// immediately).
+fn mark_disturbed(ctx: &mut NativeContext<'_>, id: ObjectId) {
+    ctx.vm.disturbed.insert(id);
 }
 
 /// Produce a `TypeError` `JsValue` suitable for rejecting a
@@ -98,7 +100,7 @@ fn thrown_type_error(ctx: &mut NativeContext<'_>, msg: &str) -> JsValue {
 
 /// Take the receiver's body bytes — moves the stored `Vec<u8>`
 /// out of `body_data` (or returns empty if no entry).  Zero
-/// clones: the `body_used` flag set by [`check_body`] guarantees
+/// clones: the `disturbed` flag set by [`check_body`] guarantees
 /// one-shot consumption, so the entry would never be read again,
 /// and `HashMap::remove` transfers ownership cleanly.  Used
 /// uniformly by all four Body-mixin consumers — `.text()` /
@@ -172,7 +174,7 @@ fn content_type_of(ctx: &mut NativeContext<'_>, id: ObjectId) -> super::super::v
 ///
 /// `Ready` no longer carries the body bytes themselves: the
 /// caller calls `take_body_bytes` to move the entry out of
-/// `body_data` (one-shot semantics enforced by `body_used`).
+/// `body_data` (one-shot semantics enforced by `disturbed`).
 enum BodyReadCheck {
     /// Body already consumed — caller must reject its Promise
     /// with `TypeError("Body stream is already used")`.
@@ -185,7 +187,7 @@ enum BodyReadCheck {
 }
 
 /// Allocation-free Body-mixin prologue: brand-check, check
-/// `body_used`, mark as consumed.  Matches WHATWG Fetch §5.2
+/// `disturbed`, mark as consumed.  Matches WHATWG Fetch §5.2
 /// "consume body" steps 1-3 minus the Promise allocation — the
 /// caller handles Promise creation + rooting + settlement.
 ///
@@ -200,11 +202,24 @@ fn check_body(
     method: &str,
 ) -> Result<BodyReadCheck, VmError> {
     let id = require_body_this(ctx, this, method)?;
-    if ctx.vm.body_used.contains(&id) {
+    if ctx.vm.disturbed.contains(&id) || is_body_locked(ctx.vm, id) {
         return Ok(BodyReadCheck::AlreadyUsed);
     }
-    mark_body_used(ctx, id);
+    mark_disturbed(ctx, id);
     Ok(BodyReadCheck::Ready { owner_id: id })
+}
+
+/// `locked` per WHATWG Fetch §5: derived from "the body's stream
+/// has a reader attached".  Phase-2 caches the body stream lazily
+/// in `VmInner::body_streams`; if no entry exists the body has
+/// never been streamed, so it is not locked.
+fn is_body_locked(vm: &super::super::VmInner, id: ObjectId) -> bool {
+    let Some(stream_id) = vm.body_streams.get(&id).copied() else {
+        return false;
+    };
+    vm.readable_stream_states
+        .get(&stream_id)
+        .is_some_and(|s| s.reader_id.is_some())
 }
 
 /// Immediately reject `promise` with the "Body stream is

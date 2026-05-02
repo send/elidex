@@ -45,6 +45,15 @@ pub(super) fn trace_work_list(
         ObjectId,
         Vec<super::host::form_data::FormDataEntry>,
     >,
+    #[cfg(feature = "engine")] readable_stream_states: &std::collections::HashMap<
+        ObjectId,
+        super::host::readable_stream::ReadableStreamState,
+    >,
+    #[cfg(feature = "engine")] readable_stream_reader_states: &std::collections::HashMap<
+        ObjectId,
+        super::host::readable_stream::ReaderState,
+    >,
+    #[cfg(feature = "engine")] body_streams: &std::collections::HashMap<ObjectId, ObjectId>,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -283,6 +292,9 @@ pub(super) fn trace_work_list(
                 {
                     mark_object(headers_id, obj_marks, work);
                 }
+                if let Some(&stream_id) = body_streams.get(&ObjectId(obj_idx)) {
+                    mark_object(stream_id, obj_marks, work);
+                }
             }
             #[cfg(feature = "engine")]
             ObjectKind::Response => {
@@ -291,6 +303,9 @@ pub(super) fn trace_work_list(
                     .map(|s| s.headers_id)
                 {
                     mark_object(headers_id, obj_marks, work);
+                }
+                if let Some(&stream_id) = body_streams.get(&ObjectId(obj_idx)) {
+                    mark_object(stream_id, obj_marks, work);
                 }
             }
             // `ArrayBuffer` / `Blob` payloads are bytes-only —
@@ -360,6 +375,86 @@ pub(super) fn trace_work_list(
                         }
                     }
                 }
+            }
+            // `ReadableStream` per-instance state holds the
+            // controller / reader back-refs, queue chunks (arbitrary
+            // `JsValue`s for default streams), the source callbacks
+            // (`start` / `pull` / `cancel`), the queuing-strategy
+            // size algorithm, and the stored error reason.  All
+            // need marking so a stream that is reachable through a
+            // user variable keeps its enqueued chunks + source
+            // callbacks alive between read() ticks.
+            #[cfg(feature = "engine")]
+            ObjectKind::ReadableStream => {
+                if let Some(state) = readable_stream_states.get(&ObjectId(obj_idx)) {
+                    mark_object(state.controller_id, obj_marks, work);
+                    if let Some(reader_id) = state.reader_id {
+                        mark_object(reader_id, obj_marks, work);
+                    }
+                    for &chunk in &state.queue {
+                        mark_value(chunk, obj_marks, work);
+                    }
+                    if let Some(alg) = state.size_algorithm {
+                        mark_value(alg, obj_marks, work);
+                    }
+                    if let Some(cb) = state.source_start {
+                        mark_value(cb, obj_marks, work);
+                    }
+                    if let Some(cb) = state.source_pull {
+                        mark_value(cb, obj_marks, work);
+                    }
+                    if let Some(cb) = state.source_cancel {
+                        mark_value(cb, obj_marks, work);
+                    }
+                    mark_value(state.stored_error, obj_marks, work);
+                }
+            }
+            // `ReadableStreamDefaultReader` owns the FIFO of
+            // pending `read()` Promises (spec §4.3.2
+            // `[[readRequests]]`) plus the cached `closed` Promise;
+            // all live in `readable_stream_reader_states`.  Mark
+            // each so a reader reachable through user code keeps
+            // its in-flight reads' Promises alive until they
+            // settle.  The stream back-ref is also marked here so
+            // a reader that has outlived the user's reference to
+            // the stream still keeps the stream alive (matches
+            // spec §4.3 ownership of the parent stream).
+            #[cfg(feature = "engine")]
+            ObjectKind::ReadableStreamDefaultReader => {
+                if let Some(state) = readable_stream_reader_states.get(&ObjectId(obj_idx)) {
+                    if let Some(stream_id) = state.stream_id {
+                        mark_object(stream_id, obj_marks, work);
+                    }
+                    for &p in &state.pending_read_promises {
+                        mark_object(p, obj_marks, work);
+                    }
+                    mark_object(state.closed_promise, obj_marks, work);
+                }
+            }
+            // `ReadableStreamDefaultController` only carries the
+            // parent stream's `ObjectId` inline; mark it so the
+            // controller doesn't outlive its stream — the
+            // controller's mutable state lives on the stream side
+            // table, so reachability of the controller alone (e.g.
+            // captured in a closure variable) must keep the stream
+            // reachable too.
+            #[cfg(feature = "engine")]
+            ObjectKind::ReadableStreamDefaultController { stream_id } => {
+                mark_object(*stream_id, obj_marks, work);
+            }
+            // Internal stream step callables — each holds the
+            // stream / promise `ObjectId` they fire against in an
+            // internal slot.  Mark it so the target survives until
+            // the step actually runs (the source-callback Promise
+            // may sit in the microtask queue across a GC tick).
+            #[cfg(feature = "engine")]
+            ObjectKind::ReadableStreamStartStep { stream_id, .. }
+            | ObjectKind::ReadableStreamPullStep { stream_id, .. } => {
+                mark_object(*stream_id, obj_marks, work);
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::ReadableStreamCancelStep { promise, .. } => {
+                mark_object(*promise, obj_marks, work);
             }
         }
     }

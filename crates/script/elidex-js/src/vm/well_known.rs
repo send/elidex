@@ -664,6 +664,30 @@ define_well_known_strings! {
         // §4.3 step "create an entry" and Chromium / Firefox behaviour.
         blob_default_filename => "blob",
     }
+
+    "ReadableStream (WHATWG Streams §4)" {
+        // Constructor globals + method / accessor names unique to
+        // the streams surface.  `cancel` / `read` / `value` / `done`
+        // / `reason` / `size` / `stream` / `byte_length` already
+        // live above and are reused here.
+        readable_stream_global => "ReadableStream",
+        readable_stream_default_reader_global => "ReadableStreamDefaultReader",
+        readable_stream_default_controller_global =>
+            "ReadableStreamDefaultController",
+        count_queuing_strategy_global => "CountQueuingStrategy",
+        byte_length_queuing_strategy_global => "ByteLengthQueuingStrategy",
+        start => "start",
+        pull => "pull",
+        cancel => "cancel",
+        high_water_mark => "highWaterMark",
+        get_reader => "getReader",
+        release_lock => "releaseLock",
+        desired_size => "desiredSize",
+        enqueue => "enqueue",
+        close => "close",
+        locked_attr => "locked",
+        closed_attr => "closed",
+    }
 }
 
 /// Well-known symbol IDs, allocated at VM creation.

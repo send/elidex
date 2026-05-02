@@ -84,19 +84,12 @@ pub(super) fn native_request_get_headers(
 }
 
 pub(super) fn native_request_get_body(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Phase 2: non-streaming — the `.body` getter always returns
-    // `null`.  Body bytes remain retrievable via the Body mixin
-    // (`.text()` / `.json()` / `.arrayBuffer()` / `.blob()` —
-    // see `body_mixin.rs`).  Fetch spec technically types `.body`
-    // as `ReadableStream?`; the Phase-2 `null` fallback is
-    // intentional until `ReadableStream` is implemented (planned
-    // in the later PR5-streams tranche of the M4-12 boa → VM
-    // cutover).
-    Ok(JsValue::Null)
+    let id = require_request_this(ctx, this, "body")?;
+    Ok(get_or_create_body_stream(ctx.vm, id))
 }
 
 pub(super) fn native_request_get_body_used(
@@ -105,7 +98,7 @@ pub(super) fn native_request_get_body_used(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_request_this(ctx, this, "bodyUsed")?;
-    Ok(JsValue::Boolean(ctx.vm.body_used.contains(&id)))
+    Ok(JsValue::Boolean(ctx.vm.disturbed.contains(&id)))
 }
 
 pub(super) fn native_request_get_redirect(
@@ -197,7 +190,7 @@ pub(super) fn native_request_clone(
     // Spec §5.3 step "clone a request": a cloned body is not
     // permitted if `bodyUsed === true`.  Phase 2 observes this
     // guard even though the Body mixin isn't yet exposed.
-    if ctx.vm.body_used.contains(&id) {
+    if ctx.vm.disturbed.contains(&id) || is_body_locked(ctx.vm, id) {
         return Err(VmError::type_error(
             "Failed to execute 'clone' on 'Request': Request body is already used",
         ));
@@ -377,12 +370,62 @@ pub(super) fn native_response_get_headers(
 }
 
 pub(super) fn native_response_get_body(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Phase 2: see `native_request_get_body` for the rationale.
-    Ok(JsValue::Null)
+    let id = require_response_this(ctx, this, "body")?;
+    Ok(get_or_create_body_stream(ctx.vm, id))
+}
+
+/// `locked` derivation shared with `body_mixin::is_body_locked`.
+/// Returns true when the body's lazy stream has a reader
+/// attached.
+fn is_body_locked(vm: &super::super::VmInner, id: ObjectId) -> bool {
+    let Some(stream_id) = vm.body_streams.get(&id).copied() else {
+        return false;
+    };
+    vm.readable_stream_states
+        .get(&stream_id)
+        .is_some_and(|s| s.reader_id.is_some())
+}
+
+/// Phase-2 lazy adapter: create (or return cached) ReadableStream
+/// from this Request / Response's `body_data` entry.  Identity is
+/// preserved across calls via `body_streams[receiver_id]`, so
+/// `r.body === r.body` per WHATWG Fetch §5 internal-slot
+/// semantics.  Returns `JsValue::Null` when the receiver carries
+/// no body bytes — a Phase-2 simplification covering the
+/// `Request` / `Response` no-body construction path.
+///
+/// Materialising the stream removes the bytes from `body_data`
+/// (single-chunk emit) and marks the receiver as `disturbed`.
+/// Subsequent `body_mixin` consumers (`.text()` / `.json()` /
+/// …) on the same receiver throw because the disturbed bit is
+/// set and `body_data` is empty.  This is slightly stricter than
+/// WHATWG Fetch (which would let `.text()` work after a `.body`
+/// access that never read) and is documented as a Phase-2
+/// deviation in `docs/design/en/21-file-api-streams.md`.
+pub(super) fn get_or_create_body_stream(vm: &mut super::super::VmInner, id: ObjectId) -> JsValue {
+    if let Some(&stream_id) = vm.body_streams.get(&id) {
+        return JsValue::Object(stream_id);
+    }
+    let bytes = vm.body_data.remove(&id);
+    let stream_id = match bytes {
+        Some(bytes) if !bytes.is_empty() => {
+            super::readable_stream::create_body_backed_stream(vm, bytes)
+        }
+        Some(_) => {
+            // Empty bytes — still expose an empty (already-closed)
+            // stream so `r.body !== null` matches Chromium for
+            // empty-body responses.
+            super::readable_stream::create_body_backed_stream(vm, Vec::new())
+        }
+        None => return JsValue::Null,
+    };
+    vm.body_streams.insert(id, stream_id);
+    vm.disturbed.insert(id);
+    JsValue::Object(stream_id)
 }
 
 pub(super) fn native_response_get_body_used(
@@ -391,7 +434,7 @@ pub(super) fn native_response_get_body_used(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_response_this(ctx, this, "bodyUsed")?;
-    Ok(JsValue::Boolean(ctx.vm.body_used.contains(&id)))
+    Ok(JsValue::Boolean(ctx.vm.disturbed.contains(&id)))
 }
 
 pub(super) fn native_response_get_redirected(
@@ -414,7 +457,7 @@ pub(super) fn native_response_clone(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_response_this(ctx, this, "clone")?;
-    if ctx.vm.body_used.contains(&id) {
+    if ctx.vm.disturbed.contains(&id) || is_body_locked(ctx.vm, id) {
         return Err(VmError::type_error(
             "Failed to execute 'clone' on 'Response': Response body is already used",
         ));

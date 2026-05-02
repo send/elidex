@@ -623,6 +623,18 @@ pub(super) fn extract_body_bytes(
                 let ct_sid = ctx.vm.strings.intern(&ct_string);
                 Ok(Some((body, Some(ct_sid))))
             }
+            // ReadableStream as request body input: explicit
+            // TypeError until M4-13.2 PR-streams-body-input wires
+            // up async lazy-drain.  Phase 2 only supports
+            // ReadableStream as response *output* (Response.body /
+            // Blob.stream()).  The error message matches the
+            // intent of Chromium's "ReadableStream upload not yet
+            // supported" — clear per-spec failure rather than a
+            // silent string-coercion (which would land
+            // `[object ReadableStream]` bytes on the wire).
+            ObjectKind::ReadableStream => Err(VmError::type_error(
+                "ReadableStream body is not yet supported (M4-13.2)",
+            )),
             _ => {
                 // Generic fallback: stringify.  Covers plain
                 // objects / Arrays / numbers once wrapped.

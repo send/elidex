@@ -678,18 +678,27 @@ pub(crate) struct VmInner {
     /// recycled slot does not inherit stale bytes.
     #[cfg(feature = "engine")]
     pub(crate) body_data: HashMap<ObjectId, Vec<u8>>,
-    /// One-shot "body already consumed" flag (WHATWG §5 `bodyUsed`).
-    /// Inserted by the Body mixin read methods (`text()` /
-    /// `.json()` / `.arrayBuffer()` / `.blob()`) the first time
-    /// any one of them runs on a given object; a second call on
-    /// the same object then rejects its returned Promise with
-    /// `TypeError`.  The `.bodyUsed` IDL getter reads membership
-    /// directly.
+    /// "Body stream is disturbed" flag (WHATWG Fetch §5 + Streams §4.2
+    /// — spec slot is named `[[disturbed]]`; the JS-visible `bodyUsed`
+    /// IDL getter reads membership of this set).  Inserted by the
+    /// Body mixin read methods (`text()` / `.json()` /
+    /// `.arrayBuffer()` / `.blob()`) the first time any one of them
+    /// runs on a given Request / Response, and by `Response.body` /
+    /// `Request.body` reader-attach paths once the lazy-adapter
+    /// stream is actually consumed.  A second consumer then rejects
+    /// with `TypeError`.
+    ///
+    /// `locked` is **not** a separate slot — it is derived from
+    /// "the body's stream has a reader attached", which the
+    /// `Response.body` / `Request.body` accessor exposes via
+    /// `readable_stream_states[stream_id].reader_id.is_some()`.
+    /// Keeping `disturbed` and `locked` distinct here matches
+    /// WHATWG Fetch §5 (clone() throws on `disturbed || locked`).
     ///
     /// GC contract: sweep tail prunes entries whose key was
     /// collected, same as the other side tables.
     #[cfg(feature = "engine")]
-    pub(crate) body_used: HashSet<ObjectId>,
+    pub(crate) disturbed: HashSet<ObjectId>,
     /// `ArrayBuffer.prototype` (ES2020 §24.1, minimal Phase 2 form
     /// — `byteLength` getter + `slice` method only; TypedArray
     /// views are deferred to the next tranche).  Chains to
@@ -829,6 +838,62 @@ pub(crate) struct VmInner {
     /// `ObjectId` was collected.
     #[cfg(feature = "engine")]
     pub(crate) form_data_states: HashMap<ObjectId, Vec<host::form_data::FormDataEntry>>,
+    /// `ReadableStream.prototype` (WHATWG Streams §4.2).  Chains
+    /// to `Object.prototype`.  `None` until
+    /// `register_readable_stream_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) readable_stream_prototype: Option<ObjectId>,
+    /// `ReadableStreamDefaultReader.prototype` (WHATWG Streams §4.3).
+    /// Chains to `Object.prototype`.
+    #[cfg(feature = "engine")]
+    pub(crate) readable_stream_default_reader_prototype: Option<ObjectId>,
+    /// `ReadableStreamDefaultController.prototype` (WHATWG Streams
+    /// §4.5).  Chains to `Object.prototype`.
+    #[cfg(feature = "engine")]
+    pub(crate) readable_stream_default_controller_prototype: Option<ObjectId>,
+    /// Per-`ReadableStream` out-of-band state (WHATWG Streams §4.2).
+    /// Keyed by the instance's own `ObjectId`.  Holds the stream
+    /// state machine, queue, controller / reader back-refs, source
+    /// callbacks, and queuing-strategy size algorithm.
+    ///
+    /// GC contract: trace step marks queue chunks (`JsValue`s),
+    /// source-callback ObjectIds, controller / reader back-refs,
+    /// the size algorithm, and the stored error reason.  Sweep
+    /// tail prunes entries whose key `ObjectId` was collected so a
+    /// recycled slot can't inherit stale state.
+    #[cfg(feature = "engine")]
+    pub(crate) readable_stream_states:
+        HashMap<ObjectId, host::readable_stream::ReadableStreamState>,
+    /// Per-`ReadableStreamDefaultReader` out-of-band state
+    /// (WHATWG Streams §4.3).  Keyed by the reader instance's own
+    /// `ObjectId`.  Owns the FIFO of pending `read()` promises so
+    /// the spec `[[readRequests]]` slot is directly modelled — no
+    /// VM-level strong-root list.
+    ///
+    /// GC contract: trace step marks the stream back-ref + every
+    /// pending read Promise + the cached `closed` Promise.
+    #[cfg(feature = "engine")]
+    pub(crate) readable_stream_reader_states: HashMap<ObjectId, host::readable_stream::ReaderState>,
+    /// Cached lazy body stream per Request / Response, keyed by
+    /// the receiver's `ObjectId`.  Populated on first `.body`
+    /// access so subsequent `.body === .body` reads share the
+    /// same stream instance — required by WHATWG Fetch §5
+    /// (`.body` is an internal slot, not a fresh allocation per
+    /// access).
+    ///
+    /// GC contract: the stored `ObjectId` (a `ReadableStream`) is
+    /// rooted whenever the receiver is rooted — the trace path
+    /// for `Request` / `Response` marks it.  Sweep tail prunes
+    /// entries whose receiver was collected.
+    #[cfg(feature = "engine")]
+    pub(crate) body_streams: HashMap<ObjectId, ObjectId>,
+    /// `CountQueuingStrategy.prototype` (WHATWG Streams §6.1).
+    #[cfg(feature = "engine")]
+    pub(crate) count_queuing_strategy_prototype: Option<ObjectId>,
+    /// `ByteLengthQueuingStrategy.prototype` (WHATWG Streams §6.2).
+    #[cfg(feature = "engine")]
+    pub(crate) byte_length_queuing_strategy_prototype: Option<ObjectId>,
     /// Backing state for `ObjectKind::HtmlCollection` /
     /// `ObjectKind::NodeList` wrappers (WHATWG DOM §4.2.10 / §4.2.10.1).
     ///

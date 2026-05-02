@@ -264,6 +264,16 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::Attr => CloneKind::Unclonable("Attr"),
         ObjectKind::URLSearchParams => CloneKind::Unclonable("URLSearchParams"),
         ObjectKind::FormData => CloneKind::Unclonable("FormData"),
+        ObjectKind::ReadableStream => CloneKind::Unclonable("ReadableStream"),
+        ObjectKind::ReadableStreamDefaultReader => {
+            CloneKind::Unclonable("ReadableStreamDefaultReader")
+        }
+        ObjectKind::ReadableStreamDefaultController { .. } => {
+            CloneKind::Unclonable("ReadableStreamDefaultController")
+        }
+        ObjectKind::ReadableStreamStartStep { .. }
+        | ObjectKind::ReadableStreamPullStep { .. }
+        | ObjectKind::ReadableStreamCancelStep { .. } => CloneKind::Unclonable("Promise"),
         // TypedArray / DataView clone via shared underlying
         // buffer — see `clone_typed_array` / `clone_data_view`
         // for the memo-threaded handling that preserves

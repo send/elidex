@@ -92,6 +92,8 @@ pub(super) mod parentnode;
 pub(crate) mod pending_tasks;
 pub(super) mod performance;
 #[cfg(feature = "engine")]
+pub(crate) mod readable_stream;
+#[cfg(feature = "engine")]
 mod request_ctor;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;
