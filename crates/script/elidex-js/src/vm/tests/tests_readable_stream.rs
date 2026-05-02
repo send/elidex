@@ -465,6 +465,131 @@ fn reader_closed_rejects_on_error() {
     assert_eq!(eval_global_string(source, "result"), "boom");
 }
 
+// ---------------------------------------------------------------------------
+// R1 regression: spec-edge bugs caught in Copilot review round 1
+// ---------------------------------------------------------------------------
+
+/// R1.1 regression: `controller.close()` issued while the queue
+/// still carries chunks must finalise the stream once the queue
+/// drains via reads.  Without the post-drain `finalize_close`
+/// hook in `deliver_pending_reads`, `reader.closed` stayed
+/// pending forever.  We exercise this by enqueuing+closing
+/// inside `start` (queue carries chunks at close time) and then
+/// reading them out — `r.closed` must resolve synchronously
+/// during the eval microtask drain.
+#[test]
+fn close_with_pending_chunks_finalises_after_drain() {
+    let source = r#"
+        const s = new ReadableStream({
+            start(c) { c.enqueue("a"); c.enqueue("b"); c.close(); }
+        });
+        const r = s.getReader();
+        // Queue a closed-resolves marker first; reads come after.
+        // The read+close finalisation only happens once
+        // deliver_pending_reads drains both queued chunks AND the
+        // close_requested gate fires from inside the same drain.
+        r.closed.then(() => { globalThis.closed_resolved = true; });
+        r.read();  // delivers "a"
+        r.read();  // delivers "b" → queue empties → close finalises
+    "#;
+    let mut vm = Vm::new();
+    vm.eval(source).unwrap();
+    let v = vm.get_global("closed_resolved");
+    assert!(
+        matches!(v, Some(JsValue::Boolean(true))),
+        "expected reader.closed to resolve once queue drained, got {v:?}"
+    );
+}
+
+/// R1.2 regression: with `ByteLengthQueuingStrategy` the queue's
+/// stored size is `chunk.byteLength`, not 1.  After a read, the
+/// stream's `desiredSize` must reflect the **actual** size
+/// reclaimed — not a hard-coded `1.0` decrement.
+#[test]
+fn dequeue_decrements_by_recorded_chunk_size() {
+    let source = r#"
+        let ctrl;
+        const s = new ReadableStream(
+            { start(c) { ctrl = c; c.enqueue(new Uint8Array(10)); } },
+            new ByteLengthQueuingStrategy({highWaterMark: 100})
+        );
+        // Before read: hwm=100, queue_total=10 → desired=90.
+        // After read: queue_total back to 0 → desired=100.  A
+        // hard-coded -1.0 decrement would produce 91, not 100.
+        const r = s.getReader();
+        r.read().then(_ => {
+            globalThis.result = ctrl.desiredSize;
+        });
+    "#;
+    let mut vm = Vm::new();
+    vm.eval(source).unwrap();
+    let v = vm.get_global("result");
+    match v {
+        Some(JsValue::Number(n)) => assert_eq!(n, 100.0),
+        other => panic!("expected number 100, got {other:?}"),
+    }
+}
+
+/// R1.4 regression: `getReader({mode})` accepted any non-empty
+/// non-"byob" string + rejected empty string.  Spec: `undefined`
+/// → default reader; `"byob"` → BYOB (Phase 2 unsupported);
+/// every other value → TypeError.
+#[test]
+fn get_reader_accepts_undefined_mode() {
+    let source = r#"
+        const s = new ReadableStream();
+        const r = s.getReader({});
+        globalThis.result = r instanceof ReadableStreamDefaultReader;
+    "#;
+    assert!(eval_global_bool(source, "result"));
+}
+
+#[test]
+fn get_reader_rejects_unknown_mode() {
+    let mut vm = Vm::new();
+    let result = vm.eval(r#"new ReadableStream().getReader({mode: "default"})"#);
+    assert!(result.is_err(), "expected TypeError on mode=\"default\"");
+}
+
+#[test]
+fn get_reader_rejects_byob_mode() {
+    let mut vm = Vm::new();
+    let result = vm.eval(r#"new ReadableStream().getReader({mode: "byob"})"#);
+    assert!(result.is_err(), "expected TypeError on mode=\"byob\"");
+}
+
+/// R1.5 regression: `new ReadableStreamDefaultReader(stream)`
+/// must promote the pre-allocated `this` (so identity is
+/// preserved across the ctor) instead of allocating a fresh
+/// `Object` and returning it.  Verified by checking that the
+/// reader instance is brand-correct + locks the source stream.
+#[test]
+fn reader_constructor_locks_stream_and_brand_checks() {
+    let source = r#"
+        const s = new ReadableStream();
+        const r = new ReadableStreamDefaultReader(s);
+        globalThis.result =
+            r instanceof ReadableStreamDefaultReader && s.locked === true;
+    "#;
+    assert!(eval_global_bool(source, "result"));
+}
+
+/// Companion: cannot construct a reader for an already-locked
+/// stream — checks the second `acquire_default_reader`-or-ctor
+/// path explicitly.
+#[test]
+fn reader_constructor_rejects_locked_stream() {
+    let mut vm = Vm::new();
+    let result = vm.eval(
+        r#"
+        const s = new ReadableStream();
+        s.getReader();
+        new ReadableStreamDefaultReader(s);
+        "#,
+    );
+    assert!(result.is_err());
+}
+
 #[test]
 fn stream_tee_method_not_installed() {
     // Phase 2: `tee` is intentionally absent — `'tee' in stream`

@@ -683,10 +683,12 @@ pub(crate) struct VmInner {
     /// IDL getter reads membership of this set).  Inserted by the
     /// Body mixin read methods (`text()` / `.json()` /
     /// `.arrayBuffer()` / `.blob()`) the first time any one of them
-    /// runs on a given Request / Response, and by `Response.body` /
-    /// `Request.body` reader-attach paths once the lazy-adapter
-    /// stream is actually consumed.  A second consumer then rejects
-    /// with `TypeError`.
+    /// runs on a given Request / Response, AND by the
+    /// `Response.body` / `Request.body` getter the first time it
+    /// materialises the lazy stream (Phase-2 simplification —
+    /// spec defers this until an actual chunk is read; M4-13
+    /// spec-polish moves the flag to the reader-read path).  A
+    /// second consumer then rejects with `TypeError`.
     ///
     /// `locked` is **not** a separate slot — it is derived from
     /// "the body's stream has a reader attached", which the

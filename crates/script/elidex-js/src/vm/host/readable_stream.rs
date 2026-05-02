@@ -83,8 +83,15 @@ pub(crate) struct ReadableStreamState {
     /// is attached; `Some` makes the stream "locked" per spec
     /// §4.2.3 — re-deriving avoids a separate `locked: bool` slot.
     pub(crate) reader_id: Option<ObjectId>,
-    /// Pending chunks awaiting a reader.  FIFO.
-    pub(crate) queue: VecDeque<JsValue>,
+    /// Pending chunks awaiting a reader, paired with the
+    /// `size(chunk)` value computed at enqueue time.  Storing the
+    /// per-chunk size lets `deliver_pending_reads` decrement
+    /// `queue_total_size` by the *exact* contribution this chunk
+    /// added — without it, a custom size algorithm (e.g.
+    /// `ByteLengthQueuingStrategy`) would invert the
+    /// `desiredSize` math at dequeue time.  Spec §4.5.4 step 4
+    /// invariant.
+    pub(crate) queue: VecDeque<(JsValue, f64)>,
     /// Sum of `size(chunk)` across queued chunks (spec
     /// `[[queueTotalSize]]`).  `f64` because the size algorithm
     /// returns an arbitrary numeric value that may exceed `u64`.
@@ -220,9 +227,12 @@ fn stream_state_mut(vm: &mut VmInner, stream_id: ObjectId) -> &mut ReadableStrea
 
 /// Coerce a `highWaterMark` user input to a non-negative finite f64
 /// per spec §4.7 / §4.8 (and §6.1 ValidateAndNormalizeHighWaterMark).
-/// Rejects `NaN`, negative numbers, and non-numeric coercions with
-/// `RangeError`.  `+Infinity` is allowed (spec permits but pull
-/// algorithm checks `finite-ish` behaviour separately).
+/// Phase 2: rejects `NaN` and negative numbers with `RangeError`,
+/// and rejects non-Number / non-Undefined inputs with `TypeError`
+/// (full ToNumber coercion lands with M4-13 spec-polish — at that
+/// point the input would coerce to NaN and follow the RangeError
+/// path).  `+Infinity` is allowed (spec permits but pull algorithm
+/// checks `finite-ish` behaviour separately).
 fn normalize_high_water_mark(hwm: JsValue) -> Result<f64, VmError> {
     let n = match hwm {
         JsValue::Number(n) => n,
@@ -659,7 +669,7 @@ fn controller_enqueue(
 
     {
         let state = stream_state_mut(vm, stream_id);
-        state.queue.push_back(chunk);
+        state.queue.push_back((chunk, chunk_size));
         state.queue_total_size += chunk_size;
     }
 
@@ -742,37 +752,42 @@ fn finalize_close(vm: &mut VmInner, stream_id: ObjectId) {
 /// Spec §4.5.4 ReadableStreamDefaultControllerEnqueue's reader
 /// dispatch path + §4.5.6 close finalisation.
 ///
-/// `queue_total_size` decrements by `1.0` per chunk for the
-/// default flavour (count strategy).  The `ByteLengthQueuingStrategy`
-/// in Stage 2 stores per-chunk sizes alongside the chunk so this
-/// loop subtracts the correct value when that strategy is in use
-/// (Stage 2 amends this site).
+/// Each dequeued chunk decrements `queue_total_size` by the size
+/// recorded at enqueue time (default 1.0; `ByteLengthQueuingStrategy`
+/// records the chunk's `byteLength`), keeping `desiredSize`
+/// arithmetic exact under arbitrary user-supplied size
+/// algorithms.  When the queue empties while
+/// `close_requested == true`, the stream finalises Closed here so
+/// `reader.closed` resolves and any subsequent `read()` returns
+/// `{value: undefined, done: true}` (spec §4.5.6 step 4 / R1
+/// finding: a `close()` before the queue drained would otherwise
+/// leave the reader's `closed` Promise pending forever).
 fn deliver_pending_reads(vm: &mut VmInner, stream_id: ObjectId) {
     loop {
         let reader_id = match stream_state(vm, stream_id).reader_id {
             Some(id) => id,
-            None => return,
+            None => break,
         };
         let read_promise_id = {
             let Some(reader_state) = vm.readable_stream_reader_states.get_mut(&reader_id) else {
-                return;
+                break;
             };
             match reader_state.pending_read_promises.pop_front() {
                 Some(p) => p,
-                None => return,
+                None => break,
             }
         };
-        let chunk = {
+        let chunk_pair = {
             let state = stream_state_mut(vm, stream_id);
             match state.queue.pop_front() {
-                Some(c) => {
-                    state.queue_total_size = (state.queue_total_size - 1.0).max(0.0);
-                    Some(c)
+                Some((chunk, size)) => {
+                    state.queue_total_size = (state.queue_total_size - size).max(0.0);
+                    Some(chunk)
                 }
                 None => None,
             }
         };
-        match chunk {
+        match chunk_pair {
             Some(chunk) => {
                 let result = vm.create_iter_result(chunk, false);
                 let _ = settle_promise(vm, read_promise_id, false, JsValue::Object(result));
@@ -783,9 +798,17 @@ fn deliver_pending_reads(vm: &mut VmInner, stream_id: ObjectId) {
                         .pending_read_promises
                         .push_front(read_promise_id);
                 }
-                return;
+                break;
             }
         }
+    }
+
+    let needs_finalize = {
+        let s = stream_state(vm, stream_id);
+        s.close_requested && s.state == ReadableStreamStateKind::Readable && s.queue.is_empty()
+    };
+    if needs_finalize {
+        finalize_close(vm, stream_id);
     }
 }
 
@@ -873,15 +896,14 @@ fn require_reader_this(
 }
 
 /// Allocate + initialise a default reader against `stream_id`.
-/// Returns the reader's `ObjectId`.  Errors if the stream is
-/// already locked.
+/// Used by the `getReader()` path on the stream prototype.
+/// Errors if the stream is already locked.
 fn acquire_default_reader(vm: &mut VmInner, stream_id: ObjectId) -> Result<ObjectId, VmError> {
     if stream_state(vm, stream_id).reader_id.is_some() {
         return Err(VmError::type_error(
             "Failed to execute 'getReader' on 'ReadableStream': stream is already locked to a reader",
         ));
     }
-    // Allocate the reader.
     let proto = vm.readable_stream_default_reader_prototype;
     let reader_id = vm.alloc_object(Object {
         kind: ObjectKind::ReadableStreamDefaultReader,
@@ -889,10 +911,20 @@ fn acquire_default_reader(vm: &mut VmInner, stream_id: ObjectId) -> Result<Objec
         prototype: proto,
         extensible: true,
     });
-    // Allocate the reader's `closed` Promise.
+    initialise_default_reader(vm, reader_id, stream_id);
+    Ok(reader_id)
+}
+
+/// Wire `reader_id` ↔ `stream_id`: allocate the reader's `closed`
+/// Promise, settle it immediately if the stream is already Closed
+/// or Errored (spec §4.3.3), insert the reader state and lock
+/// the stream.  Shared between the `getReader()` path
+/// (`acquire_default_reader`) and the
+/// `new ReadableStreamDefaultReader(stream)` constructor — the
+/// latter promotes a pre-allocated `this` instead of allocating,
+/// so the wiring step alone needs to be reusable.
+fn initialise_default_reader(vm: &mut VmInner, reader_id: ObjectId, stream_id: ObjectId) {
     let closed_promise = create_promise(vm);
-    // If the stream is already Closed / Errored at the time of
-    // attach, settle `closed` immediately per spec §4.3.3.
     let state_kind = stream_state(vm, stream_id).state;
     match state_kind {
         ReadableStreamStateKind::Closed => {
@@ -913,7 +945,6 @@ fn acquire_default_reader(vm: &mut VmInner, stream_id: ObjectId) -> Result<Objec
         },
     );
     stream_state_mut(vm, stream_id).reader_id = Some(reader_id);
-    Ok(reader_id)
 }
 
 pub(super) fn native_readable_stream_get_reader(
@@ -922,17 +953,34 @@ pub(super) fn native_readable_stream_get_reader(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let stream_id = require_stream_this(ctx, this, "getReader")?;
-    // `options.mode === "byob"` → Phase 2 unsupported.
+    // Spec §4.2.4 step 2: `options.mode` is undefined ⇒ default
+    // reader; `"byob"` ⇒ BYOB reader (Phase 2 unsupported, throws);
+    // any other value ⇒ TypeError per WebIDL `ReadableStreamReaderMode`
+    // enumeration.  Comparing against the literal `"byob"` avoids
+    // R1's bug of accepting `mode: ""` and rejecting `mode: "default"`.
     if let Some(JsValue::Object(opts_id)) = args.first().copied() {
         let mode_sid = ctx.vm.strings.intern("mode");
         let mode_key = PropertyKey::String(mode_sid);
         if let Some(prop) = super::super::coerce::get_property(ctx.vm, opts_id, mode_key) {
             let v = ctx.vm.resolve_property(prop, JsValue::Object(opts_id))?;
-            if let JsValue::String(sid) = v {
-                let s = ctx.vm.strings.get_utf8(sid);
-                if !s.is_empty() {
+            match v {
+                JsValue::Undefined => {}
+                JsValue::String(sid) => {
+                    let s = ctx.vm.strings.get_utf8(sid);
+                    if s == "byob" {
+                        return Err(VmError::type_error(
+                            "Failed to execute 'getReader' on 'ReadableStream': BYOB readers are not yet supported",
+                        ));
+                    }
+                    // Any other string is not a valid enumeration
+                    // member.  WebIDL throws TypeError.
                     return Err(VmError::type_error(
-                        "Failed to execute 'getReader' on 'ReadableStream': BYOB readers are not yet supported",
+                        "Failed to execute 'getReader' on 'ReadableStream': options.mode must be 'byob' or undefined",
+                    ));
+                }
+                _ => {
+                    return Err(VmError::type_error(
+                        "Failed to execute 'getReader' on 'ReadableStream': options.mode must be 'byob' or undefined",
                     ));
                 }
             }
@@ -943,6 +991,16 @@ pub(super) fn native_readable_stream_get_reader(
 }
 
 /// `new ReadableStreamDefaultReader(stream)` — spec §4.3.3.
+///
+/// Promotes the pre-allocated `this` (built by `do_new` with the
+/// caller's `new.target.prototype`) to
+/// [`ObjectKind::ReadableStreamDefaultReader`] so subclassing /
+/// `new.target` semantics survive — matches the
+/// `Blob` / `Headers` / `Request` / `Response` ctor pattern.  An
+/// earlier draft routed through `acquire_default_reader`, which
+/// always allocated a fresh `Object` and discarded the
+/// pre-allocated receiver, breaking subclassing and leaking the
+/// unused `this` (Copilot R1 finding).
 pub(super) fn native_readable_stream_default_reader_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -953,7 +1011,7 @@ pub(super) fn native_readable_stream_default_reader_constructor(
             "Failed to construct 'ReadableStreamDefaultReader': Please use the 'new' operator",
         ));
     }
-    let JsValue::Object(_inst_id) = this else {
+    let JsValue::Object(inst_id) = this else {
         unreachable!("ctor `this` always Object after `do_new`");
     };
     let stream_arg = args.first().copied().unwrap_or(JsValue::Undefined);
@@ -970,8 +1028,14 @@ pub(super) fn native_readable_stream_default_reader_constructor(
             "Failed to construct 'ReadableStreamDefaultReader': argument is not a ReadableStream",
         ));
     }
-    let id = acquire_default_reader(ctx.vm, stream_id)?;
-    Ok(JsValue::Object(id))
+    if stream_state(ctx.vm, stream_id).reader_id.is_some() {
+        return Err(VmError::type_error(
+            "Failed to construct 'ReadableStreamDefaultReader': stream is already locked to a reader",
+        ));
+    }
+    ctx.vm.get_object_mut(inst_id).kind = ObjectKind::ReadableStreamDefaultReader;
+    initialise_default_reader(ctx.vm, inst_id, stream_id);
+    Ok(JsValue::Object(inst_id))
 }
 
 pub(super) fn native_reader_read(
@@ -1171,7 +1235,7 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
 
     let mut queue = VecDeque::new();
     if byte_length > 0 {
-        queue.push_back(JsValue::Object(typed_id));
+        queue.push_back((JsValue::Object(typed_id), 1.0));
     }
     let queue_total_size = if byte_length > 0 { 1.0 } else { 0.0 };
 

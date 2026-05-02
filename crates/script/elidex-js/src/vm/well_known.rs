@@ -667,9 +667,11 @@ define_well_known_strings! {
 
     "ReadableStream (WHATWG Streams §4)" {
         // Constructor globals + method / accessor names unique to
-        // the streams surface.  `cancel` / `read` / `value` / `done`
-        // / `reason` / `size` / `stream` / `byte_length` already
-        // live above and are reused here.
+        // the streams surface.  `read` / `value` / `done` /
+        // `reason` / `size` / `stream` / `byte_length` already
+        // live above and are reused here; `cancel` is introduced
+        // in this section because it has no prior call site outside
+        // the streams API.
         readable_stream_global => "ReadableStream",
         readable_stream_default_reader_global => "ReadableStreamDefaultReader",
         readable_stream_default_controller_global =>

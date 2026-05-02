@@ -213,7 +213,11 @@ fn check_body(
 /// has a reader attached".  Phase-2 caches the body stream lazily
 /// in `VmInner::body_streams`; if no entry exists the body has
 /// never been streamed, so it is not locked.
-fn is_body_locked(vm: &super::super::VmInner, id: ObjectId) -> bool {
+///
+/// `pub(super)` so `request_response_accessors::native_request_clone`
+/// / `native_response_clone` share this single derivation
+/// (Copilot R1: DRY between the body-mixin and clone paths).
+pub(super) fn is_body_locked(vm: &super::super::VmInner, id: ObjectId) -> bool {
     let Some(stream_id) = vm.body_streams.get(&id).copied() else {
         return false;
     };

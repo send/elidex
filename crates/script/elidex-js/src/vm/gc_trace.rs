@@ -391,7 +391,7 @@ pub(super) fn trace_work_list(
                     if let Some(reader_id) = state.reader_id {
                         mark_object(reader_id, obj_marks, work);
                     }
-                    for &chunk in &state.queue {
+                    for &(chunk, _size) in &state.queue {
                         mark_value(chunk, obj_marks, work);
                     }
                     if let Some(alg) = state.size_algorithm {

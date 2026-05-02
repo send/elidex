@@ -190,7 +190,7 @@ pub(super) fn native_request_clone(
     // Spec §5.3 step "clone a request": a cloned body is not
     // permitted if `bodyUsed === true`.  Phase 2 observes this
     // guard even though the Body mixin isn't yet exposed.
-    if ctx.vm.disturbed.contains(&id) || is_body_locked(ctx.vm, id) {
+    if ctx.vm.disturbed.contains(&id) || super::body_mixin::is_body_locked(ctx.vm, id) {
         return Err(VmError::type_error(
             "Failed to execute 'clone' on 'Request': Request body is already used",
         ));
@@ -378,18 +378,6 @@ pub(super) fn native_response_get_body(
     Ok(get_or_create_body_stream(ctx.vm, id))
 }
 
-/// `locked` derivation shared with `body_mixin::is_body_locked`.
-/// Returns true when the body's lazy stream has a reader
-/// attached.
-fn is_body_locked(vm: &super::super::VmInner, id: ObjectId) -> bool {
-    let Some(stream_id) = vm.body_streams.get(&id).copied() else {
-        return false;
-    };
-    vm.readable_stream_states
-        .get(&stream_id)
-        .is_some_and(|s| s.reader_id.is_some())
-}
-
 /// Phase-2 lazy adapter: create (or return cached) ReadableStream
 /// from this Request / Response's `body_data` entry.  Identity is
 /// preserved across calls via `body_streams[receiver_id]`, so
@@ -457,7 +445,7 @@ pub(super) fn native_response_clone(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_response_this(ctx, this, "clone")?;
-    if ctx.vm.disturbed.contains(&id) || is_body_locked(ctx.vm, id) {
+    if ctx.vm.disturbed.contains(&id) || super::body_mixin::is_body_locked(ctx.vm, id) {
         return Err(VmError::type_error(
             "Failed to execute 'clone' on 'Response': Response body is already used",
         ));
