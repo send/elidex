@@ -267,10 +267,11 @@ fn extract_signal_from_init(
         JsValue::Undefined | JsValue::Null => return Ok(None),
         JsValue::Object(id) => id,
         _ => {
-            // Non-object init is already rejected in
-            // `parse_init_for_fetch` — this helper is called
-            // earlier, so treat the same way: reject with the
-            // same spec wording.
+            // Non-object init is already rejected by the
+            // binding-level guard in [`native_fetch`] before
+            // this helper runs; the branch is defensive in case
+            // a future caller forwards a raw value here.  Reject
+            // with the same spec wording either way.
             return Err(VmError::type_error(
                 "Failed to execute 'fetch': init must be an object",
             ));

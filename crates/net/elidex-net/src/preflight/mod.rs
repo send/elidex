@@ -142,7 +142,7 @@ pub(super) fn is_cors_safelisted_method(method: &str) -> bool {
 /// Header names that the broker / VM-side fetch path auto-injects
 /// (NOT author-controllable per WHATWG Fetch §4.6 forbidden-request-
 /// header list + the broker's Origin / Referer attachments in
-/// `crates/script/elidex-js/src/vm/host/fetch.rs::attach_default_origin`
+/// `crates/script/elidex-js/src/vm/host/fetch/dispatch.rs::attach_default_origin`
 /// / `::attach_default_referer`).
 ///
 /// These headers MUST be excluded from:
