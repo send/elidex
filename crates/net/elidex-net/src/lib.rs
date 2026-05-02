@@ -20,6 +20,7 @@
 //! ```
 
 pub mod broker;
+pub mod cancel;
 pub(crate) mod connector;
 pub mod cookie_jar;
 pub mod cors;
@@ -43,6 +44,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use elidex_plugin::NetworkMiddleware;
 
+pub use cancel::CancelHandle;
 pub use cookie_jar::{CookieJar, CookieSnapshot};
 pub use cors::CorsContext;
 pub use error::{NetError, NetErrorKind};
@@ -395,7 +397,28 @@ impl NetClient {
     }
 
     /// Send a raw HTTP request with middleware, cookies, and redirect handling.
-    pub async fn send(&self, mut request: Request) -> Result<Response, NetError> {
+    ///
+    /// Convenience wrapper around [`Self::send_cancellable`] for
+    /// callers that don't need to abort an in-flight request.
+    pub async fn send(&self, request: Request) -> Result<Response, NetError> {
+        self.send_cancellable(request, None).await
+    }
+
+    /// Send a raw HTTP request with optional cancellation.
+    ///
+    /// `cancel`, when `Some`, lets the broker abort the request
+    /// before its hyper future resolves — the
+    /// `MAX_CONCURRENT_FETCHES` inflight slot is released
+    /// immediately rather than waiting on the underlying network
+    /// IO to drain (R7.1).  The token is threaded through the
+    /// preflight + redirect-follow + transport layers so any
+    /// pending await point can observe the cancel and return a
+    /// [`NetErrorKind::Cancelled`] error.
+    pub async fn send_cancellable(
+        &self,
+        mut request: Request,
+        cancel: Option<&CancelHandle>,
+    ) -> Result<Response, NetError> {
         // HTTPS upgrade
         if self.config.https_only {
             request.url = https_upgrade::upgrade_to_https(&request.url)?;
@@ -430,7 +453,7 @@ impl NetClient {
         // so the server gets a chance to allow / deny the
         // method + non-safelisted headers up front.
         if requires_preflight(&request) {
-            run_preflight(&self.transport, &self.preflight_cache, &request).await?;
+            run_preflight(&self.transport, &self.preflight_cache, &request, cancel).await?;
         }
 
         // Add cookies — gated by `request.credentials` (WHATWG
@@ -471,6 +494,7 @@ impl NetClient {
             request,
             max_redirects,
             Some(&self.preflight_cache),
+            cancel,
         )
         .await?;
 

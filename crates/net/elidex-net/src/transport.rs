@@ -103,13 +103,47 @@ impl HttpTransport {
     }
 
     /// Send a single HTTP request (no redirect following).
-    pub async fn send(&self, request: &Request) -> Result<Response, NetError> {
+    ///
+    /// `cancel`, when `Some`, lets the caller abort an in-flight
+    /// request before its hyper future resolves —
+    /// [`crate::CancelHandle::cancel`] drops the future via
+    /// `tokio::select!` and the [`crate::FetchHandle`] /
+    /// `MAX_CONCURRENT_FETCHES` inflight slot is released
+    /// immediately rather than waiting on the underlying network
+    /// IO to drain.  Pass the same handle to `run_preflight` and
+    /// `follow_redirects` so a single `cancel()` aborts every
+    /// hop of a fetch (preflight OPTIONS + main request +
+    /// redirect chain).  Pass `None` only for paths that have no
+    /// caller-visible abort surface — direct embedder-driven
+    /// loads outside the broker fetch dispatcher.
+    pub async fn send(
+        &self,
+        request: &Request,
+        cancel: Option<&crate::CancelHandle>,
+    ) -> Result<Response, NetError> {
+        // Fast-path: caller already cancelled before we even
+        // entered the transport.  Skip the connection checkout
+        // entirely so cancel-spam workloads don't consume pool
+        // slots for guaranteed-to-abort fetches.
+        if let Some(c) = cancel {
+            if c.is_cancelled() {
+                return Err(NetError::new(
+                    NetErrorKind::Cancelled,
+                    "request cancelled before dispatch",
+                ));
+            }
+        }
         // Validate HTTP method
         validate_method(&request.method)?;
 
-        // Wrap the entire operation (checkout + send + body read) in request_timeout
+        // Wrap the entire operation (checkout + send + body read) in request_timeout.
+        // When `cancel` is provided, `tokio::select!` drops the
+        // hyper future the moment cancel fires — the connection
+        // pool's `SendGuard` then returns the half-used H1
+        // socket as "broken" (closed) so the next checkout can't
+        // accidentally read a stale response.
         let url = request.url.clone();
-        let result = tokio::time::timeout(self.config.request_timeout, async {
+        let send_future = async {
             let conn = self.pool.checkout(&request.url).await?;
 
             // Build hyper request
@@ -188,9 +222,37 @@ impl HttpTransport {
                 // §4.4 step 14.5 downgrade applied.
                 credentialed_network: request.credentials == crate::CredentialsMode::Include,
             })
-        })
-        .await
-        .map_err(|_| NetError::new(NetErrorKind::Timeout, format!("request to {url} timed out")))?;
+        };
+        // Compose: cancel future races against the request future,
+        // both wrapped in the request_timeout.  The
+        // `cancellation_future` branch is only present when the
+        // caller passed a `CancelHandle` — the no-cancel path
+        // resolves identically to pre-PR behaviour (single
+        // timeout-wrapped future).
+        let cancelled_err = || {
+            NetError::new(
+                NetErrorKind::Cancelled,
+                format!("request to {url} cancelled"),
+            )
+        };
+        let result = match cancel {
+            Some(c) => tokio::time::timeout(self.config.request_timeout, async {
+                tokio::select! {
+                    biased;
+                    () = c.cancelled() => Err(cancelled_err()),
+                    res = send_future => res,
+                }
+            })
+            .await
+            .map_err(|_| {
+                NetError::new(NetErrorKind::Timeout, format!("request to {url} timed out"))
+            })?,
+            None => tokio::time::timeout(self.config.request_timeout, send_future)
+                .await
+                .map_err(|_| {
+                    NetError::new(NetErrorKind::Timeout, format!("request to {url} timed out"))
+                })?,
+        };
 
         result
     }
@@ -299,36 +361,52 @@ impl std::fmt::Debug for SendGuard {
 
 impl SendGuard {
     /// Send the request and return the H1 sender to the pool if still usable.
+    ///
+    /// Holds the connection in `self.conn` *across* the
+    /// `send_request().await` so that if the future is dropped
+    /// (e.g. via [`crate::CancelHandle`] or the request_timeout),
+    /// `Drop::drop` still observes `Some(_)` and routes through
+    /// `release_h1()` — without this, a cancellation mid-await
+    /// leaks the per-origin `active_h1` counter and eventually
+    /// exhausts `max_connections_per_origin` (Copilot R1).
     async fn send(
         mut self,
         req: HyperRequest<Full<Bytes>>,
     ) -> Result<(hyper::Response<hyper::body::Incoming>, HttpVersion), NetError> {
+        let resp = match self.conn.as_mut() {
+            Some(PooledConnection::H1(sender)) => sender.send_request(req).await.map_err(|e| {
+                NetError::with_source(NetErrorKind::Other, "HTTP/1.1 request failed", e)
+            })?,
+            Some(PooledConnection::H2(sender)) => sender.send_request(req).await.map_err(|e| {
+                NetError::with_source(NetErrorKind::Other, "HTTP/2 request failed", e)
+            })?,
+            None => {
+                return Err(NetError::new(
+                    NetErrorKind::Other,
+                    "connection already consumed",
+                ));
+            }
+        };
+        // Success: take ownership for checkin (H1) or to drop (H2).
+        // Drop won't fire `release_h1` because `self.conn` is now
+        // `None` — that's the signal the request completed cleanly.
         match self.conn.take() {
-            Some(PooledConnection::H1(mut sender)) => {
-                let resp = sender.send_request(req).await.map_err(|e| {
-                    NetError::with_source(NetErrorKind::Other, "HTTP/1.1 request failed", e)
-                })?;
-                // Return the sender to the pool for reuse
+            Some(PooledConnection::H1(sender)) => {
                 self.pool.checkin(&self.url, sender);
                 Ok((resp, HttpVersion::H1))
             }
-            Some(PooledConnection::H2(mut sender)) => {
-                let resp = sender.send_request(req).await.map_err(|e| {
-                    NetError::with_source(NetErrorKind::Other, "HTTP/2 request failed", e)
-                })?;
-                Ok((resp, HttpVersion::H2))
-            }
-            None => Err(NetError::new(
-                NetErrorKind::Other,
-                "connection already consumed",
-            )),
+            Some(PooledConnection::H2(_)) => Ok((resp, HttpVersion::H2)),
+            None => unreachable!("conn was Some before send_request"),
         }
     }
 }
 
 impl Drop for SendGuard {
     fn drop(&mut self) {
-        // If the connection was not consumed (error path), decrement active_h1
+        // If the connection was not consumed (error/cancel path),
+        // decrement active_h1.  H2 senders share a single
+        // multiplexed connection so we never per-request decrement
+        // them — the H2 driver's lifetime governs the slot.
         if let Some(PooledConnection::H1(_)) = self.conn.take() {
             self.pool.release_h1(&self.url);
         }
@@ -355,6 +433,91 @@ mod tests {
     fn http_version_eq() {
         assert_eq!(HttpVersion::H1, HttpVersion::H1);
         assert_ne!(HttpVersion::H1, HttpVersion::H2);
+    }
+
+    /// Regression for Copilot R1 (transport.rs SendGuard
+    /// conn-leak on cancel): when the in-flight `send_request`
+    /// future is dropped (cancel/timeout), `SendGuard::Drop` must
+    /// still call `pool.release_h1()` so the per-origin
+    /// `active_h1` counter is decremented.  Pre-fix the original
+    /// `self.conn.take()` ran *before* `await`, so a dropped
+    /// future left `self.conn = None` and `Drop` was a no-op,
+    /// permanently leaking one slot of the per-origin cap.
+    ///
+    /// Test shape: cap a transport at `max_connections_per_origin
+    /// = 1`, fire and cancel a request against a never-replying
+    /// server, then fire a second request at the same origin.
+    /// Pre-fix the second request fails immediately with
+    /// `"connection limit reached"`; post-fix it proceeds (the
+    /// listener never `accept`s the second connect, so we
+    /// short-circuit via a small connect_timeout once we've
+    /// observed the slot was actually released — proving the
+    /// pre-fix early-error path is gone).
+    #[tokio::test]
+    async fn send_drop_releases_h1_slot_on_cancel() {
+        // Stalling listener: accept once, never reply.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Hold the listener so additional connects queue at the
+        // OS rather than ECONNREFUSED.
+        let _stall = listener;
+
+        let transport = HttpTransport::with_config(TransportConfig {
+            allow_private_ips: true,
+            max_connections_per_origin: 1,
+            connect_timeout: Duration::from_millis(200),
+            // Keep the second request short — it goes to the
+            // same stalling listener so the 200 OK never arrives,
+            // but we only need to observe the *kind* of error
+            // (Timeout, not connection-limit) to prove the slot
+            // was released.
+            request_timeout: Duration::from_millis(800),
+            ..Default::default()
+        });
+
+        let request = Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: Bytes::new(),
+            ..Default::default()
+        };
+
+        // First request: cancel after a brief delay so the
+        // worker reaches `send_request().await` (the borrow path
+        // that pre-fix mishandled).
+        let cancel = crate::CancelHandle::new();
+        let cancel_for_trigger = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancel_for_trigger.cancel();
+        });
+        let err = transport
+            .send(&request, Some(&cancel))
+            .await
+            .expect_err("cancelled request must not return Ok");
+        assert_eq!(err.kind, NetErrorKind::Cancelled);
+
+        // Second request: must NOT immediately fail with
+        // "connection limit reached".  Pre-fix this fired right
+        // away because the pool's `active_h1` was still 1.
+        // Post-fix the slot is released by SendGuard::Drop, so
+        // we proceed to a fresh connect attempt against the
+        // listener — which we short-circuit via the small
+        // connect_timeout to keep the test fast.
+        let err2 = transport
+            .send(&request, None)
+            .await
+            .expect_err("stalling listener never replies; expect timeout, not pool exhaustion");
+        assert!(
+            !format!("{err2:#}").contains("connection limit reached"),
+            "per-origin slot leaked across cancellation (pre-fix bug): {err2}"
+        );
+        // Belt-and-suspenders: the only acceptable error here is
+        // a timeout (the listener never replies).  If we get any
+        // other kind, something else regressed.
+        assert_eq!(err2.kind, NetErrorKind::Timeout, "unexpected: {err2:#}");
     }
 
     #[tokio::test]
@@ -388,7 +551,7 @@ mod tests {
             ..Default::default()
         };
 
-        let response = transport.send(&request).await.unwrap();
+        let response = transport.send(&request, None).await.unwrap();
         assert_eq!(response.status, 200);
         assert_eq!(response.body.as_ref(), b"hello");
         assert_eq!(response.version, HttpVersion::H1);
@@ -433,7 +596,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = transport.send(&request).await;
+        let result = transport.send(&request, None).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, NetErrorKind::SsrfBlocked);
     }

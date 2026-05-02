@@ -125,7 +125,7 @@ impl SchemeDispatcher {
         // `requires_preflight` in the redirect loop.
         let max_redirects = self.transport.config().max_redirects;
         let (response, _credentials) =
-            redirect::follow_redirects(&self.transport, request, max_redirects, None).await?;
+            redirect::follow_redirects(&self.transport, request, max_redirects, None, None).await?;
 
         // Store cookies from response
         self.cookie_jar

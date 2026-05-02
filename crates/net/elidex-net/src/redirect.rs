@@ -70,6 +70,7 @@ pub async fn follow_redirects(
     mut request: Request,
     max_redirects: u32,
     preflight_cache: Option<&PreflightCache>,
+    cancel: Option<&crate::CancelHandle>,
 ) -> Result<(Response, CredentialsMode), NetError> {
     let skip_ssrf = transport.config().allow_private_ips;
     let mut redirects = 0u32;
@@ -89,7 +90,7 @@ pub async fn follow_redirects(
     let mut tainted = false;
 
     loop {
-        let mut response = transport.send(&request).await?;
+        let mut response = transport.send(&request, cancel).await?;
 
         if !is_redirect(response.status) {
             response.url_list = url_list;
@@ -139,6 +140,7 @@ pub async fn follow_redirects(
             &method,
             &headers,
             &body,
+            cancel,
         )
         .await?;
 
@@ -254,6 +256,7 @@ fn prepare_next_hop_request(
 /// `mode != Cors` paths short-circuit with the input credentials
 /// so embedder-driven loads (no `preflight_cache`) skip the §4.8
 /// machinery entirely.
+#[allow(clippy::too_many_arguments)] // §4.4 step 14 paired-infra inputs — bundling them into a struct adds boilerplate without clarifying the per-call data flow; the helper has exactly one call site.
 async fn cors_redirect_handle(
     transport: &HttpTransport,
     preflight_cache: Option<&PreflightCache>,
@@ -262,6 +265,7 @@ async fn cors_redirect_handle(
     method: &str,
     headers: &[(String, String)],
     body: &Bytes,
+    cancel: Option<&crate::CancelHandle>,
 ) -> Result<CredentialsMode, NetError> {
     if request.mode != RequestMode::Cors {
         return Ok(request.credentials);
@@ -321,7 +325,7 @@ async fn cors_redirect_handle(
                 "cors-redirect preflight: cors-mode request routed through a path without a preflight cache",
             )
         })?;
-        run_preflight(transport, cache, &probe).await?;
+        run_preflight(transport, cache, &probe, cancel).await?;
     }
     Ok(post_redirect_credentials)
 }
@@ -430,7 +434,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (response, _) = follow_redirects(&transport, request, 20, None)
+        let (response, _) = follow_redirects(&transport, request, 20, None, None)
             .await
             .unwrap();
         assert_eq!(response.status, 200);
@@ -475,7 +479,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = follow_redirects(&transport, request, 20, None).await;
+        let result = follow_redirects(&transport, request, 20, None, None).await;
         assert!(result.is_err());
     }
 
@@ -542,7 +546,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (response, _) = follow_redirects(&transport, request, 20, None)
+        let (response, _) = follow_redirects(&transport, request, 20, None, None)
             .await
             .unwrap();
         assert_eq!(response.status, 200);
@@ -645,7 +649,7 @@ mod tests {
             redirect: RedirectMode::Error,
             ..Default::default()
         };
-        let err = follow_redirects(&transport, request, 20, None)
+        let err = follow_redirects(&transport, request, 20, None, None)
             .await
             .unwrap_err();
         assert_eq!(err.kind, NetErrorKind::BadRedirect);
@@ -670,7 +674,7 @@ mod tests {
             redirect: RedirectMode::Manual,
             ..Default::default()
         };
-        let (response, _) = follow_redirects(&transport, request, 20, None)
+        let (response, _) = follow_redirects(&transport, request, 20, None, None)
             .await
             .unwrap();
         assert_eq!(response.status, 302);
