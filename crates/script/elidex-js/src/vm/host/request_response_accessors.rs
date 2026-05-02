@@ -383,43 +383,33 @@ pub(super) fn native_response_get_body(
 /// preserved across calls via `body_streams[receiver_id]`, so
 /// `r.body === r.body` per WHATWG Fetch §5 internal-slot
 /// semantics.  Returns `JsValue::Null` only when the receiver
-/// has truly never carried a body — `disturbed` is the signal
-/// that body bytes were consumed via the body mixin first; in
-/// that case spec requires `.body` to remain a (now
-/// disturbed/closed) ReadableStream rather than flipping back
-/// to null based on observation order (Copilot R2 finding).
+/// has truly never carried a body — `body_data` *presence*
+/// (even an empty `Vec`) is the "had a body" marker.  The body
+/// mixin's `take_body_bytes` uses `mem::take` so a consumed
+/// receiver still has a (now empty) `body_data` entry, while
+/// receivers constructed with no body (e.g. `new Response()`,
+/// status 204/205/304) have no entry at all and stay
+/// `.body === null` regardless of disturbed (Copilot R9
+/// finding: previously `disturbed` alone gated stream
+/// materialisation, which incorrectly flipped null bodies to
+/// non-null after `.text()`).
 ///
 /// Materialising the stream removes the bytes from `body_data`
 /// (single-chunk emit) and marks the receiver as `disturbed`.
 /// Subsequent `body_mixin` consumers (`.text()` / `.json()` /
 /// …) on the same receiver throw because the disturbed bit is
-/// set and `body_data` is empty.  This is slightly stricter than
-/// WHATWG Fetch (which would let `.text()` work after a `.body`
-/// access that never read) and is documented as a Phase-2
-/// deviation in `docs/design/en/21-file-api-streams.md`.
+/// set.
 pub(super) fn get_or_create_body_stream(vm: &mut super::super::VmInner, id: ObjectId) -> JsValue {
     if let Some(&stream_id) = vm.body_streams.get(&id) {
         return JsValue::Object(stream_id);
     }
-    let bytes = vm.body_data.remove(&id);
-    let stream_id = match bytes {
-        Some(bytes) => super::readable_stream::create_body_backed_stream(vm, bytes),
-        None => {
-            // No `body_data` entry.  Two cases:
-            //   (a) `disturbed` is true → body_mixin consumed the
-            //       bytes earlier; spec says `.body` is still the
-            //       same (now disturbed/closed) ReadableStream, so
-            //       return an empty already-closed stream and
-            //       cache it for identity persistence (Copilot R2
-            //       finding).
-            //   (b) `disturbed` is false → receiver never had a
-            //       body (e.g. `new Response()`); return `null`.
-            if !vm.disturbed.contains(&id) {
-                return JsValue::Null;
-            }
-            super::readable_stream::create_body_backed_stream(vm, Vec::new())
-        }
+    // `body_data` *presence* (even empty Vec) means "had a body".
+    // Absent entry means "no body, ever" — return null without
+    // setting disturbed.
+    let Some(bytes) = vm.body_data.remove(&id) else {
+        return JsValue::Null;
     };
+    let stream_id = super::readable_stream::create_body_backed_stream(vm, bytes);
     vm.body_streams.insert(id, stream_id);
     vm.disturbed.insert(id);
     JsValue::Object(stream_id)

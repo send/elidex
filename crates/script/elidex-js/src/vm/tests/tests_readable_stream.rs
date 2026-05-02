@@ -825,6 +825,65 @@ fn null_body_status_response_has_null_body() {
     assert!(eval_global_bool(source, "result"));
 }
 
+// ---------------------------------------------------------------------------
+// R9 regression: spec edges caught in Copilot review round 9
+// ---------------------------------------------------------------------------
+
+/// R9.1: a null-body receiver stays `.body === null` even after
+/// the body mixin sets `disturbed`.  Previously my R8.2
+/// `disturbed`-gated path materialised an empty stream there,
+/// flipping null to non-null.
+#[test]
+fn null_body_receiver_stays_null_body_after_mixin_consumed() {
+    let source = r#"
+        const r = new Response();   // no body, .body === null
+        r.text();
+        globalThis.result = r.body === null;
+    "#;
+    assert!(eval_global_bool(source, "result"));
+}
+
+/// R9.1 companion: receivers WITH a body (even empty string body)
+/// must keep `.body` non-null after consumption — distinguish
+/// "had a body" (presence in body_data, possibly empty) from
+/// "no body, ever" (absent).
+#[test]
+fn empty_body_receiver_keeps_stream_after_mixin_consumed() {
+    let source = r#"
+        const r = new Response("");
+        r.text();
+        globalThis.result = r.body instanceof ReadableStream;
+    "#;
+    assert!(eval_global_bool(source, "result"));
+}
+
+/// R9.2: queuing strategy ctors accept undefined/null init per
+/// WebIDL dict-from-null and surface the missing-highWaterMark
+/// error, not "init must be an object".
+#[test]
+fn queuing_strategy_undefined_init_throws_highwatermark_required() {
+    let mut vm = Vm::new();
+    let result = vm.eval("new CountQueuingStrategy()");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("highWaterMark is required"),
+        "expected highWaterMark-missing error, got: {err}"
+    );
+}
+
+#[test]
+fn queuing_strategy_null_init_throws_highwatermark_required() {
+    let mut vm = Vm::new();
+    let result = vm.eval("new ByteLengthQueuingStrategy(null)");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("highWaterMark is required"),
+        "expected highWaterMark-missing error, got: {err}"
+    );
+}
+
 #[test]
 fn stream_tee_method_not_installed() {
     // Phase 2: `tee` is intentionally absent — `'tee' in stream`

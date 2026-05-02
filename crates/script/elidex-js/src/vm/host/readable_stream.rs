@@ -1383,18 +1383,29 @@ fn extract_strategy_high_water_mark(
     init_arg: JsValue,
     iface: &str,
 ) -> Result<JsValue, VmError> {
-    let JsValue::Object(obj_id) = init_arg else {
-        return Err(VmError::type_error(format!(
-            "Failed to construct '{iface}': init must be an object"
-        )));
+    // WebIDL: a dictionary parameter with `undefined` or `null`
+    // converts to an empty dictionary — it does NOT throw.  The
+    // observable failure must come from missing
+    // `highWaterMark`, not "init must be an object" (Copilot R9
+    // finding).  Other non-Object types (Number / String / …)
+    // can't host a `highWaterMark` lookup, so reach the same
+    // missing-required-member error.
+    let lookup_value = match init_arg {
+        JsValue::Undefined | JsValue::Null => None,
+        JsValue::Object(obj_id) => {
+            let key = PropertyKey::String(ctx.vm.well_known.high_water_mark);
+            match super::super::coerce::get_property(ctx.vm, obj_id, key) {
+                Some(prop) => Some(ctx.vm.resolve_property(prop, JsValue::Object(obj_id))?),
+                None => None,
+            }
+        }
+        _ => None,
     };
-    let key = PropertyKey::String(ctx.vm.well_known.high_water_mark);
-    match super::super::coerce::get_property(ctx.vm, obj_id, key) {
-        Some(prop) => ctx.vm.resolve_property(prop, JsValue::Object(obj_id)),
-        None => Err(VmError::type_error(format!(
+    lookup_value.ok_or_else(|| {
+        VmError::type_error(format!(
             "Failed to construct '{iface}': init.highWaterMark is required"
-        ))),
-    }
+        ))
+    })
 }
 
 fn install_high_water_mark_own(vm: &mut VmInner, inst_id: ObjectId, hwm: JsValue) {

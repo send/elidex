@@ -101,14 +101,23 @@ fn thrown_type_error(ctx: &mut NativeContext<'_>, msg: &str) -> JsValue {
 /// Take the receiver's body bytes — moves the stored `Vec<u8>`
 /// out of `body_data` (or returns empty if no entry).  Zero
 /// clones: the `disturbed` flag set by [`check_body`] guarantees
-/// one-shot consumption, so the entry would never be read again,
-/// and `HashMap::remove` transfers ownership cleanly.  Used
-/// uniformly by all four Body-mixin consumers — `.text()` /
-/// `.json()` decode the owned `Vec`, `.arrayBuffer()` reinstalls
-/// it under a new `ObjectId`, `.blob()` wraps it in
-/// `Arc::<[u8]>::from(...)` for `BlobData`.
+/// one-shot consumption, so the entry would never be read again.
+///
+/// Uses `std::mem::take` (not `HashMap::remove`) so the entry
+/// stays in `body_data` as an empty `Vec` after consumption.
+/// That empty entry is the "had a body" marker that
+/// `get_or_create_body_stream` reads to decide whether `.body`
+/// should materialise an (empty closed) stream or stay `null`:
+/// receivers that *never* had a body have no `body_data` entry
+/// at all, so they keep `.body === null` even after the body
+/// mixin sets `disturbed` (Copilot R9 finding — spec requires
+/// null bodies to stay null regardless of `bodyUsed`).
 fn take_body_bytes(ctx: &mut NativeContext<'_>, id: ObjectId) -> Vec<u8> {
-    ctx.vm.body_data.remove(&id).unwrap_or_default()
+    ctx.vm
+        .body_data
+        .get_mut(&id)
+        .map(std::mem::take)
+        .unwrap_or_default()
 }
 
 /// Return the receiver's companion-Headers `Content-Type` value,
