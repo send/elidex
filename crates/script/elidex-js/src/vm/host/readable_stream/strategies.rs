@@ -123,22 +123,34 @@ fn native_count_queuing_strategy_size(
 }
 
 /// `ByteLengthQueuingStrategy.prototype.size(chunk)` — returns
-/// `chunk.byteLength`.  Spec §6.2.4: returns the chunk's
-/// `byteLength` IDL property if it has one; otherwise the
-/// algorithm propagates whatever value (or undefined) the lookup
-/// yields.
+/// `chunk.byteLength`.  Spec §6.2.4 evaluates as
+/// `Return ? GetV(chunk, "byteLength")`, which:
+/// - throws `TypeError` on `null`/`undefined` (via `ToObject`);
+/// - boxes other primitives through their wrapper (so a
+///   `Number.prototype.byteLength` accessor would fire on
+///   `size(42)` even though the chunk is a primitive);
+/// - on plain objects, looks up `byteLength` along the chain and
+///   returns whatever value (including `undefined`) it yields.
 fn native_byte_length_queuing_strategy_size(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let chunk = args.first().copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Object(chunk_id) = chunk else {
-        return Ok(JsValue::Undefined);
+    // GetV(V, P) (§7.3.2): boxes primitives via ToObject for the
+    // property *lookup*, but the call receiver of any accessor
+    // getter stays the original primitive.  Mirrors the pattern
+    // in `typed_array_methods.rs::to_locale_string`.
+    let (chunk_id, receiver) = match chunk {
+        JsValue::Object(id) => (id, chunk),
+        primitive => (
+            super::super::super::coerce::to_object(ctx.vm, primitive)?,
+            primitive,
+        ),
     };
     let key = PropertyKey::String(ctx.vm.well_known.byte_length);
     match super::super::super::coerce::get_property(ctx.vm, chunk_id, key) {
-        Some(prop) => ctx.vm.resolve_property(prop, chunk),
+        Some(prop) => ctx.vm.resolve_property(prop, receiver),
         None => Ok(JsValue::Undefined),
     }
 }
