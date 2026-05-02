@@ -683,6 +683,88 @@ fn body_for_empty_response_is_a_readable_stream() {
     assert!(eval_global_bool(source, "result"));
 }
 
+// ---------------------------------------------------------------------------
+// R5 regression: spec-edge bugs caught in Copilot review round 5
+// ---------------------------------------------------------------------------
+
+/// R5.1: `start(controller)` is invoked with `this` bound to the
+/// underlyingSource object per spec InvokeOrNoop semantics, so
+/// `start() { this.x = 1 }` shapes work.
+#[test]
+fn start_callback_this_is_underlying_source() {
+    let source = r#"
+        const src = { tag: "marker" };
+        let observedTag;
+        src.start = function() { observedTag = this.tag; };
+        new ReadableStream(src);
+        globalThis.result = observedTag;
+    "#;
+    assert_eq!(eval_global_string(source, "result"), "marker");
+}
+
+/// R5.2: `pull(controller)` is invoked with `this` bound to the
+/// underlyingSource — `pull() { this.enqueue(1) }` style works.
+#[test]
+fn pull_callback_this_is_underlying_source() {
+    let source = r#"
+        const src = {
+            tag: "pull-marker",
+            pull(c) { c.enqueue(this.tag); }
+        };
+        const s = new ReadableStream(src);
+        s.getReader().read().then(v => { globalThis.result = v.value; });
+    "#;
+    assert_eq!(eval_global_string(source, "result"), "pull-marker");
+}
+
+/// R5.3: `cancel(reason)` is invoked with `this` bound to the
+/// underlyingSource.
+#[test]
+fn cancel_callback_this_is_underlying_source() {
+    let source = r#"
+        const src = { tag: "cancel-marker" };
+        let observedTag;
+        src.cancel = function() { observedTag = this.tag; };
+        const s = new ReadableStream(src);
+        s.cancel("nope");
+        globalThis.result = observedTag;
+    "#;
+    assert_eq!(eval_global_string(source, "result"), "cancel-marker");
+}
+
+/// R5.4: getReader rejects non-object non-null non-undefined
+/// options per WebIDL dict-conversion semantics.
+#[test]
+fn get_reader_rejects_number_options() {
+    let mut vm = Vm::new();
+    let result = vm.eval("new ReadableStream().getReader(1)");
+    assert!(result.is_err());
+}
+
+/// R5.7: oversize-body case must produce an *errored* stream
+/// whose `read()` rejects, not a closed stream whose `read()`
+/// returns `{done:true}`.  Phase 2 cannot easily construct a
+/// >4GiB body in a unit test — verified instead by inspecting
+/// the order-of-operations contract via doc + manual review;
+/// the smaller invariant we *can* test is that `error()` after
+/// `close()` is a no-op (so the fix path matters).
+#[test]
+fn error_after_close_is_no_op() {
+    // Sanity: this confirms that `error_stream`'s "early-return
+    // unless Readable" guard is in place — the underlying
+    // contract that R5.7's reorder relies on.
+    let source = r#"
+        let ctrl;
+        const s = new ReadableStream({ start(c) { ctrl = c; c.close(); } });
+        try { ctrl.error("late"); } catch (_) {}
+        const r = s.getReader();
+        r.read().then(v => { globalThis.result = v.done; },
+                      _ => { globalThis.result = false; });
+    "#;
+    // Closed wins — read resolves done=true rather than rejecting.
+    assert!(eval_global_bool(source, "result"));
+}
+
 #[test]
 fn stream_tee_method_not_installed() {
     // Phase 2: `tee` is intentionally absent — `'tee' in stream`

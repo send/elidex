@@ -633,7 +633,7 @@ pub(super) fn extract_body_bytes(
             // silent string-coercion (which would land
             // `[object ReadableStream]` bytes on the wire).
             ObjectKind::ReadableStream => Err(VmError::type_error(
-                "ReadableStream body is not yet supported (M4-13.2)",
+                "ReadableStream request bodies are not yet supported",
             )),
             _ => {
                 // Generic fallback: stringify.  Covers plain

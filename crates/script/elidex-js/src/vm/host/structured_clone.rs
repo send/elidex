@@ -271,9 +271,15 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::ReadableStreamDefaultController { .. } => {
             CloneKind::Unclonable("ReadableStreamDefaultController")
         }
+        // Internal callables for stream source-callback dispatch
+        // — not Promises, not user-visible Functions.  Labelling
+        // them "Function" gives the user a brand-name they can
+        // reason about if such a callable somehow reaches
+        // structuredClone (it shouldn't — these are only
+        // attached to internal Promise reactions).
         ObjectKind::ReadableStreamStartStep { .. }
         | ObjectKind::ReadableStreamPullStep { .. }
-        | ObjectKind::ReadableStreamCancelStep { .. } => CloneKind::Unclonable("Promise"),
+        | ObjectKind::ReadableStreamCancelStep { .. } => CloneKind::Unclonable("Function"),
         // TypedArray / DataView clone via shared underlying
         // buffer — see `clone_typed_array` / `clone_data_view`
         // for the memo-threaded handling that preserves

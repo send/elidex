@@ -119,6 +119,13 @@ pub(crate) struct ReadableStreamState {
     pub(crate) source_start: Option<JsValue>,
     pub(crate) source_pull: Option<JsValue>,
     pub(crate) source_cancel: Option<JsValue>,
+    /// The underlying-source object (the first ctor arg) — used
+    /// as the `this` receiver for `start` / `pull` / `cancel`
+    /// invocations per spec InvokeOrNoop semantics, so a JS
+    /// `pull() { this.enqueue(...) }` shape works (Copilot R5
+    /// finding).  `None` for VM-controlled streams (body /
+    /// Blob.stream) where the callbacks are `None` anyway.
+    pub(crate) underlying_source: Option<JsValue>,
     /// Stored error reason once the stream has transitioned to
     /// `Errored`.  Read by late `read()` / `closed` rejections.
     /// `Undefined` when not in errored state.
@@ -390,6 +397,10 @@ pub(super) fn native_readable_stream_constructor(
             source_start,
             source_pull,
             source_cancel,
+            underlying_source: match source_arg {
+                JsValue::Object(_) => Some(source_arg),
+                _ => None,
+            },
             stored_error: JsValue::Undefined,
         },
     );
@@ -399,11 +410,10 @@ pub(super) fn native_readable_stream_constructor(
         let JsValue::Object(start_fn_id) = start_cb else {
             unreachable!("source_start was callable-checked");
         };
-        let result = ctx.call_function(
-            start_fn_id,
-            JsValue::Undefined,
-            &[JsValue::Object(controller_id)],
-        );
+        // Spec InvokeOrNoop: `this` is the underlyingSource
+        // object so `start() { this.enqueue(...) }` works.
+        let this_arg = source_arg;
+        let result = ctx.call_function(start_fn_id, this_arg, &[JsValue::Object(controller_id)]);
         match result {
             Ok(value) => finalize_start(ctx.vm, stream_id, value),
             Err(err) => {
@@ -555,12 +565,13 @@ fn pull_should_fire(state: &ReadableStreamState) -> bool {
 
 /// Drive the pull pump (§4.5.10 ReadableStreamDefaultControllerCallPullIfNeeded).
 fn pull_if_needed(vm: &mut VmInner, stream_id: ObjectId) {
-    let (should_pull, pull_cb, controller_id) = {
+    let (should_pull, pull_cb, controller_id, underlying_source) = {
         let state = stream_state(vm, stream_id);
         (
             pull_should_fire(state),
             state.source_pull,
             state.controller_id,
+            state.underlying_source,
         )
     };
     if !should_pull {
@@ -587,13 +598,12 @@ fn pull_if_needed(vm: &mut VmInner, stream_id: ObjectId) {
     };
 
     // Invoke pull(controller).  Sync throw → error stream.
+    // Spec InvokeOrNoop: `this` is the underlyingSource so
+    // `pull() { this.enqueue(...) }` works.
+    let this_arg = underlying_source.unwrap_or(JsValue::Undefined);
     let result = {
         let mut ctx = NativeContext { vm };
-        ctx.call_function(
-            pull_fn_id,
-            JsValue::Undefined,
-            &[JsValue::Object(controller_id)],
-        )
+        ctx.call_function(pull_fn_id, this_arg, &[JsValue::Object(controller_id)])
     };
     match result {
         Ok(value) => {
@@ -970,12 +980,25 @@ pub(super) fn native_readable_stream_get_reader(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let stream_id = require_stream_this(ctx, this, "getReader")?;
+    // WebIDL: the `options` argument is a dictionary, so non-`null` /
+    // non-`undefined` non-objects must throw TypeError (Copilot R5
+    // finding).
+    let opts_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    match opts_arg {
+        JsValue::Undefined | JsValue::Null => {}
+        JsValue::Object(_) => {}
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'getReader' on 'ReadableStream': options must be an object",
+            ));
+        }
+    }
     // Spec §4.2.4 step 2: `options.mode` is undefined ⇒ default
     // reader; `"byob"` ⇒ BYOB reader (Phase 2 unsupported, throws);
     // any other value ⇒ TypeError per WebIDL `ReadableStreamReaderMode`
     // enumeration.  Comparing against the literal `"byob"` avoids
     // R1's bug of accepting `mode: ""` and rejecting `mode: "default"`.
-    if let Some(JsValue::Object(opts_id)) = args.first().copied() {
+    if let JsValue::Object(opts_id) = opts_arg {
         let mode_sid = ctx.vm.strings.intern("mode");
         let mode_key = PropertyKey::String(mode_sid);
         if let Some(prop) = super::super::coerce::get_property(ctx.vm, opts_id, mode_key) {
@@ -1282,26 +1305,26 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
             source_start: None,
             source_pull: None,
             source_cancel: None,
+            underlying_source: None,
             stored_error: JsValue::Undefined,
         },
     );
 
     // Stream is `Readable` with a queued chunk + close_requested
     // — the spec's "wait for the queue to drain before closing"
-    // path matches exactly.  If the chunk is empty (`byte_length
-    // == 0`) the stream finalises Closed immediately.  Oversize
-    // bodies fall through here too: queue stays empty so close
-    // finalises, and the stream is then errored so a reader's
-    // first `read()` rejects with the body-too-large reason.
-    if byte_length == 0 {
-        finalize_close(vm, stream_id);
-    }
+    // path matches exactly.  Oversize must check FIRST: a
+    // `finalize_close` flips state to Closed, after which
+    // `error_stream` early-returns and the oversize stream
+    // would silently report `done: true` instead of rejecting
+    // (Copilot R5 finding).  So error before any close.
     if oversize {
         let err = VmError::range_error(
             "Failed to materialise body stream: payload exceeds 4 GiB Uint8Array view limit",
         );
         let reason = vm.vm_error_to_thrown(&err);
         error_stream(vm, stream_id, reason);
+    } else if byte_length == 0 {
+        finalize_close(vm, stream_id);
     }
     stream_id
 }
@@ -1649,10 +1672,15 @@ pub(super) fn do_stream_cancel(vm: &mut VmInner, stream_id: ObjectId, reason: Js
     finalize_close(vm, stream_id);
 
     let cancel_cb = stream_state(vm, stream_id).source_cancel;
+    let this_arg = stream_state(vm, stream_id)
+        .underlying_source
+        .unwrap_or(JsValue::Undefined);
     if let Some(JsValue::Object(fn_id)) = cancel_cb {
+        // Spec InvokeOrNoop: `this` is the underlyingSource so
+        // `cancel() { this... }` works.
         let result = {
             let mut ctx = NativeContext { vm };
-            ctx.call_function(fn_id, JsValue::Undefined, &[reason])
+            ctx.call_function(fn_id, this_arg, &[reason])
         };
         match result {
             Ok(value) => {

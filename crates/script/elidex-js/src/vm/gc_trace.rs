@@ -406,6 +406,9 @@ pub(super) fn trace_work_list(
                     if let Some(cb) = state.source_cancel {
                         mark_value(cb, obj_marks, work);
                     }
+                    if let Some(uso) = state.underlying_source {
+                        mark_value(uso, obj_marks, work);
+                    }
                     mark_value(state.stored_error, obj_marks, work);
                 }
             }
