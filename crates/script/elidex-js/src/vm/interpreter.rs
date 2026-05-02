@@ -50,6 +50,7 @@ impl VmInner {
     }
 
     /// Call a JS function object with the given `this` and arguments.
+    #[allow(clippy::too_many_lines)] // dispatch table over every callable ObjectKind variant
     pub fn call(
         &mut self,
         func_obj_id: ObjectId,
@@ -153,6 +154,42 @@ impl VmInner {
                     let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
                     super::natives_generator::drive_async_coroutine(self, gen, value, is_throw)?;
                     return Ok(JsValue::Undefined);
+                }
+                #[cfg(feature = "engine")]
+                ObjectKind::ReadableStreamStartStep {
+                    stream_id,
+                    is_reject,
+                } => {
+                    let stream_id = *stream_id;
+                    let is_reject = *is_reject;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    return super::host::readable_stream::run_start_step(
+                        self, stream_id, is_reject, value,
+                    );
+                }
+                #[cfg(feature = "engine")]
+                ObjectKind::ReadableStreamPullStep {
+                    stream_id,
+                    is_reject,
+                } => {
+                    let stream_id = *stream_id;
+                    let is_reject = *is_reject;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    return super::host::readable_stream::run_pull_step(
+                        self, stream_id, is_reject, value,
+                    );
+                }
+                #[cfg(feature = "engine")]
+                ObjectKind::ReadableStreamCancelStep { promise, is_reject } => {
+                    let promise = *promise;
+                    let is_reject = *is_reject;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let value = call_args.first().copied().unwrap_or(JsValue::Undefined);
+                    return super::host::readable_stream::run_cancel_step(
+                        self, promise, is_reject, value,
+                    );
                 }
                 _ => return Err(VmError::type_error("not a function")),
             }

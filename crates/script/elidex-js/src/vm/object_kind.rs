@@ -275,7 +275,7 @@ pub enum ObjectKind {
     /// GC contract: the trace step marks the `headers_id` Companion
     /// from the state entry.  Body bytes are plain `Vec<u8>` (no
     /// `ObjectId` references), so they need no marking.  Sweep
-    /// tail prunes `request_states` / `body_data` / `body_used`
+    /// tail prunes `request_states` / `body_data` / `disturbed`
     /// entries whose key was collected.
     #[cfg(feature = "engine")]
     Request,
@@ -495,6 +495,75 @@ pub enum ObjectKind {
     /// `ObjectId` was collected.
     #[cfg(feature = "engine")]
     FormData,
+    /// `ReadableStream` instance (WHATWG Streams §4.2).  Payload-free;
+    /// the state machine (state enum, queue, controller back-ref,
+    /// reader back-ref, source callbacks, queuing-strategy
+    /// algorithm) lives out-of-band in
+    /// [`super::VmInner::readable_stream_states`] keyed by this
+    /// `ObjectId`.
+    ///
+    /// GC contract: the trace step marks reachable values inside
+    /// the state — queue chunks, source-callback ObjectIds,
+    /// controller / reader back-refs, the size algorithm, the
+    /// stored error.  Sweep tail prunes entries whose key
+    /// `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    ReadableStream,
+    /// `ReadableStreamDefaultReader` instance (WHATWG Streams §4.3).
+    /// Payload-free; reader-owned state (back-ref to the stream,
+    /// FIFO of pending `read()` promises, cached `closed` promise)
+    /// lives out-of-band in
+    /// [`super::VmInner::readable_stream_reader_states`].
+    ///
+    /// GC contract: trace step marks the stream back-ref + every
+    /// pending read Promise + the cached `closed` Promise.  This
+    /// is the spec-correct ownership shape: §4.3 `[[readRequests]]`
+    /// is an internal slot of the reader, so the promises share the
+    /// reader's lifetime — no VM-level strong-root list needed.
+    #[cfg(feature = "engine")]
+    ReadableStreamDefaultReader,
+    /// `ReadableStreamDefaultController` instance (WHATWG Streams
+    /// §4.5).  Payload-free; carries only the parent stream's
+    /// `ObjectId` as an internal slot — the controller's mutable
+    /// state (the queue, `close_requested`, `pull_in_flight`) all
+    /// lives on the parent `ReadableStreamState`, so the controller
+    /// is just a brand-checked façade.
+    ///
+    /// GC contract: marks `stream_id` so the parent stream stays
+    /// reachable.  The stream's own trace fan-out then handles the
+    /// queue and source callbacks.
+    #[cfg(feature = "engine")]
+    ReadableStreamDefaultController { stream_id: ObjectId },
+    /// Internal callable that handles the `start`-completion of a
+    /// `ReadableStream` source (WHATWG Streams §4.2.4 step 10/11).
+    /// Allocated by the constructor and registered as the fulfil
+    /// (or reject, with `is_reject = true`) handler on the start
+    /// promise.  When called it dispatches to
+    /// `super::host::readable_stream::run_start_step`.
+    ///
+    /// Carries `stream_id` inline so the callable can locate its
+    /// stream without a closure or BoundFunction wrapper — same
+    /// shape as [`Self::PromiseFinallyStep`].
+    #[cfg(feature = "engine")]
+    ReadableStreamStartStep {
+        stream_id: ObjectId,
+        is_reject: bool,
+    },
+    /// Internal callable for the `pull`-completion of a
+    /// `ReadableStream` source (WHATWG Streams §4.5.10).  Same
+    /// shape as [`Self::ReadableStreamStartStep`]: invoked when the
+    /// pull-promise settles, dispatches to
+    /// `super::host::readable_stream::run_pull_step`.
+    #[cfg(feature = "engine")]
+    ReadableStreamPullStep {
+        stream_id: ObjectId,
+        is_reject: bool,
+    },
+    /// Internal callable for the source.cancel-completion of a
+    /// `ReadableStream` (WHATWG Streams §4.4.2).  Settles the
+    /// caller's `cancel()` Promise with the source-cancel result.
+    #[cfg(feature = "engine")]
+    ReadableStreamCancelStep { promise: ObjectId, is_reject: bool },
 }
 
 impl ObjectKind {
@@ -503,16 +572,32 @@ impl ObjectKind {
     /// step wrappers, or an async-driver continuation step).
     #[inline]
     pub fn is_callable(&self) -> bool {
-        matches!(
-            self,
-            Self::Function(_)
-                | Self::NativeFunction(_)
-                | Self::BoundFunction { .. }
-                | Self::PromiseResolver { .. }
-                | Self::PromiseCombinatorStep(_)
-                | Self::PromiseFinallyStep { .. }
-                | Self::AsyncDriverStep { .. }
-        )
+        let extra_engine = {
+            #[cfg(feature = "engine")]
+            {
+                matches!(
+                    self,
+                    Self::ReadableStreamStartStep { .. }
+                        | Self::ReadableStreamPullStep { .. }
+                        | Self::ReadableStreamCancelStep { .. }
+                )
+            }
+            #[cfg(not(feature = "engine"))]
+            {
+                false
+            }
+        };
+        extra_engine
+            || matches!(
+                self,
+                Self::Function(_)
+                    | Self::NativeFunction(_)
+                    | Self::BoundFunction { .. }
+                    | Self::PromiseResolver { .. }
+                    | Self::PromiseCombinatorStep(_)
+                    | Self::PromiseFinallyStep { .. }
+                    | Self::AsyncDriverStep { .. }
+            )
     }
 }
 

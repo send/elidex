@@ -1082,17 +1082,23 @@ pub(super) fn create_response_from_net(
         }
     }
 
-    // Body bytes.  Skip the map insert for zero-byte responses
-    // so `.body_data.contains_key(id)` keeps meaning "this
-    // response actually carries bytes".  Opaque-shape responses
-    // also skip the insert — body must be `null` (= absent).
+    // Body bytes.  Insert (even an empty `Vec`) for non-opaque
+    // responses so `Response.body` materialises a ReadableStream
+    // — spec §4.1: a non-opaque response has a body that is a
+    // stream (possibly empty), never `null`.  Two exceptions
+    // skip the insert so `.body` stays `null`:
+    //   - opaque-shape responses (per §3.1.4: `.body` must be
+    //     `null` for opaque / opaque-redirect)
+    //   - null-body statuses 204 / 205 / 304 (per §4.1: those
+    //     statuses MUST have a null body — Copilot R8 finding).
     //
     // The HTTP response body is owned by `bytes::Bytes` (its own
     // ref-counted handle); we copy it into a fresh `Vec<u8>` for
     // installation in `body_data`, since that map's storage type
     // is owned `Vec<u8>` so subsequent TypedArray / DataView
     // writes can mutate it in place via `byte_io`.
-    if !opaque_shape && !response.body.is_empty() {
+    let null_body_status = matches!(response.status, 204 | 205 | 304);
+    if !opaque_shape && !null_body_status {
         g2.body_data.insert(inst_id, response.body.to_vec());
     }
 

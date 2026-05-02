@@ -68,6 +68,7 @@ mod tests_performance;
 mod tests_post_message;
 mod tests_promise;
 mod tests_promise_rejection_event;
+mod tests_readable_stream;
 mod tests_remove_event_listener;
 mod tests_request_response;
 mod tests_sparse_array;

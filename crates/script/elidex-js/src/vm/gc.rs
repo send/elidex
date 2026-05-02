@@ -109,7 +109,7 @@ struct GcRoots<'a> {
     globals: &'a HashMap<StringId, JsValue>,
     completion_value: JsValue,
     current_exception: JsValue,
-    proto_roots: [Option<ObjectId>; 52],
+    proto_roots: [Option<ObjectId>; 57],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -185,6 +185,31 @@ struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     form_data_states:
         &'a std::collections::HashMap<ObjectId, Vec<super::host::form_data::FormDataEntry>>,
+    /// `ReadableStream` per-instance state — trace step marks
+    /// queue chunks, source callbacks, controller / reader
+    /// back-refs, the size algorithm, and the stored error
+    /// reason.  Without this fan-out the chunk values held in
+    /// the queue could be collected while the stream still has
+    /// a pending reader.
+    #[cfg(feature = "engine")]
+    readable_stream_states:
+        &'a std::collections::HashMap<ObjectId, super::host::readable_stream::ReadableStreamState>,
+    /// `ReadableStreamDefaultReader` per-instance state — trace
+    /// step marks the stream back-ref + every pending
+    /// `read()` Promise + the cached `closed` Promise.  Pending
+    /// read promises are owned through the reader (rather than a
+    /// VM-level strong-root list) — collecting the reader makes
+    /// its read promises unreachable too, matching the spec slot
+    /// `[[readRequests]]`.
+    #[cfg(feature = "engine")]
+    readable_stream_reader_states:
+        &'a std::collections::HashMap<ObjectId, super::host::readable_stream::ReaderState>,
+    /// Cached `Request` / `Response` `.body` lazy stream — value
+    /// `ObjectId` must be marked when the receiver is reachable
+    /// so `r.body === r.body` keeps the same instance alive
+    /// across GC ticks.
+    #[cfg(feature = "engine")]
+    body_streams: &'a std::collections::HashMap<ObjectId, ObjectId>,
     /// Pending `AbortSignal.timeout(ms)` registrations — the
     /// `ObjectId` values are signals that must survive until the
     /// timer fires (see `VmInner::pending_timeout_signals` for the
@@ -728,6 +753,29 @@ impl VmInner {
                 self.form_data_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 52 + 5 (M4-12 PR5-streams: ReadableStream +
+                // DefaultReader + DefaultController + 2 queuing
+                // strategies) = 57.  All chain to Object.prototype.
+                #[cfg(feature = "engine")]
+                self.readable_stream_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.readable_stream_default_reader_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.readable_stream_default_controller_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.count_queuing_strategy_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.byte_length_queuing_strategy_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -756,6 +804,12 @@ impl VmInner {
             response_states: &self.response_states,
             #[cfg(feature = "engine")]
             form_data_states: &self.form_data_states,
+            #[cfg(feature = "engine")]
+            readable_stream_states: &self.readable_stream_states,
+            #[cfg(feature = "engine")]
+            readable_stream_reader_states: &self.readable_stream_reader_states,
+            #[cfg(feature = "engine")]
+            body_streams: &self.body_streams,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
             #[cfg(feature = "engine")]
@@ -786,6 +840,12 @@ impl VmInner {
             roots.response_states,
             #[cfg(feature = "engine")]
             roots.form_data_states,
+            #[cfg(feature = "engine")]
+            roots.readable_stream_states,
+            #[cfg(feature = "engine")]
+            roots.readable_stream_reader_states,
+            #[cfg(feature = "engine")]
+            roots.body_streams,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -866,18 +926,35 @@ impl VmInner {
             // post-sweep pattern.
             self.headers_states.retain(|id, _| bit_get(marks, id.0));
             // `request_states` / `response_states` / `body_data` /
-            // `body_used` — companion-Headers pointers were rooted
+            // `disturbed` — companion-Headers pointers were rooted
             // during mark for reachable keys, so surviving entries
             // are intact.  Prune entries whose key was collected to
             // avoid a recycled slot inheriting stale method /
             // status / body bytes (same pattern as
-            // `abort_signal_states`).  `body_data` / `body_used`
+            // `abort_signal_states`).  `body_data` / `disturbed`
             // reach across both Request and Response keys — pruning
             // by the key's mark bit handles both cases in one pass.
             self.request_states.retain(|id, _| bit_get(marks, id.0));
             self.response_states.retain(|id, _| bit_get(marks, id.0));
             self.body_data.retain(|id, _| bit_get(marks, id.0));
-            self.body_used.retain(|id| bit_get(marks, id.0));
+            self.disturbed.retain(|id| bit_get(marks, id.0));
+            // `readable_stream_states` / `readable_stream_reader_states`
+            // — payload references (queue chunks, source callbacks,
+            // controller / reader back-refs, pending read promises,
+            // closed promise) were marked during the trace phase,
+            // so a surviving entry has all its references kept
+            // alive.  Drop entries whose key `ObjectId` was
+            // collected so a recycled slot can't inherit stale
+            // queue / state.
+            self.readable_stream_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.readable_stream_reader_states
+                .retain(|id, _| bit_get(marks, id.0));
+            // `body_streams` — entry is removed when the receiver
+            // (Request / Response) was collected.  The stream
+            // value-side was kept alive during mark via the
+            // Request / Response trace fan-out.
+            self.body_streams.retain(|id, _| bit_get(marks, id.0));
             // `blob_data` — prune entries whose key `Blob`
             // instance was collected so a recycled slot can't
             // inherit stale bytes / type.  Matches `body_data` /
