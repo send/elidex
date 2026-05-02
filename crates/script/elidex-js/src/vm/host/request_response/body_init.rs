@@ -147,9 +147,9 @@ pub(in crate::vm::host) fn extract_body_bytes(
 /// `Content-Type` is computed inline by [`extract_body_bytes`]
 /// because the boundary is only known after serialisation.  Builds
 /// that consult `content_type_for_body` for a FormData body
-/// receive `None`; the [`super::build_response_instance`] /
-/// [`super::request_ctor`] paths thread the override returned by
-/// `extract_body_bytes` ahead of this fallback.
+/// receive `None`; the [`super::response_ctor::build_response_instance`]
+/// / [`super::request_ctor`] paths thread the override returned
+/// by `extract_body_bytes` ahead of this fallback.
 pub(in crate::vm::host) fn content_type_for_body(
     ctx: &NativeContext<'_>,
     body: JsValue,

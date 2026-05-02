@@ -20,7 +20,10 @@ use super::ObjectId;
 /// Used by `Headers.get` for multi-valued headers and by
 /// [`super::super::body_mixin::content_type_of`] so `Blob.type` and
 /// `resp.headers.get('content-type')` always agree on the
-/// combined form — `pub(super)` so body-mixin can share.
+/// combined form — visibility is `pub(in crate::vm::host)`
+/// (re-exported via [`super`] so external callers stay at
+/// `super::headers::join_values_comma_space` without reaching
+/// into the `iteration` submodule).
 ///
 /// **Caller contract**: `values` must be non-empty.  A zero-length
 /// input is a logic error (the caller should short-circuit to
