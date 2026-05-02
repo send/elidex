@@ -328,7 +328,6 @@ fn body_mixin_after_body_access_throws_disturbed() {
         r#"
         const r = new Response("hi");
         r.body;
-        let rejected = false;
         r.text().then(_ => {}, _ => { globalThis.result = true; });
         "#,
     );
