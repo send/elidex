@@ -879,3 +879,95 @@ fn renderer_shutdown_message_does_not_cancel_inflight_fetches() {
     np.shutdown();
     server_thread.join().unwrap();
 }
+
+/// PR-file-split-a Copilot R10 (HG4e) regression: a stale
+/// `NetworkHandle` clone whose renderer was already unregistered
+/// must NOT be able to spawn new fetch workers (which would
+/// consume `MAX_CONCURRENT_FETCHES` slots with no response
+/// destination) or open new WS/SSE connections.  Pre-fix
+/// `handle_request` ran every dispatch unconditionally and
+/// only checked `self.clients.get(&cid)` per-branch for the
+/// reply path; the resource consumption was already paid by
+/// the time we discovered the client was gone.  Post-fix the
+/// top-of-`handle_request` early-return drops every message
+/// from an unknown cid silently.
+#[test]
+fn unregistered_renderer_cannot_consume_inflight_slots() {
+    let stall_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let stall_addr = stall_listener.local_addr().unwrap();
+    let _stall_keep = stall_listener;
+
+    let np = spawn_network_process(test_client());
+    let stale = np.create_renderer_handle();
+    let cid = stale.client_id();
+    let observer = np.create_renderer_handle();
+
+    // Unregister the soon-to-be-stale renderer.  The handle
+    // clone (`stale`) survives — the Drop on `unregister_renderer`
+    // does NOT consume it, so a bug-prone caller can still call
+    // `fetch_async` on it.
+    np.unregister_renderer(cid);
+    // Yield so the unregister is processed before the fetch.
+    std::thread::sleep(Duration::from_millis(20));
+
+    // Saturate via the stale handle.  Pre-fix every fetch_async
+    // would still spawn a worker thread + grab a slot.
+    for _ in 0..80 {
+        // 80 > MAX_CONCURRENT_FETCHES (64) — pre-fix this would
+        // exhaust the pool and the observer's probe below would
+        // see "too many concurrent fetches".
+        let _ = stale.fetch_async(Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://127.0.0.1:{}/", stall_addr.port())).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        });
+    }
+    // Yield so the broker has a chance to process the burst.
+    std::thread::sleep(Duration::from_millis(60));
+
+    // The observer's probe must still get an inflight slot.
+    // Bind a probe server that replies promptly.
+    let probe_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let probe_addr = probe_listener.local_addr().unwrap();
+    let probe_thread = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let Ok((mut stream, _)) = probe_listener.accept() else {
+            return;
+        };
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let _ = stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    });
+
+    let probe_id = observer.fetch_async(Request {
+        method: "GET".to_string(),
+        url: url::Url::parse(&format!("http://127.0.0.1:{}/", probe_addr.port())).unwrap(),
+        headers: Vec::new(),
+        body: bytes::Bytes::new(),
+        ..Default::default()
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut probe_got = None;
+    while std::time::Instant::now() < deadline && probe_got.is_none() {
+        for ev in observer.drain_events() {
+            if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                if rid == probe_id {
+                    probe_got = Some(result);
+                }
+            }
+        }
+        if probe_got.is_none() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    let probe_resp = probe_got
+        .expect("probe fetch starved — stale renderer's fetch_async consumed inflight slots")
+        .unwrap();
+    assert_eq!(probe_resp.status, 200);
+
+    np.shutdown();
+    probe_thread.join().unwrap();
+}

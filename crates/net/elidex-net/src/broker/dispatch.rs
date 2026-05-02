@@ -121,6 +121,22 @@ impl NetworkProcessState {
     }
 
     fn handle_request(&mut self, cid: u64, msg: RendererToNetwork, client: &Arc<NetClient>) {
+        // Drop messages from clients that have already been
+        // unregistered.  A stale `NetworkHandle` clone (e.g. one
+        // captured by a worker thread before its renderer was
+        // unregistered) could otherwise spawn fetch workers
+        // that consume `MAX_CONCURRENT_FETCHES` slots with no
+        // response sender to deliver the reply, or open WS/SSE
+        // I/O threads whose events would never reach a renderer
+        // (Copilot R10 finding, pre-existing).  Cancel /
+        // Shutdown for an unregistered cid are likewise no-ops
+        // — the per-client tables (`ws_handles` / `sse_handles`
+        // / `cancel_tokens`) are already empty for that cid
+        // because `UnregisterRenderer` ran `close_all_for_client`
+        // + `cancel_inflight_fetches_for` on the way out.
+        if !self.clients.contains_key(&cid) {
+            return;
+        }
         match msg {
             RendererToNetwork::Fetch(fetch_id, request) => {
                 self.handle_fetch(cid, fetch_id, request, client);
