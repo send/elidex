@@ -2,13 +2,6 @@
 unmaintained = "workspace"
 yanked = "warn"
 ignore = [
-    # wasmtime 29 advisories — all WASI/sandbox related, not exploitable in elidex
-    # (we don't use WASI or shared memory). Upgrade to wasmtime >=36.0.6 in Phase 4.
-    { id = "RUSTSEC-2025-0046", reason = "WASIp1 fd_renumber panic — WASI not used in elidex" },
-    { id = "RUSTSEC-2025-0118", reason = "shared linear memory unsoundness — shared memory not used in elidex" },
-    { id = "RUSTSEC-2026-0006", reason = "f64.copysign sandbox escape — Wasm modules are trusted in elidex Phase 3.5" },
-    { id = "RUSTSEC-2026-0020", reason = "WASI resource exhaustion — WASI not used in elidex" },
-    { id = "RUSTSEC-2026-0021", reason = "wasi:http/types.fields panic — WASI not used in elidex" },
     # thin-vec v0.2.14 UAF triggers only when an element's Drop impl panics.
     # Sole consumer is boa_engine (transitive: boa_gc / boa_ast / boa_parser /
     # boa_interner), which is slated for removal in M4-12 PR7 (boa→VM cutover
