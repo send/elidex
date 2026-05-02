@@ -9,8 +9,8 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::value::{StringId, VmError};
-use super::super::VmInner;
+use super::super::super::value::{StringId, VmError};
+use super::super::super::VmInner;
 
 /// RFC 7230 ABNF `tchar` — the permitted bytes in a header field
 /// name.  Used by [`is_valid_header_name`]; any other byte
@@ -71,7 +71,7 @@ fn trim_http_whitespace(s: &str) -> &str {
 /// response headers through the same name/value invariants as
 /// script-constructed Headers (§5.2 normalisation — lowercased
 /// name, trimmed value, no CR/LF/NUL).
-pub(super) fn validate_and_normalise(
+pub(in crate::vm::host) fn validate_and_normalise(
     vm: &mut VmInner,
     name_sid: StringId,
     value_sid: StringId,
@@ -101,13 +101,13 @@ pub(super) fn validate_and_normalise(
 /// [`validate_and_normalise_name`].  Includes the `proxy-` and
 /// `sec-` byte-prefix matches.
 ///
-/// Used by [`super::headers`]'s `Request`-guard mutation gate and
-/// by [`super::fetch`]'s URL-input init.headers snapshot path.
+/// Used by [`super`]'s `Request`-guard mutation gate and
+/// by [`super::super::fetch`]'s URL-input init.headers snapshot path.
 /// Spec semantics: matched names are *silently ignored*, not
 /// rejected with TypeError — matches browsers (Chrome / Firefox /
 /// Safari) and is what user code expects from `Headers.append`.
 #[must_use]
-pub(super) fn is_forbidden_request_header(lower_name: &str) -> bool {
+pub(in crate::vm::host) fn is_forbidden_request_header(lower_name: &str) -> bool {
     if lower_name.starts_with("proxy-") || lower_name.starts_with("sec-") {
         return true;
     }

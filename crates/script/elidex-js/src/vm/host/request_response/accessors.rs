@@ -4,17 +4,16 @@
 //! project's 1000-line convention.  This file only holds the
 //! per-instance IDL getter bodies plus the two `clone()`
 //! implementations; enums, state structs, constructors, and
-//! static factories live in the sibling `request_response`
-//! module.
+//! static factories live in the parent module ([`super`]).
 
 #![cfg(feature = "engine")]
 
-use super::super::shape;
-use super::super::value::{
+use super::super::super::shape;
+use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
-use super::headers::HeadersGuard;
-use super::request_response::{
+use super::super::headers::HeadersGuard;
+use super::{
     copy_headers_entries, RedirectMode, RequestCache, RequestCredentials, RequestMode,
     RequestState, ResponseState, ResponseType,
 };
@@ -193,7 +192,7 @@ pub(super) fn native_request_clone(
     // user-reachable: body-mixin consumers (`text()` /
     // `arrayBuffer()` / …) set disturbed, and
     // `r.body.getReader()` sets locked.
-    if ctx.vm.disturbed.contains(&id) || super::body_mixin::is_body_locked(ctx.vm, id) {
+    if ctx.vm.disturbed.contains(&id) || super::super::body_mixin::is_body_locked(ctx.vm, id) {
         return Err(VmError::type_error(
             "Failed to execute 'clone' on 'Request': Request body is already used",
         ));
@@ -227,7 +226,7 @@ pub(super) fn native_request_clone(
     // today (`gc_enabled = false` inside natives) but preserved
     // uniformly.
     let mut g = ctx.vm.push_temp_root(JsValue::Object(new_headers));
-    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
     let ctx = &mut rooted_holder;
     copy_headers_entries(ctx, src_headers_id, new_headers);
     // Propagate the source guard so a cloned Request built from
@@ -402,7 +401,10 @@ pub(super) fn native_response_get_body(
 /// Subsequent `body_mixin` consumers (`.text()` / `.json()` /
 /// …) on the same receiver throw because the disturbed bit is
 /// set.
-pub(super) fn get_or_create_body_stream(vm: &mut super::super::VmInner, id: ObjectId) -> JsValue {
+pub(super) fn get_or_create_body_stream(
+    vm: &mut super::super::super::VmInner,
+    id: ObjectId,
+) -> JsValue {
     if let Some(&stream_id) = vm.body_streams.get(&id) {
         return JsValue::Object(stream_id);
     }
@@ -412,7 +414,7 @@ pub(super) fn get_or_create_body_stream(vm: &mut super::super::VmInner, id: Obje
     let Some(bytes) = vm.body_data.remove(&id) else {
         return JsValue::Null;
     };
-    let stream_id = super::readable_stream::create_body_backed_stream(vm, bytes);
+    let stream_id = super::super::readable_stream::create_body_backed_stream(vm, bytes);
     vm.body_streams.insert(id, stream_id);
     vm.disturbed.insert(id);
     JsValue::Object(stream_id)
@@ -447,7 +449,7 @@ pub(super) fn native_response_clone(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_response_this(ctx, this, "clone")?;
-    if ctx.vm.disturbed.contains(&id) || super::body_mixin::is_body_locked(ctx.vm, id) {
+    if ctx.vm.disturbed.contains(&id) || super::super::body_mixin::is_body_locked(ctx.vm, id) {
         return Err(VmError::type_error(
             "Failed to execute 'clone' on 'Response': Response body is already used",
         ));
@@ -475,7 +477,7 @@ pub(super) fn native_response_clone(
     // Root `new_headers` across the splice + clone-alloc window
     // (R16 GC-safety invariant — mirrors `native_request_clone`).
     let mut g = ctx.vm.push_temp_root(JsValue::Object(new_headers));
-    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
     let ctx = &mut rooted_holder;
     copy_headers_entries(ctx, src_headers_id, new_headers);
     if let Some(src_guard) = ctx.vm.headers_states.get(&src_headers_id).map(|s| s.guard) {

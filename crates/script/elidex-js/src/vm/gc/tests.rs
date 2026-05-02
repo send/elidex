@@ -1,20 +1,20 @@
 //! Unit tests for the tracing mark-and-sweep GC.
 //!
 //! Extracted from `vm/gc.rs` to keep that file under the project's
-//! 1000-line convention.  Tests stay in the same `crate::vm` module
-//! tree (declared via `#[cfg(test)] mod gc_tests;` in `vm/mod.rs`),
-//! so `super::*` resolves to `crate::vm` and the helpers below can
-//! reach `gc::collect_garbage` and the surrounding object/upvalue
-//! machinery without re-export plumbing.
+//! 1000-line convention.  Tests live as a child module of
+//! [`super`] (declared via `#[cfg(test)] mod tests;` in
+//! `vm/gc/mod.rs`), so `super::super::*` resolves to `crate::vm`
+//! and the helpers below can reach `gc::collect_garbage` and the
+//! surrounding object/upvalue machinery without re-export plumbing.
 
 #![cfg(test)]
 
-use super::shape;
-use super::value::{
+use super::super::shape;
+use super::super::value::{
     FunctionObject, JsValue, Object, ObjectKind, Property, PropertyStorage, PropertyValue, Upvalue,
     UpvalueState,
 };
-use super::Vm;
+use super::super::Vm;
 
 /// Helper: create a VM and return mutable access to inner.
 fn test_vm() -> Vm {
@@ -22,7 +22,7 @@ fn test_vm() -> Vm {
 }
 
 /// Helper: create an ordinary Object with a given prototype.
-fn ordinary(proto: Option<super::value::ObjectId>) -> Object {
+fn ordinary(proto: Option<super::super::value::ObjectId>) -> Object {
     Object {
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
@@ -124,9 +124,9 @@ fn gc_traces_function_upvalues() {
     });
     let func = vm.inner.alloc_object(Object {
         kind: ObjectKind::Function(FunctionObject {
-            func_id: super::value::FuncId(0),
+            func_id: super::super::value::FuncId(0),
             upvalue_ids: vec![uv_id].into(),
-            this_mode: super::value::ThisMode::Strict,
+            this_mode: super::super::value::ThisMode::Strict,
             name: None,
             captured_this: None,
         }),
@@ -173,7 +173,7 @@ fn gc_traces_accessor_property() {
     let obj = vm.inner.alloc_object(Object {
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::Dictionary(vec![(
-            super::value::PropertyKey::String(key_x),
+            super::super::value::PropertyKey::String(key_x),
             Property {
                 slot: PropertyValue::Accessor {
                     getter: Some(getter),
@@ -241,10 +241,10 @@ fn gc_invalidates_call_ic() {
         .compiled_functions
         .first_mut()
         .expect("compiled_functions must not be empty");
-    cf.call_ic_slots.push(Some(super::ic::CallIC {
+    cf.call_ic_slots.push(Some(super::super::ic::CallIC {
         callee,
-        func_id: super::value::FuncId(0),
-        this_mode: super::value::ThisMode::Strict,
+        func_id: super::super::value::FuncId(0),
+        this_mode: super::super::value::ThisMode::Strict,
         upvalue_ids: std::sync::Arc::from([]),
         captured_this: None,
     }));
@@ -280,10 +280,10 @@ fn gc_invalidates_proto_ic() {
         .compiled_functions
         .first_mut()
         .expect("compiled_functions must not be empty");
-    cf.ic_slots.push(Some(super::ic::PropertyIC {
+    cf.ic_slots.push(Some(super::super::ic::PropertyIC {
         receiver_shape: shape::ROOT_SHAPE,
         slot: 0,
-        holder: super::ic::ICHolder::Proto {
+        holder: super::super::ic::ICHolder::Proto {
             proto_shape: shape::ROOT_SHAPE,
             proto_slot: 0,
             proto_id: proto,

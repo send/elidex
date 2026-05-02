@@ -17,9 +17,6 @@ mod dispatch_iter;
 mod dispatch_objects;
 mod error;
 pub(crate) mod gc;
-#[cfg(test)]
-mod gc_tests;
-mod gc_trace;
 mod globals;
 mod globals_async;
 mod globals_errors;
