@@ -176,11 +176,26 @@ pub(super) fn native_response_static_json(
         prototype: proto,
         extensible: true,
     });
+    // Root `inst_id` across `build_response_instance` — the helper
+    // calls `parse_response_init` (which may run user-supplied
+    // getters whose bodies allocate) and `create_headers` (which
+    // allocates), and its contract assumes `inst_id` is already
+    // rooted by the caller (see its inline comment at the
+    // `headers_id` allocation site).  Matches the rooting pattern
+    // used by `native_response_static_error` /
+    // `native_response_static_redirect` above.  Latent today
+    // because `gc_enabled = false` inside natives, but kept
+    // uniform so a future GC-enabled native path doesn't surface
+    // a use-after-free here.
+    let mut g = ctx.vm.push_temp_root(JsValue::Object(inst_id));
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
+    let ctx = &mut rooted_holder;
+    let json_ct = ctx.vm.well_known.application_json_utf8;
     build_response_instance(
         ctx,
         inst_id,
         body_bytes,
-        Some(ctx.vm.well_known.application_json_utf8),
+        Some(json_ct),
         init,
         ResponseType::Default,
         0,
