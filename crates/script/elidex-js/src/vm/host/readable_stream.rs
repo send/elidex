@@ -1182,12 +1182,32 @@ pub(super) fn native_reader_release_lock(
         let reason = ctx.vm.vm_error_to_thrown(&err);
         let _ = settle_promise(ctx.vm, read_p, true, reason);
     }
-    // Spec §4.3.5 step 6: replace `closed` with a freshly-rejected
-    // Promise so subsequent `reader.closed.then(...)` sees a
-    // TypeError immediately.
-    let new_closed = create_promise(ctx.vm);
+    // Spec §4.3.4 ReadableStreamReaderGenericRelease step 1-2:
+    // - If stream state is "readable" → reject the *existing*
+    //   closedPromise (so `const p = r.closed; r.releaseLock();`
+    //   sees `p` reject — Copilot R10 finding).
+    // - Otherwise → replace closedPromise with a fresh rejected
+    //   Promise (the previous one was already settled on
+    //   close/error, so rejection is a no-op via the
+    //   already_resolved gate).
+    // We always do "reject prev + install fresh rejected" because
+    // settle_promise no-ops on settled promises, so the readable
+    // case naturally rejects the prev and the closed/errored
+    // case simply swaps in a new rejected one.  Anyone holding
+    // the prev reference observes the rejection in the readable
+    // case and observes the prior settlement otherwise (matching
+    // spec semantics either way).
+    let prev_closed = ctx
+        .vm
+        .readable_stream_reader_states
+        .get(&id)
+        .map(|s| s.closed_promise);
     let err = VmError::type_error("ReadableStream reader was released");
     let reason = ctx.vm.vm_error_to_thrown(&err);
+    if let Some(prev) = prev_closed {
+        let _ = settle_promise(ctx.vm, prev, true, reason);
+    }
+    let new_closed = create_promise(ctx.vm);
     let _ = settle_promise(ctx.vm, new_closed, true, reason);
     if let Some(reader_state) = ctx.vm.readable_stream_reader_states.get_mut(&id) {
         reader_state.stream_id = None;
@@ -1383,23 +1403,36 @@ fn extract_strategy_high_water_mark(
     init_arg: JsValue,
     iface: &str,
 ) -> Result<JsValue, VmError> {
-    // WebIDL: a dictionary parameter with `undefined` or `null`
-    // converts to an empty dictionary — it does NOT throw.  The
-    // observable failure must come from missing
-    // `highWaterMark`, not "init must be an object" (Copilot R9
-    // finding).  Other non-Object types (Number / String / …)
-    // can't host a `highWaterMark` lookup, so reach the same
-    // missing-required-member error.
+    // WebIDL dictionary conversion (§3.2.17):
+    //   - `undefined` / `null` → empty dictionary (then required
+    //     member missing surfaces "highWaterMark is required").
+    //   - non-Object primitive (Number / String / Boolean / …)
+    //     → TypeError "init must be an object" (Copilot R10
+    //     finding — `new CountQueuingStrategy(1)` should reject
+    //     at the dict-conversion stage, not the missing-member
+    //     stage).
+    //   - Object → look up `highWaterMark`; absent or undefined
+    //     → "highWaterMark is required".
     let lookup_value = match init_arg {
         JsValue::Undefined | JsValue::Null => None,
         JsValue::Object(obj_id) => {
             let key = PropertyKey::String(ctx.vm.well_known.high_water_mark);
             match super::super::coerce::get_property(ctx.vm, obj_id, key) {
-                Some(prop) => Some(ctx.vm.resolve_property(prop, JsValue::Object(obj_id))?),
+                Some(prop) => match ctx.vm.resolve_property(prop, JsValue::Object(obj_id))? {
+                    // An explicitly-present `undefined` is treated
+                    // as missing per WebIDL dict member rules
+                    // (Copilot R10 — symmetry with omitted member).
+                    JsValue::Undefined => None,
+                    other => Some(other),
+                },
                 None => None,
             }
         }
-        _ => None,
+        _ => {
+            return Err(VmError::type_error(format!(
+                "Failed to construct '{iface}': init must be an object"
+            )));
+        }
     };
     lookup_value.ok_or_else(|| {
         VmError::type_error(format!(
@@ -1410,7 +1443,15 @@ fn extract_strategy_high_water_mark(
 
 fn install_high_water_mark_own(vm: &mut VmInner, inst_id: ObjectId, hwm: JsValue) {
     let key = PropertyKey::String(vm.well_known.high_water_mark);
-    vm.define_shaped_property(inst_id, key, PropertyValue::Data(hwm), PropertyAttrs::DATA);
+    // WebIDL readonly attribute (Streams §6.1.4 / §6.2.4) — uses
+    // `WEBIDL_RO` so user code can't mutate
+    // `strategy.highWaterMark` after construction (Copilot R10).
+    vm.define_shaped_property(
+        inst_id,
+        key,
+        PropertyValue::Data(hwm),
+        PropertyAttrs::WEBIDL_RO,
+    );
 }
 
 fn native_count_queuing_strategy_constructor(

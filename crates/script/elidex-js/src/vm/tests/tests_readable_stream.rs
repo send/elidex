@@ -884,6 +884,60 @@ fn queuing_strategy_null_init_throws_highwatermark_required() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// R10 regression: spec edges caught in Copilot review round 10
+// ---------------------------------------------------------------------------
+
+/// R10.1: `releaseLock()` rejects the previously-issued
+/// `closed` Promise (not just the new one), so `const p =
+/// reader.closed; reader.releaseLock()` makes `p` reject —
+/// previously `p` stayed pending forever.
+#[test]
+fn release_lock_rejects_previously_captured_closed_promise() {
+    let source = r#"
+        const s = new ReadableStream();
+        const r = s.getReader();
+        const p = r.closed;
+        p.then(_ => {}, _ => { globalThis.result = "rejected"; });
+        r.releaseLock();
+    "#;
+    assert_eq!(eval_global_string(source, "result"), "rejected");
+}
+
+/// R10.2: `strategy.highWaterMark` is a WebIDL readonly
+/// attribute; assignments are silently ignored in non-strict
+/// mode (and throw under "use strict").  Verified via "use
+/// strict" — strict-mode write on readonly throws TypeError.
+#[test]
+fn strategy_high_water_mark_is_readonly() {
+    let mut vm = Vm::new();
+    let result = vm.eval(
+        r#"
+        "use strict";
+        const s = new CountQueuingStrategy({highWaterMark: 5});
+        s.highWaterMark = 99;
+        "#,
+    );
+    assert!(
+        result.is_err(),
+        "expected strict-mode TypeError on readonly write"
+    );
+}
+
+/// R10.3: primitive init value throws "init must be an
+/// object" per WebIDL dict-from-non-object rule.
+#[test]
+fn strategy_primitive_init_throws_must_be_object() {
+    let mut vm = Vm::new();
+    let result = vm.eval("new CountQueuingStrategy(1)");
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("init must be an object"),
+        "expected 'init must be an object' error, got: {err}"
+    );
+}
+
 #[test]
 fn stream_tee_method_not_installed() {
     // Phase 2: `tee` is intentionally absent — `'tee' in stream`

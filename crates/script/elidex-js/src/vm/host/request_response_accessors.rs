@@ -188,8 +188,11 @@ pub(super) fn native_request_clone(
 ) -> Result<JsValue, VmError> {
     let id = require_request_this(ctx, this, "clone")?;
     // Spec §5.3 step "clone a request": a cloned body is not
-    // permitted if `bodyUsed === true`.  Phase 2 observes this
-    // guard even though the Body mixin isn't yet exposed.
+    // permitted if `bodyUsed === true` (disturbed) or the body
+    // stream is locked to a reader.  Both branches are
+    // user-reachable: body-mixin consumers (`text()` /
+    // `arrayBuffer()` / …) set disturbed, and
+    // `r.body.getReader()` sets locked.
     if ctx.vm.disturbed.contains(&id) || super::body_mixin::is_body_locked(ctx.vm, id) {
         return Err(VmError::type_error(
             "Failed to execute 'clone' on 'Request': Request body is already used",
