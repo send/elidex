@@ -16,10 +16,11 @@ use super::{append_entry, validate_and_normalise, ObjectId};
 /// Populate `headers_id` from an `init` value per WHATWG Fetch
 /// §5.2 "fill a Headers object".
 ///
-/// `pub(super)` so the `request_response` module can reuse this
-/// logic for its `init.headers` member (avoids a parallel
-/// reimplementation — validation / lowercase / revalidation
-/// skipping on `Headers`-source all stay in one place).
+/// `pub(in crate::vm::host)` (re-exported via [`super`]) so the
+/// `request_response` module can reuse this logic for its
+/// `init.headers` member (avoids a parallel reimplementation —
+/// validation / lowercase / revalidation skipping on
+/// `Headers`-source all stay in one place).
 pub(in crate::vm::host) fn fill_headers_from_init(
     ctx: &mut NativeContext<'_>,
     headers_id: ObjectId,

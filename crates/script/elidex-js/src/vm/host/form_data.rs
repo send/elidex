@@ -22,7 +22,7 @@
 //!
 //! Each entry's value is either a `StringId` (pool-permanent) or a
 //! `Blob` `ObjectId` (GC-managed).  The trace step in
-//! [`super::super::gc::trace::trace_work_list`] walks the
+//! `gc::trace::trace_work_list` (private to the [`super::super::gc`] module) walks the
 //! `form_data_states` entry whose key is a marked FormData wrapper
 //! and re-marks every `FormDataValue::Blob(id)` so the Blobs
 //! survive as long as the FormData itself is reachable.  The sweep

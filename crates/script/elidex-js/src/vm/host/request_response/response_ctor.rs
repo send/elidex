@@ -60,10 +60,17 @@ pub(super) fn native_response_constructor(
 
 /// Build a Response on `inst_id` from parsed body bytes + init
 /// dict.  Shared between the public `new Response(...)` path and
-/// the `Response.redirect` / `Response.json` static factories.
+/// the `Response.json(...)` static factory.  `Response.redirect`
+/// constructs its instance directly in
+/// [`super::response_statics::native_response_static_redirect`]
+/// because it needs special handling (manual `Location` header
+/// splice + a fixed `OpaqueRedirect` response type) that doesn't
+/// match the init-dict shape this helper expects.
 ///
-/// `redirected` / `synthetic_status` override the init status when
-/// non-zero (used by `Response.redirect(...)`).
+/// `redirected` / `synthetic_status` are kept as parameters for
+/// future call sites that need an override (e.g. broker-delivered
+/// redirected responses); the in-tree callers always pass `0` /
+/// `false`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_response_instance(
     ctx: &mut NativeContext<'_>,
