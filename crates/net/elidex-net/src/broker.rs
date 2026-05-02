@@ -527,8 +527,17 @@ impl NetworkHandle {
     pub fn drain_fetch_responses_only(&self) -> Vec<(FetchId, Result<Response, String>)> {
         let mut buf = self.buffered.borrow_mut();
         let prior = std::mem::take(&mut *buf);
-        let mut fetches: Vec<(FetchId, Result<Response, String>)> = Vec::new();
-        let mut kept: Vec<NetworkToRenderer> = Vec::new();
+        // Pre-size both partitions to `prior.len()`: the steady-
+        // state per-tick caller (the elidex-js VM's `tick_network`)
+        // typically sees a single-digit buffer + a single-digit
+        // arrival batch, and we don't know the split a priori, so
+        // sizing each bucket to the prior length avoids the early
+        // `Vec::push` reallocations on the buffered branch.  The
+        // channel branch may push past the reserve when arrivals
+        // exceed `prior.len()`; that's still amortised O(1) per
+        // push and is bounded by the broker's per-tick fan-in.
+        let mut fetches: Vec<(FetchId, Result<Response, String>)> = Vec::with_capacity(prior.len());
+        let mut kept: Vec<NetworkToRenderer> = Vec::with_capacity(prior.len());
         for event in prior {
             match event {
                 NetworkToRenderer::FetchResponse(id, result) => fetches.push((id, result)),
