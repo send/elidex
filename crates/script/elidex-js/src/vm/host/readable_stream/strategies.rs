@@ -16,9 +16,16 @@ use super::super::super::{NativeFn, VmInner};
 
 /// Shared body for `new CountQueuingStrategy({highWaterMark})` and
 /// `new ByteLengthQueuingStrategy({highWaterMark})`.  Spec §6.1.2 /
-/// §6.2.2 — both ctors read the `highWaterMark` from the
-/// init-object verbatim (no coercion / validation; the stream
-/// constructor's normaliser handles that).
+/// §6.2.2 — both ctors read the `highWaterMark` member from the
+/// init-object dictionary, perform WebIDL `unrestricted double`
+/// `ToNumber` coercion (Copilot R9 / R14 finding — primitives
+/// like `"5"` / `true` coerce to numbers; plain-Object
+/// `valueOf()` is blocked by the elidex-js `coerce::to_number`
+/// limitation tracked in M4-12 roadmap slot #10.7
+/// PR-tostring-tonumber-object-path), then store the result.
+/// Range / sign / NaN validation is the stream constructor's
+/// `normalize_high_water_mark` job — this helper only handles
+/// the dict + ToNumber stages.
 fn extract_strategy_high_water_mark(
     ctx: &mut NativeContext<'_>,
     init_arg: JsValue,
