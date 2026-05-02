@@ -103,6 +103,33 @@ fn high_water_mark_negative_throws() {
     assert!(result.is_err());
 }
 
+/// PR-file-split-a Copilot R9 regression: §6.1.2 / §6.2.2
+/// `QueuingStrategyInit.highWaterMark` is a WebIDL `unrestricted
+/// double`, so the ctor must `ToNumber`-coerce the property
+/// value before storing it.  Pre-fix the ctor stored the raw
+/// `JsValue`, so a string `"5"` came back as a string and then
+/// failed strict-typed lookups when the strategy was passed back
+/// into `new ReadableStream(..., strategy)`.
+#[test]
+fn count_queuing_strategy_string_high_water_mark_coerces_to_number() {
+    let mut vm = Vm::new();
+    let v = eval_number(
+        &mut vm,
+        r#"new CountQueuingStrategy({highWaterMark: "5"}).highWaterMark"#,
+    );
+    assert_eq!(v, 5.0, "string highWaterMark must coerce via ToNumber");
+}
+
+#[test]
+fn byte_length_queuing_strategy_boolean_high_water_mark_coerces_to_one() {
+    let mut vm = Vm::new();
+    let v = eval_number(
+        &mut vm,
+        r#"new ByteLengthQueuingStrategy({highWaterMark: true}).highWaterMark"#,
+    );
+    assert_eq!(v, 1.0, "boolean highWaterMark must coerce to 1.0");
+}
+
 #[test]
 fn high_water_mark_nan_throws() {
     let mut vm = Vm::new();

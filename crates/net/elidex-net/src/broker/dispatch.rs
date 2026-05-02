@@ -384,8 +384,34 @@ impl NetworkProcessState {
                 // captured at dispatch time, while WS/SSE I/O threads
                 // continue holding their handles (Copilot R7 finding,
                 // pre-existing — surfaced by the file-split review).
+                //
+                // Order matters (Copilot R9 HEld): synthesise an
+                // `aborted` reply for each in-flight fetch BEFORE
+                // we cancel the worker, because cancelled workers
+                // suppress their own `FetchResponse` on
+                // `NetErrorKind::Cancelled`.  Without the synthetic
+                // reply the renderer-side Promise stays pending
+                // forever — the worker won't deliver one and the
+                // broker is about to disappear.  Spec mirror of
+                // `handle_cancel_fetch`'s synthetic-reply step.
                 let client_ids: Vec<u64> = self.clients.keys().copied().collect();
                 for cid in client_ids {
+                    let inflight_for_client: Vec<FetchId> = self
+                        .cancel_tokens
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .keys()
+                        .filter(|(c, _)| *c == cid)
+                        .map(|(_, fid)| *fid)
+                        .collect();
+                    if let Some(tx) = self.clients.get(&cid) {
+                        for fid in &inflight_for_client {
+                            let _ = tx.send(NetworkToRenderer::FetchResponse(
+                                *fid,
+                                Err("aborted".into()),
+                            ));
+                        }
+                    }
                     self.close_all_for_client(cid);
                     self.cancel_inflight_fetches_for(cid);
                 }

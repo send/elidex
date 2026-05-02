@@ -55,11 +55,25 @@ fn extract_strategy_high_water_mark(
             )));
         }
     };
-    lookup_value.ok_or_else(|| {
+    let raw = lookup_value.ok_or_else(|| {
         VmError::type_error(format!(
             "Failed to construct '{iface}': init.highWaterMark is required"
         ))
-    })
+    })?;
+    // `QueuingStrategyInit.highWaterMark` is a WebIDL `unrestricted
+    // double` — convert via `ToNumber` so that `{highWaterMark:"5"}`
+    // stores `5`, not the string `"5"` (Copilot R9, carry-over from
+    // PR #138).  `coerce::to_number` handles primitive coercion +
+    // wrapper-object unwrap correctly; for plain Object the
+    // `OrdinaryToPrimitive` (valueOf/toString) fallback is the
+    // documented elidex-js limitation tracked in M4-12 roadmap
+    // slot #10.7 PR-tostring-tonumber-object-path — until that
+    // lands, plain-object `valueOf()` does NOT fire and the value
+    // resolves to `NaN`.  WebIDL `unrestricted double` permits NaN
+    // so the stream constructor's `normalize_high_water_mark`
+    // surfaces it as a `RangeError`.
+    let n = super::super::super::coerce::to_number(ctx.vm, raw)?;
+    Ok(JsValue::Number(n))
 }
 
 fn install_high_water_mark_own(vm: &mut VmInner, inst_id: ObjectId, hwm: JsValue) {
