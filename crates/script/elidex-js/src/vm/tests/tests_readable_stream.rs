@@ -765,6 +765,45 @@ fn error_after_close_is_no_op() {
     assert!(eval_global_bool(source, "result"));
 }
 
+// ---------------------------------------------------------------------------
+// R7 regression: spec / GC bugs caught in Copilot review round 7
+// ---------------------------------------------------------------------------
+
+/// R7.1: pull-completion only re-fires `pull_if_needed` when
+/// `pull_again` was set during the in-flight pull.  Without that
+/// gate, a `pull()` returning `undefined` would loop forever
+/// (desiredSize stays positive, every pull-step microtask
+/// schedules another pull).  Verified: a simple non-enqueueing
+/// `pull()` quiesces after one fire — read stays pending.
+#[test]
+fn pull_returning_undefined_does_not_infinite_loop() {
+    // Tracks pull invocation count.  Without R7.1 fix this would
+    // grow unboundedly during the single eval microtask drain.
+    let source = r#"
+        let pullCount = 0;
+        const s = new ReadableStream({
+            pull() { pullCount++; globalThis.result = pullCount; }
+        });
+        s.getReader().read();
+        // An infinite loop in pull would prevent eval from
+        // returning at all (test would hang / panic in test
+        // harness).  R7.1 bug: each pull-step microtask would
+        // schedule another pull.  After the fix, pull fires once
+        // and `pullCount` settles at 1.
+    "#;
+    let mut vm = Vm::new();
+    vm.eval(source).unwrap();
+    let v = vm.get_global("result");
+    let count = match v {
+        Some(JsValue::Number(n)) => n,
+        other => panic!("expected number, got {other:?}"),
+    };
+    assert!(
+        count >= 1.0 && count <= 2.0,
+        "pull should fire ~1× then quiesce, got {count}"
+    );
+}
+
 #[test]
 fn stream_tee_method_not_installed() {
     // Phase 2: `tee` is intentionally absent — `'tee' in stream`

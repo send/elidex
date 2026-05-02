@@ -438,31 +438,40 @@ pub(super) fn native_readable_stream_constructor(
 /// Resolve `start_result` into a Promise and subscribe step
 /// callables that flip `start_called` / pull-on-success or error
 /// the stream on rejection (spec §4.2.4 step 9-11).
+///
+/// `p` is rooted across the step-callable allocations so a GC
+/// triggered by `alloc_object` can't sweep the still-unreachable
+/// Promise (Copilot R7 GC-safety finding).  The two step callables
+/// each get rooted in turn so the next `alloc_object` can't
+/// collect the previous one either.
 fn finalize_start(vm: &mut VmInner, stream_id: ObjectId, start_result: JsValue) {
-    // `Promise.resolve(start_result)` — a Promise-typed resolution
-    // is forwarded; non-Promise resolves immediately.  Either way
-    // we can subscribe via `subscribe_then`.
     let p = create_promise(vm);
     let _ = settle_promise(vm, p, false, start_result);
-    let on_fulfilled = vm.alloc_object(Object {
+    let mut g_p = vm.push_temp_root(JsValue::Object(p));
+    let on_fulfilled_proto = g_p.function_prototype;
+    let on_fulfilled = g_p.alloc_object(Object {
         kind: ObjectKind::ReadableStreamStartStep {
             stream_id,
             is_reject: false,
         },
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: vm.function_prototype,
+        prototype: on_fulfilled_proto,
         extensible: true,
     });
-    let on_rejected = vm.alloc_object(Object {
+    let mut g_f = g_p.push_temp_root(JsValue::Object(on_fulfilled));
+    let on_rejected_proto = g_f.function_prototype;
+    let on_rejected = g_f.alloc_object(Object {
         kind: ObjectKind::ReadableStreamStartStep {
             stream_id,
             is_reject: true,
         },
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: vm.function_prototype,
+        prototype: on_rejected_proto,
         extensible: true,
     });
-    subscribe_then(vm, p, on_fulfilled, on_rejected);
+    subscribe_then(&mut g_f, p, on_fulfilled, on_rejected);
+    drop(g_f);
+    drop(g_p);
 }
 
 /// Dispatcher for `ObjectKind::ReadableStreamStartStep` — called
@@ -505,16 +514,25 @@ pub(crate) fn run_pull_step(
         error_stream(vm, stream_id, value);
         return Ok(JsValue::Undefined);
     }
-    {
+    let pull_again = {
         let state = stream_state_mut(vm, stream_id);
         state.pull_in_flight = false;
+        let again = state.pull_again;
         state.pull_again = false;
+        again
+    };
+    // Spec §4.5.10 step "Upon fulfillment of pullPromise":
+    // re-call pull-if-needed *only* when `pullAgain` was set
+    // during the in-flight pull.  Calling unconditionally here
+    // would create an infinite microtask loop when `pull()`
+    // returns without enqueueing — `desiredSize` stays positive
+    // forever, so a fresh pull would fire each microtask tick
+    // (Copilot R7 finding).  New reads that arrive after this
+    // step go through `native_reader_read` → `pull_if_needed`,
+    // so the pump still wakes up on demand.
+    if pull_again {
+        pull_if_needed(vm, stream_id);
     }
-    // Spec §4.5.10: regardless of whether `pull_again` was set
-    // during the pull or not, recheck `desired_size` here —
-    // `pull_if_needed` self-gates on `should_pull`, so the two
-    // branches collapse to one call.
-    pull_if_needed(vm, stream_id);
     Ok(JsValue::Undefined)
 }
 
@@ -604,28 +622,35 @@ fn pull_if_needed(vm: &mut VmInner, stream_id: ObjectId) {
     match result {
         Ok(value) => {
             // Wrap result in a Promise and subscribe pull step
-            // callables (mirrors finalize_start).
+            // callables (mirrors finalize_start, including its
+            // GC-safety nested-temp-root chain — Copilot R7).
             let p = create_promise(vm);
             let _ = settle_promise(vm, p, false, value);
-            let on_fulfilled = vm.alloc_object(Object {
+            let mut g_p = vm.push_temp_root(JsValue::Object(p));
+            let on_fulfilled_proto = g_p.function_prototype;
+            let on_fulfilled = g_p.alloc_object(Object {
                 kind: ObjectKind::ReadableStreamPullStep {
                     stream_id,
                     is_reject: false,
                 },
                 storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-                prototype: vm.function_prototype,
+                prototype: on_fulfilled_proto,
                 extensible: true,
             });
-            let on_rejected = vm.alloc_object(Object {
+            let mut g_f = g_p.push_temp_root(JsValue::Object(on_fulfilled));
+            let on_rejected_proto = g_f.function_prototype;
+            let on_rejected = g_f.alloc_object(Object {
                 kind: ObjectKind::ReadableStreamPullStep {
                     stream_id,
                     is_reject: true,
                 },
                 storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-                prototype: vm.function_prototype,
+                prototype: on_rejected_proto,
                 extensible: true,
             });
-            subscribe_then(vm, p, on_fulfilled, on_rejected);
+            subscribe_then(&mut g_f, p, on_fulfilled, on_rejected);
+            drop(g_f);
+            drop(g_p);
         }
         Err(err) => {
             stream_state_mut(vm, stream_id).pull_in_flight = false;
@@ -1249,14 +1274,20 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
         prototype: stream_proto,
         extensible: true,
     });
+    // Root `stream_id` across the controller (and possibly
+    // ArrayBuffer + Uint8Array) allocations so the not-yet-
+    // installed stream object can't be collected mid-construction
+    // (Copilot R7 GC-safety finding).
+    let mut g_s = vm.push_temp_root(JsValue::Object(stream_id));
 
-    let controller_proto = vm.readable_stream_default_controller_prototype;
-    let controller_id = vm.alloc_object(Object {
+    let controller_proto = g_s.readable_stream_default_controller_prototype;
+    let controller_id = g_s.alloc_object(Object {
         kind: ObjectKind::ReadableStreamDefaultController { stream_id },
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
         prototype: controller_proto,
         extensible: true,
     });
+    let mut g_c = g_s.push_temp_root(JsValue::Object(controller_id));
 
     // Materialise a single `Uint8Array` chunk from `bytes` only
     // when there's a non-empty payload to read.  Empty bodies and
@@ -1266,12 +1297,15 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
     // unused `Object`s for those paths.
     let mut queue: VecDeque<(JsValue, f64)> = VecDeque::new();
     if !oversize && bytes_len > 0 {
-        let buf_id = super::array_buffer::create_array_buffer_from_bytes(vm, bytes);
+        let buf_id = super::array_buffer::create_array_buffer_from_bytes(&mut g_c, bytes);
+        // `buf_id` is unrooted-local until the typed-array view
+        // captures it — root it across the next alloc.
+        let mut g_b = g_c.push_temp_root(JsValue::Object(buf_id));
         #[allow(clippy::cast_possible_truncation)]
         let byte_length = bytes_len as u32;
         let element_kind = super::super::value::ElementKind::Uint8;
-        let typed_proto = vm.subclass_array_prototypes[element_kind.index()];
-        let typed_id = vm.alloc_object(Object {
+        let typed_proto = g_b.subclass_array_prototypes[element_kind.index()];
+        let typed_id = g_b.alloc_object(Object {
             kind: ObjectKind::TypedArray {
                 buffer_id: buf_id,
                 byte_offset: 0,
@@ -1283,6 +1317,7 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
             extensible: true,
         });
         queue.push_back((JsValue::Object(typed_id), 1.0));
+        drop(g_b);
     }
     // (For empty / oversize, `bytes` is dropped here — its
     // backing allocation is freed at end of scope.  Oversize
@@ -1290,7 +1325,7 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
     // only to error the stream right after.)
     let queue_total_size = if queue.is_empty() { 0.0 } else { 1.0 };
 
-    vm.readable_stream_states.insert(
+    g_c.readable_stream_states.insert(
         stream_id,
         ReadableStreamState {
             state: ReadableStreamStateKind::Readable,
@@ -1324,11 +1359,13 @@ pub(crate) fn create_body_backed_stream(vm: &mut VmInner, bytes: Vec<u8>) -> Obj
         let err = VmError::range_error(
             "Failed to materialise body stream: payload exceeds 4 GiB Uint8Array view limit",
         );
-        let reason = vm.vm_error_to_thrown(&err);
-        error_stream(vm, stream_id, reason);
+        let reason = g_c.vm_error_to_thrown(&err);
+        error_stream(&mut g_c, stream_id, reason);
     } else if bytes_len == 0 {
-        finalize_close(vm, stream_id);
+        finalize_close(&mut g_c, stream_id);
     }
+    drop(g_c);
+    drop(g_s);
     stream_id
 }
 
@@ -1644,79 +1681,87 @@ pub(super) fn native_readable_stream_cancel(
 
 /// Shared implementation for `stream.cancel` + `reader.cancel`
 /// (Stage 1b).  Returns the settle-promise's ObjectId.
+///
+/// The returned Promise `p` is rooted immediately after creation
+/// so the subsequent `alloc_object` step-callable allocations
+/// (and any user-JS path through `source.cancel`) cannot collect
+/// it (Copilot R7 GC-safety finding).  `inner` (the wrapper
+/// around source.cancel's resolution) is rooted symmetrically.
 pub(super) fn do_stream_cancel(vm: &mut VmInner, stream_id: ObjectId, reason: JsValue) -> ObjectId {
     let p = create_promise(vm);
+    let mut g_p = vm.push_temp_root(JsValue::Object(p));
 
-    let state_kind = stream_state(vm, stream_id).state;
+    let state_kind = stream_state(&g_p, stream_id).state;
     match state_kind {
         ReadableStreamStateKind::Closed => {
-            let _ = settle_promise(vm, p, false, JsValue::Undefined);
+            let _ = settle_promise(&mut g_p, p, false, JsValue::Undefined);
+            drop(g_p);
             return p;
         }
         ReadableStreamStateKind::Errored => {
-            let stored = stream_state(vm, stream_id).stored_error;
-            let _ = settle_promise(vm, p, true, stored);
+            let stored = stream_state(&g_p, stream_id).stored_error;
+            let _ = settle_promise(&mut g_p, p, true, stored);
+            drop(g_p);
             return p;
         }
         ReadableStreamStateKind::Readable => {}
     }
 
-    // Drop queued chunks; prepare to close after source.cancel
-    // settles.
     {
-        let state = stream_state_mut(vm, stream_id);
+        let state = stream_state_mut(&mut g_p, stream_id);
         state.queue.clear();
         state.queue_total_size = 0.0;
     }
-    // Spec §4.2.6 step 5: close stream synchronously *after* drop
-    // (note: spec's exact ordering is "close after queue clear,
-    // before source.cancel returns").  We match: close finalises
-    // here; source.cancel settles the returned promise.
-    finalize_close(vm, stream_id);
+    finalize_close(&mut g_p, stream_id);
 
-    let cancel_cb = stream_state(vm, stream_id).source_cancel;
-    let this_arg = stream_state(vm, stream_id)
+    let cancel_cb = stream_state(&g_p, stream_id).source_cancel;
+    let this_arg = stream_state(&g_p, stream_id)
         .underlying_source
         .unwrap_or(JsValue::Undefined);
     if let Some(JsValue::Object(fn_id)) = cancel_cb {
-        // Spec InvokeOrNoop: `this` is the underlyingSource so
-        // `cancel() { this... }` works.
         let result = {
-            let mut ctx = NativeContext { vm };
+            let mut ctx = NativeContext { vm: &mut *g_p };
             ctx.call_function(fn_id, this_arg, &[reason])
         };
         match result {
             Ok(value) => {
-                let inner = create_promise(vm);
-                let _ = settle_promise(vm, inner, false, value);
-                let on_fulfilled = vm.alloc_object(Object {
+                let inner = create_promise(&mut g_p);
+                let _ = settle_promise(&mut g_p, inner, false, value);
+                let mut g_inner = g_p.push_temp_root(JsValue::Object(inner));
+                let on_fulfilled_proto = g_inner.function_prototype;
+                let on_fulfilled = g_inner.alloc_object(Object {
                     kind: ObjectKind::ReadableStreamCancelStep {
                         promise: p,
                         is_reject: false,
                     },
                     storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-                    prototype: vm.function_prototype,
+                    prototype: on_fulfilled_proto,
                     extensible: true,
                 });
-                let on_rejected = vm.alloc_object(Object {
+                let mut g_f = g_inner.push_temp_root(JsValue::Object(on_fulfilled));
+                let on_rejected_proto = g_f.function_prototype;
+                let on_rejected = g_f.alloc_object(Object {
                     kind: ObjectKind::ReadableStreamCancelStep {
                         promise: p,
                         is_reject: true,
                     },
                     storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-                    prototype: vm.function_prototype,
+                    prototype: on_rejected_proto,
                     extensible: true,
                 });
-                subscribe_then(vm, inner, on_fulfilled, on_rejected);
+                subscribe_then(&mut g_f, inner, on_fulfilled, on_rejected);
+                drop(g_f);
+                drop(g_inner);
             }
             Err(err) => {
-                let reason = vm.vm_error_to_thrown(&err);
-                let _ = settle_promise(vm, p, true, reason);
+                let r = g_p.vm_error_to_thrown(&err);
+                let _ = settle_promise(&mut g_p, p, true, r);
             }
         }
     } else {
-        let _ = settle_promise(vm, p, false, JsValue::Undefined);
+        let _ = settle_promise(&mut g_p, p, false, JsValue::Undefined);
     }
+    drop(g_p);
     p
 }
 
