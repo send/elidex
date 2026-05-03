@@ -230,8 +230,9 @@ impl VmInner {
 
 impl VmInner {
     /// ToPrimitive (ES2020 §7.1.1). Checks `@@toPrimitive` on objects and calls
-    /// it if present. Falls back to OrdinaryToPrimitive (simplified: returns
-    /// `"[object Object]"`).
+    /// it if present. Falls back to OrdinaryToPrimitive (§7.1.1.1) — invokes
+    /// `valueOf` / `toString` in hint-specific order, returning the first
+    /// non-Object result. Throws TypeError if neither yields a primitive.
     #[allow(clippy::wrong_self_convention)] // matches ES2020 abstract operation name
     pub(crate) fn to_primitive(&mut self, val: JsValue, hint: &str) -> Result<JsValue, VmError> {
         match val {
@@ -257,11 +258,10 @@ impl VmInner {
                     return Ok(result);
                 }
                 // No @@toPrimitive: unwrap primitive wrappers directly.
-                // This is a simplification of §7.1.1.1 OrdinaryToPrimitive
-                // that happens to produce spec-equivalent results for
-                // wrappers (since valueOf/toString defer to the inner
-                // primitive anyway); a fully spec-compliant fallback is
-                // tracked as dedicated PR (see phase4-plan.md).
+                // Spec-equivalent shortcut for the §7.1.1.1 OrdinaryToPrimitive
+                // path on a wrapper, since `valueOf` / `toString` defer to the
+                // inner primitive anyway.  Plain Objects fall through to the
+                // OrdinaryToPrimitive loop below.
                 match self.get_object(obj_id).kind {
                     ObjectKind::NumberWrapper(n) => return Ok(JsValue::Number(n)),
                     ObjectKind::StringWrapper(s) => return Ok(JsValue::String(s)),
@@ -270,8 +270,39 @@ impl VmInner {
                     ObjectKind::SymbolWrapper(id) => return Ok(JsValue::Symbol(id)),
                     _ => {}
                 }
-                // OrdinaryToPrimitive: simplified — return "[object Object]"
-                Ok(JsValue::String(self.well_known.object_to_string))
+                // OrdinaryToPrimitive (§7.1.1.1): try each method in
+                // hint-specific order; return the first primitive result;
+                // TypeError if neither yields a primitive.  `val` is rooted
+                // as `this` for the duration of every `call_value`; nothing
+                // between iterations triggers GC, so the local `val` /
+                // `obj_id` survive each loop turn unchanged.
+                let method_names: [&str; 2] = if hint == "string" {
+                    ["toString", "valueOf"]
+                } else {
+                    // "number" or "default" — spec uses the same order.
+                    ["valueOf", "toString"]
+                };
+                for name in method_names {
+                    let key = PropertyKey::String(self.strings.intern(name));
+                    let method = match get_property(self, obj_id, key) {
+                        Some(PropertyResult::Data(v)) => v,
+                        Some(PropertyResult::Getter(g)) => self.call(g, val, &[])?,
+                        None => continue,
+                    };
+                    let JsValue::Object(method_id) = method else {
+                        continue;
+                    };
+                    if !self.get_object(method_id).kind.is_callable() {
+                        continue;
+                    }
+                    let result = self.call_value(method, val, &[])?;
+                    if !matches!(result, JsValue::Object(_)) {
+                        return Ok(result);
+                    }
+                }
+                Err(VmError::type_error(
+                    "Cannot convert object to primitive value",
+                ))
             }
             // Symbols (and all other primitives) are already primitive.
             other => Ok(other),

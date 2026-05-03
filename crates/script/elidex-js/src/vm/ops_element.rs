@@ -111,22 +111,26 @@ fn parse_typed_array_index_u32(units: &[u16]) -> Option<u32> {
 }
 
 #[cfg(feature = "engine")]
-fn classify_typed_array_string_key(vm: &VmInner, sid: StringId) -> TypedArrayStringKey {
-    let units = vm.strings.get(sid);
-    if let Some(idx) = parse_typed_array_index_u32(units) {
-        return TypedArrayStringKey::IntegerIndex(idx);
-    }
-    // ES §7.1.16.1 step 1 hard-codes `"-0"` as canonical numeric
-    // (returns -0) even though ToString(-0) = "0" — the round-trip
-    // check below would otherwise miss it.
-    if units == [u16::from(b'-'), u16::from(b'0')] {
-        return TypedArrayStringKey::CanonicalNonInteger;
+fn classify_typed_array_string_key(vm: &mut VmInner, sid: StringId) -> TypedArrayStringKey {
+    {
+        let units = vm.strings.get(sid);
+        if let Some(idx) = parse_typed_array_index_u32(units) {
+            return TypedArrayStringKey::IntegerIndex(idx);
+        }
+        // ES §7.1.16.1 step 1 hard-codes `"-0"` as canonical numeric
+        // (returns -0) even though ToString(-0) = "0" — the round-trip
+        // check below would otherwise miss it.
+        if units == [u16::from(b'-'), u16::from(b'0')] {
+            return TypedArrayStringKey::CanonicalNonInteger;
+        }
     }
     // Slow path: round-trip via ES Number::toString.  If
     // ToString(ToNumber(key)) == key, the key is canonical numeric
     // (the fast path above already handles non-negative integers, so
     // any remaining canonical form — `"Infinity"`, `"NaN"`, negative
-    // integer, fractional — is non-integer-valid).
+    // integer, fractional — is non-integer-valid).  `to_number` takes
+    // `&mut vm` for the §7.1.4 step 4 Object path, so the early borrow
+    // above is dropped before this call and re-acquired below.
     let n = super::coerce::to_number(vm, JsValue::String(sid)).unwrap_or(f64::NAN);
     let mut roundtrip = String::new();
     if n.is_nan() {
@@ -136,6 +140,7 @@ fn classify_typed_array_string_key(vm: &VmInner, sid: StringId) -> TypedArrayStr
     } else {
         super::coerce_format::write_number_es(n, &mut roundtrip);
     }
+    let units = vm.strings.get(sid);
     if units.len() == roundtrip.len()
         && units
             .iter()

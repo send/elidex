@@ -195,18 +195,19 @@ pub(super) fn native_string_index_of(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    // Coerce the position argument before acquiring slice borrows — `to_number`
+    // takes `&mut ctx` so any prior `&[u16]` slice borrow would conflict.
+    let pos_trunc = match args.get(1) {
+        Some(a) => Some(ctx.to_number(*a)?.trunc()),
+        None => None,
+    };
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let from = if let Some(a) = args.get(1) {
-        let n = ctx.to_number(*a)?.trunc();
-        if n.is_nan() || n < 0.0 {
-            0usize
-        } else {
-            (n as usize).min(s.len())
-        }
-    } else {
-        0usize
+    let from = match pos_trunc {
+        Some(n) if n.is_nan() || n < 0.0 => 0usize,
+        Some(n) => (n as usize).min(s.len()),
+        None => 0usize,
     };
     #[allow(clippy::cast_precision_loss)]
     let result = find_u16(&s[from..], search).map_or(-1.0, |pos| (from + pos) as f64);
@@ -220,19 +221,19 @@ pub(super) fn native_string_includes(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    // §21.1.3.7 step 4-5: position argument (UTF-16 index, default 0).  Coerce
+    // before acquiring slice borrows — `to_number` takes `&mut ctx`.
+    let pos_trunc = match args.get(1) {
+        Some(a) => Some(ctx.to_number(*a)?.trunc()),
+        None => None,
+    };
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
-    // §21.1.3.7 step 4-5: position argument (UTF-16 index, default 0).
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let pos = if let Some(a) = args.get(1) {
-        let n = ctx.to_number(*a)?.trunc();
-        if n.is_nan() || n < 0.0 {
-            0usize
-        } else {
-            (n as usize).min(s.len())
-        }
-    } else {
-        0usize
+    let pos = match pos_trunc {
+        Some(n) if n.is_nan() || n < 0.0 => 0usize,
+        Some(n) => (n as usize).min(s.len()),
+        None => 0usize,
     };
     Ok(JsValue::Boolean(find_u16(&s[pos..], search).is_some()))
 }
@@ -424,19 +425,19 @@ pub(super) fn native_string_starts_with(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    // §21.1.3.20 step 5-8: position argument (UTF-16 index, default 0).
+    // Coerce before acquiring slice borrows — `to_number` takes `&mut ctx`.
+    let pos_trunc = match args.get(1) {
+        Some(a) => Some(ctx.to_number(*a)?.trunc()),
+        None => None,
+    };
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
-    // §21.1.3.20 step 5-8: position argument (UTF-16 index, default 0).
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let pos = if let Some(a) = args.get(1) {
-        let n = ctx.to_number(*a)?.trunc();
-        if n.is_nan() || n < 0.0 {
-            0usize
-        } else {
-            (n as usize).min(s.len())
-        }
-    } else {
-        0usize
+    let pos = match pos_trunc {
+        Some(n) if n.is_nan() || n < 0.0 => 0usize,
+        Some(n) => (n as usize).min(s.len()),
+        None => 0usize,
     };
     Ok(JsValue::Boolean(starts_with_u16(s, search, pos)))
 }
@@ -448,20 +449,20 @@ pub(super) fn native_string_ends_with(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    // §21.1.3.6 step 5-8: endPosition (UTF-16 index, default len).  Coerce
+    // before acquiring slice borrows — `to_number` takes `&mut ctx`.
+    let end_pos_trunc = match args.get(1) {
+        Some(a) => Some(ctx.to_number(*a)?.trunc()),
+        None => None,
+    };
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
-    // §21.1.3.6 step 5-8: endPosition (UTF-16 index, default len).
     let u16len = s.len();
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let end_pos = if let Some(a) = args.get(1) {
-        let n = ctx.to_number(*a)?.trunc();
-        if n.is_nan() || n < 0.0 {
-            0usize
-        } else {
-            (n as usize).min(u16len)
-        }
-    } else {
-        u16len
+    let end_pos = match end_pos_trunc {
+        Some(n) if n.is_nan() || n < 0.0 => 0usize,
+        Some(n) => (n as usize).min(u16len),
+        None => u16len,
     };
     Ok(JsValue::Boolean(ends_with_u16(s, search, end_pos)))
 }

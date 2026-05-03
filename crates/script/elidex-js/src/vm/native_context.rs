@@ -56,8 +56,12 @@ impl NativeContext<'_> {
 
     /// Convert a value to f64 using ES2020 ToNumber.
     /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.4).
+    ///
+    /// Takes `&mut self` because the §7.1.4 step 4 Object path delegates
+    /// to `ToPrimitive(val, "number")`, which may invoke user-defined
+    /// `valueOf` / `toString` and through them arbitrary JS.
     #[inline]
-    pub fn to_number(&self, val: JsValue) -> Result<f64, VmError> {
+    pub fn to_number(&mut self, val: JsValue) -> Result<f64, VmError> {
         coerce::to_number(self.vm, val)
     }
 

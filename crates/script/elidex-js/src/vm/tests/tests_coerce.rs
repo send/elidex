@@ -41,8 +41,8 @@ fn to_boolean_values() {
 
 #[test]
 fn to_number_values() {
-    let vm = Vm::new();
-    let i = &vm.inner;
+    let mut vm = Vm::new();
+    let i = &mut vm.inner;
     assert!(to_number(i, JsValue::Undefined).unwrap().is_nan());
     assert_eq!(to_number(i, JsValue::Null).unwrap(), 0.0);
     assert_eq!(to_number(i, JsValue::Boolean(true)).unwrap(), 1.0);
@@ -54,7 +54,7 @@ fn to_number_values() {
 fn to_number_symbol_throws() {
     let mut vm = Vm::new();
     let sid = vm.inner.alloc_symbol(None);
-    let result = to_number(&vm.inner, JsValue::Symbol(sid));
+    let result = to_number(&mut vm.inner, JsValue::Symbol(sid));
     assert!(result.is_err());
 }
 
@@ -117,8 +117,8 @@ fn to_display_string_symbol() {
 
 #[test]
 fn to_int32_cases() {
-    let vm = Vm::new();
-    let i = &vm.inner;
+    let mut vm = Vm::new();
+    let i = &mut vm.inner;
     assert_eq!(to_int32(i, JsValue::Number(0.0)).unwrap(), 0);
     assert_eq!(to_int32(i, JsValue::Number(1.7)).unwrap(), 1);
     assert_eq!(to_int32(i, JsValue::Number(-1.7)).unwrap(), -1);

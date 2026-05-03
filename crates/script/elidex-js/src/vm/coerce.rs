@@ -31,24 +31,36 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 
 /// ToNumber (ES2020 §7.1.4). Symbol → TypeError per spec.
 ///
-/// KNOWN LIMITATION: For non-wrapper Objects, this returns `NaN` instead
-/// of performing `? ToPrimitive(val, "number") → ? ToNumber(prim)` per
-/// §7.1.4 step 4.  Fixing this requires threading `&mut VmInner` through
-/// ~175 call sites (all arithmetic / comparison / bitwise paths).  Tracked
-/// as a dedicated follow-up PR — see phase4-plan.md.
-pub(crate) fn to_number(vm: &VmInner, val: JsValue) -> Result<f64, VmError> {
+/// Takes `&mut VmInner` because the §7.1.4 step 4 Object path delegates to
+/// `ToPrimitive(val, "number")`, which may invoke user-defined `valueOf` /
+/// `toString` (and through them arbitrary JS).  Pure-number callers should
+/// prefer the [`f64_to_int32`] / [`f64_to_uint32`] / [`to_integer_or_infinity`]
+/// helpers, which never coerce and so stay borrow-free.
+pub(crate) fn to_number(vm: &mut VmInner, val: JsValue) -> Result<f64, VmError> {
     match val {
         JsValue::Empty | JsValue::Undefined => Ok(f64::NAN),
-        JsValue::Object(id) => match vm.get_object(id).kind {
-            ObjectKind::NumberWrapper(n) => Ok(n),
-            ObjectKind::BooleanWrapper(false) => Ok(0.0),
-            ObjectKind::BooleanWrapper(true) => Ok(1.0),
-            ObjectKind::StringWrapper(sid) => Ok(string_to_number_u16(vm.strings.get(sid))),
-            ObjectKind::BigIntWrapper(_) => Err(VmError::type_error(
-                "Cannot convert a BigInt value to a number",
-            )),
-            _ => Ok(f64::NAN),
-        },
+        JsValue::Object(id) => {
+            // Wrapper fast-path: spec-equivalent shortcut for the §7.1.4
+            // step 4 → §7.1.1.1 path on primitive wrappers, since their
+            // `valueOf` / `toString` defer to the inner primitive anyway.
+            match vm.get_object(id).kind {
+                ObjectKind::NumberWrapper(n) => return Ok(n),
+                ObjectKind::BooleanWrapper(false) => return Ok(0.0),
+                ObjectKind::BooleanWrapper(true) => return Ok(1.0),
+                ObjectKind::StringWrapper(sid) => {
+                    return Ok(string_to_number_u16(vm.strings.get(sid)));
+                }
+                ObjectKind::BigIntWrapper(_) => {
+                    return Err(VmError::type_error(
+                        "Cannot convert a BigInt value to a number",
+                    ));
+                }
+                _ => {}
+            }
+            // §7.1.4 step 4: ? ToPrimitive(val, "number") → ? ToNumber(prim).
+            let prim = vm.to_primitive(val, "number")?;
+            to_number(vm, prim)
+        }
         JsValue::Symbol(_) => Err(VmError::type_error(
             "Cannot convert a Symbol value to a number",
         )),
@@ -209,21 +221,30 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
             let s = vm.bigints.get(id).to_string();
             Ok(vm.strings.intern(&s))
         }
-        JsValue::Object(id) => match vm.get_object(id).kind {
-            ObjectKind::NumberWrapper(n) => Ok(number_to_string_id(vm, n)),
-            ObjectKind::StringWrapper(sid) => Ok(sid),
-            ObjectKind::BooleanWrapper(true) => Ok(vm.well_known.r#true),
-            ObjectKind::BooleanWrapper(false) => Ok(vm.well_known.r#false),
-            ObjectKind::BigIntWrapper(bi_id) => {
-                let s = vm.bigints.get(bi_id).to_string();
-                Ok(vm.strings.intern(&s))
+        JsValue::Object(id) => {
+            // Wrapper fast-path: spec-equivalent shortcut for the
+            // §7.1.12 step 9 → §7.1.1.1 path on primitive wrappers,
+            // which would invoke their `valueOf` / `toString` and
+            // resolve back to the inner primitive anyway.
+            match vm.get_object(id).kind {
+                ObjectKind::NumberWrapper(n) => return Ok(number_to_string_id(vm, n)),
+                ObjectKind::StringWrapper(sid) => return Ok(sid),
+                ObjectKind::BooleanWrapper(true) => return Ok(vm.well_known.r#true),
+                ObjectKind::BooleanWrapper(false) => return Ok(vm.well_known.r#false),
+                ObjectKind::BigIntWrapper(bi_id) => {
+                    let s = vm.bigints.get(bi_id).to_string();
+                    return Ok(vm.strings.intern(&s));
+                }
+                _ => {}
             }
-            // KNOWN LIMITATION: §7.1.12 step 9 requires
-            // `? ToPrimitive(val, "string") → ? ToString(prim)` for
-            // non-wrapper Objects.  Tracked as dedicated follow-up
-            // alongside ToNumber (see phase4-plan.md).
-            _ => Ok(vm.well_known.object_to_string),
-        },
+            // §7.1.12 step 9: ? ToPrimitive(val, "string") → ? ToString(prim).
+            // The OrdinaryToPrimitive fallback inside `to_primitive` invokes
+            // user-defined `toString` / `valueOf` per §7.1.1.1; the recursive
+            // `to_string` call below sees a non-Object primitive (TypeError
+            // would have already propagated) and finishes the conversion.
+            let prim = vm.to_primitive(val, "string")?;
+            to_string(vm, prim)
+        }
     }
 }
 
@@ -277,14 +298,14 @@ fn number_to_string_id(vm: &mut VmInner, n: f64) -> StringId {
 
 /// ToInt32 (ES2020 §7.1.6). Used by bitwise operators.
 #[inline]
-pub(crate) fn to_int32(vm: &VmInner, val: JsValue) -> Result<i32, VmError> {
+pub(crate) fn to_int32(vm: &mut VmInner, val: JsValue) -> Result<i32, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_int32(n))
 }
 
 /// ToUint32 (ES2020 §7.1.7). Used by `>>>`.
 #[inline]
-pub(crate) fn to_uint32(vm: &VmInner, val: JsValue) -> Result<u32, VmError> {
+pub(crate) fn to_uint32(vm: &mut VmInner, val: JsValue) -> Result<u32, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_uint32(n))
 }
@@ -425,7 +446,7 @@ pub(crate) fn f64_to_int16(n: f64) -> i16 {
 /// ToInt8 wrapper — coerces `val` via `ToNumber` then folds into i8.
 #[cfg(feature = "engine")]
 #[inline]
-pub(crate) fn to_int8(vm: &VmInner, val: JsValue) -> Result<i8, VmError> {
+pub(crate) fn to_int8(vm: &mut VmInner, val: JsValue) -> Result<i8, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_int8(n))
 }
@@ -433,7 +454,7 @@ pub(crate) fn to_int8(vm: &VmInner, val: JsValue) -> Result<i8, VmError> {
 /// ToUint8 wrapper — coerces `val` via `ToNumber` then folds into u8.
 #[cfg(feature = "engine")]
 #[inline]
-pub(crate) fn to_uint8(vm: &VmInner, val: JsValue) -> Result<u8, VmError> {
+pub(crate) fn to_uint8(vm: &mut VmInner, val: JsValue) -> Result<u8, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_uint8(n))
 }
@@ -442,7 +463,7 @@ pub(crate) fn to_uint8(vm: &VmInner, val: JsValue) -> Result<u8, VmError> {
 /// (ES §7.1.11).
 #[cfg(feature = "engine")]
 #[inline]
-pub(crate) fn to_uint8_clamp(vm: &VmInner, val: JsValue) -> Result<u8, VmError> {
+pub(crate) fn to_uint8_clamp(vm: &mut VmInner, val: JsValue) -> Result<u8, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_uint8_clamp(n))
 }
@@ -450,7 +471,7 @@ pub(crate) fn to_uint8_clamp(vm: &VmInner, val: JsValue) -> Result<u8, VmError> 
 /// ToInt16 wrapper — coerces `val` via `ToNumber` then folds into i16.
 #[cfg(feature = "engine")]
 #[inline]
-pub(crate) fn to_int16(vm: &VmInner, val: JsValue) -> Result<i16, VmError> {
+pub(crate) fn to_int16(vm: &mut VmInner, val: JsValue) -> Result<i16, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_int16(n))
 }
@@ -458,7 +479,7 @@ pub(crate) fn to_int16(vm: &VmInner, val: JsValue) -> Result<i16, VmError> {
 /// ToUint16 wrapper — coerces `val` via `ToNumber` then folds into u16.
 #[cfg(feature = "engine")]
 #[inline]
-pub(crate) fn to_uint16(vm: &VmInner, val: JsValue) -> Result<u16, VmError> {
+pub(crate) fn to_uint16(vm: &mut VmInner, val: JsValue) -> Result<u16, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_uint16(n))
 }

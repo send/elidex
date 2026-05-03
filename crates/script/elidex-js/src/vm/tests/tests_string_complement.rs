@@ -556,8 +556,6 @@ fn bind_length_propagates_infinity() {
 fn array_to_string_honors_join_override() {
     // §22.1.3.30: Array.prototype.toString calls Get(O, "join"); if
     // callable, invokes it.  User-installed .join override must be honored.
-    // Note: `'' + arr` would also exercise this via OrdinaryToPrimitive,
-    // but that helper is tracked as a separate follow-up (phase4-plan.md).
     assert_eq!(
         eval_string(
             "var arr = [1, 2, 3];
@@ -699,9 +697,6 @@ fn for_in_prototype_chain_cap() {
 #[test]
 fn error_to_string_includes_name_and_message() {
     // §19.5.3.4: Error.prototype.toString returns "name: message".
-    // Call `.toString()` directly — `String(obj)` would hit the known
-    // OrdinaryToPrimitive fallback (tracked as follow-up PR) and yield
-    // "[object Object]".
     assert_eq!(eval_string("new Error('oops').toString();"), "Error: oops");
     assert_eq!(
         eval_string("new TypeError('nope').toString();"),
@@ -709,6 +704,9 @@ fn error_to_string_includes_name_and_message() {
     );
     // No-message case: just the name (prototype's default message is "").
     assert_eq!(eval_string("new Error().toString();"), "Error");
+    // §7.1.12 step 9 → §7.1.1.1 also routes `String(err)` through the
+    // user-defined `toString()`, so it produces the same result.
+    assert_eq!(eval_string("String(new Error('oops'));"), "Error: oops");
 }
 
 // Note: `Symbol.prototype.toString` now accepts a SymbolWrapper `this`

@@ -107,11 +107,13 @@ fn location_to_string_matches_href() {
         eval_string(&mut vm, "location.toString();"),
         "https://example.com/"
     );
-    // Note: `'' + location` would require `§7.1.12 step 9 ToPrimitive(val,
-    // "string")` to call user `toString` — tracked as a VM-wide
-    // follow-up (see `vm/coerce.rs` `to_string` KNOWN LIMITATION).
-    // Until then it collapses to `"[object Object]"`; not a Location
-    // defect.
+    // §7.1.12 step 9 → §7.1.1.1 routes `'' + location` through the
+    // Location wrapper's `toString()`, so the concatenation now produces
+    // the href just like the explicit `.toString()` call above.
+    assert_eq!(
+        eval_string(&mut vm, "'' + location;"),
+        "https://example.com/"
+    );
 }
 
 #[test]
