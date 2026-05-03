@@ -125,6 +125,21 @@ pub enum NetworkToRenderer {
     WebSocketEvent(u64, WsEvent),
     /// SSE event.
     EventSourceEvent(u64, SseEvent),
+    /// Internal back-edge: the broker has finished tearing down
+    /// this renderer's per-client state and is about to drop its
+    /// `clients` entry.  Never surfaced to JS / embedder code —
+    /// [`NetworkHandle::drain_events`] /
+    /// [`NetworkHandle::drain_fetch_responses_only`] consume it
+    /// to flip the renderer-side `unregistered` flag and
+    /// synthesise terminal `Err` replies for any race-window
+    /// fetches that the broker dropped via its `handle_request`
+    /// stale-cid gate.  See slot #10.6b
+    /// (`m4-12-pr-broker-unregistered-handle-back-edge-plan.md`)
+    /// for the layered defence: the back-edge closes the
+    /// `synthesise_aborted_replies_for_client → cancel →
+    /// clients.remove` race window where a fetch submitted
+    /// between steps 1 and 4 had no terminal event delivered.
+    RendererUnregistered,
 }
 
 /// Control messages from the Browser thread to the Network Process.

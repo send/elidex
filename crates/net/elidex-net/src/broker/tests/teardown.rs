@@ -217,10 +217,24 @@ fn shutdown_cancels_inflight_fetches_across_clients() {
         "shutdown left the in-flight fetch without a terminal reply — pending Promise leak"
     );
 
-    // Sanity check: post-shutdown sends fail with a disconnect
-    // reply (broker is gone).  This confirms the broker actually
-    // shut down rather than just appearing to (e.g. if the
-    // join was skipped on a panic).
+    // Sanity check: post-shutdown sends fail with a terminal
+    // Err reply (broker is gone).  This confirms the broker
+    // actually shut down rather than just appearing to (e.g.
+    // if the join was skipped on a panic).
+    //
+    // Slot #10.6b: the broker `Shutdown` control path emits
+    // `RendererUnregistered` for every cid before clearing
+    // `clients`, so the renderer-side
+    // [`super::super::handle::NetworkHandle`] short-circuit
+    // produces `Err("renderer unregistered")` from
+    // `fetch_async`'s pre-send `check_unregistered` gate
+    // before it reaches the disconnected-`request_tx`
+    // fallback.  Pre-#10.6b the only signal was the channel
+    // disconnect, so the message was `network process
+    // disconnected` instead.  Both shapes signal "broker is
+    // dead, no real reply will ever come" — accept either to
+    // keep this sanity-check robust against future shutdown-
+    // path tweaks.
     let post_request = Request {
         method: "GET".to_string(),
         url: url::Url::parse(&format!("http://127.0.0.1:{}/", stall_addr.port())).unwrap(),
@@ -230,16 +244,17 @@ fn shutdown_cancels_inflight_fetches_across_clients() {
     };
     let post_id = renderer.fetch_async(post_request);
     let events = renderer.drain_events();
-    let saw_disconnect = events.iter().any(|ev| {
+    let saw_terminal_err = events.iter().any(|ev| {
         matches!(
             ev,
             NetworkToRenderer::FetchResponse(rid, Err(msg))
-                if *rid == post_id && msg.contains("disconnected")
+                if *rid == post_id
+                    && (msg.contains("renderer unregistered") || msg.contains("disconnected"))
         )
     });
     assert!(
-        saw_disconnect,
-        "post-shutdown fetch must produce a disconnect reply, got {events:?}"
+        saw_terminal_err,
+        "post-shutdown fetch must produce a terminal Err reply (broker is gone), got {events:?}"
     );
 }
 
@@ -464,4 +479,334 @@ fn unregister_renderer_delivers_synthetic_aborted_for_inflight_fetches() {
     );
 
     np.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Slot #10.6b — broker → NetworkHandle back-edge (RendererUnregistered)
+//
+// Layered defence against the post-`UnregisterRenderer`
+// Promise leak.  The broker emits
+// `NetworkToRenderer::RendererUnregistered` after
+// synthesise / close / cancel, before `clients.remove`.  The
+// renderer-side handle observes the marker on its next drain
+// to (1) flip a synchronous `unregistered` flag short-circuit
+// for `fetch_async` / `fetch_blocking` / `cancel_fetch` /
+// `send`, and (2) synthesise terminal `Err` replies for any
+// `FetchId` still in `outstanding_fetches` — those are
+// race-window submits the broker silently dropped via its
+// stale-cid gate (`dispatch::handle_request` early-return).
+// ---------------------------------------------------------------------------
+
+/// After the renderer-side drain has observed
+/// `RendererUnregistered`, a subsequent `fetch_async` on a
+/// still-live `NetworkHandle` clone must short-circuit
+/// synchronously: a synthetic `Err("renderer unregistered")`
+/// reply is buffered under the freshly-allocated `FetchId` and
+/// surfaces on the very next `drain_events`, with no broker
+/// round-trip.
+#[test]
+fn fetch_async_after_unregister_returns_synthetic_err_synchronously() {
+    let np = spawn_network_process(test_client());
+    let renderer = np.create_renderer_handle();
+    let cid = renderer.client_id();
+
+    np.unregister_renderer(cid);
+    // Wait for the broker to process the unregister and emit
+    // the marker; the deadline absorbs CI scheduling jitter.
+    let observe_deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while std::time::Instant::now() < observe_deadline {
+        // Cheap poll: drain_events flips the flag the moment
+        // the marker is observed.  We don't care about the
+        // returned events here.
+        let _ = renderer.drain_events();
+        if renderer.client_id() != 0 {
+            // Probe synchronously by issuing a fetch and
+            // checking the buffered reply — short-circuit
+            // means the buffered reply is present
+            // immediately, no further channel work.
+            let probe_id = renderer.fetch_async(Request {
+                method: "GET".to_string(),
+                url: url::Url::parse("http://example.invalid/probe").unwrap(),
+                headers: Vec::new(),
+                body: bytes::Bytes::new(),
+                ..Default::default()
+            });
+            let events = renderer.drain_events();
+            if let Some(NetworkToRenderer::FetchResponse(rid, Err(msg))) = events.into_iter().find(
+                |ev| matches!(ev, NetworkToRenderer::FetchResponse(rid, _) if *rid == probe_id),
+            ) {
+                assert_eq!(rid, probe_id);
+                assert!(
+                    msg.contains("renderer unregistered"),
+                    "expected synth 'renderer unregistered' Err, got {msg:?}"
+                );
+                np.shutdown();
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("post-unregister fetch_async never produced a synthetic Err reply");
+}
+
+/// `fetch_blocking` must short-circuit too: once the marker is
+/// observed (either by a prior drain or by the recv loop's
+/// inline match), a fresh blocking fetch returns
+/// `Err("renderer unregistered")` immediately.  We exercise
+/// the recv-loop branch by issuing the blocking call
+/// concurrently with the unregister.
+#[test]
+fn fetch_blocking_after_unregister_returns_err_synchronously() {
+    let np = spawn_network_process(test_client());
+    let renderer = np.create_renderer_handle();
+    let cid = renderer.client_id();
+
+    np.unregister_renderer(cid);
+    // Yield so the broker definitely processed the unregister
+    // and emitted the marker before the blocking call begins.
+    std::thread::sleep(Duration::from_millis(40));
+
+    let started = std::time::Instant::now();
+    let result = renderer.fetch_blocking(Request {
+        method: "GET".to_string(),
+        url: url::Url::parse("http://example.invalid/probe").unwrap(),
+        headers: Vec::new(),
+        body: bytes::Bytes::new(),
+        ..Default::default()
+    });
+    let elapsed = started.elapsed();
+
+    // Must return promptly — the 30 s recv_timeout would mean
+    // the gate failed.  500 ms is generous slack for a loaded
+    // CI runner while still being orders of magnitude under
+    // the un-gated worst case.
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "fetch_blocking after unregister blocked for {elapsed:?} — gate did not fire"
+    );
+    let msg = result.expect_err("fetch_blocking after unregister must return Err");
+    assert!(
+        msg.contains("renderer unregistered"),
+        "expected 'renderer unregistered' Err, got {msg:?}"
+    );
+
+    np.shutdown();
+}
+
+/// `cancel_fetch` and `send` short-circuit with `false` once
+/// the handle has observed the marker — there is no point
+/// queueing work onto a broker that has already torn down our
+/// `clients` entry.
+#[test]
+fn cancel_fetch_and_send_after_unregister_return_false() {
+    let np = spawn_network_process(test_client());
+    let renderer = np.create_renderer_handle();
+    let cid = renderer.client_id();
+
+    np.unregister_renderer(cid);
+    // Wait for the marker by polling drain_events until the
+    // flag flips (observable as a `false` from `cancel_fetch`).
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    let mut gate_fired = false;
+    while std::time::Instant::now() < deadline && !gate_fired {
+        let _ = renderer.drain_events();
+        if !renderer.cancel_fetch(FetchId::next()) && !renderer.send(RendererToNetwork::Shutdown) {
+            gate_fired = true;
+        } else {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    assert!(
+        gate_fired,
+        "cancel_fetch / send did not return false after unregister observation"
+    );
+
+    np.shutdown();
+}
+
+/// **Load-bearing** for the `outstanding_fetches` mechanism:
+/// a fetch submitted in the same broker-loop iteration that
+/// processes `UnregisterRenderer` (i.e. *after* the
+/// `synthesise_aborted_replies_for_client` step but *before*
+/// `clients.remove`) is dropped silently by the broker's
+/// stale-cid gate (`dispatch::handle_request`).  Without
+/// `outstanding_fetches` the renderer-side
+/// `pending_fetches[id]` Promise would leak forever.
+///
+/// We engineer the race by submitting an in-flight stalled
+/// fetch (which the broker DOES register in `cancel_tokens`,
+/// so it gets the broker-side synthetic aborted reply), then
+/// firing `unregister_renderer` and immediately —
+/// without yielding to the broker — calling `fetch_async`
+/// again on the surviving handle clone.  Whichever layer
+/// catches the second fetch (layer 1 short-circuit if the
+/// broker emitted the marker before the renderer's pre-send
+/// drain, or layer 2 outstanding-tracking synthesis if the
+/// broker's `Fetch` arrived after `UnregisterRenderer` and
+/// hit the stale-cid gate), the test asserts the SAME
+/// observable property: every fetch this renderer issued
+/// settles with a terminal `Err` reply.
+#[test]
+fn race_window_fetch_settles_via_outstanding_tracking() {
+    let stall_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let stall_addr = stall_listener.local_addr().unwrap();
+    let _stall_keep = stall_listener;
+
+    let np = spawn_network_process(test_client());
+    let renderer = np.create_renderer_handle();
+    let cid = renderer.client_id();
+
+    let mk_stall = || Request {
+        method: "GET".to_string(),
+        url: url::Url::parse(&format!("http://127.0.0.1:{}/", stall_addr.port())).unwrap(),
+        headers: Vec::new(),
+        body: bytes::Bytes::new(),
+        ..Default::default()
+    };
+
+    // Pre-flight A: enters cancel_tokens before unregister →
+    // covered by the broker's `synthesise_aborted_replies_for_client`.
+    let id_a = renderer.fetch_async(mk_stall());
+    // Yield so worker reaches transport.send.
+    std::thread::sleep(Duration::from_millis(40));
+
+    // Race-window submit C: issued AFTER unregister, no yield
+    // between the two so the broker may or may not have
+    // processed UnregisterRenderer yet — the assertion holds
+    // either way (layer 1 or layer 2 catches it).
+    np.unregister_renderer(cid);
+    let id_c = renderer.fetch_async(mk_stall());
+
+    // Both A and C must settle with terminal Err — we collect
+    // arrivals into a map so a single drain that returns BOTH
+    // events does not lose one.  (`await_terminal_err`'s
+    // single-target drain would silently discard any non-
+    // matching terminal events on the same call.)
+    let mut settled: std::collections::HashMap<FetchId, String> = std::collections::HashMap::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline
+        && (!settled.contains_key(&id_a) || !settled.contains_key(&id_c))
+    {
+        for ev in renderer.drain_events() {
+            if let NetworkToRenderer::FetchResponse(rid, Err(msg)) = ev {
+                settled.entry(rid).or_insert(msg);
+            }
+        }
+        if !settled.contains_key(&id_a) || !settled.contains_key(&id_c) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    let msg_a = settled
+        .get(&id_a)
+        .expect("A never settled (broker synthesise step)");
+    let msg_c = settled
+        .get(&id_c)
+        .expect("C never settled — race-window submit leaked despite outstanding_fetches");
+    assert!(
+        msg_a.contains("aborted") || msg_a.contains("renderer unregistered"),
+        "A's terminal Err: {msg_a:?}"
+    );
+    assert!(
+        msg_c.contains("renderer unregistered") || msg_c.contains("aborted"),
+        "C's terminal Err: {msg_c:?}"
+    );
+
+    np.shutdown();
+}
+
+/// `RendererUnregistered` is internal: `drain_events` consumes
+/// it and never surfaces it to the caller.  Without this
+/// filter, embedders that exhaustively match
+/// `NetworkToRenderer` (e.g. the boa realtime bridge) would
+/// see a meaningless variant for which they have no event
+/// loop hook.  The flag-flipping side effect is verified by
+/// the gates above; this test pins the surface contract.
+#[test]
+fn renderer_unregistered_event_is_not_surfaced_to_caller() {
+    let np = spawn_network_process(test_client());
+    let renderer = np.create_renderer_handle();
+    let cid = renderer.client_id();
+
+    np.unregister_renderer(cid);
+    // Generously absorb broker scheduling — within this
+    // window the marker MUST have been emitted onto our
+    // response channel and consumed by drain_events.
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    let mut all_events: Vec<NetworkToRenderer> = Vec::new();
+    while std::time::Instant::now() < deadline {
+        all_events.extend(renderer.drain_events());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    for ev in &all_events {
+        assert!(
+            !matches!(ev, NetworkToRenderer::RendererUnregistered),
+            "drain_events surfaced the internal RendererUnregistered marker: {all_events:?}"
+        );
+    }
+
+    np.shutdown();
+}
+
+/// Sibling handles
+/// ([`super::super::handle::NetworkHandle::create_sibling_handle`])
+/// have independent `unregistered` state — each owns its own
+/// response channel and only its own cid's marker reaches it.
+/// Unregistering the parent must NOT disable the sibling's
+/// `fetch_async` / `fetch_blocking` / `send`.
+#[test]
+fn sibling_handles_have_independent_unregistered_state() {
+    let probe_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let probe_addr = probe_listener.local_addr().unwrap();
+    let probe_thread = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let Ok((mut stream, _)) = probe_listener.accept() else {
+            return;
+        };
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let _ = stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    });
+
+    let np = spawn_network_process(test_client());
+    let parent = np.create_renderer_handle();
+    let sibling = parent.create_sibling_handle();
+    let parent_cid = parent.client_id();
+
+    np.unregister_renderer(parent_cid);
+    // Yield so the parent's marker has time to land on the
+    // parent's channel without colliding with sibling I/O.
+    std::thread::sleep(Duration::from_millis(40));
+
+    // Sibling fetch must complete with a real 200 — its
+    // `unregistered` flag is independent of the parent's.
+    let probe_id = sibling.fetch_async(Request {
+        method: "GET".to_string(),
+        url: url::Url::parse(&format!("http://127.0.0.1:{}/", probe_addr.port())).unwrap(),
+        headers: Vec::new(),
+        body: bytes::Bytes::new(),
+        ..Default::default()
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut got: Option<Result<crate::Response, String>> = None;
+    while std::time::Instant::now() < deadline && got.is_none() {
+        for ev in sibling.drain_events() {
+            if let NetworkToRenderer::FetchResponse(rid, result) = ev {
+                if rid == probe_id {
+                    got = Some(result);
+                }
+            }
+        }
+        if got.is_none() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    let resp = got
+        .expect("sibling probe never settled — sibling's `unregistered` may have been wired to parent's flag")
+        .expect("sibling probe errored — independent flag check");
+    assert_eq!(resp.status, 200);
+
+    np.shutdown();
+    probe_thread.join().unwrap();
 }
