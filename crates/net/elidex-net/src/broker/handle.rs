@@ -438,13 +438,11 @@ impl NetworkHandle {
     /// straggler synthesis or the broker's
     /// `synthesise_aborted_replies_for_client` step), so a
     /// queued cancel would race the dead broker for no benefit.
-    /// Inheriting the short-circuit via [`Self::send`] would
-    /// already cover this; the explicit call documents the
-    /// gate at the API surface.
+    /// The short-circuit is inherited through [`Self::send`] —
+    /// duplicating the check here would just double-drain the
+    /// response channel on the cancel hot path (Copilot R1
+    /// HX2).
     pub fn cancel_fetch(&self, id: FetchId) -> bool {
-        if self.check_unregistered() {
-            return false;
-        }
         self.send(RendererToNetwork::CancelFetch(id))
     }
 

@@ -511,42 +511,51 @@ fn fetch_async_after_unregister_returns_synthetic_err_synchronously() {
     let cid = renderer.client_id();
 
     np.unregister_renderer(cid);
-    // Wait for the broker to process the unregister and emit
-    // the marker; the deadline absorbs CI scheduling jitter.
-    let observe_deadline = std::time::Instant::now() + Duration::from_secs(1);
-    while std::time::Instant::now() < observe_deadline {
-        // Cheap poll: drain_events flips the flag the moment
-        // the marker is observed.  We don't care about the
-        // returned events here.
-        let _ = renderer.drain_events();
-        if renderer.client_id() != 0 {
-            // Probe synchronously by issuing a fetch and
-            // checking the buffered reply — short-circuit
-            // means the buffered reply is present
-            // immediately, no further channel work.
-            let probe_id = renderer.fetch_async(Request {
-                method: "GET".to_string(),
-                url: url::Url::parse("http://example.invalid/probe").unwrap(),
-                headers: Vec::new(),
-                body: bytes::Bytes::new(),
-                ..Default::default()
-            });
-            let events = renderer.drain_events();
-            if let Some(NetworkToRenderer::FetchResponse(rid, Err(msg))) = events.into_iter().find(
-                |ev| matches!(ev, NetworkToRenderer::FetchResponse(rid, _) if *rid == probe_id),
-            ) {
-                assert_eq!(rid, probe_id);
-                assert!(
-                    msg.contains("renderer unregistered"),
-                    "expected synth 'renderer unregistered' Err, got {msg:?}"
-                );
-                np.shutdown();
-                return;
-            }
-        }
+
+    // Deterministic gate: poll `cancel_fetch` against a fresh
+    // synthetic FetchId until it returns `false` — the
+    // short-circuit fires only after the renderer-side drain
+    // observes `RendererUnregistered` and flips the
+    // `unregistered` flag, so a `false` return is direct
+    // evidence that layer 1 is in place.  Avoids issuing real
+    // `fetch_async` calls during the wait (any of which would
+    // otherwise round-trip through `request_tx` and cloud the
+    // post-gate assertion below — Copilot R1 HX1).  The
+    // FetchId is fresh per iteration so it cannot match an
+    // already-tracked outstanding entry.
+    let gate_deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while std::time::Instant::now() < gate_deadline && renderer.cancel_fetch(FetchId::next()) {
         std::thread::sleep(Duration::from_millis(5));
     }
-    panic!("post-unregister fetch_async never produced a synthetic Err reply");
+    assert!(
+        !renderer.cancel_fetch(FetchId::next()),
+        "unregister marker never observed within 1s — short-circuit gate did not fire"
+    );
+
+    // Gate is in place: a single `fetch_async` must produce
+    // the synthetic Err on the next drain with no broker
+    // round-trip.
+    let probe_id = renderer.fetch_async(Request {
+        method: "GET".to_string(),
+        url: url::Url::parse("http://example.invalid/probe").unwrap(),
+        headers: Vec::new(),
+        body: bytes::Bytes::new(),
+        ..Default::default()
+    });
+    let events = renderer.drain_events();
+    let saw_synth_err = events.iter().any(|ev| {
+        matches!(
+            ev,
+            NetworkToRenderer::FetchResponse(rid, Err(msg))
+                if *rid == probe_id && msg.contains("renderer unregistered")
+        )
+    });
+    assert!(
+        saw_synth_err,
+        "post-unregister fetch_async did not produce the synthetic 'renderer unregistered' Err — got {events:?}"
+    );
+
+    np.shutdown();
 }
 
 /// `fetch_blocking` must short-circuit too: once the marker is
