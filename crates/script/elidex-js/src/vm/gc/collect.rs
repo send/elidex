@@ -320,6 +320,20 @@ impl VmInner {
                 self.html_option_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 65 + 2 (M4-12 slot #11-tags-T1 Phase 3:
+                // HTMLFieldSetElement + HTMLFormControlsCollection) = 67.
+                // Both rooted on the same `delete globalThis.<X>`
+                // invariant — without these slots in the proto root
+                // set, severing the global ctor binding could collect
+                // the prototype while VmInner retains a stale id.
+                #[cfg(feature = "engine")]
+                self.html_fieldset_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_form_controls_collection_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

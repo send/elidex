@@ -111,6 +111,20 @@ pub(crate) enum LiveCollectionKind {
         doc: Entity,
         name: StringId,
     },
+    /// `form.elements` / `fieldset.elements` —
+    /// HTMLFormControlsCollection backing.  Filters listed elements
+    /// (button / fieldset / input / object / output / select /
+    /// textarea) within `scope`'s descendants per HTML §4.10.18.4
+    /// step 1.  Cross-tree associates via the `form="<id>"` content
+    /// attribute are not yet observed — see plan §"M4-12 cutover
+    /// residual".
+    FormControls {
+        /// The form OR fieldset whose descendants are walked.  Both
+        /// behave identically at the resolve fn level — the only
+        /// per-host difference is the prototype on the wrapper
+        /// which is fixed at install time.
+        scope: Entity,
+    },
 }
 
 impl LiveCollectionKind {
@@ -127,6 +141,7 @@ impl LiveCollectionKind {
                 | Self::Forms { .. }
                 | Self::Images { .. }
                 | Self::Links { .. }
+                | Self::FormControls { .. }
         )
     }
 
@@ -142,8 +157,30 @@ impl LiveCollectionKind {
             | Self::Images { doc }
             | Self::Links { doc }
             | Self::ByName { doc, .. } => Some(*doc),
+            Self::FormControls { scope } => Some(*scope),
             Self::Snapshot { .. } => None,
         }
+    }
+
+    /// `true` when the variant's resolved entity list may be cached
+    /// against [`Self::cache_root`]'s
+    /// [`EcsDom::inclusive_descendants_version`]; `false` when the
+    /// list is invalidated by mutations not visible through that
+    /// version counter.
+    ///
+    /// HTMLFormControlsCollection (per plan review finding #1):
+    /// listed-element membership for a form depends on the `form`
+    /// attribute on cross-tree associates AND on the `disabled` /
+    /// `name` attributes of every form-control descendant.  The
+    /// `set_attribute` path bumps `rev_version` only on the
+    /// mutated entity's ancestor chain, NOT on a sibling form/scope
+    /// that consumes the value through its filter — so caching
+    /// would silently return stale entity lists across an attribute
+    /// edit on any descendant control.  Opt out for correctness;
+    /// typical forms are <50 elements and the per-access walk cost
+    /// is bounded.
+    fn is_cacheable(&self) -> bool {
+        !matches!(self, Self::FormControls { .. })
     }
 }
 
@@ -292,7 +329,42 @@ fn resolve_entities_with_needles(
             });
             out
         }
+        LiveCollectionKind::FormControls { scope } => {
+            let mut out = Vec::new();
+            dom.traverse_descendants(*scope, |e| {
+                if e == *scope {
+                    return true;
+                }
+                if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
+                    return true;
+                }
+                let is_listed = dom.with_tag_name(e, |t| match t {
+                    Some(s) => is_listed_form_element_tag(s),
+                    None => false,
+                });
+                if is_listed {
+                    out.push(e);
+                }
+                true
+            });
+            out
+        }
     }
+}
+
+/// HTML §4.10.2 listed elements that participate in form-controls
+/// collections.  `<input type=image>` (image button) is technically
+/// excluded from `form.elements` per HTML §4.10.18.4 step 1.6 but
+/// included in `fieldset.elements`; we approximate here by including
+/// every `<input>` and refining at a future spec-tightening pass
+/// (slot #11-form-image-button-exclusion).
+fn is_listed_form_element_tag(tag: &str) -> bool {
+    const LISTED_ELEMENTS: [&str; 7] = [
+        "button", "fieldset", "input", "object", "output", "select", "textarea",
+    ];
+    LISTED_ELEMENTS
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(tag))
 }
 
 /// Pre-materialised UTF-8 needles for entity resolution — filled
@@ -351,33 +423,45 @@ pub(super) fn resolve_entities_for(
     kind: &LiveCollectionKind,
     cache: &LiveCollectionCache,
 ) -> Vec<Entity> {
+    // Non-cacheable kinds (FormControls today) skip both the
+    // version check and the post-walk store — the cache fields are
+    // simply unused for these variants.  See
+    // [`LiveCollectionKind::is_cacheable`] for the rationale.
+    let cacheable = kind.is_cacheable();
+
     // Phase 1 — cache-hit check (no needle allocation).  The
     // `host` borrow is scoped to this block; Phase 2 re-borrows.
-    let cur_version = if let Some(root) = kind.cache_root() {
-        // Post-unbind access to a retained collection wrapper must
-        // not panic; return an empty list so `.length` reads 0,
-        // `.item(i)` returns null, and `@@iterator` yields no
-        // elements.  `HostData::dom()` asserts `is_bound()`.
-        let Some(host) = ctx.host_if_bound() else {
-            return Vec::new();
-        };
-        let cur = host.dom().inclusive_descendants_version(root);
-        if cache.cached_version.get() == Some(cur) {
-            return cache.cached_entities.borrow().clone();
+    let cur_version = if cacheable {
+        if let Some(root) = kind.cache_root() {
+            // Post-unbind access to a retained collection wrapper must
+            // not panic; return an empty list so `.length` reads 0,
+            // `.item(i)` returns null, and `@@iterator` yields no
+            // elements.  `HostData::dom()` asserts `is_bound()`.
+            let Some(host) = ctx.host_if_bound() else {
+                return Vec::new();
+            };
+            let cur = host.dom().inclusive_descendants_version(root);
+            if cache.cached_version.get() == Some(cur) {
+                return cache.cached_entities.borrow().clone();
+            }
+            Some(cur)
+        } else {
+            None
         }
-        Some(cur)
     } else {
         None
     };
 
-    // Phase 2 — cache miss (or Snapshot).  Needles only get
-    // materialised here, off the hot path.
+    // Phase 2 — cache miss (or Snapshot, or non-cacheable).
+    // Needles only get materialised here, off the hot path.
     let needles = resolve_needles(ctx.vm, kind);
     let Some(host) = ctx.host_if_bound() else {
         return Vec::new();
     };
     let fresh = resolve_entities_with_needles(host.dom(), kind, &needles);
-    cache_store(cache, cur_version, &fresh);
+    if cacheable {
+        cache_store(cache, cur_version, &fresh);
+    }
     fresh
 }
 
@@ -479,6 +563,40 @@ impl VmInner {
         self.install_symbol_iterator(proto_id, native_hc_iterator);
     }
 
+    /// Allocate `HTMLFormControlsCollection.prototype` chained to
+    /// [`Self::html_collection_prototype`].  The chain inherits
+    /// `length` / `item` / `[Symbol.iterator]` from the parent and
+    /// installs a more permissive `namedItem(name)` here that
+    /// dispatches against form-controls semantics (per HTML
+    /// §4.10.18.4): walks the collection looking for a matching `id`
+    /// or `name` attribute on any listed element (no tag allowlist
+    /// — every listed element is allowed).  Multiple matches all
+    /// being radio inputs returning a `RadioNodeList` (HTML
+    /// §4.10.18.5) is deferred — see plan §F-1 / slot
+    /// #11-tags-radionodelist.
+    pub(in crate::vm) fn register_html_form_controls_collection_prototype(&mut self) {
+        let parent = self.html_collection_prototype.expect(
+            "register_html_form_controls_collection_prototype called before \
+             register_html_collection_prototype",
+        );
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(parent),
+            extensible: true,
+        });
+        self.html_form_controls_collection_prototype = Some(proto_id);
+
+        // Override `namedItem` with the FCC-specific lookup that
+        // does NOT restrict the `name` match to a tag allowlist.
+        self.install_native_method(
+            proto_id,
+            self.well_known.named_item,
+            native_form_controls_named_item,
+            shape::PropertyAttrs::METHOD,
+        );
+    }
+
     /// Allocate `NodeList.prototype` and install `length` / `item` /
     /// `forEach` / `[Symbol.iterator]`.  Shared methods use
     /// NodeList-tagged wrappers so brand-check error messages
@@ -533,8 +651,22 @@ impl VmInner {
     /// returned `ObjectId` carries `ObjectKind::HtmlCollection` or
     /// `ObjectKind::NodeList` (chosen by the kind's discriminator)
     /// and points at the matching prototype.
+    ///
+    /// `FormControls` variants get the
+    /// `HTMLFormControlsCollection.prototype` (which itself chains
+    /// to `HTMLCollection.prototype`) so `coll instanceof
+    /// HTMLCollection === true` still holds and the FCC's
+    /// `namedItem` override surfaces.
     pub(crate) fn alloc_collection(&mut self, kind: LiveCollectionKind) -> ObjectId {
-        let (object_kind, proto) = if kind.is_html_collection() {
+        let (object_kind, proto) = if matches!(kind, LiveCollectionKind::FormControls { .. }) {
+            (
+                ObjectKind::HtmlCollection,
+                self.html_form_controls_collection_prototype.expect(
+                    "alloc_collection FormControls before \
+                     register_html_form_controls_collection_prototype",
+                ),
+            )
+        } else if kind.is_html_collection() {
             (
                 ObjectKind::HtmlCollection,
                 self.html_collection_prototype
@@ -752,6 +884,44 @@ fn native_collection_named_item(
     })
 }
 
+/// `HTMLFormControlsCollection.prototype.namedItem(name)` per HTML
+/// §4.10.18.4.  Walks the FCC's listed-element set, looking for a
+/// matching `id` (id match wins) or `name` attribute (no tag
+/// allowlist — every listed element supports `name`).  Returns the
+/// first match in tree order; multi-match radio-group RadioNodeList
+/// is deferred per slot #11-tags-radionodelist.
+fn native_form_controls_named_item(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (id, _) =
+        require_collection_receiver(ctx, this, "namedItem", "HTMLFormControlsCollection")?;
+    let Some(arg) = args.first().copied() else {
+        return Ok(JsValue::Null);
+    };
+    let key_sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let key = ctx.vm.strings.get_utf8(key_sid);
+    if key.is_empty() {
+        return Ok(JsValue::Null);
+    }
+    let entities = resolve_receiver_entities(ctx, id);
+    let mut name_hit: Option<Entity> = None;
+    for &e in &entities {
+        let dom = ctx.host().dom();
+        if dom.with_attribute(e, "id", |v| v == Some(key.as_str())) {
+            return Ok(JsValue::Object(ctx.vm.create_element_wrapper(e)));
+        }
+        if name_hit.is_none() && dom.with_attribute(e, "name", |v| v == Some(key.as_str())) {
+            name_hit = Some(e);
+        }
+    }
+    Ok(match name_hit {
+        Some(e) => JsValue::Object(ctx.vm.create_element_wrapper(e)),
+        None => JsValue::Null,
+    })
+}
+
 // Per-interface `@@iterator` wrappers.
 fn native_hc_iterator(
     ctx: &mut NativeContext<'_>,
@@ -883,14 +1053,21 @@ pub(crate) fn try_indexed_get(
     let entities_storage: Vec<Entity>;
     let entities: &[Entity] = if let LiveCollectionKind::Snapshot { entities } = &kind {
         entities.as_slice()
+    } else if !kind.is_cacheable() {
+        // Non-cacheable kinds (FormControls today) walk fresh on
+        // every access; cache fields go unused.  See
+        // [`LiveCollectionKind::is_cacheable`] for the rationale.
+        let needles = resolve_needles(vm, &kind);
+        entities_storage = resolve_entities_with_needles(dom, &kind, &needles);
+        entities_storage.as_slice()
     } else {
-        // Every non-Snapshot variant has `cache_root() == Some`
+        // Every non-Snapshot, cacheable variant has `cache_root() == Some`
         // (see [`LiveCollectionKind::cache_root`]).  Materialising
         // `cur` outside the inner branches keeps it shared between
         // the hit / miss arms.
         let cur = dom.inclusive_descendants_version(
             kind.cache_root()
-                .expect("non-Snapshot variants always have cache_root() == Some"),
+                .expect("non-Snapshot cacheable variants always have cache_root() == Some"),
         );
         if cache.cached_version.get() == Some(cur) {
             entities_storage = cache.cached_entities.borrow().clone();

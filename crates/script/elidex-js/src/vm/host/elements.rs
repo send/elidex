@@ -142,6 +142,8 @@ impl VmInner {
                         self.html_legend_prototype
                     } else if hd.tag_matches_ascii_case(entity, "option") {
                         self.html_option_prototype
+                    } else if hd.tag_matches_ascii_case(entity, "fieldset") {
+                        self.html_fieldset_prototype
                     } else {
                         None
                     }

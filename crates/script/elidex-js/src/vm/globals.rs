@@ -254,6 +254,7 @@ impl VmInner {
             self.register_html_optgroup_prototype();
             self.register_html_legend_prototype();
             self.register_html_option_prototype();
+            self.register_html_fieldset_prototype();
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared
@@ -267,6 +268,10 @@ impl VmInner {
         {
             self.register_html_collection_prototype();
             self.register_node_list_prototype();
+            // HTMLFormControlsCollection.prototype chains to
+            // HTMLCollection.prototype (slot #11-tags-T1 Phase 3) —
+            // must land after the parent's `register_html_collection_prototype`.
+            self.register_html_form_controls_collection_prototype();
             // Attr.prototype must land BEFORE NamedNodeMap.prototype —
             // NamedNodeMap methods allocate Attr wrappers via
             // `alloc_attr`, which panics if `attr_prototype` is

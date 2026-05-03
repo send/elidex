@@ -396,6 +396,29 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) html_option_prototype: Option<ObjectId>,
+    /// `HTMLFieldSetElement.prototype` — tag-specific intermediate
+    /// prototype for `<fieldset>` wrappers (HTML §4.10.15 — slot
+    /// #11-tags-T1).  Chains to [`Self::html_element_prototype`].
+    /// Holds `disabled` / `name` reflected attributes, the
+    /// `type` getter (always `"fieldset"`), the `elements` getter
+    /// (HTMLFormControlsCollection), the `form` derived getter, and
+    /// the ConstraintValidation mixin methods (Phase 9).
+    ///
+    /// `None` until `register_html_fieldset_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_fieldset_prototype: Option<ObjectId>,
+    /// `HTMLFormControlsCollection.prototype` — chained to
+    /// [`Self::html_collection_prototype`].  Adds `namedItem(name)`
+    /// returning the first listed element with the matching `id` or
+    /// `name` attribute (RadioNodeList for radio groups deferred to
+    /// slot #11-tags-radionodelist — see plan §F-1).
+    ///
+    /// `None` until `register_html_form_controls_collection_prototype()`
+    /// runs during `register_globals()` (after
+    /// `register_html_collection_prototype`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_form_controls_collection_prototype: Option<ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor

@@ -70,12 +70,16 @@ pub(super) mod fetch;
 #[cfg(feature = "engine")]
 pub(super) mod fetch_tick;
 #[cfg(feature = "engine")]
+pub(super) mod form_assoc;
+#[cfg(feature = "engine")]
 pub(crate) mod form_data;
 pub(super) mod globals;
 #[cfg(feature = "engine")]
 pub(crate) mod headers;
 pub(super) mod history;
 pub(super) mod html_element_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_fieldset_proto;
 pub(super) mod html_iframe_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_label_proto;

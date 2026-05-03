@@ -748,6 +748,8 @@ define_well_known_strings! {
         html_optgroup_element => "HTMLOptGroupElement",
         html_legend_element => "HTMLLegendElement",
         html_option_element => "HTMLOptionElement",
+        html_fieldset_element => "HTMLFieldSetElement",
+        html_form_controls_collection => "HTMLFormControlsCollection",
         html_for => "htmlFor",
         control => "control",
         form_attr => "form",
@@ -759,6 +761,10 @@ define_well_known_strings! {
         selected => "selected",
         text_attr => "text",
         index_attr => "index",
+        // HTMLFieldSetElement / HTMLFormElement IDL members.
+        type_attr => "type",
+        elements_attr => "elements",
+        fieldset_str => "fieldset",
     }
 }
 
