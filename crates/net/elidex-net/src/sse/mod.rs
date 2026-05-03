@@ -18,6 +18,7 @@ use crossbeam_channel::{Receiver, Sender};
 use tokio::io::AsyncBufReadExt;
 
 use crate::cookie_jar::CookieJar;
+use crate::CancelHandle;
 use connect::{connect_sse_stream, SseConnectError};
 
 /// Unique SSE connection identifier.
@@ -71,6 +72,18 @@ pub struct SseHandle {
     pub event_rx: Receiver<SseEvent>,
     /// Thread join handle.
     pub thread: Option<JoinHandle<()>>,
+    /// Cooperative cancellation signal triggered by the broker
+    /// during teardown.  Critical for SSE: `cmd_rx` is only polled
+    /// via `try_recv` between `read_line` chunks, so a server that
+    /// holds the connection open without sending data leaves the
+    /// worker parked inside `reader.read_line(&mut line).await`
+    /// indefinitely (the 60-second `tokio::time::timeout` only
+    /// puts an upper bound on each individual read, not on the
+    /// stuck state).  The cancel arm of `sse_io_loop`'s
+    /// `tokio::select!` aborts the read future immediately so
+    /// the broker's `thread.join()` returns within bounded time
+    /// (slot #10.6a follow-up to PR #142 HCau).
+    pub cancel: CancelHandle,
 }
 
 /// Spawn an SSE I/O thread.
@@ -100,6 +113,8 @@ pub fn spawn_sse_thread(
     // Memory is bounded by TCP backpressure + MAX_SSE_LINE_SIZE (1 MiB).
     let (evt_tx, evt_rx) = crossbeam_channel::unbounded::<SseEvent>();
 
+    let cancel = CancelHandle::new();
+    let worker_cancel = cancel.clone();
     let thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -113,6 +128,7 @@ pub fn spawn_sse_thread(
             with_credentials,
             cmd_rx,
             evt_tx,
+            worker_cancel,
         ));
     });
 
@@ -121,6 +137,7 @@ pub fn spawn_sse_thread(
         command_tx: cmd_tx,
         event_rx: evt_rx,
         thread: Some(thread),
+        cancel,
     }
 }
 
@@ -217,10 +234,18 @@ impl SseParserState {
 /// Maximum SSE line size (1 MiB). Lines exceeding this are skipped.
 const MAX_SSE_LINE_SIZE: usize = 1 << 20;
 
-/// Check the SSE command channel for a close signal.
+/// Check the SSE command channel and the cancel signal for a close signal.
 ///
-/// Returns `true` if the I/O loop should exit (Close received or channel disconnected).
-fn should_close(cmd_rx: &Receiver<SseCommand>) -> bool {
+/// Returns `true` if the I/O loop should exit: a `Close` command was
+/// received, the channel was disconnected, or the broker triggered the
+/// per-handle [`CancelHandle`] (slot #10.6a — drop-cmd alone is invisible
+/// to a worker parked deep inside `read_line` against a silent server,
+/// so the cancel signal is the only reliable post-handshake teardown
+/// hook for SSE).
+fn should_close(cmd_rx: &Receiver<SseCommand>, cancel: &CancelHandle) -> bool {
+    if cancel.is_cancelled() {
+        return true;
+    }
     match cmd_rx.try_recv() {
         Ok(SseCommand::Close) | Err(crossbeam_channel::TryRecvError::Disconnected) => true,
         Err(crossbeam_channel::TryRecvError::Empty) => false,
@@ -232,7 +257,7 @@ fn should_close(cmd_rx: &Receiver<SseCommand>) -> bool {
 /// Connects to the SSE endpoint using a raw TCP/TLS connection and reads the
 /// response body incrementally line-by-line, enabling true streaming support
 /// for long-lived SSE connections.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 async fn sse_io_loop(
     url: url::Url,
     last_event_id: Option<String>,
@@ -241,6 +266,7 @@ async fn sse_io_loop(
     with_credentials: bool,
     cmd_rx: Receiver<SseCommand>,
     evt_tx: Sender<SseEvent>,
+    cancel: CancelHandle,
 ) {
     let mut parser = SseParserState::new(last_event_id);
     let mut closed = false;
@@ -251,7 +277,7 @@ async fn sse_io_loop(
         }
 
         // Check for close command before connecting.
-        if should_close(&cmd_rx) {
+        if should_close(&cmd_rx, &cancel) {
             return;
         }
 
@@ -268,27 +294,34 @@ async fn sse_io_loop(
             }
         }
 
-        // Connect and get a streaming reader.
-        let mut reader =
-            match connect_sse_stream(&url, &extra_headers, origin.as_deref(), with_credentials)
-                .await
-            {
-                Ok(r) => r,
-                Err(SseConnectError::Fatal(msg)) => {
-                    // Fatal errors are critical lifecycle events — use blocking send.
-                    let _ = evt_tx.send(SseEvent::FatalError(msg));
+        // Connect and get a streaming reader.  Cancel-aware: a
+        // server that accepts the TCP connection but never replies
+        // to the HTTP GET would otherwise stall the worker for the
+        // full TCP-stack timeout (slot #10.6a).
+        let connect_fut =
+            connect_sse_stream(&url, &extra_headers, origin.as_deref(), with_credentials);
+        let connect_outcome = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return,
+            res = connect_fut => res,
+        };
+        let mut reader = match connect_outcome {
+            Ok(r) => r,
+            Err(SseConnectError::Fatal(msg)) => {
+                // Fatal errors are critical lifecycle events — use blocking send.
+                let _ = evt_tx.send(SseEvent::FatalError(msg));
+                return;
+            }
+            Err(SseConnectError::Recoverable(msg)) => {
+                // Error events are critical lifecycle events — use blocking send.
+                let _ = evt_tx.send(SseEvent::Error(msg));
+                // Only exit if receiver is disconnected, not if channel is full.
+                if wait_or_close(&cmd_rx, parser.retry_ms, &mut closed, &cancel).await {
                     return;
                 }
-                Err(SseConnectError::Recoverable(msg)) => {
-                    // Error events are critical lifecycle events — use blocking send.
-                    let _ = evt_tx.send(SseEvent::Error(msg));
-                    // Only exit if receiver is disconnected, not if channel is full.
-                    if wait_or_close(&cmd_rx, parser.retry_ms, &mut closed).await {
-                        return;
-                    }
-                    continue;
-                }
-            };
+                continue;
+            }
+        };
 
         // Connected successfully.
         // Only exit on Disconnected — Full (backpressure) is non-fatal.
@@ -303,7 +336,22 @@ async fn sse_io_loop(
         let mut first_line = true;
         loop {
             line.clear();
-            match tokio::time::timeout(Duration::from_secs(60), reader.read_line(&mut line)).await {
+            // Cancel-aware streaming read: select against the
+            // per-handle [`CancelHandle`] so a server that holds
+            // the connection open without sending data still
+            // unblocks the worker on broker-driven teardown.  The
+            // 60-second `tokio::time::timeout` only bounds each
+            // individual read attempt, not the aggregate stuck
+            // state — without the cancel arm a stuck SSE worker
+            // would survive the broker's `thread.join()` until
+            // every retry burned through its own timeout (slot
+            // #10.6a).
+            let read_outcome = tokio::select! {
+                biased;
+                () = cancel.cancelled() => return,
+                res = tokio::time::timeout(Duration::from_secs(60), reader.read_line(&mut line)) => res,
+            };
+            match read_outcome {
                 Ok(Ok(0) | Err(_)) => break, // EOF or read error.
                 Ok(Ok(_)) => {
                     match cmd_rx.try_recv() {
@@ -379,22 +427,39 @@ async fn sse_io_loop(
         {
             return;
         }
-        if wait_or_close(&cmd_rx, parser.retry_ms, &mut closed).await {
+        if wait_or_close(&cmd_rx, parser.retry_ms, &mut closed, &cancel).await {
             return;
         }
     }
 }
 
-/// Wait for `retry_ms` or until a close command is received.
-/// Returns `true` if the connection should be closed (command received or channel disconnected).
-async fn wait_or_close(cmd_rx: &Receiver<SseCommand>, retry_ms: u64, closed: &mut bool) -> bool {
+/// Wait for `retry_ms` or until a close signal is received.
+/// Returns `true` if the connection should be closed: a `Close`
+/// command was queued, the command channel was disconnected, or the
+/// broker triggered the per-handle [`CancelHandle`] (slot #10.6a —
+/// the cancel arm of the inner `tokio::select!` resolves the wait
+/// immediately so reconnects don't keep an unwanted worker alive
+/// for the full retry budget after the renderer has been torn down).
+async fn wait_or_close(
+    cmd_rx: &Receiver<SseCommand>,
+    retry_ms: u64,
+    closed: &mut bool,
+    cancel: &CancelHandle,
+) -> bool {
     let deadline = tokio::time::Instant::now() + Duration::from_millis(retry_ms);
     loop {
         if tokio::time::Instant::now() >= deadline {
             return false; // Retry delay elapsed, reconnect.
         }
-        // Check for close command every 10ms during wait.
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        // Check for close command / cancel every 10ms during wait.
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => {
+                *closed = true;
+                return true;
+            }
+            () = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
         match cmd_rx.try_recv() {
             Ok(SseCommand::Close) | Err(crossbeam_channel::TryRecvError::Disconnected) => {
                 *closed = true;
@@ -605,5 +670,90 @@ mod tests {
         } else {
             panic!("expected Event");
         }
+    }
+
+    /// Slot #10.6a: the synchronous [`should_close`] probe must
+    /// honour the per-handle [`CancelHandle`] in addition to the
+    /// command channel, so the SSE worker's outer-loop entry
+    /// gate exits the moment the broker triggers cancel — even
+    /// if no `Close` command was ever queued (the broker drops
+    /// `command_tx` after `cancel.cancel()`, but a worker that
+    /// reaches `should_close` before observing the disconnect
+    /// would otherwise loop into another connect attempt).
+    #[test]
+    fn should_close_returns_true_when_cancelled() {
+        let (_cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<SseCommand>();
+        let cancel = CancelHandle::new();
+        assert!(
+            !should_close(&cmd_rx, &cancel),
+            "fresh handle / open channel must not signal close"
+        );
+        cancel.cancel();
+        assert!(
+            should_close(&cmd_rx, &cancel),
+            "should_close must observe cancel state"
+        );
+    }
+
+    /// Slot #10.6a: the asynchronous [`wait_or_close`] retry-delay
+    /// loop in [`sse_io_loop`] must observe [`CancelHandle::cancel`]
+    /// so a broker-driven teardown doesn't have to wait the full
+    /// retry budget (default 3 seconds, configurable via
+    /// `SseParserState::retry_ms`) before the worker exits.
+    /// Without the cancel arm the worker keeps the SSE handle
+    /// alive across the entire retry interval, blocking
+    /// `close_all_for_client`'s `thread.join()` for that whole
+    /// window after the renderer has already been torn down.
+    #[tokio::test]
+    async fn wait_or_close_returns_true_on_cancel_during_retry() {
+        let (_cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<SseCommand>();
+        let cancel = CancelHandle::new();
+        let mut closed = false;
+
+        // Schedule cancel after a small but non-zero delay so the
+        // wait genuinely enters the inner `tokio::select!` (not
+        // just the synchronous `is_cancelled` fast-path on first
+        // iteration).
+        let cancel_for_trigger = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancel_for_trigger.cancel();
+        });
+
+        let started = std::time::Instant::now();
+        let result = wait_or_close(&cmd_rx, /* retry_ms */ 3_000, &mut closed, &cancel).await;
+        let elapsed = started.elapsed();
+
+        assert!(result, "wait_or_close must return true on cancel");
+        assert!(closed, "wait_or_close must set the closed flag on cancel");
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "wait_or_close blocked for {elapsed:?} — cancel arm missing? \
+             expected ~50ms, retry_ms was 3_000ms"
+        );
+    }
+
+    /// Slot #10.6a sanity: [`wait_or_close`] still elapses its
+    /// retry delay normally when no cancel / close arrives, and
+    /// returns `false` so the outer loop reconnects.  Without
+    /// this companion check, a regression that swapped the
+    /// cancel arm's return value or wired the deadline incorrectly
+    /// could pass the cancel-on-retry test while breaking the
+    /// happy-path retry behaviour.  Uses a 60ms `retry_ms` so
+    /// the test stays fast.
+    #[tokio::test]
+    async fn wait_or_close_elapses_retry_without_cancel() {
+        let (_cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<SseCommand>();
+        let cancel = CancelHandle::new();
+        let mut closed = false;
+        let started = std::time::Instant::now();
+        let result = wait_or_close(&cmd_rx, /* retry_ms */ 60, &mut closed, &cancel).await;
+        let elapsed = started.elapsed();
+        assert!(!result, "wait_or_close must return false on retry elapse");
+        assert!(!closed, "closed flag must remain false on retry elapse");
+        assert!(
+            elapsed >= Duration::from_millis(50),
+            "wait_or_close returned in {elapsed:?} — retry deadline ignored?"
+        );
     }
 }

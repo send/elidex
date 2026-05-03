@@ -17,6 +17,8 @@ use std::time::Duration;
 use crossbeam_channel::Sender;
 use tokio::sync::mpsc;
 
+use crate::CancelHandle;
+
 /// Unique WebSocket connection identifier.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct WsId(pub u64);
@@ -85,6 +87,21 @@ pub struct WsHandle {
     pub event_rx: crossbeam_channel::Receiver<WsEvent>,
     /// Thread join handle.
     pub thread: Option<JoinHandle<()>>,
+    /// Cooperative cancellation signal.  Triggered by the broker
+    /// during teardown ([`crate::broker::NetworkProcessHandle::shutdown`]
+    /// / [`crate::broker::NetworkProcessHandle::unregister_renderer`])
+    /// so the worker exits within bounded time even if the
+    /// underlying socket is stuck on a never-completing read
+    /// (server alive but silent post-handshake).  Without this
+    /// fallback, a worker stuck inside `read.next().await` would
+    /// only observe a closed `command_tx` after its own select
+    /// woke from the read — which never happens against a silent
+    /// peer until TCP keepalive eventually times out (minutes).
+    /// The cancel arm of `ws_io_loop`'s `tokio::select!` aborts
+    /// the read future immediately so the broker's `thread.join()`
+    /// returns deterministically (slot #10.6a follow-up to PR #142
+    /// HCau / HCv / HJTV / HKhZ).
+    pub cancel: CancelHandle,
 }
 
 /// Spawn a WebSocket I/O thread.
@@ -112,12 +129,21 @@ pub fn spawn_ws_thread(url: url::Url, protocols: Vec<String>, origin: String) ->
     // Memory is bounded by the 4MiB max_message_size + TCP backpressure.
     let (evt_tx, evt_rx) = crossbeam_channel::unbounded::<WsEvent>();
 
+    let cancel = CancelHandle::new();
+    let worker_cancel = cancel.clone();
     let thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("failed to create tokio runtime for WebSocket");
-        rt.block_on(ws_io_loop(url, protocols, origin, cmd_rx, evt_tx));
+        rt.block_on(ws_io_loop(
+            url,
+            protocols,
+            origin,
+            cmd_rx,
+            evt_tx,
+            worker_cancel,
+        ));
     });
 
     WsHandle {
@@ -125,6 +151,7 @@ pub fn spawn_ws_thread(url: url::Url, protocols: Vec<String>, origin: String) ->
         command_tx: cmd_tx,
         event_rx: evt_rx,
         thread: Some(thread),
+        cancel,
     }
 }
 
@@ -209,6 +236,7 @@ async fn ws_io_loop(
     origin: String,
     mut cmd_rx: mpsc::UnboundedReceiver<WsCommand>,
     evt_tx: Sender<WsEvent>,
+    cancel: CancelHandle,
 ) {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite;
@@ -236,20 +264,31 @@ async fn ws_io_loop(
     let mut ws_config = tungstenite::protocol::WebSocketConfig::default();
     ws_config.max_message_size = Some(4 << 20); // 4 MiB
     ws_config.max_frame_size = Some(1 << 20); // 1 MiB
-    let (ws_stream, response) = match tokio_tungstenite::connect_async_tls_with_config(
+                                              // Cancel-aware handshake: a server that accepts the TCP
+                                              // connection but never replies to the upgrade request would
+                                              // otherwise stall the worker for the full TCP-stack timeout
+                                              // (minutes).  `tokio::select!` aborts `connect_async_tls_with_config`
+                                              // immediately on cancel so the broker's join completes (slot #10.6a).
+    let connect_fut = tokio_tungstenite::connect_async_tls_with_config(
         request,
         Some(ws_config),
         false, // disable_nagle
         None,  // TLS connector (uses default rustls)
-    )
-    .await
-    {
-        Ok(pair) => pair,
-        Err(e) => {
-            // Error events precede close and must not be lost — use blocking send.
-            let _ = evt_tx.send(WsEvent::Error(format!("WebSocket handshake failed: {e}")));
+    );
+    let (ws_stream, response) = tokio::select! {
+        biased;
+        () = cancel.cancelled() => {
             send_abnormal_close(&evt_tx);
             return;
+        }
+        res = connect_fut => match res {
+            Ok(pair) => pair,
+            Err(e) => {
+                // Error events precede close and must not be lost — use blocking send.
+                let _ = evt_tx.send(WsEvent::Error(format!("WebSocket handshake failed: {e}")));
+                send_abnormal_close(&evt_tx);
+                return;
+            }
         }
     };
 
@@ -285,6 +324,15 @@ async fn ws_io_loop(
 
     loop {
         tokio::select! {
+            biased;
+            // Broker-driven teardown: skip clean-close negotiation
+            // and exit immediately so `close_all_for_client`'s
+            // `thread.join()` returns within bounded time even if
+            // the peer is silent on `read.next()` (slot #10.6a).
+            () = cancel.cancelled() => {
+                send_abnormal_close(&evt_tx);
+                return;
+            }
             ws_msg = read.next() => {
                 match ws_msg {
                     Some(Ok(msg)) => {
@@ -467,5 +515,104 @@ mod tests {
         } else {
             panic!("expected BinaryMessage");
         }
+    }
+
+    /// Slot #10.6a regression: the WebSocket I/O thread must
+    /// observe a [`CancelHandle::cancel`] AND the dropped
+    /// `command_tx` and exit within bounded time, even when the
+    /// peer is silent post-`accept` and the worker is parked
+    /// inside `tokio_tungstenite::connect_async`'s response
+    /// read.  Pre-fix the handshake await had no cancel arm —
+    /// dropping `command_tx` was invisible because the worker
+    /// hadn't reached its post-handshake `tokio::select!` yet,
+    /// and the broker's `close_all_for_client` removed the
+    /// `WsHandle` while the worker was still alive (detached
+    /// thread that survived `np.shutdown()` until TCP keepalive
+    /// timed out).  Post-fix the handshake's `tokio::select!`
+    /// against `cancel.cancelled()` aborts the read future
+    /// immediately.  This is the same teardown sequence
+    /// `crate::broker::dispatch::NetworkProcessState::close_all_for_client`
+    /// drives at the broker level.
+    ///
+    /// Verified by binding a `TcpListener` that accepts the
+    /// connection and never replies — the worker is parked in
+    /// the response-read state.  We then trigger
+    /// `handle.cancel.cancel()` + `drop(handle.command_tx)` and
+    /// `handle.thread.take().unwrap().join()` within a 1-second
+    /// deadline.  A regression that left the cancel arm out
+    /// would block the join until the test's `.expect("...")`
+    /// timeout fires (or, in `panic = "abort"` builds, until
+    /// the OS kills the thread on process exit).
+    #[test]
+    fn ws_worker_exits_on_cancel_during_silent_handshake() {
+        use std::io::Read;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_server = Arc::clone(&stop);
+
+        let server = std::thread::spawn(move || {
+            // Single connection only — the test client makes
+            // exactly one connect attempt.
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            let mut buf = [0u8; 4096];
+            // Read and discard the upgrade request, then go
+            // silent — the worker is now parked on response
+            // read and will never get a reply from us.
+            let _ = stream.read(&mut buf);
+            // Block on read until client disconnects (Ok(0))
+            // OR until the test signals stop (via shutdown
+            // + drop), at which point we just exit.
+            while !stop_for_server.load(Ordering::SeqCst) {
+                match stream.read(&mut buf) {
+                    Ok(0) | Err(_) => return, // client gone
+                    Ok(_) => {}               // stray data — keep waiting
+                }
+            }
+        });
+
+        let url = url::Url::parse(&format!("ws://127.0.0.1:{}/", addr.port())).unwrap();
+        let mut handle = spawn_ws_thread(url, Vec::new(), "http://example.com".to_string());
+
+        // Yield so the worker reaches the response-read await
+        // (TCP connect + request write happen synchronously
+        // on loopback; the read await is where cancel will
+        // bite).
+        std::thread::sleep(std::time::Duration::from_millis(80));
+
+        let started = std::time::Instant::now();
+        handle.cancel.cancel();
+        drop(handle.command_tx);
+        let thread = handle.thread.take().expect("thread set on spawn");
+        thread.join().expect("worker thread panicked");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "ws worker did not exit within 1s of cancel + drop — handshake select missing cancel arm?"
+        );
+
+        // Tear down the server fixture deterministically.
+        stop.store(true, Ordering::SeqCst);
+        // The server may still be parked on `read` here; close
+        // the listener implicitly by joining (server thread
+        // returns on next read iteration).  Use a short deadline
+        // so a hung server thread doesn't block the test forever.
+        let join_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !server.is_finished() && std::time::Instant::now() < join_deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        if server.is_finished() {
+            let _ = server.join();
+        }
+        // If server is still alive past the deadline, leak it
+        // (test still passes — the worker assertion above is
+        // the load-bearing one).  Avoids cross-test flake from
+        // server-side blocking reads that occasionally outlive
+        // their owner.
     }
 }

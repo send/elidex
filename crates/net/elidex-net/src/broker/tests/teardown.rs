@@ -2,6 +2,22 @@
 //!
 //! Sub-module of `broker::tests`; helpers (e.g. `test_client`) and
 //! shared imports come from `super` (`tests/mod.rs`).
+//!
+//! Slot #10.6a (PR-broker-ws-sse-shutdown-join) tests for the
+//! per-handle [`crate::CancelHandle`] wiring + `thread.join()` step
+//! in [`super::super::dispatch::NetworkProcessState::close_all_for_client`]
+//! live alongside the worker source (`crate::ws::tests` /
+//! `crate::sse::tests`) rather than here, because broker-level
+//! SSRF rejects loopback addresses (`url_security::validate_url`
+//! has no `allow_private_ips` knob for the WS/SSE dispatch path,
+//! by design — see `crate::broker::dispatch::handle_request`'s
+//! `WebSocketOpen` / `EventSourceOpen` branches).  Testing the
+//! worker's cancel-responsiveness directly via `spawn_ws_thread`
+//! / `spawn_sse_thread` exercises exactly the same `tokio::select!`
+//! arms the broker relies on, with no observability gap — the
+//! broker's join sequence is `cancel.cancel()` → `drop(command_tx)`
+//! → `thread.join()`, which the unit tests reproduce verbatim
+//! against a real local TCP fixture.
 
 use std::time::Duration;
 

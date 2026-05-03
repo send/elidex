@@ -484,7 +484,8 @@ impl NetworkProcessState {
     }
 
     /// Close every WS / SSE connection registered against this
-    /// `client_id`.  Used by three call paths:
+    /// `client_id` and join its worker thread before returning.
+    /// Used by three call paths:
     /// - [`Self::handle_request`]'s `RendererToNetwork::Shutdown`
     ///   branch — used by `HostBridge::shutdown_all_realtime` to
     ///   tear down only realtime connections (in-flight fetches
@@ -495,19 +496,33 @@ impl NetworkProcessState {
     /// - [`Self::handle_control`]'s `Shutdown` branch — same as
     ///   `UnregisterRenderer` but for every client.
     ///
-    /// **Lifecycle gap (Copilot R8 follow-up)**: the WS/SSE
-    /// `JoinHandle`s are dropped after sending their close commands
-    /// but never `join()`ed.  The worker threads do exit on their
-    /// own once they observe the closed command channel, so this
-    /// is bounded leakage of detached threads (eventual cleanup,
-    /// not memory growth) — but a `shutdown()` call should
-    /// arguably block until all I/O threads finish.  Adding a
-    /// join step requires deadlock analysis (a worker stuck on a
-    /// never-completing socket await would hang the broker
-    /// shutdown), so it lands in a follow-up rather than this
-    /// mechanical-split PR.  Tracked in
-    /// `m4-12-broker-shutdown-join-followup.md` and the M4-12
-    /// post-cutover roadmap.
+    /// **Teardown sequence per handle** (slot #10.6a, fixes
+    /// Copilot R8 HCau / HCv / HJTV / HKhZ): for each WS/SSE
+    /// handle being torn down,
+    /// 1. send the protocol-clean close command (best effort) so
+    ///    a responsive peer sees a graceful close frame / EOF
+    ///    before the connection drops;
+    /// 2. trigger the per-handle [`crate::CancelHandle`] so the
+    ///    worker exits even if it's parked on a never-completing
+    ///    socket read against a silent peer (the cancel arm of
+    ///    the worker's `tokio::select!` aborts the read future
+    ///    immediately);
+    /// 3. drop the command sender so the worker's command-channel
+    ///    `recv()` resolves to `None` as a belt-and-suspenders
+    ///    exit hook for the not-yet-cancel-aware code paths;
+    /// 4. `thread.join()` to make `close_all_for_client` block
+    ///    until the worker has fully exited.
+    ///
+    /// Joining inside the broker thread is safe because each
+    /// worker observes either the cancel signal or the dropped
+    /// command channel within bounded time — see [`crate::ws::ws_io_loop`]
+    /// and [`crate::sse::sse_io_loop`] for the cancel-injection
+    /// surface.  Without the join, a stale renderer's `WsHandle`
+    /// / `SseHandle` would be detached and the worker thread
+    /// could outlive `NetworkProcessHandle::shutdown()`,
+    /// continuing to consume socket / TLS resources past the
+    /// caller's expected lifetime (pre-existing leak surfaced by
+    /// PR #142's structural review).
     fn close_all_for_client(&mut self, client_id: u64) {
         // Close WebSocket connections.
         let ws_keys: Vec<_> = self
@@ -517,10 +532,15 @@ impl NetworkProcessState {
             .copied()
             .collect();
         for key in ws_keys {
-            if let Some(handle) = self.ws_handles.remove(&key) {
+            if let Some(mut handle) = self.ws_handles.remove(&key) {
                 let _ = handle
                     .command_tx
                     .send(WsCommand::Close(1001, "navigated away".into()));
+                handle.cancel.cancel();
+                drop(handle.command_tx);
+                if let Some(thread) = handle.thread.take() {
+                    let _ = thread.join();
+                }
             }
         }
 
@@ -532,8 +552,13 @@ impl NetworkProcessState {
             .copied()
             .collect();
         for key in sse_keys {
-            if let Some(handle) = self.sse_handles.remove(&key) {
+            if let Some(mut handle) = self.sse_handles.remove(&key) {
                 let _ = handle.command_tx.send(SseCommand::Close);
+                handle.cancel.cancel();
+                drop(handle.command_tx);
+                if let Some(thread) = handle.thread.take() {
+                    let _ = thread.join();
+                }
             }
         }
     }
