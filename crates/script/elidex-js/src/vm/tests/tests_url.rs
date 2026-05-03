@@ -312,6 +312,35 @@ fn host_setter_rejects_bracketed_ipv6_with_trailing_garbage() {
 }
 
 #[test]
+fn host_setter_rejects_invalid_port_string_no_partial_mutation() {
+    // R8 IMP: `host:not` and `host:99999` — port part fails u16
+    // parse, so per WHATWG basic URL parser port-state-with-
+    // override the whole assignment is a validation error and
+    // the URL stays unchanged.  The previous impl let `set_host`
+    // succeed (rewriting the host) before discovering the port
+    // was invalid, leaving a partial mutation.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "let u = new URL('https://x.com:8080/'); \
+             u.host = 'y.com:not'; \
+             u.host;"
+        ),
+        "x.com:8080"
+    );
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "let u = new URL('https://x.com:8080/'); \
+             u.host = 'y.com:99999'; \
+             u.host;"
+        ),
+        "x.com:8080"
+    );
+}
+
+#[test]
 fn host_setter_rejects_multi_colon_non_bracketed() {
     // R7 IMP: `example.com:1:2` is rejected by the WHATWG host
     // parser (port state can't contain `:`), and `url::Url

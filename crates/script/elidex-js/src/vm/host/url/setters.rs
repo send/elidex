@@ -250,41 +250,61 @@ pub(super) fn native_url_set_hash(
 ///   silently truncates at the first `:` rather than rejecting
 ///   — so this strict pre-check is required to honour the
 ///   WHATWG "invalid host = no-op" contract.
+/// - **Non-digit / overflow port**: `host:not`, `host:99999`.
+///   WHATWG basic URL parser port-state-with-override rejects
+///   non-ASCII-digit characters and values outside `0..=65535`
+///   as a validation error, returning failure for the whole
+///   assignment.  Empty port (trailing `:`) is allowed and
+///   clears the port.
 ///
 /// Successful return shape: `("[ipv6]", Some("8080"))` for
 /// `[::1]:8080`; `("host", None)` for `host`; `("host", Some(""))`
 /// for `host:` (trailing `:` clears the port per port-state with
 /// state-override).
 fn split_host_port(val: &str) -> Option<(String, Option<String>)> {
-    if val.starts_with('[') {
+    let (host, port): (String, Option<String>) = if val.starts_with('[') {
         // Bracketed IPv6 — must be `[…]` or `[…]:port`.
         let end = val.find(']')?;
         let host = val[..=end].to_owned();
         let rest = &val[end + 1..];
-        return match rest {
-            "" => Some((host, None)),
+        match rest {
+            "" => (host, None),
             _ => match rest.strip_prefix(':') {
-                Some(port) => Some((host, Some(port.to_owned()))),
+                Some(p) => (host, Some(p.to_owned())),
                 // Trailing garbage after `]` (e.g. `[::1]abc`,
                 // `[::1]]:80`) — invalid host.
-                None => None,
+                None => return None,
             },
-        };
+        }
+    } else {
+        // Non-bracketed: at most one `:` separator.  `splitn(3,
+        // ':')` surfaces a third part exactly when the input has
+        // more than one `:` — that's a multi-colon input which
+        // the WHATWG host parser rejects (and `url::Url::set_host`
+        // would silently accept by truncating).
+        let mut parts = val.splitn(3, ':');
+        let h = parts
+            .next()
+            .expect("splitn always yields at least one part");
+        let p = parts.next();
+        if parts.next().is_some() {
+            return None;
+        }
+        (h.to_owned(), p.map(str::to_owned))
+    };
+    // Port string validation: empty (clear-port) is allowed;
+    // non-empty must parse as `u16` (digit-only AND ≤ 65535).
+    // `url::Url::set_port` would silently drop an invalid port
+    // here, leaving the host already-applied and the port
+    // untouched — a partial mutation the WHATWG host setter
+    // forbids (validation error in port-state returns failure
+    // for the whole assignment).
+    if let Some(ref p) = port {
+        if !p.is_empty() && p.parse::<u16>().is_err() {
+            return None;
+        }
     }
-    // Non-bracketed: at most one `:` separator.  `splitn(3, ':')`
-    // surfaces a third part exactly when the input has more than
-    // one `:` — that's a multi-colon input which the WHATWG host
-    // parser rejects (and `url::Url::set_host` would silently
-    // accept by truncating).
-    let mut parts = val.splitn(3, ':');
-    let host = parts
-        .next()
-        .expect("splitn always yields at least one part");
-    let port = parts.next();
-    if parts.next().is_some() {
-        return None;
-    }
-    Some((host.to_owned(), port.map(str::to_owned)))
+    Some((host, port))
 }
 
 /// Coerce the first positional argument to a `String` via
