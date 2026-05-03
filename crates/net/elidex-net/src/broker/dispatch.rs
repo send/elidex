@@ -734,40 +734,65 @@ impl NetworkProcessState {
         if pending.is_empty() {
             return;
         }
-        // Fall back to in-thread teardown if the OS rejects
-        // the thread-spawn (typically EAGAIN under a process /
-        // user thread-limit ulimit).  Without the fallback the
-        // broker would panic on routine renderer shutdown,
-        // turning a single connection cleanup into a network-
-        // process crash that takes every other renderer down
-        // with it (slot #10.6a Copilot R5 HX21).  In-thread
-        // teardown blocks the broker for up to
-        // [`GRACEFUL_CLOSE_GRACE`] + cancel-propagation, which
-        // is the same exposure as the pre-HX14 design — bad
-        // but recoverable.
+        // Spawn the background teardown thread, with a true
+        // in-thread fallback if the OS rejects the spawn
+        // (typically EAGAIN under a process / user thread-limit
+        // ulimit).  Without the fallback the broker would
+        // panic on routine renderer shutdown, turning a single
+        // connection cleanup into a network-process crash that
+        // takes every other renderer down with it (slot #10.6a
+        // Copilot R5 HX21).
+        //
+        // The tricky part is ownership: `std::thread::Builder::spawn`
+        // consumes the closure on the call, so a failed spawn
+        // would normally drop `pending` along with the closure
+        // — leaving the JoinHandles unjoined and the
+        // CancelHandles unfired (R6 HX28 found this gap in the
+        // R5 attempt).  We park `pending` behind
+        // `Arc<Mutex<Option<_>>>` so the closure can take it
+        // lazily on its first poll AND the broker can reclaim
+        // it on spawn-error to run the teardown in-thread —
+        // matching the contract documented in
+        // `close_all_for_client`.
+        let pending_slot: std::sync::Arc<std::sync::Mutex<Option<Vec<_>>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Some(pending)));
+        let slot_for_worker = std::sync::Arc::clone(&pending_slot);
         match std::thread::Builder::new()
             .name("elidex-network-teardown".into())
             .spawn(move || {
-                join_pending_with_grace_then_cancel(pending);
+                if let Some(pending) = slot_for_worker
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                {
+                    join_pending_with_grace_then_cancel(pending);
+                }
             }) {
             Ok(thread) => self.pending_teardowns.push(thread),
             Err(spawn_err) => {
-                // Recover the moved `pending` is impossible —
-                // it was consumed by the closure that failed
-                // to spawn.  std::thread::Builder::spawn drops
-                // the closure on error, which drops `pending`,
-                // which drops every JoinHandle without joining
-                // and every CancelHandle without firing.  The
-                // worker threads exit on their own once they
-                // observe their dropped command_tx — bounded
-                // leak, not a crash.  Log so operators can see
-                // the resource pressure (matches R5 HX21
-                // rationale: prefer leak + log over crash).
+                // Spawn failed.  The closure that the failed
+                // spawn would have called is dropped, but its
+                // capture is just an `Arc` clone — the data
+                // itself is still in `pending_slot`.  Reclaim
+                // it and run the teardown synchronously on the
+                // broker thread so workers are still joined +
+                // cancelled.  Falls back to the pre-HX14
+                // exposure (broker stalls for
+                // [`GRACEFUL_CLOSE_GRACE`] + cancel-propagation)
+                // which is the right tradeoff under thread
+                // pressure: bounded latency beats indeterminate
+                // worker leak.
                 tracing::warn!(
                     error = %spawn_err,
-                    "failed to spawn teardown thread; \
-                     workers will exit on dropped command_tx but join is skipped"
+                    "failed to spawn teardown thread; running join+cancel in-thread on the broker"
                 );
+                if let Some(pending) = pending_slot
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                {
+                    join_pending_with_grace_then_cancel(pending);
+                }
             }
         }
     }
