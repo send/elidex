@@ -242,6 +242,28 @@ pub struct NetworkHandle {
     pub(super) recorded_requests: Option<std::cell::RefCell<Vec<Request>>>,
 }
 
+/// Slot #10.6c (Copilot R8): upper bound on how many events
+/// [`NetworkHandle::create_sibling_handle`] is allowed to
+/// drain from the parent's response channel while probing for
+/// a queued [`NetworkToRenderer::RendererUnregistered`] marker.
+///
+/// This constructor runs inline on the JS `new Worker()`
+/// path; an unbounded drain (slot #10.6b's `check_unregistered`
+/// shape) would block Worker construction on a parent with a
+/// pathologically large WS / SSE / fetch backlog.  Past this
+/// cap the probe gives up and accepts the small transient
+/// window where a sibling could be created live while the
+/// parent's marker is still queued; the parent's next regular
+/// drain (typically the next event-loop tick) catches up, and
+/// the parent's subsequent operations short-circuit then.
+///
+/// 256 sized to match the project's per-document realtime-
+/// connection cap — even a worst-case embedder that has every
+/// connection emit at once produces fewer events than this
+/// cap, so the marker remains observable in any realistic
+/// configuration.
+const SIBLING_REGISTRATION_BARRIER_DRAIN_CAP: usize = 256;
+
 impl NetworkHandle {
     /// Create a disconnected `NetworkHandle` for tests and contexts where
     /// no Network Process is available (standalone pipelines, OOP iframes
@@ -347,17 +369,48 @@ impl NetworkHandle {
         // not yet been called — the flag is still `false` even
         // though the parent is logically unregistered, so a
         // sibling spawned in that window would be live against
-        // the same not-yet-realised broken parent.  Use
-        // [`Self::check_unregistered`] which drains
-        // `response_rx` through `process_response` first
-        // (flipping the flag if the marker is queued) before
-        // observing it.  Cost is O(queued events on the
-        // parent's channel) — typically zero, bounded by drain
-        // size in any case.  The Acquire load inside
-        // `check_unregistered` pairs with the Release stores in
-        // [`Self::process_response`] /
-        // [`Self::fetch_blocking`].
-        let pre_unregistered = if self.check_unregistered() {
+        // the same not-yet-realised broken parent.  Probe the
+        // queue: the flag may flip once the marker is processed.
+        //
+        // **R8 bounding**: cap the probe at
+        // [`SIBLING_REGISTRATION_BARRIER_DRAIN_CAP`] events.
+        // `check_unregistered` is unbounded by design (slot
+        // #10.6b — drain everything before deciding) which is
+        // fine on the fetch_async / fetch_blocking / cancel_fetch
+        // / send paths because those are renderer-thread work
+        // already.  This constructor however runs inline on the
+        // JS `new Worker()` path (via
+        // `HostBridge::create_sibling_network_handle`), so an
+        // embedder with a pathologically large parent backlog
+        // (thousands of WS messages, etc.) must not block
+        // `new Worker()` on draining all of it.  Past the cap,
+        // accept that the marker remains queued: the sibling is
+        // created live, the parent's next regular drain
+        // (typically the next event-loop tick) catches up the
+        // marker into its own state, and the parent's subsequent
+        // operations short-circuit then.  The transient
+        // "live sibling / parent about to short-circuit" window
+        // is bounded by one event-loop tick on a healthy
+        // embedder; an embedder whose drain has stalled long
+        // enough for >256 events to accumulate has bigger
+        // problems than sibling-handle consistency.
+        let already_unregistered = if self.unregistered.load(Ordering::Acquire) {
+            true
+        } else {
+            let mut buf = self.buffered.borrow_mut();
+            for _ in 0..SIBLING_REGISTRATION_BARRIER_DRAIN_CAP {
+                match self.response_rx.try_recv() {
+                    Ok(evt) => self.process_response(evt, &mut |e| buf.push(e)),
+                    Err(_) => break,
+                }
+            }
+            drop(buf);
+            // process_response stores `Release` on observing
+            // the marker; pair with `Acquire` here.
+            self.unregistered.load(Ordering::Acquire)
+        };
+
+        let pre_unregistered = if already_unregistered {
             // Drop response_tx implicitly at end of scope; no
             // one ever sends on it because we don't hand it to
             // the broker.

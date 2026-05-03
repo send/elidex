@@ -251,22 +251,26 @@ fn create_renderer_handle_post_shutdown_returns_pre_unregistered() {
     // Broker is gone.  `np`'s `control_tx` clone is now
     // disconnected, so `register_with_ack` takes the
     // SendError fast-fail path and returns
-    // `pre_unregistered=true`.  Assert observable state and
-    // a generous wall-clock ceiling.  The ceiling sits well
-    // above the 500 ms `REGISTER_ACK_TIMEOUT` so that a
-    // CI-scheduler descheduling pause cannot push a correct
-    // fast-fail run over the bound (Copilot R7); regression
-    // distinguishability is preserved because the recv-loop
-    // path takes ≥ 500 ms by definition, plus the
-    // post-timeout follow-up `UnregisterRenderer` send.
+    // `pre_unregistered=true`.  The wall-clock ceiling has
+    // to thread the needle (Copilot R7 → R8): tight enough
+    // to fail if a regression made the call wait the full
+    // 500 ms `REGISTER_ACK_TIMEOUT` (R8 — the previous 2 s
+    // bound was too loose to distinguish), but loose enough
+    // to absorb CI-scheduler jitter on a correct fast-fail
+    // (R7 — the original 500 ms bound was too tight).  300 ms
+    // is the goldilocks: a regressed timeout-path call would
+    // take ≥ 500 ms and therefore fail; a correct fast-fail
+    // is sub-millisecond plus typical CI jitter (≤ 100 ms),
+    // leaving ~200 ms of headroom.
     let started = std::time::Instant::now();
     let renderer = np.create_renderer_handle();
     let elapsed = started.elapsed();
     assert!(
-        elapsed < Duration::from_secs(2),
+        elapsed < Duration::from_millis(300),
         "post-shutdown create_renderer_handle blocked for {elapsed:?} — \
-         expected fast-fail via the SendError path; under 2 s budget \
-         leaves margin over the 500 ms REGISTER_ACK_TIMEOUT recv ceiling"
+         expected fast-fail via the SendError path (sub-ms + CI jitter); \
+         a regression that fell through to the 500 ms REGISTER_ACK_TIMEOUT \
+         recv path would land here, distinguishable by the 300 ms ceiling"
     );
     assert!(
         !renderer.cancel_fetch(FetchId::next()),
@@ -366,14 +370,19 @@ fn create_sibling_handle_post_shutdown_returns_pre_unregistered() {
         std::thread::sleep(Duration::from_millis(5));
     }
 
+    // Same Copilot R7 → R8 goldilocks ceiling as the renderer-
+    // factory shutdown test above: 300 ms distinguishes a
+    // correct SendError fast-fail (sub-ms + CI jitter) from a
+    // regressed timeout-path call (≥ 500 ms).
     let started = std::time::Instant::now();
     let sibling = parent.create_sibling_handle();
     let elapsed = started.elapsed();
     assert!(
-        elapsed < Duration::from_secs(2),
+        elapsed < Duration::from_millis(300),
         "post-shutdown create_sibling_handle blocked for {elapsed:?} — \
-         expected fast-fail via the SendError path; under 2 s budget leaves \
-         margin over the 500 ms REGISTER_ACK_TIMEOUT recv ceiling (Copilot R7)"
+         expected fast-fail via the SendError path; a regression that fell \
+         through to the 500 ms REGISTER_ACK_TIMEOUT recv path would land here, \
+         distinguishable by the 300 ms ceiling"
     );
     assert!(
         !sibling.cancel_fetch(FetchId::next()),
