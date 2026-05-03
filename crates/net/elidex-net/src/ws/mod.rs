@@ -44,11 +44,18 @@ mod tests;
 ///   pre-OPEN handshake hangs (e.g. server accepts the TCP
 ///   connection but never replies to the upgrade).
 /// - each `write.send(msg).await` issued by
-///   [`io_loop::send_frame`] — bounds stuck data sends behind a
+///   `io_loop::send_frame` — bounds stuck data sends behind a
 ///   peer that stopped reading (kernel send buffer full).
 /// - the close-frame `write.send` inside
-///   [`io_loop::send_close_frame`] — same hazard as data sends,
+///   `io_loop::send_close_frame` — same hazard as data sends,
 ///   but for the JS-initiated close path.
+///
+/// (The two helpers are intentionally module-private — see
+/// [`WsHandle::cancel`] for the rationale on broker-only
+/// command-channel short-circuits — so rustdoc renders them as
+/// inline code rather than intra-doc links per the project's
+/// strict `-D rustdoc::private_intra_doc_links` policy, slot
+/// #10.6a Copilot R7 HX29.)
 ///
 /// 30 seconds is generous for legitimate slow peers (matches the
 /// existing fetch-side `request_timeout` and the close-handshake
@@ -138,7 +145,7 @@ pub struct WsHandle {
     /// only observe a closed `command_tx` after its own select
     /// woke from the read — which never happens against a silent
     /// peer until TCP keepalive eventually times out (minutes).
-    /// The cancel arm of [`io_loop::ws_io_loop`]'s
+    /// The cancel arm of `io_loop::ws_io_loop`'s
     /// `tokio::select!` aborts the read future immediately so
     /// the broker's `thread.join()` returns deterministically
     /// (slot #10.6a follow-up to PR #142 HCau / HCv / HJTV /
