@@ -734,13 +734,42 @@ impl NetworkProcessState {
         if pending.is_empty() {
             return;
         }
-        let teardown_thread = std::thread::Builder::new()
+        // Fall back to in-thread teardown if the OS rejects
+        // the thread-spawn (typically EAGAIN under a process /
+        // user thread-limit ulimit).  Without the fallback the
+        // broker would panic on routine renderer shutdown,
+        // turning a single connection cleanup into a network-
+        // process crash that takes every other renderer down
+        // with it (slot #10.6a Copilot R5 HX21).  In-thread
+        // teardown blocks the broker for up to
+        // [`GRACEFUL_CLOSE_GRACE`] + cancel-propagation, which
+        // is the same exposure as the pre-HX14 design — bad
+        // but recoverable.
+        match std::thread::Builder::new()
             .name("elidex-network-teardown".into())
             .spawn(move || {
                 join_pending_with_grace_then_cancel(pending);
-            })
-            .expect("spawn teardown thread");
-        self.pending_teardowns.push(teardown_thread);
+            }) {
+            Ok(thread) => self.pending_teardowns.push(thread),
+            Err(spawn_err) => {
+                // Recover the moved `pending` is impossible —
+                // it was consumed by the closure that failed
+                // to spawn.  std::thread::Builder::spawn drops
+                // the closure on error, which drops `pending`,
+                // which drops every JoinHandle without joining
+                // and every CancelHandle without firing.  The
+                // worker threads exit on their own once they
+                // observe their dropped command_tx — bounded
+                // leak, not a crash.  Log so operators can see
+                // the resource pressure (matches R5 HX21
+                // rationale: prefer leak + log over crash).
+                tracing::warn!(
+                    error = %spawn_err,
+                    "failed to spawn teardown thread; \
+                     workers will exit on dropped command_tx but join is skipped"
+                );
+            }
+        }
     }
 
     /// Push a synthetic `FetchResponse(id, Err("aborted"))` to

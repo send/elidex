@@ -19,6 +19,31 @@ use tokio::sync::mpsc;
 
 use crate::CancelHandle;
 
+/// Maximum time a single WebSocket I/O operation may stay
+/// blocked before the worker treats it as a connection failure
+/// and emits an abnormal close to the JS side (slot #10.6a
+/// Copilot R5 HX23 / HX24 / HX25).  Applies to:
+/// - the upgrade-response read inside
+///   `tokio_tungstenite::connect_async_tls_with_config` — bounds
+///   pre-OPEN handshake hangs (e.g. server accepts the TCP
+///   connection but never replies to the upgrade).
+/// - each `write.send(msg).await` issued by [`send_frame`] —
+///   bounds stuck data sends behind a peer that stopped reading
+///   (kernel send buffer full).
+/// - the close-frame `write.send` inside [`send_close_frame`]
+///   — same hazard as data sends, but for the JS-initiated
+///   close path.
+///
+/// 30 seconds is generous for legitimate slow peers (matches the
+/// existing fetch-side `request_timeout` and the close-handshake
+/// budget) while still bounding the worst case to a deterministic
+/// upper limit instead of OS-level TCP keepalive (which can take
+/// minutes to hours to fire).  Without this bound, JS-initiated
+/// `WebSocket.close()` against an unresponsive peer would hang
+/// the worker indefinitely while still holding the connection's
+/// kernel resources.
+const WS_OP_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Unique WebSocket connection identifier.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct WsId(pub u64);
@@ -242,6 +267,16 @@ enum SendFrameOutcome {
 /// would await the full TCP timeout (minutes) before
 /// `close_all_for_client`'s `thread.join()` could complete
 /// (slot #10.6a HX5).
+/// Internal outcome of [`send_frame`]'s `tokio::select!` race.
+/// Hoisted to the module scope (rather than nested in the
+/// function body) to satisfy clippy's
+/// `items_after_statements`.
+enum SendFrameSelectOutcome {
+    Cancelled,
+    TimedOut,
+    Sent(Result<(), tokio_tungstenite::tungstenite::Error>),
+}
+
 async fn send_frame(
     write: &mut (impl futures_util::SinkExt<
         tokio_tungstenite::tungstenite::Message,
@@ -252,20 +287,36 @@ async fn send_frame(
     cancel: &CancelHandle,
 ) -> SendFrameOutcome {
     let len = msg.len() as u64;
-    let send_result = tokio::select! {
+    // Three-arm race: cancel | timeout | write.  The timeout arm
+    // bounds JS-initiated close against a peer that has stopped
+    // reading TCP — without it `write.send` would hang for the
+    // OS-level keepalive timeout (slot #10.6a Copilot R5 HX24).
+    let outcome = tokio::select! {
         biased;
-        () = cancel.cancelled() => return SendFrameOutcome::Cancelled,
-        res = write.send(msg) => res,
+        () = cancel.cancelled() => SendFrameSelectOutcome::Cancelled,
+        () = tokio::time::sleep(WS_OP_TIMEOUT) => SendFrameSelectOutcome::TimedOut,
+        res = write.send(msg) => SendFrameSelectOutcome::Sent(res),
     };
-    if send_result.is_err() {
-        // Error events precede close and must not be lost — use blocking send.
-        let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
-        send_abnormal_close(evt_tx);
-        return SendFrameOutcome::SendErr;
+    match outcome {
+        SendFrameSelectOutcome::Cancelled => SendFrameOutcome::Cancelled,
+        SendFrameSelectOutcome::TimedOut => {
+            let _ = evt_tx.send(WsEvent::Error(format!(
+                "send timeout ({}s)",
+                WS_OP_TIMEOUT.as_secs()
+            )));
+            send_abnormal_close(evt_tx);
+            SendFrameOutcome::SendErr
+        }
+        SendFrameSelectOutcome::Sent(Err(_)) => {
+            let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
+            send_abnormal_close(evt_tx);
+            SendFrameOutcome::SendErr
+        }
+        SendFrameSelectOutcome::Sent(Ok(())) => {
+            let _ = evt_tx.send(WsEvent::BytesSent(len));
+            SendFrameOutcome::Ok
+        }
     }
-    // BytesSent is infrequent (once per send) — use blocking send to guarantee delivery.
-    let _ = evt_tx.send(WsEvent::BytesSent(len));
-    SendFrameOutcome::Ok
 }
 
 /// Send a WebSocket Close frame, racing the write against the
@@ -290,9 +341,19 @@ async fn send_close_frame(
         reason: reason.into(),
     };
     let close_msg = tokio_tungstenite::tungstenite::Message::Close(Some(frame));
+    // Three-arm race: cancel | timeout | write.  Same rationale
+    // as [`send_frame`]: a peer that has stopped reading would
+    // otherwise block this `await` for the OS-level TCP timeout,
+    // hanging JS-initiated close indefinitely (slot #10.6a
+    // Copilot R5 HX25).  On timeout we treat the close-frame
+    // send as failed — the caller's next step is to exit anyway,
+    // and the connection is being torn down regardless, so a
+    // partial send leaves the worker in the same state as a
+    // dropped TCP connection.
     tokio::select! {
         biased;
         () = cancel.cancelled() => true,
+        () = tokio::time::sleep(WS_OP_TIMEOUT) => true,
         res = write.send(close_msg) => {
             // Discard the result — close-frame write errors
             // are non-fatal here; the caller's next step is to
@@ -341,11 +402,17 @@ async fn ws_io_loop(
     let mut ws_config = tungstenite::protocol::WebSocketConfig::default();
     ws_config.max_message_size = Some(4 << 20); // 4 MiB
     ws_config.max_frame_size = Some(1 << 20); // 1 MiB
-                                              // Cancel-aware handshake: a server that accepts the TCP
-                                              // connection but never replies to the upgrade request would
-                                              // otherwise stall the worker for the full TCP-stack timeout
-                                              // (minutes).  `tokio::select!` aborts `connect_async_tls_with_config`
-                                              // immediately on cancel so the broker's join completes (slot #10.6a).
+                                              // Cancel-aware handshake with a bounded timeout.  Three-arm
+                                              // race:
+                                              // - cancel — broker-driven teardown.
+                                              // - timeout — bounded handshake wait so a JS
+                                              //   `WebSocket.close()` arriving in `cmd_rx` before the
+                                              //   upgrade completes still releases the worker within
+                                              //   [`WS_OP_TIMEOUT`] (slot #10.6a Copilot R5 HX23).
+                                              //   Without this arm a stuck handshake would hold the
+                                              //   worker until OS-level TCP keepalive fires
+                                              //   (minutes / hours).
+                                              // - the connect future itself.
     let connect_fut = tokio_tungstenite::connect_async_tls_with_config(
         request,
         Some(ws_config),
@@ -355,6 +422,14 @@ async fn ws_io_loop(
     let (ws_stream, response) = tokio::select! {
         biased;
         () = cancel.cancelled() => {
+            send_abnormal_close(&evt_tx);
+            return;
+        }
+        () = tokio::time::sleep(WS_OP_TIMEOUT) => {
+            let _ = evt_tx.send(WsEvent::Error(format!(
+                "WebSocket handshake timeout ({}s)",
+                WS_OP_TIMEOUT.as_secs()
+            )));
             send_abnormal_close(&evt_tx);
             return;
         }
@@ -850,6 +925,54 @@ mod tests {
         );
     }
 
+    /// Slot #10.6a (Copilot R5 HX24) regression: a peer that
+    /// stops reading TCP can fill the kernel send buffer and
+    /// keep `write.send(msg).await` blocked indefinitely — even
+    /// a JS-initiated `WebSocket.close()` would queue behind
+    /// the in-flight send and only complete once the OS-level
+    /// TCP keepalive fired (minutes / hours).  [`send_frame`]
+    /// adds a [`WS_OP_TIMEOUT`] arm to its `tokio::select!`
+    /// race so the worst case is bounded to a deterministic
+    /// upper limit.  The test uses `start_paused = true` so the
+    /// virtual clock auto-advances to the timeout's wakeup as
+    /// soon as the runtime sees all tasks pending — no real
+    /// wall-clock time elapses.
+    #[tokio::test(start_paused = true)]
+    async fn send_frame_returns_send_err_on_write_timeout() {
+        let mut sink = HangingSink;
+        let (evt_tx, evt_rx) = crossbeam_channel::unbounded::<WsEvent>();
+        let cancel = CancelHandle::new();
+        let outcome = send_frame(
+            &mut sink,
+            tokio_tungstenite::tungstenite::Message::Text("hi".into()),
+            &evt_tx,
+            &cancel,
+        )
+        .await;
+        assert!(
+            matches!(outcome, SendFrameOutcome::SendErr),
+            "expected SendFrameOutcome::SendErr after WS_OP_TIMEOUT elapses, got {outcome:?}"
+        );
+        // Worker must have emitted both the timeout-tagged
+        // error event and the abnormal Close so JS sees the
+        // failure surface, not just silent disconnect.
+        let mut saw_timeout_error = false;
+        let mut saw_abnormal_close = false;
+        while let Ok(evt) = evt_rx.try_recv() {
+            match evt {
+                WsEvent::Error(msg) if msg.contains("timeout") => saw_timeout_error = true,
+                WsEvent::Closed {
+                    code: 1006,
+                    was_clean: false,
+                    ..
+                } => saw_abnormal_close = true,
+                _ => {}
+            }
+        }
+        assert!(saw_timeout_error, "missing timeout-tagged Error event");
+        assert!(saw_abnormal_close, "missing abnormal Close event");
+    }
+
     /// Slot #10.6a (Copilot R2 HX9) regression: same hazard as
     /// [`send_frame_returns_cancelled_when_write_blocks`], but
     /// for the close-frame send path used inside the
@@ -878,6 +1001,28 @@ mod tests {
         assert!(
             elapsed < std::time::Duration::from_millis(500),
             "send_close_frame blocked for {elapsed:?} — cancel arm of write.send() select missing?"
+        );
+    }
+
+    /// Slot #10.6a (Copilot R5 HX25) regression: same hazard as
+    /// the [`send_frame`] timeout, but for the close-frame send
+    /// path.  Without the timeout arm a JS `WebSocket.close()`
+    /// against a peer that has stopped reading the socket would
+    /// hang in `write.send(close_msg).await` for the OS-level
+    /// TCP keepalive (minutes / hours).  [`send_close_frame`]
+    /// now races cancel | timeout | write — when the timeout
+    /// arm wins it returns `true` so the caller exits the
+    /// worker without further write paths, matching the cancel
+    /// path's exit semantics.
+    #[tokio::test(start_paused = true)]
+    async fn send_close_frame_returns_true_on_write_timeout() {
+        let mut sink = HangingSink;
+        let cancel = CancelHandle::new();
+        let cancelled =
+            send_close_frame(&mut sink, 1001, "navigated away".to_string(), &cancel).await;
+        assert!(
+            cancelled,
+            "send_close_frame must return true when WS_OP_TIMEOUT elapses with the write still pending"
         );
     }
 
