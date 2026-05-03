@@ -235,9 +235,16 @@ impl HostBridge {
                 elidex_net::broker::NetworkToRenderer::EventSourceEvent(conn_id, sse_event) => {
                     sse_events.push((conn_id, sse_event));
                 }
-                elidex_net::broker::NetworkToRenderer::FetchResponse(..) => {
-                    // Late-arriving fetch response after content-thread timeout
-                    // (30s in fetch_blocking). Safe to drop — no JS promise waiting.
+                elidex_net::broker::NetworkToRenderer::FetchResponse(..)
+                | elidex_net::broker::NetworkToRenderer::RendererUnregistered => {
+                    // FetchResponse: late-arriving reply after the
+                    // content-thread `fetch_blocking` 30 s timeout
+                    // — safe to drop, no JS Promise waiting.
+                    // RendererUnregistered: internal slot #10.6b
+                    // back-edge that `drain_events` is supposed to
+                    // filter out before returning.  Reaching this
+                    // arm would mean a future refactor exposed it;
+                    // ignore defensively.
                 }
             }
         }

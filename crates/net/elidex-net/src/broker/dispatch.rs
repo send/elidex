@@ -218,6 +218,24 @@ impl NetworkProcessState {
         // / `cancel_tokens`) are already empty for that cid
         // because `UnregisterRenderer` ran `close_all_for_client`
         // + `cancel_inflight_fetches_for` on the way out.
+        //
+        // **Layered defence** (slot #10.6b): the renderer-side
+        // [`super::handle::NetworkHandle`] also short-circuits
+        // `fetch_async` / `fetch_blocking` / `cancel_fetch` /
+        // `send` once it observes the
+        // [`NetworkToRenderer::RendererUnregistered`] back-edge,
+        // and tracks issued [`FetchId`]s in
+        // `outstanding_fetches` so any race-window fetch dropped
+        // here still gets a synthetic terminal `Err` reply
+        // injected via the renderer's local `buffered` queue.
+        // Together the two layers close the
+        // synthesise → cancel → clients.remove window where a
+        // post-step-1 / pre-step-4 fetch_async would otherwise
+        // leak its Promise.  This gate stays in place as the
+        // broker-side floor for handles that haven't yet observed
+        // the marker (e.g. a sibling that just woke up to send
+        // before its drain ran) and as a defence against any
+        // future renderer that bypasses the handle helpers.
         if !self.clients.contains_key(&cid) {
             return;
         }
@@ -496,6 +514,7 @@ impl NetworkProcessState {
                 self.synthesise_aborted_replies_for_client(client_id);
                 self.close_all_for_client(client_id);
                 self.cancel_inflight_fetches_for(client_id);
+                self.emit_renderer_unregistered(client_id);
                 self.clients.remove(&client_id);
                 true
             }
@@ -523,6 +542,7 @@ impl NetworkProcessState {
                     self.synthesise_aborted_replies_for_client(cid);
                     self.close_all_for_client(cid);
                     self.cancel_inflight_fetches_for(cid);
+                    self.emit_renderer_unregistered(cid);
                 }
                 self.clients.clear();
                 // `close_all_for_client` spawns a background
@@ -835,6 +855,34 @@ impl NetworkProcessState {
             .collect();
         for fid in inflight {
             let _ = tx.send(NetworkToRenderer::FetchResponse(fid, Err("aborted".into())));
+        }
+    }
+
+    /// Send the [`NetworkToRenderer::RendererUnregistered`]
+    /// back-edge so the renderer-side `NetworkHandle` flips its
+    /// `unregistered` flag and synthesises terminal `Err` replies
+    /// for any fetches still tracked in `outstanding_fetches`
+    /// (slot #10.6b).
+    ///
+    /// **Order contract**: callers must invoke this AFTER
+    /// `synthesise_aborted_replies_for_client` /
+    /// `close_all_for_client` / `cancel_inflight_fetches_for`
+    /// and BEFORE `clients.remove(&client_id)`.  Putting it last
+    /// in the broker-thread sequence ensures the renderer's
+    /// drain processes the synthesised aborted replies (which
+    /// remove ids from `outstanding_fetches`) before the marker
+    /// runs the residual-synthesis pass — without that order
+    /// the marker's pass would re-synthesise replies for ids
+    /// the broker already covered, which the renderer would
+    /// dedupe but would still cost a wasted Promise resolution
+    /// path.
+    ///
+    /// No-op if `client_id` is not in `self.clients` (the marker
+    /// has nowhere to go) — matches the same defensive check
+    /// in `synthesise_aborted_replies_for_client`.
+    fn emit_renderer_unregistered(&self, client_id: u64) {
+        if let Some(tx) = self.clients.get(&client_id) {
+            let _ = tx.send(NetworkToRenderer::RendererUnregistered);
         }
     }
 

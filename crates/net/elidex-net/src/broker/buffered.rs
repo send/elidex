@@ -21,10 +21,37 @@ impl NetworkHandle {
     /// Non-blocking drain of all pending events (WS/SSE/fetch responses).
     ///
     /// Includes any events buffered during a prior [`fetch_blocking`](Self::fetch_blocking) call.
+    ///
+    /// Slot #10.6b: every event is routed through the private
+    /// `process_response` helper so
+    /// [`NetworkToRenderer::FetchResponse`] arrivals are
+    /// removed from the handle's `outstanding_fetches` set
+    /// AND the internal
+    /// [`NetworkToRenderer::RendererUnregistered`] back-edge
+    /// is consumed (it never appears in the returned `Vec`).
+    /// On marker observation, every still-tracked id is
+    /// folded into the returned `Vec` as a synthetic
+    /// `FetchResponse(id, Err("renderer unregistered"))` —
+    /// those are race-window fetches the broker silently
+    /// dropped via its stale-cid gate
+    /// (`dispatch::handle_request`).  Without this synthesis
+    /// the renderer-side `pending_fetches[id]` Promises
+    /// would stay pending forever.
+    ///
+    /// Order: broker-originated events appear in arrival
+    /// order across `(prior buffer, channel try_recv drain)`.
+    /// Synthetic straggler `FetchResponse`s appear after the
+    /// arrival-order tail in ascending `FetchId` (which is
+    /// also submission order — `FETCH_ID_COUNTER` is
+    /// monotonic).
     pub fn drain_events(&self) -> Vec<NetworkToRenderer> {
-        let mut events: Vec<_> = self.buffered.borrow_mut().drain(..).collect();
-        while let Ok(msg) = self.response_rx.try_recv() {
-            events.push(msg);
+        let prior: Vec<_> = self.buffered.borrow_mut().drain(..).collect();
+        let mut events: Vec<NetworkToRenderer> = Vec::with_capacity(prior.len());
+        for evt in prior {
+            self.process_response(evt, &mut |e| events.push(e));
+        }
+        while let Ok(evt) = self.response_rx.try_recv() {
+            self.process_response(evt, &mut |e| events.push(e));
         }
         events
     }
@@ -46,13 +73,32 @@ impl NetworkHandle {
     /// to what an unfiltered drain would have produced — fetch
     /// replies are the only thing the sibling no longer sees.
     ///
-    /// Order guarantee: fetch replies appear in the returned `Vec`
-    /// in arrival order across `(prior buffer, channel try_recv
-    /// drain)`; non-fetch events stay in `self.buffered` in the
-    /// same arrival order.
+    /// Order guarantee:
+    /// - **Broker-originated fetch replies** appear in the
+    ///   returned `Vec` in arrival order across
+    ///   `(prior buffer, channel try_recv drain)`.
+    /// - **Synthetic stragglers** (slot #10.6b — see below)
+    ///   appear after every broker-originated reply observed
+    ///   on the same tick, in ascending `FetchId` order
+    ///   (which matches submission order because `FetchId` is
+    ///   a monotonic counter — `FETCH_ID_COUNTER` in `mod.rs`).
+    /// - **Non-fetch events** stay in `self.buffered` in the
+    ///   same arrival order.
+    ///
+    /// Slot #10.6b: every event is routed through the private
+    /// `process_response` helper before partition.  The
+    /// internal [`NetworkToRenderer::RendererUnregistered`]
+    /// back-edge is consumed (never appears in `kept`); on
+    /// marker observation, every still-tracked id in
+    /// `outstanding_fetches` is converted to a synthetic
+    /// `FetchResponse(id, Err("renderer unregistered"))` and
+    /// flows into the returned fetch partition (sorted, per
+    /// the ordering rule above).  Race-window fetches that the
+    /// broker dropped via its stale-cid gate
+    /// (`dispatch::handle_request`) therefore reach the
+    /// elidex-js VM's `tick_network` on the same tick the
+    /// marker arrives, settling their Promises without a leak.
     pub fn drain_fetch_responses_only(&self) -> Vec<(FetchId, Result<Response, String>)> {
-        let mut buf = self.buffered.borrow_mut();
-        let prior = std::mem::take(&mut *buf);
         // Pre-size both partitions to `prior.len()`: the steady-
         // state per-tick caller (the elidex-js VM's `tick_network`)
         // typically sees a single-digit buffer + a single-digit
@@ -62,21 +108,36 @@ impl NetworkHandle {
         // channel branch may push past the reserve when arrivals
         // exceed `prior.len()`; that's still amortised O(1) per
         // push and is bounded by the broker's per-tick fan-in.
+        //
+        // We can't hold `self.buffered.borrow_mut()` across the
+        // routing step because `process_response`'s straggler-
+        // synthesis path runs `outstanding_fetches.borrow_mut()`
+        // (separate RefCell — would be fine) but the helper's
+        // contract assumes the caller may freely take fresh
+        // borrows on either; routing through a temporary `prior`
+        // Vec keeps the contract clean and removes any chance
+        // of a future re-entrance from getting tangled with
+        // this drain's own buffer borrow.
+        let prior: Vec<NetworkToRenderer> = self.buffered.borrow_mut().drain(..).collect();
         let mut fetches: Vec<(FetchId, Result<Response, String>)> = Vec::with_capacity(prior.len());
         let mut kept: Vec<NetworkToRenderer> = Vec::with_capacity(prior.len());
-        for event in prior {
-            match event {
+        // Scope the partition closure so its mutable borrows on
+        // `fetches` / `kept` are released before we re-acquire
+        // `self.buffered` below — without the scope, those
+        // borrows would still be live at the assignment.
+        {
+            let mut emit = |evt: NetworkToRenderer| match evt {
                 NetworkToRenderer::FetchResponse(id, result) => fetches.push((id, result)),
                 other => kept.push(other),
+            };
+            for evt in prior {
+                self.process_response(evt, &mut emit);
+            }
+            while let Ok(evt) = self.response_rx.try_recv() {
+                self.process_response(evt, &mut emit);
             }
         }
-        while let Ok(event) = self.response_rx.try_recv() {
-            match event {
-                NetworkToRenderer::FetchResponse(id, result) => fetches.push((id, result)),
-                other => kept.push(other),
-            }
-        }
-        *buf = kept;
+        *self.buffered.borrow_mut() = kept;
         fetches
     }
 
@@ -128,6 +189,8 @@ mod tests {
             control_tx,
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
+            unregistered: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            outstanding_fetches: std::cell::RefCell::new(std::collections::HashSet::new()),
             #[cfg(feature = "test-hooks")]
             mock_responses: None,
             #[cfg(feature = "test-hooks")]
