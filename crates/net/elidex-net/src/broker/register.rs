@@ -19,6 +19,8 @@
 //! flow through `register_with_ack`; only the unit tests in the
 //! local `tests` submodule reach for `register_with_ack_for_test`.
 
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::{NetworkProcessControl, NetworkToRenderer};
@@ -83,12 +85,14 @@ pub(super) fn register_with_ack(
     control_tx: &crossbeam_channel::Sender<NetworkProcessControl>,
     client_id: u64,
     response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
+    unregistered: Arc<AtomicBool>,
     caller_label: &'static str,
 ) -> bool {
     register_with_ack_for_test(
         control_tx,
         client_id,
         response_tx,
+        unregistered,
         caller_label,
         REGISTER_ACK_TIMEOUT,
     )
@@ -104,6 +108,7 @@ fn register_with_ack_for_test(
     control_tx: &crossbeam_channel::Sender<NetworkProcessControl>,
     client_id: u64,
     response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
+    unregistered: Arc<AtomicBool>,
     caller_label: &'static str,
     timeout: Duration,
 ) -> bool {
@@ -113,6 +118,7 @@ fn register_with_ack_for_test(
         .send(NetworkProcessControl::RegisterRenderer {
             client_id,
             response_tx,
+            unregistered,
             ack_tx,
         })
         .is_err()
@@ -224,6 +230,7 @@ mod tests {
             &control_tx,
             999,
             response_tx,
+            Arc::new(AtomicBool::new(false)),
             "test",
             Duration::from_millis(20),
         );
@@ -283,6 +290,7 @@ mod tests {
             &control_tx,
             42,
             response_tx,
+            Arc::new(AtomicBool::new(false)),
             "test",
             // The timeout would only fire if we got past the
             // SendError check.  Use a value that would visibly
@@ -319,8 +327,14 @@ mod tests {
             }
         });
 
-        let pre_unregistered =
-            register_with_ack_for_test(&control_tx, 7, response_tx, "test", Duration::from_secs(2));
+        let pre_unregistered = register_with_ack_for_test(
+            &control_tx,
+            7,
+            response_tx,
+            Arc::new(AtomicBool::new(false)),
+            "test",
+            Duration::from_secs(2),
+        );
         assert!(
             !pre_unregistered,
             "ack received from surrogate broker — live handle expected"

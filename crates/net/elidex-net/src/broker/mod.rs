@@ -157,6 +157,20 @@ pub enum NetworkProcessControl {
         client_id: u64,
         /// Channel to send responses/events to this renderer.
         response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
+        /// Slot #10.6c R9: shared with the renderer's
+        /// [`NetworkHandle`] `unregistered` flag.  The
+        /// broker stores this clone in its `clients` map and
+        /// flips it to `true` (Release) BEFORE emitting the
+        /// [`NetworkToRenderer::RendererUnregistered`] marker on
+        /// `response_tx` from `emit_renderer_unregistered` —
+        /// gives any concurrent
+        /// `NetworkHandle::create_sibling_handle` against this
+        /// cid an O(1) `Acquire` load to detect "parent is
+        /// unregistered" instead of having to drain the
+        /// parent's response channel looking for the queued
+        /// marker (Copilot R9: the drain was unbounded in WS /
+        /// SSE backlog size).
+        unregistered: std::sync::Arc<std::sync::atomic::AtomicBool>,
         /// Slot #10.6c: one-shot ack so the caller of
         /// [`NetworkProcessHandle::create_renderer_handle`]
         /// (and [`NetworkHandle::create_sibling_handle`])

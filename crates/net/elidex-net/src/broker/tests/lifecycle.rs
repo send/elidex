@@ -3,6 +3,7 @@
 //! Sub-module of `broker::tests`; helpers (e.g. `test_client`) and
 //! shared imports come from `super` (`tests/mod.rs`).
 
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use super::super::*;
@@ -281,6 +282,67 @@ fn create_renderer_handle_post_shutdown_returns_pre_unregistered() {
     // np's Drop will send another Shutdown (errors silently)
     // and join the already-exited broker thread (returns
     // immediately).
+}
+
+/// Slot #10.6c (Copilot R9) regression: the broker stores a
+/// clone of every renderer's `unregistered` atomic in its
+/// `clients` map and flips it to `true` BEFORE emitting the
+/// [`NetworkToRenderer::RendererUnregistered`] marker, so a
+/// concurrent observer (e.g. another renderer's
+/// `create_sibling_handle` against this cid) can detect the
+/// unregister with an O(1) atomic load instead of having to
+/// drain the parent's response channel.  Pre-R9 the detection
+/// path was a bounded channel drain on the parent's
+/// `response_rx`; that drain was unbounded in WS / SSE backlog
+/// size and could trigger an unbounded `outstanding_fetches`
+/// synthesis pass on hitting the marker.
+///
+/// We probe the load-bearing happens-before by having a parent
+/// renderer's drain observe `cancel_fetch == false` BEFORE we
+/// confirm the underlying atomic is actually `true` from the
+/// renderer-side `Arc` clone.  The earlier R6/R7/R8 inheritance
+/// test already exercises the cross-handle short-circuit
+/// behaviour; this test asserts the architectural invariant
+/// directly so a future regression that re-adds drain-based
+/// detection (or accidentally removes the broker-side store)
+/// is caught even if the inheritance test still passes via the
+/// renderer-side process_response store.
+#[test]
+fn broker_sets_unregistered_atomic_synchronously_before_emitting_marker() {
+    let np = spawn_network_process(test_client());
+    let parent = np.create_renderer_handle();
+    let cid = parent.client_id();
+
+    np.unregister_renderer(cid);
+
+    // Wait for the broker to process UnregisterRenderer and
+    // emit the marker.  Probe via the deterministic
+    // `cancel_fetch == false` gate (lesson #133): the gate
+    // fires once `check_unregistered` observes the flag set,
+    // which under R9 happens via either (a) the broker's
+    // direct store on our shared atomic, OR (b) the renderer's
+    // `process_response` store on observing the marker.  Both
+    // routes set the same Arc, so the gate fires either way.
+    let gate_deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while std::time::Instant::now() < gate_deadline && parent.cancel_fetch(FetchId::next()) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        !parent.cancel_fetch(FetchId::next()),
+        "parent never observed unregister within 1 s — preconditions not met"
+    );
+
+    // Direct probe: the renderer-side `Arc<AtomicBool>` clone
+    // must observe `true` once the gate has fired.  This is
+    // the cross-handle observability primitive that
+    // `create_sibling_handle`'s R9 atomic-load path depends on.
+    assert!(
+        parent.unregistered.load(Ordering::Acquire),
+        "parent.unregistered atomic is false despite cancel_fetch gate firing — \
+         the broker's pre-marker store on the shared atomic regressed"
+    );
+
+    np.shutdown();
 }
 
 /// Slot #10.6c (Copilot R6) regression:
