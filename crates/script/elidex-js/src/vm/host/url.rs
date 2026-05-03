@@ -329,11 +329,41 @@ fn native_url_constructor(
 /// identical.  When `base` is `undefined` / `null` the parser
 /// requires `input` to be absolute; otherwise `base` must itself
 /// parse and `input` is joined relative to it (WHATWG URL §4.4).
+///
+/// Used by the constructor.  `URL.canParse` / `URL.parse` use
+/// [`coerce_url_args`] + [`try_parse_url`] directly so they don't
+/// allocate the discarded TypeError message on parse failure.
 pub(super) fn parse_url_arguments(
     ctx: &mut NativeContext<'_>,
     input: JsValue,
     base: JsValue,
 ) -> Result<url::Url, VmError> {
+    let (input_str, base_str) = coerce_url_args(ctx, input, base)?;
+    if let Some(base_ref) = base_str.as_deref() {
+        let base_url = url::Url::parse(base_ref)
+            .map_err(|_| VmError::type_error(format!("URL: invalid base URL: {base_ref}")))?;
+        base_url
+            .join(&input_str)
+            .map_err(|_| VmError::type_error(format!("URL: invalid URL: {input_str}")))
+    } else {
+        url::Url::parse(&input_str)
+            .map_err(|_| VmError::type_error(format!("URL: invalid URL: {input_str}")))
+    }
+}
+
+/// ToString-coerce the constructor / static-method arguments,
+/// returning the input + optional base as owned UTF-8 strings.
+/// Factored so [`parse_url_arguments`] (throwing) and the
+/// `URL.canParse` / `URL.parse` statics (non-throwing on parse
+/// failure) share the IDL-conversion half without re-throwing the
+/// formatted-message half.  ToString errors still propagate — they
+/// happen at the WebIDL boundary regardless of what the URL parser
+/// would do.
+pub(super) fn coerce_url_args(
+    ctx: &mut NativeContext<'_>,
+    input: JsValue,
+    base: JsValue,
+) -> Result<(String, Option<String>), VmError> {
     let input_sid = super::super::coerce::to_string(ctx.vm, input)?;
     let input_str = ctx.vm.strings.get_utf8(input_sid);
     let base_str: Option<String> = match base {
@@ -343,24 +373,19 @@ pub(super) fn parse_url_arguments(
             Some(ctx.vm.strings.get_utf8(sid))
         }
     };
-    parse_url_strings(input_str.as_str(), base_str.as_deref())
+    Ok((input_str, base_str))
 }
 
-/// Parse `input` against optional `base`, returning `Ok(Url)` on
-/// success and a `TypeError` on parse failure.  Factored out of
-/// [`parse_url_arguments`] so the `URL.canParse` / `URL.parse`
-/// statics (Phase 5) can share the algorithm without re-coercing
-/// already-strings.
-pub(super) fn parse_url_strings(input: &str, base: Option<&str>) -> Result<url::Url, VmError> {
-    if let Some(base_str) = base {
-        let base_url = url::Url::parse(base_str)
-            .map_err(|_| VmError::type_error(format!("URL: invalid base URL: {base_str}")))?;
-        base_url
-            .join(input)
-            .map_err(|_| VmError::type_error(format!("URL: invalid URL: {input}")))
-    } else {
-        url::Url::parse(input)
-            .map_err(|_| VmError::type_error(format!("URL: invalid URL: {input}")))
+/// Try-parse `input` against optional `base` without allocating an
+/// error message on failure.  `Some(Url)` on success, `None` on
+/// parse failure.  Used by the `URL.canParse` / `URL.parse`
+/// statics — both discard the failure cause (`canParse` returns a
+/// boolean, `parse` returns `null`), so the constructor's
+/// `format!("URL: invalid …")` cost would be wasted there.
+pub(super) fn try_parse_url(input: &str, base: Option<&str>) -> Option<url::Url> {
+    match base {
+        Some(b) => url::Url::parse(b).ok().and_then(|bu| bu.join(input).ok()),
+        None => url::Url::parse(input).ok(),
     }
 }
 
@@ -370,7 +395,10 @@ pub(super) fn parse_url_strings(input: &str, base: Option<&str>) -> Result<url::
 
 /// `URL.canParse(input, base?)` (WHATWG URL §6.1).  Equivalent to
 /// `try { new URL(input, base); true } catch { false }` — but
-/// avoids the `URL` allocation when the parse succeeds.
+/// avoids both the `URL` allocation on success and the discarded
+/// TypeError-message allocation on parse failure (R5 perf:
+/// composes `coerce_url_args` + `try_parse_url` directly so no
+/// `format!("URL: invalid …")` runs on the failure path).
 fn native_url_can_parse_static(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -378,15 +406,16 @@ fn native_url_can_parse_static(
 ) -> Result<JsValue, VmError> {
     let input_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let base_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let (input_str, base_str) = coerce_url_args(ctx, input_arg, base_arg)?;
     Ok(JsValue::Boolean(
-        parse_url_arguments(ctx, input_arg, base_arg).is_ok(),
+        try_parse_url(&input_str, base_str.as_deref()).is_some(),
     ))
 }
 
 /// `URL.parse(input, base?)` (WHATWG URL §6.1).  Returns a fresh
-/// `URL` instance on success, `null` on parse failure — replaces
-/// the `try { new URL(...) } catch { null }` idiom without
-/// touching the throw machinery.
+/// `URL` instance on success, `null` on parse failure.  Same R5
+/// perf shape as `URL.canParse`: skips the discarded TypeError
+/// allocation on failure.
 fn native_url_parse_static(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -394,9 +423,9 @@ fn native_url_parse_static(
 ) -> Result<JsValue, VmError> {
     let input_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let base_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let parsed = match parse_url_arguments(ctx, input_arg, base_arg) {
-        Ok(u) => u,
-        Err(_) => return Ok(JsValue::Null),
+    let (input_str, base_str) = coerce_url_args(ctx, input_arg, base_arg)?;
+    let Some(parsed) = try_parse_url(&input_str, base_str.as_deref()) else {
+        return Ok(JsValue::Null);
     };
     let id = alloc_url_instance(ctx.vm, parsed);
     Ok(JsValue::Object(id))
