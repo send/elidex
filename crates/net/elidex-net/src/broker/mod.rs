@@ -35,6 +35,11 @@
 //! - `buffered` — [`NetworkHandle::drain_events`] /
 //!   [`NetworkHandle::drain_fetch_responses_only`] /
 //!   [`NetworkHandle::rebuffer_events`] partial-drain helpers.
+//! - `register` — slot #10.6c `RegisterRenderer` ack handshake
+//!   (`REGISTER_ACK_TIMEOUT` + `register_with_ack`).  Split out
+//!   of `handle` once the helper + its unit tests pushed the
+//!   parent file past the project's ~1000-line file-split
+//!   convention (slot #10.5).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -46,6 +51,7 @@ mod buffered;
 mod cancel;
 mod dispatch;
 mod handle;
+mod register;
 
 pub use handle::{spawn_network_process, NetworkHandle, NetworkProcessHandle};
 
@@ -143,14 +149,58 @@ pub enum NetworkToRenderer {
 }
 
 /// Control messages from the Browser thread to the Network Process.
+///
+/// **Breaking change (slot #10.6c)**: this enum was `pub` in
+/// releases prior to slot #10.6c.  It has been narrowed to
+/// `pub(crate)` because the variant payload now carries
+/// implementation-detail types (the `crossbeam_channel::Sender<()>`
+/// ack introduced by the slot #10.6c handshake), and the broker
+/// module needs the freedom to evolve this internal coordination
+/// protocol without committing to a semver-stable contract.
+/// This is an intentional break consistent with the project's
+/// "後方互換性は維持しない" rule (`CLAUDE.md`).  The public surface
+/// of the broker module — `NetworkHandle`, `NetworkProcessHandle`,
+/// `spawn_network_process`, and the data message types
+/// `RendererToNetwork` / `NetworkToRenderer` (the latter two ARE
+/// observed in `elidex-js` / `elidex-js-boa` realtime bridges) —
+/// stays `pub` and unchanged.  No external embedder constructs
+/// or matches this enum: control messages flow only via the
+/// `pub(super)`-fielded `NetworkProcessHandle::control_tx` /
+/// `NetworkHandle::control_tx` channels held inside the broker
+/// module, so the visibility narrowing has zero blast radius
+/// in the real workspace.
 #[derive(Debug)]
-pub enum NetworkProcessControl {
+pub(crate) enum NetworkProcessControl {
     /// Register a new renderer (content thread).
     RegisterRenderer {
         /// Unique client identifier.
         client_id: u64,
         /// Channel to send responses/events to this renderer.
         response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
+        /// Slot #10.6c: one-shot ack so the caller of
+        /// [`NetworkProcessHandle::create_renderer_handle`]
+        /// (and [`NetworkHandle::create_sibling_handle`])
+        /// can block until the broker has actually inserted
+        /// `client_id` into its `clients` map.  Closes the
+        /// cross-channel race where a `Fetch` on `request_tx`
+        /// could be observed by the broker BEFORE the matching
+        /// `RegisterRenderer` on `control_tx`: the broker drains
+        /// control before request within an iteration, but a
+        /// renderer that calls `fetch_async` immediately after
+        /// `create_renderer_handle` returns can still post a
+        /// Fetch into a request-drain loop already in progress
+        /// — the Fetch is then silently dropped by the broker's
+        /// stale-cid gate (`dispatch::handle_request`
+        /// early-return) because Register hasn't been processed
+        /// yet.  The handshake makes that race impossible: the
+        /// renderer doesn't get a usable `NetworkHandle` until
+        /// the broker has acknowledged `clients.insert`, so any
+        /// subsequent `request_tx.send` is happens-after the
+        /// insert by transitive program order.  The receiver
+        /// side is held by the factory function and dropped
+        /// after `recv_timeout`; broker `send` is best-effort
+        /// (`bounded(1)`, fire-and-forget).
+        ack_tx: crossbeam_channel::Sender<()>,
     },
     /// Unregister a renderer (content thread shutting down).
     UnregisterRenderer {

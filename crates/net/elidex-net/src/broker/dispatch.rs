@@ -219,23 +219,24 @@ impl NetworkProcessState {
         // because `UnregisterRenderer` ran `close_all_for_client`
         // + `cancel_inflight_fetches_for` on the way out.
         //
-        // **Layered defence** (slot #10.6b): the renderer-side
-        // [`super::handle::NetworkHandle`] also short-circuits
-        // `fetch_async` / `fetch_blocking` / `cancel_fetch` /
-        // `send` once it observes the
-        // [`NetworkToRenderer::RendererUnregistered`] back-edge,
-        // and tracks issued [`FetchId`]s in
-        // `outstanding_fetches` so any race-window fetch dropped
-        // here still gets a synthetic terminal `Err` reply
-        // injected via the renderer's local `buffered` queue.
-        // Together the two layers close the
-        // synthesise → cancel → clients.remove window where a
-        // post-step-1 / pre-step-4 fetch_async would otherwise
-        // leak its Promise.  This gate stays in place as the
-        // broker-side floor for handles that haven't yet observed
-        // the marker (e.g. a sibling that just woke up to send
-        // before its drain ran) and as a defence against any
-        // future renderer that bypasses the handle helpers.
+        // **Layered defence**.  Slot #10.6c's ack handshake
+        // (factories block on broker `clients.insert`) makes the
+        // legitimate Register-then-Fetch race impossible.  Slot
+        // #10.6b's renderer-side `unregistered` flag short-
+        // circuits `fetch_async` / `fetch_blocking` /
+        // `cancel_fetch` / `send` after the marker is observed,
+        // and `outstanding_fetches` synthesises terminal `Err`
+        // replies for race-window fetches dropped HERE.  This
+        // broker-side gate stays as the **defensive floor** for
+        // (a) stale `NetworkHandle` state captured in background
+        // threads before its renderer flag has flipped, (b) any
+        // caller that posts directly to `request_tx` bypassing
+        // the handle helpers, and (c) the
+        // synthesise → cancel → `clients.remove` teardown
+        // window.  Lesson #134 (slot #10.6b landing memo):
+        // when a renderer-side gate overlaps a broker-side
+        // gate, document the layering to pre-empt "delete
+        // redundant code" reviews.
         if !self.clients.contains_key(&cid) {
             return;
         }
@@ -494,8 +495,22 @@ impl NetworkProcessState {
             NetworkProcessControl::RegisterRenderer {
                 client_id,
                 response_tx,
+                ack_tx,
             } => {
                 self.clients.insert(client_id, response_tx);
+                // Slot #10.6c: ack AFTER insert so a renderer
+                // waking from `recv_timeout` observes the cid as
+                // registered.  Send is best-effort: a dropped
+                // receiver (renderer abandoned the handshake on
+                // its own timeout / disconnect path) is not an
+                // error from the broker's perspective.  The
+                // handshake closes the cross-channel race where
+                // a Fetch on `request_tx` could be observed
+                // before the matching Register on `control_tx`
+                // (the stale-cid gate would silently drop it);
+                // see [`super::NetworkProcessControl::RegisterRenderer`]
+                // for the full rationale.
+                let _ = ack_tx.send(());
                 true
             }
             NetworkProcessControl::UnregisterRenderer { client_id } => {
