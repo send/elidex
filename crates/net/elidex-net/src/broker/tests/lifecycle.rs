@@ -352,7 +352,7 @@ fn broker_sets_unregistered_atomic_synchronously_before_emitting_marker() {
                      violated.  `dispatch::emit_renderer_unregistered` must \
                      `unregistered.store(true, Release)` BEFORE \
                      `response_tx.send(RendererUnregistered)`, so any observer that \
-                     sync's with the send (crossbeam happens-before) sees the prior \
+                     syncs with the send (crossbeam happens-before) sees the prior \
                      store via an Acquire load."
                 );
                 break;

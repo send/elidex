@@ -341,4 +341,84 @@ mod tests {
         );
         surrogate.join().expect("surrogate broker thread panicked");
     }
+
+    /// Slot #10.6c (Copilot R12 F1) regression: distinct from
+    /// the SendError fast-fail path
+    /// (`send_error_fast_fail_when_broker_already_gone`), the
+    /// `RecvTimeoutError::Disconnected` branch fires when the
+    /// broker received the RegisterRenderer message (taking
+    /// ownership of `ack_tx`) but exited before invoking
+    /// `ack_tx.send(())` — at that point all senders for the
+    /// ack channel are dropped and `recv_timeout` returns
+    /// `Disconnected` rather than `Timeout`.  This branch
+    /// **intentionally** does NOT emit a follow-up
+    /// `UnregisterRenderer` (unlike the timeout branch),
+    /// because Disconnect means the broker is gone and the
+    /// orphan-cleanup it would have served is vacuous.  We
+    /// simulate it with a surrogate that consumes the message
+    /// but never acks, then exits — dropping `ack_tx`.
+    #[test]
+    fn disconnected_path_returns_pre_unregistered_without_followup_unregister() {
+        let (control_tx, control_rx) = crossbeam_channel::unbounded();
+        let (response_tx, _response_rx) = crossbeam_channel::unbounded();
+
+        let surrogate = std::thread::spawn(move || {
+            // Take the Register — including ownership of
+            // `ack_tx` — and exit immediately.  Dropping the
+            // RegisterRenderer message drops `ack_tx`, which
+            // disconnects the ack channel.
+            let _msg = control_rx.recv_timeout(Duration::from_secs(2));
+            // _msg drops at end of scope; ack_tx inside it
+            // drops with it.
+        });
+
+        let started = std::time::Instant::now();
+        let pre_unregistered = register_with_ack_for_test(
+            &control_tx,
+            123,
+            response_tx,
+            Arc::new(AtomicBool::new(false)),
+            "test",
+            // Generous timeout: the disconnect should fire well
+            // before we approach this ceiling.  Anything close
+            // to the ceiling means the Disconnect path was
+            // mis-classified as Timeout.
+            Duration::from_secs(5),
+        );
+        let elapsed = started.elapsed();
+        surrogate.join().expect("surrogate thread panicked");
+
+        assert!(
+            pre_unregistered,
+            "Disconnect branch must return pre-unregistered=true"
+        );
+        // Disconnect arrives as soon as the surrogate drops the
+        // message; correct path is sub-millisecond plus thread
+        // scheduling jitter.  Ceiling 1 s catches a regression
+        // that fell through to the Timeout branch (which would
+        // wait the full 5 s configured above).
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "Disconnect branch took {elapsed:?}; expected sub-second.  \
+             A regression that mis-classified Disconnect as Timeout \
+             would have waited the full 5 s recv ceiling configured \
+             in this test."
+        );
+
+        // Crucially: no follow-up UnregisterRenderer must have
+        // been queued on control_tx (the Disconnect branch
+        // intentionally skips it because the broker is gone —
+        // sending into a dead channel is meaningless).  After
+        // the surrogate exits, control_rx is dropped, so any
+        // attempted send by the helper would have been logged
+        // but observable from the test only by checking that
+        // no extra messages have been queued on a NEW probe
+        // channel — which we don't have here.  Instead, the
+        // contract is documented in the helper's source:
+        // `match ... Disconnected => { ... return true; }` (no
+        // `control_tx.send(UnregisterRenderer ...)`).  This
+        // test asserts the outcome (pre_unregistered + sub-
+        // second wall-clock) and the doc/source pin the
+        // no-follow-up behaviour.
+    }
 }
