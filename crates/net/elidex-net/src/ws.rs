@@ -398,8 +398,25 @@ async fn ws_io_loop(
 
     let mut close_sent = false;
     let mut close_sent_at = tokio::time::Instant::now();
+    // `cmd_rx_open` gates the cmd_rx arm of the select.  After
+    // the broker drops `command_tx` (`close_all_for_client`'s
+    // Phase 1) the channel is permanently disconnected and
+    // `cmd_rx.recv()` resolves to `Ready(None)` forever — keeping
+    // it in the select would tight-loop the worker.  We observe
+    // the disconnect once, transition into "drain reciprocal
+    // close" mode by clearing this flag, and let the close
+    // handshake play out via the read arm + the close-deadline
+    // sleep arm (slot #10.6a Copilot R4 HX18).
+    let mut cmd_rx_open = true;
 
     loop {
+        // 30-second close-handshake deadline as a tokio
+        // [`Instant`].  Computed every iteration so the sleep
+        // arm always points at the right wall-clock moment;
+        // the arm only fires when `close_sent` is true (see the
+        // `if close_sent` guard below).
+        let close_deadline = close_sent_at + Duration::from_secs(30);
+
         // No `biased;` here: a 3-arm select with biased ordering
         // would let a continuously-readable `read.next()` arm
         // starve `cmd_rx` (and vice versa) under heavy
@@ -417,6 +434,26 @@ async fn ws_io_loop(
             // the peer is silent on `read.next()`.
             () = cancel.cancelled() => {
                 send_abnormal_close(&evt_tx);
+                return;
+            }
+            // RFC 6455 §7.1.1: the close handshake has a
+            // bounded wait.  Pre-fix the equivalent check ran
+            // AFTER the select returned, but if the peer goes
+            // silent and `cmd_tx` stays open (the JS-driven
+            // `WebSocket.close()` path) all three arms are
+            // pending and the loop never re-iterates — the
+            // worker would stay stuck in CLOSING forever (slot
+            // #10.6a Copilot R4 HX19).  Wiring the deadline as
+            // a select arm with `if close_sent` makes the
+            // timeout reactive: it never fires before close was
+            // initiated and never lets a silent peer hold the
+            // worker beyond 30 s after.
+            () = tokio::time::sleep_until(close_deadline), if close_sent => {
+                let _ = evt_tx.send(WsEvent::Closed {
+                    code: 1006,
+                    reason: String::new(),
+                    was_clean: false,
+                });
                 return;
             }
             ws_msg = read.next() => {
@@ -454,7 +491,7 @@ async fn ws_io_loop(
                     }
                 }
             }
-            cmd = cmd_rx.recv() => {
+            cmd = cmd_rx.recv(), if cmd_rx_open => {
                 match cmd {
                     Some(WsCommand::SendText(text)) => {
                         let msg = tungstenite::Message::Text(text.into());
@@ -481,36 +518,41 @@ async fn ws_io_loop(
                         // Continue loop to wait for reciprocal close.
                     }
                     None => {
-                        // Channel closed — content thread dropped sender.
-                        if !close_sent && send_close_frame(
-                            &mut write,
-                            1001,
-                            "going away".to_string(),
-                            &cancel,
-                        )
-                        .await
-                        {
-                            // Cancel fired during the close-frame send.
-                            send_abnormal_close(&evt_tx);
-                            return;
+                        // Channel closed — content thread dropped
+                        // sender (typically broker-driven teardown
+                        // queueing `WsCommand::Close` and dropping
+                        // `cmd_tx` on the next op).  Send the
+                        // going-away close frame if we haven't
+                        // already, then transition into "drain
+                        // reciprocal close" mode by closing the
+                        // cmd_rx arm — the next iterations wait for
+                        // the peer's reciprocal close (read arm),
+                        // the 30 s deadline (sleep arm), or cancel
+                        // (slot #10.6a Copilot R4 HX18).  Pre-fix
+                        // this branch unconditionally emitted
+                        // `Closed{1006, was_clean=false}` and
+                        // returned, breaking the close handshake
+                        // even for responsive peers.
+                        if !close_sent {
+                            if send_close_frame(
+                                &mut write,
+                                1001,
+                                "going away".to_string(),
+                                &cancel,
+                            )
+                            .await
+                            {
+                                // Cancel fired during the close-frame send.
+                                send_abnormal_close(&evt_tx);
+                                return;
+                            }
+                            close_sent = true;
+                            close_sent_at = tokio::time::Instant::now();
                         }
-                        send_abnormal_close(&evt_tx);
-                        return;
+                        cmd_rx_open = false;
                     }
                 }
             }
-        }
-
-        // Close handshake timeout: if 30s have elapsed since we sent a close frame
-        // and the server hasn't responded, treat as unclean close.
-        if close_sent && close_sent_at.elapsed() > Duration::from_secs(30) {
-            // Close events are critical — use blocking send.
-            let _ = evt_tx.send(WsEvent::Closed {
-                code: 1006,
-                reason: String::new(),
-                was_clean: false,
-            });
-            return;
         }
     }
 }

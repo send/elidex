@@ -310,7 +310,23 @@ impl NetworkProcessState {
             }
             RendererToNetwork::EventSourceClose(conn_id) => {
                 if let Some(handle) = self.sse_handles.get(&(cid, conn_id)) {
+                    // Send the protocol-clean Close + trigger
+                    // the per-handle cancel.  The Close cmd
+                    // alone is only observed via `try_recv`
+                    // between `read_line` chunks, so a silent
+                    // server can keep the worker parked inside
+                    // `reader.read_line(&mut line).await` for
+                    // up to the per-attempt 60-second timeout —
+                    // even regular `eventSource.close()` from
+                    // JS would not see the worker exit
+                    // promptly.  The cancel arm of
+                    // `read_line_with_cancel` aborts the read
+                    // future immediately, so the worker exits
+                    // within bounded time regardless of peer
+                    // responsiveness (slot #10.6a Copilot R4
+                    // HX20).
                     let _ = handle.command_tx.send(SseCommand::Close);
+                    handle.cancel.cancel();
                 }
             }
             RendererToNetwork::Shutdown => {
@@ -587,7 +603,20 @@ impl NetworkProcessState {
     }
 
     /// Close every WS / SSE connection registered against this
-    /// `client_id` and join its worker thread before returning.
+    /// `client_id` and **fan out** their teardown onto a
+    /// background thread.
+    ///
+    /// **Returns synchronously** after Phase 1 (channel-send
+    /// fan-out, microsecond-scale on the broker thread) — the
+    /// worker threads are NOT necessarily joined yet when this
+    /// function returns.  Callers that need worker-exit
+    /// synchronisation must drain
+    /// [`Self::pending_teardowns`] or wait for the broker
+    /// `Shutdown` control path (which joins everything before
+    /// the broker exits).  `cleanup_finished` reaps finished
+    /// teardown threads on every broker iteration so the
+    /// vector stays bounded (slot #10.6a Copilot R4 HX17).
+    ///
     /// Used by three call paths:
     /// - [`Self::handle_request`]'s `RendererToNetwork::Shutdown`
     ///   branch — used by `HostBridge::shutdown_all_realtime` to
@@ -860,5 +889,67 @@ mod tests {
             "empty-pending teardown took {:?} — should short-circuit",
             started.elapsed()
         );
+    }
+
+    /// Slot #10.6a (Copilot R4 HX20) regression: the broker's
+    /// [`RendererToNetwork::EventSourceClose`] dispatch must
+    /// trigger the per-handle [`crate::CancelHandle`] in
+    /// addition to queueing `SseCommand::Close`.  Without the
+    /// cancel trigger, a regular JS `eventSource.close()` is
+    /// only bounded by the SSE worker's per-attempt 60-second
+    /// `read_line` timeout — a silent server keeps the socket
+    /// alive for up to that full window because `cmd_rx` is
+    /// only polled via `try_recv` between read chunks.
+    ///
+    /// We exercise the dispatch path directly by constructing
+    /// a `NetworkProcessState`, registering a stub renderer
+    /// client, inserting a real `SseHandle` (the SSRF check
+    /// inside `connect_sse_stream` will reject the loopback
+    /// URL and the worker will exit on its own — what we care
+    /// about is that the cancel signal fires synchronously
+    /// inside `handle_request`).  The post-cancel join then
+    /// confirms the worker observed cancel; the `is_cancelled`
+    /// probe confirms the dispatch site itself fired the
+    /// signal.
+    #[test]
+    fn event_source_close_triggers_cancel() {
+        // Spawn an SseHandle pointed at an unreachable port —
+        // `connect_sse_stream`'s SSRF check will return Fatal
+        // for 127.0.0.1 and the worker exits early, but the
+        // cancel field on the handle still observes the
+        // dispatch-site `cancel.cancel()` call we're testing.
+        let url = url::Url::parse("http://127.0.0.1:1/stream").unwrap();
+        let handle = crate::sse::spawn_sse_thread(url, None, None, None, false);
+        let observer = handle.cancel.clone();
+        assert!(
+            !observer.is_cancelled(),
+            "cancel handle must start in the un-cancelled state"
+        );
+
+        let mut state = NetworkProcessState::new();
+        let (resp_tx, _resp_rx) = crossbeam_channel::unbounded::<NetworkToRenderer>();
+        let cid = 7_u64;
+        let conn_id = 99_u64;
+        state.clients.insert(cid, resp_tx);
+        state.sse_handles.insert((cid, conn_id), handle);
+
+        let client = std::sync::Arc::new(crate::NetClient::default());
+        state.handle_request(cid, RendererToNetwork::EventSourceClose(conn_id), &client);
+
+        assert!(
+            observer.is_cancelled(),
+            "EventSourceClose dispatch must trigger cancel on the handle"
+        );
+
+        // Drain the worker thread so the test doesn't leak it
+        // into subsequent tests' shared process state.  The
+        // worker observes cancel and exits; the SSRF Fatal
+        // path may also have already returned — either way the
+        // join is bounded.
+        if let Some(mut handle) = state.sse_handles.remove(&(cid, conn_id)) {
+            if let Some(thread) = handle.thread.take() {
+                let _ = thread.join();
+            }
+        }
     }
 }
