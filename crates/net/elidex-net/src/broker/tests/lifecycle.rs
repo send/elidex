@@ -166,7 +166,7 @@ fn create_renderer_handle_synchronously_registers_cid() {
 /// and returns `false` synchronously.
 ///
 /// Wall-clock budget for the post-shutdown call is well below
-/// the 5 s `REGISTER_ACK_TIMEOUT` because the disconnected
+/// the 500 ms `REGISTER_ACK_TIMEOUT` because the disconnected
 /// path bypasses the recv altogether — anything above
 /// hundreds of ms here would mean the fast-fail branch
 /// failed to fire.
@@ -210,8 +210,8 @@ fn create_renderer_handle_post_shutdown_returns_pre_unregistered() {
     assert!(
         elapsed < Duration::from_millis(500),
         "post-shutdown create_renderer_handle blocked for {elapsed:?} — \
-         expected <500 ms via the SendError fast-fail path, well below \
-         the 5 s REGISTER_ACK_TIMEOUT recv ceiling"
+         expected sub-100 ms via the SendError fast-fail path, well below \
+         the 500 ms REGISTER_ACK_TIMEOUT recv ceiling"
     );
     assert!(
         !renderer.cancel_fetch(FetchId::next()),

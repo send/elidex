@@ -46,6 +46,7 @@ mod buffered;
 mod cancel;
 mod dispatch;
 mod handle;
+mod register;
 
 pub use handle::{spawn_network_process, NetworkHandle, NetworkProcessHandle};
 
