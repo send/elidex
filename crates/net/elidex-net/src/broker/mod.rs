@@ -150,24 +150,32 @@ pub enum NetworkToRenderer {
 
 /// Control messages from the Browser thread to the Network Process.
 ///
-/// Crate-private (slot #10.6c R10): the variants carry payload
-/// types that are implementation details of the broker (the
-/// shared [`std::sync::Arc<std::sync::atomic::AtomicBool>`]
-/// for slot #10.6c R9, the `crossbeam_channel::Sender<()>` ack
-/// for the slot #10.6c handshake), so adding fields here is a
-/// breaking change for any external code that exhaustively
-/// matched the variant.  No external embedder constructs or
-/// matches this enum — control messages are sent only via the
+/// **Breaking change (slot #10.6c R10/R11)**: this enum was
+/// `pub` in releases prior to slot #10.6c.  It has been
+/// narrowed to `pub(crate)` because its variants now carry
+/// implementation-detail payloads — the shared
+/// [`std::sync::Arc<std::sync::atomic::AtomicBool>`] introduced
+/// by slot #10.6c R9 for cross-handle unregister observability,
+/// and the `crossbeam_channel::Sender<()>` ack introduced by
+/// the slot #10.6c handshake.  Either field addition would
+/// have been a breaking change for downstream code that
+/// exhaustively matched the variant or constructed it
+/// directly, and the broker module needs the freedom to evolve
+/// these payloads without committing to a semver-stable
+/// contract for an internal coordination protocol.  This is an
+/// intentional break consistent with the project's
+/// "後方互換性は維持しない" rule (`CLAUDE.md`).  The remaining
+/// public surface of the broker module (`NetworkHandle`,
+/// `NetworkProcessHandle`, `spawn_network_process`, and the
+/// data message types `RendererToNetwork` /
+/// `NetworkToRenderer` — the latter two ARE observed in
+/// `elidex-js` / `elidex-js-boa` realtime bridges) stays `pub`
+/// and unchanged.  No external embedder constructs or matches
+/// this enum: control messages flow only via the
 /// `pub(super)`-fielded `NetworkProcessHandle::control_tx` /
 /// `NetworkHandle::control_tx` channels held inside the broker
-/// module — so we restrict the visibility to `pub(crate)`
-/// rather than `pub`, freeing the broker to evolve its control
-/// payload without churning a public API contract.  Lib still
-/// re-exports `NetworkProcessHandle` / `NetworkHandle` /
-/// `spawn_network_process` (`broker::handle::*`) and the data
-/// message types `RendererToNetwork` / `NetworkToRenderer`
-/// (which are observed externally in `elidex-js` / `elidex-js-boa`
-/// realtime bridges).
+/// module, so the visibility narrowing has zero blast radius
+/// in the real workspace.
 #[derive(Debug)]
 pub(crate) enum NetworkProcessControl {
     /// Register a new renderer (content thread).

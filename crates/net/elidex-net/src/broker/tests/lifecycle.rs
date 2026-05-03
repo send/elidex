@@ -284,64 +284,92 @@ fn create_renderer_handle_post_shutdown_returns_pre_unregistered() {
     // immediately).
 }
 
-/// Slot #10.6c (Copilot R9 + R10) regression: the broker stores
-/// a clone of every renderer's `unregistered` atomic in its
-/// `clients` map and flips it to `true` BEFORE emitting the
-/// [`NetworkToRenderer::RendererUnregistered`] marker, so a
+/// Slot #10.6c (Copilot R9 + R10 + R11) regression: the broker
+/// stores `true` (Release) into the renderer's shared
+/// `unregistered` atomic BEFORE emitting the
+/// [`NetworkToRenderer::RendererUnregistered`] marker on the
+/// response channel.  This ordering — store happens-before
+/// send — is the load-bearing invariant that lets a
 /// concurrent observer (e.g. another renderer's
-/// `create_sibling_handle` against this cid) can detect the
-/// unregister with an O(1) atomic load instead of having to
-/// drain the parent's response channel.  Pre-R9 the detection
-/// path was a bounded channel drain on the parent's
+/// `create_sibling_handle` against this cid) detect the
+/// unregister via an O(1) `Acquire` atomic load instead of
+/// draining the parent's response channel.  Pre-R9 the
+/// detection path was a bounded channel drain on the parent's
 /// `response_rx`; that drain was unbounded in WS / SSE backlog
 /// size and could trigger an unbounded `outstanding_fetches`
 /// synthesis pass on hitting the marker.
 ///
-/// **R10 fix**: this test no longer probes via
-/// `parent.cancel_fetch`, because that helper drains
-/// `response_rx` through `process_response`, which would set
-/// the renderer-side flag from the queued `RendererUnregistered`
-/// marker — the assertion would pass even if the broker-side
-/// pre-marker store regressed.  Instead we clone the
-/// `Arc<AtomicBool>` BEFORE issuing `unregister_renderer` and
-/// poll that clone directly: there is no other writer to it in
-/// this test fixture besides the broker, so a `true` observation
-/// proves the broker-side store fired (the renderer-side
-/// `process_response` cannot fire because we never call any
-/// drain helper on the parent).
+/// **R11 strengthening**: this test verifies the **ordering**
+/// directly, not just the eventual-set: it drains the parent's
+/// `response_rx` until it observes the
+/// [`NetworkToRenderer::RendererUnregistered`] marker, then
+/// IMMEDIATELY does an `Acquire` load on a separate `Arc`
+/// clone of `parent.unregistered`.  Because crossbeam's
+/// `send` / `recv` establish a happens-before, and the
+/// broker's `Release` store happens-before its `send`,
+/// the test's `Acquire` load AFTER `recv` must see `true`
+/// in any correct implementation.  A regression that reordered
+/// the store after the send (or omitted it) would let the test
+/// load `false` immediately after observing the marker — the
+/// assertion catches it.  Pre-R11 the test only polled for
+/// "atomic eventually becomes true", which would have passed
+/// even with a regressed reordering since the store would
+/// still execute on the broker thread's next instruction
+/// (Copilot R11 F3).
 #[test]
 fn broker_sets_unregistered_atomic_synchronously_before_emitting_marker() {
     let np = spawn_network_process(test_client());
     let parent = np.create_renderer_handle();
     let cid = parent.client_id();
 
-    // Clone the renderer-side Arc before unregister.  This
-    // observer is held by the test thread alone — no drain
-    // helper touches it — so the only path that flips it to
-    // `true` is the broker's pre-marker store on its
+    // Clone the renderer-side Arc as a side observer.  We
+    // never call any drain helper on `parent`, so this Arc's
+    // value is influenced only by the broker's store on its
     // own clone via `ClientEntry::unregistered`.
     let observer = std::sync::Arc::clone(&parent.unregistered);
 
     np.unregister_renderer(cid);
 
-    // Poll the atomic directly.  No `parent.cancel_fetch` /
-    // `parent.drain_events` / `parent.fetch_async` call —
-    // those would all drain `response_rx`, hit the
-    // `RendererUnregistered` marker, run `process_response`,
-    // and store `true` from the renderer side, masking a
-    // broker-side regression.  By only loading the Arc, we
-    // isolate the broker store as the sole mechanism that can
-    // flip this observation to `true`.
-    let deadline = std::time::Instant::now() + Duration::from_secs(1);
-    while !observer.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(5));
+    // Drain `parent.response_rx` directly (bypassing
+    // `parent.drain_events` / `parent.cancel_fetch` so we don't
+    // route through `process_response`, which would store
+    // `true` on the renderer side and mask the broker-side
+    // ordering invariant we're testing).  As soon as we
+    // observe the `RendererUnregistered` marker, do an
+    // `Acquire` load on the side observer: per crossbeam
+    // happens-before and the R9 ordering contract (broker
+    // `store(Release)` → `send`), the load must return `true`.
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let mut saw_marker = false;
+    while std::time::Instant::now() < deadline {
+        match parent.response_rx.try_recv() {
+            Ok(NetworkToRenderer::RendererUnregistered) => {
+                saw_marker = true;
+                assert!(
+                    observer.load(Ordering::Acquire),
+                    "broker emitted `RendererUnregistered` marker BEFORE flipping the \
+                     shared `unregistered` atomic — slot #10.6c R9 ordering invariant \
+                     violated.  `dispatch::emit_renderer_unregistered` must \
+                     `unregistered.store(true, Release)` BEFORE \
+                     `response_tx.send(RendererUnregistered)`, so any observer that \
+                     sync's with the send (crossbeam happens-before) sees the prior \
+                     store via an Acquire load."
+                );
+                break;
+            }
+            Ok(_other) => {}
+            Err(crossbeam_channel::TryRecvError::Empty) => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                panic!("response channel disconnected before marker arrived");
+            }
+        }
     }
     assert!(
-        observer.load(Ordering::Acquire),
-        "shared unregistered atomic stayed false 1 s after np.unregister_renderer; \
-         the renderer-side process_response path is bypassed in this test, so this \
-         assertion fails iff the broker's pre-marker `unregistered.store(true)` in \
-         `emit_renderer_unregistered` regressed (Copilot R9 architectural fix)"
+        saw_marker,
+        "broker did not emit `RendererUnregistered` marker within 2 s of \
+         `np.unregister_renderer`; preconditions for the R9 ordering test not met"
     );
 
     np.shutdown();
@@ -385,26 +413,26 @@ fn create_sibling_handle_inherits_unregistered_parent_without_broker_roundtrip()
     );
 
     // Sibling creation off an unregistered parent must short-
-    // circuit (no register_with_ack round-trip).  Functional
-    // gate is the `cancel_fetch == false` check below; the
-    // wall-clock ceiling is supplementary regression
-    // distinguishability and sized well above the 500 ms
-    // `REGISTER_ACK_TIMEOUT` so a CI-scheduler descheduling
-    // pause cannot fail a correct short-circuit (Copilot R7).
-    let started = std::time::Instant::now();
+    // circuit (no register_with_ack round-trip).  The
+    // functional discriminator is the `cancel_fetch == false`
+    // assertion: without the parent-fast-path R6 short-circuit,
+    // `register_with_ack` would succeed against the live
+    // broker (parent's cid is gone but the broker is healthy
+    // and would ack a fresh sibling cid), the sibling would be
+    // constructed live, and `cancel_fetch` would return
+    // `true` — failing the assertion.  A wall-clock ceiling
+    // does not add discriminability here: both the
+    // parent-fast-path (atomic load) and a hypothetical
+    // bare-register-success path are sub-millisecond against a
+    // healthy broker, so timing cannot tell them apart
+    // (Copilot R11).
     let sibling = parent.create_sibling_handle();
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < Duration::from_secs(2),
-        "create_sibling_handle on unregistered parent blocked for {elapsed:?} — \
-         expected a short-circuit; under 2 s budget leaves margin over the \
-         500 ms REGISTER_ACK_TIMEOUT recv ceiling that the bare register \
-         path would hit"
-    );
     assert!(
         !sibling.cancel_fetch(FetchId::next()),
         "sibling spawned off an unregistered parent must inherit pre-unregistered state — \
-         a working child of a broken parent is the inconsistency slot #10.6c R6 fixed"
+         a working child of a broken parent is the inconsistency slot #10.6c R6 fixed; \
+         a regression that removes the parent-fast-path would let the live broker register \
+         a working sibling, making this `cancel_fetch` return true and the assertion fail"
     );
 
     np.shutdown();
