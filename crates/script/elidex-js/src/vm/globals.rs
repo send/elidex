@@ -258,6 +258,7 @@ impl VmInner {
             self.register_html_form_prototype();
             self.register_html_button_prototype();
             self.register_html_textarea_prototype();
+            self.register_html_select_prototype();
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared
@@ -275,6 +276,9 @@ impl VmInner {
             // HTMLCollection.prototype (slot #11-tags-T1 Phase 3) —
             // must land after the parent's `register_html_collection_prototype`.
             self.register_html_form_controls_collection_prototype();
+            // HTMLOptionsCollection.prototype — same chain as FCC
+            // (slot #11-tags-T1 Phase 7).
+            self.register_html_options_collection_prototype();
             // Attr.prototype must land BEFORE NamedNodeMap.prototype —
             // NamedNodeMap methods allocate Attr wrappers via
             // `alloc_attr`, which panics if `attr_prototype` is

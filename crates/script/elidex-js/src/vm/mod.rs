@@ -462,6 +462,33 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) html_textarea_prototype: Option<ObjectId>,
+    /// `HTMLSelectElement.prototype` — tag-specific intermediate
+    /// prototype for `<select>` wrappers (HTML §4.10.7 — slot
+    /// #11-tags-T1 Phase 7).  Chains to [`Self::html_element_prototype`].
+    /// Holds reflected attrs (autocomplete / disabled / multiple /
+    /// name / required / size), `length` (RW) / `options`
+    /// (HTMLOptionsCollection) / `selectedOptions` /
+    /// `selectedIndex` (RW) / `value` (RW) / `type`, `add()` /
+    /// `remove()` / `item()` / `namedItem()` proxy methods, plus
+    /// `form` / `labels` derived getters.  ConstraintValidation
+    /// methods land in Phase 9.
+    ///
+    /// `None` until `register_html_select_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_select_prototype: Option<ObjectId>,
+    /// `HTMLOptionsCollection.prototype` — mutable HTMLCollection
+    /// subclass for `select.options` (HTML §2.7.4 — slot #11-tags-T1
+    /// Phase 7).  Chains to
+    /// [`Self::html_collection_prototype`] so brand-checks against
+    /// `HTMLCollection` still pass on instances of this prototype.
+    /// Adds `length` setter + `add()` / `remove()` methods that
+    /// mutate the parent `<select>`'s descendants directly.
+    ///
+    /// `None` until `register_html_options_collection_prototype()`
+    /// runs during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_options_collection_prototype: Option<ObjectId>,
     /// Per-element form-control state — dirty `value` slot + selection
     /// range + selection direction (HTML §4.10.18.5).  Keyed by
     /// [`elidex_ecs::Entity`] so the same state surfaces across every

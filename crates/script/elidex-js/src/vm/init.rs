@@ -145,6 +145,10 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 html_textarea_prototype: None,
                 #[cfg(feature = "engine")]
+                html_select_prototype: None,
+                #[cfg(feature = "engine")]
+                html_options_collection_prototype: None,
+                #[cfg(feature = "engine")]
                 form_control_entity_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,

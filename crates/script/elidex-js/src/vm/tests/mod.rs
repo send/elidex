@@ -54,6 +54,7 @@ mod tests_html_form_minor_protos;
 mod tests_html_form_proto;
 mod tests_html_iframe;
 mod tests_html_option_proto;
+mod tests_html_select_proto;
 mod tests_html_textarea_proto;
 mod tests_insert_adjacent;
 mod tests_integration_fetch;

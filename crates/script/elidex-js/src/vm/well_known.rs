@@ -820,6 +820,22 @@ define_well_known_strings! {
         forward_str => "forward",
         backward_str => "backward",
         none_str => "none",
+        // HTMLSelectElement (Phase 7) reflected attributes +
+        // accessors + HTMLOptionsCollection.
+        html_select_element => "HTMLSelectElement",
+        html_options_collection => "HTMLOptionsCollection",
+        multiple_attr => "multiple",
+        size_attr => "size",
+        options_attr => "options",
+        selected_options => "selectedOptions",
+        selected_index => "selectedIndex",
+        add_method => "add",
+        remove_method => "remove",
+        // HTMLSelectElement.type enumerated values (HTML §4.10.7.1
+        // step 2 — "select-one" missing/invalid default vs
+        // "select-multiple" when `multiple` content attr is present).
+        select_one_str => "select-one",
+        select_multiple_str => "select-multiple",
     }
 }
 

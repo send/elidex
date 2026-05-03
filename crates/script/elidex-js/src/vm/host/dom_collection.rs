@@ -125,6 +125,23 @@ pub(crate) enum LiveCollectionKind {
         /// which is fixed at install time.
         scope: Entity,
     },
+    /// `select.options` — HTMLOptionsCollection backing.  Filters
+    /// `<option>` elements within `select`'s descendants per HTML
+    /// §2.7.4 (includes options nested inside `<optgroup>`).
+    /// Mutable per HTML §2.7.4.2 — the
+    /// `length` setter / `add()` / `remove()` mutate the parent
+    /// `<select>` directly; the variant itself stays immutable but
+    /// downstream re-walks observe the new tree state.  Like
+    /// [`Self::FormControls`], opts out of the entity-list cache
+    /// because cross-tree mutation surface (e.g. an `<option>`
+    /// `selected` attribute toggle from outside this collection)
+    /// is not visible through `inclusive_descendants_version`
+    /// alone.
+    Options {
+        /// The `<select>` element whose descendant `<option>`s the
+        /// collection enumerates.
+        select: Entity,
+    },
 }
 
 impl LiveCollectionKind {
@@ -142,6 +159,7 @@ impl LiveCollectionKind {
                 | Self::Images { .. }
                 | Self::Links { .. }
                 | Self::FormControls { .. }
+                | Self::Options { .. }
         )
     }
 
@@ -158,6 +176,7 @@ impl LiveCollectionKind {
             | Self::Links { doc }
             | Self::ByName { doc, .. } => Some(*doc),
             Self::FormControls { scope } => Some(*scope),
+            Self::Options { select } => Some(*select),
             Self::Snapshot { .. } => None,
         }
     }
@@ -180,7 +199,7 @@ impl LiveCollectionKind {
     /// typical forms are <50 elements and the per-access walk cost
     /// is bounded.
     fn is_cacheable(&self) -> bool {
-        !matches!(self, Self::FormControls { .. })
+        !matches!(self, Self::FormControls { .. } | Self::Options { .. })
     }
 }
 
@@ -343,6 +362,28 @@ fn resolve_entities_with_needles(
                     None => false,
                 });
                 if is_listed {
+                    out.push(e);
+                }
+                true
+            });
+            out
+        }
+        LiveCollectionKind::Options { select } => {
+            // HTML §2.7.4 — `select.options` enumerates every
+            // descendant `<option>` of the `<select>`.  Spec wording
+            // restricts to direct + `<optgroup>`-nested options;
+            // since the elidex DOM tree only allows option as a
+            // child of select / optgroup at parser time, a full
+            // descendant walk filtered by tag is equivalent.
+            let mut out = Vec::new();
+            dom.traverse_descendants(*select, |e| {
+                if e == *select {
+                    return true;
+                }
+                if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
+                    return true;
+                }
+                if dom.with_tag_name(e, |t| t.is_some_and(|s| s.eq_ignore_ascii_case("option"))) {
                     out.push(e);
                 }
                 true
@@ -563,6 +604,63 @@ impl VmInner {
         self.install_symbol_iterator(proto_id, native_hc_iterator);
     }
 
+    /// Allocate `HTMLOptionsCollection.prototype` chained to
+    /// [`Self::html_collection_prototype`] (HTML §2.7.4).  Adds the
+    /// **mutable** surface (`length` setter / `add()` / `remove()`)
+    /// on top of the inherited HTMLCollection methods.  Member set
+    /// per HTML §2.7.4.2:
+    ///
+    /// - `length` accessor — getter inherited from HTMLCollection,
+    ///   setter installed here that grows / shrinks the parent
+    ///   `<select>`'s `<option>` children.
+    /// - `add(option, before?)` — inserts an `<option>` /
+    ///   `<optgroup>` before another item or appends if `before` is
+    ///   `null` (default).
+    /// - `remove(index)` — removes the option at `index`.  Spec
+    ///   defers to `ChildNode.remove` semantics on the option.
+    /// - `selectedIndex` accessor — read-only here (the IDL is
+    ///   actually RW; the setter goes on HTMLSelectElement.prototype
+    ///   instead and proxies through, matching the spec's "alias"
+    ///   wording).
+    pub(in crate::vm) fn register_html_options_collection_prototype(&mut self) {
+        let parent = self.html_collection_prototype.expect(
+            "register_html_options_collection_prototype called before \
+             register_html_collection_prototype",
+        );
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(parent),
+            extensible: true,
+        });
+        self.html_options_collection_prototype = Some(proto_id);
+
+        // Override `length` with an HTMLOptionsCollection-specific
+        // getter/setter pair.  Getter behaviour matches the
+        // inherited HTMLCollection getter; the override exists
+        // primarily so the **setter** path lands on the correct
+        // (HTMLOptionsCollection-tagged) brand check.
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.length,
+            native_options_length_get,
+            Some(native_options_length_set),
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.add_method,
+            native_options_add,
+            shape::PropertyAttrs::METHOD,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.remove_method,
+            native_options_remove,
+            shape::PropertyAttrs::METHOD,
+        );
+    }
+
     /// Allocate `HTMLFormControlsCollection.prototype` chained to
     /// [`Self::html_collection_prototype`].  The chain inherits
     /// `length` / `item` / `[Symbol.iterator]` from the parent and
@@ -664,6 +762,14 @@ impl VmInner {
                 self.html_form_controls_collection_prototype.expect(
                     "alloc_collection FormControls before \
                      register_html_form_controls_collection_prototype",
+                ),
+            )
+        } else if matches!(kind, LiveCollectionKind::Options { .. }) {
+            (
+                ObjectKind::HtmlCollection,
+                self.html_options_collection_prototype.expect(
+                    "alloc_collection Options before \
+                     register_html_options_collection_prototype",
                 ),
             )
         } else if kind.is_html_collection() {
@@ -1134,4 +1240,298 @@ pub(crate) fn try_indexed_get(
 
     vm.live_collection_states.insert(id, (kind, cache));
     result
+}
+
+// -------------------------------------------------------------------------
+// HTMLOptionsCollection mutable surface — `length` setter, `add()`,
+// `remove()` (HTML §2.7.4.2)
+// -------------------------------------------------------------------------
+
+/// Recover the parent `<select>` entity from an HTMLOptionsCollection
+/// receiver.  Errors with TypeError "Illegal invocation" if `this`
+/// is not an HTMLOptionsCollection.
+fn require_options_collection_select(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &'static str,
+) -> Result<Option<Entity>, VmError> {
+    let JsValue::Object(id) = this else {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'HTMLOptionsCollection': Illegal invocation"
+        )));
+    };
+    if !matches!(ctx.vm.get_object(id).kind, ObjectKind::HtmlCollection) {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'HTMLOptionsCollection': Illegal invocation"
+        )));
+    }
+    match ctx.vm.live_collection_states.get(&id) {
+        Some((LiveCollectionKind::Options { select }, _)) => Ok(Some(*select)),
+        Some(_) | None => Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'HTMLOptionsCollection': Illegal invocation"
+        ))),
+    }
+}
+
+fn native_options_length_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Brand-check the receiver as HTMLOptionsCollection (the
+    // inherited `length` getter would also work but its brand-check
+    // surfaces "HTMLCollection" in error messages — a direct
+    // HTMLOptionsCollection brand keeps the trail consistent).
+    let _ = require_options_collection_select(ctx, this, "length")?;
+    let JsValue::Object(id) = this else {
+        return Ok(JsValue::Number(0.0));
+    };
+    let entities = resolve_receiver_entities(ctx, id);
+    #[allow(clippy::cast_precision_loss)]
+    Ok(JsValue::Number(entities.len() as f64))
+}
+
+fn native_options_length_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(select) = require_options_collection_select(ctx, this, "length")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let new_len = super::super::coerce::to_uint32(ctx.vm, val)?;
+
+    // Snapshot the current options.
+    let JsValue::Object(id) = this else {
+        return Ok(JsValue::Undefined);
+    };
+    let current = resolve_receiver_entities(ctx, id);
+    let current_len = u32::try_from(current.len()).unwrap_or(u32::MAX);
+
+    if new_len < current_len {
+        // Truncate — remove options past `new_len`.  Walk in
+        // reverse so each removal does not shift subsequent indices.
+        let dom = ctx.host().dom();
+        for &option in current.iter().skip(new_len as usize).rev() {
+            if let Some(parent) = dom.get_parent(option) {
+                let _ = dom.remove_child(parent, option);
+            }
+        }
+    } else if new_len > current_len {
+        // Extend — append empty `<option>` elements as direct
+        // children of the `<select>`.
+        let dom = ctx.host().dom();
+        let to_add = new_len - current_len;
+        for _ in 0..to_add {
+            let opt = dom.create_element("option", elidex_ecs::Attributes::default());
+            let _ = dom.append_child(select, opt);
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// `add(element, before?)` — HTML §2.7.4.2.  Inserts `element`
+/// (HTMLOptionElement or HTMLOptGroupElement) into the parent
+/// `<select>`.  `before` may be:
+/// - missing / `null` / `undefined` — append at end.
+/// - a non-negative integer — insert before the option at that index.
+///   Out-of-range indices append at end (per spec step 2.4 — `before`
+///   that resolves to `null` falls back to append).
+/// - an HTMLOptionElement — must be a descendant of the same
+///   select; `NotFoundError` otherwise.
+///
+/// Throws `HierarchyRequestError` if `element` is an ancestor of the
+/// select (per spec step 1).
+pub(super) fn native_options_add(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(select) = require_options_collection_select(ctx, this, "add")? else {
+        return Ok(JsValue::Undefined);
+    };
+    // First arg — element to insert.  Must be HTMLOptionElement or
+    // HTMLOptGroupElement (Element wrapper).
+    let element_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let JsValue::Object(element_id) = element_val else {
+        return Err(VmError::type_error(
+            "Failed to execute 'add' on 'HTMLOptionsCollection': \
+             argument 1 is not an HTMLOptionElement or HTMLOptGroupElement"
+                .to_string(),
+        ));
+    };
+    let element_entity = match ctx.vm.get_object(element_id).kind {
+        ObjectKind::HostObject { entity_bits } => match Entity::from_bits(entity_bits) {
+            Some(e) => e,
+            None => {
+                return Err(VmError::type_error(
+                    "Failed to execute 'add' on 'HTMLOptionsCollection': \
+                     argument 1 is not a DOM Element"
+                        .to_string(),
+                ))
+            }
+        },
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'add' on 'HTMLOptionsCollection': \
+                 argument 1 is not an Element"
+                    .to_string(),
+            ));
+        }
+    };
+    {
+        let dom = ctx.host().dom();
+        let is_ok = dom.with_tag_name(element_entity, |t| {
+            t.is_some_and(|s| {
+                s.eq_ignore_ascii_case("option") || s.eq_ignore_ascii_case("optgroup")
+            })
+        });
+        if !is_ok {
+            return Err(VmError::type_error(
+                "Failed to execute 'add' on 'HTMLOptionsCollection': \
+                 argument 1 is not an HTMLOptionElement or HTMLOptGroupElement"
+                    .to_string(),
+            ));
+        }
+        // HierarchyRequestError if `element` is an ancestor of select
+        // (would create a cycle on insert).
+        if is_ancestor_of(dom, element_entity, select) {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_hierarchy_request_error,
+                "Failed to execute 'add' on 'HTMLOptionsCollection': \
+                 the new element is a parent of the receiver",
+            ));
+        }
+    }
+
+    // Resolve `before` (second arg) — missing / null / undefined →
+    // append; integer → index into options; element → must be a
+    // descendant of select (NotFoundError otherwise).
+    let before_arg = args.get(1).copied();
+    let before_entity: Option<Entity> = match before_arg {
+        None | Some(JsValue::Undefined | JsValue::Null) => None,
+        Some(JsValue::Number(n)) if n.is_finite() => {
+            let trunc = n.trunc();
+            if trunc < 0.0 {
+                None
+            } else {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let idx = trunc as usize;
+                let JsValue::Object(coll_id) = this else {
+                    return Ok(JsValue::Undefined);
+                };
+                let entities = resolve_receiver_entities(ctx, coll_id);
+                entities.get(idx).copied()
+            }
+        }
+        Some(JsValue::Object(before_id)) => match ctx.vm.get_object(before_id).kind {
+            ObjectKind::HostObject { entity_bits } => match Entity::from_bits(entity_bits) {
+                Some(be) => {
+                    let dom = ctx.host().dom();
+                    if !is_descendant_of(dom, be, select) {
+                        return Err(VmError::dom_exception(
+                            ctx.vm.well_known.dom_exc_not_found_error,
+                            "Failed to execute 'add' on 'HTMLOptionsCollection': \
+                             reference element is not a descendant of the select",
+                        ));
+                    }
+                    Some(be)
+                }
+                None => None,
+            },
+            _ => None,
+        },
+        Some(_) => {
+            // Non-integer numbers / booleans / strings — coerce per
+            // WebIDL `unsigned long`.  Coerce explicitly here.
+            let n = super::super::coerce::to_uint32(ctx.vm, before_arg.unwrap())?;
+            let JsValue::Object(coll_id) = this else {
+                return Ok(JsValue::Undefined);
+            };
+            let entities = resolve_receiver_entities(ctx, coll_id);
+            entities.get(n as usize).copied()
+        }
+    };
+
+    // Perform the insertion.  Detach `element` from its current
+    // parent first (insert_before within the same parent re-parents
+    // by spec).
+    let dom = ctx.host().dom();
+    if let Some(cur_parent) = dom.get_parent(element_entity) {
+        let _ = dom.remove_child(cur_parent, element_entity);
+    }
+    match before_entity {
+        Some(b) => {
+            // Insert before `b` within b's parent (which must be a
+            // descendant chain of select).
+            if let Some(b_parent) = dom.get_parent(b) {
+                let _ = dom.insert_before(b_parent, element_entity, b);
+            } else {
+                let _ = dom.append_child(select, element_entity);
+            }
+        }
+        None => {
+            let _ = dom.append_child(select, element_entity);
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+pub(super) fn native_options_remove(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = require_options_collection_select(ctx, this, "remove")?;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    // Spec defers to ChildNode.remove for the option at `index`.
+    // Out-of-range / non-finite index → no-op.
+    let n = match val {
+        JsValue::Number(n) if n.is_finite() => n.trunc(),
+        _ => super::super::coerce::to_int32(ctx.vm, val)? as f64,
+    };
+    if n < 0.0 {
+        return Ok(JsValue::Undefined);
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let idx = n as usize;
+    let JsValue::Object(id) = this else {
+        return Ok(JsValue::Undefined);
+    };
+    let entities = resolve_receiver_entities(ctx, id);
+    if let Some(&option) = entities.get(idx) {
+        let dom = ctx.host().dom();
+        if let Some(parent) = dom.get_parent(option) {
+            let _ = dom.remove_child(parent, option);
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// `true` if `ancestor` is an inclusive ancestor of `descendant` in
+/// the parent chain.  Used by `add()` to enforce the
+/// HierarchyRequestError gate (per HTML §2.7.4.2 step 1).
+fn is_ancestor_of(dom: &EcsDom, ancestor: Entity, descendant: Entity) -> bool {
+    let mut cur = Some(descendant);
+    let mut depth = 0u32;
+    while let Some(e) = cur {
+        if depth > 1024 {
+            return false;
+        }
+        if e == ancestor {
+            return true;
+        }
+        cur = dom.get_parent(e);
+        depth += 1;
+    }
+    false
+}
+
+/// `true` if `descendant` is a strict descendant of `ancestor`.
+fn is_descendant_of(dom: &EcsDom, descendant: Entity, ancestor: Entity) -> bool {
+    if descendant == ancestor {
+        return false;
+    }
+    is_ancestor_of(dom, ancestor, descendant)
 }

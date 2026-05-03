@@ -349,6 +349,23 @@ impl VmInner {
                 self.html_textarea_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 70 + 2 (M4-12 slot #11-tags-T1 Phase 7:
+                // HTMLSelectElement + HTMLOptionsCollection) = 72.
+                // HTMLOptionsCollection chains to HTMLCollection.prototype
+                // (sibling of HTMLFormControlsCollection at [66]); the
+                // root invariant matches the Phase 3 collection — without
+                // this slot, severing `delete globalThis.HTMLOptionsCollection`
+                // would let the prototype be collected while
+                // `VmInner::html_options_collection_prototype` retains
+                // a stale id.
+                #[cfg(feature = "engine")]
+                self.html_select_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_options_collection_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
