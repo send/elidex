@@ -153,6 +153,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 pop_state_event_prototype: None,
                 #[cfg(feature = "engine")]
+                animation_event_prototype: None,
+                #[cfg(feature = "engine")]
+                transition_event_prototype: None,
+                #[cfg(feature = "engine")]
+                close_event_prototype: None,
+                #[cfg(feature = "engine")]
                 headers_prototype: None,
                 #[cfg(feature = "engine")]
                 headers_states: HashMap::new(),

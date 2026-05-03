@@ -221,10 +221,16 @@ define_well_known_strings! {
         // PromiseRejectionEvent / ErrorEvent / HashChangeEvent /
         // PopStateEvent all chain directly to `Event.prototype` (not
         // UIEvent — they're sibling subclasses of Event).
+        // AnimationEvent / TransitionEvent / CloseEvent (M4-12 slot
+        // #11a) join the same family — sibling subclasses of Event,
+        // installed via the shared `register_event_subclass` helper.
         promise_rejection_event_global => "PromiseRejectionEvent",
         error_event_global => "ErrorEvent",
         hash_change_event_global => "HashChangeEvent",
         pop_state_event_global => "PopStateEvent",
+        animation_event_global => "AnimationEvent",
+        transition_event_global => "TransitionEvent",
+        close_event_global => "CloseEvent",
     }
 
     "ErrorEvent / PopStateEvent init-dict keys" {
