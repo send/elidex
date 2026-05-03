@@ -83,7 +83,13 @@ pub struct SseHandle {
     /// `tokio::select!` aborts the read future immediately so
     /// the broker's `thread.join()` returns within bounded time
     /// (slot #10.6a follow-up to PR #142 HCau).
-    pub cancel: CancelHandle,
+    ///
+    /// Crate-private: the cancel signal short-circuits the
+    /// command/event flow, which is broker-only behaviour.
+    /// Downstream callers must terminate workers via the
+    /// documented `SseCommand::Close` path (slot #10.6a Copilot
+    /// R3 HX11).
+    pub(crate) cancel: CancelHandle,
 }
 
 /// Spawn an SSE I/O thread.

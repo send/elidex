@@ -173,6 +173,19 @@ struct NetworkProcessState {
     /// pair + triggers + removes (so the worker's later guard
     /// drop is a no-op).
     cancel_tokens: CancelMap,
+    /// Background teardown threads spawned by
+    /// [`Self::close_all_for_client`].  Each owns a batch of
+    /// `(JoinHandle<()>, CancelHandle)` pairs whose grace +
+    /// cancel + join sequence runs OFF the broker thread, so a
+    /// renderer with slow-to-close realtime sockets cannot
+    /// inject the [`GRACEFUL_CLOSE_GRACE`] window's worth of
+    /// latency into fetch dispatch / event forwarding for
+    /// other renderers (slot #10.6a Copilot R3 HX14).
+    /// `cleanup_finished` reaps finished entries; the broker
+    /// `Shutdown` path joins remaining threads before exit so
+    /// `NetworkProcessHandle::shutdown` only returns once every
+    /// realtime worker is gone.
+    pending_teardowns: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl NetworkProcessState {
@@ -183,6 +196,7 @@ impl NetworkProcessState {
             sse_handles: HashMap::new(),
             inflight_fetches: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             cancel_tokens: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            pending_teardowns: Vec::new(),
         }
     }
 
@@ -491,6 +505,20 @@ impl NetworkProcessState {
                     self.cancel_inflight_fetches_for(cid);
                 }
                 self.clients.clear();
+                // `close_all_for_client` spawns a background
+                // teardown thread per renderer so the grace
+                // window doesn't block the broker thread (slot
+                // #10.6a Copilot R3 HX14).  Before the broker
+                // returns from its main loop we join all of
+                // those threads so `NetworkProcessHandle::shutdown`
+                // only resolves once every realtime worker has
+                // fully exited — without this, workers spawned
+                // by the renderers above could outlive the
+                // broker by `GRACEFUL_CLOSE_GRACE` + cancel
+                // propagation.
+                for thread in std::mem::take(&mut self.pending_teardowns) {
+                    let _ = thread.join();
+                }
                 false
             }
         }
@@ -542,11 +570,20 @@ impl NetworkProcessState {
         }
     }
 
+    /// Reap finished I/O thread handles + finished background
+    /// teardown threads.  Called once per broker-loop iteration
+    /// so the bookkeeping vectors stay bounded by the live
+    /// per-renderer connection count, not the total connections
+    /// ever opened.  Dropping a finished `JoinHandle` is
+    /// equivalent to joining (the OS thread state is already
+    /// reaped — see std lib docs), so we don't need to call
+    /// `.join()` here.
     fn cleanup_finished(&mut self) {
         self.ws_handles
             .retain(|_, handle| handle.thread.as_ref().is_none_or(|t| !t.is_finished()));
         self.sse_handles
             .retain(|_, handle| handle.thread.as_ref().is_none_or(|t| !t.is_finished()));
+        self.pending_teardowns.retain(|t| !t.is_finished());
     }
 
     /// Close every WS / SSE connection registered against this
@@ -653,8 +690,28 @@ impl NetworkProcessState {
             }
         }
 
-        // Phases 2-4: shared grace window → cancel fallback → join all.
-        join_pending_with_grace_then_cancel(pending);
+        // Phases 2-4 run on a background thread so the grace
+        // window (+ cancel-propagation) does not block the
+        // broker thread's main loop — without this, tearing
+        // down one renderer with slow-to-close realtime sockets
+        // would inject [`GRACEFUL_CLOSE_GRACE`] of cross-tab
+        // latency into fetch dispatch / event forwarding for
+        // every other renderer (slot #10.6a Copilot R3 HX14).
+        // The broker tracks the spawned thread in
+        // [`Self::pending_teardowns`] so the `Shutdown` control
+        // path can join all in-flight teardowns before exiting,
+        // and `cleanup_finished` reaps finished entries to
+        // bound the vector's growth.
+        if pending.is_empty() {
+            return;
+        }
+        let teardown_thread = std::thread::Builder::new()
+            .name("elidex-network-teardown".into())
+            .spawn(move || {
+                join_pending_with_grace_then_cancel(pending);
+            })
+            .expect("spawn teardown thread");
+        self.pending_teardowns.push(teardown_thread);
     }
 
     /// Push a synthetic `FetchResponse(id, Err("aborted"))` to
@@ -788,14 +845,18 @@ mod tests {
     /// [`NetworkProcessState::close_all_for_client`] cheap when
     /// it's invoked against a renderer with no realtime
     /// handles open (the common case for fetch-only workloads).
+    ///
+    /// The 50 ms ceiling absorbs scheduler jitter on loaded CI
+    /// runners (slot #10.6a Copilot R3 HX13) — the function
+    /// itself only does an `is_empty` check + early return, so
+    /// even with a fully-loaded test process the wall-clock is
+    /// dominated by tokio test harness overhead, not the helper.
     #[test]
     fn join_pending_no_op_on_empty() {
         let started = std::time::Instant::now();
         join_pending_with_grace_then_cancel(Vec::new());
-        // Should return basically instantaneously — generous
-        // 5 ms ceiling absorbs scheduler jitter on loaded CI.
         assert!(
-            started.elapsed() < std::time::Duration::from_millis(5),
+            started.elapsed() < std::time::Duration::from_millis(50),
             "empty-pending teardown took {:?} — should short-circuit",
             started.elapsed()
         );

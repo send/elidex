@@ -101,7 +101,14 @@ pub struct WsHandle {
     /// the read future immediately so the broker's `thread.join()`
     /// returns deterministically (slot #10.6a follow-up to PR #142
     /// HCau / HCv / HJTV / HKhZ).
-    pub cancel: CancelHandle,
+    ///
+    /// Crate-private: the cancel signal short-circuits the
+    /// command/event flow, which is broker-only behaviour.
+    /// Downstream callers must terminate workers via the
+    /// documented `WsCommand::Close` path so they observe the
+    /// usual terminal `WsEvent::Closed` sequence (slot #10.6a
+    /// Copilot R3 HX16).
+    pub(crate) cancel: CancelHandle,
 }
 
 /// Spawn a WebSocket I/O thread.
@@ -694,23 +701,26 @@ mod tests {
         thread.join().expect("worker thread panicked");
 
         // Tear down the server fixture deterministically.
+        // After the worker has exited (asserted above) its TCP
+        // socket is closed, so the server's blocking `read`
+        // returns Ok(0) and the server thread exits via its
+        // disconnect branch.  Assert the join succeeds within a
+        // bounded window — failing here would indicate a real
+        // fixture-leak regression that would otherwise hide
+        // sockets / open resources in the shared test process
+        // and silently flake later tests (slot #10.6a Copilot
+        // R3 HX12).
         stop.store(true, Ordering::SeqCst);
-        // The server may still be parked on `read` here; close
-        // the listener implicitly by joining (server thread
-        // returns on next read iteration).  Use a short deadline
-        // so a hung server thread doesn't block the test forever.
         let join_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while !server.is_finished() && std::time::Instant::now() < join_deadline {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        if server.is_finished() {
-            let _ = server.join();
-        }
-        // If server is still alive past the deadline, leak it
-        // (test still passes — the worker assertion above is
-        // the load-bearing one).  Avoids cross-test flake from
-        // server-side blocking reads that occasionally outlive
-        // their owner.
+        assert!(
+            server.is_finished(),
+            "server fixture thread did not exit within 2s — leaking thread + listener resources \
+             into subsequent tests; check that the worker actually closed the socket"
+        );
+        server.join().expect("server fixture thread panicked");
     }
 
     /// Test fixture for the [`send_frame`] / [`send_close_frame`]
