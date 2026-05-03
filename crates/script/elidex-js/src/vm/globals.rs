@@ -407,6 +407,10 @@ impl VmInner {
         {
             self.register_url_search_params_global();
             self.register_form_data_global();
+            // `URL` follows `URLSearchParams` because the URL ctor
+            // eagerly allocates a `URLSearchParams` instance for its
+            // `searchParams` IDL attribute (Phase 4 of slot #9.5).
+            self.register_url_global();
         }
 
         // `ReadableStream` + `ReadableStreamDefaultController` +

@@ -54,6 +54,11 @@ pub(super) fn trace_work_list(
         super::super::host::readable_stream::ReaderState,
     >,
     #[cfg(feature = "engine")] body_streams: &std::collections::HashMap<ObjectId, ObjectId>,
+    #[cfg(feature = "engine")] url_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::url::UrlState,
+    >,
+    #[cfg(feature = "engine")] usp_parent_url: &std::collections::HashMap<ObjectId, ObjectId>,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -355,11 +360,39 @@ pub(super) fn trace_work_list(
             ObjectKind::TextEncoder | ObjectKind::TextDecoder => {}
             // `URLSearchParams`'s entry list lives in
             // `url_search_params_states` and carries only interned
-            // `StringId`s (pool-permanent), so the trace step does
-            // nothing.  Sweep tail prunes dead-key entries — same
-            // pattern as `headers_states`.
+            // `StringId`s (pool-permanent).  The wrapper does have
+            // a back-edge into `usp_parent_url` (Phase 4 of slot
+            // #9.5) — when that side-table maps the searchParams
+            // `ObjectId` to a parent URL, mark the URL so a script
+            // holding only the searchParams keeps the URL alive
+            // (matches `URLSearchParams` mutation routing through
+            // `usp_parent_url` in `host::url_search_params`).
+            // Sweep tail prunes dead-key entries — same pattern
+            // as `headers_states`.
             #[cfg(feature = "engine")]
-            ObjectKind::URLSearchParams => {}
+            ObjectKind::URLSearchParams => {
+                if let Some(&parent_url) = usp_parent_url.get(&ObjectId(obj_idx)) {
+                    mark_object(parent_url, obj_marks, work);
+                }
+            }
+            // `URL` per-instance state (`url_states`) holds a
+            // [`url::Url`] (pool-permanent string contents, no
+            // `ObjectId`) plus the linked `URLSearchParams`
+            // `ObjectId` allocated by the constructor for the
+            // `searchParams` IDL attribute.  Mark that link so
+            // `let p = new URL("…").searchParams; …` keeps the URL
+            // alive when only the searchParams reference is held
+            // (the `usp_parent_url` arm above is the symmetric
+            // half).  `search_params: None` (Phase 1 standalone)
+            // is a no-op.  Sweep tail prunes dead-key entries.
+            #[cfg(feature = "engine")]
+            ObjectKind::URL => {
+                if let Some(state) = url_states.get(&ObjectId(obj_idx)) {
+                    if let Some(sp_id) = state.search_params {
+                        mark_object(sp_id, obj_marks, work);
+                    }
+                }
+            }
             // `FormData`'s entry list (`form_data_states`) carries
             // Blob `ObjectId`s for `FormDataValue::Blob` entries;
             // mark each one so the Blobs survive as long as the

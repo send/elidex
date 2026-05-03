@@ -481,6 +481,23 @@ pub enum ObjectKind {
     /// `ObjectId` was collected.
     #[cfg(feature = "engine")]
     URLSearchParams,
+    /// `URL` instance (WHATWG URL §6.1).  Payload-free; the parsed
+    /// [`url::Url`] + the linked `URLSearchParams` `ObjectId` (eagerly
+    /// allocated by the constructor for `searchParams` identity
+    /// stability) live out-of-band in
+    /// [`super::VmInner::url_states`] keyed by this `ObjectId`.
+    /// Same model as `URLSearchParams` — keeping the variant
+    /// payload-free preserves per-variant size discipline.
+    ///
+    /// GC contract: the trace step marks the linked `URLSearchParams`
+    /// `ObjectId` if any, so `let p = new URL("…").searchParams; …`
+    /// keeps the URL alive while only the `searchParams` reference
+    /// is held (the `URLSearchParams` mutator natives consult
+    /// [`super::VmInner::usp_parent_url`] to write changes back to
+    /// the URL's query).  Sweep tail prunes entries whose key
+    /// `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    URL,
     /// `FormData` instance (WHATWG XHR §4.3).  Payload-free;
     /// the entry list lives out-of-band in
     /// [`super::VmInner::form_data_states`] keyed by this

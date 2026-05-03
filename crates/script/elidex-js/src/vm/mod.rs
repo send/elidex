@@ -818,6 +818,40 @@ pub(crate) struct VmInner {
     /// same pattern as `headers_states`.
     #[cfg(feature = "engine")]
     pub(crate) url_search_params_states: HashMap<ObjectId, Vec<(StringId, StringId)>>,
+    /// `URL.prototype` (WHATWG URL §6.1).  Chains to
+    /// `Object.prototype`.  `None` until `register_url_global()`
+    /// runs during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) url_prototype: Option<ObjectId>,
+    /// Per-`URL` instance state keyed by the instance's own
+    /// `ObjectId` (WHATWG URL §6.1).  Holds the parsed [`url::Url`]
+    /// + the linked `URLSearchParams` `ObjectId` allocated by the
+    /// constructor (eager-create for `searchParams` identity
+    /// stability — `url.searchParams === url.searchParams` is a
+    /// spec invariant).
+    ///
+    /// GC contract: the trace step marks the linked `search_params`
+    /// `ObjectId` if any.  Sweep tail prunes entries whose key
+    /// `ObjectId` was collected — same pattern as
+    /// `url_search_params_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) url_states: HashMap<ObjectId, host::url::UrlState>,
+    /// Reverse linkage `URLSearchParams ObjectId → owning URL
+    /// ObjectId` (WHATWG URL §6.1 "URL → searchParams" back-edge).
+    /// Populated when the URL constructor allocates a fresh
+    /// `URLSearchParams` for the `searchParams` IDL attribute;
+    /// empty for standalone `URLSearchParams` instances.  The USP
+    /// mutator natives (`append` / `delete` / `set` / `sort`) consult
+    /// this map at their tail to write the serialised entry list
+    /// back into the URL's query.
+    ///
+    /// GC contract: the trace step marks the URL value when the
+    /// keyed `URLSearchParams` is reachable so a script holding only
+    /// the `searchParams` reference still keeps its parent URL alive
+    /// (the symmetric arm).  Sweep tail prunes entries whose key
+    /// `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    pub(crate) usp_parent_url: HashMap<ObjectId, ObjectId>,
     /// `FormData.prototype` (WHATWG XHR §4.3).  Chains to
     /// `Object.prototype`.  `None` until
     /// `register_form_data_global()` runs during

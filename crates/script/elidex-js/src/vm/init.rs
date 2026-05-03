@@ -193,6 +193,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 url_search_params_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                url_prototype: None,
+                #[cfg(feature = "engine")]
+                url_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                usp_parent_url: HashMap::new(),
+                #[cfg(feature = "engine")]
                 form_data_prototype: None,
                 #[cfg(feature = "engine")]
                 form_data_states: HashMap::new(),

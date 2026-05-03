@@ -113,5 +113,7 @@ pub(super) mod typed_array_parts;
 #[cfg(feature = "engine")]
 pub(super) mod typed_array_static;
 #[cfg(feature = "engine")]
+pub(crate) mod url;
+#[cfg(feature = "engine")]
 pub(crate) mod url_search_params;
 pub(super) mod window;

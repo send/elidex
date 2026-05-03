@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 57],
+    pub(super) proto_roots: [Option<ObjectId>; 58],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -128,6 +128,20 @@ pub(super) struct GcRoots<'a> {
     /// across GC ticks.
     #[cfg(feature = "engine")]
     pub(super) body_streams: &'a std::collections::HashMap<ObjectId, ObjectId>,
+    /// `URL` per-instance state — trace step marks the linked
+    /// `URLSearchParams` `ObjectId` if any so the searchParams
+    /// reference held only via `let p = new URL("…").searchParams`
+    /// keeps the URL's wrapper instance alive.
+    #[cfg(feature = "engine")]
+    pub(super) url_states:
+        &'a std::collections::HashMap<ObjectId, super::super::host::url::UrlState>,
+    /// `URLSearchParams ObjectId → owning URL ObjectId` reverse
+    /// linkage.  Trace step marks the URL value when the keyed
+    /// `URLSearchParams` is reachable so the symmetric "drop URL
+    /// wrapper" case keeps the parent alive when only the
+    /// searchParams identity is observable.
+    #[cfg(feature = "engine")]
+    pub(super) usp_parent_url: &'a std::collections::HashMap<ObjectId, ObjectId>,
     /// Pending `AbortSignal.timeout(ms)` registrations — the
     /// `ObjectId` values are signals that must survive until the
     /// timer fires (see `VmInner::pending_timeout_signals` for the

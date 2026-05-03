@@ -670,6 +670,34 @@ define_well_known_strings! {
         blob_default_filename => "blob",
     }
 
+    "URL (WHATWG URL §6.1)" {
+        // Constructor global + IDL accessor / static method names.
+        // `origin` lives above (event-payload section) and is reused
+        // here for `URL.prototype.origin`.  `to_string_method` /
+        // `to_json` / `search_params` use the existing pre-interned
+        // identifiers (no duplication).  The `*_attr` suffix on
+        // `host_attr` / `port_attr` / `search_attr` / `hash_attr`
+        // disambiguates the Rust field name from potential future
+        // collisions with other web-platform properties (CSS / HTML
+        // `host`, etc.) — same naming precedent as `closed_attr` /
+        // `locked_attr` in the streams section.  The literal string
+        // values match the WebIDL identifiers verbatim.
+        url_global => "URL",
+        href => "href",
+        protocol => "protocol",
+        host_attr => "host",
+        hostname => "hostname",
+        port_attr => "port",
+        pathname => "pathname",
+        search_attr => "search",
+        hash_attr => "hash",
+        username => "username",
+        password => "password",
+        search_params => "searchParams",
+        can_parse => "canParse",
+        parse_url => "parse",
+    }
+
     "ReadableStream (WHATWG Streams §4)" {
         // Constructor globals + method / accessor names unique to
         // the streams surface.  `read` / `value` / `done` /
