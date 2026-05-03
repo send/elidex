@@ -339,6 +339,11 @@ impl VmInner {
                 self.html_form_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 68 + 1 (M4-12 slot #11-tags-T1 Phase 5: HTMLButtonElement) = 69.
+                #[cfg(feature = "engine")]
+                self.html_button_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

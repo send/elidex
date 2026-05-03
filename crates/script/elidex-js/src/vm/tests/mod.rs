@@ -47,6 +47,7 @@ mod tests_generator;
 mod tests_headers;
 mod tests_history;
 mod tests_host_object;
+mod tests_html_button_proto;
 mod tests_html_element_proto;
 mod tests_html_fieldset_proto;
 mod tests_html_form_minor_protos;

@@ -783,6 +783,17 @@ define_well_known_strings! {
         set_custom_validity => "setCustomValidity",
         submit_method => "submit",
         request_submit => "requestSubmit",
+        // HTMLButtonElement reflected attributes + accessors.
+        html_button_element => "HTMLButtonElement",
+        form_action => "formAction",
+        form_enctype => "formEnctype",
+        form_method => "formMethod",
+        form_no_validate => "formNoValidate",
+        form_target => "formTarget",
+        labels_attr => "labels",
+        // Default-values for enumerated attrs (HTMLButtonElement.type
+        // missing-value → "submit", invalid-value → "submit").
+        submit_str => "submit",
     }
 }
 

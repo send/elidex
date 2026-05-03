@@ -434,6 +434,19 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) html_form_prototype: Option<ObjectId>,
+    /// `HTMLButtonElement.prototype` — tag-specific intermediate
+    /// prototype for `<button>` wrappers (HTML §4.10.6 — slot
+    /// #11-tags-T1).  Chains to [`Self::html_element_prototype`].
+    /// Holds reflected attrs (disabled / formAction / formEnctype /
+    /// formMethod / formNoValidate / formTarget / name / type
+    /// (enumerated: submit/reset/button) / value), `form` and
+    /// `labels` derived getters.  ConstraintValidation methods land
+    /// in Phase 9.
+    ///
+    /// `None` until `register_html_button_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_button_prototype: Option<ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor

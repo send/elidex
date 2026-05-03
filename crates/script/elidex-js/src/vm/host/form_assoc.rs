@@ -80,3 +80,80 @@ pub(super) fn resolve_form_association(
     }
     None
 }
+
+/// Collect every `<label>` element associated with `control` per
+/// HTML §4.10.4 (label / labelable element association):
+///
+/// 1. Labels whose `for=` IDREF resolves to `control` (id-based
+///    association — requires `control` to have a non-empty `id`).
+/// 2. Labels that are ancestors of `control` AND have no `for=`
+///    attribute (descendant-control association — the label
+///    "wraps" the control).
+///
+/// Result is in document order with id-matched and ancestor-matched
+/// labels merged.  Used by HTMLButtonElement / HTMLInputElement /
+/// HTMLSelectElement / HTMLTextAreaElement / HTMLOutputElement /
+/// HTMLMeterElement / HTMLProgressElement (i.e. every labelable
+/// element per HTML §4.10.2).
+pub(super) fn collect_labels_for(ctx: &mut NativeContext<'_>, control: Entity) -> Vec<Entity> {
+    let dom = ctx.host().dom();
+    let mut result: Vec<Entity> = Vec::new();
+
+    // Pass 1 — id-based association.  Read the control's id once,
+    // then walk owner document for `<label for="<id>">`.
+    let control_id = dom.with_attribute(control, "id", |v| {
+        v.filter(|s| !s.is_empty()).map(String::from)
+    });
+    if let Some(id) = control_id {
+        // Scope the search to the control's tree — owner_document
+        // when attached, otherwise the topmost ancestor (matches
+        // the same scoping rule used by `resolve_form_association`).
+        let root = dom.owner_document(control).unwrap_or_else(|| {
+            let mut cur = control;
+            let mut depth: u32 = 0;
+            while let Some(p) = dom.get_parent(cur) {
+                if depth > MAX_ANCESTOR_DEPTH {
+                    break;
+                }
+                cur = p;
+                depth += 1;
+            }
+            cur
+        });
+        dom.traverse_descendants(root, |e| {
+            if e == root {
+                return true;
+            }
+            if dom.has_tag(e, "label") {
+                let matches = dom.with_attribute(e, "for", |v| v == Some(id.as_str()));
+                if matches {
+                    result.push(e);
+                }
+            }
+            true
+        });
+    }
+
+    // Pass 2 — ancestor `<label>` whose `for=` is absent or empty.
+    let mut cur = dom.get_parent(control);
+    let mut depth: u32 = 0;
+    while let Some(p) = cur {
+        if depth > MAX_ANCESTOR_DEPTH {
+            break;
+        }
+        if dom.has_tag(p, "label") {
+            let for_attr = dom.with_attribute(p, "for", |v| v.map(String::from));
+            let no_for = match for_attr {
+                None => true,
+                Some(s) => s.is_empty(),
+            };
+            if no_for && !result.contains(&p) {
+                result.push(p);
+            }
+        }
+        cur = dom.get_parent(p);
+        depth += 1;
+    }
+
+    result
+}

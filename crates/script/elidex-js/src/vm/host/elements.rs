@@ -146,6 +146,8 @@ impl VmInner {
                         self.html_fieldset_prototype
                     } else if hd.tag_matches_ascii_case(entity, "form") {
                         self.html_form_prototype
+                    } else if hd.tag_matches_ascii_case(entity, "button") {
+                        self.html_button_prototype
                     } else {
                         None
                     }

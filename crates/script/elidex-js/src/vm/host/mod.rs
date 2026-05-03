@@ -77,6 +77,8 @@ pub(super) mod globals;
 #[cfg(feature = "engine")]
 pub(crate) mod headers;
 pub(super) mod history;
+#[cfg(feature = "engine")]
+pub(super) mod html_button_proto;
 pub(super) mod html_element_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_fieldset_proto;
