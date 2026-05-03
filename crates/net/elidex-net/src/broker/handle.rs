@@ -307,12 +307,41 @@ impl NetworkHandle {
     pub fn create_sibling_handle(&self) -> Self {
         let client_id = CLIENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let (response_tx, response_rx) = crossbeam_channel::unbounded();
-        let pre_unregistered = register_with_ack(
-            &self.control_tx,
-            client_id,
-            response_tx,
-            "create_sibling_handle",
-        );
+
+        // Slot #10.6c (Copilot R6): if the parent has already
+        // been marked unregistered — either because its drain
+        // observed the broker's
+        // [`NetworkToRenderer::RendererUnregistered`] back-edge
+        // (slot #10.6b), or because the parent's own ack
+        // handshake failed at construction time (slot #10.6c
+        // pre-unregistered fallback) — short-circuit sibling
+        // creation here without touching the broker.  Routing
+        // through `register_with_ack` would either (a) fail at
+        // send time when the broker is gone (yielding the same
+        // pre-unregistered result via the SendError path, just
+        // with a wasted Register attempt and an orphan ack
+        // channel) OR (b) succeed against a broker that has
+        // recovered between the parent's unregister and now,
+        // leaving the embedder with a live sibling whose
+        // parent's every operation short-circuits as
+        // unregistered — an inconsistent contract for callers
+        // who treat sibling spawning as "child of parent".  The
+        // Acquire load pairs with the Release stores in
+        // [`Self::process_response`] / [`Self::fetch_blocking`].
+        let pre_unregistered = if self.unregistered.load(Ordering::Acquire) {
+            // Drop response_tx implicitly at end of scope; no
+            // one ever sends on it because we don't hand it to
+            // the broker.
+            drop(response_tx);
+            true
+        } else {
+            register_with_ack(
+                &self.control_tx,
+                client_id,
+                response_tx,
+                "create_sibling_handle",
+            )
+        };
 
         Self {
             client_id,
@@ -324,12 +353,19 @@ impl NetworkHandle {
             // Each has its own response channel + cid, so the
             // parent's unregister marker is delivered only on
             // the parent's response channel, not here.  Sharing
-            // the flag would incorrectly disable the sibling on
-            // the parent's teardown.  The flag is pre-set to
-            // `true` if the slot #10.6c ack handshake failed for
-            // this sibling (broker hung / gone), so the user-
-            // observable error is consistent with a torn-down
-            // renderer.
+            // the flag wholesale would incorrectly disable the
+            // sibling forever on the parent's teardown.  The
+            // flag is pre-set to `true` only at construction
+            // time, in two cases: (i) the slot #10.6c ack
+            // handshake failed (broker hung / gone), or (ii) the
+            // parent itself was already unregistered when this
+            // sibling was constructed (R6 inheritance — the
+            // sibling enters the world in the same broken state
+            // its parent was in, since spawning a working child
+            // off a broken parent is the embedder inconsistency
+            // the inheritance avoids).  After construction the
+            // sibling's flag evolves independently via its own
+            // response channel.
             unregistered: Arc::new(AtomicBool::new(pre_unregistered)),
             outstanding_fetches: std::cell::RefCell::new(HashSet::new()),
             #[cfg(feature = "test-hooks")]

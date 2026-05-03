@@ -224,6 +224,64 @@ fn create_renderer_handle_post_shutdown_returns_pre_unregistered() {
     // immediately).
 }
 
+/// Slot #10.6c (Copilot R6) regression:
+/// `create_sibling_handle` must inherit the parent's
+/// `unregistered` state at construction time and short-circuit
+/// the broker round-trip entirely.  Without this, a parent
+/// that was marked unregistered (either by observing the
+/// `RendererUnregistered` back-edge or by a prior ack failure)
+/// could still spawn a fresh, live sibling against a broker
+/// that recovered between the parent's teardown and the
+/// sibling call — leaving the embedder with the inconsistent
+/// pair "broken parent / working child" that the slot #10.6c
+/// fallback contract is meant to prevent.  The test induces
+/// the parent's unregister via `np.unregister_renderer(cid)`,
+/// gates on the deterministic `cancel_fetch == false` short-
+/// circuit (lesson #133), and asserts (a) the sibling
+/// creation completes in well under the 500 ms
+/// `REGISTER_ACK_TIMEOUT` (no broker round-trip), and (b) the
+/// sibling itself short-circuits via the same gate.
+#[test]
+fn create_sibling_handle_inherits_unregistered_parent_without_broker_roundtrip() {
+    let np = spawn_network_process(test_client());
+    let parent = np.create_renderer_handle();
+    let cid = parent.client_id();
+
+    np.unregister_renderer(cid);
+
+    // Wait for the parent to observe the RendererUnregistered
+    // marker.  Same gate pattern as the slot #10.6b post-
+    // unregister tests.
+    let gate_deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while std::time::Instant::now() < gate_deadline && parent.cancel_fetch(FetchId::next()) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        !parent.cancel_fetch(FetchId::next()),
+        "parent never observed RendererUnregistered marker within 1 s — preconditions not met"
+    );
+
+    // Sibling creation off an unregistered parent must short-
+    // circuit (no register_with_ack round-trip).  The 50 ms
+    // budget is generous: we expect this to be a few atomic
+    // loads + a struct construction.
+    let started = std::time::Instant::now();
+    let sibling = parent.create_sibling_handle();
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(50),
+        "create_sibling_handle on unregistered parent blocked for {elapsed:?} — \
+         expected a sub-50 ms short-circuit, broker round-trip should have been skipped"
+    );
+    assert!(
+        !sibling.cancel_fetch(FetchId::next()),
+        "sibling spawned off an unregistered parent must inherit pre-unregistered state — \
+         a working child of a broken parent is the inconsistency slot #10.6c R6 fixed"
+    );
+
+    np.shutdown();
+}
+
 /// Slot #10.6c regression: the same pre-unregistered fallback
 /// covers `NetworkHandle::create_sibling_handle`.  A renderer
 /// thread that races the parent's
