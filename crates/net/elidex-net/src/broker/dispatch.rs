@@ -131,9 +131,13 @@ const GRACEFUL_CLOSE_POLL_INTERVAL: Duration = Duration::from_millis(5);
 /// [`crate::CancelHandle`] so the cancel-fallback is keyed to the
 /// correct worker (different workers don't share cancels).  The
 /// final `join()` is unbounded by design — workers observe cancel
-/// within a select tick (see [`crate::ws::ws_io_loop`] /
+/// within a select tick (see `ws::io_loop::ws_io_loop` /
 /// [`crate::sse::sse_io_loop`] cancel arms), so the unbounded
 /// wait is bounded in practice by the cancel-propagation latency.
+/// The WS reference is rendered as inline code rather than an
+/// intra-doc link because `io_loop` is a `pub(super)` submodule
+/// of `ws` (slot #10.6a HX26 split — Copilot R8 HX30 caught the
+/// stale link).
 fn join_pending_with_grace_then_cancel(
     pending: Vec<(std::thread::JoinHandle<()>, crate::CancelHandle)>,
 ) {
@@ -654,8 +658,10 @@ impl NetworkProcessState {
     ///    [`crate::CancelHandle`] triggered.  The cancel arm of
     ///    the worker's `tokio::select!` aborts both the read
     ///    future AND any in-flight `write.send().await`
-    ///    (cancel-aware via [`crate::ws::send_frame`] /
-    ///    [`crate::ws::send_close_frame`] — slot #10.6a HX5).
+    ///    (cancel-aware via `ws::io_loop::send_frame` /
+    ///    `ws::io_loop::send_close_frame` — slot #10.6a HX5;
+    ///    rendered as inline code because the `io_loop`
+    ///    submodule is `pub(super)`, Copilot R8 HX31).
     /// 4. **Phase 4 — join all**: every worker thread is
     ///    joined so `close_all_for_client` only returns once
     ///    every worker has fully exited.
@@ -672,7 +678,7 @@ impl NetworkProcessState {
     /// Joining inside the broker thread is safe because each
     /// worker observes either the cancel signal or the dropped
     /// command channel within bounded time — see
-    /// [`crate::ws::ws_io_loop`] and [`crate::sse::sse_io_loop`]
+    /// `ws::io_loop::ws_io_loop` and [`crate::sse::sse_io_loop`]
     /// for the cancel-injection surface.  Without the join, a
     /// stale renderer's `WsHandle` / `SseHandle` would be
     /// detached and the worker thread could outlive
