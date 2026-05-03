@@ -52,19 +52,24 @@ impl NetworkProcessHandle {
     /// Promise would have stayed pending forever.  The wait is
     /// bounded by an internal 500 ms `REGISTER_ACK_TIMEOUT`;
     /// on timeout or channel disconnect the call falls through
-    /// to a **pre-unregistered** [`NetworkHandle`] — every
-    /// subsequent `fetch_async` / `fetch_blocking` /
-    /// `cancel_fetch` / `send` short-circuits with the same
-    /// synthetic terminal `Err` slot #10.6b emits for a torn-
-    /// down renderer (rather than racing against a broker we
-    /// have no evidence is alive).  Healthy registration latency
-    /// is sub-millisecond; the 500 ms ceiling is tight by design
+    /// to a **pre-unregistered** [`NetworkHandle`].  The
+    /// pre-unregistered fallback uses slot #10.6b's same
+    /// short-circuit machinery, which differs by method:
+    /// `fetch_async` and `fetch_blocking` emit the synthetic
+    /// terminal `Err("renderer unregistered")` reply (buffered
+    /// for `fetch_async`, returned directly for
+    /// `fetch_blocking`) so the renderer-side
+    /// `pending_fetches[id]` Promise settles; `cancel_fetch`
+    /// and `send` short-circuit by returning `false` (no
+    /// synthetic event — the caller's bool return is the
+    /// signal).  Healthy registration latency is sub-
+    /// millisecond; the 500 ms ceiling is tight by design
     /// because this method is called from browser-thread paths
-    /// (`App::open_new_tab`, `sw_coordinator::register`) that do
-    /// not tolerate multi-second event-loop freezes — Copilot
-    /// R1.  On timeout the helper also emits a follow-up
-    /// `UnregisterRenderer` so a stalled-but-alive broker that
-    /// resumes draining later cleans up the orphan entry
+    /// (`App::open_new_tab`, `sw_coordinator::register`) that
+    /// do not tolerate multi-second event-loop freezes —
+    /// Copilot R1.  On timeout the helper also emits a follow-
+    /// up `UnregisterRenderer` so a stalled-but-alive broker
+    /// that resumes draining later cleans up the orphan entry
     /// itself (no reliance on the caller's eventual handle
     /// `Drop`).
     #[must_use]
@@ -287,9 +292,12 @@ impl NetworkHandle {
     /// to return effectively-immediately — Copilot R1.  If the
     /// parent's `NetworkProcessHandle` is mid-shutdown when this
     /// is called, the ack times out / the channel disconnects
-    /// and the sibling is returned in the pre-unregistered
-    /// state — every subsequent op surfaces the slot #10.6b
-    /// synthetic error path immediately.  This is the correct
+    /// and the sibling is returned in the **pre-unregistered**
+    /// state with the same dual-form short-circuit as
+    /// [`NetworkProcessHandle::create_renderer_handle`]:
+    /// `fetch_async` / `fetch_blocking` synthesise the terminal
+    /// `Err("renderer unregistered")`, while `cancel_fetch` /
+    /// `send` simply return `false`.  This is the correct
     /// behaviour: panicking would destabilise renderer threads
     /// that legitimately race shutdown.  The helper also emits
     /// a follow-up `UnregisterRenderer` on timeout so a stalled-

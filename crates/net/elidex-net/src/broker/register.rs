@@ -17,8 +17,7 @@
 //! Production callers ([`super::handle::NetworkProcessHandle::create_renderer_handle`]
 //! / [`super::handle::NetworkHandle::create_sibling_handle`])
 //! flow through `register_with_ack`; only the unit tests in the
-//! `register_with_ack_tests` submodule reach for
-//! `register_with_ack_for_test`.
+//! local `tests` submodule reach for `register_with_ack_for_test`.
 
 use std::time::Duration;
 
@@ -69,7 +68,7 @@ pub(super) const REGISTER_ACK_TIMEOUT: Duration = Duration::from_millis(500);
 ///
 /// `caller_label` distinguishes the warn-log emit site
 /// (`create_renderer_handle` vs `create_sibling_handle`) so an
-/// operator chasing a ack-timeout in the wild can pinpoint the
+/// operator chasing an ack-timeout in the wild can pinpoint the
 /// factory without adding a stack-trace to every log line.
 ///
 /// The `bounded(1)` capacity is the standard rendezvous shape
