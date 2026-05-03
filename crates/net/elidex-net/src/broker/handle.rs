@@ -133,10 +133,15 @@ pub struct NetworkHandle {
     /// that would otherwise enqueue work onto the now-stale
     /// `request_tx` (`fetch_async`, `fetch_blocking`,
     /// `cancel_fetch`, `send`).  Wrapped in `Arc<AtomicBool>`
-    /// so a `clone()` of the handle (e.g. one captured by a
-    /// worker thread) sees the same flag as the original — each
-    /// `clone()` returns an `Arc` clone of the underlying
-    /// atomic, NOT a fresh one.  Sibling handles
+    /// for forward compatibility: `NetworkHandle` is single-
+    /// owner today (no `Clone` impl), but the broker hands the
+    /// inner atomic to anything that needs to observe the flag
+    /// from another owner — for example a future
+    /// `Arc<NetworkHandle>` shared with a Web Worker thread or
+    /// a side-table on the broker that cross-references the
+    /// flag for diagnostics.  The `Arc` keeps the field correct
+    /// under that future even if `NetworkHandle` itself stays
+    /// `!Clone`.  Sibling handles
     /// ([`Self::create_sibling_handle`]) and disconnected
     /// handles get their own independent flag because each has
     /// its own response channel and only sees its own cid's
@@ -524,8 +529,14 @@ impl NetworkHandle {
                     // `buffered` when the caller's Promise is
                     // already being settled by our return).
                     self.unregistered.store(true, Ordering::Release);
-                    let stragglers: Vec<FetchId> =
+                    // Sort by ascending `FetchId` (monotonic
+                    // submission counter) so the synthetic
+                    // straggler tail is deterministic — same
+                    // contract as `process_response` (Copilot
+                    // R2 HX4).
+                    let mut stragglers: Vec<FetchId> =
                         self.outstanding_fetches.borrow_mut().drain().collect();
+                    stragglers.sort_unstable_by_key(|id| id.0);
                     for sid in stragglers {
                         if sid == fetch_id {
                             continue;
@@ -631,8 +642,24 @@ impl NetworkHandle {
                 // and `clients.remove`), and emit a terminal
                 // `Err` for each so the renderer-side
                 // `pending_fetches[id]` Promise settles.
-                let stragglers: Vec<FetchId> =
+                //
+                // Sort the drained ids by ascending `FetchId`
+                // before emit so the synthetic tail is
+                // deterministic.  `HashSet::drain` order is
+                // non-deterministic; without the sort the
+                // `drain_events` /
+                // `drain_fetch_responses_only` "fetch replies
+                // in arrival order" doc contract would be
+                // violated for race-window stragglers
+                // (Copilot R2 HX4).  `FetchId` is a monotonic
+                // counter (`FETCH_ID_COUNTER` in `mod.rs`), so
+                // ascending id order matches submission
+                // order — the closest deterministic analogue
+                // to "arrival order" for events the broker
+                // never delivered.
+                let mut stragglers: Vec<FetchId> =
                     self.outstanding_fetches.borrow_mut().drain().collect();
+                stragglers.sort_unstable_by_key(|id| id.0);
                 for id in stragglers {
                     emit(NetworkToRenderer::FetchResponse(
                         id,

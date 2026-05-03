@@ -37,6 +37,13 @@ impl NetworkHandle {
     /// (`dispatch::handle_request`).  Without this synthesis
     /// the renderer-side `pending_fetches[id]` Promises
     /// would stay pending forever.
+    ///
+    /// Order: broker-originated events appear in arrival
+    /// order across `(prior buffer, channel try_recv drain)`.
+    /// Synthetic straggler `FetchResponse`s appear after the
+    /// arrival-order tail in ascending `FetchId` (which is
+    /// also submission order — `FETCH_ID_COUNTER` is
+    /// monotonic).
     pub fn drain_events(&self) -> Vec<NetworkToRenderer> {
         let prior: Vec<_> = self.buffered.borrow_mut().drain(..).collect();
         let mut events: Vec<NetworkToRenderer> = Vec::with_capacity(prior.len());
@@ -66,10 +73,17 @@ impl NetworkHandle {
     /// to what an unfiltered drain would have produced — fetch
     /// replies are the only thing the sibling no longer sees.
     ///
-    /// Order guarantee: fetch replies appear in the returned `Vec`
-    /// in arrival order across `(prior buffer, channel try_recv
-    /// drain)`; non-fetch events stay in `self.buffered` in the
-    /// same arrival order.
+    /// Order guarantee:
+    /// - **Broker-originated fetch replies** appear in the
+    ///   returned `Vec` in arrival order across
+    ///   `(prior buffer, channel try_recv drain)`.
+    /// - **Synthetic stragglers** (slot #10.6b — see below)
+    ///   appear after every broker-originated reply observed
+    ///   on the same tick, in ascending `FetchId` order
+    ///   (which matches submission order because `FetchId` is
+    ///   a monotonic counter — `FETCH_ID_COUNTER` in `mod.rs`).
+    /// - **Non-fetch events** stay in `self.buffered` in the
+    ///   same arrival order.
     ///
     /// Slot #10.6b: every event is routed through the private
     /// `process_response` helper before partition.  The
@@ -78,12 +92,12 @@ impl NetworkHandle {
     /// marker observation, every still-tracked id in
     /// `outstanding_fetches` is converted to a synthetic
     /// `FetchResponse(id, Err("renderer unregistered"))` and
-    /// flows into the returned fetch partition.  Race-window
-    /// fetches that the broker dropped via its stale-cid
-    /// gate (`dispatch::handle_request`) therefore reach
-    /// the elidex-js VM's `tick_network` on the same tick
-    /// the marker arrives, settling their Promises without
-    /// a leak.
+    /// flows into the returned fetch partition (sorted, per
+    /// the ordering rule above).  Race-window fetches that the
+    /// broker dropped via its stale-cid gate
+    /// (`dispatch::handle_request`) therefore reach the
+    /// elidex-js VM's `tick_network` on the same tick the
+    /// marker arrives, settling their Promises without a leak.
     pub fn drain_fetch_responses_only(&self) -> Vec<(FetchId, Result<Response, String>)> {
         // Pre-size both partitions to `prior.len()`: the steady-
         // state per-tick caller (the elidex-js VM's `tick_network`)

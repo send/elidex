@@ -561,9 +561,15 @@ fn fetch_async_after_unregister_returns_synthetic_err_synchronously() {
 /// `fetch_blocking` must short-circuit too: once the marker is
 /// observed (either by a prior drain or by the recv loop's
 /// inline match), a fresh blocking fetch returns
-/// `Err("renderer unregistered")` immediately.  We exercise
-/// the recv-loop branch by issuing the blocking call
-/// concurrently with the unregister.
+/// `Err("renderer unregistered")` immediately — the layer 1
+/// `check_unregistered` gate at the top of the method fires
+/// before any `request_tx.send` / `recv_timeout` work.  We
+/// gate the test on a deterministic `cancel_fetch` short-
+/// circuit observation (the marker is already on the channel
+/// and the flag is set) so the call cannot accidentally land
+/// in the 30 s `recv_timeout` path on a slow CI runner
+/// (Copilot R2 HX5 — pre-fix the test relied on a fixed
+/// 40 ms sleep that could miss the marker under load).
 #[test]
 fn fetch_blocking_after_unregister_returns_err_synchronously() {
     let np = spawn_network_process(test_client());
@@ -571,9 +577,20 @@ fn fetch_blocking_after_unregister_returns_err_synchronously() {
     let cid = renderer.client_id();
 
     np.unregister_renderer(cid);
-    // Yield so the broker definitely processed the unregister
-    // and emitted the marker before the blocking call begins.
-    std::thread::sleep(Duration::from_millis(40));
+
+    // Deterministic gate: poll until the synchronous short-
+    // circuit fires (cancel_fetch returns false), guaranteeing
+    // the `unregistered` flag is set BEFORE we issue the
+    // blocking call.  Layer 1 in fetch_blocking will then
+    // return Err immediately without touching `request_tx`.
+    let gate_deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while std::time::Instant::now() < gate_deadline && renderer.cancel_fetch(FetchId::next()) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        !renderer.cancel_fetch(FetchId::next()),
+        "unregister marker never observed within 1s — short-circuit gate did not fire"
+    );
 
     let started = std::time::Instant::now();
     let result = renderer.fetch_blocking(Request {
@@ -586,11 +603,12 @@ fn fetch_blocking_after_unregister_returns_err_synchronously() {
     let elapsed = started.elapsed();
 
     // Must return promptly — the 30 s recv_timeout would mean
-    // the gate failed.  500 ms is generous slack for a loaded
-    // CI runner while still being orders of magnitude under
-    // the un-gated worst case.
+    // the gate failed.  100 ms is generous slack for a loaded
+    // CI runner once the gate is in place: with `unregistered`
+    // already true, the call should return on its first
+    // statement.
     assert!(
-        elapsed < Duration::from_millis(500),
+        elapsed < Duration::from_millis(100),
         "fetch_blocking after unregister blocked for {elapsed:?} — gate did not fire"
     );
     let msg = result.expect_err("fetch_blocking after unregister must return Err");
@@ -753,6 +771,112 @@ fn renderer_unregistered_event_is_not_surfaced_to_caller() {
             "drain_events surfaced the internal RendererUnregistered marker: {all_events:?}"
         );
     }
+
+    np.shutdown();
+}
+
+/// Slot #10.6b Copilot R2 HX4 regression: straggler
+/// `FetchResponse` events synthesised on marker observation
+/// must arrive in deterministic ascending `FetchId` order
+/// (which matches submission order because `FETCH_ID_COUNTER`
+/// is monotonic).  Pre-fix the synthesis collected the ids by
+/// `HashSet::drain` whose iteration order is non-deterministic,
+/// which violated the public order contract on
+/// `drain_fetch_responses_only` / `drain_events`.
+///
+/// We exercise the order by submitting several stalled fetches
+/// in sequence, dropping the renderer (broker tears it down,
+/// emits the marker; cancel_inflight + synth_aborted fire on
+/// the broker side first, but the race-window ids never
+/// reach cancel_tokens so they only emerge via the renderer-
+/// side straggler path).  We then assert the synthetic
+/// `Err("renderer unregistered")` tail arrives in ascending
+/// id order.  We bypass cancel_tokens by submitting AFTER
+/// `unregister_renderer` (so the broker's stale-cid gate
+/// drops them and only the renderer-side straggler path emits
+/// terminal events).
+#[test]
+fn straggler_synthesis_emits_in_ascending_fetch_id_order() {
+    let np = spawn_network_process(test_client());
+    let renderer = np.create_renderer_handle();
+    let cid = renderer.client_id();
+
+    np.unregister_renderer(cid);
+
+    // Wait for the broker to start processing the unregister
+    // (we want our fetches to land in the race window).  A
+    // brief sleep is sufficient — the assertion below holds
+    // regardless of whether the broker has emitted the marker
+    // yet, because all our submits happen before the next
+    // drain that observes it.
+    std::thread::sleep(Duration::from_millis(20));
+
+    // Submit several fetches.  At least some of these will
+    // land in the race window and be dropped by the broker's
+    // stale-cid gate; their FetchIds remain in
+    // `outstanding_fetches` until the renderer's drain
+    // observes the marker and synthesises terminal Errs in
+    // sorted order.  Even if the layer 1 short-circuit catches
+    // some (after the marker is observed), THOSE go onto
+    // `buffered` directly — order across the
+    // (broker-stalled, layer-1-shortcircuited) split would
+    // matter only if both populated the same drain; here we
+    // collect the FULL set across one or more drains and
+    // assert the IDs we collect are a sorted subsequence.
+    let mut submitted: Vec<FetchId> = Vec::new();
+    for i in 0..6 {
+        let id = renderer.fetch_async(Request {
+            method: "GET".to_string(),
+            url: url::Url::parse(&format!("http://example.invalid/{i}")).unwrap(),
+            headers: Vec::new(),
+            body: bytes::Bytes::new(),
+            ..Default::default()
+        });
+        submitted.push(id);
+    }
+    // We submitted in ascending id order (FETCH_ID_COUNTER is
+    // monotonic), so `submitted` is already sorted; this assert
+    // documents that invariant.
+    assert!(submitted.windows(2).all(|w| w[0].0 < w[1].0));
+
+    // Drain until all six terminal Errs arrive, accumulating
+    // arrival order.  Repeat drains absorb the case where the
+    // marker arrives mid-loop.
+    let mut arrived: Vec<FetchId> = Vec::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline && arrived.len() < submitted.len() {
+        for ev in renderer.drain_events() {
+            if let NetworkToRenderer::FetchResponse(rid, Err(_)) = ev {
+                if submitted.contains(&rid) && !arrived.contains(&rid) {
+                    arrived.push(rid);
+                }
+            }
+        }
+        if arrived.len() < submitted.len() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    assert_eq!(
+        arrived.len(),
+        submitted.len(),
+        "not every submitted id received a terminal Err — got {arrived:?}, expected {submitted:?}"
+    );
+
+    // Within a single drain (i.e. a single straggler synthesis
+    // pass), ids must be ascending.  Across multiple drains
+    // the layer-1 short-circuit can interleave (each
+    // `fetch_async` call after the flag flips emits ONE synth
+    // entry directly to `buffered` before the next drain).
+    // The strictest invariant we can check across drains is
+    // that the FULL collected sequence is non-decreasing —
+    // that holds because every component (straggler tail
+    // sorted, plus layer-1 short-circuits ordered by
+    // submission) is itself ascending and the components
+    // arrive in sorted-id chunks.
+    assert!(
+        arrived.windows(2).all(|w| w[0].0 < w[1].0),
+        "synthesised terminal Errs not in ascending FetchId order — got {arrived:?}"
+    );
 
     np.shutdown();
 }
