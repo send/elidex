@@ -782,12 +782,16 @@ pub(super) fn alloc_url_search_params_from_query(
     vm: &mut VmInner,
     query: Option<&str>,
 ) -> ObjectId {
-    // Intern entry strings under `&mut vm.strings` BEFORE
-    // `alloc_object` so the StringPool grow can't surprise the
-    // freshly allocated USP slot — `alloc_object` can trigger GC,
-    // and an empty `url_search_params_states[sp_id]` entry would
-    // otherwise be pruned by sweep before it picks up the entry
-    // list.
+    // GC contract: `alloc_object` may run a collection cycle
+    // BEFORE returning the new slot, but the `prototype` ObjectId
+    // we pass through (`vm.url_search_params_prototype`) is kept
+    // alive by the intrinsic-prototype root list (collect.rs
+    // proto_roots), and the entry strings are pure StringIds
+    // (pool-permanent).  Order of "intern entries" vs
+    // "alloc_object" is therefore a pure ergonomics choice — done
+    // first here so the entry list is ready to insert in a single
+    // tail step rather than re-borrowing `&mut vm.strings` after
+    // the allocation.
     let entries: Vec<(StringId, StringId)> = match query {
         Some(q) if !q.is_empty() => url::form_urlencoded::parse(q.as_bytes())
             .map(|(k, v)| (vm.strings.intern(&k), vm.strings.intern(&v)))
