@@ -277,7 +277,7 @@ pub(crate) fn op_neg(vm: &mut VmInner, val: JsValue) -> Result<JsValue, VmError>
 }
 
 /// Unary `+` (ToNumber).
-pub(crate) fn op_pos(vm: &VmInner, val: JsValue) -> Result<JsValue, VmError> {
+pub(crate) fn op_pos(vm: &mut VmInner, val: JsValue) -> Result<JsValue, VmError> {
     if matches!(val, JsValue::BigInt(_)) {
         return Err(VmError::type_error(
             "Cannot convert a BigInt value to a number",

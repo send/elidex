@@ -140,14 +140,18 @@ pub(super) fn native_string_last_index_of(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let search_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    // Coerce the position argument before acquiring slice borrows —
+    // `to_number` takes `&mut ctx` so any prior `&[u16]` borrow would conflict.
+    let pos_n = match args.get(1) {
+        Some(&a) => Some(ctx.to_number(a)?),
+        None => None,
+    };
     let search = ctx.get_u16(search_id);
     let s = ctx.get_u16(sid);
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let pos = if let Some(&a) = args.get(1) {
-        let n = ctx.to_number(a)?;
-        if n.is_nan() {
-            s.len()
-        } else {
+    let pos = match pos_n {
+        Some(n) if n.is_nan() => s.len(),
+        Some(n) => {
             let t = n.trunc();
             if t < 0.0 {
                 0usize
@@ -155,8 +159,7 @@ pub(super) fn native_string_last_index_of(
                 (t as usize).min(s.len())
             }
         }
-    } else {
-        s.len()
+        None => s.len(),
     };
     // Search backwards: find last occurrence at or before pos
     if search.is_empty() {
@@ -179,9 +182,9 @@ pub(super) fn native_string_code_point_at(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
-    let s = ctx.get_u16(sid);
     let pos_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let pos = coerce::to_integer_or_infinity(ctx.to_number(pos_arg)?);
+    let s = ctx.get_u16(sid);
     #[allow(clippy::cast_sign_loss)]
     let idx = pos as usize;
     if pos < 0.0 || idx >= s.len() {

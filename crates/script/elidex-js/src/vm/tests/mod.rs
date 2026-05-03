@@ -76,6 +76,7 @@ mod tests_string_complement;
 mod tests_structured_clone;
 mod tests_text_encoding;
 mod tests_timer;
+mod tests_to_primitive_fallback;
 mod tests_try_catch_finally;
 mod tests_typed_array;
 mod tests_typed_array_extras;

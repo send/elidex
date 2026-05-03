@@ -115,18 +115,16 @@ fn signal_option_non_abort_signal_throws_type_error() {
     let mut dom = EcsDom::new();
     let _entity = bind_with_div(&mut vm, &mut session, &mut dom);
 
-    // Catch surfaces the TypeError; use `e.toString()` rather
-    // than `String(e)` because the VM's simplified
-    // OrdinaryToPrimitive returns `"[object Object]"` for
-    // non-wrapper receivers (§7.1.1.1 open task — see `ops.rs`
-    // `to_primitive` simplification note).
+    // §7.1.12 step 9 → §7.1.1.1 routes `String(e)` through the user-
+    // defined `toString()` for non-wrapper Objects, so the catch arm
+    // can use either form interchangeably.
     let result = vm
         .eval(
             "var caught = '';
              try {
                target.addEventListener('click', function() {}, {signal: 'not a signal'});
                caught = 'no-throw';
-             } catch(e) { caught = e.toString(); }
+             } catch(e) { caught = String(e); }
              caught;",
         )
         .unwrap();

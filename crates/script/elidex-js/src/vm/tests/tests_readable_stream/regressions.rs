@@ -499,14 +499,6 @@ fn stream_tee_method_not_installed() {
 /// `ToString` before membership-check.  A `String` wrapper
 /// (`new String("byob")`) should reach the BYOB branch — pre-fix
 /// the Rust `match` only accepted a primitive `JsValue::String`.
-///
-/// **Limitation**: full ToString for plain objects (calling
-/// `OrdinaryToPrimitive`/`toString()`) is not yet implemented in
-/// `vm/coerce.rs::to_string` — non-wrapper Objects still resolve
-/// to the `object_to_string` placeholder.  Once that lands the
-/// `{ toString() { return "byob"; } }` form will reach the BYOB
-/// branch automatically; tracked alongside the broader
-/// ToString/ToNumber rework in `phase4-plan.md`.
 #[test]
 fn get_reader_mode_string_wrapper_byob_throws_unsupported() {
     let mut vm = Vm::new();
@@ -514,6 +506,28 @@ fn get_reader_mode_string_wrapper_byob_throws_unsupported() {
         r#"
         const s = new ReadableStream();
         s.getReader({ mode: new String("byob") });
+        "#,
+    );
+    let err = result.expect_err("BYOB throw expected");
+    assert!(
+        err.to_string().contains("BYOB"),
+        "expected BYOB-unsupported message, got: {err}"
+    );
+}
+
+/// Slot #10.7 coverage: a plain Object whose `toString()` returns
+/// `"byob"` must also reach the BYOB branch via §7.1.12 step 9 →
+/// §7.1.1.1 OrdinaryToPrimitive.  Pre-slot-#10.7 the placeholder
+/// shortcut returned `"[object Object]"` and the enum match silently
+/// fell through to the `"default"` branch; this regression test
+/// guards the new walk against future drift.
+#[test]
+fn get_reader_mode_plain_object_to_string_byob_throws_unsupported() {
+    let mut vm = Vm::new();
+    let result = vm.eval(
+        r#"
+        const s = new ReadableStream();
+        s.getReader({ mode: { toString() { return "byob"; } } });
         "#,
     );
     let err = result.expect_err("BYOB throw expected");

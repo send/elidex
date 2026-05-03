@@ -134,13 +134,10 @@ fn name_setter_coerces_via_to_string() {
 }
 
 #[test]
-fn name_setter_object_falls_back_to_object_to_string() {
-    // Documents the current `coerce::to_string` Object limitation
-    // (tracked in phase4-plan.md): a non-wrapper Object skips the
-    // ECMA-262 §7.1.17 OrdinaryToPrimitive(hint='string') walk and
-    // becomes `"[object Object]"`.  When the limitation is lifted,
-    // this test will need updating — flag here so the user-defined
-    // `toString()` behaviour is exercised at that point.
+fn name_setter_invokes_user_to_string() {
+    // §7.1.12 step 9 → §7.1.1.1: a non-wrapper Object passed through
+    // `ToString` runs `OrdinaryToPrimitive(hint='string')`, which calls
+    // user-defined `toString()` first and returns the produced primitive.
     let mut vm = Vm::new();
     let v = vm
         .eval(
@@ -151,7 +148,7 @@ fn name_setter_object_falls_back_to_object_to_string() {
     let JsValue::String(id) = v else {
         panic!("expected string, got {v:?}");
     };
-    assert_eq!(vm.get_string(id), "[object Object]");
+    assert_eq!(vm.get_string(id), "from-object");
 }
 
 #[test]
