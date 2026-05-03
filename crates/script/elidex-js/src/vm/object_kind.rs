@@ -484,18 +484,28 @@ pub enum ObjectKind {
     /// `URL` instance (WHATWG URL §6.1).  Payload-free; the parsed
     /// [`url::Url`] + the linked `URLSearchParams` `ObjectId` (eagerly
     /// allocated by the constructor for `searchParams` identity
-    /// stability) live out-of-band in
-    /// [`super::VmInner::url_states`] keyed by this `ObjectId`.
-    /// Same model as `URLSearchParams` — keeping the variant
-    /// payload-free preserves per-variant size discipline.
+    /// stability) live out-of-band in `VmInner::url_states` keyed
+    /// by this `ObjectId`.  Same model as `URLSearchParams` —
+    /// keeping the variant payload-free preserves per-variant
+    /// size discipline.
     ///
     /// GC contract: the trace step marks the linked `URLSearchParams`
     /// `ObjectId` if any, so `let p = new URL("…").searchParams; …`
     /// keeps the URL alive while only the `searchParams` reference
     /// is held (the `URLSearchParams` mutator natives consult
-    /// [`super::VmInner::usp_parent_url`] to write changes back to
-    /// the URL's query).  Sweep tail prunes entries whose key
+    /// `VmInner::usp_parent_url` to write changes back to the
+    /// URL's query).  Sweep tail prunes entries whose key
     /// `ObjectId` was collected.
+    //
+    // Plain backticks instead of intra-doc links to the private
+    // `VmInner` fields — the `rustdoc::private_intra_doc_links`
+    // lint fires public→private (this `URL` variant is `pub`).
+    // Pre-existing siblings (`FormData`, `ReadableStream`,
+    // `URLSearchParams`) have the same broken-link pattern and
+    // `mise run doc` masks it by not enabling the `engine`
+    // feature, but the docs build cleanly under
+    // `cargo doc --features engine -D warnings` for this variant.
+    // (Lesson #140.)
     #[cfg(feature = "engine")]
     URL,
     /// `FormData` instance (WHATWG XHR §4.3).  Payload-free;
