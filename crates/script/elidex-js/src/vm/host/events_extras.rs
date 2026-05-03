@@ -99,7 +99,10 @@ fn read_any(
 }
 
 /// Read a boolean init-dict member — `undefined` → `default`; otherwise
-/// coerce via WebIDL `boolean` semantics (`ToBoolean`, never throws).
+/// coerce via WebIDL `boolean` semantics (`ToBoolean`).  The
+/// `ToBoolean` step itself is total / never throws, but the preceding
+/// `get_property_value` may invoke a user-defined getter on the init
+/// dict that throws — that error is propagated unchanged.
 fn read_bool(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
@@ -115,10 +118,13 @@ fn read_bool(
     })
 }
 
-/// Read a `unsigned short` init-dict member — `undefined` → `default`;
+/// Read an `unsigned short` init-dict member — `undefined` → `default`;
 /// otherwise coerce via WebIDL `unsigned short` semantics (ToNumber +
 /// modulo-2^16 truncation, no `[EnforceRange]`).  Used by
-/// `CloseEvent.code` (no `[EnforceRange]` in the WHATWG IDL).
+/// `CloseEvent.code` (no `[EnforceRange]` in the WHATWG IDL).  Both
+/// the property read and the inner `ToNumber` step (via
+/// `coerce::to_uint16`) may throw — those errors propagate unchanged
+/// through the `?` returns above.
 fn read_uint16(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
