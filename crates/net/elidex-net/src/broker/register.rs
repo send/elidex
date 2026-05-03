@@ -86,6 +86,7 @@ pub(super) fn register_with_ack(
     client_id: u64,
     response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
     unregistered: Arc<AtomicBool>,
+    parent_client_id: Option<u64>,
     caller_label: &'static str,
 ) -> bool {
     register_with_ack_for_test(
@@ -93,6 +94,7 @@ pub(super) fn register_with_ack(
         client_id,
         response_tx,
         unregistered,
+        parent_client_id,
         caller_label,
         REGISTER_ACK_TIMEOUT,
     )
@@ -109,6 +111,7 @@ fn register_with_ack_for_test(
     client_id: u64,
     response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
     unregistered: Arc<AtomicBool>,
+    parent_client_id: Option<u64>,
     caller_label: &'static str,
     timeout: Duration,
 ) -> bool {
@@ -119,6 +122,7 @@ fn register_with_ack_for_test(
             client_id,
             response_tx,
             unregistered,
+            parent_client_id,
             ack_tx,
         })
         .is_err()
@@ -231,6 +235,7 @@ mod tests {
             999,
             response_tx,
             Arc::new(AtomicBool::new(false)),
+            None,
             "test",
             Duration::from_millis(20),
         );
@@ -291,6 +296,7 @@ mod tests {
             42,
             response_tx,
             Arc::new(AtomicBool::new(false)),
+            None,
             "test",
             // The timeout would only fire if we got past the
             // SendError check.  Use a value that would visibly
@@ -332,6 +338,7 @@ mod tests {
             7,
             response_tx,
             Arc::new(AtomicBool::new(false)),
+            None,
             "test",
             Duration::from_secs(2),
         );
@@ -340,6 +347,73 @@ mod tests {
             "ack received from surrogate broker — live handle expected"
         );
         surrogate.join().expect("surrogate broker thread panicked");
+    }
+
+    /// Slot #10.6c (Copilot R13 F1) regression: when
+    /// `parent_client_id` is `Some(p)` and the broker no longer
+    /// has `p` in its `clients` map, the broker refuses the
+    /// sibling registration by dropping `ack_tx` without sending
+    /// — the renderer's `recv_timeout` then returns
+    /// `Disconnected` and the helper falls through to
+    /// pre_unregistered.  Closes the atomic-load TOCTOU window
+    /// in `create_sibling_handle`: the broker's FIFO drain of
+    /// `control_rx` serialises sibling Register against any
+    /// preceding `UnregisterRenderer` for the parent.  Top-
+    /// level renderer creation (`parent_client_id == None`)
+    /// stays unaffected and is allowed unconditionally.
+    #[test]
+    fn sibling_register_refused_when_parent_id_not_in_broker_clients() {
+        let (control_tx, control_rx) = crossbeam_channel::unbounded();
+        let (response_tx, _response_rx) = crossbeam_channel::unbounded();
+
+        // Surrogate broker: drains control_rx and dispatches
+        // RegisterRenderer manually — only acks if parent_id
+        // is None or registered.  Mirrors the production
+        // dispatch::handle_control logic for this branch.
+        let surrogate = std::thread::spawn(move || {
+            // Broker has NO clients registered (we never sent
+            // any RegisterRenderer for the supposed parent
+            // before the test's call).  parent_client_id
+            // = Some(999) → broker refuses.
+            if let Ok(NetworkProcessControl::RegisterRenderer {
+                parent_client_id,
+                ack_tx,
+                ..
+            }) = control_rx.recv_timeout(Duration::from_secs(2))
+            {
+                if parent_client_id.is_some() {
+                    // Refuse: drop ack_tx without sending.
+                    drop(ack_tx);
+                } else {
+                    // Top-level: accept.
+                    let _ = ack_tx.send(());
+                }
+            }
+        });
+
+        let started = std::time::Instant::now();
+        let pre_unregistered = register_with_ack_for_test(
+            &control_tx,
+            42,
+            response_tx,
+            Arc::new(AtomicBool::new(false)),
+            // Parent id 999 is unknown to the surrogate broker
+            // (no registrations done) → refuse path.
+            Some(999),
+            "test-sibling-refused",
+            Duration::from_secs(5),
+        );
+        let elapsed = started.elapsed();
+        surrogate.join().expect("surrogate thread panicked");
+
+        assert!(
+            pre_unregistered,
+            "broker refused the sibling Register; helper must return pre_unregistered=true"
+        );
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "broker-refusal Disconnect should fire sub-second; got {elapsed:?}"
+        );
     }
 
     /// Slot #10.6c (Copilot R12 F1) regression: distinct from
@@ -378,6 +452,7 @@ mod tests {
             123,
             response_tx,
             Arc::new(AtomicBool::new(false)),
+            None,
             "test",
             // Generous timeout: the disconnect should fire well
             // before we approach this ceiling.  Anything close

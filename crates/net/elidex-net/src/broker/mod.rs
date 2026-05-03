@@ -192,12 +192,31 @@ pub(crate) enum NetworkProcessControl {
         /// `response_tx` from `emit_renderer_unregistered` —
         /// gives any concurrent
         /// `NetworkHandle::create_sibling_handle` against this
-        /// cid an O(1) `Acquire` load to detect "parent is
-        /// unregistered" instead of having to drain the
-        /// parent's response channel looking for the queued
-        /// marker (Copilot R9: the drain was unbounded in WS /
-        /// SSE backlog size).
+        /// cid an O(1) `Acquire` load fast-path for the common
+        /// case (parent observably unregistered before sibling
+        /// creation).  R13 strengthening: the load alone is a
+        /// snapshot, not exclusion — see `parent_client_id`.
         unregistered: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        /// Slot #10.6c R13: when registering a **sibling** of
+        /// an existing renderer (via
+        /// [`NetworkHandle::create_sibling_handle`]), this
+        /// carries the parent's `client_id` so the broker can
+        /// check `parent_id ∈ clients` BEFORE inserting the
+        /// sibling.  Closes the TOCTOU between
+        /// `create_sibling_handle`'s atomic-load fast-path and
+        /// the broker's `emit_renderer_unregistered` for the
+        /// parent: with this field, the broker's FIFO drain of
+        /// `control_rx` serialises the sibling's Register
+        /// against any preceding `UnregisterRenderer` for the
+        /// parent — if the parent's `clients.remove` has
+        /// happened first (FIFO order in control_tx), the
+        /// broker drops the sibling's `ack_tx` without sending
+        /// and the renderer's `register_with_ack` recv returns
+        /// `Disconnected`, falling through to the
+        /// pre-unregistered fallback.  `None` for top-level
+        /// `create_renderer_handle` (no parent — that path is
+        /// always allowed).
+        parent_client_id: Option<u64>,
         /// Slot #10.6c: one-shot ack so the caller of
         /// [`NetworkProcessHandle::create_renderer_handle`]
         /// (and [`NetworkHandle::create_sibling_handle`])

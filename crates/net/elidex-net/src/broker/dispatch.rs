@@ -566,8 +566,33 @@ impl NetworkProcessState {
                 client_id,
                 response_tx,
                 unregistered,
+                parent_client_id,
                 ack_tx,
             } => {
+                // Slot #10.6c R13: sibling registration is gated
+                // on the parent still being live — the broker
+                // sees control messages in FIFO order on
+                // `control_tx`, so by the time we get here, any
+                // prior `UnregisterRenderer { client_id: parent }`
+                // has already removed the parent from `clients`.
+                // Refusing the Register (drop `ack_tx` without
+                // sending so the renderer's `recv_timeout`
+                // returns `Disconnected`) is the broker-mediated
+                // exclusion that closes the TOCTOU window the
+                // renderer-side atomic-load fast-path could not.
+                // Top-level `create_renderer_handle` calls pass
+                // `parent_client_id: None`, which always passes
+                // this check.
+                if let Some(parent_id) = parent_client_id {
+                    if !self.clients.contains_key(&parent_id) {
+                        // Drop ack_tx implicitly at end of arm:
+                        // the renderer's recv_timeout sees
+                        // Disconnect → pre_unregistered=true.
+                        // No `clients.insert`: the sibling never
+                        // enters the broker's bookkeeping.
+                        return true;
+                    }
+                }
                 self.clients.insert(
                     client_id,
                     ClientEntry {

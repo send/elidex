@@ -88,6 +88,9 @@ impl NetworkProcessHandle {
             client_id,
             response_tx,
             Arc::clone(&unregistered),
+            // Top-level renderer has no parent — slot #10.6c R13
+            // parent-alive gate doesn't apply.
+            None,
             "create_renderer_handle",
         );
         if pre_unregistered {
@@ -377,6 +380,18 @@ impl NetworkHandle {
                 client_id,
                 response_tx,
                 Arc::clone(&unregistered),
+                // Slot #10.6c R13: pass our cid as the parent
+                // so the broker can refuse the sibling's
+                // Register if our cid has already been removed
+                // from `clients` (closing the atomic-load
+                // TOCTOU window — the broker drains control_tx
+                // FIFO, so if `UnregisterRenderer { client_id:
+                // self.client_id }` was sent first, it has
+                // already removed us by the time this Register
+                // is processed and the broker drops `ack_tx`
+                // unsent → renderer sees Disconnect →
+                // pre_unregistered).
+                Some(self.client_id),
                 "create_sibling_handle",
             )
         };
