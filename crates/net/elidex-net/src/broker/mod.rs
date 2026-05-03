@@ -151,6 +151,30 @@ pub enum NetworkProcessControl {
         client_id: u64,
         /// Channel to send responses/events to this renderer.
         response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
+        /// Slot #10.6c: one-shot ack so the caller of
+        /// [`NetworkProcessHandle::create_renderer_handle`]
+        /// (and [`NetworkHandle::create_sibling_handle`])
+        /// can block until the broker has actually inserted
+        /// `client_id` into its `clients` map.  Closes the
+        /// cross-channel race where a `Fetch` on `request_tx`
+        /// could be observed by the broker BEFORE the matching
+        /// `RegisterRenderer` on `control_tx`: the broker drains
+        /// control before request within an iteration, but a
+        /// renderer that calls `fetch_async` immediately after
+        /// `create_renderer_handle` returns can still post a
+        /// Fetch into a request-drain loop already in progress
+        /// — the Fetch is then silently dropped by the broker's
+        /// stale-cid gate (`dispatch::handle_request`
+        /// early-return) because Register hasn't been processed
+        /// yet.  The handshake makes that race impossible: the
+        /// renderer doesn't get a usable `NetworkHandle` until
+        /// the broker has acknowledged `clients.insert`, so any
+        /// subsequent `request_tx.send` is happens-after the
+        /// insert by transitive program order.  The receiver
+        /// side is held by the factory function and dropped
+        /// after `recv_timeout`; broker `send` is best-effort
+        /// (`bounded(1)`, fire-and-forget).
+        ack_tx: crossbeam_channel::Sender<()>,
     },
     /// Unregister a renderer (content thread shutting down).
     UnregisterRenderer {

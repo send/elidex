@@ -21,6 +21,96 @@ use super::{
     FetchId, NetworkProcessControl, NetworkToRenderer, RendererToNetwork, CLIENT_ID_COUNTER,
 };
 
+/// Slot #10.6c: upper bound a renderer-creation call waits for
+/// the broker's `RegisterRenderer` ack.
+///
+/// 5 s mirrors the upper bound used elsewhere in this crate
+/// (e.g. the `fetch_blocking` 30 s recv timeout has a tighter
+/// inner ceiling for control paths) and absorbs a heavily-loaded
+/// broker servicing other renderers' teardowns ahead of us.  The
+/// healthy path is sub-millisecond — one broker iteration
+/// (`sel.ready_timeout(1s)` wakes immediately on the new control
+/// message) plus the ack send.  The 5 s ceiling exists to bound
+/// pathological blocking on a hung-but-alive broker; on timeout
+/// the caller receives a pre-unregistered `NetworkHandle` so
+/// every subsequent operation surfaces the slot #10.6b synthetic
+/// error path immediately rather than queueing into a broker
+/// that has no `clients` entry for us.
+const REGISTER_ACK_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Slot #10.6c: send `RegisterRenderer { client_id, response_tx,
+/// ack_tx }` on `control_tx` and block on the ack receiver up
+/// to [`REGISTER_ACK_TIMEOUT`].  Returns `true` when the caller
+/// should construct a **pre-unregistered** [`NetworkHandle`]
+/// (the ack was lost — broker is hung or already gone),
+/// `false` on a healthy ack.
+///
+/// `caller_label` distinguishes the warn-log emit site
+/// (`create_renderer_handle` vs `create_sibling_handle`) so an
+/// operator chasing a ack-timeout in the wild can pinpoint the
+/// factory without adding a stack-trace to every log line.
+///
+/// The `bounded(1)` capacity is the standard rendezvous shape
+/// for a single-shot ack: it guarantees that a successful broker
+/// send happens-before the receiver's `recv` returns Ok.  A
+/// `bounded(0)` rendezvous would also work but adds a
+/// synchronous-handoff requirement that does nothing for
+/// correctness here (the broker has already inserted into
+/// `clients` by the time it sends the ack — buffering one element
+/// for the broker to release the channel immediately is fine).
+fn register_with_ack(
+    control_tx: &crossbeam_channel::Sender<NetworkProcessControl>,
+    client_id: u64,
+    response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
+    caller_label: &'static str,
+) -> bool {
+    let (ack_tx, ack_rx) = crossbeam_channel::bounded(1);
+
+    if control_tx
+        .send(NetworkProcessControl::RegisterRenderer {
+            client_id,
+            response_tx,
+            ack_tx,
+        })
+        .is_err()
+    {
+        // Broker control channel is already closed: no point
+        // waiting on the ack at all.  Return pre-unregistered so
+        // the caller's NetworkHandle short-circuits every
+        // subsequent operation via the slot #10.6b machinery.
+        tracing::warn!(
+            client_id,
+            caller = caller_label,
+            "RegisterRenderer send failed — broker is gone; \
+             returning a pre-unregistered handle"
+        );
+        return true;
+    }
+
+    match ack_rx.recv_timeout(REGISTER_ACK_TIMEOUT) {
+        Ok(()) => false,
+        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+            tracing::warn!(
+                client_id,
+                caller = caller_label,
+                timeout_secs = REGISTER_ACK_TIMEOUT.as_secs(),
+                "RegisterRenderer ack timed out — broker may be hung; \
+                 returning a pre-unregistered handle so callers see synthetic Err"
+            );
+            true
+        }
+        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+            tracing::warn!(
+                client_id,
+                caller = caller_label,
+                "RegisterRenderer ack channel disconnected — broker exited \
+                 before acking; returning a pre-unregistered handle"
+            );
+            true
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // NetworkProcessHandle (Browser side)
 // ---------------------------------------------------------------------------
@@ -41,17 +131,33 @@ impl NetworkProcessHandle {
     /// Create a new renderer handle and register it with the Network Process.
     ///
     /// The returned [`NetworkHandle`] should be passed to the content thread.
+    ///
+    /// **Blocks** until the broker acknowledges the registration
+    /// (slot #10.6c).  This closes the cross-channel race where
+    /// a Fetch on `request_tx` could be observed by the broker
+    /// BEFORE the matching `RegisterRenderer` on `control_tx`
+    /// — the broker's stale-cid gate would have silently dropped
+    /// the Fetch and the renderer-side `pending_fetches[id]`
+    /// Promise would have stayed pending forever.  The wait is
+    /// bounded by an internal 5-second `REGISTER_ACK_TIMEOUT`;
+    /// on timeout or channel disconnect the call falls through
+    /// to a **pre-unregistered** [`NetworkHandle`] — every
+    /// subsequent `fetch_async` / `fetch_blocking` /
+    /// `cancel_fetch` / `send` short-circuits with the same
+    /// synthetic terminal `Err` slot #10.6b emits for a torn-
+    /// down renderer (rather than racing against a broker we
+    /// have no evidence is alive).  Healthy registration latency
+    /// is sub-millisecond.
     #[must_use]
     pub fn create_renderer_handle(&self) -> NetworkHandle {
         let client_id = CLIENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let (response_tx, response_rx) = crossbeam_channel::unbounded();
-
-        let _ = self
-            .control_tx
-            .send(NetworkProcessControl::RegisterRenderer {
-                client_id,
-                response_tx,
-            });
+        let pre_unregistered = register_with_ack(
+            &self.control_tx,
+            client_id,
+            response_tx,
+            "create_renderer_handle",
+        );
 
         NetworkHandle {
             client_id,
@@ -59,7 +165,15 @@ impl NetworkProcessHandle {
             control_tx: self.control_tx.clone(),
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
-            unregistered: Arc::new(AtomicBool::new(false)),
+            // Slot #10.6c: pre-set to `true` if the ack was lost
+            // (timeout / disconnect).  Reuses slot #10.6b's
+            // `unregistered` short-circuit machinery so the
+            // user-observable error is consistent across "broker
+            // dead at register time" and "broker tore us down
+            // post-register" without inventing a new error
+            // variant.  `false` on a healthy ack matches the
+            // pre-#10.6c shape.
+            unregistered: Arc::new(AtomicBool::new(pre_unregistered)),
             outstanding_fetches: std::cell::RefCell::new(HashSet::new()),
             #[cfg(feature = "test-hooks")]
             mock_responses: None,
@@ -243,17 +357,27 @@ impl NetworkHandle {
     /// Used to create handles for Web Workers spawned by this content thread.
     /// The sibling gets its own client ID and response channel but shares
     /// the request and control channels (same broker, same cookie jar).
+    ///
+    /// **Blocks** on the broker's `RegisterRenderer` ack with the
+    /// same 5-second timeout semantics as
+    /// [`NetworkProcessHandle::create_renderer_handle`] (slot
+    /// #10.6c).  If the parent's `NetworkProcessHandle` is mid-
+    /// shutdown when this is called, the ack times out / the
+    /// channel disconnects and the sibling is returned in the
+    /// pre-unregistered state — every subsequent op surfaces the
+    /// slot #10.6b synthetic error path immediately.  This is
+    /// the correct behaviour: panicking would destabilise
+    /// renderer threads that legitimately race shutdown.
     #[must_use]
     pub fn create_sibling_handle(&self) -> Self {
         let client_id = CLIENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let (response_tx, response_rx) = crossbeam_channel::unbounded();
-
-        let _ = self
-            .control_tx
-            .send(NetworkProcessControl::RegisterRenderer {
-                client_id,
-                response_tx,
-            });
+        let pre_unregistered = register_with_ack(
+            &self.control_tx,
+            client_id,
+            response_tx,
+            "create_sibling_handle",
+        );
 
         Self {
             client_id,
@@ -261,13 +385,17 @@ impl NetworkHandle {
             control_tx: self.control_tx.clone(),
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
-            // Slot #10.6b: siblings get fresh state — each has
-            // its own response channel + cid, so the parent's
-            // unregister marker is delivered only on the
-            // parent's response channel, not here.  Sharing the
-            // flag would incorrectly disable the sibling on the
-            // parent's teardown.
-            unregistered: Arc::new(AtomicBool::new(false)),
+            // Slot #10.6b/c: siblings get fresh flag state.
+            // Each has its own response channel + cid, so the
+            // parent's unregister marker is delivered only on
+            // the parent's response channel, not here.  Sharing
+            // the flag would incorrectly disable the sibling on
+            // the parent's teardown.  The flag is pre-set to
+            // `true` if the slot #10.6c ack handshake failed for
+            // this sibling (broker hung / gone), so the user-
+            // observable error is consistent with a torn-down
+            // renderer.
+            unregistered: Arc::new(AtomicBool::new(pre_unregistered)),
             outstanding_fetches: std::cell::RefCell::new(HashSet::new()),
             #[cfg(feature = "test-hooks")]
             mock_responses: None,

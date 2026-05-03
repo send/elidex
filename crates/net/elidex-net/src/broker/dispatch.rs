@@ -219,23 +219,55 @@ impl NetworkProcessState {
         // because `UnregisterRenderer` ran `close_all_for_client`
         // + `cancel_inflight_fetches_for` on the way out.
         //
-        // **Layered defence** (slot #10.6b): the renderer-side
-        // [`super::handle::NetworkHandle`] also short-circuits
-        // `fetch_async` / `fetch_blocking` / `cancel_fetch` /
-        // `send` once it observes the
-        // [`NetworkToRenderer::RendererUnregistered`] back-edge,
-        // and tracks issued [`FetchId`]s in
-        // `outstanding_fetches` so any race-window fetch dropped
-        // here still gets a synthetic terminal `Err` reply
-        // injected via the renderer's local `buffered` queue.
-        // Together the two layers close the
-        // synthesise → cancel → clients.remove window where a
-        // post-step-1 / pre-step-4 fetch_async would otherwise
-        // leak its Promise.  This gate stays in place as the
-        // broker-side floor for handles that haven't yet observed
-        // the marker (e.g. a sibling that just woke up to send
-        // before its drain ran) and as a defence against any
-        // future renderer that bypasses the handle helpers.
+        // **Layered defence**.  Three independent layers cover
+        // distinct windows of the renderer-lifecycle race:
+        //
+        // 1. **Pre-register** (slot #10.6c): the
+        //    [`super::handle::NetworkProcessHandle::create_renderer_handle`]
+        //    /
+        //    [`super::handle::NetworkHandle::create_sibling_handle`]
+        //    factories now block on a one-shot ack from
+        //    [`Self::handle_control`]'s `RegisterRenderer` arm
+        //    before returning a usable [`super::handle::NetworkHandle`].
+        //    That makes the legitimate Register-then-Fetch race
+        //    impossible: any send on `request_tx` from a
+        //    successfully-registered handle is happens-after the
+        //    broker's `clients.insert`, so the cid is guaranteed
+        //    present by the time this gate runs.
+        // 2. **Post-unregister** (slot #10.6b): the renderer-side
+        //    [`super::handle::NetworkHandle`] short-circuits
+        //    `fetch_async` / `fetch_blocking` / `cancel_fetch` /
+        //    `send` once it observes the
+        //    [`NetworkToRenderer::RendererUnregistered`]
+        //    back-edge, and tracks issued [`FetchId`]s in
+        //    `outstanding_fetches` so any race-window fetch
+        //    dropped HERE still gets a synthetic terminal `Err`
+        //    reply injected via the renderer's local `buffered`
+        //    queue.  Together with the order contract in
+        //    [`Self::emit_renderer_unregistered`] /
+        //    [`Self::synthesise_aborted_replies_for_client`]
+        //    this closes the synthesise → cancel →
+        //    clients.remove window.
+        // 3. **This gate (defensive floor)**: with #10.6c the
+        //    legitimate cross-channel race is gone, but the gate
+        //    still earns its keep against (a) stale
+        //    [`super::handle::NetworkHandle`] state captured in
+        //    background threads (e.g. a worker that sent a Fetch
+        //    before its parent was unregistered, where #10.6b's
+        //    renderer-side flag hasn't been observed yet), (b)
+        //    any future caller that bypasses the handle helpers
+        //    and posts a `(cid, msg)` tuple directly onto
+        //    `request_tx`, and (c) Fetches dispatched between
+        //    [`Self::synthesise_aborted_replies_for_client`] and
+        //    `clients.remove` in the broker-side teardown
+        //    sequence (also covered by layer 2 stragglers, but
+        //    the broker-side drop is cheaper and avoids spawning
+        //    a fetch worker that would have no `tx` to deliver
+        //    on).  See lesson #134 in the slot #10.6b landing
+        //    memo: when adding a renderer-side gate that
+        //    overlaps a broker-side gate, document the layered
+        //    defence explicitly to pre-empt "delete redundant
+        //    code" reviews.
         if !self.clients.contains_key(&cid) {
             return;
         }
@@ -494,8 +526,22 @@ impl NetworkProcessState {
             NetworkProcessControl::RegisterRenderer {
                 client_id,
                 response_tx,
+                ack_tx,
             } => {
                 self.clients.insert(client_id, response_tx);
+                // Slot #10.6c: ack AFTER insert so a renderer
+                // waking from `recv_timeout` observes the cid as
+                // registered.  Send is best-effort: a dropped
+                // receiver (renderer abandoned the handshake on
+                // its own timeout / disconnect path) is not an
+                // error from the broker's perspective.  The
+                // handshake closes the cross-channel race where
+                // a Fetch on `request_tx` could be observed
+                // before the matching Register on `control_tx`
+                // (the stale-cid gate would silently drop it);
+                // see [`super::NetworkProcessControl::RegisterRenderer`]
+                // for the full rationale.
+                let _ = ack_tx.send(());
                 true
             }
             NetworkProcessControl::UnregisterRenderer { client_id } => {
