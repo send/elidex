@@ -586,6 +586,23 @@ pub(super) fn url_component(
     Ok(JsValue::String(sid))
 }
 
+/// Resolve `id` to its mutable [`UrlState`] entry, or throw
+/// `TypeError("missing internal slot")` if the side-table has no
+/// entry for the brand-checked receiver.  Mirror of
+/// [`url_component`]'s defensive posture for the read side; used
+/// by every setter in [`setters`] to keep the read / write
+/// branches symmetric (both fail loudly on a GC-rooting bug or
+/// manually-promoted `ObjectKind::URL` instance instead of
+/// silently no-oping).
+pub(super) fn require_url_state_mut(
+    vm: &mut VmInner,
+    id: ObjectId,
+) -> Result<&mut UrlState, VmError> {
+    vm.url_states
+        .get_mut(&id)
+        .ok_or_else(|| VmError::type_error("URL: missing internal slot"))
+}
+
 /// Brand check — every `URL.prototype.*` native rejects receivers
 /// whose `ObjectKind` is not `URL` with a `TypeError`.  Mirror of
 /// [`super::url_search_params::require_usp_this`].

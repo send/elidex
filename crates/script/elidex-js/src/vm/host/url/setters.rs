@@ -15,7 +15,7 @@
 //! `URLSearchParams` entry list after a query mutation.
 
 use super::super::super::value::{JsValue, NativeContext, VmError};
-use super::{rebuild_linked_search_params, require_url_this};
+use super::{rebuild_linked_search_params, require_url_state_mut, require_url_this};
 
 /// `url.href = …` — full re-parse.  Throws `TypeError` when the
 /// new value does not parse as an absolute URL (matches V8 / Firefox
@@ -31,9 +31,7 @@ pub(super) fn native_url_set_href(
     let val = take_url_setter_arg(ctx, args)?;
     let parsed = url::Url::parse(&val)
         .map_err(|_| VmError::type_error(format!("URL: invalid URL: {val}")))?;
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        state.url = parsed;
-    }
+    require_url_state_mut(ctx.vm, id)?.url = parsed;
     rebuild_linked_search_params(ctx.vm, id);
     Ok(JsValue::Undefined)
 }
@@ -51,9 +49,8 @@ pub(super) fn native_url_set_protocol(
     let id = require_url_this(ctx, this, "protocol")?;
     let val = take_url_setter_arg(ctx, args)?;
     let scheme = val.strip_suffix(':').unwrap_or(&val).to_owned();
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        let _ = state.url.set_scheme(&scheme);
-    }
+    let state = require_url_state_mut(ctx.vm, id)?;
+    let _ = state.url.set_scheme(&scheme);
     Ok(JsValue::Undefined)
 }
 
@@ -64,9 +61,8 @@ pub(super) fn native_url_set_username(
 ) -> Result<JsValue, VmError> {
     let id = require_url_this(ctx, this, "username")?;
     let val = take_url_setter_arg(ctx, args)?;
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        let _ = state.url.set_username(&val);
-    }
+    let state = require_url_state_mut(ctx.vm, id)?;
+    let _ = state.url.set_username(&val);
     Ok(JsValue::Undefined)
 }
 
@@ -80,14 +76,13 @@ pub(super) fn native_url_set_password(
 ) -> Result<JsValue, VmError> {
     let id = require_url_this(ctx, this, "password")?;
     let val = take_url_setter_arg(ctx, args)?;
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        let pw = if val.is_empty() {
-            None
-        } else {
-            Some(val.as_str())
-        };
-        let _ = state.url.set_password(pw);
-    }
+    let state = require_url_state_mut(ctx.vm, id)?;
+    let pw = if val.is_empty() {
+        None
+    } else {
+        Some(val.as_str())
+    };
+    let _ = state.url.set_password(pw);
     Ok(JsValue::Undefined)
 }
 
@@ -118,23 +113,25 @@ pub(super) fn native_url_set_host(
     let Some((host_part, port_part)) = split_host_port(&val) else {
         return Ok(JsValue::Undefined);
     };
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        // Gate the port half on host-parse success so an invalid
-        // host can't partially mutate the URL by clearing or
-        // rewriting the port.
-        if state.url.set_host(Some(&host_part)).is_ok() {
-            if let Some(p) = port_part {
-                if p.is_empty() {
-                    // Trailing `:` with empty buffer in port state
-                    // clears the port (WHATWG basic URL parser §4.4
-                    // "port state" with state override).
-                    let _ = state.url.set_port(None);
-                } else if let Ok(parsed_port) = p.parse::<u16>() {
-                    let _ = state.url.set_port(Some(parsed_port));
-                }
-                // else: invalid port — silently ignore, matching
-                // WHATWG validation-error short-circuit.
+    let state = require_url_state_mut(ctx.vm, id)?;
+    // Gate the port half on host-parse success so an invalid
+    // host can't partially mutate the URL by clearing or
+    // rewriting the port.
+    if state.url.set_host(Some(&host_part)).is_ok() {
+        if let Some(p) = port_part {
+            if p.is_empty() {
+                // Trailing `:` with empty buffer in port state
+                // clears the port (WHATWG basic URL parser §4.4
+                // "port state" with state override).
+                let _ = state.url.set_port(None);
+            } else if let Ok(parsed_port) = p.parse::<u16>() {
+                let _ = state.url.set_port(Some(parsed_port));
             }
+            // else: invalid port — split_host_port has already
+            // rejected non-empty non-u16 inputs by returning
+            // None, so this `else` branch is dead but kept as a
+            // defensive no-op (port stays unchanged on the
+            // theoretical impossible-by-construction case).
         }
     }
     Ok(JsValue::Undefined)
@@ -147,9 +144,8 @@ pub(super) fn native_url_set_hostname(
 ) -> Result<JsValue, VmError> {
     let id = require_url_this(ctx, this, "hostname")?;
     let val = take_url_setter_arg(ctx, args)?;
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        let _ = state.url.set_host(Some(&val));
-    }
+    let state = require_url_state_mut(ctx.vm, id)?;
+    let _ = state.url.set_host(Some(&val));
     Ok(JsValue::Undefined)
 }
 
@@ -163,12 +159,11 @@ pub(super) fn native_url_set_port(
 ) -> Result<JsValue, VmError> {
     let id = require_url_this(ctx, this, "port")?;
     let val = take_url_setter_arg(ctx, args)?;
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        if val.is_empty() {
-            let _ = state.url.set_port(None);
-        } else if let Ok(p) = val.parse::<u16>() {
-            let _ = state.url.set_port(Some(p));
-        }
+    let state = require_url_state_mut(ctx.vm, id)?;
+    if val.is_empty() {
+        let _ = state.url.set_port(None);
+    } else if let Ok(p) = val.parse::<u16>() {
+        let _ = state.url.set_port(Some(p));
     }
     Ok(JsValue::Undefined)
 }
@@ -180,9 +175,7 @@ pub(super) fn native_url_set_pathname(
 ) -> Result<JsValue, VmError> {
     let id = require_url_this(ctx, this, "pathname")?;
     let val = take_url_setter_arg(ctx, args)?;
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        state.url.set_path(&val);
-    }
+    require_url_state_mut(ctx.vm, id)?.url.set_path(&val);
     Ok(JsValue::Undefined)
 }
 
@@ -199,12 +192,11 @@ pub(super) fn native_url_set_search(
     let id = require_url_this(ctx, this, "search")?;
     let val = take_url_setter_arg(ctx, args)?;
     let query = val.strip_prefix('?').unwrap_or(&val).to_owned();
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        if query.is_empty() {
-            state.url.set_query(None);
-        } else {
-            state.url.set_query(Some(&query));
-        }
+    let state = require_url_state_mut(ctx.vm, id)?;
+    if query.is_empty() {
+        state.url.set_query(None);
+    } else {
+        state.url.set_query(Some(&query));
     }
     rebuild_linked_search_params(ctx.vm, id);
     Ok(JsValue::Undefined)
@@ -220,12 +212,11 @@ pub(super) fn native_url_set_hash(
     let id = require_url_this(ctx, this, "hash")?;
     let val = take_url_setter_arg(ctx, args)?;
     let frag = val.strip_prefix('#').unwrap_or(&val).to_owned();
-    if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        if frag.is_empty() {
-            state.url.set_fragment(None);
-        } else {
-            state.url.set_fragment(Some(&frag));
-        }
+    let state = require_url_state_mut(ctx.vm, id)?;
+    if frag.is_empty() {
+        state.url.set_fragment(None);
+    } else {
+        state.url.set_fragment(Some(&frag));
     }
     Ok(JsValue::Undefined)
 }
