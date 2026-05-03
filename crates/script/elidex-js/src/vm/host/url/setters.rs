@@ -106,13 +106,22 @@ pub(super) fn native_url_set_host(
 ) -> Result<JsValue, VmError> {
     let id = require_url_this(ctx, this, "host")?;
     let val = take_url_setter_arg(ctx, args)?;
-    let (host_part, port_part) = split_host_port(&val);
+    // [`split_host_port`] returns `None` for inputs that the
+    // WHATWG basic URL parser would validation-error on
+    // (bracketed IPv6 with trailing garbage like `[::1]abc`,
+    // non-bracketed multi-colon like `example.com:1:2`).  Those
+    // must leave the URL unchanged — the underlying
+    // `url::Url::set_host` is too lenient (it silently truncates
+    // at the first `:`), so the strict pre-check here is the
+    // only thing keeping the WHATWG "invalid host = no-op"
+    // contract honest.
+    let Some((host_part, port_part)) = split_host_port(&val) else {
+        return Ok(JsValue::Undefined);
+    };
     if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        // WHATWG URL §6.1 host setter — basic URL parser in
-        // host-state-with-override returns failure on an invalid
-        // host and leaves the URL unchanged.  Gate the port half
-        // on host-parse success so an invalid host can't partially
-        // mutate the URL by clearing or rewriting the port.
+        // Gate the port half on host-parse success so an invalid
+        // host can't partially mutate the URL by clearing or
+        // rewriting the port.
         if state.url.set_host(Some(&host_part)).is_ok() {
             if let Some(p) = port_part {
                 if p.is_empty() {
@@ -225,37 +234,57 @@ pub(super) fn native_url_set_hash(
 // Helpers (private to this module)
 // ---------------------------------------------------------------------------
 
-/// Split a `host[:port]` string into its component parts per the
-/// WHATWG URL §6.1 "host setter" expectations.  Recognises
-/// bracketed IPv6 literals so `[::1]:8080` splits to `("[::1]",
-/// Some("8080"))` rather than `("[", Some(":1]:8080"))` (which is
-/// what a naive `split_once(':')` would produce).
+/// Split a `host[:port]` string into `(host, Option<port>)` per
+/// the WHATWG URL §6.1 "host setter" expectations.  Returns
+/// `None` for inputs that the WHATWG basic URL parser would
+/// validation-error on, leaving the caller responsible for
+/// no-oping the assignment:
 ///
-/// `Some("")` for the port half encodes a trailing `:` with no
-/// digits — the caller maps that to "clear the port" per the
-/// basic URL parser's port-state-with-override semantics.
-/// `None` means "no port separator at all", which leaves the
-/// existing port untouched.
-fn split_host_port(val: &str) -> (String, Option<String>) {
+/// - **Bracketed IPv6 with trailing garbage**: `[::1]abc`,
+///   `[::1]]:80`.  The opening `[` requires a matching `]`
+///   immediately followed by either `:port` or end-of-string;
+///   anything else is invalid.
+/// - **Non-bracketed multi-colon**: `example.com:1:2`.  Without
+///   brackets there can be at most one `:` separator (host vs
+///   port).  `url::Url::set_host` is too lenient here — it
+///   silently truncates at the first `:` rather than rejecting
+///   — so this strict pre-check is required to honour the
+///   WHATWG "invalid host = no-op" contract.
+///
+/// Successful return shape: `("[ipv6]", Some("8080"))` for
+/// `[::1]:8080`; `("host", None)` for `host`; `("host", Some(""))`
+/// for `host:` (trailing `:` clears the port per port-state with
+/// state-override).
+fn split_host_port(val: &str) -> Option<(String, Option<String>)> {
     if val.starts_with('[') {
-        // Bracketed IPv6 — split after the matching `]`.
-        if let Some(end) = val.find(']') {
-            let host = val[..=end].to_owned();
-            let rest = &val[end + 1..];
-            return match rest.strip_prefix(':') {
-                Some(port) => (host, Some(port.to_owned())),
-                None => (host, None),
-            };
-        }
-        // Malformed bracketed input (no closing `]`) — fall
-        // through to the colon-split path; the underlying
-        // `set_host` call will validation-error on the malformed
-        // host and silently leave the URL unchanged.
+        // Bracketed IPv6 — must be `[…]` or `[…]:port`.
+        let end = val.find(']')?;
+        let host = val[..=end].to_owned();
+        let rest = &val[end + 1..];
+        return match rest {
+            "" => Some((host, None)),
+            _ => match rest.strip_prefix(':') {
+                Some(port) => Some((host, Some(port.to_owned()))),
+                // Trailing garbage after `]` (e.g. `[::1]abc`,
+                // `[::1]]:80`) — invalid host.
+                None => None,
+            },
+        };
     }
-    match val.split_once(':') {
-        Some((h, p)) => (h.to_owned(), Some(p.to_owned())),
-        None => (val.to_owned(), None),
+    // Non-bracketed: at most one `:` separator.  `splitn(3, ':')`
+    // surfaces a third part exactly when the input has more than
+    // one `:` — that's a multi-colon input which the WHATWG host
+    // parser rejects (and `url::Url::set_host` would silently
+    // accept by truncating).
+    let mut parts = val.splitn(3, ':');
+    let host = parts
+        .next()
+        .expect("splitn always yields at least one part");
+    let port = parts.next();
+    if parts.next().is_some() {
+        return None;
     }
+    Some((host.to_owned(), port.map(str::to_owned)))
 }
 
 /// Coerce the first positional argument to a `String` via

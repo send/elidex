@@ -282,6 +282,55 @@ fn host_setter_invalid_host_does_not_partial_mutate_port() {
 }
 
 #[test]
+fn host_setter_rejects_bracketed_ipv6_with_trailing_garbage() {
+    // R7 IMP: `[::1]abc` and `[::1]]:80` must leave the URL
+    // unchanged.  `url::Url::set_host` accepts `[::1]abc` as
+    // InvalidIpv6Address, but `[::1]]` would otherwise be
+    // truncated by the previous split_host_port behaviour to
+    // host = `[::1]` and port = `]:80`.  The strict pre-check
+    // in `split_host_port` now rejects both, leaving the URL
+    // intact.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "let u = new URL('https://x.com:8080/'); \
+             u.host = '[::1]abc'; \
+             u.host;"
+        ),
+        "x.com:8080"
+    );
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "let u = new URL('https://x.com:8080/'); \
+             u.host = '[::1]]:80'; \
+             u.host;"
+        ),
+        "x.com:8080"
+    );
+}
+
+#[test]
+fn host_setter_rejects_multi_colon_non_bracketed() {
+    // R7 IMP: `example.com:1:2` is rejected by the WHATWG host
+    // parser (port state can't contain `:`), and `url::Url
+    // ::set_host` is too lenient (silently truncates at the
+    // first `:`).  Strict pre-check in `split_host_port`
+    // rejects multi-colon inputs so the URL stays unchanged.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "let u = new URL('https://x.com:8080/'); \
+             u.host = 'y.com:1:2'; \
+             u.host;"
+        ),
+        "x.com:8080"
+    );
+}
+
+#[test]
 fn host_setter_trailing_colon_clears_port() {
     // R1 IMP: WHATWG basic URL parser port-state-with-override:
     // an empty buffer after `:` clears the port.
