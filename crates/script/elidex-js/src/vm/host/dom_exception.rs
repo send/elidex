@@ -178,6 +178,8 @@ fn legacy_code_for_name(ctx: &NativeContext<'_>, name: StringId) -> u32 {
         11
     } else if name == wk.dom_exc_syntax_error {
         12
+    } else if name == wk.dom_exc_not_supported_error {
+        9
     } else if name == wk.abort_error {
         20
     } else if name == wk.dom_exc_timeout_error {

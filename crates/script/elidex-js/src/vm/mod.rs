@@ -419,6 +419,21 @@ pub(crate) struct VmInner {
     /// `register_html_collection_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) html_form_controls_collection_prototype: Option<ObjectId>,
+    /// `HTMLFormElement.prototype` — tag-specific intermediate
+    /// prototype for `<form>` wrappers (HTML §4.10.3 — slot
+    /// #11-tags-T1).  Chains to [`Self::html_element_prototype`].
+    /// Holds the 10 reflected attributes (`acceptCharset` /
+    /// `action` / `autocomplete` / `enctype` / `encoding` /
+    /// `method` / `name` / `noValidate` / `target` / `rel`),
+    /// `length` / `elements` getters, `reset()` / `checkValidity()`
+    /// / `reportValidity()` methods, and the `submit()` /
+    /// `requestSubmit()` NotSupportedError stubs (slot
+    /// #11-form-submission).
+    ///
+    /// `None` until `register_html_form_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_form_prototype: Option<ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor

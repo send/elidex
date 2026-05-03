@@ -334,6 +334,11 @@ impl VmInner {
                 self.html_form_controls_collection_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 67 + 1 (M4-12 slot #11-tags-T1 Phase 4: HTMLFormElement) = 68.
+                #[cfg(feature = "engine")]
+                self.html_form_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

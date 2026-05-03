@@ -482,6 +482,7 @@ define_well_known_strings! {
         dom_exc_invalid_state_error => "InvalidStateError",
         dom_exc_timeout_error => "TimeoutError",
         dom_exc_data_clone_error => "DataCloneError",
+        dom_exc_not_supported_error => "NotSupportedError",
     }
 
     "Headers (WHATWG Fetch §5.2)" {
@@ -765,6 +766,23 @@ define_well_known_strings! {
         type_attr => "type",
         elements_attr => "elements",
         fieldset_str => "fieldset",
+        // HTMLFormElement reflected attributes + methods.
+        html_form_element => "HTMLFormElement",
+        accept_charset => "acceptCharset",
+        action_attr => "action",
+        autocomplete_attr => "autocomplete",
+        enctype_attr => "enctype",
+        encoding_attr => "encoding",
+        method_attr => "method",
+        no_validate => "noValidate",
+        target_attr => "target",
+        rel_attr => "rel",
+        reset_method => "reset",
+        check_validity => "checkValidity",
+        report_validity => "reportValidity",
+        set_custom_validity => "setCustomValidity",
+        submit_method => "submit",
+        request_submit => "requestSubmit",
     }
 }
 

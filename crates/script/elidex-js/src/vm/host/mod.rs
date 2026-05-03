@@ -80,6 +80,8 @@ pub(super) mod history;
 pub(super) mod html_element_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_fieldset_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_form_proto;
 pub(super) mod html_iframe_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_label_proto;
