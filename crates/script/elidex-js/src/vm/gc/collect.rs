@@ -372,6 +372,15 @@ impl VmInner {
                 self.html_input_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 73 + 1 (M4-12 slot #11-tags-T1 Phase 9: ValidityState)
+                // = 74.  ValidityState chains to `Object.prototype`
+                // (no EventTarget / Node ancestry); same `delete
+                // globalThis.ValidityState` invariant as the existing
+                // utility globals (DOMException etc.).
+                #[cfg(feature = "engine")]
+                self.validity_state_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -416,6 +425,8 @@ impl VmInner {
             pending_tasks: &self.pending_tasks,
             #[cfg(feature = "engine")]
             attr_wrapper_cache: &self.attr_wrapper_cache,
+            #[cfg(feature = "engine")]
+            validity_state_wrappers: &self.validity_state_wrappers,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
         };
@@ -619,6 +630,13 @@ impl VmInner {
             // owner-wrapper presence.
             self.attr_wrapper_cache
                 .retain(|_, attr_id| bit_get(marks, attr_id.0));
+            // `validity_state_wrappers` — same prune pattern as
+            // `attr_wrapper_cache`.  Owner-wrapper destruction via
+            // `remove_wrapper` cascades because the `(e3)`
+            // mark-roots fan-out gates ValidityState marking on
+            // owner-wrapper presence.
+            self.validity_state_wrappers
+                .retain(|_, vs_id| bit_get(marks, vs_id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

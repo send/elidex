@@ -314,17 +314,24 @@ fn gc_heap_bounded_in_loop() {
         "var sum = 0; for (var i = 0; i < 1000; i++) { var obj = {x: i}; sum += obj.x; } sum;",
     );
     assert_eq!(result.unwrap(), JsValue::Number(499_500.0));
-    // Heap should not have grown to 1000+ objects.
+    // Heap should not have grown to 2000+ objects.
     let live = vm.inner.objects.iter().filter(|o| o.is_some()).count();
     // Base live count includes built-in prototypes, constructors,
     // and their installed methods.  The count grows each time we
     // ship a new built-in interface (every `register_*_global`
-    // adds one ctor + one prototype + its methods).  Without GC,
-    // 1000 loop iterations would push this well over 1500, so the
-    // `< 1000` assertion remains a meaningful "GC actually ran"
-    // signal while leaving headroom for future built-ins.
+    // adds one ctor + one prototype + its methods).  Slot
+    // #11-tags-T1 added ~10 new prototypes (HTMLLabelElement /
+    // HTMLOptGroupElement / HTMLLegendElement / HTMLOptionElement /
+    // HTMLFieldSetElement / HTMLFormControlsCollection /
+    // HTMLFormElement / HTMLButtonElement / HTMLTextAreaElement /
+    // HTMLSelectElement / HTMLOptionsCollection / HTMLInputElement /
+    // ValidityState) which together with their ~30 accessor pairs
+    // each pushed the base count to ~1400.  Without GC, 1000 loop
+    // iterations would push this well over 2400, so the `< 2000`
+    // assertion remains a meaningful "GC actually ran" signal while
+    // leaving headroom for future built-ins.
     assert!(
-        live < 1000,
+        live < 2000,
         "heap should be bounded by GC, got {live} live objects"
     );
 }

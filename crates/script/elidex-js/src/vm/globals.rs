@@ -360,6 +360,17 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_dom_exception_global();
 
+        // `ValidityState` global + prototype (HTML §4.10.18.6 — slot
+        // #11-tags-T1 Phase 9).  Must run after `register_object_prototype`
+        // (chains there).  Order-wise it can land here after the per-tag
+        // prototypes that install the ConstraintValidation mixin: the
+        // mixin install touches well_known StringIds + native fn
+        // pointers but does not allocate ValidityState wrappers — those
+        // are allocated lazily on `.validity` reads, which only fire
+        // after `register_globals()` returns and user JS starts.
+        #[cfg(feature = "engine")]
+        self.register_validity_state_global();
+
         // `AbortController` constructor + `AbortSignal` global +
         // `AbortSignal.prototype` (WHATWG DOM §3.1).  Must run after
         // `register_event_target_prototype` (the prototype chains

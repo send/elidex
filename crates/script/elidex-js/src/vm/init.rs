@@ -151,6 +151,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 html_input_prototype: None,
                 #[cfg(feature = "engine")]
+                validity_state_prototype: None,
+                #[cfg(feature = "engine")]
+                validity_state_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                form_control_custom_validity: HashMap::new(),
+                #[cfg(feature = "engine")]
                 form_control_entity_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,

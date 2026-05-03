@@ -183,6 +183,9 @@ impl VmInner {
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
 
+        // ConstraintValidation mixin (Phase 9).
+        super::validity_state::install_constraint_validation_methods(self, proto_id);
+
         // add / remove / item / namedItem — proxy to options.
         for &(name_sid, native) in &[
             (

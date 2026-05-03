@@ -506,6 +506,37 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) html_input_prototype: Option<ObjectId>,
+    /// `ValidityState.prototype` — backs `<form-control>.validity`
+    /// (HTML §4.10.18.6 — slot #11-tags-T1 Phase 9).  Chains to
+    /// `Object.prototype`.  Holds 11 boolean accessors
+    /// (valueMissing / typeMismatch / patternMismatch / tooLong /
+    /// tooShort / rangeUnderflow / rangeOverflow / stepMismatch /
+    /// badInput / customError / valid).  The constructor itself is
+    /// not directly callable (`new ValidityState()` throws TypeError
+    /// per WebIDL).
+    ///
+    /// `None` until `register_validity_state_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) validity_state_prototype: Option<ObjectId>,
+    /// Per-control ValidityState wrapper identity cache, keyed by
+    /// the control's [`elidex_ecs::Entity`].  Same control returns
+    /// the same `ValidityState` ObjectId across repeated `.validity`
+    /// reads — matches browser identity semantics.  Allocated lazily
+    /// on first read.
+    ///
+    /// GC contract: ValidityState wrappers carry only a backref to
+    /// the control entity (via [`host::validity_state::ValidityStateRef`]),
+    /// no `ObjectId` fan-out, so no trace work needed.  Sweep tail
+    /// prunes wrapper entries whose `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    pub(crate) validity_state_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// Per-control custom-validity message — backs
+    /// `setCustomValidity(msg)` and contributes to ValidityState's
+    /// `customError` flag and `validationMessage` IDL member.  An
+    /// empty string clears the custom error per HTML §4.10.18.5.
+    #[cfg(feature = "engine")]
+    pub(crate) form_control_custom_validity: HashMap<elidex_ecs::Entity, String>,
     /// Per-element form-control state — dirty `value` slot + selection
     /// range + selection direction (HTML §4.10.18.5).  Keyed by
     /// [`elidex_ecs::Entity`] so the same state surfaces across every

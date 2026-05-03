@@ -142,4 +142,6 @@ pub(super) mod typed_array_static;
 pub(crate) mod url;
 #[cfg(feature = "engine")]
 pub(crate) mod url_search_params;
+#[cfg(feature = "engine")]
+pub(super) mod validity_state;
 pub(super) mod window;

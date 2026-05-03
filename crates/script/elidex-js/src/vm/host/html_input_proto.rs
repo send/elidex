@@ -428,6 +428,13 @@ impl VmInner {
             shape::PropertyAttrs::METHOD,
         );
 
+        // ConstraintValidation mixin (Phase 9) — `validity` /
+        // `validationMessage` / `willValidate` accessors +
+        // `checkValidity()` / `reportValidity()` /
+        // `setCustomValidity()` methods.  Shared install helper in
+        // `super::validity_state`.
+        super::validity_state::install_constraint_validation_methods(self, proto_id);
+
         // Selection API — gated by text-control input types.
         selection_api::install_selection_api_members(
             self,

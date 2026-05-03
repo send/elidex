@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 73],
+    pub(super) proto_roots: [Option<ObjectId>; 74],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -166,6 +166,16 @@ pub(super) struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     pub(super) attr_wrapper_cache:
         &'a HashMap<(elidex_ecs::Entity, super::super::value::StringId), ObjectId>,
+    /// `ValidityState` wrapper identity cache (HTML §4.10.18.6).
+    /// Keyed by control [`elidex_ecs::Entity`].  Values are pinned
+    /// only when the owner element wrapper is reachable through
+    /// `HostData::wrapper_cache` — keeping the cache effectively
+    /// weak through the owner so a destroyed control does not
+    /// indefinitely extend its ValidityState wrapper's lifetime.
+    /// Sweep tail prunes entries whose value `ObjectId` was
+    /// collected.
+    #[cfg(feature = "engine")]
+    pub(super) validity_state_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -271,6 +281,16 @@ pub(super) fn mark_roots(
         for ((entity, _), &attr_id) in roots.attr_wrapper_cache {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(attr_id, obj_marks, work);
+            }
+        }
+        // (e3) `ValidityState` wrapper identity cache — same
+        // owner-reachability gate as `attr_wrapper_cache` so the
+        // wrapper lifetime is bounded by the owning control's
+        // wrapper.
+        #[cfg(feature = "engine")]
+        for (entity, &vs_id) in roots.validity_state_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(vs_id, obj_marks, work);
             }
         }
     }

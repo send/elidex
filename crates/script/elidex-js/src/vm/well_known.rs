@@ -865,6 +865,25 @@ define_well_known_strings! {
         step_up => "stepUp",
         step_down => "stepDown",
         show_picker => "showPicker",
+        // ValidityState (Phase 9) — interface name + 11 boolean
+        // accessors per HTML §4.10.18.6.  Plus the `validity` /
+        // `validationMessage` / `willValidate` IDL members that
+        // every ConstraintValidation host installs.
+        validity_state => "ValidityState",
+        validity_attr => "validity",
+        validation_message => "validationMessage",
+        will_validate => "willValidate",
+        value_missing => "valueMissing",
+        type_mismatch => "typeMismatch",
+        pattern_mismatch => "patternMismatch",
+        too_long => "tooLong",
+        too_short => "tooShort",
+        range_underflow => "rangeUnderflow",
+        range_overflow => "rangeOverflow",
+        step_mismatch => "stepMismatch",
+        bad_input => "badInput",
+        custom_error => "customError",
+        valid_attr => "valid",
     }
 }
 
