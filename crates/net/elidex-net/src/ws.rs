@@ -201,13 +201,40 @@ fn handle_ws_message(
     }
 }
 
+/// Outcome of [`send_frame`] — distinguishes a normal abort
+/// (caller should run the standard close-write path) from a
+/// cancel-driven abort (caller should `return` immediately
+/// because the broker is tearing the worker down).
+enum SendFrameOutcome {
+    /// Frame was sent successfully (or the send failed and an
+    /// abnormal-close event was already pushed); caller should
+    /// continue the main loop.
+    Ok,
+    /// `write.send` returned an error; caller should `return`
+    /// from the worker (abnormal close already emitted).
+    SendErr,
+    /// The cancel signal fired while the send was in flight or
+    /// queued; caller should `return` immediately without
+    /// running any further write paths.  The peer may not
+    /// observe this frame, which is acceptable because the
+    /// broker has already declared the worker dead (slot #10.6a
+    /// HX5).
+    Cancelled,
+}
+
 /// Send a WebSocket frame and update buffered byte tracking.
 ///
 /// The JS layer increments `bufferedAmount` synchronously when `send()` is called.
 /// After successful transmission, we decrement by the sent length. On error,
 /// the connection is closed (bufferedAmount becomes irrelevant).
 ///
-/// Returns `true` if a send error occurred (caller should abort the loop).
+/// The send is wrapped in a `tokio::select!` against
+/// `cancel.cancelled()` so a peer that stops reading TCP
+/// (filling the kernel send buffer) cannot block the worker
+/// indefinitely.  Without the cancel arm `write.send().await`
+/// would await the full TCP timeout (minutes) before
+/// `close_all_for_client`'s `thread.join()` could complete
+/// (slot #10.6a HX5).
 async fn send_frame(
     write: &mut (impl futures_util::SinkExt<
         tokio_tungstenite::tungstenite::Message,
@@ -215,17 +242,60 @@ async fn send_frame(
     > + Unpin),
     msg: tokio_tungstenite::tungstenite::Message,
     evt_tx: &Sender<WsEvent>,
-) -> bool {
+    cancel: &CancelHandle,
+) -> SendFrameOutcome {
     let len = msg.len() as u64;
-    if write.send(msg).await.is_err() {
+    let send_result = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return SendFrameOutcome::Cancelled,
+        res = write.send(msg) => res,
+    };
+    if send_result.is_err() {
         // Error events precede close and must not be lost — use blocking send.
         let _ = evt_tx.send(WsEvent::Error("send failed".to_string()));
         send_abnormal_close(evt_tx);
-        return true;
+        return SendFrameOutcome::SendErr;
     }
     // BytesSent is infrequent (once per send) — use blocking send to guarantee delivery.
     let _ = evt_tx.send(WsEvent::BytesSent(len));
-    false
+    SendFrameOutcome::Ok
+}
+
+/// Send a WebSocket Close frame, racing the write against the
+/// cancel signal.  Returns `true` if the caller should `return`
+/// from the worker because cancel fired during the send;
+/// `false` if the send completed (either successfully or with
+/// an error — in either case the caller's existing flow handles
+/// the next step).  Slot #10.6a HX5 — same rationale as
+/// [`send_frame`]: a peer that stops reading the socket would
+/// otherwise block this `await` for the full TCP timeout.
+async fn send_close_frame(
+    write: &mut (impl futures_util::SinkExt<
+        tokio_tungstenite::tungstenite::Message,
+        Error = tokio_tungstenite::tungstenite::Error,
+    > + Unpin),
+    code: u16,
+    reason: String,
+    cancel: &CancelHandle,
+) -> bool {
+    let frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
+        code: code.into(),
+        reason: reason.into(),
+    };
+    let close_msg = tokio_tungstenite::tungstenite::Message::Close(Some(frame));
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => true,
+        res = write.send(close_msg) => {
+            // Discard the result — close-frame write errors
+            // are non-fatal here; the caller's next step is to
+            // exit anyway (waiting for reciprocal close on a
+            // broken pipe is harmless because the read arm
+            // also fails on the same condition).
+            let _ = res;
+            false
+        }
+    }
 }
 
 /// Async WebSocket I/O loop running inside the thread's tokio runtime.
@@ -238,7 +308,7 @@ async fn ws_io_loop(
     evt_tx: Sender<WsEvent>,
     cancel: CancelHandle,
 ) {
-    use futures_util::{SinkExt, StreamExt};
+    use futures_util::StreamExt;
     use tokio_tungstenite::tungstenite;
 
     // Build the HTTP request for the WebSocket handshake.
@@ -323,12 +393,21 @@ async fn ws_io_loop(
     let mut close_sent_at = tokio::time::Instant::now();
 
     loop {
+        // No `biased;` here: a 3-arm select with biased ordering
+        // would let a continuously-readable `read.next()` arm
+        // starve `cmd_rx` (and vice versa) under heavy
+        // unidirectional traffic, breaking JS-side `send()` /
+        // `close()` responsiveness.  Tokio's default fair
+        // selection gives every arm an equal probability per
+        // poll, which keeps cancel responsive (the cancelled
+        // future is always-ready once `cancel.cancel()` fires
+        // and wins within bounded polls) without the starvation
+        // hazard (slot #10.6a HX3).
         tokio::select! {
-            biased;
             // Broker-driven teardown: skip clean-close negotiation
             // and exit immediately so `close_all_for_client`'s
             // `thread.join()` returns within bounded time even if
-            // the peer is silent on `read.next()` (slot #10.6a).
+            // the peer is silent on `read.next()`.
             () = cancel.cancelled() => {
                 send_abnormal_close(&evt_tx);
                 return;
@@ -372,34 +451,41 @@ async fn ws_io_loop(
                 match cmd {
                     Some(WsCommand::SendText(text)) => {
                         let msg = tungstenite::Message::Text(text.into());
-                        if send_frame(&mut write, msg, &evt_tx).await {
-                            return;
+                        match send_frame(&mut write, msg, &evt_tx, &cancel).await {
+                            SendFrameOutcome::Ok => {}
+                            SendFrameOutcome::SendErr | SendFrameOutcome::Cancelled => return,
                         }
                     }
                     Some(WsCommand::SendBinary(data)) => {
                         let msg = tungstenite::Message::Binary(data.into());
-                        if send_frame(&mut write, msg, &evt_tx).await {
-                            return;
+                        match send_frame(&mut write, msg, &evt_tx, &cancel).await {
+                            SendFrameOutcome::Ok => {}
+                            SendFrameOutcome::SendErr | SendFrameOutcome::Cancelled => return,
                         }
                     }
                     Some(WsCommand::Close(code, reason)) => {
                         close_sent = true;
                         close_sent_at = tokio::time::Instant::now();
-                        let frame = tungstenite::protocol::CloseFrame {
-                            code: code.into(),
-                            reason: reason.into(),
-                        };
-                        let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
+                        if send_close_frame(&mut write, code, reason, &cancel).await {
+                            // Cancel fired during the close-frame send;
+                            // bail out without further writes.
+                            return;
+                        }
                         // Continue loop to wait for reciprocal close.
                     }
                     None => {
                         // Channel closed — content thread dropped sender.
-                        if !close_sent {
-                            let frame = tungstenite::protocol::CloseFrame {
-                                code: 1001u16.into(),
-                                reason: "going away".into(),
-                            };
-                            let _ = write.send(tungstenite::Message::Close(Some(frame))).await;
+                        if !close_sent && send_close_frame(
+                            &mut write,
+                            1001,
+                            "going away".to_string(),
+                            &cancel,
+                        )
+                        .await
+                        {
+                            // Cancel fired during the close-frame send.
+                            send_abnormal_close(&evt_tx);
+                            return;
                         }
                         send_abnormal_close(&evt_tx);
                         return;
@@ -590,11 +676,22 @@ mod tests {
         handle.cancel.cancel();
         drop(handle.command_tx);
         let thread = handle.thread.take().expect("thread set on spawn");
-        thread.join().expect("worker thread panicked");
+        // Fail-fast: poll `is_finished` against the 1-second
+        // deadline rather than calling `join()` directly.  An
+        // unconditional `thread.join()` would block forever on
+        // a regression and the elapsed-time assertion below
+        // would only run AFTER the join returned — i.e. never,
+        // until the test harness's overall deadline fired
+        // (slot #10.6a Copilot R1 HX6).
+        let deadline = started + std::time::Duration::from_secs(1);
+        while !thread.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(1),
+            thread.is_finished(),
             "ws worker did not exit within 1s of cancel + drop — handshake select missing cancel arm?"
         );
+        thread.join().expect("worker thread panicked");
 
         // Tear down the server fixture deterministically.
         stop.store(true, Ordering::SeqCst);

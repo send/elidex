@@ -88,6 +88,45 @@ pub(super) fn network_process_main(
 /// Maximum concurrent fetch threads across all renderers.
 const MAX_CONCURRENT_FETCHES: usize = 64;
 
+/// Maximum time [`NetworkProcessState::close_all_for_client`] waits
+/// for a WS/SSE worker to exit gracefully (after sending the
+/// protocol-clean close command and dropping the command sender)
+/// before falling back to [`crate::CancelHandle::cancel`].
+///
+/// 100 ms is a generous loopback/well-connected ceiling: a
+/// graceful WS close is one frame round-trip + a select tick to
+/// observe the dropped command channel; SSE just needs the
+/// worker's next `should_close` / `wait_or_close` poll.  Slow
+/// peers fall back to cancel — the right tradeoff because the
+/// renderer is being torn down regardless and the alternative
+/// (unbounded join) would block `NetworkProcessHandle::shutdown`
+/// for the TCP timeout window (slot #10.6a HX4).
+const GRACEFUL_CLOSE_GRACE: Duration = Duration::from_millis(100);
+
+/// Step between [`std::thread::JoinHandle::is_finished`] polls
+/// during the grace window.  5 ms strikes a balance between
+/// CPU cost and worst-case waste at the boundary (5 ms
+/// quantisation).
+const GRACEFUL_CLOSE_POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// Wait up to [`GRACEFUL_CLOSE_GRACE`] for `thread` to exit on
+/// its own; if it's still running, trigger the cancel handle as
+/// a hard fallback and then `join()` (the join is unbounded but
+/// the worker observes cancel within a select tick — see
+/// [`crate::ws::ws_io_loop`] / [`crate::sse::sse_io_loop`] cancel
+/// arms).  Used by
+/// [`NetworkProcessState::close_all_for_client`] (slot #10.6a).
+fn join_with_grace_then_cancel(thread: std::thread::JoinHandle<()>, cancel: &crate::CancelHandle) {
+    let deadline = std::time::Instant::now() + GRACEFUL_CLOSE_GRACE;
+    while !thread.is_finished() && std::time::Instant::now() < deadline {
+        std::thread::sleep(GRACEFUL_CLOSE_POLL_INTERVAL);
+    }
+    if !thread.is_finished() {
+        cancel.cancel();
+    }
+    let _ = thread.join();
+}
+
 /// Internal state of the Network Process.
 struct NetworkProcessState {
     /// Registered renderer clients: `client_id` → response sender.
@@ -497,32 +536,49 @@ impl NetworkProcessState {
     ///   `UnregisterRenderer` but for every client.
     ///
     /// **Teardown sequence per handle** (slot #10.6a, fixes
-    /// Copilot R8 HCau / HCv / HJTV / HKhZ): for each WS/SSE
-    /// handle being torn down,
-    /// 1. send the protocol-clean close command (best effort) so
-    ///    a responsive peer sees a graceful close frame / EOF
-    ///    before the connection drops;
-    /// 2. trigger the per-handle [`crate::CancelHandle`] so the
-    ///    worker exits even if it's parked on a never-completing
-    ///    socket read against a silent peer (the cancel arm of
-    ///    the worker's `tokio::select!` aborts the read future
-    ///    immediately);
-    /// 3. drop the command sender so the worker's command-channel
-    ///    `recv()` resolves to `None` as a belt-and-suspenders
-    ///    exit hook for the not-yet-cancel-aware code paths;
+    /// Copilot R8 HCau / HCv / HJTV / HKhZ + R1 HX4): for each
+    /// WS/SSE handle being torn down,
+    /// 1. send the protocol-clean close command and drop the
+    ///    command sender — a responsive worker observes the
+    ///    queued close on its next `cmd_rx.recv()` poll, sends
+    ///    the close frame to the peer, and then sees `None`
+    ///    (channel disconnected) on the following poll and
+    ///    exits gracefully;
+    /// 2. wait a brief grace window for the worker thread to
+    ///    finish on its own — typical loopback / well-connected
+    ///    peers complete within a few milliseconds and we get a
+    ///    spec-clean close handshake;
+    /// 3. if the worker is still alive after the grace window
+    ///    (peer is silent on read, or stuck on the kernel send
+    ///    buffer with a peer that stopped reading), trigger the
+    ///    per-handle [`crate::CancelHandle`] — the cancel arm of
+    ///    the worker's `tokio::select!` aborts both the read
+    ///    future AND any in-flight `write.send().await`
+    ///    (cancel-aware via [`crate::ws::send_frame`] /
+    ///    [`crate::ws::send_close_frame`] — slot #10.6a HX5);
     /// 4. `thread.join()` to make `close_all_for_client` block
     ///    until the worker has fully exited.
     ///
+    /// The grace window is intentionally short
+    /// ([`GRACEFUL_CLOSE_GRACE`]).  Slow peers that need more
+    /// time hit cancel and get a non-graceful close — that is
+    /// the right tradeoff because the broker is only on this
+    /// path when the renderer (or the entire network process)
+    /// is being torn down anyway, and the alternative
+    /// (unbounded join) would block `NetworkProcessHandle::shutdown`
+    /// for the full TCP timeout window.
+    ///
     /// Joining inside the broker thread is safe because each
     /// worker observes either the cancel signal or the dropped
-    /// command channel within bounded time — see [`crate::ws::ws_io_loop`]
-    /// and [`crate::sse::sse_io_loop`] for the cancel-injection
-    /// surface.  Without the join, a stale renderer's `WsHandle`
-    /// / `SseHandle` would be detached and the worker thread
-    /// could outlive `NetworkProcessHandle::shutdown()`,
-    /// continuing to consume socket / TLS resources past the
-    /// caller's expected lifetime (pre-existing leak surfaced by
-    /// PR #142's structural review).
+    /// command channel within bounded time — see
+    /// [`crate::ws::ws_io_loop`] and [`crate::sse::sse_io_loop`]
+    /// for the cancel-injection surface.  Without the join, a
+    /// stale renderer's `WsHandle` / `SseHandle` would be
+    /// detached and the worker thread could outlive
+    /// `NetworkProcessHandle::shutdown`, continuing to consume
+    /// socket / TLS resources past the caller's expected
+    /// lifetime (pre-existing leak surfaced by PR #142's
+    /// structural review).
     fn close_all_for_client(&mut self, client_id: u64) {
         // Close WebSocket connections.
         let ws_keys: Vec<_> = self
@@ -533,13 +589,17 @@ impl NetworkProcessState {
             .collect();
         for key in ws_keys {
             if let Some(mut handle) = self.ws_handles.remove(&key) {
+                // Queue the graceful Close cmd, then drop the
+                // sender so the worker observes the close
+                // frame's outcome AND the subsequent
+                // channel-disconnect on its next two
+                // `cmd_rx.recv()` polls.
                 let _ = handle
                     .command_tx
                     .send(WsCommand::Close(1001, "navigated away".into()));
-                handle.cancel.cancel();
                 drop(handle.command_tx);
                 if let Some(thread) = handle.thread.take() {
-                    let _ = thread.join();
+                    join_with_grace_then_cancel(thread, &handle.cancel);
                 }
             }
         }
@@ -554,10 +614,9 @@ impl NetworkProcessState {
         for key in sse_keys {
             if let Some(mut handle) = self.sse_handles.remove(&key) {
                 let _ = handle.command_tx.send(SseCommand::Close);
-                handle.cancel.cancel();
                 drop(handle.command_tx);
                 if let Some(thread) = handle.thread.take() {
-                    let _ = thread.join();
+                    join_with_grace_then_cancel(thread, &handle.cancel);
                 }
             }
         }

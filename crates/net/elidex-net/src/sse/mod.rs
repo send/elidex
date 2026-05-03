@@ -252,6 +252,47 @@ fn should_close(cmd_rx: &Receiver<SseCommand>, cancel: &CancelHandle) -> bool {
     }
 }
 
+/// Race a future against a [`CancelHandle`] — returns `Some(value)`
+/// when the future resolved first, or `None` when the broker
+/// triggered cancel.  Used by [`sse_io_loop`] to wrap
+/// [`connect_sse_stream`]'s long-running response read so a peer
+/// that accepts the TCP connection but never replies to the HTTP
+/// GET still unblocks the worker on broker-driven teardown
+/// (slot #10.6a).  Extracted into a free helper so unit tests
+/// can exercise the cancel arm directly without binding a
+/// real TCP fixture (Copilot R1 HX1).
+async fn await_with_cancel<F>(fut: F, cancel: &CancelHandle) -> Option<F::Output>
+where
+    F: std::future::Future,
+{
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => None,
+        out = fut => Some(out),
+    }
+}
+
+/// Race [`tokio::io::AsyncBufReadExt::read_line`] (wrapped in a
+/// per-attempt `tokio::time::timeout`) against a [`CancelHandle`].
+/// Returns `None` if cancel fired (caller should `return`),
+/// otherwise the inner `Result<Result<usize, std::io::Error>, Elapsed>`
+/// from the timeout.  Extracted from [`sse_io_loop`]'s body-read
+/// loop so unit tests can drive the cancel arm against a
+/// `tokio::io::duplex` fixture without going through
+/// `connect_sse_stream`'s SSRF check (Copilot R1 HX2).
+async fn read_line_with_cancel<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    line: &mut String,
+    per_read_timeout: Duration,
+    cancel: &CancelHandle,
+) -> Option<Result<Result<usize, std::io::Error>, tokio::time::error::Elapsed>> {
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => None,
+        res = tokio::time::timeout(per_read_timeout, reader.read_line(line)) => Some(res),
+    }
+}
+
 /// Async SSE I/O loop with auto-reconnection.
 ///
 /// Connects to the SSE endpoint using a raw TCP/TLS connection and reads the
@@ -300,10 +341,8 @@ async fn sse_io_loop(
         // full TCP-stack timeout (slot #10.6a).
         let connect_fut =
             connect_sse_stream(&url, &extra_headers, origin.as_deref(), with_credentials);
-        let connect_outcome = tokio::select! {
-            biased;
-            () = cancel.cancelled() => return,
-            res = connect_fut => res,
+        let Some(connect_outcome) = await_with_cancel(connect_fut, &cancel).await else {
+            return;
         };
         let mut reader = match connect_outcome {
             Ok(r) => r,
@@ -346,10 +385,11 @@ async fn sse_io_loop(
             // would survive the broker's `thread.join()` until
             // every retry burned through its own timeout (slot
             // #10.6a).
-            let read_outcome = tokio::select! {
-                biased;
-                () = cancel.cancelled() => return,
-                res = tokio::time::timeout(Duration::from_secs(60), reader.read_line(&mut line)) => res,
+            let Some(read_outcome) =
+                read_line_with_cancel(&mut reader, &mut line, Duration::from_secs(60), &cancel)
+                    .await
+            else {
+                return;
             };
             match read_outcome {
                 Ok(Ok(0) | Err(_)) => break, // EOF or read error.
@@ -731,6 +771,124 @@ mod tests {
             "wait_or_close blocked for {elapsed:?} — cancel arm missing? \
              expected ~50ms, retry_ms was 3_000ms"
         );
+    }
+
+    /// Slot #10.6a (Copilot R1 HX1): the
+    /// [`await_with_cancel`] wrapper used in [`sse_io_loop`] for
+    /// the `connect_sse_stream` arm must resolve to `None` when
+    /// cancel fires, even if the underlying connect future is
+    /// still pending.  This test substitutes a 60-second sleep
+    /// for the real connect future so the cancel arm is the
+    /// only thing that can resolve it within the assertion
+    /// window — if the helper's `tokio::select!` arm goes
+    /// missing in a future refactor the inner sleep would
+    /// dominate and the test would fail on the deadline.
+    #[tokio::test]
+    async fn await_with_cancel_resolves_to_none_on_cancel() {
+        let cancel = CancelHandle::new();
+        let cancel_for_trigger = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancel_for_trigger.cancel();
+        });
+        let started = std::time::Instant::now();
+        let pending = async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            42_u32
+        };
+        let outcome = await_with_cancel(pending, &cancel).await;
+        let elapsed = started.elapsed();
+        assert!(
+            outcome.is_none(),
+            "await_with_cancel must yield None when cancel fires before the inner future"
+        );
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "await_with_cancel blocked for {elapsed:?} — cancel arm missing? \
+             expected ~50ms"
+        );
+    }
+
+    /// Slot #10.6a sanity for [`await_with_cancel`]: the helper
+    /// must return `Some(value)` when the inner future resolves
+    /// first.  Without this companion, a bug that always
+    /// preferred the cancel arm (e.g. accidentally setting
+    /// cancel as `is_cancelled`-true) could pass
+    /// [`await_with_cancel_resolves_to_none_on_cancel`] while
+    /// breaking the happy path.
+    #[tokio::test]
+    async fn await_with_cancel_resolves_inner_when_no_cancel() {
+        let cancel = CancelHandle::new();
+        let outcome = await_with_cancel(async { 7_u32 }, &cancel).await;
+        assert_eq!(outcome, Some(7));
+    }
+
+    /// Slot #10.6a (Copilot R1 HX2): the
+    /// [`read_line_with_cancel`] wrapper used in
+    /// [`sse_io_loop`]'s body-read loop must resolve to `None`
+    /// when cancel fires while parked on `reader.read_line`,
+    /// even when the inner reader has no data and would
+    /// otherwise wait the full per-attempt
+    /// `tokio::time::timeout` (60 seconds in production).
+    /// Driven via [`tokio::io::duplex`] so the test never
+    /// touches real TCP / SSRF gating.
+    #[tokio::test]
+    async fn read_line_with_cancel_resolves_to_none_on_cancel() {
+        // `duplex(64)` returns a paired stream; we keep
+        // `_writer` alive (un-dropped) so the reader doesn't
+        // EOF — `read_line` stays parked indefinitely.
+        let (_writer, reader_side) = tokio::io::duplex(64);
+        let mut reader = tokio::io::BufReader::new(reader_side);
+        let mut line = String::new();
+        let cancel = CancelHandle::new();
+        let cancel_for_trigger = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cancel_for_trigger.cancel();
+        });
+        let started = std::time::Instant::now();
+        let outcome =
+            read_line_with_cancel(&mut reader, &mut line, Duration::from_secs(60), &cancel).await;
+        let elapsed = started.elapsed();
+        assert!(
+            outcome.is_none(),
+            "read_line_with_cancel must yield None when cancel fires before the inner read_line completes"
+        );
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "read_line_with_cancel blocked for {elapsed:?} — cancel arm missing?"
+        );
+        assert!(
+            line.is_empty(),
+            "no data was written so the line buffer must be untouched"
+        );
+    }
+
+    /// Slot #10.6a sanity for [`read_line_with_cancel`]: the
+    /// helper must return the inner read result when data
+    /// arrives before cancel fires.
+    #[tokio::test]
+    async fn read_line_with_cancel_returns_inner_result_on_data() {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut writer, reader_side) = tokio::io::duplex(64);
+        let mut reader = tokio::io::BufReader::new(reader_side);
+        let mut line = String::new();
+        let cancel = CancelHandle::new();
+
+        // Write a complete line so `read_line` resolves promptly.
+        tokio::spawn(async move {
+            writer.write_all(b"hello\n").await.expect("write");
+        });
+
+        let outcome =
+            read_line_with_cancel(&mut reader, &mut line, Duration::from_secs(5), &cancel).await;
+        let outcome = outcome.expect("inner future must resolve when no cancel fires");
+        let bytes = outcome
+            .expect("per-read timeout must not elapse on a 6-byte loopback write")
+            .expect("read_line must succeed");
+        assert_eq!(bytes, 6);
+        assert_eq!(line, "hello\n");
     }
 
     /// Slot #10.6a sanity: [`wait_or_close`] still elapses its
