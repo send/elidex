@@ -149,8 +149,27 @@ pub enum NetworkToRenderer {
 }
 
 /// Control messages from the Browser thread to the Network Process.
+///
+/// Crate-private (slot #10.6c R10): the variants carry payload
+/// types that are implementation details of the broker (the
+/// shared [`std::sync::Arc<std::sync::atomic::AtomicBool>`]
+/// for slot #10.6c R9, the `crossbeam_channel::Sender<()>` ack
+/// for the slot #10.6c handshake), so adding fields here is a
+/// breaking change for any external code that exhaustively
+/// matched the variant.  No external embedder constructs or
+/// matches this enum — control messages are sent only via the
+/// `pub(super)`-fielded `NetworkProcessHandle::control_tx` /
+/// `NetworkHandle::control_tx` channels held inside the broker
+/// module — so we restrict the visibility to `pub(crate)`
+/// rather than `pub`, freeing the broker to evolve its control
+/// payload without churning a public API contract.  Lib still
+/// re-exports `NetworkProcessHandle` / `NetworkHandle` /
+/// `spawn_network_process` (`broker::handle::*`) and the data
+/// message types `RendererToNetwork` / `NetworkToRenderer`
+/// (which are observed externally in `elidex-js` / `elidex-js-boa`
+/// realtime bridges).
 #[derive(Debug)]
-pub enum NetworkProcessControl {
+pub(crate) enum NetworkProcessControl {
     /// Register a new renderer (content thread).
     RegisterRenderer {
         /// Unique client identifier.
