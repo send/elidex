@@ -49,18 +49,23 @@ use super::super::{NativeFn, VmInner};
 /// [`super::super::VmInner::url_states`].
 ///
 /// `url::Url` is `Clone + Send` and ~80 bytes; cheap to mutate
-/// in-place via `set_*` setters (Phase 3).  `search_params` is
-/// `None` until the constructor lazily creates the linked
-/// `URLSearchParams` instance (Phase 4); accessor reads
-/// (`searchParams` IDL attribute) ensure the same `ObjectId` is
-/// returned on every read.
+/// in-place via `set_*` setters.  `search_params` is `Some` for
+/// every URL produced by [`native_url_constructor`] or
+/// [`alloc_url_instance`] — both eagerly allocate the linked
+/// `URLSearchParams` to make `url.searchParams ===
+/// url.searchParams` hold (WHATWG URL §6.1 identity invariant).
+/// The `Option` exists only to express the brief window between
+/// `url_states.insert` and the back-edge link installation
+/// inside the same constructor body.
 pub(crate) struct UrlState {
     /// Parsed URL — every accessor reads through this; setters
     /// mutate it in place via the `url::Url::set_*` API.
     pub(crate) url: url::Url,
-    /// Linked `URLSearchParams` instance `ObjectId` (Phase 4).
-    /// `None` in Phase 1 — the `searchParams` IDL attribute is
-    /// not yet wired up.
+    /// Linked `URLSearchParams` instance `ObjectId`.  `None` only
+    /// during the brief constructor-body window before the
+    /// back-edge installation completes (between `url_states
+    /// .insert` and `state.search_params = Some(sp_id)`); every
+    /// observable URL has `Some(_)` here.
     pub(crate) search_params: Option<ObjectId>,
 }
 
@@ -679,9 +684,12 @@ fn native_url_set_password(
 
 /// `url.host = …` — WHATWG URL §6.1 "host setter" parses the
 /// input as `host[:port]`.  The `url` crate's `set_host` only
-/// understands the host portion, so split on the first `:` and
-/// stamp the port half through `set_port` when present (omitted
-/// inputs leave the existing port untouched, matching WHATWG).
+/// understands the host portion (it accepts bracketed IPv6 like
+/// `[::1]` but not the trailing `:port`), so [`split_host_port`]
+/// peels the port off correctly for both bracketed IPv6 and
+/// regular hostnames.  An explicit empty port (trailing `:`)
+/// clears the existing port — matching the WHATWG basic URL
+/// parser's port state with state-override.
 fn native_url_set_host(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -689,16 +697,20 @@ fn native_url_set_host(
 ) -> Result<JsValue, VmError> {
     let id = require_url_this(ctx, this, "host")?;
     let val = take_url_setter_arg(ctx, args)?;
-    let (host_part, port_part) = match val.split_once(':') {
-        Some((h, p)) => (h.to_owned(), Some(p.to_owned())),
-        None => (val, None),
-    };
+    let (host_part, port_part) = split_host_port(&val);
     if let Some(state) = ctx.vm.url_states.get_mut(&id) {
         let _ = state.url.set_host(Some(&host_part));
         if let Some(p) = port_part {
-            if let Ok(parsed_port) = p.parse::<u16>() {
+            if p.is_empty() {
+                // Trailing `:` with empty buffer in port state
+                // clears the port (WHATWG basic URL parser §4.4
+                // "port state" with state override).
+                let _ = state.url.set_port(None);
+            } else if let Ok(parsed_port) = p.parse::<u16>() {
                 let _ = state.url.set_port(Some(parsed_port));
             }
+            // else: invalid port — silently ignore, matching
+            // WHATWG validation-error short-circuit.
         }
     }
     Ok(JsValue::Undefined)
@@ -798,6 +810,39 @@ fn native_url_set_hash(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Split a `host[:port]` string into its component parts per the
+/// WHATWG URL §6.1 "host setter" expectations.  Recognises
+/// bracketed IPv6 literals so `[::1]:8080` splits to `("[::1]",
+/// Some("8080"))` rather than `("[", Some(":1]:8080"))` (which is
+/// what a naive `split_once(':')` would produce).
+///
+/// `Some("")` for the port half encodes a trailing `:` with no
+/// digits — the caller maps that to "clear the port" per the
+/// basic URL parser's port-state-with-override semantics.
+/// `None` means "no port separator at all", which leaves the
+/// existing port untouched.
+fn split_host_port(val: &str) -> (String, Option<String>) {
+    if val.starts_with('[') {
+        // Bracketed IPv6 — split after the matching `]`.
+        if let Some(end) = val.find(']') {
+            let host = val[..=end].to_owned();
+            let rest = &val[end + 1..];
+            return match rest.strip_prefix(':') {
+                Some(port) => (host, Some(port.to_owned())),
+                None => (host, None),
+            };
+        }
+        // Malformed bracketed input (no closing `]`) — fall
+        // through to the colon-split path; the underlying
+        // `set_host` call will validation-error on the malformed
+        // host and silently leave the URL unchanged.
+    }
+    match val.split_once(':') {
+        Some((h, p)) => (h.to_owned(), Some(p.to_owned())),
+        None => (val.to_owned(), None),
+    }
+}
+
 /// Coerce the first positional argument to a `String` via
 /// [`super::super::coerce::to_string`].  Used by every URL setter
 /// (the WHATWG IDL declares all these IDL attrs `attribute USVString
@@ -868,17 +913,21 @@ pub(super) fn rebuild_linked_search_params(vm: &mut VmInner, url_id: ObjectId) {
 /// result.  Mirror of [`super::location::url_component`] — the
 /// `extract` closure produces an owned `String` so the borrow on
 /// `url_states` ends before `intern` takes `&mut self.strings`.
+///
+/// Throws `TypeError` (`missing internal slot`) when `url_states`
+/// has no entry despite the brand check passing.  Such a state
+/// would indicate a GC-rooting bug or a manually-promoted
+/// `ObjectKind::URL` instance — fail loudly rather than silently
+/// returning `""` (matches the `searchParams` getter's defensive
+/// posture).
 fn url_component(
     ctx: &mut NativeContext<'_>,
     id: ObjectId,
     extract: impl FnOnce(&url::Url) -> String,
 ) -> Result<JsValue, VmError> {
-    let s = ctx
-        .vm
-        .url_states
-        .get(&id)
-        .map(|state| extract(&state.url))
-        .unwrap_or_default();
+    let Some(s) = ctx.vm.url_states.get(&id).map(|state| extract(&state.url)) else {
+        return Err(VmError::type_error("URL: missing internal slot"));
+    };
     let sid = ctx.vm.strings.intern(&s);
     Ok(JsValue::String(sid))
 }

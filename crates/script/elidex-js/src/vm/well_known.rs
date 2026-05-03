@@ -673,15 +673,17 @@ define_well_known_strings! {
     "URL (WHATWG URL §6.1)" {
         // Constructor global + IDL accessor / static method names.
         // `origin` lives above (event-payload section) and is reused
-        // here for `URL.prototype.origin`.  `to_string_method` /
-        // `to_json` / `search_params` use the existing pre-interned
-        // identifiers (no duplication).  The `*_attr` suffix on
-        // `host_attr` / `port_attr` / `search_attr` / `hash_attr`
-        // disambiguates the Rust field name from potential future
-        // collisions with other web-platform properties (CSS / HTML
-        // `host`, etc.) — same naming precedent as `closed_attr` /
-        // `locked_attr` in the streams section.  The literal string
-        // values match the WebIDL identifiers verbatim.
+        // here for `URL.prototype.origin`; `to_string_method` /
+        // `to_json` are reused from the URLSearchParams / core
+        // sections.  `search_params` is new in this section
+        // (`"searchParams"` was not previously interned anywhere).
+        // The `*_attr` suffix on `host_attr` / `port_attr` /
+        // `search_attr` / `hash_attr` disambiguates the Rust field
+        // name from potential future collisions with other
+        // web-platform properties (CSS / HTML `host`, etc.) — same
+        // naming precedent as `closed_attr` / `locked_attr` in the
+        // streams section.  The literal string values match the
+        // WebIDL identifiers verbatim.
         url_global => "URL",
         href => "href",
         protocol => "protocol",

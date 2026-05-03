@@ -245,6 +245,39 @@ fn host_setter_replaces_authority() {
 }
 
 #[test]
+fn host_setter_handles_ipv6_with_port() {
+    // R1 IMP: bracketed IPv6 must split correctly; a naive
+    // `split_once(':')` would mistakenly treat the first `:`
+    // inside the address as the port separator.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "let u = new URL('https://[::1]/'); \
+             u.host = '[::2]:9000'; \
+             u.host;"
+        ),
+        "[::2]:9000"
+    );
+}
+
+#[test]
+fn host_setter_trailing_colon_clears_port() {
+    // R1 IMP: WHATWG basic URL parser port-state-with-override:
+    // an empty buffer after `:` clears the port.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "let u = new URL('https://x.com:8080/'); \
+             u.host = 'y.com:'; \
+             u.port;"
+        ),
+        ""
+    );
+}
+
+#[test]
 fn hostname_setter_keeps_port() {
     let mut vm = Vm::new();
     assert_eq!(
