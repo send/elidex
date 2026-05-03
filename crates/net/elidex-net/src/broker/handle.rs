@@ -76,35 +76,12 @@ impl NetworkProcessHandle {
     pub fn create_renderer_handle(&self) -> NetworkHandle {
         let client_id = CLIENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let (response_tx, response_rx) = crossbeam_channel::unbounded();
-        // Slot #10.6c R9: the broker stores a clone of this
-        // atomic in its `clients` map and flips it to `true`
-        // BEFORE emitting `RendererUnregistered`, so a
-        // concurrent `create_sibling_handle` against this cid
-        // can detect the unregister with an O(1) load instead
-        // of having to drain the renderer's response channel.
-        let unregistered = Arc::new(AtomicBool::new(false));
         let pre_unregistered = register_with_ack(
             &self.control_tx,
             client_id,
             response_tx,
-            Arc::clone(&unregistered),
-            // Top-level renderer has no parent — slot #10.6c R13
-            // parent-alive gate doesn't apply.
-            None,
             "create_renderer_handle",
         );
-        if pre_unregistered {
-            // Slot #10.6c: the ack was lost (timeout /
-            // disconnect).  Set the flag locally so this
-            // handle's own short-circuit machinery fires from
-            // the first call.  In the timeout case the broker
-            // may eventually receive Register + the follow-up
-            // UnregisterRenderer and would also flip the flag
-            // through its `clients` clone (idempotent on
-            // re-set), but we cannot rely on that — broker may
-            // be hung indefinitely or already gone.
-            unregistered.store(true, Ordering::Release);
-        }
 
         NetworkHandle {
             client_id,
@@ -112,7 +89,15 @@ impl NetworkProcessHandle {
             control_tx: self.control_tx.clone(),
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
-            unregistered,
+            // Slot #10.6c: pre-set to `true` if the ack was lost
+            // (timeout / disconnect).  Reuses slot #10.6b's
+            // `unregistered` short-circuit machinery so the
+            // user-observable error is consistent across "broker
+            // dead at register time" and "broker tore us down
+            // post-register" without inventing a new error
+            // variant.  `false` on a healthy ack matches the
+            // pre-#10.6c shape.
+            unregistered: Arc::new(AtomicBool::new(pre_unregistered)),
             outstanding_fetches: std::cell::RefCell::new(HashSet::new()),
             #[cfg(feature = "test-hooks")]
             mock_responses: None,
@@ -319,85 +304,27 @@ impl NetworkHandle {
     /// but-alive broker cleans up the orphan registration
     /// itself once it resumes draining.
     ///
-    /// **R6/R7 inheritance**: when this method is called against
-    /// a parent that is already unregistered (its
-    /// `unregistered` flag is set, OR its response channel
-    /// has the [`NetworkToRenderer::RendererUnregistered`]
-    /// marker queued but not yet drained), the call short-
-    /// circuits without ever talking to the broker — the
-    /// returned sibling enters the world in the same pre-
-    /// unregistered state with the same dual-form contract
-    /// described above.  This avoids the embedder-visible
-    /// inconsistency of a broken parent spawning a working
-    /// child against a broker that may have recovered between
-    /// the parent's teardown and this call.
+    /// **Independent lifecycle**: each sibling has its own cid,
+    /// response channel, and `unregistered` flag.  The parent's
+    /// unregister state does NOT affect a freshly-spawned
+    /// sibling — siblings model Web Workers, whose lifecycle is
+    /// managed at the JS layer (HTML spec's worker termination
+    /// algorithm runs from the document teardown), not at the
+    /// network broker layer.  If the parent is mid-teardown
+    /// when JS calls `new Worker()`, the embedder is responsible
+    /// for short-circuiting at the JS layer; the network broker
+    /// will register the sibling normally if the broker itself
+    /// is alive.
     #[must_use]
     pub fn create_sibling_handle(&self) -> Self {
         let client_id = CLIENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let (response_tx, response_rx) = crossbeam_channel::unbounded();
-        let unregistered = Arc::new(AtomicBool::new(false));
-
-        // Slot #10.6c (Copilot R6/R7/R9): if the parent has
-        // already been marked unregistered, short-circuit
-        // sibling creation here without touching the broker.
-        // Without this gate, routing through `register_with_ack`
-        // would either (a) fail at send time when the broker is
-        // gone (yielding the same pre-unregistered result via
-        // the SendError path, just with a wasted Register
-        // attempt and an orphan ack channel) OR (b) succeed
-        // against a broker that has recovered between the
-        // parent's unregister and now, leaving the embedder
-        // with a live sibling whose parent's every operation
-        // short-circuits as unregistered — an inconsistent
-        // contract for callers who treat sibling spawning as
-        // "child of parent".
-        //
-        // **R9 architectural fix**: detection is an O(1) atomic
-        // load, not a channel drain.  The broker holds a clone
-        // of [`Self::unregistered`] in its `clients` map (slot
-        // #10.6c R9 `ClientEntry`) and stores `true` (Release)
-        // BEFORE emitting the
-        // [`NetworkToRenderer::RendererUnregistered`] marker on
-        // the parent's response channel — so this `Acquire`
-        // load synchronises with the broker's flip without ever
-        // touching the channel queue.  This replaces the earlier
-        // R7/R8 bounded-drain probe (which was unbounded in
-        // WS/SSE backlog size and could trigger an
-        // `outstanding_fetches` synthesis pass on hitting the
-        // marker — Copilot R9 F1/F2).  Renderer-side
-        // `process_response` still stores Release on the marker
-        // for defence-in-depth, but the broker-side store is
-        // the load-bearing one for cross-handle observation.
-        let pre_unregistered = if self.unregistered.load(Ordering::Acquire) {
-            // Drop response_tx implicitly at end of scope; no
-            // one ever sends on it because we don't hand it to
-            // the broker.
-            drop(response_tx);
-            true
-        } else {
-            register_with_ack(
-                &self.control_tx,
-                client_id,
-                response_tx,
-                Arc::clone(&unregistered),
-                // Slot #10.6c R13: pass our cid as the parent
-                // so the broker can refuse the sibling's
-                // Register if our cid has already been removed
-                // from `clients` (closing the atomic-load
-                // TOCTOU window — the broker drains control_tx
-                // FIFO, so if `UnregisterRenderer { client_id:
-                // self.client_id }` was sent first, it has
-                // already removed us by the time this Register
-                // is processed and the broker drops `ack_tx`
-                // unsent → renderer sees Disconnect →
-                // pre_unregistered).
-                Some(self.client_id),
-                "create_sibling_handle",
-            )
-        };
-        if pre_unregistered {
-            unregistered.store(true, Ordering::Release);
-        }
+        let pre_unregistered = register_with_ack(
+            &self.control_tx,
+            client_id,
+            response_tx,
+            "create_sibling_handle",
+        );
 
         Self {
             client_id,
@@ -405,26 +332,17 @@ impl NetworkHandle {
             control_tx: self.control_tx.clone(),
             response_rx,
             buffered: std::cell::RefCell::new(Vec::new()),
-            // Slot #10.6b/c: siblings get fresh flag state.
-            // Each has its own response channel + cid, so the
-            // parent's unregister marker is delivered only on
-            // the parent's response channel, not here.  Sharing
-            // the flag wholesale would incorrectly disable the
-            // sibling forever on the parent's teardown.  The
-            // flag is pre-set to `true` only at construction
-            // time, in three cases: (i) the slot #10.6c ack
-            // handshake failed (broker hung / gone), (ii) the
-            // parent itself was already unregistered when this
-            // sibling was constructed (R6 inheritance — the
-            // sibling enters the world in the same broken state
-            // its parent was in), or (iii) the broker stored
-            // `true` into our cloned atomic via the slot #10.6c
-            // R9 `ClientEntry` path before clients.remove (e.g.
-            // racing UnregisterRenderer arriving on control_tx
-            // shortly after our register).  After construction
-            // the sibling's flag evolves independently via its
-            // own response channel.
-            unregistered,
+            // Siblings get fresh flag state.  Each has its own
+            // response channel + cid, so the parent's unregister
+            // marker is delivered only on the parent's response
+            // channel, not here.  The flag is pre-set to `true`
+            // only when the slot #10.6c ack handshake itself
+            // failed for this sibling (broker hung / gone) so
+            // the user-observable error matches a torn-down
+            // renderer; otherwise the flag evolves through the
+            // sibling's own `process_response` on observing its
+            // own marker.
+            unregistered: Arc::new(AtomicBool::new(pre_unregistered)),
             outstanding_fetches: std::cell::RefCell::new(HashSet::new()),
             #[cfg(feature = "test-hooks")]
             mock_responses: None,

@@ -158,46 +158,10 @@ fn join_pending_with_grace_then_cancel(
     }
 }
 
-/// Per-renderer state held in [`NetworkProcessState::clients`].
-///
-/// Pre-slot-#10.6c-R9 the value type was just the response
-/// `Sender`; R9 added the `unregistered` atomic so the broker
-/// can flip a renderer's pre-unregistered flag synchronously
-/// (BEFORE emitting the [`NetworkToRenderer::RendererUnregistered`]
-/// marker), enabling
-/// [`super::handle::NetworkHandle::create_sibling_handle`] to
-/// detect parent-unregistered with a single
-/// `Arc<AtomicBool>::load` instead of having to drain the
-/// parent's response channel looking for the queued marker.
-/// The drain approach was unbounded in WS/SSE backlog size
-/// (Copilot R9 F1) and could trigger an unbounded
-/// `outstanding_fetches` synthesis pass on hitting the marker
-/// (R9 F2); the shared atomic gives O(1) detection.
-///
-/// The renderer side holds a clone of the `Arc` in
-/// [`super::handle::NetworkHandle::unregistered`].  The broker
-/// keeps its clone in this struct for the duration of the
-/// renderer's registration, then drops it when `clients`
-/// removes the entry (after the marker has been emitted).
-struct ClientEntry {
-    /// Response channel: broker → this renderer.
-    response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
-    /// Slot #10.6c R9: shared with [`super::handle::NetworkHandle::unregistered`].
-    /// Stored to `true` (Release) by
-    /// [`NetworkProcessState::emit_renderer_unregistered`]
-    /// BEFORE the marker is sent on `response_tx`, so a
-    /// concurrent `Acquire` load by another renderer's
-    /// `create_sibling_handle` against this cid sees `true`
-    /// without needing to drain the response channel.
-    unregistered: Arc<std::sync::atomic::AtomicBool>,
-}
-
 /// Internal state of the Network Process.
 struct NetworkProcessState {
-    /// Registered renderer clients: `client_id` → [`ClientEntry`]
-    /// (response sender + the renderer's shared `unregistered`
-    /// atomic, slot #10.6c R9).
-    clients: HashMap<u64, ClientEntry>,
+    /// Registered renderer clients: `client_id` → response sender.
+    clients: HashMap<u64, crossbeam_channel::Sender<NetworkToRenderer>>,
     /// Active WebSocket connections: `(client_id, conn_id)` → `WsHandle`.
     ws_handles: HashMap<(u64, u64), WsHandle>,
     /// Active SSE connections: `(client_id, conn_id)` → `SseHandle`.
@@ -331,12 +295,12 @@ impl NetworkProcessState {
                 };
                 if !scheme_ok || elidex_plugin::url_security::validate_url(&check_url).is_err() {
                     // Send error + close so JS transitions to CLOSED state.
-                    if let Some(entry) = self.clients.get(&cid) {
-                        let _ = entry.response_tx.send(NetworkToRenderer::WebSocketEvent(
+                    if let Some(tx) = self.clients.get(&cid) {
+                        let _ = tx.send(NetworkToRenderer::WebSocketEvent(
                             conn_id,
                             WsEvent::Error("SSRF: URL blocked by security policy".into()),
                         ));
-                        let _ = entry.response_tx.send(NetworkToRenderer::WebSocketEvent(
+                        let _ = tx.send(NetworkToRenderer::WebSocketEvent(
                             conn_id,
                             WsEvent::Closed {
                                 code: 1006,
@@ -373,8 +337,8 @@ impl NetworkProcessState {
             } => {
                 // SSRF validation at the broker boundary.
                 if elidex_plugin::url_security::validate_url(&url).is_err() {
-                    if let Some(entry) = self.clients.get(&cid) {
-                        let _ = entry.response_tx.send(NetworkToRenderer::EventSourceEvent(
+                    if let Some(tx) = self.clients.get(&cid) {
+                        let _ = tx.send(NetworkToRenderer::EventSourceEvent(
                             conn_id,
                             SseEvent::FatalError("SSRF: URL blocked by security policy".into()),
                         ));
@@ -475,8 +439,8 @@ impl NetworkProcessState {
         {
             token.cancel();
         }
-        if let Some(entry) = self.clients.get(&cid) {
-            let _ = entry.response_tx.send(NetworkToRenderer::FetchResponse(
+        if let Some(tx) = self.clients.get(&cid) {
+            let _ = tx.send(NetworkToRenderer::FetchResponse(
                 fetch_id,
                 Err("aborted".into()),
             ));
@@ -488,10 +452,7 @@ impl NetworkProcessState {
         // checks validate_url() internally (respecting allow_private_ips config).
         // WS/SSE need broker-level SSRF because their I/O threads bypass NetClient.
         let client = Arc::clone(client);
-        // Clone only the response_tx (not the whole ClientEntry,
-        // which would also clone the Arc<AtomicBool> unnecessarily
-        // for the worker thread that just needs to send a reply).
-        let tx = self.clients.get(&cid).map(|e| e.response_tx.clone());
+        let tx = self.clients.get(&cid).cloned();
         let inflight = Arc::clone(&self.inflight_fetches);
         // Atomically increment and check — avoids TOCTOU between load and add.
         // Note: the broker is single-threaded so the race is theoretical, but
@@ -565,41 +526,9 @@ impl NetworkProcessState {
             NetworkProcessControl::RegisterRenderer {
                 client_id,
                 response_tx,
-                unregistered,
-                parent_client_id,
                 ack_tx,
             } => {
-                // Slot #10.6c R13: sibling registration is gated
-                // on the parent still being live — the broker
-                // sees control messages in FIFO order on
-                // `control_tx`, so by the time we get here, any
-                // prior `UnregisterRenderer { client_id: parent }`
-                // has already removed the parent from `clients`.
-                // Refusing the Register (drop `ack_tx` without
-                // sending so the renderer's `recv_timeout`
-                // returns `Disconnected`) is the broker-mediated
-                // exclusion that closes the TOCTOU window the
-                // renderer-side atomic-load fast-path could not.
-                // Top-level `create_renderer_handle` calls pass
-                // `parent_client_id: None`, which always passes
-                // this check.
-                if let Some(parent_id) = parent_client_id {
-                    if !self.clients.contains_key(&parent_id) {
-                        // Drop ack_tx implicitly at end of arm:
-                        // the renderer's recv_timeout sees
-                        // Disconnect → pre_unregistered=true.
-                        // No `clients.insert`: the sibling never
-                        // enters the broker's bookkeeping.
-                        return true;
-                    }
-                }
-                self.clients.insert(
-                    client_id,
-                    ClientEntry {
-                        response_tx,
-                        unregistered,
-                    },
-                );
+                self.clients.insert(client_id, response_tx);
                 // Slot #10.6c: ack AFTER insert so a renderer
                 // waking from `recv_timeout` observes the cid as
                 // registered.  Send is best-effort: a dropped
@@ -687,10 +616,8 @@ impl NetworkProcessState {
             loop {
                 match handle.event_rx.try_recv() {
                     Ok(event) => {
-                        if let Some(entry) = self.clients.get(&cid) {
-                            let _ = entry
-                                .response_tx
-                                .send(NetworkToRenderer::WebSocketEvent(conn_id, event));
+                        if let Some(tx) = self.clients.get(&cid) {
+                            let _ = tx.send(NetworkToRenderer::WebSocketEvent(conn_id, event));
                         }
                     }
                     Err(TryRecvError::Empty) => break,
@@ -712,10 +639,8 @@ impl NetworkProcessState {
             loop {
                 match handle.event_rx.try_recv() {
                     Ok(event) => {
-                        if let Some(entry) = self.clients.get(&cid) {
-                            let _ = entry
-                                .response_tx
-                                .send(NetworkToRenderer::EventSourceEvent(conn_id, event));
+                        if let Some(tx) = self.clients.get(&cid) {
+                            let _ = tx.send(NetworkToRenderer::EventSourceEvent(conn_id, event));
                         }
                     }
                     Err(TryRecvError::Empty) => break,
@@ -963,7 +888,7 @@ impl NetworkProcessState {
     /// No-op if `client_id` is not in `self.clients` (the
     /// reply has nowhere to go).
     fn synthesise_aborted_replies_for_client(&self, client_id: u64) {
-        let Some(entry) = self.clients.get(&client_id) else {
+        let Some(tx) = self.clients.get(&client_id) else {
             return;
         };
         let inflight: Vec<FetchId> = self
@@ -975,9 +900,7 @@ impl NetworkProcessState {
             .map(|(_, fid)| *fid)
             .collect();
         for fid in inflight {
-            let _ = entry
-                .response_tx
-                .send(NetworkToRenderer::FetchResponse(fid, Err("aborted".into())));
+            let _ = tx.send(NetworkToRenderer::FetchResponse(fid, Err("aborted".into())));
         }
     }
 
@@ -1003,33 +926,9 @@ impl NetworkProcessState {
     /// No-op if `client_id` is not in `self.clients` (the marker
     /// has nowhere to go) — matches the same defensive check
     /// in `synthesise_aborted_replies_for_client`.
-    ///
-    /// **Slot #10.6c R9**: stores `true` (Release) into the
-    /// renderer's shared [`ClientEntry::unregistered`] atomic
-    /// BEFORE sending the marker on `response_tx`.  The atomic
-    /// is held by clones in (a) the renderer's
-    /// [`super::handle::NetworkHandle::unregistered`] and (b)
-    /// any sibling factory that loads it via the parent's
-    /// reference, so the flip is observable cross-handle
-    /// without needing the marker to traverse a queue.
-    /// Pre-store ordering matters: a concurrent
-    /// `create_sibling_handle` doing an `Acquire` load can
-    /// proceed straight to "pre-unregistered sibling" without
-    /// having to drain the parent's response channel for the
-    /// queued marker (Copilot R9 — the drain was unbounded in
-    /// WS/SSE backlog size).  The on-channel marker still
-    /// matters: the parent's own
-    /// [`super::handle::NetworkHandle::process_response`] uses
-    /// it to trigger the slot #10.6b `outstanding_fetches`
-    /// straggler synthesis pass.
     fn emit_renderer_unregistered(&self, client_id: u64) {
-        if let Some(entry) = self.clients.get(&client_id) {
-            entry
-                .unregistered
-                .store(true, std::sync::atomic::Ordering::Release);
-            let _ = entry
-                .response_tx
-                .send(NetworkToRenderer::RendererUnregistered);
+        if let Some(tx) = self.clients.get(&client_id) {
+            let _ = tx.send(NetworkToRenderer::RendererUnregistered);
         }
     }
 
@@ -1185,13 +1084,7 @@ mod tests {
         let (resp_tx, _resp_rx) = crossbeam_channel::unbounded::<NetworkToRenderer>();
         let cid = 7_u64;
         let conn_id = 99_u64;
-        state.clients.insert(
-            cid,
-            ClientEntry {
-                response_tx: resp_tx,
-                unregistered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            },
-        );
+        state.clients.insert(cid, resp_tx);
         state.sse_handles.insert((cid, conn_id), handle);
 
         let client = std::sync::Arc::new(crate::NetClient::default());

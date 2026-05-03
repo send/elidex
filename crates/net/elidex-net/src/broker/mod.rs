@@ -150,28 +150,21 @@ pub enum NetworkToRenderer {
 
 /// Control messages from the Browser thread to the Network Process.
 ///
-/// **Breaking change (slot #10.6c R10/R11)**: this enum was
-/// `pub` in releases prior to slot #10.6c.  It has been
-/// narrowed to `pub(crate)` because its variants now carry
-/// implementation-detail payloads — the shared
-/// [`std::sync::Arc<std::sync::atomic::AtomicBool>`] introduced
-/// by slot #10.6c R9 for cross-handle unregister observability,
-/// and the `crossbeam_channel::Sender<()>` ack introduced by
-/// the slot #10.6c handshake.  Either field addition would
-/// have been a breaking change for downstream code that
-/// exhaustively matched the variant or constructed it
-/// directly, and the broker module needs the freedom to evolve
-/// these payloads without committing to a semver-stable
-/// contract for an internal coordination protocol.  This is an
-/// intentional break consistent with the project's
-/// "後方互換性は維持しない" rule (`CLAUDE.md`).  The remaining
-/// public surface of the broker module (`NetworkHandle`,
-/// `NetworkProcessHandle`, `spawn_network_process`, and the
-/// data message types `RendererToNetwork` /
-/// `NetworkToRenderer` — the latter two ARE observed in
-/// `elidex-js` / `elidex-js-boa` realtime bridges) stays `pub`
-/// and unchanged.  No external embedder constructs or matches
-/// this enum: control messages flow only via the
+/// **Breaking change (slot #10.6c)**: this enum was `pub` in
+/// releases prior to slot #10.6c.  It has been narrowed to
+/// `pub(crate)` because the variant payload now carries
+/// implementation-detail types (the `crossbeam_channel::Sender<()>`
+/// ack introduced by the slot #10.6c handshake), and the broker
+/// module needs the freedom to evolve this internal coordination
+/// protocol without committing to a semver-stable contract.
+/// This is an intentional break consistent with the project's
+/// "後方互換性は維持しない" rule (`CLAUDE.md`).  The public surface
+/// of the broker module — `NetworkHandle`, `NetworkProcessHandle`,
+/// `spawn_network_process`, and the data message types
+/// `RendererToNetwork` / `NetworkToRenderer` (the latter two ARE
+/// observed in `elidex-js` / `elidex-js-boa` realtime bridges) —
+/// stays `pub` and unchanged.  No external embedder constructs
+/// or matches this enum: control messages flow only via the
 /// `pub(super)`-fielded `NetworkProcessHandle::control_tx` /
 /// `NetworkHandle::control_tx` channels held inside the broker
 /// module, so the visibility narrowing has zero blast radius
@@ -184,39 +177,6 @@ pub(crate) enum NetworkProcessControl {
         client_id: u64,
         /// Channel to send responses/events to this renderer.
         response_tx: crossbeam_channel::Sender<NetworkToRenderer>,
-        /// Slot #10.6c R9: shared with the renderer's
-        /// [`NetworkHandle`] `unregistered` flag.  The
-        /// broker stores this clone in its `clients` map and
-        /// flips it to `true` (Release) BEFORE emitting the
-        /// [`NetworkToRenderer::RendererUnregistered`] marker on
-        /// `response_tx` from `emit_renderer_unregistered` —
-        /// gives any concurrent
-        /// `NetworkHandle::create_sibling_handle` against this
-        /// cid an O(1) `Acquire` load fast-path for the common
-        /// case (parent observably unregistered before sibling
-        /// creation).  R13 strengthening: the load alone is a
-        /// snapshot, not exclusion — see `parent_client_id`.
-        unregistered: std::sync::Arc<std::sync::atomic::AtomicBool>,
-        /// Slot #10.6c R13: when registering a **sibling** of
-        /// an existing renderer (via
-        /// [`NetworkHandle::create_sibling_handle`]), this
-        /// carries the parent's `client_id` so the broker can
-        /// check `parent_id ∈ clients` BEFORE inserting the
-        /// sibling.  Closes the TOCTOU between
-        /// `create_sibling_handle`'s atomic-load fast-path and
-        /// the broker's `emit_renderer_unregistered` for the
-        /// parent: with this field, the broker's FIFO drain of
-        /// `control_rx` serialises the sibling's Register
-        /// against any preceding `UnregisterRenderer` for the
-        /// parent — if the parent's `clients.remove` has
-        /// happened first (FIFO order in control_tx), the
-        /// broker drops the sibling's `ack_tx` without sending
-        /// and the renderer's `register_with_ack` recv returns
-        /// `Disconnected`, falling through to the
-        /// pre-unregistered fallback.  `None` for top-level
-        /// `create_renderer_handle` (no parent — that path is
-        /// always allowed).
-        parent_client_id: Option<u64>,
         /// Slot #10.6c: one-shot ack so the caller of
         /// [`NetworkProcessHandle::create_renderer_handle`]
         /// (and [`NetworkHandle::create_sibling_handle`])
