@@ -1,21 +1,51 @@
 //! Tests for `new PromiseRejectionEvent` / `ErrorEvent` /
-//! `HashChangeEvent` / `PopStateEvent` (HTML §8).
+//! `HashChangeEvent` / `PopStateEvent` / `AnimationEvent` /
+//! `TransitionEvent` / `CloseEvent` (HTML §8 + CSS Animations §4.2 +
+//! CSS Transitions §6 + WHATWG HTML §10.4).
 //!
 //! Covers:
 //! - `[Constructor]` gate (call-mode throws TypeError)
 //! - Required first argument (absent → TypeError)
 //! - PromiseRejectionEvent requires `{promise}` init (both dict and key)
-//! - ErrorEvent / HashChangeEvent / PopStateEvent all accept missing
-//!   init dicts and use WebIDL defaults
+//! - ErrorEvent / HashChangeEvent / PopStateEvent / AnimationEvent /
+//!   TransitionEvent / CloseEvent all accept missing init dicts and
+//!   use WebIDL defaults
 //! - Prototype chain: descendant → Event.prototype (NOT UIEvent)
 //! - Own-data instance members resolve via shape slots
 //! - Getter throw propagates from init-dict coercion
+//! - WebIDL `unsigned short` modulo-2^16 (CloseEvent.code)
+//! - WebIDL `boolean` ToBoolean coercion (CloseEvent.wasClean)
+//! - GC survives across `collect_garbage()` for slot #11a ctors
 
 #![cfg(feature = "engine")]
 
 use super::super::value::JsValue;
 use super::super::Vm;
 use super::{eval_bool, eval_number, eval_string};
+
+// Local helpers for tests that need VM continuity across `eval` /
+// `collect_garbage` (the module-level `eval_*` helpers each spin a
+// fresh `Vm`).
+fn vm_eval_string(vm: &mut Vm, source: &str) -> String {
+    match vm.eval(source).unwrap() {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+fn vm_eval_number(vm: &mut Vm, source: &str) -> f64 {
+    match vm.eval(source).unwrap() {
+        JsValue::Number(n) => n,
+        other => panic!("expected number, got {other:?}"),
+    }
+}
+
+fn vm_eval_bool(vm: &mut Vm, source: &str) -> bool {
+    match vm.eval(source).unwrap() {
+        JsValue::Boolean(b) => b,
+        other => panic!("expected bool, got {other:?}"),
+    }
+}
 
 fn expect_type_error(vm: &mut Vm, source: &str) {
     let result = vm
@@ -42,6 +72,9 @@ fn event_extras_ctors_reject_call_mode() {
         "ErrorEvent('error')",
         "HashChangeEvent('hashchange')",
         "PopStateEvent('popstate')",
+        "AnimationEvent('animationstart')",
+        "TransitionEvent('transitionstart')",
+        "CloseEvent('close')",
     ] {
         expect_type_error(&mut vm, source);
     }
@@ -55,6 +88,9 @@ fn event_extras_ctors_reject_missing_type() {
         "new ErrorEvent()",
         "new HashChangeEvent()",
         "new PopStateEvent()",
+        "new AnimationEvent()",
+        "new TransitionEvent()",
+        "new CloseEvent()",
     ] {
         expect_type_error(&mut vm, source);
     }
@@ -351,6 +387,9 @@ fn event_extras_inherit_event_members() {
         "new ErrorEvent('e')",
         "new HashChangeEvent('hc')",
         "new PopStateEvent('pop')",
+        "new AnimationEvent('animationstart')",
+        "new TransitionEvent('transitionstart')",
+        "new CloseEvent('close')",
     ] {
         let bang_new = format!("({ctor}).type");
         assert!(!eval_bool(&format!("({ctor}).isTrusted")));
@@ -361,5 +400,338 @@ fn event_extras_inherit_event_members() {
         assert!(eval_bool(&format!(
             "typeof {bang_new} === 'string' && {bang_new}.length > 0"
         )));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AnimationEvent (CSS Animations Level 1 §4.2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn animation_event_defaults() {
+    // All init members optional.  Defaults: animationName="",
+    // elapsedTime=0, pseudoElement="".
+    assert_eq!(
+        eval_string("new AnimationEvent('animationstart').animationName"),
+        ""
+    );
+    assert_eq!(
+        eval_number("new AnimationEvent('animationstart').elapsedTime"),
+        0.0
+    );
+    assert_eq!(
+        eval_string("new AnimationEvent('animationstart').pseudoElement"),
+        ""
+    );
+}
+
+#[test]
+fn animation_event_init_pass_through() {
+    let init = "{animationName: 'spin', elapsedTime: 1.25, pseudoElement: '::before'}";
+    assert_eq!(
+        eval_string(&format!(
+            "new AnimationEvent('animationstart', {init}).animationName"
+        )),
+        "spin"
+    );
+    assert_eq!(
+        eval_number(&format!(
+            "new AnimationEvent('animationstart', {init}).elapsedTime"
+        )),
+        1.25
+    );
+    assert_eq!(
+        eval_string(&format!(
+            "new AnimationEvent('animationstart', {init}).pseudoElement"
+        )),
+        "::before"
+    );
+}
+
+#[test]
+fn animation_event_partial_init_uses_defaults_for_missing() {
+    let init = "{animationName: 'fade'}";
+    assert_eq!(
+        eval_string(&format!("new AnimationEvent('a', {init}).animationName")),
+        "fade"
+    );
+    assert_eq!(
+        eval_number(&format!("new AnimationEvent('a', {init}).elapsedTime")),
+        0.0
+    );
+    assert_eq!(
+        eval_string(&format!("new AnimationEvent('a', {init}).pseudoElement")),
+        ""
+    );
+}
+
+#[test]
+fn animation_event_prototype_chain() {
+    assert!(eval_bool(
+        "Object.getPrototypeOf(new AnimationEvent('a')) === AnimationEvent.prototype"
+    ));
+    assert!(eval_bool(
+        "Object.getPrototypeOf(AnimationEvent.prototype) === Event.prototype"
+    ));
+    assert!(eval_bool(
+        "new AnimationEvent('a').constructor === AnimationEvent"
+    ));
+    assert!(eval_bool("new AnimationEvent('a') instanceof Event"));
+}
+
+#[test]
+fn animation_event_survives_gc() {
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.kept = new AnimationEvent('animationend', \
+            {animationName: 'spin', elapsedTime: 2.5, pseudoElement: '::after'});",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    assert_eq!(
+        vm_eval_string(&mut vm, "globalThis.kept.animationName"),
+        "spin"
+    );
+    assert_eq!(vm_eval_number(&mut vm, "globalThis.kept.elapsedTime"), 2.5);
+    assert_eq!(
+        vm_eval_string(&mut vm, "globalThis.kept.pseudoElement"),
+        "::after"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// TransitionEvent (CSS Transitions Level 1 §6)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn transition_event_defaults() {
+    assert_eq!(
+        eval_string("new TransitionEvent('transitionstart').propertyName"),
+        ""
+    );
+    assert_eq!(
+        eval_number("new TransitionEvent('transitionstart').elapsedTime"),
+        0.0
+    );
+    assert_eq!(
+        eval_string("new TransitionEvent('transitionstart').pseudoElement"),
+        ""
+    );
+}
+
+#[test]
+fn transition_event_init_pass_through() {
+    let init = "{propertyName: 'opacity', elapsedTime: 0.5, pseudoElement: '::after'}";
+    assert_eq!(
+        eval_string(&format!(
+            "new TransitionEvent('transitionend', {init}).propertyName"
+        )),
+        "opacity"
+    );
+    assert_eq!(
+        eval_number(&format!(
+            "new TransitionEvent('transitionend', {init}).elapsedTime"
+        )),
+        0.5
+    );
+    assert_eq!(
+        eval_string(&format!(
+            "new TransitionEvent('transitionend', {init}).pseudoElement"
+        )),
+        "::after"
+    );
+}
+
+#[test]
+fn transition_event_partial_init_uses_defaults_for_missing() {
+    let init = "{propertyName: 'transform'}";
+    assert_eq!(
+        eval_string(&format!("new TransitionEvent('t', {init}).propertyName")),
+        "transform"
+    );
+    assert_eq!(
+        eval_number(&format!("new TransitionEvent('t', {init}).elapsedTime")),
+        0.0
+    );
+    assert_eq!(
+        eval_string(&format!("new TransitionEvent('t', {init}).pseudoElement")),
+        ""
+    );
+}
+
+#[test]
+fn transition_event_prototype_chain() {
+    assert!(eval_bool(
+        "Object.getPrototypeOf(new TransitionEvent('t')) === TransitionEvent.prototype"
+    ));
+    assert!(eval_bool(
+        "Object.getPrototypeOf(TransitionEvent.prototype) === Event.prototype"
+    ));
+    assert!(eval_bool(
+        "new TransitionEvent('t').constructor === TransitionEvent"
+    ));
+    assert!(eval_bool("new TransitionEvent('t') instanceof Event"));
+}
+
+#[test]
+fn transition_event_survives_gc() {
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.kept = new TransitionEvent('transitionend', \
+            {propertyName: 'color', elapsedTime: 1.0, pseudoElement: '::marker'});",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    assert_eq!(
+        vm_eval_string(&mut vm, "globalThis.kept.propertyName"),
+        "color"
+    );
+    assert_eq!(vm_eval_number(&mut vm, "globalThis.kept.elapsedTime"), 1.0);
+    assert_eq!(
+        vm_eval_string(&mut vm, "globalThis.kept.pseudoElement"),
+        "::marker"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// CloseEvent (WHATWG HTML §10.4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn close_event_defaults() {
+    // All init members optional.  Defaults: code=0 (no status),
+    // reason="", wasClean=false.
+    assert_eq!(eval_number("new CloseEvent('close').code"), 0.0);
+    assert_eq!(eval_string("new CloseEvent('close').reason"), "");
+    assert!(!eval_bool("new CloseEvent('close').wasClean"));
+}
+
+#[test]
+fn close_event_init_pass_through() {
+    let init = "{code: 1006, reason: 'gone', wasClean: true}";
+    assert_eq!(
+        eval_number(&format!("new CloseEvent('close', {init}).code")),
+        1006.0
+    );
+    assert_eq!(
+        eval_string(&format!("new CloseEvent('close', {init}).reason")),
+        "gone"
+    );
+    assert!(eval_bool(&format!(
+        "new CloseEvent('close', {init}).wasClean"
+    )));
+}
+
+#[test]
+fn close_event_partial_init_uses_defaults_for_missing() {
+    let init = "{code: 1000}";
+    assert_eq!(
+        eval_number(&format!("new CloseEvent('c', {init}).code")),
+        1000.0
+    );
+    assert_eq!(
+        eval_string(&format!("new CloseEvent('c', {init}).reason")),
+        ""
+    );
+    assert!(!eval_bool(&format!("new CloseEvent('c', {init}).wasClean")));
+}
+
+#[test]
+fn close_event_code_modulo_uint16() {
+    // WebIDL `unsigned short` (no `[EnforceRange]` on the IDL):
+    // ToNumber → modulo 2^16 truncation.  65536 wraps to 0; 70000
+    // wraps to 70000 - 65536 = 4464; -1 wraps to 65535.
+    assert_eq!(eval_number("new CloseEvent('c', {code: 65536}).code"), 0.0);
+    assert_eq!(
+        eval_number("new CloseEvent('c', {code: 70000}).code"),
+        4464.0
+    );
+    assert_eq!(eval_number("new CloseEvent('c', {code: -1}).code"), 65535.0);
+    // Fractional truncation toward zero before modulo.
+    assert_eq!(
+        eval_number("new CloseEvent('c', {code: 1006.9}).code"),
+        1006.0
+    );
+}
+
+#[test]
+fn close_event_was_clean_uses_to_boolean() {
+    // WebIDL `boolean` → ToBoolean (truthy / falsy), not strict
+    // identity to `true`.
+    assert!(eval_bool("new CloseEvent('c', {wasClean: 1}).wasClean"));
+    assert!(eval_bool("new CloseEvent('c', {wasClean: 'x'}).wasClean"));
+    assert!(eval_bool("new CloseEvent('c', {wasClean: {}}).wasClean"));
+    assert!(!eval_bool("new CloseEvent('c', {wasClean: 0}).wasClean"));
+    assert!(!eval_bool("new CloseEvent('c', {wasClean: ''}).wasClean"));
+    assert!(!eval_bool("new CloseEvent('c', {wasClean: null}).wasClean"));
+}
+
+#[test]
+fn close_event_prototype_chain() {
+    assert!(eval_bool(
+        "Object.getPrototypeOf(new CloseEvent('c')) === CloseEvent.prototype"
+    ));
+    assert!(eval_bool(
+        "Object.getPrototypeOf(CloseEvent.prototype) === Event.prototype"
+    ));
+    assert!(eval_bool("new CloseEvent('c').constructor === CloseEvent"));
+    assert!(eval_bool("new CloseEvent('c') instanceof Event"));
+}
+
+#[test]
+fn close_event_survives_gc() {
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.kept = new CloseEvent('close', \
+            {code: 1011, reason: 'server error', wasClean: false});",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    assert_eq!(vm_eval_number(&mut vm, "globalThis.kept.code"), 1011.0);
+    assert_eq!(
+        vm_eval_string(&mut vm, "globalThis.kept.reason"),
+        "server error"
+    );
+    assert!(!vm_eval_bool(&mut vm, "globalThis.kept.wasClean"));
+}
+
+// ---------------------------------------------------------------------------
+// Cross-cutting (slot #11a init-dict getter throw)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn animation_event_init_getter_throw_propagates() {
+    let mut vm = Vm::new();
+    let check = vm
+        .eval(
+            "var caught = null; \
+             try { \
+                new AnimationEvent('a', { get animationName() { throw new Error('ka'); } }); \
+             } catch (e) { caught = e.message; } caught;",
+        )
+        .unwrap();
+    match check {
+        JsValue::String(id) => assert_eq!(vm.get_string(id), "ka"),
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+#[test]
+fn close_event_code_getter_throw_propagates() {
+    // Verify that getter-throw inside `code` (which goes through the
+    // new `read_uint16` helper → `ToNumber`) surfaces the user error
+    // unchanged, matching the existing ErrorEvent pattern.
+    let mut vm = Vm::new();
+    let check = vm
+        .eval(
+            "var caught = null; \
+             try { \
+                new CloseEvent('c', { get code() { throw new Error('boom'); } }); \
+             } catch (e) { caught = e.message; } caught;",
+        )
+        .unwrap();
+    match check {
+        JsValue::String(id) => assert_eq!(vm.get_string(id), "boom"),
+        other => panic!("expected string, got {other:?}"),
     }
 }

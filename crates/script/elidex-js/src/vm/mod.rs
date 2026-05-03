@@ -560,6 +560,24 @@ pub(crate) struct VmInner {
     /// [`event_prototype`].  Adds `state` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) pop_state_event_prototype: Option<ObjectId>,
+    /// `AnimationEvent.prototype` (CSS Animations Level 1 §4.2).
+    /// Chains to [`event_prototype`].  Adds `animationName` /
+    /// `elapsedTime` / `pseudoElement` own-data slots (reuses the
+    /// UA-dispatch `animation` shape).
+    #[cfg(feature = "engine")]
+    pub(crate) animation_event_prototype: Option<ObjectId>,
+    /// `TransitionEvent.prototype` (CSS Transitions Level 1 §6).
+    /// Chains to [`event_prototype`].  Adds `propertyName` /
+    /// `elapsedTime` / `pseudoElement` own-data slots (reuses the
+    /// UA-dispatch `transition` shape).
+    #[cfg(feature = "engine")]
+    pub(crate) transition_event_prototype: Option<ObjectId>,
+    /// `CloseEvent.prototype` (WHATWG HTML §10.4 — paired with
+    /// WebSocket / EventSource close).  Chains to
+    /// [`event_prototype`].  Adds `code` / `reason` / `wasClean`
+    /// own-data slots (reuses the UA-dispatch `close_event` shape).
+    #[cfg(feature = "engine")]
+    pub(crate) close_event_prototype: Option<ObjectId>,
     /// `Headers.prototype` (WHATWG Fetch §5.2).  Chains to
     /// `Object.prototype` — Headers is a WebIDL interface with no
     /// EventTarget ancestry.  Holds `append` / `set` / `delete` /

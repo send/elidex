@@ -98,6 +98,42 @@ fn read_any(
     })
 }
 
+/// Read a boolean init-dict member — `undefined` → `default`; otherwise
+/// coerce via WebIDL `boolean` semantics (`ToBoolean`, never throws).
+fn read_bool(
+    ctx: &mut NativeContext<'_>,
+    opts_id: ObjectId,
+    key: StringId,
+    default: bool,
+) -> Result<bool, VmError> {
+    let v = ctx
+        .vm
+        .get_property_value(opts_id, PropertyKey::String(key))?;
+    Ok(match v {
+        JsValue::Undefined => default,
+        _ => super::super::coerce::to_boolean(ctx.vm, v),
+    })
+}
+
+/// Read a `unsigned short` init-dict member — `undefined` → `default`;
+/// otherwise coerce via WebIDL `unsigned short` semantics (ToNumber +
+/// modulo-2^16 truncation, no `[EnforceRange]`).  Used by
+/// `CloseEvent.code` (no `[EnforceRange]` in the WHATWG IDL).
+fn read_uint16(
+    ctx: &mut NativeContext<'_>,
+    opts_id: ObjectId,
+    key: StringId,
+    default: u16,
+) -> Result<u16, VmError> {
+    let v = ctx
+        .vm
+        .get_property_value(opts_id, PropertyKey::String(key))?;
+    match v {
+        JsValue::Undefined => Ok(default),
+        _ => super::super::coerce::to_uint16(ctx.vm, v),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // VmInner: registration glue
 // ---------------------------------------------------------------------------
@@ -140,6 +176,36 @@ impl VmInner {
             native_pop_state_event_constructor,
             self.well_known.pop_state_event_global,
             |vm, id| vm.pop_state_event_prototype = Some(id),
+        );
+    }
+
+    pub(in crate::vm) fn register_animation_event_global(&mut self) {
+        register_event_subclass(
+            self,
+            "AnimationEvent",
+            native_animation_event_constructor,
+            self.well_known.animation_event_global,
+            |vm, id| vm.animation_event_prototype = Some(id),
+        );
+    }
+
+    pub(in crate::vm) fn register_transition_event_global(&mut self) {
+        register_event_subclass(
+            self,
+            "TransitionEvent",
+            native_transition_event_constructor,
+            self.well_known.transition_event_global,
+            |vm, id| vm.transition_event_prototype = Some(id),
+        );
+    }
+
+    pub(in crate::vm) fn register_close_event_global(&mut self) {
+        register_event_subclass(
+            self,
+            "CloseEvent",
+            native_close_event_constructor,
+            self.well_known.close_event_global,
+            |vm, id| vm.close_event_prototype = Some(id),
         );
     }
 
@@ -423,5 +489,153 @@ fn native_pop_state_event_constructor(
         .expect("PopStateEvent.prototype must be registered before ctor");
     let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
     drop(g);
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// AnimationEvent (CSS Animations Level 1 §4.2)
+// ---------------------------------------------------------------------------
+
+fn native_animation_event_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    check_construct(ctx, "AnimationEvent")?;
+    let type_sid = type_arg(ctx, args, "AnimationEvent")?;
+    let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let base = parse_event_init(ctx, init_arg, "AnimationEvent")?;
+    let opts_id = opts_object_id(init_arg);
+    // Slot order matches `event_shapes.rs::Animation` payload installer:
+    // animationName, elapsedTime, pseudoElement.
+    let (animation_name_sid, elapsed_time, pseudo_element_sid) = if let Some(opts_id) = opts_id {
+        let k_name = ctx.vm.well_known.animation_name;
+        let k_elapsed = ctx.vm.well_known.elapsed_time;
+        let k_pe = ctx.vm.well_known.pseudo_element;
+        let n = read_string(ctx, opts_id, k_name)?;
+        let t = read_number(ctx, opts_id, k_elapsed, 0.0)?;
+        let pe = read_string(ctx, opts_id, k_pe)?;
+        (n, t, pe)
+    } else {
+        let empty = ctx.vm.strings.intern("");
+        (empty, 0.0, empty)
+    };
+    let shape_id = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing")
+        .animation;
+    let slots = vec![
+        PropertyValue::Data(JsValue::String(animation_name_sid)),
+        PropertyValue::Data(JsValue::Number(elapsed_time)),
+        PropertyValue::Data(JsValue::String(pseudo_element_sid)),
+    ];
+    let proto = ctx
+        .vm
+        .animation_event_prototype
+        .expect("AnimationEvent.prototype must be registered before ctor");
+    let id = ctx
+        .vm
+        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// TransitionEvent (CSS Transitions Level 1 §6)
+// ---------------------------------------------------------------------------
+
+fn native_transition_event_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    check_construct(ctx, "TransitionEvent")?;
+    let type_sid = type_arg(ctx, args, "TransitionEvent")?;
+    let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let base = parse_event_init(ctx, init_arg, "TransitionEvent")?;
+    let opts_id = opts_object_id(init_arg);
+    // Slot order matches `event_shapes.rs::Transition` payload installer:
+    // propertyName, elapsedTime, pseudoElement.
+    let (property_name_sid, elapsed_time, pseudo_element_sid) = if let Some(opts_id) = opts_id {
+        let k_name = ctx.vm.well_known.property_name;
+        let k_elapsed = ctx.vm.well_known.elapsed_time;
+        let k_pe = ctx.vm.well_known.pseudo_element;
+        let n = read_string(ctx, opts_id, k_name)?;
+        let t = read_number(ctx, opts_id, k_elapsed, 0.0)?;
+        let pe = read_string(ctx, opts_id, k_pe)?;
+        (n, t, pe)
+    } else {
+        let empty = ctx.vm.strings.intern("");
+        (empty, 0.0, empty)
+    };
+    let shape_id = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing")
+        .transition;
+    let slots = vec![
+        PropertyValue::Data(JsValue::String(property_name_sid)),
+        PropertyValue::Data(JsValue::Number(elapsed_time)),
+        PropertyValue::Data(JsValue::String(pseudo_element_sid)),
+    ];
+    let proto = ctx
+        .vm
+        .transition_event_prototype
+        .expect("TransitionEvent.prototype must be registered before ctor");
+    let id = ctx
+        .vm
+        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// CloseEvent (WHATWG HTML §10.4 — paired with WebSocket / EventSource)
+// ---------------------------------------------------------------------------
+
+fn native_close_event_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    check_construct(ctx, "CloseEvent")?;
+    let type_sid = type_arg(ctx, args, "CloseEvent")?;
+    let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let base = parse_event_init(ctx, init_arg, "CloseEvent")?;
+    let opts_id = opts_object_id(init_arg);
+    // Slot order matches `event_shapes.rs::CloseEvent` payload installer:
+    // code, reason, wasClean.  WHATWG HTML §10.4 defaults: code=0 (no
+    // status, ToUint16 of the IDL default), reason="", wasClean=false.
+    let (code, reason_sid, was_clean) = if let Some(opts_id) = opts_id {
+        let k_code = ctx.vm.well_known.code;
+        let k_reason = ctx.vm.well_known.reason;
+        let k_was_clean = ctx.vm.well_known.was_clean;
+        let c = read_uint16(ctx, opts_id, k_code, 0)?;
+        let r = read_string(ctx, opts_id, k_reason)?;
+        let w = read_bool(ctx, opts_id, k_was_clean, false)?;
+        (c, r, w)
+    } else {
+        let empty = ctx.vm.strings.intern("");
+        (0, empty, false)
+    };
+    let shape_id = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing")
+        .close_event;
+    let slots = vec![
+        PropertyValue::Data(JsValue::Number(f64::from(code))),
+        PropertyValue::Data(JsValue::String(reason_sid)),
+        PropertyValue::Data(JsValue::Boolean(was_clean)),
+    ];
+    let proto = ctx
+        .vm
+        .close_event_prototype
+        .expect("CloseEvent.prototype must be registered before ctor");
+    let id = ctx
+        .vm
+        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
     Ok(JsValue::Object(id))
 }

@@ -267,6 +267,26 @@ impl VmInner {
                 self.url_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 58 + 3 (M4-12 slot #11a: AnimationEvent /
+                // TransitionEvent / CloseEvent) = 61.  All three
+                // chain to `Event.prototype` (sibling subclasses of
+                // Event, not UIEvent).  Same `delete globalThis.<X>`
+                // invariant as the non-UIEvent specialised ctors at
+                // [33..37] — `VmInner::<x>_event_prototype` retains a
+                // stale id if the prototype is collected behind a
+                // severed global binding.
+                #[cfg(feature = "engine")]
+                self.animation_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.transition_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.close_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

@@ -314,6 +314,12 @@ impl VmInner {
             self.register_error_event_global();
             self.register_hash_change_event_global();
             self.register_pop_state_event_global();
+            // M4-12 slot #11a: CSS Animations / Transitions / WebSocket
+            // close events.  Same Event-prototype chain pattern as the
+            // four siblings above.
+            self.register_animation_event_global();
+            self.register_transition_event_global();
+            self.register_close_event_global();
         }
 
         // `DOMException` constructor + prototype (WebIDL §3.14).
