@@ -303,14 +303,27 @@ impl NetworkHandle {
     /// a follow-up `UnregisterRenderer` on timeout so a stalled-
     /// but-alive broker cleans up the orphan registration
     /// itself once it resumes draining.
+    ///
+    /// **R6/R7 inheritance**: when this method is called against
+    /// a parent that is already unregistered (its
+    /// `unregistered` flag is set, OR its response channel
+    /// has the [`NetworkToRenderer::RendererUnregistered`]
+    /// marker queued but not yet drained), the call short-
+    /// circuits without ever talking to the broker — the
+    /// returned sibling enters the world in the same pre-
+    /// unregistered state with the same dual-form contract
+    /// described above.  This avoids the embedder-visible
+    /// inconsistency of a broken parent spawning a working
+    /// child against a broker that may have recovered between
+    /// the parent's teardown and this call.
     #[must_use]
     pub fn create_sibling_handle(&self) -> Self {
         let client_id = CLIENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
         let (response_tx, response_rx) = crossbeam_channel::unbounded();
 
-        // Slot #10.6c (Copilot R6): if the parent has already
-        // been marked unregistered — either because its drain
-        // observed the broker's
+        // Slot #10.6c (Copilot R6 + R7): if the parent has
+        // already been marked unregistered — either because
+        // its drain observed the broker's
         // [`NetworkToRenderer::RendererUnregistered`] back-edge
         // (slot #10.6b), or because the parent's own ack
         // handshake failed at construction time (slot #10.6c
@@ -325,10 +338,26 @@ impl NetworkHandle {
         // leaving the embedder with a live sibling whose
         // parent's every operation short-circuits as
         // unregistered — an inconsistent contract for callers
-        // who treat sibling spawning as "child of parent".  The
-        // Acquire load pairs with the Release stores in
-        // [`Self::process_response`] / [`Self::fetch_blocking`].
-        let pre_unregistered = if self.unregistered.load(Ordering::Acquire) {
+        // who treat sibling spawning as "child of parent".
+        //
+        // **R7 strengthening**: bare `unregistered.load()`
+        // missed the case where the broker has already enqueued
+        // [`NetworkToRenderer::RendererUnregistered`] on the
+        // parent's response channel but the parent's drain has
+        // not yet been called — the flag is still `false` even
+        // though the parent is logically unregistered, so a
+        // sibling spawned in that window would be live against
+        // the same not-yet-realised broken parent.  Use
+        // [`Self::check_unregistered`] which drains
+        // `response_rx` through `process_response` first
+        // (flipping the flag if the marker is queued) before
+        // observing it.  Cost is O(queued events on the
+        // parent's channel) — typically zero, bounded by drain
+        // size in any case.  The Acquire load inside
+        // `check_unregistered` pairs with the Release stores in
+        // [`Self::process_response`] /
+        // [`Self::fetch_blocking`].
+        let pre_unregistered = if self.check_unregistered() {
             // Drop response_tx implicitly at end of scope; no
             // one ever sends on it because we don't hand it to
             // the broker.

@@ -138,7 +138,9 @@ fn register_with_ack_for_test(
                 caller = caller_label,
                 timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
                 "RegisterRenderer ack timed out — broker may be hung; \
-                 returning a pre-unregistered handle so callers see synthetic Err"
+                 returning a pre-unregistered handle (fetch_async / \
+                 fetch_blocking will surface a synthetic 'renderer \
+                 unregistered' Err; cancel_fetch / send return false)"
             );
             // Slot #10.6c (Copilot R1 F1): the Register message
             // is still in flight on `control_tx` — a broker that

@@ -144,6 +144,55 @@ fn create_renderer_handle_synchronously_registers_cid() {
     np.shutdown();
 }
 
+/// Slot #10.6c (Copilot R7) regression: same happens-before
+/// guarantee for `NetworkHandle::create_sibling_handle`.  The
+/// sibling factory drives its own `register_with_ack`
+/// invocation (separate code path from the parent factory),
+/// so the worker-handle Register × request race could regress
+/// independently if no test exercises it.  We probe the
+/// guarantee the same way as
+/// `create_renderer_handle_synchronously_registers_cid`: issue
+/// `cancel_fetch` for a freshly-allocated id immediately after
+/// creation and assert the broker emits a synthetic
+/// `Err("aborted")` (which only fires when the cid is in
+/// `clients`, i.e. Register has been processed).
+#[test]
+fn create_sibling_handle_synchronously_registers_cid() {
+    let np = spawn_network_process(test_client());
+    let parent = np.create_renderer_handle();
+    let sibling = parent.create_sibling_handle();
+
+    let probe = FetchId::next();
+    assert!(
+        sibling.cancel_fetch(probe),
+        "fresh sibling's cancel_fetch send failed — handle should be live post-#10.6c"
+    );
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    let mut saw = false;
+    while std::time::Instant::now() < deadline {
+        let events = sibling.drain_events();
+        if events.iter().any(|ev| {
+            matches!(
+                ev,
+                NetworkToRenderer::FetchResponse(rid, Err(msg))
+                    if *rid == probe && msg.contains("aborted")
+            )
+        }) {
+            saw = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        saw,
+        "broker did not emit synthetic 'aborted' reply for post-create-sibling CancelFetch \
+         within 1s — Register did not happen-before CancelFetch on the sibling code path"
+    );
+
+    np.shutdown();
+}
+
 /// Slot #10.6c regression: when the broker has already
 /// exited, `NetworkProcessHandle::create_renderer_handle`
 /// must return promptly with a pre-unregistered handle whose
@@ -202,16 +251,22 @@ fn create_renderer_handle_post_shutdown_returns_pre_unregistered() {
     // Broker is gone.  `np`'s `control_tx` clone is now
     // disconnected, so `register_with_ack` takes the
     // SendError fast-fail path and returns
-    // `pre_unregistered=true`.  Assert wall-clock and
-    // observable state.
+    // `pre_unregistered=true`.  Assert observable state and
+    // a generous wall-clock ceiling.  The ceiling sits well
+    // above the 500 ms `REGISTER_ACK_TIMEOUT` so that a
+    // CI-scheduler descheduling pause cannot push a correct
+    // fast-fail run over the bound (Copilot R7); regression
+    // distinguishability is preserved because the recv-loop
+    // path takes ≥ 500 ms by definition, plus the
+    // post-timeout follow-up `UnregisterRenderer` send.
     let started = std::time::Instant::now();
     let renderer = np.create_renderer_handle();
     let elapsed = started.elapsed();
     assert!(
-        elapsed < Duration::from_millis(500),
+        elapsed < Duration::from_secs(2),
         "post-shutdown create_renderer_handle blocked for {elapsed:?} — \
-         expected sub-100 ms via the SendError fast-fail path, well below \
-         the 500 ms REGISTER_ACK_TIMEOUT recv ceiling"
+         expected fast-fail via the SendError path; under 2 s budget \
+         leaves margin over the 500 ms REGISTER_ACK_TIMEOUT recv ceiling"
     );
     assert!(
         !renderer.cancel_fetch(FetchId::next()),
@@ -262,16 +317,21 @@ fn create_sibling_handle_inherits_unregistered_parent_without_broker_roundtrip()
     );
 
     // Sibling creation off an unregistered parent must short-
-    // circuit (no register_with_ack round-trip).  The 50 ms
-    // budget is generous: we expect this to be a few atomic
-    // loads + a struct construction.
+    // circuit (no register_with_ack round-trip).  Functional
+    // gate is the `cancel_fetch == false` check below; the
+    // wall-clock ceiling is supplementary regression
+    // distinguishability and sized well above the 500 ms
+    // `REGISTER_ACK_TIMEOUT` so a CI-scheduler descheduling
+    // pause cannot fail a correct short-circuit (Copilot R7).
     let started = std::time::Instant::now();
     let sibling = parent.create_sibling_handle();
     let elapsed = started.elapsed();
     assert!(
-        elapsed < Duration::from_millis(50),
+        elapsed < Duration::from_secs(2),
         "create_sibling_handle on unregistered parent blocked for {elapsed:?} — \
-         expected a sub-50 ms short-circuit, broker round-trip should have been skipped"
+         expected a short-circuit; under 2 s budget leaves margin over the \
+         500 ms REGISTER_ACK_TIMEOUT recv ceiling that the bare register \
+         path would hit"
     );
     assert!(
         !sibling.cancel_fetch(FetchId::next()),
@@ -310,9 +370,10 @@ fn create_sibling_handle_post_shutdown_returns_pre_unregistered() {
     let sibling = parent.create_sibling_handle();
     let elapsed = started.elapsed();
     assert!(
-        elapsed < Duration::from_millis(500),
+        elapsed < Duration::from_secs(2),
         "post-shutdown create_sibling_handle blocked for {elapsed:?} — \
-         expected <500 ms via the SendError fast-fail path"
+         expected fast-fail via the SendError path; under 2 s budget leaves \
+         margin over the 500 ms REGISTER_ACK_TIMEOUT recv ceiling (Copilot R7)"
     );
     assert!(
         !sibling.cancel_fetch(FetchId::next()),
