@@ -712,4 +712,130 @@ mod tests {
         // server-side blocking reads that occasionally outlive
         // their owner.
     }
+
+    /// Test fixture for the [`send_frame`] / [`send_close_frame`]
+    /// cancel-arm regressions (slot #10.6a Copilot R2 HX8 +
+    /// HX9): a [`futures_util::Sink`] whose `poll_ready` /
+    /// `poll_flush` / `poll_close` always return `Pending` so
+    /// the inner `write.send().await` future never resolves on
+    /// its own.  Models a peer that has stopped reading the
+    /// TCP socket (kernel send buffer full) without binding a
+    /// real TCP stream — the helper's cancel arm is the only
+    /// thing that can wake the future.
+    struct HangingSink;
+
+    impl futures_util::Sink<tokio_tungstenite::tungstenite::Message> for HangingSink {
+        type Error = tokio_tungstenite::tungstenite::Error;
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            // Always pending: the test relies on `cancel.race`
+            // being the only resolution.
+            std::task::Poll::Pending
+        }
+
+        fn start_send(
+            self: std::pin::Pin<&mut Self>,
+            _item: tokio_tungstenite::tungstenite::Message,
+        ) -> Result<(), Self::Error> {
+            // Unreachable because `poll_ready` is always
+            // `Pending`, but the trait requires a body.
+            unreachable!("HangingSink::poll_ready never returns Ready")
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    /// Slot #10.6a (Copilot R2 HX8) regression: a peer that
+    /// stops reading TCP can fill the kernel send buffer such
+    /// that `write.send(msg).await` never resolves — without a
+    /// cancel arm, the broker's `thread.join()` would block for
+    /// the full TCP timeout (minutes).  [`send_frame`] now
+    /// races each `write.send` against `cancel.cancelled()`;
+    /// this test verifies cancel preempts a pending send within
+    /// bounded time and the helper returns
+    /// [`SendFrameOutcome::Cancelled`].
+    #[tokio::test]
+    async fn send_frame_returns_cancelled_when_write_blocks() {
+        let mut sink = HangingSink;
+        let (evt_tx, _evt_rx) = crossbeam_channel::unbounded::<WsEvent>();
+        let cancel = CancelHandle::new();
+        let cancel_for_trigger = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            cancel_for_trigger.cancel();
+        });
+        let started = std::time::Instant::now();
+        let outcome = send_frame(
+            &mut sink,
+            tokio_tungstenite::tungstenite::Message::Text("hi".into()),
+            &evt_tx,
+            &cancel,
+        )
+        .await;
+        let elapsed = started.elapsed();
+        assert!(
+            matches!(outcome, SendFrameOutcome::Cancelled),
+            "expected SendFrameOutcome::Cancelled when cancel fires before write completes, got {outcome:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "send_frame blocked for {elapsed:?} — cancel arm of write.send() select missing?"
+        );
+    }
+
+    /// Slot #10.6a (Copilot R2 HX9) regression: same hazard as
+    /// [`send_frame_returns_cancelled_when_write_blocks`], but
+    /// for the close-frame send path used inside the
+    /// `WsCommand::Close` and `cmd_rx == None` branches of
+    /// [`ws_io_loop`].  [`send_close_frame`] returns `true` to
+    /// signal the caller that cancel preempted the send — the
+    /// caller is expected to `return` from the worker without
+    /// running further write paths.
+    #[tokio::test]
+    async fn send_close_frame_returns_true_when_write_blocks() {
+        let mut sink = HangingSink;
+        let cancel = CancelHandle::new();
+        let cancel_for_trigger = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            cancel_for_trigger.cancel();
+        });
+        let started = std::time::Instant::now();
+        let cancelled =
+            send_close_frame(&mut sink, 1001, "navigated away".to_string(), &cancel).await;
+        let elapsed = started.elapsed();
+        assert!(
+            cancelled,
+            "send_close_frame must return true when cancel fires before the close frame is sent"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "send_close_frame blocked for {elapsed:?} — cancel arm of write.send() select missing?"
+        );
+    }
+
+    impl std::fmt::Debug for SendFrameOutcome {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                SendFrameOutcome::Ok => write!(f, "Ok"),
+                SendFrameOutcome::SendErr => write!(f, "SendErr"),
+                SendFrameOutcome::Cancelled => write!(f, "Cancelled"),
+            }
+        }
+    }
 }
