@@ -731,6 +731,28 @@ define_well_known_strings! {
         locked_attr => "locked",
         closed_attr => "closed",
     }
+
+    "Form/control IDL members (M4-12 slot #11-tags-T1)" {
+        // IDL property names + interface labels for the
+        // HTMLFormElement subclass family (HTMLFormElement /
+        // HTMLInputElement / HTMLSelectElement / HTMLTextAreaElement /
+        // HTMLButtonElement / HTMLLabelElement / HTMLOptionElement /
+        // HTMLOptGroupElement / HTMLFieldSetElement /
+        // HTMLLegendElement) + ValidityState + ConstraintValidation +
+        // HTMLFormControlsCollection / HTMLOptionsCollection.  Pre-
+        // interned at VM construction so brand-check error paths and
+        // accessor installs hit the pool without per-call allocation.
+        //
+        // Additional names land in subsequent T1 phases at first use.
+        html_label_element => "HTMLLabelElement",
+        html_optgroup_element => "HTMLOptGroupElement",
+        html_legend_element => "HTMLLegendElement",
+        html_for => "htmlFor",
+        control => "control",
+        form_attr => "form",
+        disabled => "disabled",
+        label_attr => "label",
+    }
 }
 
 /// Well-known symbol IDs, allocated at VM creation.

@@ -114,29 +114,40 @@ impl VmInner {
             });
         let proto = match kind {
             super::super::host_data::PrototypeKind::Element => {
-                // Tag-specific secondary lookup: <iframe> routes
-                // through `HTMLIFrameElement.prototype`.  All other
-                // HTML-namespace elements chain through the shared
-                // `HTMLElement.prototype` so `div instanceof
-                // HTMLElement === true` (WHATWG §3.2.8).  Additional
-                // per-tag prototypes (HTMLDivElement,
-                // HTMLAnchorElement, …) land in M4-12 cutover
-                // residual and plug in the same way between the
-                // wrapper and HTMLElement.prototype.
-                let is_iframe = self
-                    .host_data
-                    .as_deref()
-                    .is_some_and(|hd| hd.tag_matches_ascii_case(entity, "iframe"));
-                if is_iframe {
-                    self.html_iframe_prototype
-                        .or(self.html_element_prototype)
-                        .or(self.element_prototype)
-                        .expect("create_element_wrapper called before register_element_prototype")
-                } else {
-                    self.html_element_prototype
-                        .or(self.element_prototype)
-                        .expect("create_element_wrapper called before register_element_prototype")
-                }
+                // Tag-specific secondary lookup: each per-tag
+                // prototype layer routes between the wrapper and the
+                // shared `HTMLElement.prototype` so that the runtime
+                // chain is `wrapper → HTML*Element → HTMLElement →
+                // Element → Node → EventTarget → Object` (WHATWG
+                // §3.2.8).  Tags without a specialised prototype
+                // chain directly through `HTMLElement.prototype` so
+                // `div instanceof HTMLElement === true`.
+                //
+                // The match below uses
+                // [`super::super::host_data::HostData::tag_matches_ascii_case`]
+                // for each candidate; the first hit wins.  Adding a
+                // new per-tag prototype here is the M4-12 slot
+                // #11-tags-* dispatch extension point — the matching
+                // VmInner field lives in `mod.rs` and is registered
+                // during `register_globals` ordered after
+                // `register_html_element_prototype`.
+                let tag_proto = self.host_data.as_deref().and_then(|hd| {
+                    if hd.tag_matches_ascii_case(entity, "iframe") {
+                        self.html_iframe_prototype
+                    } else if hd.tag_matches_ascii_case(entity, "label") {
+                        self.html_label_prototype
+                    } else if hd.tag_matches_ascii_case(entity, "optgroup") {
+                        self.html_optgroup_prototype
+                    } else if hd.tag_matches_ascii_case(entity, "legend") {
+                        self.html_legend_prototype
+                    } else {
+                        None
+                    }
+                });
+                tag_proto
+                    .or(self.html_element_prototype)
+                    .or(self.element_prototype)
+                    .expect("create_element_wrapper called before register_element_prototype")
             }
             super::super::host_data::PrototypeKind::Text => {
                 // Text wrappers chain `Text.prototype →

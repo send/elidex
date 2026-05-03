@@ -287,6 +287,30 @@ impl VmInner {
                 self.close_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 61 + 3 (M4-12 slot #11-tags-T1: HTMLLabelElement /
+                // HTMLOptGroupElement / HTMLLegendElement — small
+                // triplet warm-up) = 64.  All three chain to
+                // `HTMLElement.prototype` (sibling per-tag
+                // intermediates of HTMLIFrameElement.prototype).
+                // Same `delete globalThis.<X>` invariant as the
+                // existing per-tag slot at [25] — `VmInner::<x>_prototype`
+                // retains a stale id if the prototype is collected
+                // behind a severed global binding.  Phase 2-9 land
+                // additional T1 slots one-by-one until the full
+                // 10-element + collections + ValidityState set is
+                // resident, growing the array to ~74 entries.
+                #[cfg(feature = "engine")]
+                self.html_label_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_optgroup_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_legend_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

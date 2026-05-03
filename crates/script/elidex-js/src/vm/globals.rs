@@ -240,6 +240,21 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_html_iframe_prototype();
 
+        // M4-12 slot #11-tags-T1 small triplet — HTMLLabelElement /
+        // HTMLOptGroupElement / HTMLLegendElement.  All chain to
+        // `HTMLElement.prototype` (sibling of HTMLIFrameElement.prototype).
+        // Larger T1 element prototypes (HTMLFormElement /
+        // HTMLInputElement / HTMLSelectElement / HTMLTextAreaElement
+        // / HTMLButtonElement / HTMLOptionElement /
+        // HTMLFieldSetElement) land in subsequent T1 phases at this
+        // same point in the registration order.
+        #[cfg(feature = "engine")]
+        {
+            self.register_html_label_prototype();
+            self.register_html_optgroup_prototype();
+            self.register_html_legend_prototype();
+        }
+
         // HTMLCollection.prototype / NodeList.prototype — shared
         // DOM collection prototypes.  Chain directly to
         // `Object.prototype` (WebIDL §3.10: legacy collection

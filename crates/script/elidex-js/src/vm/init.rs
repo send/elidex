@@ -127,6 +127,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
+                html_label_prototype: None,
+                #[cfg(feature = "engine")]
+                html_optgroup_prototype: None,
+                #[cfg(feature = "engine")]
+                html_legend_prototype: None,
+                #[cfg(feature = "engine")]
                 dom_exception_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_states: HashMap::new(),

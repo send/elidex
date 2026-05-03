@@ -353,6 +353,37 @@ pub(crate) struct VmInner {
     /// `register_globals()` (after `register_html_element_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) html_iframe_prototype: Option<ObjectId>,
+    /// `HTMLLabelElement.prototype` — tag-specific intermediate
+    /// prototype for `<label>` wrappers (HTML §4.10.4 — slot
+    /// #11-tags-T1).  Chains to [`Self::html_element_prototype`]
+    /// so `lbl instanceof HTMLElement === true`.  Holds the
+    /// `htmlFor` reflected attribute and the `control` / `form`
+    /// derived getters.
+    ///
+    /// `None` until `register_html_label_prototype()` runs during
+    /// `register_globals()` (after `register_html_element_prototype`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_label_prototype: Option<ObjectId>,
+    /// `HTMLOptGroupElement.prototype` — tag-specific intermediate
+    /// prototype for `<optgroup>` wrappers (HTML §4.10.9 — slot
+    /// #11-tags-T1).  Chains to [`Self::html_element_prototype`].
+    /// Holds the `disabled` boolean reflected attribute and the
+    /// `label` string reflected attribute.
+    ///
+    /// `None` until `register_html_optgroup_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_optgroup_prototype: Option<ObjectId>,
+    /// `HTMLLegendElement.prototype` — tag-specific intermediate
+    /// prototype for `<legend>` wrappers (HTML §4.10.16 — slot
+    /// #11-tags-T1).  Chains to [`Self::html_element_prototype`].
+    /// Holds the `form` derived getter (resolved through the
+    /// nearest enclosing `<fieldset>`'s form association).
+    ///
+    /// `None` until `register_html_legend_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_legend_prototype: Option<ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor

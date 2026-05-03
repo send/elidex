@@ -77,6 +77,12 @@ pub(crate) mod headers;
 pub(super) mod history;
 pub(super) mod html_element_proto;
 pub(super) mod html_iframe_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_label_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_legend_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_optgroup_proto;
 pub(super) mod location;
 #[cfg(feature = "engine")]
 pub(super) mod multipart;
