@@ -74,8 +74,6 @@ pub(crate) mod form_data;
 pub(super) mod globals;
 #[cfg(feature = "engine")]
 pub(crate) mod headers;
-#[cfg(feature = "engine")]
-pub(super) mod headers_validation;
 pub(super) mod history;
 pub(super) mod html_element_proto;
 pub(super) mod html_iframe_proto;
@@ -94,11 +92,7 @@ pub(super) mod performance;
 #[cfg(feature = "engine")]
 pub(crate) mod readable_stream;
 #[cfg(feature = "engine")]
-mod request_ctor;
-#[cfg(feature = "engine")]
 pub(crate) mod request_response;
-#[cfg(feature = "engine")]
-pub(super) mod request_response_accessors;
 #[cfg(feature = "engine")]
 pub(super) mod structured_clone;
 #[cfg(feature = "engine")]

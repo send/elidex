@@ -1,9 +1,9 @@
 //! Mark-phase tracer for the elidex-js VM GC.
 //!
-//! Split from [`super::gc`] to keep both files below the
+//! Split from [`super`] to keep both files below the
 //! 1000-line convention (cleanup tranche 2).  The mark phase
 //! breaks naturally into two halves — the root-set walker
-//! ([`super::gc::mark_roots`]) which seeds the work list, and
+//! ([`super::roots::mark_roots`]) which seeds the work list, and
 //! the work-list trace
 //! ([`trace_work_list`]) which drains it by visiting the
 //! transitive closure of each enqueued object.  The latter is the
@@ -11,15 +11,15 @@
 //! with `ObjectKind` variants, so it lives here.
 //!
 //! Sweep + IC invalidation + the `collect_garbage` orchestrator
-//! stay in [`super::gc`] alongside the bit-vector helpers and the
-//! single-object [`super::gc::mark_value`] /
-//! [`super::gc::mark_object`] / [`super::gc::mark_upvalue`]
-//! primitives that this tracer calls back into.
+//! stay in [`super::sweep`] / [`super::collect`] alongside the
+//! bit-vector helpers and the single-object [`super::mark_value`] /
+//! [`super::mark_object`] / [`super::mark_upvalue`] primitives that
+//! this tracer calls back into.
 
-use super::gc::{mark_object, mark_upvalue, mark_value};
 #[cfg(feature = "engine")]
-use super::value::ObjectId;
-use super::value::{Object, ObjectKind, PropertyStorage, PropertyValue, Upvalue};
+use super::super::value::ObjectId;
+use super::super::value::{Object, ObjectKind, PropertyStorage, PropertyValue, Upvalue};
+use super::{mark_object, mark_upvalue, mark_value};
 
 /// Trace the work list: pop enqueued ObjectIds, mark their transitive references.
 ///
@@ -31,27 +31,27 @@ pub(super) fn trace_work_list(
     upvalues: &[Upvalue],
     #[cfg(feature = "engine")] abort_signal_states: &std::collections::HashMap<
         ObjectId,
-        super::host::abort::AbortSignalState,
+        super::super::host::abort::AbortSignalState,
     >,
     #[cfg(feature = "engine")] request_states: &std::collections::HashMap<
         ObjectId,
-        super::host::request_response::RequestState,
+        super::super::host::request_response::RequestState,
     >,
     #[cfg(feature = "engine")] response_states: &std::collections::HashMap<
         ObjectId,
-        super::host::request_response::ResponseState,
+        super::super::host::request_response::ResponseState,
     >,
     #[cfg(feature = "engine")] form_data_states: &std::collections::HashMap<
         ObjectId,
-        Vec<super::host::form_data::FormDataEntry>,
+        Vec<super::super::host::form_data::FormDataEntry>,
     >,
     #[cfg(feature = "engine")] readable_stream_states: &std::collections::HashMap<
         ObjectId,
-        super::host::readable_stream::ReadableStreamState,
+        super::super::host::readable_stream::ReadableStreamState,
     >,
     #[cfg(feature = "engine")] readable_stream_reader_states: &std::collections::HashMap<
         ObjectId,
-        super::host::readable_stream::ReaderState,
+        super::super::host::readable_stream::ReaderState,
     >,
     #[cfg(feature = "engine")] body_streams: &std::collections::HashMap<ObjectId, ObjectId>,
     obj_marks: &mut [u64],
@@ -134,7 +134,7 @@ pub(super) fn trace_work_list(
                 }
             }
             ObjectKind::PromiseCombinatorStep(step) => {
-                use super::value::PromiseCombinatorStep as Step;
+                use super::super::value::PromiseCombinatorStep as Step;
                 let state_id = match step {
                     Step::AllFulfill { state, .. }
                     | Step::AllReject { state }
@@ -183,12 +183,12 @@ pub(super) fn trace_work_list(
                     mark_value(susp.frame.saved_completion, obj_marks, work);
                     match susp.frame.pending_completion.as_deref() {
                         Some(
-                            super::value::FrameCompletion::Return(v)
-                            | super::value::FrameCompletion::Throw(v),
+                            super::super::value::FrameCompletion::Return(v)
+                            | super::super::value::FrameCompletion::Throw(v),
                         ) => {
                             mark_value(*v, obj_marks, work);
                         }
-                        Some(super::value::FrameCompletion::Normal(_)) | None => {}
+                        Some(super::super::value::FrameCompletion::Normal(_)) | None => {}
                     }
                     for &v in &susp.stack_slice {
                         mark_value(v, obj_marks, work);
@@ -322,7 +322,7 @@ pub(super) fn trace_work_list(
             // `live_collection_states`) contain only `Entity`,
             // `StringId`, `Vec<StringId>`, and `Vec<Entity>` — no
             // `ObjectId` references, so the trace step has nothing
-            // to fan out.  The sweep tail in `super::gc` prunes
+            // to fan out.  The sweep tail in [`super::sweep`] prunes
             // entries whose key `ObjectId` was collected.
             #[cfg(feature = "engine")]
             ObjectKind::HtmlCollection | ObjectKind::NodeList => {}
@@ -370,7 +370,9 @@ pub(super) fn trace_work_list(
             ObjectKind::FormData => {
                 if let Some(entries) = form_data_states.get(&ObjectId(obj_idx)) {
                     for entry in entries {
-                        if let super::host::form_data::FormDataValue::Blob(blob_id) = entry.value {
+                        if let super::super::host::form_data::FormDataValue::Blob(blob_id) =
+                            entry.value
+                        {
                             mark_object(blob_id, obj_marks, work);
                         }
                     }

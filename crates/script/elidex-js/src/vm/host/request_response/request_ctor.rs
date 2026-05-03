@@ -1,27 +1,24 @@
 //! `new Request(input, init?)` constructor + private helpers
 //! (WHATWG Fetch §5.3).
 //!
-//! Split from [`super::request_response`] to keep both files below
-//! the 1000-line convention (cleanup tranche 2).  The constructor
-//! body and three of its private helpers
-//! ([`resolve_request_input`] / [`parse_request_init`] /
-//! [`normalise_method`]) live here; the wider Request / Response
-//! infrastructure — enums, side-table state structs, the Response
-//! ctor / static factories, and the shared HTTP helpers
-//! ([`super::request_response::validate_http_method`] /
-//! [`super::request_response::extract_body_bytes`] /
-//! [`super::request_response::parse_url`] /
-//! [`super::request_response::fill_headers_like`] /
-//! [`super::request_response::copy_headers_entries`]) — stays in
-//! the parent module.
+//! Split from [`super`] (`request_response/mod.rs`) to keep each
+//! file below the 1000-line convention.  The constructor body and
+//! three of its private helpers ([`resolve_request_input`] /
+//! [`parse_request_init`] / [`normalise_method`]) live here; the
+//! wider Request / Response infrastructure — enums, side-table
+//! state structs, the Response ctor / static factories, and the
+//! shared HTTP helpers ([`super::validate_http_method`] /
+//! [`super::extract_body_bytes`] / [`super::parse_url`] /
+//! [`super::fill_headers_like`] / [`super::copy_headers_entries`])
+//! — stays in the parent module.
 
 #![cfg(feature = "engine")]
 
-use super::super::value::{
+use super::super::super::value::{
     JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, StringId, VmError,
 };
-use super::headers::HeadersGuard;
-use super::request_response::{
+use super::super::headers::HeadersGuard;
+use super::{
     content_type_for_body, copy_headers_entries, ensure_content_type, extract_body_bytes,
     fill_headers_like, parse_request_cache, parse_request_credentials, parse_request_mode,
     parse_request_redirect, parse_url, validate_http_method, RedirectMode, RequestCache,
@@ -147,7 +144,7 @@ pub(super) fn native_request_constructor(
     // (Response clone) / R18.2 (broker Response) (R18-audit).
     let headers_id = ctx.vm.create_headers(HeadersGuard::Request);
     let mut g = ctx.vm.push_temp_root(JsValue::Object(headers_id));
-    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
     let ctx = &mut rooted_holder;
     // Copy entries from either the source Request's headers or the
     // init dict's `headers` value (if provided, it overrides).
@@ -393,7 +390,7 @@ fn parse_request_init(
 /// Phase 2 defers (unknown methods that violate RFC 7230 are
 /// accepted and relayed downstream).
 fn normalise_method(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<StringId, VmError> {
-    let raw_sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let raw_sid = super::super::super::coerce::to_string(ctx.vm, val)?;
     let raw = ctx.vm.strings.get_utf8(raw_sid);
     let canonical = validate_http_method(&raw, "Failed to construct 'Request'")?;
     let wk = &ctx.vm.well_known;
