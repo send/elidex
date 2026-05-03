@@ -148,6 +148,8 @@ impl VmInner {
                         self.html_form_prototype
                     } else if hd.tag_matches_ascii_case(entity, "button") {
                         self.html_button_prototype
+                    } else if hd.tag_matches_ascii_case(entity, "textarea") {
+                        self.html_textarea_prototype
                     } else {
                         None
                     }

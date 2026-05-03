@@ -794,6 +794,32 @@ define_well_known_strings! {
         // Default-values for enumerated attrs (HTMLButtonElement.type
         // missing-value → "submit", invalid-value → "submit").
         submit_str => "submit",
+        // HTMLTextAreaElement (Phase 6) reflected attributes +
+        // accessors + Selection API members.
+        html_textarea_element => "HTMLTextAreaElement",
+        cols_attr => "cols",
+        dir_name => "dirName",
+        max_length => "maxLength",
+        min_length => "minLength",
+        placeholder => "placeholder",
+        read_only => "readOnly",
+        required => "required",
+        rows_attr => "rows",
+        wrap_attr => "wrap",
+        default_value => "defaultValue",
+        text_length => "textLength",
+        // Selection API IDL members shared between HTMLTextAreaElement
+        // (Phase 6) and HTMLInputElement (Phase 8).
+        selection_start => "selectionStart",
+        selection_end => "selectionEnd",
+        selection_direction => "selectionDirection",
+        select_method => "select",
+        set_range_text => "setRangeText",
+        set_selection_range => "setSelectionRange",
+        // SelectionDirection enum string values (HTML §4.10.18.7).
+        forward_str => "forward",
+        backward_str => "backward",
+        none_str => "none",
     }
 }
 

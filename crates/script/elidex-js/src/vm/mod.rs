@@ -447,6 +447,43 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) html_button_prototype: Option<ObjectId>,
+    /// `HTMLTextAreaElement.prototype` — tag-specific intermediate
+    /// prototype for `<textarea>` wrappers (HTML §4.10.11 — slot
+    /// #11-tags-T1 Phase 6).  Chains to [`Self::html_element_prototype`].
+    /// Holds reflected attrs (autocomplete / cols / dirName / disabled /
+    /// maxLength / minLength / name / placeholder / readOnly / required
+    /// / rows / wrap), `value` / `defaultValue` / `textLength`,
+    /// `form` / `labels` derived getters, and the Selection API
+    /// (`selectionStart` / `selectionEnd` / `selectionDirection` /
+    /// `select()` / `setRangeText()` / `setSelectionRange()`).
+    /// ConstraintValidation methods land in Phase 9.
+    ///
+    /// `None` until `register_html_textarea_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_textarea_prototype: Option<ObjectId>,
+    /// Per-element form-control state — dirty `value` slot + selection
+    /// range + selection direction (HTML §4.10.18.5).  Keyed by
+    /// [`elidex_ecs::Entity`] so the same state surfaces across every
+    /// JS reference to the element (the wrapper cache pins the JS
+    /// wrapper for the entity's lifetime — entries here implicitly
+    /// share that lifetime).  Phase 6 introduces this map for
+    /// HTMLTextAreaElement; Phase 7 (`<select>`) and Phase 8
+    /// (`<input>`) reuse it for the same dirty-value / selection /
+    /// checked slots.  Phase 9 lands the `elidex-form` Cargo dep,
+    /// at which point this map merges with
+    /// `elidex_form::FormControlState` (held inside the ECS world)
+    /// and the standalone map can retire.
+    ///
+    /// GC contract: payload contains only `String` / `u32` /
+    /// [`host::form_control_state::SelectionDirection`] — no
+    /// `ObjectId` / `JsValue` references — so the trace step has
+    /// nothing to fan out.  Entries persist as long as the keyed
+    /// entity remains in the DOM (no sweep-time prune today; the
+    /// HashMap is bounded by live form-control entities).
+    #[cfg(feature = "engine")]
+    pub(crate) form_control_entity_states:
+        HashMap<elidex_ecs::Entity, host::form_control_state::FormControlEntityState>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor

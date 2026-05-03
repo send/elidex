@@ -72,6 +72,8 @@ pub(super) mod fetch_tick;
 #[cfg(feature = "engine")]
 pub(super) mod form_assoc;
 #[cfg(feature = "engine")]
+pub(super) mod form_control_state;
+#[cfg(feature = "engine")]
 pub(crate) mod form_data;
 pub(super) mod globals;
 #[cfg(feature = "engine")]
@@ -93,6 +95,8 @@ pub(super) mod html_legend_proto;
 pub(super) mod html_optgroup_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_option_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_textarea_proto;
 pub(super) mod location;
 #[cfg(feature = "engine")]
 pub(super) mod multipart;
@@ -109,6 +113,8 @@ pub(super) mod performance;
 pub(crate) mod readable_stream;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;
+#[cfg(feature = "engine")]
+pub(super) mod selection_api;
 #[cfg(feature = "engine")]
 pub(super) mod structured_clone;
 #[cfg(feature = "engine")]
