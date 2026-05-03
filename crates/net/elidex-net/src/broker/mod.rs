@@ -35,6 +35,11 @@
 //! - `buffered` — [`NetworkHandle::drain_events`] /
 //!   [`NetworkHandle::drain_fetch_responses_only`] /
 //!   [`NetworkHandle::rebuffer_events`] partial-drain helpers.
+//! - `register` — slot #10.6c `RegisterRenderer` ack handshake
+//!   (`REGISTER_ACK_TIMEOUT` + `register_with_ack`).  Split out
+//!   of `handle` once the helper + its unit tests pushed the
+//!   parent file past the project's ~1000-line file-split
+//!   convention (slot #10.5).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
