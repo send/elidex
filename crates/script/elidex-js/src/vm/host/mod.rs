@@ -83,6 +83,8 @@ pub(super) mod html_label_proto;
 pub(super) mod html_legend_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_optgroup_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_option_proto;
 pub(super) mod location;
 #[cfg(feature = "engine")]
 pub(super) mod multipart;

@@ -747,11 +747,18 @@ define_well_known_strings! {
         html_label_element => "HTMLLabelElement",
         html_optgroup_element => "HTMLOptGroupElement",
         html_legend_element => "HTMLLegendElement",
+        html_option_element => "HTMLOptionElement",
         html_for => "htmlFor",
         control => "control",
         form_attr => "form",
         disabled => "disabled",
         label_attr => "label",
+        // `value` already lives in "core" — reused here.  HTMLOptionElement's
+        // own IDL members beyond label/disabled/value/form:
+        default_selected => "defaultSelected",
+        selected => "selected",
+        text_attr => "text",
+        index_attr => "index",
     }
 }
 

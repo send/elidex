@@ -140,6 +140,8 @@ impl VmInner {
                         self.html_optgroup_prototype
                     } else if hd.tag_matches_ascii_case(entity, "legend") {
                         self.html_legend_prototype
+                    } else if hd.tag_matches_ascii_case(entity, "option") {
+                        self.html_option_prototype
                     } else {
                         None
                     }

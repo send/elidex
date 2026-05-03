@@ -384,6 +384,18 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) html_legend_prototype: Option<ObjectId>,
+    /// `HTMLOptionElement.prototype` — tag-specific intermediate
+    /// prototype for `<option>` wrappers (HTML §4.10.10 — slot
+    /// #11-tags-T1).  Chains to [`Self::html_element_prototype`].
+    /// Holds reflected attributes (`disabled`, `label`, `value`,
+    /// `defaultSelected`, `selected`), the `text` getter/setter
+    /// alias for textContent, and the `index` / `form` derived
+    /// getters resolved through the parent `<select>`.
+    ///
+    /// `None` until `register_html_option_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_option_prototype: Option<ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor

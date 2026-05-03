@@ -311,6 +311,15 @@ impl VmInner {
                 self.html_legend_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 64 + 1 (M4-12 slot #11-tags-T1 Phase 2:
+                // HTMLOptionElement) = 65.  Chains to
+                // HTMLElement.prototype, sibling of the small triplet
+                // above.  Same `delete globalThis.HTMLOptionElement`
+                // root invariant.
+                #[cfg(feature = "engine")]
+                self.html_option_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
