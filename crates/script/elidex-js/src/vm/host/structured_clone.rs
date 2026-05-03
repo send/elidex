@@ -263,6 +263,7 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::NamedNodeMap => CloneKind::Unclonable("NamedNodeMap"),
         ObjectKind::Attr => CloneKind::Unclonable("Attr"),
         ObjectKind::URLSearchParams => CloneKind::Unclonable("URLSearchParams"),
+        ObjectKind::URL => CloneKind::Unclonable("URL"),
         ObjectKind::FormData => CloneKind::Unclonable("FormData"),
         ObjectKind::ReadableStream => CloneKind::Unclonable("ReadableStream"),
         ObjectKind::ReadableStreamDefaultReader => {

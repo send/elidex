@@ -391,6 +391,7 @@ fn native_usp_append(
     if let Some(state) = ctx.vm.url_search_params_states.get_mut(&id) {
         state.push((name_sid, value_sid));
     }
+    super::url::rewrite_url_query_from_search_params(ctx.vm, id);
     Ok(JsValue::Undefined)
 }
 
@@ -414,6 +415,7 @@ fn native_usp_delete(
             Some(v) => state.retain(|(n, val)| !(*n == name_sid && *val == v)),
         }
     }
+    super::url::rewrite_url_query_from_search_params(ctx.vm, id);
     Ok(JsValue::Undefined)
 }
 
@@ -510,6 +512,7 @@ fn native_usp_set(
             state.push((name_sid, value_sid));
         }
     }
+    super::url::rewrite_url_query_from_search_params(ctx.vm, id);
     Ok(JsValue::Undefined)
 }
 
@@ -532,11 +535,14 @@ fn native_usp_sort(
     // `&mut` on the entry list while the comparator reads through
     // `&strings`.  In-place stable `sort_by` avoids the extra
     // index permutation + clone the prior implementation needed.
-    let pool = &ctx.vm.strings;
-    let Some(state) = ctx.vm.url_search_params_states.get_mut(&id) else {
-        return Ok(JsValue::Undefined);
-    };
-    state.sort_by(|a, b| pool.get(a.0).cmp(pool.get(b.0)));
+    {
+        let pool = &ctx.vm.strings;
+        let Some(state) = ctx.vm.url_search_params_states.get_mut(&id) else {
+            return Ok(JsValue::Undefined);
+        };
+        state.sort_by(|a, b| pool.get(a.0).cmp(pool.get(b.0)));
+    }
+    super::url::rewrite_url_query_from_search_params(ctx.vm, id);
     Ok(JsValue::Undefined)
 }
 
@@ -760,4 +766,45 @@ pub(super) fn serialize_for_body(vm: &VmInner, id: ObjectId) -> String {
         })
         .unwrap_or_default();
     serialize_pairs(&pairs)
+}
+
+/// Allocate a fresh `URLSearchParams` instance, seed its entry list
+/// from the parsed `query` (`None` or `""` ⇒ empty list), and
+/// register it in [`VmInner::url_search_params_states`].  Returns
+/// the new instance's `ObjectId`.
+///
+/// Used by the `URL` constructor (slot #9.5 Phase 4) to eagerly
+/// create the linked `searchParams` so identity is stable
+/// (`url.searchParams === url.searchParams` per WHATWG URL §6.1).
+/// `pub(super)` keeps the `ObjectKind::URLSearchParams` allocation
+/// path single-sourced.
+pub(super) fn alloc_url_search_params_from_query(
+    vm: &mut VmInner,
+    query: Option<&str>,
+) -> ObjectId {
+    // GC contract: `alloc_object` may run a collection cycle
+    // BEFORE returning the new slot, but the `prototype` ObjectId
+    // we pass through (`vm.url_search_params_prototype`) is kept
+    // alive by the intrinsic-prototype root list (collect.rs
+    // proto_roots), and the entry strings are pure StringIds
+    // (pool-permanent).  Order of "intern entries" vs
+    // "alloc_object" is therefore a pure ergonomics choice — done
+    // first here so the entry list is ready to insert in a single
+    // tail step rather than re-borrowing `&mut vm.strings` after
+    // the allocation.
+    let entries: Vec<(StringId, StringId)> = match query {
+        Some(q) if !q.is_empty() => url::form_urlencoded::parse(q.as_bytes())
+            .map(|(k, v)| (vm.strings.intern(&k), vm.strings.intern(&v)))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let proto = vm.url_search_params_prototype;
+    let sp_id = vm.alloc_object(Object {
+        kind: ObjectKind::URLSearchParams,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: proto,
+        extensible: true,
+    });
+    vm.url_search_params_states.insert(sp_id, entries);
+    sp_id
 }

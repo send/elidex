@@ -257,6 +257,16 @@ impl VmInner {
                 self.byte_length_queuing_strategy_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 57 + 1 (M4-12 slot #9.5: URL) = 58.  Chains to
+                // `Object.prototype`.  Same invariant as
+                // `url_search_params_prototype` above — `delete
+                // globalThis.URL` must not let the prototype be
+                // collected while `VmInner::url_prototype` retains
+                // a stale id.
+                #[cfg(feature = "engine")]
+                self.url_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -291,6 +301,10 @@ impl VmInner {
             readable_stream_reader_states: &self.readable_stream_reader_states,
             #[cfg(feature = "engine")]
             body_streams: &self.body_streams,
+            #[cfg(feature = "engine")]
+            url_states: &self.url_states,
+            #[cfg(feature = "engine")]
+            usp_parent_url: &self.usp_parent_url,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
             #[cfg(feature = "engine")]
@@ -327,6 +341,10 @@ impl VmInner {
             roots.readable_stream_reader_states,
             #[cfg(feature = "engine")]
             roots.body_streams,
+            #[cfg(feature = "engine")]
+            roots.url_states,
+            #[cfg(feature = "engine")]
+            roots.usp_parent_url,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -467,6 +485,20 @@ impl VmInner {
             // collected.  Same pattern as `headers_states`.
             self.url_search_params_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // `url_states` — payload is `url::Url` (pool-permanent
+            // bytes) + an optional linked `URLSearchParams`
+            // `ObjectId` that the trace step has already marked
+            // (slot #9.5).  Sweep prunes entries whose key URL
+            // instance was collected.
+            self.url_states.retain(|id, _| bit_get(marks, id.0));
+            // `usp_parent_url` — keys are `URLSearchParams`
+            // instances, values are owning `URL` instances.  Drop
+            // entries whose key OR value `ObjectId` was collected so
+            // the side-table can't pin a pair of recycled slots
+            // (the symmetric arms in `trace_work_list` keep the pair
+            // marked together while either side is reachable).
+            self.usp_parent_url
+                .retain(|sp_id, url_id| bit_get(marks, sp_id.0) && bit_get(marks, url_id.0));
             // `form_data_states` — payload includes Blob ObjectIds
             // for `FormDataValue::Blob` entries; those are marked
             // through the `trace_work_list` arm so by sweep time the
