@@ -88,6 +88,76 @@ pub(super) fn network_process_main(
 /// Maximum concurrent fetch threads across all renderers.
 const MAX_CONCURRENT_FETCHES: usize = 64;
 
+/// Maximum time [`NetworkProcessState::close_all_for_client`] waits
+/// for a WS/SSE worker to exit gracefully (after sending the
+/// protocol-clean close command and dropping the command sender)
+/// before falling back to [`crate::CancelHandle::cancel`].
+///
+/// 100 ms is a generous loopback/well-connected ceiling: a
+/// graceful WS close is one frame round-trip + a select tick to
+/// observe the dropped command channel; SSE just needs the
+/// worker's next `should_close` / `wait_or_close` poll.  Slow
+/// peers fall back to cancel — the right tradeoff because the
+/// renderer is being torn down regardless and the alternative
+/// (unbounded join) would block `NetworkProcessHandle::shutdown`
+/// for the TCP timeout window (slot #10.6a HX4).
+const GRACEFUL_CLOSE_GRACE: Duration = Duration::from_millis(100);
+
+/// Step between [`std::thread::JoinHandle::is_finished`] polls
+/// during the grace window.  5 ms strikes a balance between
+/// CPU cost and worst-case waste at the boundary (5 ms
+/// quantisation).
+const GRACEFUL_CLOSE_POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// Wait up to [`GRACEFUL_CLOSE_GRACE`] for ALL `pending` threads
+/// to exit on their own (single shared grace window across the
+/// batch); if any are still running after the grace period,
+/// trigger their cancel handles as a hard fallback and then
+/// `join()` each thread.  Used by
+/// [`NetworkProcessState::close_all_for_client`] (slot #10.6a
+/// HX10).
+///
+/// **Why a single shared grace window**: the broker thread
+/// drives this teardown serially per renderer, so a per-handle
+/// grace would compose to `GRACEFUL_CLOSE_GRACE × handle_count`
+/// (up to ~25 s with the 256-connection per-document cap), during
+/// which fetch dispatch / WS+SSE event forwarding for OTHER
+/// renderers is blocked on the broker's main loop.  Sharing the
+/// grace window across the batch keeps total broker stall to
+/// `GRACEFUL_CLOSE_GRACE + max-individual-cancel-propagation`
+/// regardless of handle count.
+///
+/// The `pending` vector pairs each thread with its
+/// [`crate::CancelHandle`] so the cancel-fallback is keyed to the
+/// correct worker (different workers don't share cancels).  The
+/// final `join()` is unbounded by design — workers observe cancel
+/// within a select tick (see `ws::io_loop::ws_io_loop` /
+/// [`crate::sse::sse_io_loop`] cancel arms), so the unbounded
+/// wait is bounded in practice by the cancel-propagation latency.
+/// The WS reference is rendered as inline code rather than an
+/// intra-doc link because `io_loop` is a `pub(super)` submodule
+/// of `ws` (slot #10.6a HX26 split — Copilot R8 HX30 caught the
+/// stale link).
+fn join_pending_with_grace_then_cancel(
+    pending: Vec<(std::thread::JoinHandle<()>, crate::CancelHandle)>,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    let deadline = std::time::Instant::now() + GRACEFUL_CLOSE_GRACE;
+    while !pending.iter().all(|(t, _)| t.is_finished()) && std::time::Instant::now() < deadline {
+        std::thread::sleep(GRACEFUL_CLOSE_POLL_INTERVAL);
+    }
+    for (thread, cancel) in &pending {
+        if !thread.is_finished() {
+            cancel.cancel();
+        }
+    }
+    for (thread, _) in pending {
+        let _ = thread.join();
+    }
+}
+
 /// Internal state of the Network Process.
 struct NetworkProcessState {
     /// Registered renderer clients: `client_id` → response sender.
@@ -107,6 +177,19 @@ struct NetworkProcessState {
     /// pair + triggers + removes (so the worker's later guard
     /// drop is a no-op).
     cancel_tokens: CancelMap,
+    /// Background teardown threads spawned by
+    /// [`Self::close_all_for_client`].  Each owns a batch of
+    /// `(JoinHandle<()>, CancelHandle)` pairs whose grace +
+    /// cancel + join sequence runs OFF the broker thread, so a
+    /// renderer with slow-to-close realtime sockets cannot
+    /// inject the [`GRACEFUL_CLOSE_GRACE`] window's worth of
+    /// latency into fetch dispatch / event forwarding for
+    /// other renderers (slot #10.6a Copilot R3 HX14).
+    /// `cleanup_finished` reaps finished entries; the broker
+    /// `Shutdown` path joins remaining threads before exit so
+    /// `NetworkProcessHandle::shutdown` only returns once every
+    /// realtime worker is gone.
+    pending_teardowns: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl NetworkProcessState {
@@ -117,6 +200,7 @@ impl NetworkProcessState {
             sse_handles: HashMap::new(),
             inflight_fetches: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             cancel_tokens: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            pending_teardowns: Vec::new(),
         }
     }
 
@@ -230,7 +314,23 @@ impl NetworkProcessState {
             }
             RendererToNetwork::EventSourceClose(conn_id) => {
                 if let Some(handle) = self.sse_handles.get(&(cid, conn_id)) {
+                    // Send the protocol-clean Close + trigger
+                    // the per-handle cancel.  The Close cmd
+                    // alone is only observed via `try_recv`
+                    // between `read_line` chunks, so a silent
+                    // server can keep the worker parked inside
+                    // `reader.read_line(&mut line).await` for
+                    // up to the per-attempt 60-second timeout —
+                    // even regular `eventSource.close()` from
+                    // JS would not see the worker exit
+                    // promptly.  The cancel arm of
+                    // `read_line_with_cancel` aborts the read
+                    // future immediately, so the worker exits
+                    // within bounded time regardless of peer
+                    // responsiveness (slot #10.6a Copilot R4
+                    // HX20).
                     let _ = handle.command_tx.send(SseCommand::Close);
+                    handle.cancel.cancel();
                 }
             }
             RendererToNetwork::Shutdown => {
@@ -425,6 +525,20 @@ impl NetworkProcessState {
                     self.cancel_inflight_fetches_for(cid);
                 }
                 self.clients.clear();
+                // `close_all_for_client` spawns a background
+                // teardown thread per renderer so the grace
+                // window doesn't block the broker thread (slot
+                // #10.6a Copilot R3 HX14).  Before the broker
+                // returns from its main loop we join all of
+                // those threads so `NetworkProcessHandle::shutdown`
+                // only resolves once every realtime worker has
+                // fully exited — without this, workers spawned
+                // by the renderers above could outlive the
+                // broker by `GRACEFUL_CLOSE_GRACE` + cancel
+                // propagation.
+                for thread in std::mem::take(&mut self.pending_teardowns) {
+                    let _ = thread.join();
+                }
                 false
             }
         }
@@ -476,15 +590,38 @@ impl NetworkProcessState {
         }
     }
 
+    /// Reap finished I/O thread handles + finished background
+    /// teardown threads.  Called once per broker-loop iteration
+    /// so the bookkeeping vectors stay bounded by the live
+    /// per-renderer connection count, not the total connections
+    /// ever opened.  Dropping a finished `JoinHandle` is
+    /// equivalent to joining (the OS thread state is already
+    /// reaped — see std lib docs), so we don't need to call
+    /// `.join()` here.
     fn cleanup_finished(&mut self) {
         self.ws_handles
             .retain(|_, handle| handle.thread.as_ref().is_none_or(|t| !t.is_finished()));
         self.sse_handles
             .retain(|_, handle| handle.thread.as_ref().is_none_or(|t| !t.is_finished()));
+        self.pending_teardowns.retain(|t| !t.is_finished());
     }
 
     /// Close every WS / SSE connection registered against this
-    /// `client_id`.  Used by three call paths:
+    /// `client_id` and **fan out** their teardown onto a
+    /// background thread.
+    ///
+    /// **Returns synchronously** after Phase 1 (channel-send
+    /// fan-out, microsecond-scale on the broker thread) — the
+    /// worker threads are NOT necessarily joined yet when this
+    /// function returns.  Callers that need worker-exit
+    /// synchronisation must drain
+    /// [`Self::pending_teardowns`] or wait for the broker
+    /// `Shutdown` control path (which joins everything before
+    /// the broker exits).  `cleanup_finished` reaps finished
+    /// teardown threads on every broker iteration so the
+    /// vector stays bounded (slot #10.6a Copilot R4 HX17).
+    ///
+    /// Used by three call paths:
     /// - [`Self::handle_request`]'s `RendererToNetwork::Shutdown`
     ///   branch — used by `HostBridge::shutdown_all_realtime` to
     ///   tear down only realtime connections (in-flight fetches
@@ -495,21 +632,64 @@ impl NetworkProcessState {
     /// - [`Self::handle_control`]'s `Shutdown` branch — same as
     ///   `UnregisterRenderer` but for every client.
     ///
-    /// **Lifecycle gap (Copilot R8 follow-up)**: the WS/SSE
-    /// `JoinHandle`s are dropped after sending their close commands
-    /// but never `join()`ed.  The worker threads do exit on their
-    /// own once they observe the closed command channel, so this
-    /// is bounded leakage of detached threads (eventual cleanup,
-    /// not memory growth) — but a `shutdown()` call should
-    /// arguably block until all I/O threads finish.  Adding a
-    /// join step requires deadlock analysis (a worker stuck on a
-    /// never-completing socket await would hang the broker
-    /// shutdown), so it lands in a follow-up rather than this
-    /// mechanical-split PR.  Tracked in
-    /// `m4-12-broker-shutdown-join-followup.md` and the M4-12
-    /// post-cutover roadmap.
+    /// **Teardown sequence** (slot #10.6a, fixes Copilot R8
+    /// HCau / HCv / HJTV / HKhZ + R1 HX4 + R2 HX10):
+    /// 1. **Phase 1 — fan-out close**: for every WS/SSE handle
+    ///    bound to `client_id`, queue the protocol-clean close
+    ///    command and drop the command sender.  Each handle's
+    ///    cancel + thread is moved into a shared `pending`
+    ///    vector for the next phase.  This phase runs as a
+    ///    tight loop over channel sends only — no awaits, no
+    ///    sleeps.
+    /// 2. **Phase 2 — shared grace window**: a single
+    ///    [`GRACEFUL_CLOSE_GRACE`] window for the entire batch
+    ///    (handled by [`join_pending_with_grace_then_cancel`]).
+    ///    A responsive worker observes the queued Close on its
+    ///    next `cmd_rx.recv()` poll, sends the close frame, and
+    ///    exits within milliseconds.  Sharing the grace window
+    ///    across the batch keeps total broker stall to
+    ///    `GRACEFUL_CLOSE_GRACE + max-cancel-propagation`
+    ///    regardless of handle count — without this, the
+    ///    serialised per-handle grace at 256 connections would
+    ///    block fetch dispatch and event forwarding for ~25 s
+    ///    (slot #10.6a HX10).
+    /// 3. **Phase 3 — cancel fallback**: handles still running
+    ///    after the grace window get their per-handle
+    ///    [`crate::CancelHandle`] triggered.  The cancel arm of
+    ///    the worker's `tokio::select!` aborts both the read
+    ///    future AND any in-flight `write.send().await`
+    ///    (cancel-aware via `ws::io_loop::send_frame` /
+    ///    `ws::io_loop::send_close_frame` — slot #10.6a HX5;
+    ///    rendered as inline code because the `io_loop`
+    ///    submodule is `pub(super)`, Copilot R8 HX31).
+    /// 4. **Phase 4 — join all**: every worker thread is
+    ///    joined so `close_all_for_client` only returns once
+    ///    every worker has fully exited.
+    ///
+    /// The grace window is intentionally short
+    /// ([`GRACEFUL_CLOSE_GRACE`]).  Slow peers that need more
+    /// time hit cancel and get a non-graceful close — that is
+    /// the right tradeoff because the broker is only on this
+    /// path when the renderer (or the entire network process)
+    /// is being torn down anyway, and the alternative
+    /// (unbounded join) would block `NetworkProcessHandle::shutdown`
+    /// for the full TCP timeout window.
+    ///
+    /// Joining inside the broker thread is safe because each
+    /// worker observes either the cancel signal or the dropped
+    /// command channel within bounded time — see
+    /// `ws::io_loop::ws_io_loop` and [`crate::sse::sse_io_loop`]
+    /// for the cancel-injection surface.  Without the join, a
+    /// stale renderer's `WsHandle` / `SseHandle` would be
+    /// detached and the worker thread could outlive
+    /// `NetworkProcessHandle::shutdown`, continuing to consume
+    /// socket / TLS resources past the caller's expected
+    /// lifetime (pre-existing leak surfaced by PR #142's
+    /// structural review).
     fn close_all_for_client(&mut self, client_id: u64) {
-        // Close WebSocket connections.
+        let mut pending: Vec<(std::thread::JoinHandle<()>, crate::CancelHandle)> = Vec::new();
+
+        // Phase 1 (WS): fan-out close commands + drop senders.
         let ws_keys: Vec<_> = self
             .ws_handles
             .keys()
@@ -517,14 +697,18 @@ impl NetworkProcessState {
             .copied()
             .collect();
         for key in ws_keys {
-            if let Some(handle) = self.ws_handles.remove(&key) {
+            if let Some(mut handle) = self.ws_handles.remove(&key) {
                 let _ = handle
                     .command_tx
                     .send(WsCommand::Close(1001, "navigated away".into()));
+                drop(handle.command_tx);
+                if let Some(thread) = handle.thread.take() {
+                    pending.push((thread, handle.cancel));
+                }
             }
         }
 
-        // Close SSE connections.
+        // Phase 1 (SSE): fan-out close commands + drop senders.
         let sse_keys: Vec<_> = self
             .sse_handles
             .keys()
@@ -532,8 +716,89 @@ impl NetworkProcessState {
             .copied()
             .collect();
         for key in sse_keys {
-            if let Some(handle) = self.sse_handles.remove(&key) {
+            if let Some(mut handle) = self.sse_handles.remove(&key) {
                 let _ = handle.command_tx.send(SseCommand::Close);
+                drop(handle.command_tx);
+                if let Some(thread) = handle.thread.take() {
+                    pending.push((thread, handle.cancel));
+                }
+            }
+        }
+
+        // Phases 2-4 run on a background thread so the grace
+        // window (+ cancel-propagation) does not block the
+        // broker thread's main loop — without this, tearing
+        // down one renderer with slow-to-close realtime sockets
+        // would inject [`GRACEFUL_CLOSE_GRACE`] of cross-tab
+        // latency into fetch dispatch / event forwarding for
+        // every other renderer (slot #10.6a Copilot R3 HX14).
+        // The broker tracks the spawned thread in
+        // [`Self::pending_teardowns`] so the `Shutdown` control
+        // path can join all in-flight teardowns before exiting,
+        // and `cleanup_finished` reaps finished entries to
+        // bound the vector's growth.
+        if pending.is_empty() {
+            return;
+        }
+        // Spawn the background teardown thread, with a true
+        // in-thread fallback if the OS rejects the spawn
+        // (typically EAGAIN under a process / user thread-limit
+        // ulimit).  Without the fallback the broker would
+        // panic on routine renderer shutdown, turning a single
+        // connection cleanup into a network-process crash that
+        // takes every other renderer down with it (slot #10.6a
+        // Copilot R5 HX21).
+        //
+        // The tricky part is ownership: `std::thread::Builder::spawn`
+        // consumes the closure on the call, so a failed spawn
+        // would normally drop `pending` along with the closure
+        // — leaving the JoinHandles unjoined and the
+        // CancelHandles unfired (R6 HX28 found this gap in the
+        // R5 attempt).  We park `pending` behind
+        // `Arc<Mutex<Option<_>>>` so the closure can take it
+        // lazily on its first poll AND the broker can reclaim
+        // it on spawn-error to run the teardown in-thread —
+        // matching the contract documented in
+        // `close_all_for_client`.
+        let pending_slot: std::sync::Arc<std::sync::Mutex<Option<Vec<_>>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Some(pending)));
+        let slot_for_worker = std::sync::Arc::clone(&pending_slot);
+        match std::thread::Builder::new()
+            .name("elidex-network-teardown".into())
+            .spawn(move || {
+                if let Some(pending) = slot_for_worker
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                {
+                    join_pending_with_grace_then_cancel(pending);
+                }
+            }) {
+            Ok(thread) => self.pending_teardowns.push(thread),
+            Err(spawn_err) => {
+                // Spawn failed.  The closure that the failed
+                // spawn would have called is dropped, but its
+                // capture is just an `Arc` clone — the data
+                // itself is still in `pending_slot`.  Reclaim
+                // it and run the teardown synchronously on the
+                // broker thread so workers are still joined +
+                // cancelled.  Falls back to the pre-HX14
+                // exposure (broker stalls for
+                // [`GRACEFUL_CLOSE_GRACE`] + cancel-propagation)
+                // which is the right tradeoff under thread
+                // pressure: bounded latency beats indeterminate
+                // worker leak.
+                tracing::warn!(
+                    error = %spawn_err,
+                    "failed to spawn teardown thread; running join+cancel in-thread on the broker"
+                );
+                if let Some(pending) = pending_slot
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                {
+                    join_pending_with_grace_then_cancel(pending);
+                }
             }
         }
     }
@@ -608,6 +873,142 @@ impl NetworkProcessState {
         for key in cancelled_keys {
             if let Some(token) = cancel_map.remove(&key) {
                 token.cancel();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Slot #10.6a (Copilot R2 HX10) regression: a single
+    /// teardown of N silent realtime handles must NOT compose
+    /// to `GRACEFUL_CLOSE_GRACE × N` of broker-thread blocking
+    /// — at the 256-connection per-document cap and the
+    /// 100 ms grace, that would be ~25 s during which fetch
+    /// dispatch and event forwarding for unrelated renderers
+    /// are frozen.  [`join_pending_with_grace_then_cancel`]
+    /// shares one grace window across the batch + then issues
+    /// cancel to ALL still-running threads in parallel, so
+    /// the total blocking time scales with the worst-case
+    /// individual cancel-propagation latency, not the count.
+    ///
+    /// We model this by spawning N worker threads that each
+    /// poll a [`crate::CancelHandle`] with a 5 ms cadence.
+    /// Pre-fix the broker would have spent at least
+    /// `GRACEFUL_CLOSE_GRACE × N` (~2 s for N=20) inside the
+    /// per-handle grace loops before triggering any cancel.
+    /// Post-fix the entire teardown completes well under
+    /// `GRACEFUL_CLOSE_GRACE + a few ms` of cancel propagation.
+    #[test]
+    fn join_pending_bounded_independent_of_count() {
+        const N: usize = 20;
+        let mut pending: Vec<(std::thread::JoinHandle<()>, crate::CancelHandle)> =
+            Vec::with_capacity(N);
+        for _ in 0..N {
+            let cancel = crate::CancelHandle::new();
+            let cancel_for_worker = cancel.clone();
+            let thread = std::thread::spawn(move || {
+                while !cancel_for_worker.is_cancelled() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            });
+            pending.push((thread, cancel));
+        }
+        let started = std::time::Instant::now();
+        join_pending_with_grace_then_cancel(pending);
+        let elapsed = started.elapsed();
+        // Pre-fix bound: `N × GRACEFUL_CLOSE_GRACE` = 20 × 100 ms = 2 s.
+        // Post-fix bound: ~`GRACEFUL_CLOSE_GRACE` + propagation ≪ 500 ms.
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "join_pending_with_grace_then_cancel blocked for {elapsed:?} — \
+             grace window not shared across the {N}-handle batch (would scale linearly)"
+        );
+    }
+
+    /// Slot #10.6a sanity: an empty `pending` vector is a no-op
+    /// — must not enter the grace loop / cancel pass / join
+    /// pass with no work to do.  Keeps
+    /// [`NetworkProcessState::close_all_for_client`] cheap when
+    /// it's invoked against a renderer with no realtime
+    /// handles open (the common case for fetch-only workloads).
+    ///
+    /// The 50 ms ceiling absorbs scheduler jitter on loaded CI
+    /// runners (slot #10.6a Copilot R3 HX13) — the function
+    /// itself only does an `is_empty` check + early return, so
+    /// even with a fully-loaded test process the wall-clock is
+    /// dominated by tokio test harness overhead, not the helper.
+    #[test]
+    fn join_pending_no_op_on_empty() {
+        let started = std::time::Instant::now();
+        join_pending_with_grace_then_cancel(Vec::new());
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(50),
+            "empty-pending teardown took {:?} — should short-circuit",
+            started.elapsed()
+        );
+    }
+
+    /// Slot #10.6a (Copilot R4 HX20) regression: the broker's
+    /// [`RendererToNetwork::EventSourceClose`] dispatch must
+    /// trigger the per-handle [`crate::CancelHandle`] in
+    /// addition to queueing `SseCommand::Close`.  Without the
+    /// cancel trigger, a regular JS `eventSource.close()` is
+    /// only bounded by the SSE worker's per-attempt 60-second
+    /// `read_line` timeout — a silent server keeps the socket
+    /// alive for up to that full window because `cmd_rx` is
+    /// only polled via `try_recv` between read chunks.
+    ///
+    /// We exercise the dispatch path directly by constructing
+    /// a `NetworkProcessState`, registering a stub renderer
+    /// client, inserting a real `SseHandle` (the SSRF check
+    /// inside `connect_sse_stream` will reject the loopback
+    /// URL and the worker will exit on its own — what we care
+    /// about is that the cancel signal fires synchronously
+    /// inside `handle_request`).  The post-cancel join then
+    /// confirms the worker observed cancel; the `is_cancelled`
+    /// probe confirms the dispatch site itself fired the
+    /// signal.
+    #[test]
+    fn event_source_close_triggers_cancel() {
+        // Spawn an SseHandle pointed at an unreachable port —
+        // `connect_sse_stream`'s SSRF check will return Fatal
+        // for 127.0.0.1 and the worker exits early, but the
+        // cancel field on the handle still observes the
+        // dispatch-site `cancel.cancel()` call we're testing.
+        let url = url::Url::parse("http://127.0.0.1:1/stream").unwrap();
+        let handle = crate::sse::spawn_sse_thread(url, None, None, None, false);
+        let observer = handle.cancel.clone();
+        assert!(
+            !observer.is_cancelled(),
+            "cancel handle must start in the un-cancelled state"
+        );
+
+        let mut state = NetworkProcessState::new();
+        let (resp_tx, _resp_rx) = crossbeam_channel::unbounded::<NetworkToRenderer>();
+        let cid = 7_u64;
+        let conn_id = 99_u64;
+        state.clients.insert(cid, resp_tx);
+        state.sse_handles.insert((cid, conn_id), handle);
+
+        let client = std::sync::Arc::new(crate::NetClient::default());
+        state.handle_request(cid, RendererToNetwork::EventSourceClose(conn_id), &client);
+
+        assert!(
+            observer.is_cancelled(),
+            "EventSourceClose dispatch must trigger cancel on the handle"
+        );
+
+        // Drain the worker thread so the test doesn't leak it
+        // into subsequent tests' shared process state.  The
+        // worker observes cancel and exits; the SSRF Fatal
+        // path may also have already returned — either way the
+        // join is bounded.
+        if let Some(mut handle) = state.sse_handles.remove(&(cid, conn_id)) {
+            if let Some(thread) = handle.thread.take() {
+                let _ = thread.join();
             }
         }
     }

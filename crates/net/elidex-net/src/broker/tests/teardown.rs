@@ -2,6 +2,37 @@
 //!
 //! Sub-module of `broker::tests`; helpers (e.g. `test_client`) and
 //! shared imports come from `super` (`tests/mod.rs`).
+//!
+//! Slot #10.6a (PR-broker-ws-sse-shutdown-join) splits its test
+//! coverage across this module and the worker sources:
+//!
+//! - **Per-arm cancel responsiveness** — tested in
+//!   `crate::ws::tests` and `crate::sse::tests`, not here, because
+//!   the broker dispatch path applies SSRF to WS/SSE opens
+//!   (`url_security::validate_url` has no `allow_private_ips`
+//!   knob — see `crate::broker::dispatch::handle_request`'s
+//!   `WebSocketOpen` / `EventSourceOpen` branches), so loopback
+//!   fixtures can't reach the broker's join code.  The WS side
+//!   uses a real silent-listener fixture against
+//!   `spawn_ws_thread` to exercise the handshake select's cancel
+//!   arm.  The SSE side uses `tokio::io::duplex` to drive the
+//!   `await_with_cancel` / `read_line_with_cancel` helpers
+//!   directly — Copilot R1 HX1 / HX2 — plus `should_close` /
+//!   `wait_or_close` cancel arms.
+//!
+//! - **Broker teardown sequencing** — covered indirectly by the
+//!   pre-existing `unregister_renderer_*` / `shutdown_*` tests
+//!   below (which still pass with the new
+//!   `close_all_for_client` flow).  The new flow is "queue
+//!   Close cmd → drop `command_tx` → grace-poll
+//!   `JoinHandle::is_finished` → cancel-fallback → join", and
+//!   is not exercised end-to-end against a live WS/SSE
+//!   connection here — the worker-side tests prove cancel IS
+//!   observed within bounded time, and the grace+cancel+join
+//!   shape is a mechanical composition of
+//!   `JoinHandle::is_finished` and `CancelHandle::cancel`,
+//!   both of which have their own unit tests
+//!   (`crate::cancel::tests` and the std library respectively).
 
 use std::time::Duration;
 

@@ -38,5 +38,12 @@ webpki-roots.workspace = true
 # broker.  Not enabled in production builds.
 test-hooks = []
 
+[dev-dependencies]
+# `tokio::time::pause` / `start_paused = true` for the WS / SSE
+# timeout-arm regression tests (slot #10.6a Copilot R5 HX24/HX25).
+# Pulled in only as a dev-dep so production builds don't ship the
+# extra `test-util` runtime support.
+tokio = { workspace = true, features = ["test-util"] }
+
 [lints]
 workspace = true
