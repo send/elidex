@@ -276,14 +276,25 @@ impl VmInner {
                 // as `this` for the duration of every `call_value`; nothing
                 // between iterations triggers GC, so the local `val` /
                 // `obj_id` survive each loop turn unchanged.
-                let method_names: [&str; 2] = if hint == "string" {
-                    ["toString", "valueOf"]
+                //
+                // The "toString" / "valueOf" identifiers are pre-interned on
+                // `WellKnownStrings` (`to_string_method` / `value_of`) so the
+                // hot path skips a `strings.intern(...)` hashmap lookup per
+                // call — ToPrimitive runs from every `+` operator, every
+                // `==` mixed-type comparison, and every WebIDL coercion.
+                let method_keys: [PropertyKey; 2] = if hint == "string" {
+                    [
+                        PropertyKey::String(self.well_known.to_string_method),
+                        PropertyKey::String(self.well_known.value_of),
+                    ]
                 } else {
                     // "number" or "default" — spec uses the same order.
-                    ["valueOf", "toString"]
+                    [
+                        PropertyKey::String(self.well_known.value_of),
+                        PropertyKey::String(self.well_known.to_string_method),
+                    ]
                 };
-                for name in method_names {
-                    let key = PropertyKey::String(self.strings.intern(name));
+                for key in method_keys {
                     let method = match get_property(self, obj_id, key) {
                         Some(PropertyResult::Data(v)) => v,
                         Some(PropertyResult::Getter(g)) => self.call(g, val, &[])?,

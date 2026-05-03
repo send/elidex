@@ -116,6 +116,11 @@ define_well_known_strings! {
         input => "input",
         join => "join",
         to_json => "toJSON",
+        // Pre-interned so the OrdinaryToPrimitive (§7.1.1.1) hot path
+        // in `vm/ops.rs::to_primitive` skips the `strings.intern("valueOf")`
+        // hashmap lookup on every plain-Object coercion.  Companion to
+        // `to_string_method` declared further below.
+        value_of => "valueOf",
         get => "get",
         set => "set",
         enumerable => "enumerable",
