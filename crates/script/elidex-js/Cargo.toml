@@ -23,7 +23,7 @@ engine = [
 ]
 
 [dependencies]
-hashbrown = "0.15"
+hashbrown = "0.17"
 num-bigint = "0.4"
 num-traits = "0.2"
 regress = { workspace = true }
