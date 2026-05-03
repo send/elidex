@@ -836,6 +836,35 @@ define_well_known_strings! {
         // "select-multiple" when `multiple` content attr is present).
         select_one_str => "select-one",
         select_multiple_str => "select-multiple",
+        // HTMLInputElement (Phase 8) — interface name only.  Most
+        // IDL members reuse pre-existing well_known StringIds:
+        //   - From "core": value / name / disabled / type_attr.
+        //   - From "Form/control IDL members" section above: form_attr,
+        //     labels_attr, default_value, max_length, min_length,
+        //     placeholder, read_only, required.
+        //   - From HTMLButtonElement section: form_action, form_enctype,
+        //     form_method, form_no_validate, form_target.
+        //   - From HTMLOptionElement section: default_selected (unused
+        //     here; checked has its own pair below).
+        // The members below are HTMLInputElement-specific and don't
+        // appear elsewhere in the well_known set.
+        html_input_element => "HTMLInputElement",
+        accept_attr => "accept",
+        alt_attr => "alt",
+        checked_attr => "checked",
+        default_checked => "defaultChecked",
+        files_attr => "files",
+        list_attr => "list",
+        max_attr => "max",
+        min_attr => "min",
+        pattern_attr => "pattern",
+        src_attr => "src",
+        step_attr => "step",
+        value_as_date => "valueAsDate",
+        value_as_number => "valueAsNumber",
+        step_up => "stepUp",
+        step_down => "stepDown",
+        show_picker => "showPicker",
     }
 }
 

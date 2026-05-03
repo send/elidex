@@ -366,6 +366,12 @@ impl VmInner {
                 self.html_options_collection_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 72 + 1 (M4-12 slot #11-tags-T1 Phase 8: HTMLInputElement)
+                // = 73.
+                #[cfg(feature = "engine")]
+                self.html_input_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

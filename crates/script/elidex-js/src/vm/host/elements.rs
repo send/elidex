@@ -152,6 +152,8 @@ impl VmInner {
                         self.html_textarea_prototype
                     } else if hd.tag_matches_ascii_case(entity, "select") {
                         self.html_select_prototype
+                    } else if hd.tag_matches_ascii_case(entity, "input") {
+                        self.html_input_prototype
                     } else {
                         None
                     }

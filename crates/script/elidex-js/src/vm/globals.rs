@@ -259,6 +259,7 @@ impl VmInner {
             self.register_html_button_prototype();
             self.register_html_textarea_prototype();
             self.register_html_select_prototype();
+            self.register_html_input_prototype();
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared

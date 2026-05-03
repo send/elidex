@@ -489,6 +489,23 @@ pub(crate) struct VmInner {
     /// runs during `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) html_options_collection_prototype: Option<ObjectId>,
+    /// `HTMLInputElement.prototype` — tag-specific intermediate
+    /// prototype for `<input>` wrappers (HTML §4.10.5 — slot
+    /// #11-tags-T1 Phase 8, the largest of the T1 element protos).
+    /// Chains to [`Self::html_element_prototype`].  Holds ~30
+    /// reflected attrs + the value / defaultValue / checked /
+    /// defaultChecked / valueAsDate / valueAsNumber accessors,
+    /// stepUp / stepDown methods, the Selection API gated by the
+    /// "text-control input types" allowlist (HTML §4.10.5.2.10),
+    /// and form / labels derived getters.  ConstraintValidation
+    /// methods land in Phase 9; the `files` / `showPicker` / `list`
+    /// stubs cite explicit defer slots (#11c-fl / #11-show-picker
+    /// / #11-tags-T2).
+    ///
+    /// `None` until `register_html_input_prototype()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_input_prototype: Option<ObjectId>,
     /// Per-element form-control state — dirty `value` slot + selection
     /// range + selection direction (HTML §4.10.18.5).  Keyed by
     /// [`elidex_ecs::Entity`] so the same state surfaces across every

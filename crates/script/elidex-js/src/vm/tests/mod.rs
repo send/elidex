@@ -53,6 +53,7 @@ mod tests_html_fieldset_proto;
 mod tests_html_form_minor_protos;
 mod tests_html_form_proto;
 mod tests_html_iframe;
+mod tests_html_input_proto;
 mod tests_html_option_proto;
 mod tests_html_select_proto;
 mod tests_html_textarea_proto;
