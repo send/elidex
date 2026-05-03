@@ -22,19 +22,31 @@
 //! constructor for `searchParams` identity stability — `url
 //! .searchParams === url.searchParams` is required by the spec).
 //!
-//! ## Implemented surface (Phase 1)
+//! ## Implemented surface
 //!
 //! - `new URL(input, base?)` — both args coerced via
 //!   [`super::super::coerce::to_string`].  Relative `input` resolves
 //!   against `base` per WHATWG URL §4.4 ("URL parser").  A parse
 //!   failure throws `TypeError` (matches V8 / Firefox 2023+).
+//! - 12 IDL accessors: `href` / `origin` / `protocol` / `username`
+//!   / `password` / `host` / `hostname` / `port` / `pathname` /
+//!   `search` / `hash` / `searchParams`.  All are read/write
+//!   except `origin` and `searchParams` (read-only per WHATWG).
+//!   Setter mutations route through `url::Url::set_*`; the `href`
+//!   and `search` setters additionally refresh the linked
+//!   `URLSearchParams` entry list.
+//! - `searchParams` ↔ URL bidirectional linkage: the constructor
+//!   eagerly allocates a `URLSearchParams` for each URL so
+//!   `url.searchParams === url.searchParams` holds, and the
+//!   `URLSearchParams` mutators (`append` / `delete` / `set` /
+//!   `sort`) write back into the parent URL's query through
+//!   `usp_parent_url`.
 //! - `.toString()` / `.toJSON()` — both serialise the `[[URL]]`
 //!   internal slot to its WHATWG URL §4.5 ("URL serializer") form.
 //!   Aliased to the same native fn (the spec defines `toJSON` as a
 //!   pointer to the same algorithm).
-//!
-//! Phases 2-5 add accessors, setters, the `searchParams` link, and
-//! the `URL.canParse` / `URL.parse` statics.
+//! - `URL.canParse(input, base?)` / `URL.parse(input, base?)`
+//!   constructor statics (WHATWG URL §6.1, added 2023).
 
 #![cfg(feature = "engine")]
 
@@ -77,10 +89,13 @@ impl VmInner {
     /// Allocate `URL.prototype`, install its method suite, and
     /// expose the `URL` constructor on `globals`.
     ///
-    /// Called from `register_globals()` immediately after
-    /// `register_url_search_params_global()` so the `URL`
-    /// constructor's eager `URLSearchParams` allocation in Phase 4
-    /// can rely on the prototype existing.
+    /// Called from `register_globals()` after
+    /// `register_url_search_params_global()` (with
+    /// `register_form_data_global()` between them, since neither
+    /// FormData nor URL depend on each other).  The
+    /// `URLSearchParams` prototype must exist first because the
+    /// `URL` constructor eagerly allocates a `URLSearchParams`
+    /// instance for each URL's `searchParams` IDL attribute.
     ///
     /// # Panics
     ///
@@ -699,18 +714,24 @@ fn native_url_set_host(
     let val = take_url_setter_arg(ctx, args)?;
     let (host_part, port_part) = split_host_port(&val);
     if let Some(state) = ctx.vm.url_states.get_mut(&id) {
-        let _ = state.url.set_host(Some(&host_part));
-        if let Some(p) = port_part {
-            if p.is_empty() {
-                // Trailing `:` with empty buffer in port state
-                // clears the port (WHATWG basic URL parser §4.4
-                // "port state" with state override).
-                let _ = state.url.set_port(None);
-            } else if let Ok(parsed_port) = p.parse::<u16>() {
-                let _ = state.url.set_port(Some(parsed_port));
+        // WHATWG URL §6.1 host setter — basic URL parser in
+        // host-state-with-override returns failure on an invalid
+        // host and leaves the URL unchanged.  Gate the port half
+        // on host-parse success so an invalid host can't partially
+        // mutate the URL by clearing or rewriting the port.
+        if state.url.set_host(Some(&host_part)).is_ok() {
+            if let Some(p) = port_part {
+                if p.is_empty() {
+                    // Trailing `:` with empty buffer in port state
+                    // clears the port (WHATWG basic URL parser §4.4
+                    // "port state" with state override).
+                    let _ = state.url.set_port(None);
+                } else if let Ok(parsed_port) = p.parse::<u16>() {
+                    let _ = state.url.set_port(Some(parsed_port));
+                }
+                // else: invalid port — silently ignore, matching
+                // WHATWG validation-error short-circuit.
             }
-            // else: invalid port — silently ignore, matching
-            // WHATWG validation-error short-circuit.
         }
     }
     Ok(JsValue::Undefined)

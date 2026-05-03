@@ -262,6 +262,26 @@ fn host_setter_handles_ipv6_with_port() {
 }
 
 #[test]
+fn host_setter_invalid_host_does_not_partial_mutate_port() {
+    // R2 IMP: WHATWG URL §6.1 host setter — when the basic URL
+    // parser fails on the host portion, the URL must be left
+    // unchanged.  A naive implementation that discards
+    // `set_host`'s Result and still applies the port half would
+    // wrongly clear or rewrite the port; gate the port logic on
+    // host-parse success.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "let u = new URL('https://x.com:8080/'); \
+             u.host = 'inv@lid:9000'; \
+             u.host;"
+        ),
+        "x.com:8080"
+    );
+}
+
+#[test]
 fn host_setter_trailing_colon_clears_port() {
     // R1 IMP: WHATWG basic URL parser port-state-with-override:
     // an empty buffer after `:` clears the port.
