@@ -244,21 +244,19 @@ impl PreVal {
     /// Convert to a final `elidex_plugin::JsValue`.  Consumes `self`
     /// so primitive `Pv::String` payloads can move directly into the
     /// args vec without re-allocating.  For `Entity`, classifies the
-    /// kind (`ComponentKind`) via [`EcsDom::node_kind_inferred`] —
-    /// falling back through `TagType` / `TextContent` / `CommentData`
-    /// / `DocTypeData` so legacy entities that predate the explicit
-    /// `NodeKind` component still resolve.  An entity that resolves
-    /// to none surfaces a `TypeError` rather than silently classifying
-    /// as `Element`.
+    /// kind via [`arg_component_kind`] (which rejects entities that
+    /// have no inferable kind AND entities classified as Window —
+    /// Window is an `EventTarget`, not a Node, matching
+    /// `node_proto::require_node_arg`'s policy).
     ///
     /// In practice every current call site routes Node-typed
     /// arguments through `require_node_arg` (`node_proto.rs`), which
-    /// already runs `node_kind_inferred` and rejects bare entities
-    /// before dispatch.  This `None`-arm is therefore
-    /// **defense-in-depth**: a future native that hands the bridge a
-    /// HostObject without a brand check still fails closed instead
-    /// of fabricating an Element wrapper through the session's
-    /// identity map.
+    /// already runs `node_kind_inferred` and rejects both bare
+    /// entities and Window before dispatch.  The rejection here is
+    /// therefore **defense-in-depth**: a future native that hands
+    /// the bridge a HostObject without a brand check still fails
+    /// closed instead of fabricating an Element / Window wrapper
+    /// through the session's identity map.
     fn materialize(
         self,
         session: &mut SessionCore,
@@ -267,16 +265,44 @@ impl PreVal {
         match self {
             PreVal::Primitive(v) => Ok(v),
             PreVal::Entity(entity) => {
-                let node_kind = dom.node_kind_inferred(entity).ok_or_else(|| DomApiError {
-                    kind: DomApiErrorKind::TypeError,
-                    message: "DOM API: argument is not a valid Node".into(),
-                })?;
-                let kind = ComponentKind::from_node_kind(node_kind);
+                let kind = arg_component_kind(dom.node_kind_inferred(entity))?;
                 let obj_ref = session.get_or_create_wrapper(entity, kind);
                 Ok(elidex_plugin::JsValue::ObjectRef(obj_ref.to_raw()))
             }
         }
     }
+}
+
+/// Classify an entity's inferred [`NodeKind`] into the
+/// [`ComponentKind`] that the bridge passes to handlers.
+///
+/// Two failure modes both surface as a `TypeError`:
+/// - `None` — the entity has no `NodeKind` component and no
+///   payload (`TagType` / `TextContent` / `CommentData` /
+///   `DocTypeData`) for [`EcsDom::node_kind_inferred`] to recover
+///   from.  Reaching this arm means a HostObject wrapper points at
+///   a bare entity, which should never escape a brand-checked call
+///   path.
+/// - `Some(NodeKind::Window)` — Window is an `EventTarget` but
+///   *not* a Node (WHATWG HTML §7.2 / DOM §4.4), and
+///   `node_proto::require_node_arg` rejects it explicitly.  Match
+///   that policy here so the marshalling layer never produces a
+///   Window-shaped wrapper for a "Node-expecting" handler.
+///
+/// Pure function over `Option<NodeKind>` — unit-testable without
+/// constructing an `EcsDom`.
+fn arg_component_kind(node_kind: Option<NodeKind>) -> Result<ComponentKind, DomApiError> {
+    let nk = node_kind.ok_or_else(|| DomApiError {
+        kind: DomApiErrorKind::TypeError,
+        message: "DOM API: argument is not a valid Node".into(),
+    })?;
+    if matches!(nk, NodeKind::Window) {
+        return Err(DomApiError {
+            kind: DomApiErrorKind::TypeError,
+            message: "DOM API: Window is not a Node".into(),
+        });
+    }
+    Ok(ComponentKind::from_node_kind(nk))
 }
 
 /// Handler return-value classification — primitives can be
@@ -416,36 +442,40 @@ fn plugin_primitive_to_vm_value(
 /// internal error rather than masquerading as a generic
 /// `DOMException("Error", …)`.
 fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
-    let msg = err.message.clone();
+    let DomApiError { kind, message } = err;
     let wk = &vm.well_known;
-    match err.kind {
+    match kind {
         // ECMA exceptions
-        DomApiErrorKind::TypeError => VmError::type_error(msg),
-        DomApiErrorKind::SyntaxError => VmError::syntax_error(msg),
+        DomApiErrorKind::TypeError => VmError::type_error(message),
+        DomApiErrorKind::SyntaxError => VmError::syntax_error(message),
         // DOMException variants
-        DomApiErrorKind::NotFoundError => VmError::dom_exception(wk.dom_exc_not_found_error, msg),
+        DomApiErrorKind::NotFoundError => {
+            VmError::dom_exception(wk.dom_exc_not_found_error, message)
+        }
         DomApiErrorKind::HierarchyRequestError => {
-            VmError::dom_exception(wk.dom_exc_hierarchy_request_error, msg)
+            VmError::dom_exception(wk.dom_exc_hierarchy_request_error, message)
         }
         DomApiErrorKind::InvalidStateError => {
-            VmError::dom_exception(wk.dom_exc_invalid_state_error, msg)
+            VmError::dom_exception(wk.dom_exc_invalid_state_error, message)
         }
-        DomApiErrorKind::IndexSizeError => VmError::dom_exception(wk.dom_exc_index_size_error, msg),
+        DomApiErrorKind::IndexSizeError => {
+            VmError::dom_exception(wk.dom_exc_index_size_error, message)
+        }
         DomApiErrorKind::InvalidCharacterError => {
-            VmError::dom_exception(wk.dom_exc_invalid_character_error, msg)
+            VmError::dom_exception(wk.dom_exc_invalid_character_error, message)
         }
         DomApiErrorKind::InUseAttributeError => {
-            VmError::dom_exception(wk.dom_exc_in_use_attribute_error, msg)
+            VmError::dom_exception(wk.dom_exc_in_use_attribute_error, message)
         }
         DomApiErrorKind::NotSupportedError => {
-            VmError::dom_exception(wk.dom_exc_not_supported_error, msg)
+            VmError::dom_exception(wk.dom_exc_not_supported_error, message)
         }
         // Generic / unclassified.  `DomApiErrorKind` is
         // `#[non_exhaustive]`; new variants land here until they get
         // an explicit arm above, so a missed mapping surfaces as an
         // internal error rather than a generic DOMException.
-        DomApiErrorKind::Other => VmError::internal(msg),
-        _ => VmError::internal(msg),
+        DomApiErrorKind::Other => VmError::internal(message),
+        _ => VmError::internal(message),
     }
 }
 
@@ -579,5 +609,45 @@ mod tests {
                 err.kind,
             );
         }
+    }
+
+    #[test]
+    fn arg_component_kind_accepts_node_kinds() {
+        for nk in [
+            NodeKind::Element,
+            NodeKind::Attribute,
+            NodeKind::Text,
+            NodeKind::CdataSection,
+            NodeKind::ProcessingInstruction,
+            NodeKind::Comment,
+            NodeKind::Document,
+            NodeKind::DocumentType,
+            NodeKind::DocumentFragment,
+        ] {
+            let ck = arg_component_kind(Some(nk))
+                .unwrap_or_else(|e| panic!("{nk:?} must classify, got {:?}", e.kind));
+            assert_eq!(ck, ComponentKind::from_node_kind(nk));
+        }
+    }
+
+    #[test]
+    fn arg_component_kind_rejects_none() {
+        // Bare entity (no NodeKind / TagType / TextContent / …) —
+        // never reachable from a brand-checked call site, so this
+        // arm is the defense-in-depth fallback.
+        let err = arg_component_kind(None).expect_err("None must reject");
+        assert!(matches!(err.kind, DomApiErrorKind::TypeError));
+        assert!(err.message.contains("not a valid Node"));
+    }
+
+    #[test]
+    fn arg_component_kind_rejects_window() {
+        // Window is an EventTarget but explicitly NOT a Node; match
+        // `node_proto::require_node_arg`'s policy at the marshalling
+        // layer too so a future native that skips brand check still
+        // fails closed.
+        let err = arg_component_kind(Some(NodeKind::Window)).expect_err("Window must reject");
+        assert!(matches!(err.kind, DomApiErrorKind::TypeError));
+        assert!(err.message.contains("Window"));
     }
 }
