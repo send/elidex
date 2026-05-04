@@ -286,9 +286,18 @@ mod engine_feature {
             self.document_entity = None;
         }
 
+        /// Returns `true` only when **both** `session_ptr` and
+        /// `dom_ptr` are non-null.  The two pointers are set together
+        /// in `bind` and cleared together in `unbind`, so an
+        /// asymmetric state (one set, the other null) indicates a
+        /// partial-bind / partial-unbind bug — never a valid
+        /// runtime state.  Requiring both here means callers that
+        /// follow a successful `is_bound()` check with a `dom_ptr` /
+        /// `session_ptr` deref cannot run into a one-sided null on
+        /// the path between the check and the deref.
         #[inline]
         pub fn is_bound(&self) -> bool {
-            !self.session_ptr.is_null()
+            !self.session_ptr.is_null() && !self.dom_ptr.is_null()
         }
 
         #[allow(unsafe_code)]

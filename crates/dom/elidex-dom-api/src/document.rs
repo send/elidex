@@ -145,8 +145,14 @@ impl DomApiHandler for CreateElement {
     ) -> Result<JsValue, DomApiError> {
         let tag = require_string_arg(args, 0)?;
         if !is_valid_tag_name(&tag) {
+            // WHATWG DOM §4.5.2 (`Document.createElement`): an invalid
+            // local name throws `InvalidCharacterError`, NOT
+            // `SyntaxError`.  `SyntaxError` is reserved for selector /
+            // URL / CSS-OM parse failures (DOM §4.7 legacy code 12)
+            // and would surface the wrong `DOMException.name` to JS
+            // (`e.name === "InvalidCharacterError"` vs `"SyntaxError"`).
             return Err(DomApiError {
-                kind: DomApiErrorKind::SyntaxError,
+                kind: DomApiErrorKind::InvalidCharacterError,
                 message: format!("Invalid tag name: {tag}"),
             });
         }
@@ -409,5 +415,29 @@ mod tests {
         let result = query_selector_all(doc, "::slotted(div)", &dom);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, DomApiErrorKind::SyntaxError);
+    }
+
+    #[test]
+    fn create_element_invalid_tag_name_throws_invalid_character_error() {
+        // WHATWG DOM §4.5.2 (`Document.createElement`): an invalid
+        // local name throws `InvalidCharacterError` — *not*
+        // `SyntaxError`, which is reserved for selector / URL /
+        // CSS-OM parse failures (DOM §4.7 legacy code 12).  A space
+        // in the tag name is the simplest invalid-name input that
+        // trips `is_valid_tag_name`.
+        let (mut dom, doc) = setup_dom();
+        let mut session = SessionCore::new();
+        let handler = CreateElement;
+        let result = handler.invoke(
+            doc,
+            &[JsValue::String("bad tag".into())],
+            &mut session,
+            &mut dom,
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().kind,
+            DomApiErrorKind::InvalidCharacterError
+        );
     }
 }
