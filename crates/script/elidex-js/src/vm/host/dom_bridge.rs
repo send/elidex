@@ -282,10 +282,45 @@ impl PreVal {
 /// Handler return-value classification — primitives can be
 /// converted in the VM-only phase, but `Entity` returns must be
 /// resolved through the session's identity map (read-only access)
-/// before the dual-borrow scope ends.
+/// before the dual-borrow scope ends.  The `ComponentKind` carried
+/// alongside the `Entity` lets the VM-side wrapper-allocation phase
+/// reject non-Node return kinds (Attribute / Window / sub-objects)
+/// that `create_element_wrapper` cannot dispatch correctly.
 enum HandlerOut {
     Primitive(elidex_plugin::JsValue),
-    Entity(Entity),
+    Entity(Entity, ComponentKind),
+}
+
+/// Validate that a handler's `ObjectRef` return resolves to a
+/// `ComponentKind` the bridge knows how to wrap.  Today
+/// [`VmInner::create_element_wrapper`] handles all real DOM Node
+/// kinds (Element, character-data variants, Document family,
+/// DocumentFragment) but routes Attribute / Window / sub-object
+/// kinds (Style / ClassList / ChildNodes / Dataset) into a generic
+/// `Node.prototype` chain that does NOT match their actual
+/// IDL-defined prototype.  Failing fast here means an unsupported
+/// return surfaces a clear `VmError::internal` instead of a wrong
+/// JS wrapper that misbehaves on first method call.  Subsequent
+/// arch-hoist slots widen this set as dedicated wrapper paths
+/// (e.g. Attr / NodeList) come online.
+fn require_node_wrapper_kind(kind: ComponentKind) -> Result<(), VmError> {
+    use ComponentKind as Ck;
+    match kind {
+        Ck::Element
+        | Ck::TextNode
+        | Ck::Comment
+        | Ck::CdataSection
+        | Ck::ProcessingInstruction
+        | Ck::Document
+        | Ck::DocumentType
+        | Ck::DocumentFragment => Ok(()),
+        _ => Err(VmError::internal(format!(
+            "DomApiHandler returned ObjectRef of kind {kind:?}; bridge currently \
+             wraps only Node-derived kinds via create_element_wrapper. Attribute / \
+             Window / sub-object returns require dedicated wrapper paths to be \
+             plumbed in subsequent arch-hoist slots."
+        ))),
+    }
 }
 
 /// Pre-validate a single VM `JsValue` argument: primitives convert
@@ -313,7 +348,7 @@ fn prepare_arg(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<PreVal, VmErro
         JsValue::Object(obj_id) => match &ctx.vm.get_object(obj_id).kind {
             ObjectKind::HostObject { entity_bits } => {
                 let entity = Entity::from_bits(*entity_bits).ok_or_else(|| {
-                    VmError::type_error("DOM API: receiver wraps an invalid entity")
+                    VmError::type_error("DOM API: argument wraps an invalid entity")
                 })?;
                 PreVal::Entity(entity)
             }
@@ -475,14 +510,14 @@ pub(super) fn invoke_dom_api(
         let raw = handler.invoke(this, &args_plugin, session, dom)?;
         Ok(match raw {
             elidex_plugin::JsValue::ObjectRef(r) => {
-                let (entity, _kind) = session
+                let (entity, kind) = session
                     .identity_map()
                     .get(JsObjectRef::from_raw(r))
                     .ok_or_else(|| DomApiError {
                         kind: DomApiErrorKind::Other,
                         message: "DomApiHandler returned an unmapped ObjectRef".into(),
                     })?;
-                HandlerOut::Entity(entity)
+                HandlerOut::Entity(entity, kind)
             }
             other => HandlerOut::Primitive(other),
         })
@@ -491,7 +526,58 @@ pub(super) fn invoke_dom_api(
     // Phase 3: Error map + final wrapper allocation
     match result {
         Ok(HandlerOut::Primitive(v)) => plugin_primitive_to_vm_value(ctx, v),
-        Ok(HandlerOut::Entity(e)) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(e))),
+        Ok(HandlerOut::Entity(e, kind)) => {
+            require_node_wrapper_kind(kind)?;
+            Ok(JsValue::Object(ctx.vm.create_element_wrapper(e)))
+        }
         Err(e) => Err(dom_api_error_to_vm_error(ctx.vm, e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::value::VmErrorKind;
+    use super::*;
+
+    #[test]
+    fn require_node_wrapper_kind_accepts_node_kinds() {
+        for k in [
+            ComponentKind::Element,
+            ComponentKind::TextNode,
+            ComponentKind::Comment,
+            ComponentKind::CdataSection,
+            ComponentKind::ProcessingInstruction,
+            ComponentKind::Document,
+            ComponentKind::DocumentType,
+            ComponentKind::DocumentFragment,
+        ] {
+            assert!(
+                require_node_wrapper_kind(k).is_ok(),
+                "{k:?} must be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn require_node_wrapper_kind_rejects_non_node_kinds() {
+        // Attribute / Window / sub-object kinds — wrapping them via
+        // `create_element_wrapper` would produce a Node.prototype-
+        // chained wrapper that does not match their IDL prototype,
+        // so the bridge must fail closed.
+        for k in [
+            ComponentKind::Attribute,
+            ComponentKind::Window,
+            ComponentKind::Style,
+            ComponentKind::ClassList,
+            ComponentKind::ChildNodes,
+            ComponentKind::Dataset,
+        ] {
+            let err = require_node_wrapper_kind(k).expect_err(&format!("{k:?} must be rejected"));
+            assert!(
+                matches!(err.kind, VmErrorKind::InternalError),
+                "{k:?} must produce VmError::internal, got {:?}",
+                err.kind,
+            );
+        }
     }
 }
