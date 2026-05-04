@@ -115,7 +115,8 @@ pub(super) fn native_document_query_selector(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
+    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
+    let selectors = parse_dom_selector(&selector_str, "querySelector", syntax_err)?;
     let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
@@ -133,7 +134,8 @@ pub(super) fn native_document_query_selector_all(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
+    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
+    let selectors = parse_dom_selector(&selector_str, "querySelectorAll", syntax_err)?;
     let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
     // WHATWG §4.2.6: `querySelectorAll` returns a **static** NodeList.
     // Store the snapshot entity vec; every read re-serves from the

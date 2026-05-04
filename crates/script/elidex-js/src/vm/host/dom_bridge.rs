@@ -40,23 +40,35 @@ pub(super) fn wrap_entities_as_array(vm: &mut VmInner, entities: &[Entity]) -> J
 
 /// Parse a selector string and reject shadow-scoped pseudos.  Shared
 /// by `document.querySelector*` and `Element.prototype.matches` /
-/// `closest` — all four throw `SyntaxError` on invalid input and on
-/// `:host` / `::slotted()`, which are only valid inside shadow-tree
-/// context.
+/// `closest` — all four throw a `DOMException` named `"SyntaxError"`
+/// on invalid input and on `:host` / `::slotted()`, which are only
+/// valid inside shadow-tree context (WHATWG DOM §4.7 / WHATWG
+/// Selectors API §1.2 — the spec-mandated exception class is
+/// `DOMException`, *not* the ECMA `SyntaxError` constructor).
 ///
-/// The `method` name appears in the shadow-pseudo error message so
+/// `syntax_error_name` is the pre-interned `StringId` for
+/// `"SyntaxError"` (`WellKnownStrings::dom_exc_syntax_error`); the
+/// caller threads it in to keep this helper independent of
+/// `&VmInner` and avoid an extra borrow in the hot path.  The
+/// `method` name appears in the shadow-pseudo error message so
 /// callers get a call-site-accurate complaint (`… are not valid in
 /// querySelector` vs `… in matches/closest`).
 pub(super) fn parse_dom_selector(
     selector_str: &str,
     shadow_method_label: &str,
+    syntax_error_name: super::super::value::StringId,
 ) -> Result<Vec<Selector>, VmError> {
-    let selectors = parse_selector_from_str(selector_str)
-        .map_err(|()| VmError::syntax_error(format!("Invalid selector: {selector_str}")))?;
+    let selectors = parse_selector_from_str(selector_str).map_err(|()| {
+        VmError::dom_exception(
+            syntax_error_name,
+            format!("Invalid selector: {selector_str}"),
+        )
+    })?;
     if selectors.iter().any(|s| s.has_shadow_pseudo()) {
-        return Err(VmError::syntax_error(format!(
-            ":host and ::slotted() are not valid in {shadow_method_label}"
-        )));
+        return Err(VmError::dom_exception(
+            syntax_error_name,
+            format!(":host and ::slotted() are not valid in {shadow_method_label}"),
+        ));
     }
     Ok(selectors)
 }
@@ -431,24 +443,31 @@ fn plugin_primitive_to_vm_value(
 }
 
 /// Convert a `DomApiError` returned by a handler into a VM-flavoured
-/// `VmError`.  ECMA-spec exceptions (`TypeError`, `SyntaxError`)
-/// become their plain-error counterparts; named `DOMException`
-/// variants resolve to a `DOMException` whose `name` comes from the
-/// pre-interned `WellKnownStrings` (alloc-free on the throw path);
-/// `Other` and any future-added `DomApiErrorKind` variants surface
-/// as `VmError::internal` — that path means "bridge encountered an
-/// unmapped error kind" and is intentionally distinct from a
-/// spec-named DOMException so a missed mapping shows up as an
-/// internal error rather than masquerading as a generic
-/// `DOMException("Error", …)`.
+/// `VmError`.  `TypeError` becomes the ECMA-flavoured plain error
+/// (WebIDL §3.10.14 — Symbol coercion failures and similar are
+/// genuinely ECMA `TypeError`s); every other named variant resolves
+/// to a `DOMException` whose `name` comes from the pre-interned
+/// `WellKnownStrings` (alloc-free on the throw path).
+/// **`SyntaxError` is `DOMException("SyntaxError")`, not the ECMA
+/// `SyntaxError` constructor** — DOM-side selector / URL / CSS-OM
+/// parse failures are spec-mandated as `DOMException` (WHATWG DOM
+/// §4.7 legacy code 12); ECMA `SyntaxError` is reserved for
+/// JavaScript parser errors (`eval`, `new Function`, etc.) which
+/// don't reach this bridge.  `Other` and any future-added
+/// `DomApiErrorKind` variants surface as `VmError::internal` —
+/// that path means "bridge encountered an unmapped error kind" and
+/// is intentionally distinct from a spec-named DOMException so a
+/// missed mapping shows up as an internal error rather than
+/// masquerading as a generic `DOMException("Error", …)`.
 fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
     let DomApiError { kind, message } = err;
     let wk = &vm.well_known;
     match kind {
-        // ECMA exceptions
+        // ECMA exception (call-site coercion failures, etc.)
         DomApiErrorKind::TypeError => VmError::type_error(message),
-        DomApiErrorKind::SyntaxError => VmError::syntax_error(message),
-        // DOMException variants
+        // DOMException variants — `SyntaxError` is a DOMException
+        // name (WHATWG DOM §4.7), NOT the ECMA SyntaxError class.
+        DomApiErrorKind::SyntaxError => VmError::dom_exception(wk.dom_exc_syntax_error, message),
         DomApiErrorKind::NotFoundError => {
             VmError::dom_exception(wk.dom_exc_not_found_error, message)
         }
@@ -651,5 +670,45 @@ mod tests {
         let err = arg_component_kind(Some(NodeKind::Window)).expect_err("Window must reject");
         assert!(matches!(err.kind, DomApiErrorKind::TypeError));
         assert!(err.message.contains("Window"));
+    }
+
+    #[test]
+    fn dom_api_error_syntax_kind_maps_to_dom_exception() {
+        // WHATWG DOM §4.7: `SyntaxError` is a DOMException name
+        // (legacy code 12), NOT the ECMA SyntaxError class.  Selector
+        // / URL / CSS-OM parse failures dispatched through the bridge
+        // must surface as `DOMException("SyntaxError")` so JS code
+        // that does `e instanceof DOMException` keeps working.
+        let vm = crate::vm::Vm::new();
+        let err = dom_api_error_to_vm_error(
+            &vm.inner,
+            DomApiError {
+                kind: DomApiErrorKind::SyntaxError,
+                message: "test syntax error".into(),
+            },
+        );
+        let VmErrorKind::DomException { name } = err.kind else {
+            panic!("expected DomException, got {:?}", err.kind);
+        };
+        assert_eq!(vm.inner.strings.get_utf8(name), "SyntaxError");
+        assert_eq!(err.message, "test syntax error");
+    }
+
+    #[test]
+    fn dom_api_error_type_kind_stays_ecma_type_error() {
+        // Counterpart sanity check: TypeError must remain an ECMA
+        // TypeError (WebIDL §3.10.14 — Symbol coercion failures and
+        // other "wrong type" diagnostics are genuinely ECMA, not
+        // DOMException-typed).
+        let vm = crate::vm::Vm::new();
+        let err = dom_api_error_to_vm_error(
+            &vm.inner,
+            DomApiError {
+                kind: DomApiErrorKind::TypeError,
+                message: "test type error".into(),
+            },
+        );
+        assert!(matches!(err.kind, VmErrorKind::TypeError));
+        assert_eq!(err.message, "test type error");
     }
 }
