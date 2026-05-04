@@ -129,6 +129,57 @@ fn dom_exception_code_for_abort_error() {
 }
 
 #[test]
+fn dom_exception_code_for_index_size_error() {
+    // Legacy code 1 — WebIDL §3.14.3 Table 1.  Added alongside the
+    // arch-hoist-a bridge mapping so DOMException("IndexSizeError")
+    // surfaces a non-zero `.code` (was silently 0 before R12 fix).
+    assert_eq!(
+        eval_number("new DOMException('', 'IndexSizeError').code"),
+        1.0
+    );
+}
+
+#[test]
+fn dom_exception_code_for_invalid_character_error() {
+    assert_eq!(
+        eval_number("new DOMException('', 'InvalidCharacterError').code"),
+        5.0
+    );
+}
+
+#[test]
+fn dom_exception_code_for_not_supported_error() {
+    assert_eq!(
+        eval_number("new DOMException('', 'NotSupportedError').code"),
+        9.0
+    );
+}
+
+#[test]
+fn dom_exception_code_for_in_use_attribute_error() {
+    assert_eq!(
+        eval_number("new DOMException('', 'InUseAttributeError').code"),
+        10.0
+    );
+}
+
+#[test]
+fn dom_exception_code_for_timeout_error() {
+    assert_eq!(
+        eval_number("new DOMException('', 'TimeoutError').code"),
+        23.0
+    );
+}
+
+#[test]
+fn dom_exception_code_for_data_clone_error() {
+    assert_eq!(
+        eval_number("new DOMException('', 'DataCloneError').code"),
+        25.0
+    );
+}
+
+#[test]
 fn dom_exception_unknown_name_code_is_zero() {
     assert_eq!(eval_number("new DOMException('', 'CustomError').code"), 0.0);
 }
