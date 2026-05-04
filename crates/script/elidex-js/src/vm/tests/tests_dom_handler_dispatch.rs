@@ -37,10 +37,13 @@ fn build_min_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     doc
 }
 
-/// Run `source` against a fresh VM bound to a minimal document
-/// fixture, return the result string from `e.constructor.name` /
-/// `e.name` style probes.
-fn eval_in_doc_string(source: &str) -> String {
+/// Run `f` against a fresh VM bound to a minimal document fixture,
+/// unbinding before return.  Centralises the bind/unbind dance shared
+/// by every test in this file.
+fn with_doc_vm<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut Vm) -> R,
+{
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -49,31 +52,23 @@ fn eval_in_doc_string(source: &str) -> String {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    let r = vm.eval(source).unwrap();
-    let s = match r {
+    let result = f(&mut vm);
+    vm.unbind();
+    result
+}
+
+fn eval_in_doc_string(source: &str) -> String {
+    with_doc_vm(|vm| match vm.eval(source).unwrap() {
         JsValue::String(id) => vm.get_string(id),
         other => panic!("expected string, got {other:?}"),
-    };
-    vm.unbind();
-    s
+    })
 }
 
 fn eval_in_doc_bool(source: &str) -> bool {
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = build_min_fixture(&mut dom);
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
-    let r = vm.eval(source).unwrap();
-    let b = match r {
+    with_doc_vm(|vm| match vm.eval(source).unwrap() {
         JsValue::Boolean(b) => b,
         other => panic!("expected bool, got {other:?}"),
-    };
-    vm.unbind();
-    b
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -112,17 +107,10 @@ fn dispatch_with_bigint_arg_through_string_coercion_succeeds() {
     // #11-arch-hoist-a all pre-coerce string args at the call
     // site, so BigInt never actually reaches `prepare_arg` through
     // them.
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = build_min_fixture(&mut dom);
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
-    let r = vm.eval("document.getElementById(1n);").unwrap();
-    assert!(matches!(r, JsValue::Null));
-    vm.unbind();
+    with_doc_vm(|vm| {
+        let r = vm.eval("document.getElementById(1n);").unwrap();
+        assert!(matches!(r, JsValue::Null));
+    });
 }
 
 // ---------------------------------------------------------------------------
