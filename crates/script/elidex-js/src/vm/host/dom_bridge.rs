@@ -8,12 +8,15 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::value::{JsValue, NativeContext, VmError};
+use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
 use super::super::VmInner;
 use super::event_target::entity_from_this;
 
 use elidex_css::{parse_selector_from_str, Selector};
 use elidex_ecs::{EcsDom, Entity, NodeKind};
+use elidex_script_session::{
+    ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, SessionCore,
+};
 
 /// Return `Option<Entity>` as a JS wrapper or `null` — no intermediate
 /// `ObjectId`, so callers can chain it straight into a `Result::Ok`.
@@ -206,3 +209,244 @@ pub(super) fn query_selector_in_subtree_all(
 // infrastructure in `dom_collection.rs`.  The traversal now runs
 // inside `LiveCollectionKind::{ByTag, ByClass}` resolution on each
 // read, so this file no longer needs a static snapshot helper.
+
+// ---------------------------------------------------------------------------
+// `DomApiHandler` dispatch — boa-parity bridge from VM-internal
+// `JsValue` → engine-independent `elidex_plugin::JsValue` and back,
+// invoking `DomApiHandler::invoke()` through the registry stored on
+// `VmInner.dom_registry`.
+//
+// Established by slot #11-arch-hoist-a (drift incident
+// `memory/m4-12-architectural-drift-incident.md`).  Subsequent slots
+// (b/c/d/e) migrate the remaining `EcsDom::*` direct-call sites onto
+// this bridge.
+// ---------------------------------------------------------------------------
+
+/// VM-side pre-validated argument representation — primitives are
+/// already converted to `elidex_plugin::JsValue`, but `Object` args
+/// must defer to `materialize` because session-side
+/// `IdentityMap::get_or_create` requires `&mut SessionCore` (only
+/// available inside `with_session_and_dom`).
+enum PreVal {
+    Primitive(elidex_plugin::JsValue),
+    Entity(Entity),
+}
+
+impl PreVal {
+    /// Convert to a final `elidex_plugin::JsValue`.  For `Entity`,
+    /// classifies the kind (`ComponentKind`) from the bound DOM and
+    /// allocates / returns the cached `JsObjectRef` from the
+    /// session's identity map.
+    fn materialize(&self, session: &mut SessionCore, dom: &EcsDom) -> elidex_plugin::JsValue {
+        match self {
+            PreVal::Primitive(v) => v.clone(),
+            PreVal::Entity(entity) => {
+                let kind = ComponentKind::from_node_kind(
+                    dom.node_kind(*entity).unwrap_or(NodeKind::Element),
+                );
+                let obj_ref = session.get_or_create_wrapper(*entity, kind);
+                elidex_plugin::JsValue::ObjectRef(obj_ref.to_raw())
+            }
+        }
+    }
+}
+
+/// Handler return-value classification — primitives can be
+/// converted in the VM-only phase, but `Entity` returns must be
+/// resolved through the session's identity map (read-only access)
+/// before the dual-borrow scope ends.
+enum HandlerOut {
+    Primitive(elidex_plugin::JsValue),
+    Entity(Entity),
+}
+
+/// Pre-validate a single VM `JsValue` argument: primitives convert
+/// directly, `Object` extracts its bound entity bits (deferring
+/// session-side ID allocation to the materialize phase), and
+/// `Symbol` / `BigInt` raise `TypeError` per WebIDL §3.10.14
+/// (Symbol coercion is total-throw across all non-Symbol types,
+/// BigInt likewise rejects implicit string/number coercion in DOM
+/// API contexts).
+fn prepare_arg(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<PreVal, VmError> {
+    use elidex_plugin::JsValue as Pv;
+    Ok(match v {
+        JsValue::Empty | JsValue::Undefined => PreVal::Primitive(Pv::Undefined),
+        JsValue::Null => PreVal::Primitive(Pv::Null),
+        JsValue::Boolean(b) => PreVal::Primitive(Pv::Bool(b)),
+        JsValue::Number(n) => PreVal::Primitive(Pv::Number(n)),
+        JsValue::String(sid) => PreVal::Primitive(Pv::String(ctx.get_utf8(sid))),
+        JsValue::Object(obj_id) => match &ctx.vm.get_object(obj_id).kind {
+            ObjectKind::HostObject { entity_bits } => {
+                let entity = Entity::from_bits(*entity_bits).ok_or_else(|| {
+                    VmError::type_error("DOM API: receiver wraps an invalid entity")
+                })?;
+                PreVal::Entity(entity)
+            }
+            _ => {
+                return Err(VmError::type_error("DOM API expected a Node argument"));
+            }
+        },
+        JsValue::Symbol(_) => {
+            return Err(VmError::type_error(
+                "Cannot convert a Symbol value to a DOM API argument",
+            ));
+        }
+        JsValue::BigInt(_) => {
+            return Err(VmError::type_error(
+                "Cannot convert a BigInt value to a DOM API argument",
+            ));
+        }
+    })
+}
+
+/// Lift a primitive `elidex_plugin::JsValue` to a VM `JsValue`.
+/// `ObjectRef` is **not** handled here — those go through the
+/// `HandlerOut::Entity` path which extracts entity+kind from the
+/// session's identity map inside the dual-borrow scope.
+fn plugin_primitive_to_vm_value(
+    ctx: &mut NativeContext<'_>,
+    v: elidex_plugin::JsValue,
+) -> Result<JsValue, VmError> {
+    use elidex_plugin::JsValue as Pv;
+    Ok(match v {
+        Pv::Undefined => JsValue::Undefined,
+        Pv::Null => JsValue::Null,
+        Pv::Bool(b) => JsValue::Boolean(b),
+        Pv::Number(n) => JsValue::Number(n),
+        Pv::String(s) => JsValue::String(ctx.intern(&s)),
+        Pv::ObjectRef(_) => {
+            // Should never reach here — ObjectRef returns are
+            // intercepted in `invoke_dom_api` and routed through
+            // `HandlerOut::Entity` so the session lookup happens
+            // while we still hold the dual borrow.
+            return Err(VmError::internal(
+                "plugin_primitive_to_vm_value received an ObjectRef",
+            ));
+        }
+        // `elidex_plugin::JsValue` is `#[non_exhaustive]`; future
+        // variants land as a hard error so the bridge never silently
+        // mis-marshals a new value type.
+        _ => {
+            return Err(VmError::internal(
+                "plugin_primitive_to_vm_value: unhandled JsValue variant",
+            ));
+        }
+    })
+}
+
+/// Convert a `DomApiError` returned by a handler into a VM-flavoured
+/// `VmError`.  ECMA-spec exceptions (`TypeError`, `SyntaxError`)
+/// become their plain-error counterparts; the rest become
+/// `DOMException`s with the appropriate `name` looked up from the
+/// pre-interned `WellKnownStrings` (alloc-free on the throw path).
+fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
+    let msg = err.message.clone();
+    let wk = &vm.well_known;
+    match err.kind {
+        // ECMA exceptions
+        DomApiErrorKind::TypeError => VmError::type_error(msg),
+        DomApiErrorKind::SyntaxError => VmError::syntax_error(msg),
+        // DOMException variants
+        DomApiErrorKind::NotFoundError => VmError::dom_exception(wk.dom_exc_not_found_error, msg),
+        DomApiErrorKind::HierarchyRequestError => {
+            VmError::dom_exception(wk.dom_exc_hierarchy_request_error, msg)
+        }
+        DomApiErrorKind::InvalidStateError => {
+            VmError::dom_exception(wk.dom_exc_invalid_state_error, msg)
+        }
+        DomApiErrorKind::IndexSizeError => VmError::dom_exception(wk.dom_exc_index_size_error, msg),
+        DomApiErrorKind::InvalidCharacterError => {
+            VmError::dom_exception(wk.dom_exc_invalid_character_error, msg)
+        }
+        DomApiErrorKind::InUseAttributeError => {
+            VmError::dom_exception(wk.dom_exc_in_use_attribute_error, msg)
+        }
+        DomApiErrorKind::NotSupportedError => {
+            VmError::dom_exception(wk.dom_exc_not_supported_error, msg)
+        }
+        // Generic / unclassified
+        DomApiErrorKind::Other => VmError::internal(msg),
+        // `DomApiErrorKind` is `#[non_exhaustive]`; future variants
+        // surface as `DOMException("Error", ...)` until the bridge
+        // is taught their proper name.
+        _ => VmError::internal(msg),
+    }
+}
+
+/// Dispatch a DOM API method by handler name.
+///
+/// Three phases:
+///
+/// 1. **VM pre-validate** — each input `JsValue` becomes a
+///    [`PreVal`].  String args allocate (`String::from`) at the
+///    boundary — a known cost we accept here; subsequent slots
+///    consider a fast-path variant if benchmarks demand.  Symbol /
+///    BigInt args raise `TypeError` immediately (WebIDL §3.10.14).
+/// 2. **Dual-borrow** — inside [`HostData::with_session_and_dom`],
+///    materialize each `PreVal` (allocating a [`JsObjectRef`] for
+///    `Entity` args via `IdentityMap::get_or_create`), invoke the
+///    handler, and (for object returns) resolve the returned
+///    `ObjectRef` back to `(Entity, ComponentKind)` while the
+///    session is still in scope.
+/// 3. **Post** — outside the dual borrow, map [`DomApiError`] →
+///    [`VmError`] using the pre-interned DOMException names and
+///    materialize the final `JsValue` (primitive convert or wrapper
+///    allocation through `VmInner::create_element_wrapper`).
+///
+/// Handler-not-registered is a hard error (`VmError::type_error`):
+/// `direct-call fallback` is intentionally not provided so that a
+/// missing handler surfaces as a build / migration bug rather than
+/// silently regressing to the very `EcsDom::*` direct-call path
+/// that motivated the slot #11-arch-hoist-a hoist (see drift
+/// incident memo).
+pub(super) fn invoke_dom_api(
+    ctx: &mut NativeContext<'_>,
+    handler_name: &'static str,
+    this: Entity,
+    args_in: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Phase 1: VM-side pre-validation
+    let pre: Vec<PreVal> = args_in
+        .iter()
+        .copied()
+        .map(|v| prepare_arg(ctx, v))
+        .collect::<Result<_, _>>()?;
+
+    let registry = ctx.vm.dom_registry.clone();
+    let handler = registry
+        .resolve(handler_name)
+        .ok_or_else(|| VmError::type_error(format!("Unknown DOM method: {handler_name}")))?;
+
+    // Phase 2: Dual borrow — materialize args + invoke + resolve
+    // ObjectRef return.
+    let host_data = ctx
+        .vm
+        .host_data
+        .as_deref_mut()
+        .expect("invoke_dom_api requires HostData to be bound (Vm::bind not called)");
+    let result: Result<HandlerOut, DomApiError> = host_data.with_session_and_dom(|session, dom| {
+        let args_plugin: Vec<elidex_plugin::JsValue> =
+            pre.iter().map(|p| p.materialize(session, dom)).collect();
+        let raw = handler.invoke(this, &args_plugin, session, dom)?;
+        Ok(match raw {
+            elidex_plugin::JsValue::ObjectRef(r) => {
+                let (entity, _kind) = session
+                    .identity_map()
+                    .get(JsObjectRef::from_raw(r))
+                    .ok_or_else(|| DomApiError {
+                        kind: DomApiErrorKind::Other,
+                        message: "DomApiHandler returned an unmapped ObjectRef".into(),
+                    })?;
+                HandlerOut::Entity(entity)
+            }
+            other => HandlerOut::Primitive(other),
+        })
+    });
+
+    // Phase 3: Error map + final wrapper allocation
+    match result {
+        Ok(HandlerOut::Primitive(v)) => plugin_primitive_to_vm_value(ctx, v),
+        Ok(HandlerOut::Entity(e)) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(e))),
+        Err(e) => Err(dom_api_error_to_vm_error(ctx.vm, e)),
+    }
+}

@@ -234,6 +234,39 @@ mod engine_feature {
             unsafe { &mut *self.dom_ptr }
         }
 
+        /// Borrow the bound `SessionCore` and `EcsDom` simultaneously.
+        ///
+        /// Required by the `DomApiHandler::invoke()` dispatch path
+        /// (see `vm/host/dom_bridge.rs::invoke_dom_api`) which takes
+        /// both `&mut session` and `&mut dom` in the same call —
+        /// neither `Self::session` nor `Self::dom` alone suffices,
+        /// because each takes `&mut self` and so cannot be live
+        /// alongside the other.
+        ///
+        /// # Safety
+        ///
+        /// The two `&mut` borrows produced here alias *different*
+        /// allocations, by `bind`'s caller-enforced contract:
+        /// `Vm::bind(session, dom)` must pass two pointers that the
+        /// caller knows refer to disjoint memory.  Creating both
+        /// `&mut`s at once therefore does not violate Rust's
+        /// no-overlapping-mutable-borrow rule.  This contract mirrors
+        /// the boa-side pattern (`HostBridge::with(|session, dom|
+        /// ...)`) which the VM is replacing.
+        #[allow(unsafe_code)]
+        pub fn with_session_and_dom<F, R>(&mut self, f: F) -> R
+        where
+            F: FnOnce(&mut elidex_script_session::SessionCore, &mut elidex_ecs::EcsDom) -> R,
+        {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: see method-level safety comment.  `session_ptr`
+            // and `dom_ptr` point at distinct allocations supplied by
+            // the most recent `bind()`.
+            let session = unsafe { &mut *self.session_ptr };
+            let dom = unsafe { &mut *self.dom_ptr };
+            f(session, dom)
+        }
+
         /// Shared-reference view of the bound DOM — used from
         /// property-lookup paths that hold a `&HostData` (through
         /// `&VmInner.host_data`) and cannot upgrade to `&mut`.
