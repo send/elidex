@@ -328,10 +328,15 @@ mod engine_feature {
             F: FnOnce(&mut elidex_script_session::SessionCore, &mut elidex_ecs::EcsDom) -> R,
         {
             assert!(self.is_bound(), "HostData accessed while unbound");
-            // Defence-in-depth: re-check pointer disjointness here so
-            // a misuse caught at `bind` time does not silently slip
-            // through in release builds where the bind-side
-            // `debug_assert!` is compiled out.
+            // Defence-in-depth in debug/test builds: re-check
+            // pointer disjointness here so a same-base-address
+            // misuse not caught at `bind` time (e.g. introduced via
+            // a direct field assignment that bypasses `bind`'s own
+            // assert) still trips before any deref happens.  This
+            // and the bind-side `debug_assert!` are both compiled
+            // out in release; release-mode enforcement is the
+            // documented safety contract on `bind`, not this
+            // assert.
             debug_assert!(
                 !pointers_alias_at_base(self.session_ptr, self.dom_ptr),
                 "HostData::with_session_and_dom: session_ptr and dom_ptr \

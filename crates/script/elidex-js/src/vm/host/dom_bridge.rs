@@ -503,10 +503,12 @@ fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
 ///    materialize the final `JsValue` (primitive convert or wrapper
 ///    allocation through `VmInner::create_element_wrapper`).
 ///
-/// Handler-not-registered is a hard error (`VmError::type_error`):
-/// no `EcsDom::*` direct-call fallback is provided, so a missing
-/// handler surfaces as a build error rather than silently
-/// regressing to the layer this bridge exists to keep separated.
+/// Handler-not-registered is a hard runtime error
+/// (`VmError::type_error("Unknown DOM method: ...")`): no
+/// `EcsDom::*` direct-call fallback is provided, so a missing
+/// handler surfaces immediately at the first call site rather
+/// than silently regressing to the layer this bridge exists to
+/// keep separated.
 pub(super) fn invoke_dom_api(
     ctx: &mut NativeContext<'_>,
     handler_name: &'static str,
