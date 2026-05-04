@@ -152,10 +152,19 @@ fn textarea_rows_round_trip() {
 }
 
 #[test]
-fn textarea_cols_zero_throws_invalid_state_error() {
+fn textarea_cols_zero_throws_index_size_error() {
+    // HTML §4.10.11.4 — setting cols to 0 throws IndexSizeError.
     let out = run("var t = document.createElement('textarea'); \
          try { t.cols = 0; 'no throw'; } catch (e) { e.name; }");
-    assert_eq!(out, "InvalidStateError");
+    assert_eq!(out, "IndexSizeError");
+}
+
+#[test]
+fn textarea_rows_zero_throws_index_size_error() {
+    // HTML §4.10.11.4 — setting rows to 0 throws IndexSizeError.
+    let out = run("var t = document.createElement('textarea'); \
+         try { t.rows = 0; 'no throw'; } catch (e) { e.name; }");
+    assert_eq!(out, "IndexSizeError");
 }
 
 #[test]
@@ -181,10 +190,19 @@ fn textarea_min_length_default_is_negative_one() {
 }
 
 #[test]
-fn textarea_max_length_negative_throws_invalid_state_error() {
+fn textarea_max_length_negative_throws_index_size_error() {
+    // HTML §6.13.1 reflect rule "limited to only non-negative
+    // numbers" — negative values throw IndexSizeError.
     let out = run("var t = document.createElement('textarea'); \
          try { t.maxLength = -5; 'no throw'; } catch (e) { e.name; }");
-    assert_eq!(out, "InvalidStateError");
+    assert_eq!(out, "IndexSizeError");
+}
+
+#[test]
+fn textarea_min_length_negative_throws_index_size_error() {
+    let out = run("var t = document.createElement('textarea'); \
+         try { t.minLength = -2; 'no throw'; } catch (e) { e.name; }");
+    assert_eq!(out, "IndexSizeError");
 }
 
 // --- value / defaultValue / textLength -----------------------------
@@ -369,11 +387,12 @@ fn textarea_set_range_text_with_explicit_range_select_mode() {
 
 #[test]
 fn textarea_set_range_text_throws_for_start_greater_than_end() {
+    // HTML §4.10.18.7 step 2 — IndexSizeError when start > end.
     let out = run("var t = document.createElement('textarea'); \
          t.value = 'hello'; \
          try { t.setRangeText('x', 4, 1); 'no throw'; } \
          catch (e) { e.name; }");
-    assert_eq!(out, "InvalidStateError");
+    assert_eq!(out, "IndexSizeError");
 }
 
 #[test]

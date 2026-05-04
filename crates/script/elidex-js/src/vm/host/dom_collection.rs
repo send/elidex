@@ -114,15 +114,21 @@ pub(crate) enum LiveCollectionKind {
     /// `form.elements` / `fieldset.elements` —
     /// HTMLFormControlsCollection backing.  Filters listed elements
     /// (button / fieldset / input / object / output / select /
-    /// textarea) within `scope`'s descendants per HTML §4.10.18.4
-    /// step 1.  Cross-tree associates via the `form="<id>"` content
-    /// attribute are not yet observed — see plan §"M4-12 cutover
-    /// residual".
+    /// textarea):
+    ///
+    /// - When `scope` is a `<form>`: walks the form's tree root
+    ///   and matches every listed element whose form-association
+    ///   resolves to `scope` (HTML §4.10.18.4 step 1).  This
+    ///   observes cross-tree associates via the `form="<id>"`
+    ///   content attribute.
+    /// - When `scope` is a `<fieldset>`: walks `scope`'s
+    ///   descendants only (HTML §4.10.7).
+    ///
+    /// The owning prototype (HTMLFormControlsCollection in both
+    /// cases) is fixed at install time; only the resolver's walk
+    /// shape branches.
     FormControls {
-        /// The form OR fieldset whose descendants are walked.  Both
-        /// behave identically at the resolve fn level — the only
-        /// per-host difference is the prototype on the wrapper
-        /// which is fixed at install time.
+        /// The form OR fieldset that owns this collection.
         scope: Entity,
     },
     /// `select.options` — HTMLOptionsCollection backing.  Filters
@@ -355,9 +361,26 @@ fn resolve_entities_with_needles(
             out
         }
         LiveCollectionKind::FormControls { scope } => {
+            let scope_is_form = dom.has_tag(*scope, "form");
             let mut out = Vec::new();
-            dom.traverse_descendants(*scope, |e| {
-                if e == *scope {
+            // For `<form>` scope, walk the form's tree root so that
+            // cross-tree associates via `form="<id>"` are observed
+            // (HTML §4.10.18.4 step 1).  For `<fieldset>` scope,
+            // walk descendants only (HTML §4.10.7).
+            //
+            // `find_tree_root` returns the physical tree root —
+            // doc for attached forms, the topmost detached ancestor
+            // otherwise — which matches the spec's "form element's
+            // root" wording without `owner_document`'s
+            // associated-document indirection (which would point at
+            // the bound doc even for a detached subtree).
+            let walk_root = if scope_is_form {
+                dom.find_tree_root(*scope)
+            } else {
+                *scope
+            };
+            dom.traverse_descendants(walk_root, |e| {
+                if e == walk_root {
                     return true;
                 }
                 if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
@@ -367,7 +390,14 @@ fn resolve_entities_with_needles(
                     Some(s) => is_listed_form_element_tag(s),
                     None => false,
                 });
-                if is_listed {
+                if !is_listed {
+                    return true;
+                }
+                if scope_is_form {
+                    if super::form_assoc::resolve_form_owner_dom(dom, e) == Some(*scope) {
+                        out.push(e);
+                    }
+                } else {
                     out.push(e);
                 }
                 true

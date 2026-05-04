@@ -449,7 +449,12 @@ fn cv_get_validation_message(
 /// HTML §4.10.18.3.  Stricter spec gating (form-association,
 /// button-type exclusions, hidden inputs, datalist-descendant
 /// exclusion) lands with the elidex-form dep.
-fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+///
+/// HTML §4.10.12 disabled-fieldset carve-out: descendants of the
+/// disabled `<fieldset>`'s **first `<legend>` element child** stay
+/// enabled, so a control inside that legend still participates in
+/// validation even when an outer fieldset is disabled.
+pub(super) fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
     let dom = ctx.host().dom();
     if dom.has_attribute(entity, "disabled") {
         return false;
@@ -461,12 +466,39 @@ fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
             break;
         }
         if dom.has_tag(p, "fieldset") && dom.has_attribute(p, "disabled") {
-            return false;
+            // Disabled fieldset bars descendants — except those
+            // inside its first `<legend>` child.
+            let legend_exempt = match dom.first_child_with_tag(p, "legend") {
+                Some(legend) => dom.is_ancestor_or_self(legend, entity),
+                None => false,
+            };
+            if !legend_exempt {
+                return false;
+            }
         }
         cur = dom.get_parent(p);
         depth += 1;
     }
     true
+}
+
+/// Per-control validity check used by both
+/// `ConstraintValidation.checkValidity()` (Phase 9 mixin) and
+/// `HTMLFormElement.checkValidity()` (form-level statically-
+/// validate walk).  Returns `true` when the control is exempt
+/// (`willValidate == false`) or when no custom-validity message is
+/// set.  Phase 9 approximation: the 9 non-customError validity
+/// flags always read `false`, so this reduces to "exempt OR custom-
+/// validity empty".  Real flag wiring lands with the elidex-form
+/// dep (slot `#11-validity-state-real-flags`).
+pub(super) fn entity_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+    if !entity_will_validate(ctx, entity) {
+        return true;
+    }
+    match ctx.vm.form_control_custom_validity.get(&entity) {
+        None => true,
+        Some(s) => s.is_empty(),
+    }
 }
 
 fn cv_get_will_validate(
@@ -495,10 +527,7 @@ fn cv_check_validity(
     let Some(entity) = require_cv_host_receiver(ctx, this, "checkValidity")? else {
         return Ok(JsValue::Boolean(true));
     };
-    if !entity_will_validate(ctx, entity) {
-        return Ok(JsValue::Boolean(true));
-    }
-    Ok(JsValue::Boolean(!has_custom_error(ctx, entity)))
+    Ok(JsValue::Boolean(entity_check_validity(ctx, entity)))
 }
 
 /// `reportValidity()` — same as `checkValidity()` in headless mode.
@@ -512,10 +541,7 @@ fn cv_report_validity(
     let Some(entity) = require_cv_host_receiver(ctx, this, "reportValidity")? else {
         return Ok(JsValue::Boolean(true));
     };
-    if !entity_will_validate(ctx, entity) {
-        return Ok(JsValue::Boolean(true));
-    }
-    Ok(JsValue::Boolean(!has_custom_error(ctx, entity)))
+    Ok(JsValue::Boolean(entity_check_validity(ctx, entity)))
 }
 
 /// `setCustomValidity(message)` — writes `message` into

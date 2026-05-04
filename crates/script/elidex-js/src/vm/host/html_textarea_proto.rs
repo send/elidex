@@ -371,15 +371,10 @@ fn ta_set_cols(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_uint32(ctx.vm, val)?;
-    // Per HTML §4.10.11.4, setting cols to 0 throws IndexSizeError;
-    // we surface it as a TypeError-equivalent DOMException so the
-    // setter does not silently swallow an invalid integer.  Use the
-    // legacy IndexSizeError path that maps to InvalidStateError in
-    // our well_known set (no IndexSizeError StringId allocated yet —
-    // tracked under slot #11-validation-ui).
+    // HTML §4.10.11.4: setting cols to 0 throws IndexSizeError.
     if n == 0 {
         return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
+            ctx.vm.well_known.dom_exc_index_size_error,
             "Failed to set 'cols' on 'HTMLTextAreaElement': value must be a positive integer",
         ));
     }
@@ -412,9 +407,10 @@ fn ta_set_rows(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_uint32(ctx.vm, val)?;
+    // HTML §4.10.11.4: setting rows to 0 throws IndexSizeError.
     if n == 0 {
         return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
+            ctx.vm.well_known.dom_exc_index_size_error,
             "Failed to set 'rows' on 'HTMLTextAreaElement': value must be a positive integer",
         ));
     }
@@ -448,9 +444,11 @@ fn ta_set_max_length(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    // HTML §6.13.1 reflect "limited to only non-negative numbers" —
+    // negative values throw IndexSizeError.
     if n < 0 {
         return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
+            ctx.vm.well_known.dom_exc_index_size_error,
             "Failed to set 'maxLength' on 'HTMLTextAreaElement': value must be non-negative",
         ));
     }
@@ -484,9 +482,11 @@ fn ta_set_min_length(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    // HTML §6.13.1 reflect "limited to only non-negative numbers" —
+    // negative values throw IndexSizeError.
     if n < 0 {
         return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
+            ctx.vm.well_known.dom_exc_index_size_error,
             "Failed to set 'minLength' on 'HTMLTextAreaElement': value must be non-negative",
         ));
     }

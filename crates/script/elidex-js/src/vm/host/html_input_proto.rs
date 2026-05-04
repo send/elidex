@@ -750,9 +750,11 @@ fn inp_set_max_length(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    // HTML §6.13.1 reflect "limited to only non-negative numbers" —
+    // negative values throw IndexSizeError.
     if n < 0 {
         return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
+            ctx.vm.well_known.dom_exc_index_size_error,
             "Failed to set 'maxLength' on 'HTMLInputElement': value must be non-negative",
         ));
     }
@@ -786,9 +788,11 @@ fn inp_set_min_length(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    // HTML §6.13.1 reflect "limited to only non-negative numbers" —
+    // negative values throw IndexSizeError.
     if n < 0 {
         return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
+            ctx.vm.well_known.dom_exc_index_size_error,
             "Failed to set 'minLength' on 'HTMLInputElement': value must be non-negative",
         ));
     }

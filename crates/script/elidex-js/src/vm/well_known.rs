@@ -480,6 +480,7 @@ define_well_known_strings! {
         dom_exc_not_found_error => "NotFoundError",
         dom_exc_wrong_document_error => "WrongDocumentError",
         dom_exc_invalid_state_error => "InvalidStateError",
+        dom_exc_index_size_error => "IndexSizeError",
         dom_exc_timeout_error => "TimeoutError",
         dom_exc_data_clone_error => "DataCloneError",
         dom_exc_not_supported_error => "NotSupportedError",

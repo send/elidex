@@ -176,6 +176,39 @@ fn will_validate_is_false_inside_disabled_fieldset() {
     assert_eq!(out, "false");
 }
 
+#[test]
+fn will_validate_is_true_inside_first_legend_of_disabled_fieldset() {
+    // HTML §4.10.12 — descendants of the disabled fieldset's first
+    // <legend> child stay enabled, so the control inside that legend
+    // still participates in constraint validation.
+    let out = run("var fs = document.createElement('fieldset'); \
+         fs.disabled = true; \
+         var lg = document.createElement('legend'); \
+         var i = document.createElement('input'); \
+         lg.appendChild(i); \
+         fs.appendChild(lg); \
+         document.body.appendChild(fs); \
+         i.willValidate.toString();");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn will_validate_is_false_for_second_legend_of_disabled_fieldset() {
+    // Only the FIRST <legend> child is exempt — controls inside a
+    // second legend are still barred.
+    let out = run("var fs = document.createElement('fieldset'); \
+         fs.disabled = true; \
+         var lg1 = document.createElement('legend'); \
+         fs.appendChild(lg1); \
+         var lg2 = document.createElement('legend'); \
+         var i = document.createElement('input'); \
+         lg2.appendChild(i); \
+         fs.appendChild(lg2); \
+         document.body.appendChild(fs); \
+         i.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
 // --- checkValidity / reportValidity --------------------------------
 
 #[test]

@@ -305,7 +305,7 @@ pub(super) fn compute_set_range_text(
         if start > end {
             // HTML §4.10.18.7 step 2 — IndexSizeError when start > end.
             return Err(VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_invalid_state_error,
+                ctx.vm.well_known.dom_exc_index_size_error,
                 format!("setRangeText: start ({start}) is greater than end ({end})"),
             ));
         }

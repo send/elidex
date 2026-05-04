@@ -20,7 +20,7 @@
 
 use super::super::value::NativeContext;
 
-use elidex_ecs::Entity;
+use elidex_ecs::{EcsDom, Entity};
 
 /// Maximum ancestor depth before the walk gives up — guards against
 /// pathological / cyclic trees.
@@ -33,26 +33,24 @@ pub(super) fn resolve_form_association(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
 ) -> Option<Entity> {
-    let dom = ctx.host().dom();
+    resolve_form_owner_dom(ctx.host().dom(), entity)
+}
+
+/// `EcsDom`-only form-owner resolver — same algorithm as
+/// [`resolve_form_association`] but runs without a
+/// [`NativeContext`].  Used by [`super::dom_collection`]'s
+/// `FormControls` walker, which already holds the disjoint
+/// `&EcsDom` borrow that the `NativeContext` split-field pattern
+/// rules out at that site.
+pub(super) fn resolve_form_owner_dom(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     let form_id = dom.with_attribute(entity, "form", |v| {
         v.filter(|s| !s.is_empty()).map(String::from)
     });
     if let Some(id) = form_id {
-        // IDREF lookup scoped to the entity's tree.  Fall back to
-        // the topmost reachable ancestor when `owner_document` is
-        // None (detached subtree).
-        let root = dom.owner_document(entity).unwrap_or_else(|| {
-            let mut cur = entity;
-            let mut depth: u32 = 0;
-            while let Some(p) = dom.get_parent(cur) {
-                if depth > MAX_ANCESTOR_DEPTH {
-                    break;
-                }
-                cur = p;
-                depth += 1;
-            }
-            cur
-        });
+        // IDREF lookup scoped to the entity's actual physical tree
+        // root — `find_tree_root` returns the doc for attached
+        // entities and the topmost detached ancestor otherwise.
+        let root = dom.find_tree_root(entity);
         if let Some(target) = dom.find_by_id(root, &id) {
             if dom.has_tag(target, "form") {
                 return Some(target);
@@ -90,70 +88,50 @@ pub(super) fn resolve_form_association(
 ///    attribute (descendant-control association — the label
 ///    "wraps" the control).
 ///
-/// Result is in document order with id-matched and ancestor-matched
-/// labels merged.  Used by HTMLButtonElement / HTMLInputElement /
-/// HTMLSelectElement / HTMLTextAreaElement / HTMLOutputElement /
-/// HTMLMeterElement / HTMLProgressElement (i.e. every labelable
-/// element per HTML §4.10.2).
+/// Result is in **document (tree) order** — `.labels.item(0)` is
+/// the first matching label encountered in a pre-order descendant
+/// walk of the control's root, regardless of which of the two
+/// association forms matched.  Used by HTMLButtonElement /
+/// HTMLInputElement / HTMLSelectElement / HTMLTextAreaElement /
+/// HTMLOutputElement / HTMLMeterElement / HTMLProgressElement
+/// (i.e. every labelable element per HTML §4.10.2).
 pub(super) fn collect_labels_for(ctx: &mut NativeContext<'_>, control: Entity) -> Vec<Entity> {
     let dom = ctx.host().dom();
     let mut result: Vec<Entity> = Vec::new();
 
-    // Pass 1 — id-based association.  Read the control's id once,
-    // then walk owner document for `<label for="<id>">`.
     let control_id = dom.with_attribute(control, "id", |v| {
         v.filter(|s| !s.is_empty()).map(String::from)
     });
-    if let Some(id) = control_id {
-        // Scope the search to the control's tree — owner_document
-        // when attached, otherwise the topmost ancestor (matches
-        // the same scoping rule used by `resolve_form_association`).
-        let root = dom.owner_document(control).unwrap_or_else(|| {
-            let mut cur = control;
-            let mut depth: u32 = 0;
-            while let Some(p) = dom.get_parent(cur) {
-                if depth > MAX_ANCESTOR_DEPTH {
-                    break;
-                }
-                cur = p;
-                depth += 1;
-            }
-            cur
-        });
-        dom.traverse_descendants(root, |e| {
-            if e == root {
-                return true;
-            }
-            if dom.has_tag(e, "label") {
-                let matches = dom.with_attribute(e, "for", |v| v == Some(id.as_str()));
-                if matches {
+    let id_str = control_id.as_deref();
+
+    // Single tree-order walk: every `<label>` in the control's tree
+    // is classified once as either id-matched (form 1) or wrapping
+    // ancestor (form 2).  Tree order is preserved automatically —
+    // both association forms collapse onto the same pre-order walk
+    // so `.labels.item(0)` is the first label in document order.
+    let root = dom.find_tree_root(control);
+    dom.traverse_descendants(root, |e| {
+        if e == root || !dom.has_tag(e, "label") {
+            return true;
+        }
+        let for_attr = dom.with_attribute(e, "for", |v| v.map(String::from));
+        match for_attr.as_deref() {
+            Some(f) if !f.is_empty() => {
+                // Form 1 — id-based association.
+                if id_str == Some(f) {
                     result.push(e);
                 }
             }
-            true
-        });
-    }
-
-    // Pass 2 — ancestor `<label>` whose `for=` is absent or empty.
-    let mut cur = dom.get_parent(control);
-    let mut depth: u32 = 0;
-    while let Some(p) = cur {
-        if depth > MAX_ANCESTOR_DEPTH {
-            break;
-        }
-        if dom.has_tag(p, "label") {
-            let for_attr = dom.with_attribute(p, "for", |v| v.map(String::from));
-            let no_for = match for_attr {
-                None => true,
-                Some(s) => s.is_empty(),
-            };
-            if no_for && !result.contains(&p) {
-                result.push(p);
+            _ => {
+                // Form 2 — wrapping `<label>` (no / empty `for=`).
+                // Match when `e` is an ancestor of `control`.
+                if dom.is_ancestor_or_self(e, control) && e != control {
+                    result.push(e);
+                }
             }
         }
-        cur = dom.get_parent(p);
-        depth += 1;
-    }
+        true
+    });
 
     result
 }

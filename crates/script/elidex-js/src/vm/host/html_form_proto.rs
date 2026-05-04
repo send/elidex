@@ -341,10 +341,10 @@ fn native_form_check_validity(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _entity = require_form_receiver(ctx, this, "checkValidity")?;
-    // ValidityState integration lands in Phase 9.  Until then, every
-    // form is reported valid (no FormControlState in pure VM tests).
-    Ok(JsValue::Boolean(true))
+    let Some(entity) = require_form_receiver(ctx, this, "checkValidity")? else {
+        return Ok(JsValue::Boolean(true));
+    };
+    Ok(JsValue::Boolean(form_statically_validate(ctx, entity)))
 }
 
 fn native_form_report_validity(
@@ -352,12 +352,43 @@ fn native_form_report_validity(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _entity = require_form_receiver(ctx, this, "reportValidity")?;
-    // Same deferral as checkValidity (Phase 9).  Even at full
-    // implementation, headless mode treats reportValidity as
-    // checkValidity (UI popup deferred per slot #11-validation-ui,
-    // plan §F-3).
-    Ok(JsValue::Boolean(true))
+    let Some(entity) = require_form_receiver(ctx, this, "reportValidity")? else {
+        return Ok(JsValue::Boolean(true));
+    };
+    // Headless mode — same as checkValidity.  UI popup lands with
+    // slot #11-validation-ui.
+    Ok(JsValue::Boolean(form_statically_validate(ctx, entity)))
+}
+
+/// HTML §4.10.18.5 statically-validate-the-constraints — walk every
+/// submittable element whose form owner is `form_entity` and apply
+/// the per-control `checkValidity` predicate (Phase 9 approximation:
+/// `customError` empty + not exempt via `willValidate`).  Returns
+/// `true` iff every submittable control reports valid.
+fn form_statically_validate(ctx: &mut NativeContext<'_>, form_entity: Entity) -> bool {
+    let kind = super::dom_collection::LiveCollectionKind::FormControls { scope: form_entity };
+    let coll_id = ctx.vm.alloc_collection(kind);
+    let entities = super::dom_collection::resolve_receiver_entities(ctx, coll_id);
+    for e in entities {
+        // Submittable subset of listed elements per HTML §4.10.2:
+        // button / input / select / textarea (fieldset / output /
+        // object are listed but not submittable).
+        let is_submittable = ctx.host().dom().with_tag_name(e, |t| {
+            t.is_some_and(|s| {
+                s.eq_ignore_ascii_case("button")
+                    || s.eq_ignore_ascii_case("input")
+                    || s.eq_ignore_ascii_case("select")
+                    || s.eq_ignore_ascii_case("textarea")
+            })
+        });
+        if !is_submittable {
+            continue;
+        }
+        if !super::validity_state::entity_check_validity(ctx, e) {
+            return false;
+        }
+    }
+    true
 }
 
 // --- submit / requestSubmit (deferred to slot #11-form-submission) ---

@@ -190,6 +190,104 @@ fn form_report_validity_returns_true_for_empty_form() {
     assert_eq!(out, "true");
 }
 
+#[test]
+fn form_check_validity_returns_false_when_descendant_is_invalid() {
+    // HTML §4.10.18.5 statically-validate-the-constraints — form is
+    // invalid when any submittable descendant control fails its own
+    // checkValidity (Phase 9 approximation: customError set).
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         i.setCustomValidity('bad'); \
+         f.appendChild(i); \
+         document.body.appendChild(f); \
+         (f.checkValidity() === false) ? 'false' : 'wrong';");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn form_report_validity_returns_false_when_descendant_is_invalid() {
+    let out = run("var f = document.createElement('form'); \
+         var t = document.createElement('textarea'); \
+         t.setCustomValidity('bad'); \
+         f.appendChild(t); \
+         document.body.appendChild(f); \
+         (f.reportValidity() === false) ? 'false' : 'wrong';");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn form_check_validity_skips_disabled_controls() {
+    // willValidate==false (disabled) controls are exempt — even with
+    // a customError they don't make the form invalid.
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         i.setCustomValidity('bad'); \
+         i.setAttribute('disabled', ''); \
+         f.appendChild(i); \
+         document.body.appendChild(f); \
+         (f.checkValidity() === true) ? 'true' : 'wrong';");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn form_check_validity_ignores_non_submittable_descendant() {
+    // <fieldset> is "listed" but NOT submittable, so its
+    // setCustomValidity does not affect form.checkValidity().
+    let out = run("var f = document.createElement('form'); \
+         var fs = document.createElement('fieldset'); \
+         fs.setCustomValidity('bad'); \
+         f.appendChild(fs); \
+         document.body.appendChild(f); \
+         (f.checkValidity() === true) ? 'true' : 'wrong';");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn form_elements_observes_cross_tree_form_attribute() {
+    // HTML §4.10.18.4 — `form.elements` includes controls associated
+    // via the `form="<id>"` content attribute regardless of where
+    // they live in the tree.
+    let out = run("var f = document.createElement('form'); \
+         f.id = 'F'; \
+         document.body.appendChild(f); \
+         var i = document.createElement('input'); \
+         i.setAttribute('form', 'F'); \
+         document.body.appendChild(i); \
+         f.elements.length + '|' + (f.elements.item(0) === i);");
+    assert_eq!(out, "1|true");
+}
+
+#[test]
+fn form_length_observes_cross_tree_form_attribute() {
+    // form.length must agree with form.elements.length even for
+    // cross-tree associates.
+    let out = run("var f = document.createElement('form'); \
+         f.id = 'F'; \
+         document.body.appendChild(f); \
+         var i = document.createElement('input'); \
+         i.setAttribute('form', 'F'); \
+         document.body.appendChild(i); \
+         f.length.toString();");
+    assert_eq!(out, "1");
+}
+
+#[test]
+fn form_elements_excludes_descendants_when_form_attribute_points_elsewhere() {
+    // A descendant whose `form="<otherId>"` points at a different
+    // form must NOT appear in this form's elements collection.
+    let out = run("var f1 = document.createElement('form'); \
+         f1.id = 'A'; \
+         var f2 = document.createElement('form'); \
+         f2.id = 'B'; \
+         document.body.appendChild(f1); \
+         document.body.appendChild(f2); \
+         var i = document.createElement('input'); \
+         i.setAttribute('form', 'B'); \
+         f1.appendChild(i); \
+         f1.elements.length + '|' + f2.elements.length + '|' + (f2.elements.item(0) === i);");
+    assert_eq!(out, "0|1|true");
+}
+
 // --- submit / requestSubmit stubs ---------------------------------
 
 #[test]

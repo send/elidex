@@ -224,10 +224,19 @@ fn input_max_length_round_trip() {
 }
 
 #[test]
-fn input_max_length_negative_throws() {
+fn input_max_length_negative_throws_index_size_error() {
+    // HTML §6.13.1 reflect rule "limited to only non-negative
+    // numbers" — negative values throw IndexSizeError.
     let out = run("var i = document.createElement('input'); \
          try { i.maxLength = -3; 'no throw'; } catch (e) { e.name; }");
-    assert_eq!(out, "InvalidStateError");
+    assert_eq!(out, "IndexSizeError");
+}
+
+#[test]
+fn input_min_length_negative_throws_index_size_error() {
+    let out = run("var i = document.createElement('input'); \
+         try { i.minLength = -1; 'no throw'; } catch (e) { e.name; }");
+    assert_eq!(out, "IndexSizeError");
 }
 
 #[test]
@@ -434,6 +443,42 @@ fn input_labels_collects_for_id_match() {
          var nl = i.labels; \
          nl.length + '|' + (nl.item(0) === lbl);");
     assert_eq!(out, "1|true");
+}
+
+#[test]
+fn input_labels_in_document_order_when_id_match_precedes_wrapping() {
+    // HTML §4.10.4 — `.labels` is in tree order regardless of which
+    // association form (id-based vs wrapping ancestor) matched.  The
+    // id-matched label appears first in the document, so it must
+    // come before the wrapping ancestor label in `.labels.item(0)`.
+    let out = run("var i = document.createElement('input'); \
+         i.id = 'x'; \
+         var first = document.createElement('label'); \
+         first.htmlFor = 'x'; \
+         document.body.appendChild(first); \
+         var wrap = document.createElement('label'); \
+         wrap.appendChild(i); \
+         document.body.appendChild(wrap); \
+         var nl = i.labels; \
+         nl.length + '|' + (nl.item(0) === first) + '|' + (nl.item(1) === wrap);");
+    assert_eq!(out, "2|true|true");
+}
+
+#[test]
+fn input_labels_in_document_order_when_wrapping_precedes_id_match() {
+    // Reverse: wrapping label is earlier in the tree, so it should
+    // come first in `.labels`.
+    let out = run("var i = document.createElement('input'); \
+         i.id = 'x'; \
+         var wrap = document.createElement('label'); \
+         wrap.appendChild(i); \
+         document.body.appendChild(wrap); \
+         var second = document.createElement('label'); \
+         second.htmlFor = 'x'; \
+         document.body.appendChild(second); \
+         var nl = i.labels; \
+         nl.length + '|' + (nl.item(0) === wrap) + '|' + (nl.item(1) === second);");
+    assert_eq!(out, "2|true|true");
 }
 
 // --- Deferred stubs -----------------------------------------------
