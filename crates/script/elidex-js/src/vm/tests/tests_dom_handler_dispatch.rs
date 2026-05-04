@@ -40,9 +40,24 @@ fn build_min_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
     doc
 }
 
+/// RAII guard: unbinds the VM on drop so a panic inside the closure
+/// cannot leave a bound `HostData` pointing at `SessionCore` /
+/// `EcsDom` locals that are about to be dropped during unwind.
+/// `bind_vm`'s safety contract requires `unbind()` before the
+/// pointed-to allocations expire.
+struct UnbindOnDrop<'a>(&'a mut Vm);
+
+impl Drop for UnbindOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.unbind();
+    }
+}
+
 /// Run `f` against a fresh VM bound to a minimal document fixture,
 /// unbinding before return.  Centralises the bind/unbind dance shared
-/// by every test in this file.
+/// by every test in this file.  Panic-safe: `UnbindOnDrop` runs
+/// `vm.unbind()` even when `f` unwinds, before the `session` / `dom`
+/// locals lower in the drop order are torn down.
 fn with_doc_vm<F, R>(f: F) -> R
 where
     F: FnOnce(&mut Vm) -> R,
@@ -55,9 +70,8 @@ where
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    let result = f(&mut vm);
-    vm.unbind();
-    result
+    let guard = UnbindOnDrop(&mut vm);
+    f(guard.0)
 }
 
 fn eval_in_doc_string(source: &str) -> String {

@@ -630,7 +630,14 @@ fn native_node_append_child(
     // is not a Node) BEFORE the handler dispatch — preserves the
     // existing behaviour where non-Node arguments throw TypeError
     // immediately rather than producing a generic
-    // `HierarchyRequestError`.
+    // `HierarchyRequestError`.  The extracted `Entity` is currently
+    // discarded and `prepare_arg` decodes it again from `child_arg`
+    // — duplicate work on the dispatch path.  Tracked for
+    // `#11-arch-hoist-b`: that slot migrates ~30 Node-arg handlers,
+    // at which point the bridge gets a `BridgeArg` enum (or
+    // pre-validated entity hint) to skip re-extraction.  The PoC's
+    // single Node-arg handler doesn't justify the API surface
+    // change in isolation.
     require_node_arg(ctx, child_arg, "appendChild")?;
     // Handler resolves the ObjectRef back to the child entity via
     // the session identity map and emits `HierarchyRequestError`

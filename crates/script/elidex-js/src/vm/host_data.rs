@@ -218,15 +218,19 @@ mod engine_feature {
                 !session.is_null() && !dom.is_null(),
                 "HostData::bind requires non-null session and dom pointers"
             );
-            // Pointer-disjointness check: the two raw pointers must
-            // refer to non-overlapping allocations because
+            // Pointer-disjointness sanity check: the two raw pointers
+            // must refer to non-overlapping allocations because
             // `with_session_and_dom` creates a `&mut SessionCore` and
-            // a `&mut EcsDom` simultaneously from them.  An equality
-            // check is a cheap necessary (not sufficient) sanity gate
-            // — a partial overlap is impossible given that `SessionCore`
-            // and `EcsDom` are distinct types of identical-or-larger
-            // size, so identical base addresses are the only realistic
-            // way the contract could fail at the same call site.
+            // a `&mut EcsDom` simultaneously from them.  This base-
+            // address equality check is a **minimal sanity gate, not
+            // a proof of non-overlap** — two pointers can still alias
+            // by referring into the same backing allocation at
+            // different offsets (e.g. distinct fields of a containing
+            // struct, or a transmute-derived alias), and that case
+            // sails past this assert.  The full no-overlap invariant
+            // remains the caller's responsibility per the safety
+            // contract above; this assert only catches the most
+            // common misuse (passing the same pointer twice).
             // `debug_assert!` keeps release builds branch-free; in
             // debug builds a misuse fires before any deref happens.
             debug_assert!(
@@ -553,7 +557,7 @@ mod engine_feature {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use elidex_ecs::{EcsDom, Entity};
+        use elidex_ecs::EcsDom;
         use elidex_script_session::SessionCore;
 
         /// Disjoint allocations — bind() must accept normal usage.
