@@ -637,6 +637,21 @@ impl VmInner {
             // owner-wrapper presence.
             self.validity_state_wrappers
                 .retain(|_, vs_id| bit_get(marks, vs_id.0));
+            // `form_control_entity_states` / `form_control_custom_validity`
+            // — Entity-keyed standalone state maps (slot #11-tags-T1
+            // Phase 6 / Phase 9).  Payload is plain data (no
+            // `ObjectId` references), so mark-based pruning isn't
+            // applicable; prune by owner-wrapper presence instead so
+            // entries for destroyed elements don't accumulate
+            // indefinitely.  Skipped when `host_data` is unbound
+            // (post-`Vm::unbind`); the maps drop with `VmInner` at
+            // that point anyway.
+            if let Some(hd) = self.host_data.as_deref() {
+                self.form_control_entity_states
+                    .retain(|entity, _| hd.get_cached_wrapper(*entity).is_some());
+                self.form_control_custom_validity
+                    .retain(|entity, _| hd.get_cached_wrapper(*entity).is_some());
+            }
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

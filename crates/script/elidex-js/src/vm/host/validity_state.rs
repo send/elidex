@@ -444,12 +444,31 @@ fn cv_get_validation_message(
     Ok(JsValue::String(sid))
 }
 
-/// `willValidate` getter — `true` for submittable, non-disabled
-/// elements (HTML §4.10.18.4).  Approximation: returns `true` when
-/// the element does not have the `disabled` content attribute
-/// AND no ancestor `<fieldset disabled>`.  Stricter spec gating
-/// (form-association, button-type exclusions, hidden inputs,
-/// datalist-descendant exclusion) lands with the elidex-form dep.
+/// Returns `true` when `entity` participates in constraint
+/// validation: not disabled and not inside a disabled `<fieldset>`.
+/// HTML §4.10.18.3.  Stricter spec gating (form-association,
+/// button-type exclusions, hidden inputs, datalist-descendant
+/// exclusion) lands with the elidex-form dep.
+fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+    let dom = ctx.host().dom();
+    if dom.has_attribute(entity, "disabled") {
+        return false;
+    }
+    let mut cur = dom.get_parent(entity);
+    let mut depth: u32 = 0;
+    while let Some(p) = cur {
+        if depth > 1024 {
+            break;
+        }
+        if dom.has_tag(p, "fieldset") && dom.has_attribute(p, "disabled") {
+            return false;
+        }
+        cur = dom.get_parent(p);
+        depth += 1;
+    }
+    true
+}
+
 fn cv_get_will_validate(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -458,30 +477,16 @@ fn cv_get_will_validate(
     let Some(entity) = require_cv_host_receiver(ctx, this, "willValidate")? else {
         return Ok(JsValue::Boolean(false));
     };
-    let dom = ctx.host().dom();
-    if dom.has_attribute(entity, "disabled") {
-        return Ok(JsValue::Boolean(false));
-    }
-    // Walk ancestor chain for a disabled fieldset.
-    let mut cur = dom.get_parent(entity);
-    let mut depth: u32 = 0;
-    while let Some(p) = cur {
-        if depth > 1024 {
-            break;
-        }
-        if dom.has_tag(p, "fieldset") && dom.has_attribute(p, "disabled") {
-            return Ok(JsValue::Boolean(false));
-        }
-        cur = dom.get_parent(p);
-        depth += 1;
-    }
-    Ok(JsValue::Boolean(true))
+    Ok(JsValue::Boolean(entity_will_validate(ctx, entity)))
 }
 
-/// `checkValidity()` — returns `true` if the control is valid.
-/// Per the Phase 9 approximation, equivalent to "no custom-validity
-/// message set".  HTMLFormElement walks descendants per spec; this
-/// approximation only inspects the receiver.
+/// `checkValidity()` — returns `true` if the control is valid.  Per
+/// HTML §4.10.18.3, controls whose `willValidate` is `false` (e.g.
+/// disabled, inside a disabled fieldset) are exempt from constraint
+/// validation and report `true` regardless of any custom-validity
+/// message.  Otherwise the Phase 9 approximation reduces to "no
+/// custom-validity message set".  HTMLFormElement's form-level
+/// walk is implemented separately on `HTMLFormElement.prototype`.
 fn cv_check_validity(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -490,6 +495,9 @@ fn cv_check_validity(
     let Some(entity) = require_cv_host_receiver(ctx, this, "checkValidity")? else {
         return Ok(JsValue::Boolean(true));
     };
+    if !entity_will_validate(ctx, entity) {
+        return Ok(JsValue::Boolean(true));
+    }
     Ok(JsValue::Boolean(!has_custom_error(ctx, entity)))
 }
 
@@ -504,6 +512,9 @@ fn cv_report_validity(
     let Some(entity) = require_cv_host_receiver(ctx, this, "reportValidity")? else {
         return Ok(JsValue::Boolean(true));
     };
+    if !entity_will_validate(ctx, entity) {
+        return Ok(JsValue::Boolean(true));
+    }
     Ok(JsValue::Boolean(!has_custom_error(ctx, entity)))
 }
 

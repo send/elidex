@@ -131,12 +131,12 @@ pub(crate) enum LiveCollectionKind {
     /// Mutable per HTML §2.7.4.2 — the
     /// `length` setter / `add()` / `remove()` mutate the parent
     /// `<select>` directly; the variant itself stays immutable but
-    /// downstream re-walks observe the new tree state.  Like
-    /// [`Self::FormControls`], opts out of the entity-list cache
-    /// because cross-tree mutation surface (e.g. an `<option>`
-    /// `selected` attribute toggle from outside this collection)
-    /// is not visible through `inclusive_descendants_version`
-    /// alone.
+    /// downstream re-walks observe the new tree state.  Unlike
+    /// [`Self::FormControls`], the resolver is descendant-tag-only
+    /// (no attribute reads) so caching against
+    /// [`EcsDom::inclusive_descendants_version`] of the `<select>`
+    /// is safe: every tree mutation under the select bumps that
+    /// counter.
     Options {
         /// The `<select>` element whose descendant `<option>`s the
         /// collection enumerates.
@@ -199,7 +199,13 @@ impl LiveCollectionKind {
     /// typical forms are <50 elements and the per-access walk cost
     /// is bounded.
     fn is_cacheable(&self) -> bool {
-        !matches!(self, Self::FormControls { .. } | Self::Options { .. })
+        // Only `FormControls` opts out — its filter consults the
+        // `form` attribute on cross-tree associates, whose
+        // mutations don't bump the form's `inclusive_descendants_version`.
+        // `Options` filters by tag only (`<option>` descendants of
+        // `<select>`), so the standard descendants-version cache
+        // tracks every mutation that affects membership.
+        !matches!(self, Self::FormControls { .. })
     }
 }
 
@@ -1396,11 +1402,12 @@ pub(super) fn native_options_add(
         }
         // HierarchyRequestError if `element` is an ancestor of select
         // (would create a cycle on insert).
-        if is_ancestor_of(dom, element_entity, select) {
-            return Err(VmError::dom_exception(
+        if dom.is_ancestor_or_self(element_entity, select) {
+            return Err(super::dom_exception::hierarchy_request_error(
                 ctx.vm.well_known.dom_exc_hierarchy_request_error,
-                "Failed to execute 'add' on 'HTMLOptionsCollection': \
-                 the new element is a parent of the receiver",
+                "HTMLOptionsCollection",
+                "add",
+                "the new element is a parent of the receiver",
             ));
         }
     }
@@ -1429,7 +1436,10 @@ pub(super) fn native_options_add(
             ObjectKind::HostObject { entity_bits } => match Entity::from_bits(entity_bits) {
                 Some(be) => {
                     let dom = ctx.host().dom();
-                    if !is_descendant_of(dom, be, select) {
+                    // Strict-descendant check: include-self via
+                    // `is_ancestor_or_self`, exclude the trivial
+                    // self case explicitly.
+                    if be == select || !dom.is_ancestor_or_self(select, be) {
                         return Err(VmError::dom_exception(
                             ctx.vm.well_known.dom_exc_not_found_error,
                             "Failed to execute 'add' on 'HTMLOptionsCollection': \
@@ -1507,31 +1517,4 @@ pub(super) fn native_options_remove(
         }
     }
     Ok(JsValue::Undefined)
-}
-
-/// `true` if `ancestor` is an inclusive ancestor of `descendant` in
-/// the parent chain.  Used by `add()` to enforce the
-/// HierarchyRequestError gate (per HTML §2.7.4.2 step 1).
-fn is_ancestor_of(dom: &EcsDom, ancestor: Entity, descendant: Entity) -> bool {
-    let mut cur = Some(descendant);
-    let mut depth = 0u32;
-    while let Some(e) = cur {
-        if depth > 1024 {
-            return false;
-        }
-        if e == ancestor {
-            return true;
-        }
-        cur = dom.get_parent(e);
-        depth += 1;
-    }
-    false
-}
-
-/// `true` if `descendant` is a strict descendant of `ancestor`.
-fn is_descendant_of(dom: &EcsDom, descendant: Entity, ancestor: Entity) -> bool {
-    if descendant == ancestor {
-        return false;
-    }
-    is_ancestor_of(dom, ancestor, descendant)
 }

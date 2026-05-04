@@ -194,6 +194,30 @@ fn check_validity_false_when_custom_error_set() {
 }
 
 #[test]
+fn check_validity_true_when_disabled_even_with_custom_error() {
+    // Per HTML §4.10.18.3: a control whose willValidate is false
+    // is exempt from constraint validation regardless of any
+    // custom-validity message — checkValidity() must return true.
+    let out = run("var i = document.createElement('input'); \
+         i.setCustomValidity('bad'); \
+         i.disabled = true; \
+         i.checkValidity().toString();");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn check_validity_true_inside_disabled_fieldset_with_custom_error() {
+    let out = run("var fs = document.createElement('fieldset'); \
+         fs.disabled = true; \
+         var i = document.createElement('input'); \
+         i.setCustomValidity('bad'); \
+         fs.appendChild(i); \
+         document.body.appendChild(fs); \
+         i.checkValidity().toString();");
+    assert_eq!(out, "true");
+}
+
+#[test]
 fn report_validity_matches_check_validity_in_headless_mode() {
     let out = run("var i = document.createElement('input'); \
          i.setCustomValidity('bad'); \

@@ -586,16 +586,10 @@ fn sel_set_value(
 
 /// Walk the option's descendant Text data — mirrors HTMLOptionElement
 /// text-default-value semantics (HTML §4.10.10.4 step 1).
+/// Delegates to the shared walker in
+/// [`super::form_control_state::descendant_text`].
 fn option_text_content(ctx: &mut NativeContext<'_>, option: Entity) -> String {
-    let dom = ctx.host().dom();
-    let mut buf = String::new();
-    dom.traverse_descendants(option, |e| {
-        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(e) {
-            buf.push_str(&text.0);
-        }
-        true
-    });
-    buf
+    super::form_control_state::descendant_text(ctx.host().dom(), option)
 }
 
 // --- form / labels ------------------------------------------------

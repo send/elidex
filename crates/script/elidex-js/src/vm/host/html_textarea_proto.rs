@@ -499,18 +499,10 @@ fn ta_set_min_length(
 // --- value / defaultValue / textLength ----------------------------
 
 /// Compute the textarea's defaultValue per HTML §4.10.11.5 — the
-/// element's child text content (concatenated TextContent of every
-/// descendant Text node, in tree order).
+/// element's child text content.  Delegates to the shared walker
+/// in [`super::form_control_state::descendant_text`].
 fn read_default_value(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
-    let dom = ctx.host().dom();
-    let mut buf = String::new();
-    dom.traverse_descendants(entity, |e| {
-        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(e) {
-            buf.push_str(&text.0);
-        }
-        true
-    });
-    buf
+    super::form_control_state::descendant_text(ctx.host().dom(), entity)
 }
 
 /// Compute the textarea's IDL value — `dirty_value` slot when set,

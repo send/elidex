@@ -153,8 +153,33 @@ const NUMERIC_INPUT_TYPES: [&str; 6] = [
 /// (Phase 8 stub returns null pending the Date-integration slot).
 const DATE_INPUT_TYPES: [&str; 5] = ["date", "time", "month", "week", "datetime-local"];
 
-/// Returns the lower-cased canonical type for this input.  Missing
-/// or invalid `type` content attribute falls back to `"text"`.
+/// Match the `type` content attribute against `keywords`
+/// case-insensitively, falling back to `"text"` (or whatever the
+/// caller treats as the missing/invalid default — caller's choice
+/// via the keyword list).  Allocation-free hot path for the
+/// gating call sites (Selection API / valueAsNumber / valueAsDate
+/// / stepUp / stepDown / files).
+fn input_type_matches(ctx: &mut NativeContext<'_>, entity: Entity, keywords: &[&str]) -> bool {
+    ctx.host().dom().with_attribute(entity, "type", |v| {
+        let s = v.unwrap_or("text");
+        if keywords.iter().any(|k| s.eq_ignore_ascii_case(k)) {
+            return true;
+        }
+        // Honour the "missing/invalid → text" fallback: when the
+        // attribute is set to something outside `INPUT_TYPE_KEYWORDS`
+        // the effective type is "text"; check the keyword list one
+        // more time to see if "text" is permitted.
+        let valid = INPUT_TYPE_KEYWORDS
+            .iter()
+            .any(|k| s.eq_ignore_ascii_case(k));
+        !valid && keywords.iter().any(|k| *k == "text")
+    })
+}
+
+/// Returns the canonical lower-cased type — only used by
+/// `inp_get_type` (which must materialise the string for the JS
+/// caller) and by error messages.  Hot-path gating sites use
+/// [`input_type_matches`] instead to avoid the alloc.
 fn input_type(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
     let attr = ctx
         .host()
@@ -166,16 +191,17 @@ fn input_type(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
     }
 }
 
-fn is_numeric_input_type(t: &str) -> bool {
-    NUMERIC_INPUT_TYPES.iter().any(|k| *k == t) || t == "datetime-local"
+fn is_numeric_input_type(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+    input_type_matches(ctx, entity, &NUMERIC_INPUT_TYPES)
+        || input_type_matches(ctx, entity, &["datetime-local"])
 }
 
-fn is_date_input_type(t: &str) -> bool {
-    DATE_INPUT_TYPES.iter().any(|k| *k == t)
+fn is_date_input_type(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+    input_type_matches(ctx, entity, &DATE_INPUT_TYPES)
 }
 
-fn supports_selection(t: &str) -> bool {
-    TEXT_CONTROL_INPUT_TYPES.iter().any(|k| *k == t)
+fn supports_selection(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+    input_type_matches(ctx, entity, &TEXT_CONTROL_INPUT_TYPES)
 }
 
 impl VmInner {
@@ -484,8 +510,10 @@ fn require_selection_input_receiver(
     let Some(entity) = require_input_receiver(ctx, this, method)? else {
         return Ok(None);
     };
-    let t = input_type(ctx, entity);
-    if !supports_selection(&t) {
+    if !supports_selection(ctx, entity) {
+        // Materialise the lower-cased type only on the error path
+        // so the common (passing) path stays allocation-free.
+        let t = input_type(ctx, entity);
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,
             format!(
@@ -897,8 +925,7 @@ fn inp_get_value_as_number(
     let Some(entity) = require_input_receiver(ctx, this, "valueAsNumber")? else {
         return Ok(JsValue::Number(f64::NAN));
     };
-    let t = input_type(ctx, entity);
-    if !is_numeric_input_type(&t) {
+    if !is_numeric_input_type(ctx, entity) {
         return Ok(JsValue::Number(f64::NAN));
     }
     let s = read_value(ctx, entity);
@@ -913,8 +940,8 @@ fn inp_set_value_as_number(
     let Some(entity) = require_input_receiver(ctx, this, "valueAsNumber")? else {
         return Ok(JsValue::Undefined);
     };
-    let t = input_type(ctx, entity);
-    if !is_numeric_input_type(&t) {
+    if !is_numeric_input_type(ctx, entity) {
+        let t = input_type(ctx, entity);
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,
             format!(
@@ -950,8 +977,7 @@ fn inp_get_value_as_date(
     let Some(entity) = require_input_receiver(ctx, this, "valueAsDate")? else {
         return Ok(JsValue::Null);
     };
-    let t = input_type(ctx, entity);
-    if !is_date_input_type(&t) {
+    if !is_date_input_type(ctx, entity) {
         return Ok(JsValue::Null);
     }
     // Date integration deferred per the module docstring (slot
@@ -969,8 +995,8 @@ fn inp_set_value_as_date(
     let Some(entity) = require_input_receiver(ctx, this, "valueAsDate")? else {
         return Ok(JsValue::Undefined);
     };
-    let t = input_type(ctx, entity);
-    if !is_date_input_type(&t) {
+    if !is_date_input_type(ctx, entity) {
+        let t = input_type(ctx, entity);
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,
             format!(
@@ -1032,8 +1058,8 @@ fn step_apply(
     let Some(entity) = require_input_receiver(ctx, this, method)? else {
         return Ok(JsValue::Undefined);
     };
-    let t = input_type(ctx, entity);
-    if !is_numeric_input_type(&t) {
+    if !is_numeric_input_type(ctx, entity) {
+        let t = input_type(ctx, entity);
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,
             format!(
@@ -1042,6 +1068,10 @@ fn step_apply(
             ),
         ));
     }
+    // `step` lookup needs the canonical type name to drive the
+    // default-step table (per `step_for`); the alloc here is bounded
+    // to the stepUp/stepDown call rate (not an accessor hot path).
+    let t = input_type(ctx, entity);
     let step_attr = ctx
         .host()
         .dom()
@@ -1124,8 +1154,7 @@ fn inp_get_files(
     let Some(entity) = require_input_receiver(ctx, this, "files")? else {
         return Ok(JsValue::Null);
     };
-    let t = input_type(ctx, entity);
-    if t == "file" {
+    if input_type_matches(ctx, entity, &["file"]) {
         // FileList exposure deferred to slot #11c-fl PR-file-api.
         // Per spec, `input.files` for `type=file` returns a
         // FileList of currently selected files; without the File

@@ -111,6 +111,23 @@ impl VmInner {
     }
 }
 
+/// Concatenate the `TextContent` data of every descendant of
+/// `root` in tree order.  Mirrors HTML "child text content"
+/// semantics used by HTMLTextAreaElement.defaultValue (§4.10.11.5)
+/// and HTMLOptionElement.text default (§4.10.10.4 step 1).  Pulled
+/// here so the two callers (`html_textarea_proto::read_default_value`
+/// + `html_select_proto::option_text_content`) share one walk.
+pub(super) fn descendant_text(dom: &elidex_ecs::EcsDom, root: Entity) -> String {
+    let mut buf = String::new();
+    dom.traverse_descendants(root, |e| {
+        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(e) {
+            buf.push_str(&text.0);
+        }
+        true
+    });
+    buf
+}
+
 /// Count UTF-16 code units in `s` — selection range bounds use
 /// "API value length" per HTML §4.10.18.7, defined in terms of
 /// UTF-16 code units regardless of the engine's internal string
