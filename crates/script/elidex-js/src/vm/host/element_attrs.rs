@@ -16,7 +16,9 @@
 #![cfg(feature = "engine")]
 
 use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
-use super::dom_bridge::coerce_first_arg_to_string;
+use super::dom_bridge::{
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
+};
 use super::event_target::entity_from_this;
 
 use elidex_ecs::Entity;
@@ -98,20 +100,10 @@ pub(super) fn native_element_get_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let name = coerce_first_arg_to_string(ctx, args)?;
-    // Split the dom + strings borrow so `with_attribute` can intern
-    // the borrowed `&str` without first allocating an owned `String`
-    // through `attr_get`.  `entity_from_this` above already
-    // short-circuited unbound receivers with `Null`, so the `None`
-    // arm of `dom_and_strings_if_bound` is a defensive fallback only.
-    let sid = match ctx.dom_and_strings_if_bound() {
-        Some((dom, strings)) => dom.with_attribute(entity, &name, |v| v.map(|s| strings.intern(s))),
-        None => None,
-    };
-    Ok(match sid {
-        Some(sid) => JsValue::String(sid),
-        None => JsValue::Null,
-    })
+    // Spec-precise ToString runs at call site (handler's
+    // `require_string_arg` rejects `ObjectRef`).
+    let name_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "getAttribute", entity, &[JsValue::String(name_sid)])
 }
 
 pub(super) fn native_element_set_attribute(
@@ -122,16 +114,17 @@ pub(super) fn native_element_set_attribute(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    // Coerce BOTH args (name then value) per WebIDL even though the
-    // spec name-validation step runs on a qualified name; we accept
-    // any string here and defer validation to a future HTML5 parser
-    // upgrade.
-    let name = coerce_first_arg_to_string(ctx, args)?;
+    // Coerce BOTH args (name then value) per WebIDL ToString — handler
+    // path expects pre-stringified values.
+    let name_sid = coerce_first_arg_to_string_id(ctx, args)?;
     let value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let value_sid = super::super::coerce::to_string(ctx.vm, value_arg)?;
-    let value = ctx.vm.strings.get_utf8(value_sid);
-    attr_set(ctx, entity, &name, value);
-    Ok(JsValue::Undefined)
+    invoke_dom_api(
+        ctx,
+        "setAttribute",
+        entity,
+        &[JsValue::String(name_sid), JsValue::String(value_sid)],
+    )
 }
 
 pub(super) fn native_element_remove_attribute(

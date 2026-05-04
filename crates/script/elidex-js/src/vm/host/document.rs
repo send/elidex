@@ -32,11 +32,12 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
-    query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api, parse_dom_selector,
+    query_selector_in_subtree_all, query_selector_in_subtree_first, wrap_entities_as_array,
+    wrap_entity_or_null,
 };
 
-use elidex_ecs::{Attributes, Entity, NodeKind};
+use elidex_ecs::{Entity, NodeKind};
 
 // ---------------------------------------------------------------------------
 // Tree walk from the receiver document.
@@ -89,9 +90,12 @@ pub(super) fn native_document_get_element_by_id(
     let Some(doc) = document_receiver(ctx, this, "getElementById")? else {
         return Ok(JsValue::Null);
     };
-    let target = coerce_first_arg_to_string(ctx, args)?;
-    let matched = ctx.host().dom().find_by_id(doc, &target);
-    Ok(wrap_entity_or_null(ctx.vm, matched))
+    // Spec-precise ToString coercion (Object via `[Symbol.toPrimitive]`
+    // / `toString`) runs at the call site — handler's
+    // `require_string_arg` would reject `ObjectRef` and cannot
+    // reproduce the WebIDL stringifier path.
+    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "getElementById", doc, &[JsValue::String(target_sid)])
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +115,8 @@ pub(super) fn native_document_query_selector(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
+    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
+    let selectors = parse_dom_selector(&selector_str, "querySelector", syntax_err)?;
     let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
@@ -129,7 +134,8 @@ pub(super) fn native_document_query_selector_all(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
+    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
+    let selectors = parse_dom_selector(&selector_str, "querySelectorAll", syntax_err)?;
     let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
     // WHATWG §4.2.6: `querySelectorAll` returns a **static** NodeList.
     // Store the snapshot entity vec; every read re-serves from the
@@ -239,20 +245,15 @@ pub(super) fn native_document_create_element(
     let Some(doc_entity) = document_receiver(ctx, this, "createElement")? else {
         return Ok(JsValue::Null);
     };
-
-    // WHATWG DOM §4.5 createElement normalises to lowercase in the
-    // "HTML document" branch.  We treat every bind as HTML.
-    let tag = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
-
-    // Anchor the new node's "node document" (WHATWG §4.4) to the
-    // receiver Document so that `newEl.ownerDocument` reports the
-    // creating document even before insertion — critical for clones
-    // and iframes where the bound global and the receiver differ.
-    let new_entity =
-        ctx.host()
-            .dom()
-            .create_element_with_owner(tag, Attributes::default(), Some(doc_entity));
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    // ToString at call site; handler does the lowercase normalisation
+    // and the "node document" anchoring (WHATWG DOM §4.5 / §4.4).
+    let tag_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(
+        ctx,
+        "createElement",
+        doc_entity,
+        &[JsValue::String(tag_sid)],
+    )
 }
 
 pub(super) fn native_document_create_text_node(

@@ -28,6 +28,7 @@ mod tests_document_methods;
 mod tests_document_type;
 mod tests_dom_collection;
 mod tests_dom_exception;
+mod tests_dom_handler_dispatch;
 mod tests_element_attributes;
 mod tests_element_methods;
 mod tests_element_mutation;

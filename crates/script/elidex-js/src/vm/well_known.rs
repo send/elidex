@@ -482,6 +482,10 @@ define_well_known_strings! {
         dom_exc_invalid_state_error => "InvalidStateError",
         dom_exc_timeout_error => "TimeoutError",
         dom_exc_data_clone_error => "DataCloneError",
+        dom_exc_index_size_error => "IndexSizeError",
+        dom_exc_invalid_character_error => "InvalidCharacterError",
+        dom_exc_in_use_attribute_error => "InUseAttributeError",
+        dom_exc_not_supported_error => "NotSupportedError",
     }
 
     "Headers (WHATWG Fetch §5.2)" {

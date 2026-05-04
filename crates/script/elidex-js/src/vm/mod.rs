@@ -168,6 +168,13 @@ pub(crate) struct VmInner {
     /// DOM wrappers, timers, etc.).  `None` when the VM runs standalone
     /// (e.g., in unit tests without the `engine` feature).
     pub(crate) host_data: Option<Box<host_data::HostData>>,
+    /// DOM API handler dispatch table.  Initialized once at `Vm::new`
+    /// (engine feature only) and shared across every native DOM
+    /// method invocation via `vm/host/dom_bridge.rs::invoke_dom_api`.
+    /// Keeping the `DomApiHandler` dispatch path on the engine-
+    /// independent side enforces the CLAUDE.md "Layering mandate".
+    #[cfg(feature = "engine")]
+    pub(crate) dom_registry: std::rc::Rc<elidex_dom_api::registry::DomHandlerRegistry>,
     /// Promise.prototype object (§25.6.5).
     pub(crate) promise_prototype: Option<ObjectId>,
     /// Microtask queue (HTML §8.1.4.3).  Drained at HTML microtask

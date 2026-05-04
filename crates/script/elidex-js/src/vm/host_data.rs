@@ -119,6 +119,22 @@ mod engine_feature {
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
     }
 
+    /// Returns `true` when two raw pointers share their base
+    /// address (`session as *const u8 == dom as *const u8`) — a
+    /// minimal sanity check for `bind`'s "disjoint allocations"
+    /// safety contract that **does not prove non-overlap**: two
+    /// pointers can still alias by referring into the same backing
+    /// allocation at different offsets (distinct fields of a
+    /// containing struct, transmute-derived aliases, etc.), and
+    /// that case slips past this comparison.  The full
+    /// no-overlap invariant remains the caller's responsibility.
+    /// Pure, side-effect-free, never derefs the pointers — safe to
+    /// unit-test directly without invoking `bind`'s unsafe
+    /// preconditions.
+    fn pointers_alias_at_base<S, D>(session: *const S, dom: *const D) -> bool {
+        session.cast::<u8>() == dom.cast::<u8>()
+    }
+
     impl HostData {
         pub fn new() -> Self {
             Self {
@@ -183,11 +199,48 @@ mod engine_feature {
         ///
         /// - `session` and `dom` must point to valid, uniquely-owned
         ///   instances until `unbind()` is called.
+        /// - `session` and `dom` MUST point at **disjoint allocations**
+        ///   — i.e. no part of the `SessionCore` storage overlaps the
+        ///   `EcsDom` storage.  [`Self::with_session_and_dom`] creates
+        ///   two simultaneous `&mut` borrows from these raw pointers in
+        ///   the same call frame; if the regions ever aliased, that
+        ///   would violate Rust's no-overlapping-mutable-borrow rule
+        ///   and produce immediate UB.  In practice this is upheld
+        ///   because `SessionCore` and `EcsDom` are independent
+        ///   stack-or-heap-resident structs (the typical caller
+        ///   `pin`s a `&mut SessionCore` and a `&mut EcsDom` from
+        ///   distinct local variables and converts each via
+        ///   `ptr::from_mut`).
         /// - The caller MUST NOT access `session` or `dom` via any other
         ///   reference (Stacked-Borrows: raw-pointer aliasing with a live
         ///   `&mut` is UB).  Typical usage: caller holds `&mut`, calls
         ///   `bind(ptr_from_mut)`, invokes VM, calls `unbind()`, then
         ///   resumes using the `&mut`.
+        ///
+        /// # Test-fixture panic safety (regression guard)
+        ///
+        /// Only `tests_dom_handler_dispatch.rs::with_doc_vm` (added
+        /// in `#11-arch-hoist-a`) wraps the bound VM in an
+        /// `UnbindOnDrop` guard so a panic inside the closure still
+        /// runs `unbind()` before the `session` / `dom` locals
+        /// expire.  ~36 sibling test fixtures across `vm/tests/`
+        /// instead call `vm.unbind()` only on the success path.
+        ///
+        /// That gap is **safe today** because no `Drop` impl on
+        /// `Vm` / `VmInner` / `HostData` ever derefs `session_ptr`
+        /// or `dom_ptr` — the field-drop chain only touches `Copy`
+        /// raw pointers and self-contained ECMA state, so dangling
+        /// pointers left by a panic are never read.
+        ///
+        /// **If you add a manual `Drop` impl to any of `Vm`,
+        /// `VmInner`, or `HostData`, and the body reaches host
+        /// state through `is_bound()` / `session()` / `dom()` /
+        /// `with_session_and_dom` / `dom_shared()` (or any future
+        /// gated accessor), every test fixture must adopt the
+        /// `UnbindOnDrop` pattern before that change can land.**
+        /// Plan memo `m4-12-pr-arch-hoist-a-plan.md` §L records this
+        /// trigger; the sweep is a ~30-60 min mechanical edit
+        /// across the existing fixtures.
         #[allow(unsafe_code)]
         pub unsafe fn bind(
             &mut self,
@@ -206,6 +259,22 @@ mod engine_feature {
                 !session.is_null() && !dom.is_null(),
                 "HostData::bind requires non-null session and dom pointers"
             );
+            // Pointer-disjointness sanity check: the two raw pointers
+            // must refer to non-overlapping allocations because
+            // `with_session_and_dom` creates a `&mut SessionCore` and
+            // a `&mut EcsDom` simultaneously from them.  See
+            // [`pointers_alias_at_base`] for what this check covers
+            // (equal base addresses) and what it does *not* cover
+            // (different offsets into the same allocation — still UB,
+            // still the caller's responsibility per the safety
+            // contract above).  `debug_assert!` keeps release builds
+            // branch-free; in debug builds a misuse fires before any
+            // deref happens.
+            debug_assert!(
+                !pointers_alias_at_base(session, dom),
+                "HostData::bind requires session and dom to point at \
+                 disjoint allocations (same base address detected)"
+            );
             self.session_ptr = session;
             self.dom_ptr = dom;
             self.document_entity = Some(document);
@@ -217,9 +286,18 @@ mod engine_feature {
             self.document_entity = None;
         }
 
+        /// Returns `true` only when **both** `session_ptr` and
+        /// `dom_ptr` are non-null.  The two pointers are set together
+        /// in `bind` and cleared together in `unbind`, so an
+        /// asymmetric state (one set, the other null) indicates a
+        /// partial-bind / partial-unbind bug — never a valid
+        /// runtime state.  Requiring both here means callers that
+        /// follow a successful `is_bound()` check with a `dom_ptr` /
+        /// `session_ptr` deref cannot run into a one-sided null on
+        /// the path between the check and the deref.
         #[inline]
         pub fn is_bound(&self) -> bool {
-            !self.session_ptr.is_null()
+            !self.session_ptr.is_null() && !self.dom_ptr.is_null()
         }
 
         #[allow(unsafe_code)]
@@ -232,6 +310,54 @@ mod engine_feature {
         pub fn dom(&mut self) -> &mut elidex_ecs::EcsDom {
             assert!(self.is_bound(), "HostData accessed while unbound");
             unsafe { &mut *self.dom_ptr }
+        }
+
+        /// Borrow the bound `SessionCore` and `EcsDom` simultaneously.
+        ///
+        /// Required by the `DomApiHandler::invoke()` dispatch path
+        /// (see `vm/host/dom_bridge.rs::invoke_dom_api`) which takes
+        /// both `&mut session` and `&mut dom` in the same call —
+        /// neither `Self::session` nor `Self::dom` alone suffices,
+        /// because each takes `&mut self` and so cannot be live
+        /// alongside the other.
+        ///
+        /// # Safety
+        ///
+        /// The two `&mut` borrows produced here alias *different*
+        /// allocations, by [`Self::bind`]'s third caller-enforced
+        /// invariant: `bind` requires `session` and `dom` to point
+        /// at disjoint allocations.  Creating both `&mut`s at once
+        /// therefore does not violate Rust's
+        /// no-overlapping-mutable-borrow rule.  This contract mirrors
+        /// the boa-side pattern (`HostBridge::with(|session, dom|
+        /// ...)`) which the VM is replacing.
+        #[allow(unsafe_code)]
+        pub fn with_session_and_dom<F, R>(&mut self, f: F) -> R
+        where
+            F: FnOnce(&mut elidex_script_session::SessionCore, &mut elidex_ecs::EcsDom) -> R,
+        {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // Defence-in-depth in debug/test builds: re-check
+            // pointer disjointness here so a same-base-address
+            // misuse not caught at `bind` time (e.g. introduced via
+            // a direct field assignment that bypasses `bind`'s own
+            // assert) still trips before any deref happens.  This
+            // and the bind-side `debug_assert!` are both compiled
+            // out in release; release-mode enforcement is the
+            // documented safety contract on `bind`, not this
+            // assert.
+            debug_assert!(
+                !pointers_alias_at_base(self.session_ptr, self.dom_ptr),
+                "HostData::with_session_and_dom: session_ptr and dom_ptr \
+                 must point at disjoint allocations (set by bind())"
+            );
+            // SAFETY: see method-level safety comment.  `session_ptr`
+            // and `dom_ptr` point at distinct allocations supplied by
+            // the most recent `bind()`; the `debug_assert!` above
+            // catches misuse in test/debug builds.
+            let session = unsafe { &mut *self.session_ptr };
+            let dom = unsafe { &mut *self.dom_ptr };
+            f(session, dom)
         }
 
         /// Shared-reference view of the bound DOM — used from
@@ -476,6 +602,64 @@ mod engine_feature {
     impl Default for HostData {
         fn default() -> Self {
             Self::new()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use elidex_ecs::EcsDom;
+        use elidex_script_session::SessionCore;
+
+        /// Disjoint allocations — bind() must accept normal usage.
+        #[test]
+        fn bind_accepts_disjoint_pointers() {
+            let mut hd = HostData::new();
+            let mut session = SessionCore::new();
+            let mut dom = EcsDom::new();
+            let doc = dom.create_document_root();
+            let session_ptr: *mut SessionCore = &mut session;
+            let dom_ptr: *mut EcsDom = &mut dom;
+            assert_ne!(
+                session_ptr.cast::<u8>(),
+                dom_ptr.cast::<u8>(),
+                "test setup invariant: separate locals must have distinct addresses"
+            );
+            #[allow(unsafe_code)]
+            unsafe {
+                hd.bind(session_ptr, dom_ptr, doc);
+            }
+            assert!(hd.is_bound());
+            hd.unbind();
+        }
+
+        /// `pointers_alias_at_base` flags the same numeric address
+        /// even when it's been cast to two different typed pointers
+        /// — that's the canary `bind`'s `debug_assert!` relies on
+        /// to catch the most common misuse (passing the same
+        /// pointer twice).  Pure comparison, never derefs.
+        #[test]
+        fn pointers_alias_at_base_detects_same_address() {
+            let addr = 0x1234usize as *const u8;
+            assert!(pointers_alias_at_base(
+                addr.cast::<SessionCore>(),
+                addr.cast::<EcsDom>(),
+            ));
+        }
+
+        /// Two distinct stack locals never share a base address
+        /// (with the modest assumption the compiler does not pun
+        /// them onto the same slot, which it doesn't for these
+        /// non-overlapping borrows).  This is the happy-path
+        /// counterpart to the alias test above.
+        #[test]
+        fn pointers_alias_at_base_distinguishes_distinct_addresses() {
+            let session = SessionCore::new();
+            let dom = EcsDom::new();
+            assert!(!pointers_alias_at_base(
+                &session as *const SessionCore,
+                &dom as *const EcsDom,
+            ));
         }
     }
 

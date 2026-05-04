@@ -166,14 +166,29 @@ fn native_dom_exception_get_code(
 /// Legacy numeric code for a WHATWG §2.1 exception name, or `0` for
 /// names outside the legacy set (WebIDL §3.14.3 "legacy
 /// DOMException" codes).
+///
+/// The arms below cover every well-known DOMException name the VM
+/// can currently throw via `WellKnownStrings::dom_exc_*` (plus the
+/// shared `abort_error`).  Adding a new `dom_exc_*` field WITHOUT
+/// also adding the corresponding arm here would surface a
+/// spec-named exception with `.code === 0` — silently breaking
+/// scripts that branch on the legacy code.  Keep the two in sync.
 fn legacy_code_for_name(ctx: &NativeContext<'_>, name: StringId) -> u32 {
     let wk = &ctx.vm.well_known;
-    if name == wk.dom_exc_hierarchy_request_error {
+    if name == wk.dom_exc_index_size_error {
+        1
+    } else if name == wk.dom_exc_hierarchy_request_error {
         3
     } else if name == wk.dom_exc_wrong_document_error {
         4
+    } else if name == wk.dom_exc_invalid_character_error {
+        5
     } else if name == wk.dom_exc_not_found_error {
         8
+    } else if name == wk.dom_exc_not_supported_error {
+        9
+    } else if name == wk.dom_exc_in_use_attribute_error {
+        10
     } else if name == wk.dom_exc_invalid_state_error {
         11
     } else if name == wk.dom_exc_syntax_error {
@@ -182,6 +197,8 @@ fn legacy_code_for_name(ctx: &NativeContext<'_>, name: StringId) -> u32 {
         20
     } else if name == wk.dom_exc_timeout_error {
         23
+    } else if name == wk.dom_exc_data_clone_error {
+        25
     } else {
         0
     }

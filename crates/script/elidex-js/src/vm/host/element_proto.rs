@@ -353,7 +353,8 @@ fn native_element_matches(
         return Ok(JsValue::Boolean(false));
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "matches/closest")?;
+    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
+    let selectors = parse_dom_selector(&selector_str, "matches/closest", syntax_err)?;
     let dom = ctx.host().dom();
     let matched = selectors.iter().any(|s| s.matches(entity, dom));
     Ok(JsValue::Boolean(matched))
@@ -375,7 +376,8 @@ fn native_element_query_selector(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelector")?;
+    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
+    let selectors = parse_dom_selector(&selector_str, "querySelector", syntax_err)?;
     let matched = query_selector_in_subtree_first(ctx.host().dom(), entity, &selectors);
     Ok(wrap_entity_or_null(ctx.vm, matched))
 }
@@ -400,7 +402,8 @@ fn native_element_query_selector_all(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "querySelectorAll")?;
+    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
+    let selectors = parse_dom_selector(&selector_str, "querySelectorAll", syntax_err)?;
     let entities = query_selector_in_subtree_all(ctx.host().dom(), entity, &selectors);
     let id = ctx
         .vm
@@ -421,7 +424,8 @@ fn native_element_closest(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let selectors = parse_dom_selector(&selector_str, "matches/closest")?;
+    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
+    let selectors = parse_dom_selector(&selector_str, "matches/closest", syntax_err)?;
 
     // Walk self → parent ancestors, returning the first matching
     // Element.  WHATWG §4.9 closest() is inclusive and stops at the

@@ -6,6 +6,45 @@
 //! pointers live through `NativeContext::host()`) and is only reachable
 //! from code paths that have already verified boundness.
 //!
+//! ## Layering mandate
+//!
+//! Files under `vm/host/` are restricted to **engine-bound responsibilities
+//! only**: prototype install, brand check, and `JsValue` ↔ `Entity`
+//! marshalling.  DOM mutation algorithms, selector matching, form
+//! validation, live-collection walkers, label association, and constraint
+//! validation must be invoked through engine-independent crates
+//! (`elidex-dom-api` / `elidex-form` / `elidex-css` /
+//! `elidex-script-session::DomApiHandler`).  See CLAUDE.md "Layering
+//! mandate" and `memory/m4-12-architectural-drift-incident.md` for
+//! the rationale.
+//!
+//! ## Handler dispatch flow
+//!
+//! ```text
+//! native fn (vm/host/*.rs)
+//!   | brand check (entity_from_this / require_node_arg)
+//!   | call-site ToString (coerce_first_arg_to_string)
+//!   v
+//! dom_bridge::invoke_dom_api(ctx, "<method>", entity, &args)
+//!   | Phase 1: prepare_arg → PreVal (Symbol → TypeError per WebIDL
+//!   |          §3.10.14; raw BigInt → TypeError as a bridge-level
+//!   |          defensive rule — call sites that ToString-coerce
+//!   |          first land here as JsValue::String)
+//!   | Phase 2: with_session_and_dom — materialize args (session-side
+//!   |          identity_map → JsObjectRef), invoke handler, resolve
+//!   |          ObjectRef return through identity_map → Entity
+//!   | Phase 3: dom_api_error_to_vm_error / wrap entity → ObjectId
+//!   v
+//! return JsValue
+//! ```
+//!
+//! `VmInner.dom_registry: Rc<DomHandlerRegistry>` is initialised once
+//! at `Vm::new` and never mutated.  Handler resolution is by
+//! `&'static str` method name; missing handlers raise
+//! `VmError::type_error("Unknown DOM method: ...")` — there is no
+//! `EcsDom::*` direct-call fallback so that the layering rule cannot
+//! silently regress.
+//!
 //! Submodule responsibilities:
 //!
 //! - [`event_target`] — `EventTarget.prototype` intrinsic + native
@@ -26,8 +65,9 @@
 //! - [`elements`] — `create_element_wrapper` (entity → wrapper
 //!   ObjectId, with per-entity prototype branching: Element vs
 //!   non-Element Nodes).
-//! - [`dom_bridge`] — shared selector-parse and wrapper-lift helpers
-//!   used by both `document.rs` and Element / Node prototype natives.
+//! - [`dom_bridge`] — shared selector-parse / wrapper-lift helpers
+//!   used by both `document.rs` and Element / Node prototype natives,
+//!   **plus** the `DomApiHandler` dispatch bridge (`invoke_dom_api`).
 
 pub(crate) mod abort;
 pub(super) mod abort_statics;

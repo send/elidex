@@ -18,6 +18,8 @@ engine = [
     "elidex-plugin",
     "elidex-css",
     "elidex-net",
+    "elidex-dom-api",
+    "elidex-form",
     "bytes",
     "encoding_rs",
 ]
@@ -50,6 +52,14 @@ bytes = { workspace = true, optional = true }
 # engine-gated because the surface depends on the engine-only
 # `Uint8Array` + `ArrayBuffer` wrappers.
 encoding_rs = { workspace = true, optional = true }
+# Engine-independent DOM API handler implementations dispatched via
+# `DomApiHandler` from `vm::host::dom_bridge::invoke_dom_api`.  See
+# CLAUDE.md "Layering mandate".
+elidex-dom-api = { workspace = true, optional = true }
+# Form-control state, label association, validation, selection —
+# consumed by upcoming HTMLFormElement / HTMLInputElement prototype
+# bindings.  Currently dep-only.
+elidex-form = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

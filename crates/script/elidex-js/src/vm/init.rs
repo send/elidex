@@ -86,6 +86,8 @@ impl Vm {
                 gc_enabled: false,
                 in_construct: false,
                 host_data: None,
+                #[cfg(feature = "engine")]
+                dom_registry: std::rc::Rc::new(elidex_dom_api::registry::create_dom_registry()),
                 promise_prototype: None,
                 microtask_queue: VecDeque::new(),
                 microtask_drain_depth: 0,
