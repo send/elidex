@@ -119,6 +119,22 @@ mod engine_feature {
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
     }
 
+    /// Returns `true` when two raw pointers share their base
+    /// address (`session as *const u8 == dom as *const u8`) — a
+    /// minimal sanity check for `bind`'s "disjoint allocations"
+    /// safety contract that **does not prove non-overlap**: two
+    /// pointers can still alias by referring into the same backing
+    /// allocation at different offsets (distinct fields of a
+    /// containing struct, transmute-derived aliases, etc.), and
+    /// that case slips past this comparison.  The full
+    /// no-overlap invariant remains the caller's responsibility.
+    /// Pure, side-effect-free, never derefs the pointers — safe to
+    /// unit-test directly without invoking `bind`'s unsafe
+    /// preconditions.
+    fn pointers_alias_at_base<S, D>(session: *const S, dom: *const D) -> bool {
+        session.cast::<u8>() == dom.cast::<u8>()
+    }
+
     impl HostData {
         pub fn new() -> Self {
             Self {
@@ -246,20 +262,16 @@ mod engine_feature {
             // Pointer-disjointness sanity check: the two raw pointers
             // must refer to non-overlapping allocations because
             // `with_session_and_dom` creates a `&mut SessionCore` and
-            // a `&mut EcsDom` simultaneously from them.  This base-
-            // address equality check is a **minimal sanity gate, not
-            // a proof of non-overlap** — two pointers can still alias
-            // by referring into the same backing allocation at
-            // different offsets (e.g. distinct fields of a containing
-            // struct, or a transmute-derived alias), and that case
-            // sails past this assert.  The full no-overlap invariant
-            // remains the caller's responsibility per the safety
-            // contract above; this assert only catches the most
-            // common misuse (passing the same pointer twice).
-            // `debug_assert!` keeps release builds branch-free; in
-            // debug builds a misuse fires before any deref happens.
+            // a `&mut EcsDom` simultaneously from them.  See
+            // [`pointers_alias_at_base`] for what this check covers
+            // (equal base addresses) and what it does *not* cover
+            // (different offsets into the same allocation — still UB,
+            // still the caller's responsibility per the safety
+            // contract above).  `debug_assert!` keeps release builds
+            // branch-free; in debug builds a misuse fires before any
+            // deref happens.
             debug_assert!(
-                session.cast::<u8>() != dom.cast::<u8>(),
+                !pointers_alias_at_base(session, dom),
                 "HostData::bind requires session and dom to point at \
                  disjoint allocations (same base address detected)"
             );
@@ -321,7 +333,7 @@ mod engine_feature {
             // through in release builds where the bind-side
             // `debug_assert!` is compiled out.
             debug_assert!(
-                self.session_ptr.cast::<u8>() != self.dom_ptr.cast::<u8>(),
+                !pointers_alias_at_base(self.session_ptr, self.dom_ptr),
                 "HostData::with_session_and_dom: session_ptr and dom_ptr \
                  must point at disjoint allocations (set by bind())"
             );
@@ -607,29 +619,33 @@ mod engine_feature {
             hd.unbind();
         }
 
-        /// Aliasing pointers — bind() must trip the disjointness
-        /// `debug_assert!`.  `cargo test` runs in debug mode by
-        /// default so the assert is live; release builds skip the
-        /// branch (callers are still UB-bound by the documented
-        /// safety contract).  The synthetic 0x1234 address is never
-        /// dereferenced — bind() only stores the raw pointers, and
-        /// the assert fires before `unbind` is reached.
+        /// `pointers_alias_at_base` flags the same numeric address
+        /// even when it's been cast to two different typed pointers
+        /// — that's the canary `bind`'s `debug_assert!` relies on
+        /// to catch the most common misuse (passing the same
+        /// pointer twice).  Pure comparison, never derefs.
         #[test]
-        #[should_panic(expected = "disjoint allocations")]
-        fn bind_debug_asserts_pointer_disjointness() {
-            let mut hd = HostData::new();
-            let addr = 0x1234usize as *mut u8;
-            let session = addr.cast::<SessionCore>();
-            let dom = addr.cast::<EcsDom>();
-            // Spawn a real entity so the `document` arg is a valid
-            // `Entity::from_bits` result; the entity is never reached
-            // because the disjointness assert fires first.
-            let mut throwaway = EcsDom::new();
-            let doc = throwaway.create_document_root();
-            #[allow(unsafe_code)]
-            unsafe {
-                hd.bind(session, dom, doc);
-            }
+        fn pointers_alias_at_base_detects_same_address() {
+            let addr = 0x1234usize as *const u8;
+            assert!(pointers_alias_at_base(
+                addr.cast::<SessionCore>(),
+                addr.cast::<EcsDom>(),
+            ));
+        }
+
+        /// Two distinct stack locals never share a base address
+        /// (with the modest assumption the compiler does not pun
+        /// them onto the same slot, which it doesn't for these
+        /// non-overlapping borrows).  This is the happy-path
+        /// counterpart to the alias test above.
+        #[test]
+        fn pointers_alias_at_base_distinguishes_distinct_addresses() {
+            let session = SessionCore::new();
+            let dom = EcsDom::new();
+            assert!(!pointers_alias_at_base(
+                &session as *const SessionCore,
+                &dom as *const EcsDom,
+            ));
         }
     }
 
