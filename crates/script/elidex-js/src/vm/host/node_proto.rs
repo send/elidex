@@ -201,9 +201,8 @@ pub(super) fn require_node_arg(
             "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
         ))
     };
-    let id = match value {
-        JsValue::Object(id) => id,
-        _ => return Err(not_a_node()),
+    let JsValue::Object(id) = value else {
+        return Err(not_a_node());
     };
     let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
         return Err(not_a_node());
@@ -352,14 +351,14 @@ fn native_node_get_node_name(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
     enum NodeNameKind {
         Upper(String),
         Hash(StringId),
         Empty,
     }
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
     let kind = {
         let dom = ctx.host().dom();
         let upper = dom.with_tag_name(entity, |t| t.map(str::to_ascii_uppercase));

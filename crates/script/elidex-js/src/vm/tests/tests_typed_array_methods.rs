@@ -196,7 +196,7 @@ fn copy_within_backward_overlap_uses_pre_snapshot() {
             "var a = new Uint8Array([10, 11, 12, 13, 14]); a.copyWithin(0, 2); \
              a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4];"
         ),
-        134544.0
+        134_544.0
     );
 }
 

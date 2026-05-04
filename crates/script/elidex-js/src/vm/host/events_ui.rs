@@ -436,6 +436,7 @@ fn native_ui_event_constructor(
 // MouseEvent (UI Events §5.2)
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::similar_names)] // button/buttons + movement_x/y_raw are spec field names
 fn native_mouse_event_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

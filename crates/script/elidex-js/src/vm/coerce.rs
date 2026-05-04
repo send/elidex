@@ -386,7 +386,7 @@ pub(crate) fn f64_to_int8(n: f64) -> i8 {
     // negative range (`[128, 256) -> [-128, 0)`) to complete ToInt8.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let as_u8 = int as u8;
-    as_u8 as i8
+    as_u8.cast_signed()
 }
 
 /// The modulo-2^8 unsigned conversion from f64 to u8 (ES §7.1.10).
@@ -440,7 +440,7 @@ pub(crate) fn f64_to_int16(n: f64) -> i16 {
     let int = n.trunc().rem_euclid(65_536.0);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let as_u16 = int as u16;
-    as_u16 as i16
+    as_u16.cast_signed()
 }
 
 /// ToInt8 wrapper — coerces `val` via `ToNumber` then folds into i8.

@@ -245,15 +245,12 @@ pub(super) fn native_element_insert_adjacent_element(
     let where_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let where_raw = super::super::coerce::to_string(ctx.vm, where_arg)?;
     let where_str = ctx.vm.strings.get_utf8(where_raw);
-    let pos = match parse_adjacent_position(&where_str) {
-        Some(p) => p,
-        None => {
-            return Err(adjacent_syntax_error(
-                ctx,
-                "insertAdjacentElement",
-                &where_str,
-            ))
-        }
+    let Some(pos) = parse_adjacent_position(&where_str) else {
+        return Err(adjacent_syntax_error(
+            ctx,
+            "insertAdjacentElement",
+            &where_str,
+        ));
     };
 
     let element_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -284,9 +281,8 @@ pub(super) fn native_element_insert_adjacent_text(
     let where_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let where_raw = super::super::coerce::to_string(ctx.vm, where_arg)?;
     let where_str = ctx.vm.strings.get_utf8(where_raw);
-    let pos = match parse_adjacent_position(&where_str) {
-        Some(p) => p,
-        None => return Err(adjacent_syntax_error(ctx, "insertAdjacentText", &where_str)),
+    let Some(pos) = parse_adjacent_position(&where_str) else {
+        return Err(adjacent_syntax_error(ctx, "insertAdjacentText", &where_str));
     };
 
     // Parent-less short-circuit: `beforebegin` / `afterend` require

@@ -496,6 +496,9 @@ fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
         // `#[non_exhaustive]`; new variants land here until they get
         // an explicit arm above, so a missed mapping surfaces as an
         // internal error rather than a generic DOMException.
+        // The `Other` arm is kept distinct from `_` so future
+        // variants are easy to spot in code review.
+        #[allow(clippy::match_same_arms)]
         DomApiErrorKind::Other => VmError::internal(message),
         _ => VmError::internal(message),
     }

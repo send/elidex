@@ -7,7 +7,7 @@
 //! reads near the buffer's end zero-pad cleanly), writes mutate the
 //! `Vec<u8>` directly via `entry().or_default().resize()`
 //! + `copy_from_slice`.  No clone-grow-install round-trip; repeated
-//! writes are O(N) total bytes touched, not O(N²).
+//!   writes are O(N) total bytes touched, not O(N²).
 //!
 //! Cross-subsystem callers (`fetch` HTTP handoff,
 //! `body_mixin::take_body_bytes`, `structured_clone`,
@@ -208,7 +208,7 @@ pub(super) fn fill_pattern(
     // Post-`total_len == 0` early-return: `pattern.len() >= 1` and
     // `count >= 1`, so the empty-pattern arm is unreachable here.
     if let [b] = pattern {
-        dst[abs..end].fill(*b)
+        dst[abs..end].fill(*b);
     } else {
         let plen = pattern.len();
         for i in 0..count {

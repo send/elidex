@@ -137,7 +137,7 @@ pub(crate) struct PrecomputedEventShapes {
     pub(crate) promise_rejection_event: ShapeId,
     /// `new ErrorEvent(type, init)` — core + `message` + `filename`
     /// + `lineno` + `colno` + `error`.  Separate from any UA error
-    /// reporting path.
+    ///   reporting path.
     pub(crate) error_event: ShapeId,
     /// `new PopStateEvent(type, init)` — core + `state`.
     pub(crate) pop_state_event: ShapeId,

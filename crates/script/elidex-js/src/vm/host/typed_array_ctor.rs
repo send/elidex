@@ -127,14 +127,14 @@ pub(super) fn init_from_typed_array(
     src_id: ObjectId,
     dst_ek: ElementKind,
 ) -> Result<(ObjectId, u32, u32), VmError> {
-    let (src_buf_id, src_offset, src_byte_len, src_ek) = match ctx.vm.get_object(src_id).kind {
-        ObjectKind::TypedArray {
-            buffer_id,
-            byte_offset,
-            byte_length,
-            element_kind,
-        } => (buffer_id, byte_offset, byte_length, element_kind),
-        _ => unreachable!("caller confirmed TypedArray kind"),
+    let ObjectKind::TypedArray {
+        buffer_id: src_buf_id,
+        byte_offset: src_offset,
+        byte_length: src_byte_len,
+        element_kind: src_ek,
+    } = ctx.vm.get_object(src_id).kind
+    else {
+        unreachable!("caller confirmed TypedArray kind")
     };
     // Content-type compatibility: BigInt ↔ Number mixing throws
     // TypeError per ES §23.2.5.1.2 step 17 (subclass check).
@@ -205,14 +205,11 @@ pub(super) fn init_from_iterable(
     if matches!(using_iter, JsValue::Null | JsValue::Undefined) {
         return init_from_array_like(ctx, src_id, ek);
     }
-    let iter = match ctx.vm.call_value(using_iter, source, &[])? {
-        it @ JsValue::Object(_) => it,
-        _ => {
-            return Err(VmError::type_error(format!(
-                "Failed to construct '{}': @@iterator must return an object",
-                ek.name()
-            )));
-        }
+    let iter @ JsValue::Object(_) = ctx.vm.call_value(using_iter, source, &[])? else {
+        return Err(VmError::type_error(format!(
+            "Failed to construct '{}': @@iterator must return an object",
+            ek.name()
+        )));
     };
 
     // Collect elements using the stack as GC-safe scratch: each

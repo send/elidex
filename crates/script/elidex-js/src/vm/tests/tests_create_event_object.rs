@@ -31,7 +31,9 @@ fn expect_data(vm: &Vm, obj: ObjectId, name: &str) -> JsValue {
         .unwrap_or_else(|| panic!("missing property {name}"));
     match slot {
         PropertyValue::Data(v) => *v,
-        other => panic!("{name}: expected Data, got {other:?}"),
+        other @ PropertyValue::Accessor { .. } => {
+            panic!("{name}: expected Data, got {other:?}")
+        }
     }
 }
 

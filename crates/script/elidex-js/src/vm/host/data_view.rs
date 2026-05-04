@@ -495,7 +495,7 @@ macro_rules! dv_set {
 // ---------------------------------------------------------------------------
 
 dv_get!(native_data_view_get_int8, "getInt8", byte, |_ctx, b| Ok(
-    JsValue::Number(f64::from(b as i8))
+    JsValue::Number(f64::from(b.cast_signed()))
 ));
 dv_get!(native_data_view_get_uint8, "getUint8", byte, |_ctx, b| Ok(
     JsValue::Number(f64::from(b))
@@ -566,12 +566,9 @@ dv_get!(
 // Setters
 // ---------------------------------------------------------------------------
 
-dv_set!(
-    native_data_view_set_int8,
-    "setInt8",
-    byte,
-    |ctx, val| super::super::coerce::to_int8(ctx.vm, val)? as u8
-);
+dv_set!(native_data_view_set_int8, "setInt8", byte, |ctx, val| {
+    super::super::coerce::to_int8(ctx.vm, val)?.cast_unsigned()
+});
 dv_set!(native_data_view_set_uint8, "setUint8", byte, |ctx, val| {
     super::super::coerce::to_uint8(ctx.vm, val)?
 });

@@ -335,19 +335,15 @@ pub(super) fn finalize_close(vm: &mut VmInner, stream_id: ObjectId) {
 /// finding: a `close()` before the queue drained would otherwise
 /// leave the reader's `closed` Promise pending forever).
 pub(super) fn deliver_pending_reads(vm: &mut VmInner, stream_id: ObjectId) {
-    loop {
-        let reader_id = match stream_state(vm, stream_id).reader_id {
-            Some(id) => id,
-            None => break,
-        };
+    while let Some(reader_id) = stream_state(vm, stream_id).reader_id {
         let read_promise_id = {
             let Some(reader_state) = vm.readable_stream_reader_states.get_mut(&reader_id) else {
                 break;
             };
-            match reader_state.pending_read_promises.pop_front() {
-                Some(p) => p,
-                None => break,
-            }
+            let Some(p) = reader_state.pending_read_promises.pop_front() else {
+                break;
+            };
+            p
         };
         let chunk_pair = {
             let state = stream_state_mut(vm, stream_id);
@@ -385,9 +381,8 @@ pub(super) fn deliver_pending_reads(vm: &mut VmInner, stream_id: ObjectId) {
 /// the reader's `closed` Promise) with the same reason.  Spec
 /// §4.5.5 ReadableStreamDefaultControllerError.
 fn reject_pending_reads(vm: &mut VmInner, stream_id: ObjectId, reason: JsValue) {
-    let reader_id = match stream_state(vm, stream_id).reader_id {
-        Some(id) => id,
-        None => return,
+    let Some(reader_id) = stream_state(vm, stream_id).reader_id else {
+        return;
     };
     let pending: Vec<ObjectId> =
         if let Some(reader_state) = vm.readable_stream_reader_states.get_mut(&reader_id) {
@@ -413,9 +408,8 @@ fn reject_pending_reads(vm: &mut VmInner, stream_id: ObjectId, reason: JsValue) 
 /// and resolve the reader's `closed` Promise.  Called when the
 /// stream finalises Closed.
 fn deliver_close_to_reader(vm: &mut VmInner, stream_id: ObjectId) {
-    let reader_id = match stream_state(vm, stream_id).reader_id {
-        Some(id) => id,
-        None => return,
+    let Some(reader_id) = stream_state(vm, stream_id).reader_id else {
+        return;
     };
     let pending: Vec<ObjectId> =
         if let Some(reader_state) = vm.readable_stream_reader_states.get_mut(&reader_id) {

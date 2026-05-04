@@ -682,10 +682,10 @@ pub(crate) const EVENT_SLOT_CURRENT_TARGET: usize = 5;
 ///   - the key is absent (pure delete, no subsequent write) →
 ///     append a fresh entry with the `WEBIDL_RO` attrs the ctor
 ///     originally installed.
-///   Matches Chrome semantics (IDL attribute accessor reads the
-///   internal slot even post-delete; dispatch re-installs the
-///   property but respects any custom descriptor already in
-///   place).
+///     Matches Chrome semantics (IDL attribute accessor reads the
+///     internal slot even post-delete; dispatch re-installs the
+///     property but respects any custom descriptor already in
+///     place).
 pub(crate) fn set_event_slot_raw(
     vm: &mut VmInner,
     event_id: ObjectId,

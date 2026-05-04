@@ -164,6 +164,7 @@ pub(super) fn native_typed_array_get_length(
 /// `do_new`; we promote its `kind` in-place rather than reassigning
 /// `prototype`, so subclasses of our builtins (`class X extends
 /// Uint8Array`) inherit correctly (PR5a2 R7.2/R7.3 lesson).
+#[allow(clippy::similar_names)] // arg0/arg1/arg2 mirrors WebIDL parameter indexing
 pub(super) fn construct_typed_array(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -268,7 +269,7 @@ pub(crate) fn read_element_raw(
     match ek {
         ElementKind::Int8 => {
             let s = super::byte_io::read_into::<1>(&vm.body_data, buffer_id, abs);
-            JsValue::Number(f64::from(s[0] as i8))
+            JsValue::Number(f64::from(s[0].cast_signed()))
         }
         ElementKind::Uint8 | ElementKind::Uint8Clamped => {
             let s = super::byte_io::read_into::<1>(&vm.body_data, buffer_id, abs);
@@ -333,7 +334,7 @@ pub(crate) fn coerce_element_to_le_bytes(
     Ok(match ek {
         ElementKind::Int8 => {
             let v = super::super::coerce::to_int8(ctx.vm, value)?;
-            out[0] = v as u8;
+            out[0] = v.cast_unsigned();
             1
         }
         ElementKind::Uint8 => {

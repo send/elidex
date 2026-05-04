@@ -333,7 +333,10 @@ fn native_element_get_child_element_count(
         .children_iter(entity)
         .filter(|c| dom.world().get::<&TagType>(*c).is_ok())
         .count();
-    Ok(JsValue::Number(count as f64))
+    #[allow(clippy::cast_precision_loss)]
+    // child counts in practice fit in u32, well within f64 mantissa
+    let count_f = count as f64;
+    Ok(JsValue::Number(count_f))
 }
 
 // ---------------------------------------------------------------------------

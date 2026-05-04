@@ -113,6 +113,7 @@ impl VmInner {
         self.task_drain_depth = self.task_drain_depth.saturating_sub(1);
     }
 
+    #[allow(clippy::needless_pass_by_value)] // task is destructured then dropped; ownership matches a one-shot run
     fn execute_task(&mut self, task: PendingTask) {
         match task {
             PendingTask::PostMessage {
@@ -284,6 +285,7 @@ fn dispatch_post_message(
 /// HTML §9.4.3.  Also accepts the dictionary signature
 /// `postMessage(message, options)` where `options` is
 /// `{targetOrigin?, transfer?}`.
+#[allow(clippy::similar_names)] // arg1 mirrors WebIDL parameter indexing
 pub(super) fn native_window_post_message(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

@@ -66,6 +66,7 @@ struct RequestInputParts {
 /// URLSearchParams / Blob bodies share one channel.  `None`
 /// when no default applies (e.g. ArrayBuffer body, or `body:
 /// null` cleared path).
+#[allow(clippy::option_option)] // `Option<Option<Vec<u8>>>` distinguishes "absent override" / "explicit null body" / "explicit body"
 struct RequestInitParts {
     method: Option<StringId>,
     headers: Option<JsValue>,

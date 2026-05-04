@@ -160,6 +160,7 @@ impl VmInner {
         self.globals.insert(name_sid, JsValue::Object(ctor));
     }
 
+    #[allow(clippy::similar_names)] // to_string_sid (StringId) vs to_string_id (ObjectId) distinction is intentional
     fn install_url_members(&mut self, proto_id: ObjectId) {
         // IDL accessor properties (WHATWG URL §6.1).  10 read/write
         // accessors (each paired with a `set_*` mutator on

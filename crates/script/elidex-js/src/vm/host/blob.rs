@@ -413,13 +413,9 @@ fn collect_blob_parts_bytes(
         }
     };
     let mut out: Vec<u8> = Vec::new();
-    loop {
-        // A throw from `iter_next` leaves the iterator already
-        // closed (§7.4.6).  Propagate without calling `.return()`.
-        let part = match ctx.vm.iter_next(iter)? {
-            Some(p) => p,
-            None => break,
-        };
+    // A throw from `iter_next` leaves the iterator already
+    // closed (§7.4.6).  Propagate without calling `.return()`.
+    while let Some(part) = ctx.vm.iter_next(iter)? {
         // A throw during `append_blob_part_bytes` (e.g. `ToString`
         // on a Symbol operand) is an abrupt completion of the
         // for-of-like body; call `IteratorClose` before propagating.

@@ -144,6 +144,11 @@ impl VmInner {
     /// `register_event_target_prototype` was skipped or run in the
     /// wrong order.
     pub(in crate::vm) fn register_abort_signal_global(&mut self) {
+        use super::abort_statics::{
+            native_abort_signal_static_abort, native_abort_signal_static_any,
+            native_abort_signal_static_timeout,
+        };
+
         let event_target_proto = self
             .event_target_prototype
             .expect("register_abort_signal_global called before register_event_target_prototype");
@@ -189,10 +194,6 @@ impl VmInner {
         // prototype — `AbortSignal.abort()` reads a
         // constructor-static method just like `Array.from`.
         // Bodies live in `abort_statics.rs`.
-        use super::abort_statics::{
-            native_abort_signal_static_abort, native_abort_signal_static_any,
-            native_abort_signal_static_timeout,
-        };
         for (name_sid, func) in [
             (
                 self.strings.intern("abort"),

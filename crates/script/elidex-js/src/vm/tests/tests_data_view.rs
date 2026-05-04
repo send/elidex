@@ -277,7 +277,7 @@ fn data_view_shares_backing_with_typed_array() {
              u[0] = 0x78; u[1] = 0x56; u[2] = 0x34; u[3] = 0x12; \
              var dv = new DataView(b); dv.getUint32(0, true);"
         ),
-        f64::from(0x12345678_u32)
+        f64::from(0x1234_5678_u32)
     );
 }
 

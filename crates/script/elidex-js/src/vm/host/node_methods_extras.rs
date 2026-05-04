@@ -492,10 +492,7 @@ pub(super) fn native_node_normalize(
         // their data.  `get_next_sibling` is re-read each iteration
         // because removing a sibling rewires the sibling chain.
         let mut merged = original.clone();
-        loop {
-            let Some(next) = dom.get_next_sibling(text) else {
-                break;
-            };
+        while let Some(next) = dom.get_next_sibling(text) {
             if !matches!(dom.node_kind_inferred(next), Some(NodeKind::Text)) {
                 break;
             }

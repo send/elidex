@@ -28,6 +28,7 @@ use super::super::super::value::{JsValue, NativeContext, ObjectKind, StringId, V
 /// can reuse the exact same coercion path for `init.body` without
 /// duplicating the ArrayBuffer / Blob extraction branches — the
 /// two code paths would otherwise drift.
+#[allow(clippy::type_complexity)] // private return shape, refactor would not improve clarity
 pub(in crate::vm::host) fn extract_body_bytes(
     ctx: &mut NativeContext<'_>,
     val: JsValue,

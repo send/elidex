@@ -235,7 +235,10 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // so authors see which type tripped the error.
         ObjectKind::Function(_)
         | ObjectKind::NativeFunction(_)
-        | ObjectKind::BoundFunction { .. } => CloneKind::Unclonable("Function"),
+        | ObjectKind::BoundFunction { .. }
+        | ObjectKind::ReadableStreamStartStep { .. }
+        | ObjectKind::ReadableStreamPullStep { .. }
+        | ObjectKind::ReadableStreamCancelStep { .. } => CloneKind::Unclonable("Function"),
         ObjectKind::SymbolWrapper(_) => CloneKind::Unclonable("Symbol"),
         ObjectKind::Promise(_)
         | ObjectKind::PromiseResolver { .. }
@@ -272,15 +275,6 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::ReadableStreamDefaultController { .. } => {
             CloneKind::Unclonable("ReadableStreamDefaultController")
         }
-        // Internal callables for stream source-callback dispatch
-        // — not Promises, not user-visible Functions.  Labelling
-        // them "Function" gives the user a brand-name they can
-        // reason about if such a callable somehow reaches
-        // structuredClone (it shouldn't — these are only
-        // attached to internal Promise reactions).
-        ObjectKind::ReadableStreamStartStep { .. }
-        | ObjectKind::ReadableStreamPullStep { .. }
-        | ObjectKind::ReadableStreamCancelStep { .. } => CloneKind::Unclonable("Function"),
         // TypedArray / DataView clone via shared underlying
         // buffer — see `clone_typed_array` / `clone_data_view`
         // for the memo-threaded handling that preserves
@@ -612,14 +606,14 @@ fn clone_typed_array(
     if let Some(&cached) = memo.get(&src) {
         return cached;
     }
-    let (buffer_id, byte_offset, byte_length, element_kind) = match vm.get_object(src).kind {
-        ObjectKind::TypedArray {
-            buffer_id,
-            byte_offset,
-            byte_length,
-            element_kind,
-        } => (buffer_id, byte_offset, byte_length, element_kind),
-        _ => unreachable!("clone_typed_array called on non-TypedArray"),
+    let ObjectKind::TypedArray {
+        buffer_id,
+        byte_offset,
+        byte_length,
+        element_kind,
+    } = vm.get_object(src).kind
+    else {
+        unreachable!("clone_typed_array called on non-TypedArray")
     };
     let cloned_buffer = clone_array_buffer(vm, buffer_id, memo);
     // Pick the subclass-specific prototype.  Falls back to the
@@ -651,13 +645,13 @@ fn clone_data_view(
     if let Some(&cached) = memo.get(&src) {
         return cached;
     }
-    let (buffer_id, byte_offset, byte_length) = match vm.get_object(src).kind {
-        ObjectKind::DataView {
-            buffer_id,
-            byte_offset,
-            byte_length,
-        } => (buffer_id, byte_offset, byte_length),
-        _ => unreachable!("clone_data_view called on non-DataView"),
+    let ObjectKind::DataView {
+        buffer_id,
+        byte_offset,
+        byte_length,
+    } = vm.get_object(src).kind
+    else {
+        unreachable!("clone_data_view called on non-DataView")
     };
     let cloned_buffer = clone_array_buffer(vm, buffer_id, memo);
     let new_id = vm.alloc_object(Object {
@@ -822,7 +816,7 @@ pub(super) fn ensure_empty_transfer_list(
             // in `headers.rs` (`parse_init`) and `blob.rs`
             // (`blob_ctor_parts`); propagating the error via `?`
             // is spec-compliant.
-            if ctx.vm.iter_next(iter)? == None {
+            if ctx.vm.iter_next(iter)?.is_none() {
                 Ok(())
             } else {
                 // Non-empty iteration is an abrupt completion

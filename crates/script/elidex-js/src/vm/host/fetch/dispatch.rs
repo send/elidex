@@ -421,6 +421,7 @@ fn reject_get_head_with_body(method: &str, has_body: bool) -> Result<(), VmError
 /// `credentials` / `redirect` enums so `init.*` overrides on
 /// `fetch(req, init)` can replace them per WHATWG Fetch §5.1
 /// step 12.
+#[allow(clippy::type_complexity)] // tuple is private return shape; refactoring would not improve clarity
 fn request_base_from_vm(
     ctx: &NativeContext<'_>,
     obj_id: ObjectId,
@@ -532,7 +533,7 @@ struct BaseState {
 ///   spec `Cache-Control` / `Pragma` headers (Stage 5).
 /// - `mode` also drives `response_type` classification at
 ///   settlement time (Stage 4 — `host/cors.rs`).
-#[allow(dead_code)]
+#[allow(dead_code, clippy::option_option)] // `Option<Option<Bytes>>` distinguishes "absent override" / "explicit null body" / "explicit body"
 struct InitOverrides {
     method: Option<String>,
     headers: Option<Vec<(String, String)>>,

@@ -249,11 +249,7 @@ fn parse_init_entries(
                     ));
                 }
                 let mut out = Vec::new();
-                loop {
-                    let pair = match ctx.vm.iter_next(iter)? {
-                        Some(p) => p,
-                        None => break,
-                    };
+                while let Some(pair) = ctx.vm.iter_next(iter)? {
                     match validate_pair_entry(ctx, pair) {
                         Ok(p) => out.push(p),
                         Err(err) => {
@@ -326,11 +322,7 @@ fn validate_pair_entry(
         }
     };
     let mut values: Vec<JsValue> = Vec::with_capacity(2);
-    loop {
-        let v = match ctx.vm.iter_next(iter)? {
-            Some(v) => v,
-            None => break,
-        };
+    while let Some(v) = ctx.vm.iter_next(iter)? {
         values.push(v);
         if values.len() > 2 {
             let close_err = ctx.vm.iter_close(iter).err();

@@ -37,6 +37,7 @@ use super::events::{
 /// (e.g. allocator failure).  Listener-body throws are caught and
 /// ignored (spec §2.10 "report the exception") so the walk
 /// advances past them.
+#[allow(clippy::too_many_lines)] // single capture/target/bubble walk — splitting would scatter §2.10 flow
 pub(super) fn dispatch_script_event(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
@@ -58,15 +59,15 @@ pub(super) fn dispatch_script_event(
     // by keeping the internal slot authoritative; the data
     // property is a mirror installed for enumeration / ergonomic
     // access but cannot hijack dispatch.
-    let (type_sid, bubbles, cancelable, composed) = match ctx.vm.get_object(event_id).kind {
-        ObjectKind::Event {
-            type_sid,
-            bubbles,
-            cancelable,
-            composed,
-            ..
-        } => (type_sid, bubbles, cancelable, composed),
-        _ => unreachable!("dispatch_script_event: receiver is not ObjectKind::Event"),
+    let ObjectKind::Event {
+        type_sid,
+        bubbles,
+        cancelable,
+        composed,
+        ..
+    } = ctx.vm.get_object(event_id).kind
+    else {
+        unreachable!("dispatch_script_event: receiver is not ObjectKind::Event")
     };
     let event_type_str = ctx.vm.strings.get_utf8(type_sid);
 

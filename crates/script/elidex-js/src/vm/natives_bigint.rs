@@ -226,9 +226,9 @@ fn signed_to_i64(bi: &BigIntValue) -> i64 {
             // guarantees the fold keeps `bi` in [-2^63, 2^63)).
             // -2^63 is the only case where negation overflows; handle
             // via wrapping.
-            (magnitude as i64).wrapping_neg()
+            magnitude.cast_signed().wrapping_neg()
         }
-        _ => magnitude as i64,
+        _ => magnitude.cast_signed(),
     }
 }
 
