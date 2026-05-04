@@ -489,6 +489,20 @@ pub(crate) struct VmInner {
     /// runs during `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) html_options_collection_prototype: Option<ObjectId>,
+    /// Per-`<select>` HTMLOptionsCollection wrapper identity cache.
+    /// Keyed by the select's [`elidex_ecs::Entity`].  Same select
+    /// returns the same collection ObjectId across repeated
+    /// `.options` reads — matches browser identity semantics
+    /// (`select.options === select.options` is `true`) and avoids
+    /// per-access wrapper churn through `live_collection_states`.
+    /// Allocated lazily on first read.
+    ///
+    /// GC contract: same owner-wrapper-reachability gate as
+    /// [`Self::validity_state_wrappers`].  Marked through a
+    /// `roots.rs` step (e4) when the owning select wrapper is
+    /// reachable, swept post-collection.
+    #[cfg(feature = "engine")]
+    pub(crate) options_collection_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `HTMLInputElement.prototype` — tag-specific intermediate
     /// prototype for `<input>` wrappers (HTML §4.10.5 — slot
     /// #11-tags-T1 Phase 8, the largest of the T1 element protos).

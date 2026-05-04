@@ -176,6 +176,13 @@ pub(super) struct GcRoots<'a> {
     /// collected.
     #[cfg(feature = "engine")]
     pub(super) validity_state_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `HTMLOptionsCollection` wrapper identity cache (HTML §2.7.4).
+    /// Same owner-wrapper-reachability gate as
+    /// [`Self::validity_state_wrappers`] — keyed by `<select>`
+    /// entity.  Step (e4) marks the cached collection iff the
+    /// owning select wrapper is reachable.
+    #[cfg(feature = "engine")]
+    pub(super) options_collection_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -291,6 +298,15 @@ pub(super) fn mark_roots(
         for (entity, &vs_id) in roots.validity_state_wrappers {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(vs_id, obj_marks, work);
+            }
+        }
+        // (e4) `HTMLOptionsCollection` wrapper identity cache —
+        // same pattern as (e3).  Cached `select.options` survives
+        // as long as the owning `<select>` wrapper is reachable.
+        #[cfg(feature = "engine")]
+        for (entity, &coll_id) in roots.options_collection_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(coll_id, obj_marks, work);
             }
         }
     }

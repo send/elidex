@@ -128,6 +128,21 @@ pub(super) fn descendant_text(dom: &elidex_ecs::EcsDom, root: Entity) -> String 
     buf
 }
 
+/// Same descendant walk as [`descendant_text`] but counts UTF-16
+/// code units without materialising an owned String.  Used by the
+/// Selection-API setters (which only need the length to clamp
+/// bounds, not the bytes).
+pub(super) fn descendant_text_utf16_len(dom: &elidex_ecs::EcsDom, root: Entity) -> u32 {
+    let mut n: u32 = 0;
+    dom.traverse_descendants(root, |e| {
+        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(e) {
+            n = n.saturating_add(utf16_len(&text.0));
+        }
+        true
+    });
+    n
+}
+
 /// Count UTF-16 code units in `s` — selection range bounds use
 /// "API value length" per HTML §4.10.18.7, defined in terms of
 /// UTF-16 code units regardless of the engine's internal string

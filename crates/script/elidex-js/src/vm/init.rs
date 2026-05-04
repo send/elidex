@@ -149,6 +149,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 html_options_collection_prototype: None,
                 #[cfg(feature = "engine")]
+                options_collection_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
                 html_input_prototype: None,
                 #[cfg(feature = "engine")]
                 validity_state_prototype: None,

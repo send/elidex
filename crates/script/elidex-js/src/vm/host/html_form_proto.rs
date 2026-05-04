@@ -296,28 +296,18 @@ fn native_form_get_length(
     let Some(entity) = require_form_receiver(ctx, this, "length")? else {
         return Ok(JsValue::Number(0.0));
     };
-    // Cheap proxy to `elements.length`: walk the same listed-element
-    // filter but count only.  Avoids allocating an FCC wrapper just
-    // to read its length.
-    let dom = ctx.host().dom();
-    let mut n: u32 = 0;
-    dom.traverse_descendants(entity, |e| {
-        if e == entity {
-            return true;
-        }
-        if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
-            return true;
-        }
-        let listed = dom.with_tag_name(e, |t| match t {
-            Some(s) => super::dom_collection::is_listed_form_element_tag(s),
-            None => false,
-        });
-        if listed {
-            n = n.saturating_add(1);
-        }
-        true
-    });
-    Ok(JsValue::Number(f64::from(n)))
+    // `length === elements.length` is the spec relationship (HTML
+    // §4.10.3.1 step 4 — "the length attribute must return the
+    // number of nodes represented by the elements collection").
+    // Single source of truth: route through the same FormControls
+    // walker that `elements` uses, ensuring the predicate stays in
+    // one place.  The transient wrapper allocation is amortised by
+    // GC and bounded by typical-form size (<50 controls).
+    let kind = super::dom_collection::LiveCollectionKind::FormControls { scope: entity };
+    let coll_id = ctx.vm.alloc_collection(kind);
+    let entities = super::dom_collection::resolve_receiver_entities(ctx, coll_id);
+    #[allow(clippy::cast_precision_loss)]
+    Ok(JsValue::Number(entities.len() as f64))
 }
 
 fn native_form_get_elements(

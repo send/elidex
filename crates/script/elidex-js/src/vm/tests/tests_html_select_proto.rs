@@ -167,6 +167,25 @@ fn select_options_is_html_options_collection() {
 }
 
 #[test]
+fn select_options_is_identity_preserving() {
+    // Browsers cache HTMLOptionsCollection per <select> so
+    // `select.options === select.options` is `true`.  Matches the
+    // identity caching pattern used by .validity / .labels-style
+    // accessors.
+    let out = run("var s = document.createElement('select'); \
+         (s.options === s.options) ? 'same' : 'distinct';");
+    assert_eq!(out, "same");
+}
+
+#[test]
+fn select_options_distinct_per_select() {
+    let out = run("var a = document.createElement('select'); \
+         var b = document.createElement('select'); \
+         (a.options !== b.options) ? 'distinct' : 'shared';");
+    assert_eq!(out, "distinct");
+}
+
+#[test]
 fn select_options_includes_optgroup_nested_options() {
     let out = run("var s = document.createElement('select'); \
          var g = document.createElement('optgroup'); \

@@ -801,6 +801,22 @@ impl VmInner {
             .insert(id, (kind, LiveCollectionCache::default()));
         id
     }
+
+    /// Identity-preserving allocator for `select.options`
+    /// HTMLOptionsCollection wrappers — same control returns the
+    /// same collection ObjectId across repeated `.options` reads
+    /// (matches browser semantics:
+    /// `select.options === select.options` is `true`).  Cached on
+    /// [`Self::options_collection_wrappers`]; reachability gated by
+    /// the owning select wrapper through `gc/roots.rs` step (e4).
+    pub(crate) fn cached_or_alloc_options_collection(&mut self, select: Entity) -> ObjectId {
+        if let Some(&id) = self.options_collection_wrappers.get(&select) {
+            return id;
+        }
+        let id = self.alloc_collection(LiveCollectionKind::Options { select });
+        self.options_collection_wrappers.insert(select, id);
+        id
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -864,7 +880,7 @@ fn require_collection_receiver(
 /// two aliasing paths through `ctx.vm` in one expression.  Taking
 /// the kind out of the map temporarily breaks that aliasing into
 /// two sequential borrows.
-fn resolve_receiver_entities(ctx: &mut NativeContext<'_>, id: ObjectId) -> Vec<Entity> {
+pub(super) fn resolve_receiver_entities(ctx: &mut NativeContext<'_>, id: ObjectId) -> Vec<Entity> {
     let Some((kind, cache)) = ctx.vm.live_collection_states.remove(&id) else {
         return Vec::new();
     };

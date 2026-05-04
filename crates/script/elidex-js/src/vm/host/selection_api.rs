@@ -137,16 +137,17 @@ pub(super) fn get_selection_start(
 
 /// `selectionStart` setter — clamps to the value's UTF-16 length;
 /// adjusts `selection_end` upward when the new start exceeds it
-/// (HTML §4.10.18.7 step 4).
+/// (HTML §4.10.18.7 step 4).  Takes `value_len` directly rather than
+/// a `&str` so the caller can compute the length without
+/// materialising an owned String when only the count is needed.
 pub(super) fn set_selection_start(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
-    value: &str,
+    value_len: u32,
     arg: JsValue,
 ) -> Result<JsValue, VmError> {
     let n = super::super::coerce::to_uint32(ctx.vm, arg)?;
-    let max = utf16_len(value);
-    let clamped = n.min(max);
+    let clamped = n.min(value_len);
     let state = ctx.vm.form_control_state_mut(entity);
     state.selection_start = clamped;
     if state.selection_end < clamped {
@@ -172,12 +173,11 @@ pub(super) fn get_selection_end(
 pub(super) fn set_selection_end(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
-    value: &str,
+    value_len: u32,
     arg: JsValue,
 ) -> Result<JsValue, VmError> {
     let n = super::super::coerce::to_uint32(ctx.vm, arg)?;
-    let max = utf16_len(value);
-    let clamped = n.min(max);
+    let clamped = n.min(value_len);
     let state = ctx.vm.form_control_state_mut(entity);
     state.selection_end = clamped.max(state.selection_start);
     Ok(JsValue::Undefined)
@@ -217,12 +217,11 @@ pub(super) fn set_selection_direction(
 pub(super) fn select_all(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
-    value: &str,
+    value_len: u32,
 ) -> Result<JsValue, VmError> {
-    let len = utf16_len(value);
     let state = ctx.vm.form_control_state_mut(entity);
     state.selection_start = 0;
-    state.selection_end = len;
+    state.selection_end = value_len;
     state.selection_direction = SelectionDirection::None;
     Ok(JsValue::Undefined)
 }
@@ -233,7 +232,7 @@ pub(super) fn select_all(
 pub(super) fn set_selection_range(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
-    value: &str,
+    value_len: u32,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let start_arg = args.first().copied().unwrap_or(JsValue::Undefined);
@@ -241,9 +240,8 @@ pub(super) fn set_selection_range(
     let dir_arg = args.get(2).copied();
     let start = super::super::coerce::to_uint32(ctx.vm, start_arg)?;
     let end = super::super::coerce::to_uint32(ctx.vm, end_arg)?;
-    let max = utf16_len(value);
-    let mut start_clamped = start.min(max);
-    let mut end_clamped = end.min(max);
+    let mut start_clamped = start.min(value_len);
+    let mut end_clamped = end.min(value_len);
     if start_clamped > end_clamped {
         end_clamped = start_clamped;
     }

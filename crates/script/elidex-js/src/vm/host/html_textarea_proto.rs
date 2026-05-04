@@ -506,12 +506,25 @@ fn read_default_value(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
 }
 
 /// Compute the textarea's IDL value — `dirty_value` slot when set,
-/// otherwise the defaultValue (textContent walk).
+/// otherwise the defaultValue (textContent walk).  Allocates an
+/// owned String; use [`value_utf16_len`] when only the length is
+/// needed (Selection API setter hot path).
 fn read_value(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
     if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
         return dirty.to_string();
     }
     read_default_value(ctx, entity)
+}
+
+/// Allocation-free length variant of [`read_value`] — returns the
+/// IDL value's UTF-16 length without materialising an owned String.
+/// Used by Selection-API setters that only need to clamp against
+/// the value bounds.
+fn value_utf16_len(ctx: &mut NativeContext<'_>, entity: Entity) -> u32 {
+    if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
+        return utf16_len(dirty);
+    }
+    super::form_control_state::descendant_text_utf16_len(ctx.host().dom(), entity)
 }
 
 fn ta_get_value(
@@ -665,8 +678,8 @@ fn ta_set_selection_start(
         return Ok(JsValue::Undefined);
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let value = read_value(ctx, entity);
-    selection_api::set_selection_start(ctx, entity, &value, val)
+    let len = value_utf16_len(ctx, entity);
+    selection_api::set_selection_start(ctx, entity, len, val)
 }
 
 fn ta_get_selection_end(
@@ -689,8 +702,8 @@ fn ta_set_selection_end(
         return Ok(JsValue::Undefined);
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let value = read_value(ctx, entity);
-    selection_api::set_selection_end(ctx, entity, &value, val)
+    let len = value_utf16_len(ctx, entity);
+    selection_api::set_selection_end(ctx, entity, len, val)
 }
 
 fn ta_get_selection_direction(
@@ -724,8 +737,8 @@ fn ta_select_method(
     let Some(entity) = require_textarea_receiver(ctx, this, "select")? else {
         return Ok(JsValue::Undefined);
     };
-    let value = read_value(ctx, entity);
-    selection_api::select_all(ctx, entity, &value)
+    let len = value_utf16_len(ctx, entity);
+    selection_api::select_all(ctx, entity, len)
 }
 
 fn ta_set_range_text(
@@ -754,6 +767,6 @@ fn ta_set_selection_range(
     let Some(entity) = require_textarea_receiver(ctx, this, "setSelectionRange")? else {
         return Ok(JsValue::Undefined);
     };
-    let value = read_value(ctx, entity);
-    selection_api::set_selection_range(ctx, entity, &value, args)
+    let len = value_utf16_len(ctx, entity);
+    selection_api::set_selection_range(ctx, entity, len, args)
 }

@@ -438,10 +438,9 @@ fn sel_get_options(
     let Some(entity) = require_select_receiver(ctx, this, "options")? else {
         return Ok(JsValue::Null);
     };
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Options { select: entity });
-    Ok(JsValue::Object(id))
+    Ok(JsValue::Object(
+        ctx.vm.cached_or_alloc_options_collection(entity),
+    ))
 }
 
 fn sel_get_selected_options(

@@ -836,7 +836,9 @@ fn inp_set_type(
 // --- value / checked ----------------------------------------------
 
 /// Read the input's IDL value — dirty value if set, else the
-/// `value` content attribute (defaultValue), or `""`.
+/// `value` content attribute (defaultValue), or `""`.  Allocates an
+/// owned String; use [`value_utf16_len`] on the Selection API setter
+/// hot path when only the length is needed.
 fn read_value(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
     if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
         return dirty.to_string();
@@ -844,6 +846,19 @@ fn read_value(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
     ctx.host()
         .dom()
         .with_attribute(entity, "value", |v| v.unwrap_or("").to_string())
+}
+
+/// Allocation-free length variant of [`read_value`].  Returns the
+/// IDL value's UTF-16 length without materialising a String — used
+/// by every Selection-API setter that only clamps against the value
+/// bound (no slicing required).
+fn value_utf16_len(ctx: &mut NativeContext<'_>, entity: Entity) -> u32 {
+    if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
+        return utf16_len(dirty);
+    }
+    ctx.host()
+        .dom()
+        .with_attribute(entity, "value", |v| utf16_len(v.unwrap_or("")))
 }
 
 fn inp_get_value(
@@ -1215,8 +1230,8 @@ fn inp_set_selection_start(
         return Ok(JsValue::Undefined);
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let value = read_value(ctx, entity);
-    selection_api::set_selection_start(ctx, entity, &value, val)
+    let len = value_utf16_len(ctx, entity);
+    selection_api::set_selection_start(ctx, entity, len, val)
 }
 
 fn inp_get_selection_end(
@@ -1239,8 +1254,8 @@ fn inp_set_selection_end(
         return Ok(JsValue::Undefined);
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let value = read_value(ctx, entity);
-    selection_api::set_selection_end(ctx, entity, &value, val)
+    let len = value_utf16_len(ctx, entity);
+    selection_api::set_selection_end(ctx, entity, len, val)
 }
 
 fn inp_get_selection_direction(
@@ -1274,8 +1289,8 @@ fn inp_select_method(
     let Some(entity) = require_selection_input_receiver(ctx, this, "select")? else {
         return Ok(JsValue::Undefined);
     };
-    let value = read_value(ctx, entity);
-    selection_api::select_all(ctx, entity, &value)
+    let len = value_utf16_len(ctx, entity);
+    selection_api::select_all(ctx, entity, len)
 }
 
 fn inp_set_range_text(
@@ -1304,6 +1319,6 @@ fn inp_set_selection_range(
     let Some(entity) = require_selection_input_receiver(ctx, this, "setSelectionRange")? else {
         return Ok(JsValue::Undefined);
     };
-    let value = read_value(ctx, entity);
-    selection_api::set_selection_range(ctx, entity, &value, args)
+    let len = value_utf16_len(ctx, entity);
+    selection_api::set_selection_range(ctx, entity, len, args)
 }

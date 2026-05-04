@@ -428,6 +428,8 @@ impl VmInner {
             #[cfg(feature = "engine")]
             validity_state_wrappers: &self.validity_state_wrappers,
             #[cfg(feature = "engine")]
+            options_collection_wrappers: &self.options_collection_wrappers,
+            #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
         };
 
@@ -637,6 +639,11 @@ impl VmInner {
             // owner-wrapper presence.
             self.validity_state_wrappers
                 .retain(|_, vs_id| bit_get(marks, vs_id.0));
+            // `options_collection_wrappers` — same prune as the
+            // ValidityState cache, gated by the (e4) mark-roots
+            // step on owning `<select>` wrapper reachability.
+            self.options_collection_wrappers
+                .retain(|_, coll_id| bit_get(marks, coll_id.0));
             // `form_control_entity_states` / `form_control_custom_validity`
             // — Entity-keyed standalone state maps (slot #11-tags-T1
             // Phase 6 / Phase 9).  Payload is plain data (no
