@@ -1,15 +1,21 @@
 //! Tests for the `DomApiHandler` dispatch bridge in
 //! `vm/host/dom_bridge.rs::invoke_dom_api`.
 //!
-//! Covers the boundary contracts the bridge guarantees, independent
-//! of any specific handler's spec semantics:
-//! - Symbol arguments raise `TypeError` (WebIDL §3.10.14 / ECMA
-//!   §7.1.17 — Symbol ToString is total-throw).  Raw BigInt args
-//!   reject at the bridge as a **defensive** rule, but call sites
-//!   that ToString-coerce first (the common path) feed the bridge a
-//!   `JsValue::String` (`1n` ⇒ `"1"`) and never trip the
-//!   `prepare_arg` BigInt arm — `dispatch_with_bigint_arg_through_string_coercion_succeeds`
-//!   exercises that path.
+//! Covers the **end-to-end JS-visible** contracts the bridge guarantees,
+//! independent of any specific handler's spec semantics.  Bridge-level
+//! marshalling-layer contracts that the JS path can't exercise (because
+//! call-site coercion intercepts first) live in
+//! `dom_bridge.rs::tests` as Rust unit tests on `prepare_arg`.
+//!
+//! - **Call-site Symbol/BigInt coercion** (`coerce::to_string` via
+//!   `coerce_first_arg_to_string_id`): Symbol ToString throws
+//!   `TypeError` per WebIDL §3.10.14 / ECMA §7.1.17 — exercised by
+//!   `dispatch_symbol_arg_at_callsite_throws_type_error`.  BigInt
+//!   ToString *succeeds* (`1n` ⇒ `"1"`) — exercised by
+//!   `dispatch_with_bigint_arg_through_string_coercion_succeeds`.
+//!   Neither value reaches `prepare_arg` through normal call paths;
+//!   the bridge-level Symbol/BigInt rejection arm is unit-tested
+//!   directly in `dom_bridge.rs::tests::prepare_arg_rejects_*`.
 //! - Non-Node `Object` arguments where a Node is expected raise
 //!   `TypeError`.
 //! - Round-trips: `ObjectRef` returned by a handler resolves back to
@@ -89,17 +95,20 @@ fn eval_in_doc_bool(source: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Symbol rejection (WebIDL §3.10.14) + BigInt ToString-coercion path
+// Call-site Symbol/BigInt coercion (NOT bridge-level prepare_arg —
+// that path is unit-tested in dom_bridge.rs::tests::prepare_arg_*)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn dispatch_with_symbol_arg_throws_type_error() {
-    // `getElementById` accepts a string id.  Passing a Symbol must
-    // raise TypeError — `coerce::to_string` runs at the call site
-    // (Symbol is a ToString-throw input per ECMA §7.1.17), so the
-    // marshalling boundary `prepare_arg` would only see Symbol
-    // through a manually-constructed dispatch path; the call-site
-    // ToString already rejects it for any normal user code.
+fn dispatch_symbol_arg_at_callsite_throws_type_error() {
+    // `getElementById` accepts a string id, so the call site runs
+    // `coerce_first_arg_to_string_id` → `coerce::to_string` before
+    // reaching the bridge.  Symbol ToString is total-throw per
+    // ECMA §7.1.17, so the value never makes it to `prepare_arg`.
+    // This test pins the call-site coercion behaviour; the
+    // bridge-direct `prepare_arg` Symbol rejection (defense-in-
+    // depth for any future native that bypasses ToString) is unit-
+    // tested in `dom_bridge.rs::tests::prepare_arg_rejects_symbol_directly`.
     assert_eq!(
         eval_in_doc_string(
             "var caught = null;\

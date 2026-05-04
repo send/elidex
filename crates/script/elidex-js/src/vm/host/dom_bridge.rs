@@ -711,4 +711,45 @@ mod tests {
         assert!(matches!(err.kind, VmErrorKind::TypeError));
         assert_eq!(err.message, "test type error");
     }
+
+    /// Bridge-direct test: feed `prepare_arg` a `JsValue::Symbol`
+    /// and verify it raises `TypeError` at the marshalling layer.
+    /// This is the path the JS-level
+    /// `dispatch_with_symbol_arg_throws_type_error` test cannot
+    /// exercise — for any string-coerced parameter,
+    /// `coerce_first_arg_to_string_id` runs first at the call site
+    /// and rejects Symbol via ECMA §7.1.17, so the value never
+    /// reaches `prepare_arg` through the standard call path.  The
+    /// `prepare_arg` Symbol arm is therefore a defense-in-depth
+    /// rule for any future native that hands the bridge a raw
+    /// Symbol without prior ToString — this test pins that
+    /// rule.
+    #[test]
+    fn prepare_arg_rejects_symbol_directly() {
+        use crate::vm::value::SymbolId;
+        let mut vm = crate::vm::Vm::new();
+        let mut ctx = NativeContext { vm: &mut vm.inner };
+        let Err(err) = prepare_arg(&mut ctx, JsValue::Symbol(SymbolId(0))) else {
+            panic!("Symbol must reject at the bridge");
+        };
+        assert!(matches!(err.kind, VmErrorKind::TypeError));
+        assert!(err.message.contains("Symbol"));
+    }
+
+    /// Bridge-direct counterpart for `BigInt`.  Unlike Symbol,
+    /// `BigInt → String` coercion succeeds at the call site (`1n`
+    /// ⇒ `"1"`), so the standard call path also never lands here.
+    /// The `prepare_arg` BigInt arm is a defensive bridge-level
+    /// rule for any future native that bypasses ToString.
+    #[test]
+    fn prepare_arg_rejects_bigint_directly() {
+        use crate::vm::value::BigIntId;
+        let mut vm = crate::vm::Vm::new();
+        let mut ctx = NativeContext { vm: &mut vm.inner };
+        let Err(err) = prepare_arg(&mut ctx, JsValue::BigInt(BigIntId(0))) else {
+            panic!("BigInt must reject at the bridge");
+        };
+        assert!(matches!(err.kind, VmErrorKind::TypeError));
+        assert!(err.message.contains("BigInt"));
+    }
 }
