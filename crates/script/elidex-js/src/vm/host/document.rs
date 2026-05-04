@@ -32,11 +32,11 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
+    coerce_first_arg_to_string, invoke_dom_api, parse_dom_selector, query_selector_in_subtree_all,
     query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
 };
 
-use elidex_ecs::{Attributes, Entity, NodeKind};
+use elidex_ecs::{Entity, NodeKind};
 
 // ---------------------------------------------------------------------------
 // Tree walk from the receiver document.
@@ -89,9 +89,18 @@ pub(super) fn native_document_get_element_by_id(
     let Some(doc) = document_receiver(ctx, this, "getElementById")? else {
         return Ok(JsValue::Null);
     };
+    // Spec-precise ToString coercion (Object via `[Symbol.toPrimitive]`
+    // / `toString`) runs at call site; handler's
+    // `require_string_arg` would reject `ObjectRef` and cannot
+    // reproduce the WebIDL-correct stringifier path.
     let target = coerce_first_arg_to_string(ctx, args)?;
-    let matched = ctx.host().dom().find_by_id(doc, &target);
-    Ok(wrap_entity_or_null(ctx.vm, matched))
+    let target_sid = ctx.intern(&target);
+    let result = invoke_dom_api(ctx, "getElementById", doc, &[JsValue::String(target_sid)])?;
+    // Handler returns `null` (`Pv::Null`) when the id is not found —
+    // `null` is the spec result, but `Pv::Null` rendered as
+    // `JsValue::Null` matches the prior `wrap_entity_or_null` shape
+    // exactly.
+    Ok(result)
 }
 
 // ---------------------------------------------------------------------------
@@ -239,20 +248,16 @@ pub(super) fn native_document_create_element(
     let Some(doc_entity) = document_receiver(ctx, this, "createElement")? else {
         return Ok(JsValue::Null);
     };
-
-    // WHATWG DOM §4.5 createElement normalises to lowercase in the
-    // "HTML document" branch.  We treat every bind as HTML.
-    let tag = coerce_first_arg_to_string(ctx, args)?.to_ascii_lowercase();
-
-    // Anchor the new node's "node document" (WHATWG §4.4) to the
-    // receiver Document so that `newEl.ownerDocument` reports the
-    // creating document even before insertion — critical for clones
-    // and iframes where the bound global and the receiver differ.
-    let new_entity =
-        ctx.host()
-            .dom()
-            .create_element_with_owner(tag, Attributes::default(), Some(doc_entity));
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    // ToString at call site; handler does the lowercase normalisation
+    // and the "node document" anchoring (WHATWG DOM §4.5 / §4.4).
+    let tag = coerce_first_arg_to_string(ctx, args)?;
+    let tag_sid = ctx.intern(&tag);
+    invoke_dom_api(
+        ctx,
+        "createElement",
+        doc_entity,
+        &[JsValue::String(tag_sid)],
+    )
 }
 
 pub(super) fn native_document_create_text_node(

@@ -626,19 +626,16 @@ fn native_node_append_child(
         return Ok(JsValue::Undefined);
     };
     let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let child = require_node_arg(ctx, child_arg, "appendChild")?;
-    let ok = ctx.host().dom().append_child(parent, child);
-    if !ok {
-        // WHATWG §4.5 pre-insertion validity — the lifecycle
-        // violations EcsDom rejects (self-append, cycle, destroyed
-        // entity) are spec'd as HierarchyRequestError.  Phase 2
-        // surfaces them as TypeError with a descriptive message;
-        // DOMException integration lands with the shell in a later PR.
-        return Err(VmError::type_error(
-            "Failed to execute 'appendChild' on 'Node': the new child node cannot be inserted.",
-        ));
-    }
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(child)))
+    // `require_node_arg` runs the brand check (TypeError if `child`
+    // is not a Node) BEFORE the handler dispatch — preserves the
+    // existing behaviour where non-Node arguments throw TypeError
+    // immediately rather than producing a generic
+    // `HierarchyRequestError`.
+    require_node_arg(ctx, child_arg, "appendChild")?;
+    // Handler resolves the ObjectRef back to the child entity via
+    // the session identity map and emits `HierarchyRequestError`
+    // DOMException on pre-insertion validity violations.
+    super::dom_bridge::invoke_dom_api(ctx, "appendChild", parent, &[child_arg])
 }
 
 fn native_node_remove_child(

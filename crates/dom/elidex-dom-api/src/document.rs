@@ -138,7 +138,7 @@ impl DomApiHandler for CreateElement {
 
     fn invoke(
         &self,
-        _this: Entity,
+        this: Entity,
         args: &[JsValue],
         session: &mut SessionCore,
         dom: &mut EcsDom,
@@ -150,7 +150,20 @@ impl DomApiHandler for CreateElement {
                 message: format!("Invalid tag name: {tag}"),
             });
         }
-        let entity = dom.create_element(tag.to_ascii_lowercase(), Attributes::default());
+        // Anchor the new node's "node document" (WHATWG DOM §4.4) to
+        // the receiver Document so `newEl.ownerDocument` reports the
+        // creating document even before insertion — critical for
+        // clones and iframes where the bound global and the receiver
+        // differ.  Pre-VM dispatch this lived in
+        // `vm/host/document.rs::native_document_create_element` as an
+        // explicit `create_element_with_owner` call; the handler now
+        // owns the spec-precise behaviour so both boa and VM paths
+        // observe the same ownerDocument semantics.
+        let entity = dom.create_element_with_owner(
+            tag.to_ascii_lowercase(),
+            Attributes::default(),
+            Some(this),
+        );
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
