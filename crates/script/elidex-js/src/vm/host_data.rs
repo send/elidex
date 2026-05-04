@@ -200,6 +200,31 @@ mod engine_feature {
         ///   `&mut` is UB).  Typical usage: caller holds `&mut`, calls
         ///   `bind(ptr_from_mut)`, invokes VM, calls `unbind()`, then
         ///   resumes using the `&mut`.
+        ///
+        /// # Test-fixture panic safety (regression guard)
+        ///
+        /// Only `tests_dom_handler_dispatch.rs::with_doc_vm` (added
+        /// in `#11-arch-hoist-a`) wraps the bound VM in an
+        /// `UnbindOnDrop` guard so a panic inside the closure still
+        /// runs `unbind()` before the `session` / `dom` locals
+        /// expire.  ~36 sibling test fixtures across `vm/tests/`
+        /// instead call `vm.unbind()` only on the success path.
+        ///
+        /// That gap is **safe today** because no `Drop` impl on
+        /// `Vm` / `VmInner` / `HostData` ever derefs `session_ptr`
+        /// or `dom_ptr` — the field-drop chain only touches `Copy`
+        /// raw pointers and self-contained ECMA state, so dangling
+        /// pointers left by a panic are never read.
+        ///
+        /// **If you add a manual `Drop` impl to any of `Vm`,
+        /// `VmInner`, or `HostData`, and the body reaches host
+        /// state through `is_bound()` / `session()` / `dom()` /
+        /// `with_session_and_dom` / `dom_shared()` (or any future
+        /// gated accessor), every test fixture must adopt the
+        /// `UnbindOnDrop` pattern before that change can land.**
+        /// Plan memo `m4-12-pr-arch-hoist-a-plan.md` §L records this
+        /// trigger; the sweep is a ~30-60 min mechanical edit
+        /// across the existing fixtures.
         #[allow(unsafe_code)]
         pub unsafe fn bind(
             &mut self,
