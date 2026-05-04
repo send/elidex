@@ -640,11 +640,18 @@ mod engine_feature {
         /// pointer twice).  Pure comparison, never derefs.
         #[test]
         fn pointers_alias_at_base_detects_same_address() {
-            let addr = 0x1234usize as *const u8;
-            assert!(pointers_alias_at_base(
-                addr.cast::<SessionCore>(),
-                addr.cast::<EcsDom>(),
-            ));
+            // Cast the same numeric address directly to each typed
+            // pointer (rather than going through `*const u8 ->
+            // .cast::<T>()`, which clippy flags as `cast_ptr_alignment`
+            // because a 1-byte-aligned `*const u8` can't safely be
+            // upgraded to an 8-byte-aligned `*const SessionCore` /
+            // `*const EcsDom` in general).  We only ever compare the
+            // numeric addresses — no deref happens, so the alignment
+            // is irrelevant for the test, but going `usize -> *const T`
+            // directly keeps the lint clean.
+            let session = 0x1234_usize as *const SessionCore;
+            let dom = 0x1234_usize as *const EcsDom;
+            assert!(pointers_alias_at_base(session, dom));
         }
 
         /// Two distinct stack locals never share a base address
