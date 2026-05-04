@@ -462,6 +462,40 @@ fn input_label_with_empty_for_attribute_does_not_match_wrapping() {
 }
 
 #[test]
+fn input_labels_only_innermost_wrapping_label_when_nested() {
+    // HTML §4.10.4 — for nested `<label>` ancestors, only the
+    // INNERMOST wrapping label (no `for=`) claims the control.
+    // The outer label's "labeled control" walk is blocked by the
+    // inner label.
+    let out = run("var outer = document.createElement('label'); \
+         var inner = document.createElement('label'); \
+         var i = document.createElement('input'); \
+         inner.appendChild(i); \
+         outer.appendChild(inner); \
+         document.body.appendChild(outer); \
+         i.labels.length + '|' + (i.labels.item(0) === inner);");
+    assert_eq!(out, "1|true");
+}
+
+#[test]
+fn input_labels_outer_label_with_for_still_associates_via_id() {
+    // Nested labels: outer has `for=` matching the input's id,
+    // inner is a wrapping label with no `for=`.  Outer associates
+    // by id-route, inner via wrapping → both in `.labels`, in
+    // tree order.
+    let out = run("var outer = document.createElement('label'); \
+         outer.htmlFor = 'x'; \
+         var inner = document.createElement('label'); \
+         var i = document.createElement('input'); \
+         i.id = 'x'; \
+         inner.appendChild(i); \
+         outer.appendChild(inner); \
+         document.body.appendChild(outer); \
+         i.labels.length + '|' + (i.labels.item(0) === outer) + '|' + (i.labels.item(1) === inner);");
+    assert_eq!(out, "2|true|true");
+}
+
+#[test]
 fn input_labels_collects_for_id_match() {
     let out = run("var i = document.createElement('input'); \
          i.id = 'x'; \

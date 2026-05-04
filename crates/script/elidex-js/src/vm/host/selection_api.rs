@@ -228,15 +228,23 @@ pub(super) fn select_all(
 
 /// `setSelectionRange(start, end, direction?)` — HTML §4.10.18.7.
 /// `start > end` clamps `end := start` per spec step 4.  Missing
-/// direction defaults to `"none"`.
+/// direction defaults to `"none"`.  WebIDL signature requires both
+/// `start` and `end`, so calls with fewer than 2 arguments throw a
+/// `TypeError`.
 pub(super) fn set_selection_range(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
     value_len: u32,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let start_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let end_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    if args.len() < 2 {
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'setSelectionRange': 2 arguments required, but only {} present.",
+            args.len()
+        )));
+    }
+    let start_arg = args[0];
+    let end_arg = args[1];
     let dir_arg = args.get(2).copied();
     let start = super::super::coerce::to_uint32(ctx.vm, start_arg)?;
     let end = super::super::coerce::to_uint32(ctx.vm, end_arg)?;
@@ -272,9 +280,17 @@ pub(super) fn set_selection_range(
 /// string so the caller can store it in the dirty-value slot via
 /// the brand-check's value-source convention.
 ///
-/// 2-argument form (`setRangeText(replacement)`) uses the current
-/// selection range.  3+ argument forms require both `start` and
-/// `end`; `start > end` throws `IndexSizeError` per spec.
+/// WebIDL overloads:
+///
+/// - `setRangeText(replacement)` — uses the current selection range.
+/// - `setRangeText(replacement, start, end, selectionMode?)` —
+///   explicit range with optional `selectionMode` (default
+///   `"preserve"`).
+///
+/// 2-argument calls and 0-argument calls are NOT spec-conformant
+/// overloads; both raise `TypeError`.  Within the 3+ argument form
+/// `start > end` throws `IndexSizeError` per spec.  Unknown values
+/// for `selectionMode` raise `TypeError` (WebIDL enum coercion).
 ///
 /// Returns `Ok((new_value, new_start, new_end))` on success.  The
 /// caller writes `new_value` into the dirty-value slot and stores
@@ -285,12 +301,27 @@ pub(super) fn compute_set_range_text(
     value: &str,
     args: &[JsValue],
 ) -> Result<(String, u32, u32), VmError> {
-    let replacement_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    if args.is_empty() {
+        return Err(VmError::type_error(
+            "Failed to execute 'setRangeText': 1 argument required, but only 0 present."
+                .to_string(),
+        ));
+    }
+    if args.len() == 2 {
+        // 2-arg form not in the WebIDL overload set — must throw.
+        return Err(VmError::type_error(
+            "Failed to execute 'setRangeText': overload resolution failed — \
+             valid forms are setRangeText(replacement) or \
+             setRangeText(replacement, start, end, selectionMode?)."
+                .to_string(),
+        ));
+    }
+    let replacement_arg = args[0];
     let replacement_sid = super::super::coerce::to_string(ctx.vm, replacement_arg)?;
     let replacement = ctx.vm.strings.get_utf8(replacement_sid);
 
     let max = utf16_len(value);
-    let (start, end) = if args.len() < 2 {
+    let (start, end) = if args.len() == 1 {
         // 1-argument form — use current selection range.
         let state = ctx.vm.form_control_state(entity);
         (
@@ -298,8 +329,9 @@ pub(super) fn compute_set_range_text(
             state.map_or(0, |s| s.selection_end),
         )
     } else {
-        let start_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-        let end_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
+        // args.len() >= 3 (the 2-arg case is rejected above).
+        let start_arg = args[1];
+        let end_arg = args[2];
         let start = super::super::coerce::to_uint32(ctx.vm, start_arg)?;
         let end = super::super::coerce::to_uint32(ctx.vm, end_arg)?;
         if start > end {
@@ -312,12 +344,21 @@ pub(super) fn compute_set_range_text(
         (start.min(max), end.min(max))
     };
 
+    // `selectionMode` is a WebIDL enum {"select","start","end","preserve"};
+    // any other value is an enum-coercion TypeError.
     let select_mode = args.get(3).copied().unwrap_or(JsValue::Undefined);
     let mode_str: String = match select_mode {
         JsValue::Undefined => "preserve".to_string(),
         v => {
             let sid = super::super::coerce::to_string(ctx.vm, v)?;
-            ctx.vm.strings.get_utf8(sid)
+            let s = ctx.vm.strings.get_utf8(sid);
+            if !matches!(s.as_str(), "select" | "start" | "end" | "preserve") {
+                return Err(VmError::type_error(format!(
+                    "Failed to execute 'setRangeText': \
+                     The provided value '{s}' is not a valid enum value of type SelectionMode."
+                )));
+            }
+            s
         }
     };
 
@@ -355,6 +396,8 @@ pub(super) fn compute_set_range_text(
         // intentionally surfaces "selection at the right edge of
         // the replaced range" as a collapse to `start`, matching
         // browser behaviour.
+        // "preserve" — `mode_str` is enum-validated above so the
+        // only remaining value here is "preserve".
         _ => {
             let prev_state = ctx.vm.form_control_state(entity);
             let cur_start = prev_state.map_or(0, |s| s.selection_start);

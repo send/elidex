@@ -108,11 +108,39 @@ pub(super) fn collect_labels_for(ctx: &mut NativeContext<'_>, control: Entity) -
     });
     let id_str = control_id.as_deref();
 
+    // For wrapping-label (Form 2) association the spec says the
+    // label must be the FIRST `<label>` ancestor — when labels are
+    // nested (`<label><label><input></label></label>`), only the
+    // innermost wrapping label claims the control (HTML §4.10.4
+    // "first such ancestor" clause).  Pre-compute that innermost
+    // label by walking up from the control; later in the tree-order
+    // pass we only push the label entity that equals it.
+    let innermost_wrapping_label = {
+        let mut cur = dom.get_parent(control);
+        let mut depth: u32 = 0;
+        let mut found: Option<Entity> = None;
+        while let Some(p) = cur {
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+            if dom.has_tag(p, "label") {
+                let for_present = dom.with_attribute(p, "for", |v| v.is_some());
+                if !for_present {
+                    found = Some(p);
+                }
+                break;
+            }
+            cur = dom.get_parent(p);
+            depth += 1;
+        }
+        found
+    };
+
     // Single tree-order walk: every `<label>` in the control's tree
-    // is classified once as either id-matched (form 1) or wrapping
-    // ancestor (form 2).  Tree order is preserved automatically —
-    // both association forms collapse onto the same pre-order walk
-    // so `.labels.item(0)` is the first label in document order.
+    // is classified once as either id-matched (Form 1) or the
+    // innermost wrapping ancestor (Form 2).  Tree order is
+    // preserved automatically because both forms collapse onto the
+    // same pre-order walk.
     let root = dom.find_tree_root(control);
     dom.traverse_descendants(root, |e| {
         if e == root || !dom.has_tag(e, "label") {
@@ -130,9 +158,10 @@ pub(super) fn collect_labels_for(ctx: &mut NativeContext<'_>, control: Entity) -
                 }
             }
             None => {
-                // Form 2 — wrapping `<label>` with no `for=` at all.
-                // Match when `e` is an ancestor of `control`.
-                if dom.is_ancestor_or_self(e, control) && e != control {
+                // Form 2 — only the innermost wrapping label
+                // (computed above) qualifies; outer label
+                // ancestors are blocked by their inner sibling.
+                if Some(e) == innermost_wrapping_label {
                     result.push(e);
                 }
             }

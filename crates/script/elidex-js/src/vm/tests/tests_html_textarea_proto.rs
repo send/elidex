@@ -396,6 +396,67 @@ fn textarea_set_range_text_throws_for_start_greater_than_end() {
 }
 
 #[test]
+fn textarea_set_selection_range_throws_type_error_when_args_missing() {
+    // WebIDL: setSelectionRange(start, end, direction?) — both
+    // start and end are required, so a 0- or 1-arg call must
+    // throw TypeError.
+    let out = run("var t = document.createElement('textarea'); \
+         var r = 'no throw'; \
+         try { t.setSelectionRange(); } \
+         catch (e) { r = (e instanceof TypeError) ? 'TypeError' : 'other:' + e; } \
+         r;");
+    assert_eq!(out, "TypeError");
+}
+
+#[test]
+fn textarea_set_selection_range_with_one_arg_throws_type_error() {
+    let out = run("var t = document.createElement('textarea'); \
+         var r = 'no throw'; \
+         try { t.setSelectionRange(2); } \
+         catch (e) { r = (e instanceof TypeError) ? 'TypeError' : 'other'; } \
+         r;");
+    assert_eq!(out, "TypeError");
+}
+
+#[test]
+fn textarea_set_range_text_two_arg_form_throws_type_error() {
+    // WebIDL overloads: setRangeText(replacement) OR
+    // setRangeText(replacement, start, end, selectionMode?).
+    // 2-arg form is not in the overload set.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'hello'; \
+         var r = 'no throw'; \
+         try { t.setRangeText('x', 1); } \
+         catch (e) { r = (e instanceof TypeError) ? 'TypeError' : 'other'; } \
+         r;");
+    assert_eq!(out, "TypeError");
+}
+
+#[test]
+fn textarea_set_range_text_unknown_selection_mode_throws_type_error() {
+    // selectionMode is a WebIDL enum {select, start, end, preserve};
+    // any other value is an enum-coercion TypeError.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'hello'; \
+         var r = 'no throw'; \
+         try { t.setRangeText('x', 0, 1, 'sideways'); } \
+         catch (e) { r = (e instanceof TypeError) ? 'TypeError' : 'other'; } \
+         r;");
+    assert_eq!(out, "TypeError");
+}
+
+#[test]
+fn textarea_set_range_text_one_arg_form_uses_current_selection() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'hello world'; \
+         t.setSelectionRange(0, 5); \
+         t.setRangeText('JS'); \
+         t.value;");
+    // 1-arg form is still valid; uses current selection [0,5).
+    assert_eq!(out, "JS world");
+}
+
+#[test]
 fn textarea_set_range_text_explicit_end_mode() {
     let out = run("var t = document.createElement('textarea'); \
          t.value = 'hello world'; \
