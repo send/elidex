@@ -6,6 +6,43 @@
 //! pointers live through `NativeContext::host()`) and is only reachable
 //! from code paths that have already verified boundness.
 //!
+//! ## Layering mandate (CLAUDE.md, drift incident 2026-05-04)
+//!
+//! Files under `vm/host/` are restricted to **engine-bound responsibilities
+//! only**: prototype install, brand check, and `JsValue` ↔ `Entity`
+//! marshalling.  DOM mutation algorithms, selector matching, form
+//! validation, live-collection walkers, label association, and constraint
+//! validation must be invoked through engine-independent crates
+//! (`elidex-dom-api` / `elidex-form` / `elidex-css` /
+//! `elidex-script-session::DomApiHandler`).  See
+//! `memory/m4-12-architectural-drift-incident.md` for the prior incident
+//! that led to this rule and `m4-12-arch-hoist-roadmap.md` for the
+//! recovery sequence (`#11-arch-hoist-{a..e}` → `#11-tags-T1-v2`).
+//!
+//! ## Handler dispatch flow (slot #11-arch-hoist-a)
+//!
+//! ```text
+//! native fn (vm/host/*.rs)
+//!   | brand check (entity_from_this / require_node_arg)
+//!   | call-site ToString (coerce_first_arg_to_string)
+//!   v
+//! dom_bridge::invoke_dom_api(ctx, "<method>", entity, &args)
+//!   | Phase 1: prepare_arg → PreVal (Symbol/BigInt → TypeError)
+//!   | Phase 2: with_session_and_dom — materialize args (session-side
+//!   |          identity_map → JsObjectRef), invoke handler, resolve
+//!   |          ObjectRef return through identity_map → Entity
+//!   | Phase 3: dom_api_error_to_vm_error / wrap entity → ObjectId
+//!   v
+//! return JsValue
+//! ```
+//!
+//! `VmInner.dom_registry: Rc<DomHandlerRegistry>` is initialised once
+//! at `Vm::new` (`vm/init.rs`) and never mutated.  Handler resolution
+//! is by `&'static str` method name; missing handlers are a hard
+//! error (`VmError::type_error("Unknown DOM method: ...")`) — there
+//! is intentionally no direct-call fallback so that drift back to
+//! `EcsDom::*` direct calls cannot silently re-occur.
+//!
 //! Submodule responsibilities:
 //!
 //! - [`event_target`] — `EventTarget.prototype` intrinsic + native
@@ -26,8 +63,10 @@
 //! - [`elements`] — `create_element_wrapper` (entity → wrapper
 //!   ObjectId, with per-entity prototype branching: Element vs
 //!   non-Element Nodes).
-//! - [`dom_bridge`] — shared selector-parse and wrapper-lift helpers
-//!   used by both `document.rs` and Element / Node prototype natives.
+//! - [`dom_bridge`] — shared selector-parse / wrapper-lift helpers
+//!   used by both `document.rs` and Element / Node prototype natives,
+//!   **plus** the `DomApiHandler` dispatch bridge
+//!   (`invoke_dom_api`) introduced by slot #11-arch-hoist-a.
 
 pub(crate) mod abort;
 pub(super) mod abort_statics;
