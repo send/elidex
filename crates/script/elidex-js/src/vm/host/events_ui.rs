@@ -152,12 +152,11 @@ fn parse_ui_members(
     // with two's-complement reinterpret).  Browsers surface 0 for
     // `new UIEvent('x', {detail: NaN}).detail`; preserving NaN was the
     // pre-R3.4 behaviour.
-    let detail = match detail_val {
-        JsValue::Undefined => 0.0,
-        _ => {
-            let n = super::super::coerce::to_number(ctx.vm, detail_val)?;
-            f64::from(super::super::coerce::f64_to_int32(n))
-        }
+    let detail = if let JsValue::Undefined = detail_val {
+        0.0
+    } else {
+        let n = super::super::coerce::to_number(ctx.vm, detail_val)?;
+        f64::from(super::super::coerce::f64_to_int32(n))
     };
     Ok((view, detail))
 }

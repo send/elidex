@@ -49,7 +49,7 @@ fn close_with_pending_chunks_finalises_after_drain() {
 /// reclaimed — not a hard-coded `1.0` decrement.
 #[test]
 fn dequeue_decrements_by_recorded_chunk_size() {
-    let source = r#"
+    let source = r"
         let ctrl;
         const s = new ReadableStream(
             { start(c) { ctrl = c; c.enqueue(new Uint8Array(10)); } },
@@ -62,7 +62,7 @@ fn dequeue_decrements_by_recorded_chunk_size() {
         r.read().then(_ => {
             globalThis.result = ctrl.desiredSize;
         });
-    "#;
+    ";
     let mut vm = Vm::new();
     vm.eval(source).unwrap();
     let v = vm.get_global("result");
@@ -78,11 +78,11 @@ fn dequeue_decrements_by_recorded_chunk_size() {
 /// every other value → TypeError.
 #[test]
 fn get_reader_accepts_undefined_mode() {
-    let source = r#"
+    let source = r"
         const s = new ReadableStream();
         const r = s.getReader({});
         globalThis.result = r instanceof ReadableStreamDefaultReader;
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 
@@ -107,12 +107,12 @@ fn get_reader_rejects_byob_mode() {
 /// reader instance is brand-correct + locks the source stream.
 #[test]
 fn reader_constructor_locks_stream_and_brand_checks() {
-    let source = r#"
+    let source = r"
         const s = new ReadableStream();
         const r = new ReadableStreamDefaultReader(s);
         globalThis.result =
             r instanceof ReadableStreamDefaultReader && s.locked === true;
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 
@@ -123,11 +123,11 @@ fn reader_constructor_locks_stream_and_brand_checks() {
 fn reader_constructor_rejects_locked_stream() {
     let mut vm = Vm::new();
     let result = vm.eval(
-        r#"
+        r"
         const s = new ReadableStream();
         s.getReader();
         new ReadableStreamDefaultReader(s);
-        "#,
+        ",
     );
     assert!(result.is_err());
 }
@@ -181,10 +181,10 @@ fn body_returns_disturbed_stream_after_text_consumes_first() {
 /// from `.body` so the no-body case isn't masked.
 #[test]
 fn body_returns_null_for_no_body_response() {
-    let source = r#"
+    let source = r"
         const r = new Response();
         globalThis.result = r.body === null;
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 
@@ -287,9 +287,9 @@ fn get_reader_rejects_number_options() {
 /// whose `read()` rejects, not a closed stream whose `read()`
 /// returns `{done:true}`.  Phase 2 cannot easily construct a
 /// >4GiB body in a unit test — verified instead by inspecting
-/// the order-of-operations contract via doc + manual review;
-/// the smaller invariant we *can* test is that `error()` after
-/// `close()` is a no-op (so the fix path matters).
+/// > the order-of-operations contract via doc + manual review;
+/// > the smaller invariant we *can* test is that `error()` after
+/// > `close()` is a no-op (so the fix path matters).
 #[test]
 fn error_after_close_is_no_op() {
     // Sanity: this confirms that `error_stream`'s "early-return
@@ -321,7 +321,7 @@ fn error_after_close_is_no_op() {
 fn pull_returning_undefined_does_not_infinite_loop() {
     // Tracks pull invocation count.  Without R7.1 fix this would
     // grow unboundedly during the single eval microtask drain.
-    let source = r#"
+    let source = r"
         let pullCount = 0;
         const s = new ReadableStream({
             pull() { pullCount++; globalThis.result = pullCount; }
@@ -332,7 +332,7 @@ fn pull_returning_undefined_does_not_infinite_loop() {
         // harness).  R7.1 bug: each pull-step microtask would
         // schedule another pull.  After the fix, pull fires once
         // and `pullCount` settles at 1.
-    "#;
+    ";
     let mut vm = Vm::new();
     vm.eval(source).unwrap();
     let v = vm.get_global("result");
@@ -341,7 +341,7 @@ fn pull_returning_undefined_does_not_infinite_loop() {
         other => panic!("expected number, got {other:?}"),
     };
     assert!(
-        count >= 1.0 && count <= 2.0,
+        (1.0..=2.0).contains(&count),
         "pull should fire ~1× then quiesce, got {count}"
     );
 }
@@ -360,10 +360,10 @@ fn pull_returning_undefined_does_not_infinite_loop() {
 /// Response-ctor side which shares the `.body === null` invariant.
 #[test]
 fn null_body_status_response_has_null_body() {
-    let source = r#"
+    let source = r"
         const r = new Response(null, { status: 204 });
         globalThis.result = r.body === null;
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 
@@ -377,11 +377,11 @@ fn null_body_status_response_has_null_body() {
 /// flipping null to non-null.
 #[test]
 fn null_body_receiver_stays_null_body_after_mixin_consumed() {
-    let source = r#"
+    let source = r"
         const r = new Response();   // no body, .body === null
         r.text();
         globalThis.result = r.body === null;
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 

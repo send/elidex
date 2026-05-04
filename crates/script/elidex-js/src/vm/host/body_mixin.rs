@@ -253,7 +253,7 @@ pub(super) fn native_body_text(
     let check = check_body(ctx, this, "text")?;
     let promise = create_promise(ctx.vm);
     let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     match check {
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),
@@ -275,7 +275,7 @@ pub(super) fn native_body_json(
     let check = check_body(ctx, this, "json")?;
     let promise = create_promise(ctx.vm);
     let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     match check {
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),
@@ -311,7 +311,7 @@ pub(super) fn native_body_array_buffer(
     let check = check_body(ctx, this, "arrayBuffer")?;
     let promise = create_promise(ctx.vm);
     let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     match check {
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),
@@ -332,7 +332,7 @@ pub(super) fn native_body_blob(
     let check = check_body(ctx, this, "blob")?;
     let promise = create_promise(ctx.vm);
     let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut rooted_holder = super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     match check {
         BodyReadCheck::AlreadyUsed => reject_body_already_used(ctx, promise),

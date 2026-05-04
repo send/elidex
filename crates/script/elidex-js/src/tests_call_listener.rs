@@ -44,7 +44,11 @@ fn register_listener_via_global(
     // at the call site after the listener invocation.
     engine.vm().install_host_data(HostData::new());
     unsafe {
-        engine.vm().bind(session as *mut _, dom as *mut _, document);
+        engine.vm().bind(
+            std::ptr::from_mut(session),
+            std::ptr::from_mut(dom),
+            document,
+        );
     }
     engine
         .vm()
@@ -296,9 +300,7 @@ fn missing_listener_id_silently_no_ops() {
     let target = dom.create_element("div", Attributes::default());
     #[allow(unsafe_code)]
     unsafe {
-        engine
-            .vm()
-            .bind(&mut session as *mut _, &mut dom as *mut _, doc);
+        engine.vm().bind(&raw mut session, &raw mut dom, doc);
     }
 
     let mut event = DispatchEvent::new("click", target);

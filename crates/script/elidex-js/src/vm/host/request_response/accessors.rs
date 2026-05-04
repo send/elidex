@@ -226,7 +226,7 @@ pub(super) fn native_request_clone(
     // today (`gc_enabled = false` inside natives) but preserved
     // uniformly.
     let mut g = ctx.vm.push_temp_root(JsValue::Object(new_headers));
-    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     copy_headers_entries(ctx, src_headers_id, new_headers);
     // Propagate the source guard so a cloned Request built from
@@ -477,7 +477,7 @@ pub(super) fn native_response_clone(
     // Root `new_headers` across the splice + clone-alloc window
     // (R16 GC-safety invariant — mirrors `native_request_clone`).
     let mut g = ctx.vm.push_temp_root(JsValue::Object(new_headers));
-    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     copy_headers_entries(ctx, src_headers_id, new_headers);
     if let Some(src_guard) = ctx.vm.headers_states.get(&src_headers_id).map(|s| s.guard) {

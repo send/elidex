@@ -85,7 +85,7 @@ pub(super) fn init_from_array_buffer(
             // Auto-length: `buffer.byteLength - byteOffset`, and
             // that remainder must itself be aligned.
             let remainder = buf_len - byte_offset;
-            if remainder % bpe != 0 {
+            if !remainder.is_multiple_of(bpe) {
                 return Err(VmError::range_error(format!(
                     "Failed to construct '{}': byte length of buffer should be a multiple of {bpe}",
                     ek.name()
@@ -103,7 +103,7 @@ pub(super) fn init_from_array_buffer(
             })?;
             if byte_offset
                 .checked_add(byte_len)
-                .map_or(true, |end| end > buf_len)
+                .is_none_or(|end| end > buf_len)
             {
                 return Err(VmError::range_error(format!(
                     "Failed to construct '{}': length out of range of buffer",

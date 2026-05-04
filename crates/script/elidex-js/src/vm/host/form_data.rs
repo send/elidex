@@ -326,13 +326,13 @@ fn native_fd_set(
             if e.name != new_entry.name {
                 return true;
             }
-            if !replaced {
+            if replaced {
+                false
+            } else {
                 e.value = new_entry.value;
                 e.filename = new_entry.filename;
                 replaced = true;
                 true
-            } else {
-                false
             }
         });
         if !replaced {

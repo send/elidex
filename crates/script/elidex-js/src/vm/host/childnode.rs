@@ -316,7 +316,7 @@ fn native_child_node_before(
     let viable_prev = preceding_siblings
         .iter()
         .rev()
-        .find(|&&sib| !children.iter().any(|&c| c == sib))
+        .find(|&&sib| !children.contains(&sib))
         .copied();
     let mut anchor = match viable_prev {
         Some(prev) => ctx.host().dom().get_next_sibling(prev),
@@ -398,7 +398,7 @@ fn native_child_node_after(
     // Append (viableNextSibling == None) otherwise.
     let viable_next = following_siblings
         .iter()
-        .find(|&&sib| !children.iter().any(|&c| c == sib))
+        .find(|&&sib| !children.contains(&sib))
         .copied();
     let mut err = None;
     for child in children {
@@ -493,7 +493,7 @@ fn native_child_node_replace_with(
     // snapshot that is NOT one of the nodes being inserted.
     let viable_next = following_siblings
         .iter()
-        .find(|&&sib| !children.iter().any(|&c| c == sib))
+        .find(|&&sib| !children.contains(&sib))
         .copied();
     let _ = ctx.host().dom().remove_child(parent, entity);
     let mut err = None;

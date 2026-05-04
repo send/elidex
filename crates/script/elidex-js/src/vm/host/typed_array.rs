@@ -389,14 +389,13 @@ pub(crate) fn coerce_element_to_le_bytes(
             8
         }
     })
-    .map(|len| {
+    .inspect(|&len| {
         debug_assert_eq!(
             len,
             usize::from(ek.bytes_per_element()),
             "coerce_element_to_le_bytes wrote {len} bytes but ek={ek:?} declares bytes_per_element()={}",
             ek.bytes_per_element()
         );
-        len
     })
 }
 

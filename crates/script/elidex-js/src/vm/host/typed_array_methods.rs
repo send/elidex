@@ -406,7 +406,7 @@ pub(crate) fn native_typed_array_set(
             let src_len = src_bytelen / src_bpe;
             if target_offset
                 .checked_add(src_len)
-                .map_or(true, |end| end > dst_len)
+                .is_none_or(|end| end > dst_len)
             {
                 return Err(VmError::range_error(
                     "Failed to execute 'set' on 'TypedArray': offset + length out of range",
@@ -526,7 +526,7 @@ fn set_array_like_body(
     };
     if target_offset
         .checked_add(src_len)
-        .map_or(true, |end| end > dst_len)
+        .is_none_or(|end| end > dst_len)
     {
         return Err(VmError::range_error(
             "Failed to execute 'set' on 'TypedArray': offset + length out of range",

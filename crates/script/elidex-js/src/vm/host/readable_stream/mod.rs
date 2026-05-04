@@ -639,7 +639,7 @@ pub(super) fn do_stream_cancel(vm: &mut VmInner, stream_id: ObjectId, reason: Js
         .unwrap_or(JsValue::Undefined);
     if let Some(JsValue::Object(fn_id)) = cancel_cb {
         let result = {
-            let mut ctx = NativeContext { vm: &mut *g_p };
+            let mut ctx = NativeContext { vm: &mut g_p };
             ctx.call_function(fn_id, this_arg, &[reason])
         };
         match result {

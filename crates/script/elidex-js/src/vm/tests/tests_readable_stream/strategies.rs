@@ -125,7 +125,7 @@ fn byte_length_queuing_strategy_boolean_high_water_mark_coerces_to_one() {
     let mut vm = Vm::new();
     let v = eval_number(
         &mut vm,
-        r#"new ByteLengthQueuingStrategy({highWaterMark: true}).highWaterMark"#,
+        r"new ByteLengthQueuingStrategy({highWaterMark: true}).highWaterMark",
     );
     assert_eq!(v, 1.0, "boolean highWaterMark must coerce to 1.0");
 }

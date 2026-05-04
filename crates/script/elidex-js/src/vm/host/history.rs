@@ -154,17 +154,16 @@ fn state_mutate(
         // SecurityError/SyntaxError" depending on same-origin state;
         // Phase 2 uses SyntaxError uniformly (SecurityError lands
         // with the shell navigation bridge in PR6).
-        match ctx.vm.navigation.current_url.join(&input) {
-            Ok(u) => u,
-            Err(_) => {
-                let syntax = ctx.vm.well_known.dom_exc_syntax_error;
-                return Err(VmError::dom_exception(
-                    syntax,
-                    format!(
-                        "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
-                    ),
-                ));
-            }
+        if let Ok(u) = ctx.vm.navigation.current_url.join(&input) {
+            u
+        } else {
+            let syntax = ctx.vm.well_known.dom_exc_syntax_error;
+            return Err(VmError::dom_exception(
+                syntax,
+                format!(
+                    "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
+                ),
+            ));
         }
     };
 

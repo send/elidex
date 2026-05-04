@@ -359,19 +359,16 @@ pub(super) fn deliver_pending_reads(vm: &mut VmInner, stream_id: ObjectId) {
                 None => None,
             }
         };
-        match chunk_pair {
-            Some(chunk) => {
-                let result = vm.create_iter_result(chunk, false);
-                let _ = settle_promise(vm, read_promise_id, false, JsValue::Object(result));
+        if let Some(chunk) = chunk_pair {
+            let result = vm.create_iter_result(chunk, false);
+            let _ = settle_promise(vm, read_promise_id, false, JsValue::Object(result));
+        } else {
+            if let Some(reader_state) = vm.readable_stream_reader_states.get_mut(&reader_id) {
+                reader_state
+                    .pending_read_promises
+                    .push_front(read_promise_id);
             }
-            None => {
-                if let Some(reader_state) = vm.readable_stream_reader_states.get_mut(&reader_id) {
-                    reader_state
-                        .pending_read_promises
-                        .push_front(read_promise_id);
-                }
-                break;
-            }
+            break;
         }
     }
 

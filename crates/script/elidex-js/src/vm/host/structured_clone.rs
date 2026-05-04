@@ -822,23 +822,22 @@ pub(super) fn ensure_empty_transfer_list(
             // in `headers.rs` (`parse_init`) and `blob.rs`
             // (`blob_ctor_parts`); propagating the error via `?`
             // is spec-compliant.
-            match ctx.vm.iter_next(iter)? {
-                None => Ok(()),
-                Some(_) => {
-                    // Non-empty iteration is an abrupt completion
-                    // from OUR loop body (not the iterator
-                    // itself), so `IteratorClose` must run before
-                    // surfacing the Phase 2 limitation (§7.4.8
-                    // IteratorClose).  A `.return()` throw takes
-                    // precedence over the triggering abrupt.
-                    if let Some(close_err) = ctx.vm.iter_close(iter).err() {
-                        return Err(close_err);
-                    }
-                    Err(VmError::dom_exception(
-                        ctx.vm.well_known.dom_exc_data_clone_error,
-                        format!("{err_prefix}: Transferable objects are not yet supported."),
-                    ))
+            if ctx.vm.iter_next(iter)? == None {
+                Ok(())
+            } else {
+                // Non-empty iteration is an abrupt completion
+                // from OUR loop body (not the iterator
+                // itself), so `IteratorClose` must run before
+                // surfacing the Phase 2 limitation (§7.4.8
+                // IteratorClose).  A `.return()` throw takes
+                // precedence over the triggering abrupt.
+                if let Some(close_err) = ctx.vm.iter_close(iter).err() {
+                    return Err(close_err);
                 }
+                Err(VmError::dom_exception(
+                    ctx.vm.well_known.dom_exc_data_clone_error,
+                    format!("{err_prefix}: Transferable objects are not yet supported."),
+                ))
             }
         }
         _ => Err(VmError::type_error(format!(

@@ -115,7 +115,7 @@ pub(super) fn build_response_instance(
     // R18.2 / Audit 1 (R18-audit).
     let headers_id = ctx.vm.create_headers(HeadersGuard::None);
     let mut g = ctx.vm.push_temp_root(JsValue::Object(headers_id));
-    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     if let Some(hval) = init_headers {
         fill_headers_like(ctx, headers_id, hval, "Failed to construct 'Response'")?;

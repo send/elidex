@@ -169,7 +169,7 @@ fn native_fetch(
     // constructors) keeps the codebase uniform and protects
     // against future refactors that relax the gate.
     let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut temp_holder = super::super::value::NativeContext { vm: &mut *g };
+    let mut temp_holder = super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut temp_holder;
 
     // Parse `init.signal` before building the Request so a bogus

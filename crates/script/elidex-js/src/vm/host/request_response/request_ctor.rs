@@ -144,7 +144,7 @@ pub(super) fn native_request_constructor(
     // (Response clone) / R18.2 (broker Response) (R18-audit).
     let headers_id = ctx.vm.create_headers(HeadersGuard::Request);
     let mut g = ctx.vm.push_temp_root(JsValue::Object(headers_id));
-    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     // Copy entries from either the source Request's headers or the
     // init dict's `headers` value (if provided, it overrides).

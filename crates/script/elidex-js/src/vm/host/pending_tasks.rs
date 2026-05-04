@@ -240,9 +240,7 @@ fn dispatch_post_message(
     // its `ObjectId`; the outer `g` GC root keeps the event alive,
     // and the slot install will write `ports_arr` into the event
     // before any subsequent allocation could collect it.
-    let source_val = source_window_id
-        .map(JsValue::Object)
-        .unwrap_or(JsValue::Null);
+    let source_val = source_window_id.map_or(JsValue::Null, JsValue::Object);
     let ports_arr = g.create_array_object(Vec::new());
     let slots: Vec<PropertyValue> = vec![
         PropertyValue::Data(JsValue::String(message_type_sid)),

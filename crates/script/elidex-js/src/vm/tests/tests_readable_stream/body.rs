@@ -138,26 +138,26 @@ fn enqueue_after_close_throws() {
 fn double_close_throws() {
     let mut vm = Vm::new();
     let result = vm.eval(
-        r#"
+        r"
         new ReadableStream({
             start(c) {
                 c.close();
                 c.close();
             }
         });
-        "#,
+        ",
     );
     assert!(result.is_err());
 }
 
 #[test]
 fn release_lock_then_get_reader_again_works() {
-    let source = r#"
+    let source = r"
         const s = new ReadableStream();
         s.getReader().releaseLock();
         const r2 = s.getReader();
         globalThis.result = r2 instanceof ReadableStreamDefaultReader;
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 

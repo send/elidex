@@ -500,12 +500,12 @@ fn native_usp_set(
             if *n != name_sid {
                 return true;
             }
-            if !replaced {
+            if replaced {
+                false
+            } else {
                 *v = value_sid;
                 replaced = true;
                 true
-            } else {
-                false
             }
         });
         if !replaced {

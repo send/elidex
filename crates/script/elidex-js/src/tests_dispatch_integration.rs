@@ -47,7 +47,9 @@ fn bind_after_dom(
     doc: Entity,
 ) {
     unsafe {
-        engine.vm().bind(session as *mut _, dom as *mut _, doc);
+        engine
+            .vm()
+            .bind(std::ptr::from_mut(session), std::ptr::from_mut(dom), doc);
     }
 }
 

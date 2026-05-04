@@ -192,6 +192,9 @@ fn cookie_setter_is_noop() {
 
 #[test]
 fn referrer_getter_returns_empty_string() {
-    let out = run_with("document.referrer;", |dom| dom.create_document_root());
+    let out = run_with(
+        "document.referrer;",
+        elidex_ecs::EcsDom::create_document_root,
+    );
     assert_eq!(out, "");
 }

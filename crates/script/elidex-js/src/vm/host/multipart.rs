@@ -172,10 +172,10 @@ fn materialise(vm: &VmInner, entry: &FormDataEntry) -> MaterialisedEntry {
             is_blob: false,
         },
         FormDataValue::Blob(blob_id) => {
-            let raw_filename = entry
-                .filename
-                .map(|sid| vm.strings.get_utf8(sid))
-                .unwrap_or_else(|| vm.strings.get_utf8(vm.well_known.blob_default_filename));
+            let raw_filename = entry.filename.map_or_else(
+                || vm.strings.get_utf8(vm.well_known.blob_default_filename),
+                |sid| vm.strings.get_utf8(sid),
+            );
             let quoted_filename = header_quote(raw_filename.as_bytes());
             let blob_type_sid = super::blob::blob_type(vm, *blob_id);
             let content_type = if blob_type_sid == vm.well_known.empty {

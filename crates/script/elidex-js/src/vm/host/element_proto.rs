@@ -276,7 +276,7 @@ fn native_element_get_first_element_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.first_element_child(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::first_element_child)
 }
 
 fn native_element_get_last_element_child(
@@ -284,7 +284,7 @@ fn native_element_get_last_element_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.last_element_child(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::last_element_child)
 }
 
 fn native_element_get_next_element_sibling(
@@ -292,7 +292,7 @@ fn native_element_get_next_element_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.next_element_sibling(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::next_element_sibling)
 }
 
 fn native_element_get_previous_element_sibling(
@@ -300,7 +300,7 @@ fn native_element_get_previous_element_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.prev_element_sibling(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::prev_element_sibling)
 }
 
 fn native_element_get_children(

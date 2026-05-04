@@ -188,7 +188,7 @@ pub(super) fn native_response_static_json(
     // uniform so a future GC-enabled native path doesn't surface
     // a use-after-free here.
     let mut g = ctx.vm.push_temp_root(JsValue::Object(inst_id));
-    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut *g };
+    let mut rooted_holder = super::super::super::value::NativeContext { vm: &mut g };
     let ctx = &mut rooted_holder;
     let json_ct = ctx.vm.well_known.application_json_utf8;
     build_response_instance(

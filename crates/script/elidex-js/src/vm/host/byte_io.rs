@@ -207,14 +207,13 @@ pub(super) fn fill_pattern(
     }
     // Post-`total_len == 0` early-return: `pattern.len() >= 1` and
     // `count >= 1`, so the empty-pattern arm is unreachable here.
-    match pattern {
-        [b] => dst[abs..end].fill(*b),
-        _ => {
-            let plen = pattern.len();
-            for i in 0..count {
-                let dst_start = abs + i * plen;
-                dst[dst_start..dst_start + plen].copy_from_slice(pattern);
-            }
+    if let [b] = pattern {
+        dst[abs..end].fill(*b)
+    } else {
+        let plen = pattern.len();
+        for i in 0..count {
+            let dst_start = abs + i * plen;
+            dst[dst_start..dst_start + plen].copy_from_slice(pattern);
         }
     }
 }

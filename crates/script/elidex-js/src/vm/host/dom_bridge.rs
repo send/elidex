@@ -64,7 +64,10 @@ pub(super) fn parse_dom_selector(
             format!("Invalid selector: {selector_str}"),
         )
     })?;
-    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
+    if selectors
+        .iter()
+        .any(elidex_css::Selector::has_shadow_pseudo)
+    {
         return Err(VmError::dom_exception(
             syntax_error_name,
             format!(":host and ::slotted() are not valid in {shadow_method_label}"),

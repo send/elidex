@@ -618,8 +618,8 @@ mod engine_feature {
             let mut session = SessionCore::new();
             let mut dom = EcsDom::new();
             let doc = dom.create_document_root();
-            let session_ptr: *mut SessionCore = &mut session;
-            let dom_ptr: *mut EcsDom = &mut dom;
+            let session_ptr: *mut SessionCore = &raw mut session;
+            let dom_ptr: *mut EcsDom = &raw mut dom;
             assert_ne!(
                 session_ptr.cast::<u8>(),
                 dom_ptr.cast::<u8>(),
@@ -639,6 +639,7 @@ mod engine_feature {
         /// to catch the most common misuse (passing the same
         /// pointer twice).  Pure comparison, never derefs.
         #[test]
+        #[allow(clippy::cast_ptr_alignment)] // synthetic address, never derefed
         fn pointers_alias_at_base_detects_same_address() {
             let addr = 0x1234usize as *const u8;
             assert!(pointers_alias_at_base(
@@ -656,10 +657,7 @@ mod engine_feature {
         fn pointers_alias_at_base_distinguishes_distinct_addresses() {
             let session = SessionCore::new();
             let dom = EcsDom::new();
-            assert!(!pointers_alias_at_base(
-                &session as *const SessionCore,
-                &dom as *const EcsDom,
-            ));
+            assert!(!pointers_alias_at_base(&raw const session, &raw const dom,));
         }
     }
 

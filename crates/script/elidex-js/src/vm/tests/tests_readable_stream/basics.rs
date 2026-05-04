@@ -38,7 +38,7 @@ fn readable_stream_locked_initially_false() {
 
 #[test]
 fn start_callback_receives_controller() {
-    let source = r#"
+    let source = r"
         let isCtrl = false;
         new ReadableStream({
             start(c) {
@@ -46,7 +46,7 @@ fn start_callback_receives_controller() {
             }
         });
         globalThis.result = isCtrl;
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 
@@ -75,11 +75,11 @@ fn enqueue_then_read_resolves_with_value_done_false() {
 
 #[test]
 fn read_after_close_returns_done_true() {
-    let source = r#"
+    let source = r"
         const s = new ReadableStream({ start(c) { c.close(); } });
         const r = s.getReader();
         r.read().then(v => { globalThis.result = v.done; });
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 
@@ -87,13 +87,13 @@ fn read_after_close_returns_done_true() {
 fn read_pending_resolves_on_later_enqueue() {
     let mut vm = Vm::new();
     vm.eval(
-        r#"
+        r"
         let ctrl;
         const s = new ReadableStream({ start(c) { ctrl = c; } });
         const r = s.getReader();
         r.read().then(v => { globalThis.result = v.value; });
         ctrl.enqueue(42);
-        "#,
+        ",
     )
     .unwrap();
     let result = vm.get_global("result").unwrap();
@@ -109,11 +109,11 @@ fn read_pending_resolves_on_later_enqueue() {
 
 #[test]
 fn get_reader_locks_stream() {
-    let source = r#"
+    let source = r"
         const s = new ReadableStream();
         s.getReader();
         globalThis.result = s.locked;
-    "#;
+    ";
     assert!(eval_global_bool(source, "result"));
 }
 
@@ -121,23 +121,23 @@ fn get_reader_locks_stream() {
 fn get_reader_twice_throws() {
     let mut vm = Vm::new();
     let result = vm.eval(
-        r#"
+        r"
         const s = new ReadableStream();
         s.getReader();
         s.getReader();
-        "#,
+        ",
     );
     assert!(result.is_err());
 }
 
 #[test]
 fn release_lock_unlocks_stream() {
-    let source = r#"
+    let source = r"
         const s = new ReadableStream();
         const r = s.getReader();
         r.releaseLock();
         globalThis.result = s.locked;
-    "#;
+    ";
     assert!(!eval_global_bool(source, "result"));
 }
 
@@ -167,11 +167,11 @@ fn desired_size_starts_at_high_water_mark() {
     let mut vm = Vm::new();
     let v = eval_number(
         &mut vm,
-        r#"
+        r"
         let ds;
         new ReadableStream({ start(c) { ds = c.desiredSize; } });
         ds;
-        "#,
+        ",
     );
     assert_eq!(v, 1.0);
 }

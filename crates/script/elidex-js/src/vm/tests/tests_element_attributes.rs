@@ -7,7 +7,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom};
+use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;
 
 use super::super::test_helpers::bind_vm;
