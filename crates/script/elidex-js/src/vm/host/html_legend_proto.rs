@@ -100,63 +100,10 @@ fn native_legend_get_form(
     if !dom.has_tag(parent, "fieldset") {
         return Ok(JsValue::Null);
     }
-    // Resolve the fieldset's form association.  The form attribute
-    // (`<fieldset form="<id>">`) takes precedence per HTML §4.10.18.3;
-    // otherwise climb to the nearest `<form>` ancestor.
-    let form = resolve_form_association(ctx, parent);
-    match form {
+    // Resolve the fieldset's form association via the shared HTML
+    // §4.10.18.3 walker.
+    match super::form_assoc::resolve_form_association(ctx, parent) {
         Some(f) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(f))),
         None => Ok(JsValue::Null),
     }
-}
-
-/// HTML §4.10.18.3 form association walk: the `form="<id>"` content
-/// attribute (when present) names the form by id within the same
-/// tree; otherwise the form is the nearest `<form>` ancestor.
-fn resolve_form_association(ctx: &mut NativeContext<'_>, fieldset: Entity) -> Option<Entity> {
-    let dom = ctx.host().dom();
-    let form_id = dom.with_attribute(fieldset, "form", |v| {
-        v.filter(|s| !s.is_empty()).map(String::from)
-    });
-    if let Some(id) = form_id {
-        // IDREF lookup scoped to the fieldset's tree.  Fall back to
-        // ancestor walk if the id does not name an element OR names
-        // a non-form element (per spec, only a `<form>` matches).
-        let root = dom.owner_document(fieldset).unwrap_or_else(|| {
-            let mut cur = fieldset;
-            let mut depth: u32 = 0;
-            while let Some(p) = dom.get_parent(cur) {
-                if depth > 1024 {
-                    break;
-                }
-                cur = p;
-                depth += 1;
-            }
-            cur
-        });
-        if let Some(target) = dom.find_by_id(root, &id) {
-            if dom.has_tag(target, "form") {
-                return Some(target);
-            }
-        }
-        // form= attribute set but resolves to nothing (or to a
-        // non-form) → no association per spec; do NOT fall back to
-        // ancestor walk.
-        return None;
-    }
-
-    // Climb the ancestor chain for the nearest `<form>`.
-    let mut cur = dom.get_parent(fieldset);
-    let mut depth: u32 = 0;
-    while let Some(p) = cur {
-        if depth > 1024 {
-            return None;
-        }
-        if dom.has_tag(p, "form") {
-            return Some(p);
-        }
-        cur = dom.get_parent(p);
-        depth += 1;
-    }
-    None
 }

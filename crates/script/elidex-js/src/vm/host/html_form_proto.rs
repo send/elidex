@@ -309,7 +309,7 @@ fn native_form_get_length(
             return true;
         }
         let listed = dom.with_tag_name(e, |t| match t {
-            Some(s) => is_listed_form_element_tag(s),
+            Some(s) => super::dom_collection::is_listed_form_element_tag(s),
             None => false,
         });
         if listed {
@@ -318,20 +318,6 @@ fn native_form_get_length(
         true
     });
     Ok(JsValue::Number(f64::from(n)))
-}
-
-/// Local copy of `dom_collection::is_listed_form_element_tag` — kept
-/// in-sync (single-line edit if the spec listed-element set ever
-/// changes).  Inlined here because the dom_collection version is
-/// `pub(super)` to that module's parent and importing `super::super::`
-/// across boundaries would require widening the visibility unduly.
-fn is_listed_form_element_tag(tag: &str) -> bool {
-    const LISTED_ELEMENTS: [&str; 7] = [
-        "button", "fieldset", "input", "object", "output", "select", "textarea",
-    ];
-    LISTED_ELEMENTS
-        .iter()
-        .any(|candidate| candidate.eq_ignore_ascii_case(tag))
 }
 
 fn native_form_get_elements(
@@ -415,17 +401,14 @@ fn native_form_request_submit(
     // the NotSupportedError.
     if let Some(submitter_val) = args.first().copied() {
         if !matches!(submitter_val, JsValue::Undefined | JsValue::Null) {
-            let JsValue::Object(submitter_id) = submitter_val else {
+            // Use the shared `entity_from_this` helper which combines
+            // the JsValue::Object check + HostObject extraction +
+            // bound-VM gate into one call.
+            let Some(submitter_entity) = super::event_target::entity_from_this(ctx, submitter_val)
+            else {
                 return Err(VmError::type_error(
                     "Failed to execute 'requestSubmit' on 'HTMLFormElement': \
                      submitter is not an Element"
-                        .to_string(),
-                ));
-            };
-            let Some(submitter_entity) = entity_from_object_id(ctx, submitter_id) else {
-                return Err(VmError::type_error(
-                    "Failed to execute 'requestSubmit' on 'HTMLFormElement': \
-                     submitter is not a DOM Element"
                         .to_string(),
                 ));
             };
@@ -447,21 +430,6 @@ fn native_form_request_submit(
     ))
 }
 
-/// Recover an Entity from an ObjectId by inspecting the wrapper's
-/// `ObjectKind::HostObject { entity_bits }`.  Returns `None` when
-/// the receiver is not a HostObject.
-fn entity_from_object_id(
-    ctx: &NativeContext<'_>,
-    id: super::super::value::ObjectId,
-) -> Option<Entity> {
-    let kind = &ctx.vm.get_object(id).kind;
-    if let ObjectKind::HostObject { entity_bits } = *kind {
-        Entity::from_bits(entity_bits)
-    } else {
-        None
-    }
-}
-
 /// HTML §4.10.21.3 step 1.x — a valid submitter must be:
 /// 1. A submit-button-eligible element (button[type=submit] /
 ///    input[type=submit] / input[type=image]); and
@@ -473,21 +441,27 @@ fn is_submit_button_descendant_of(
     form: Entity,
 ) -> bool {
     let dom = ctx.host().dom();
-    let tag = match dom.get_tag_name(submitter) {
-        Some(t) => t.to_ascii_lowercase(),
-        None => return false,
-    };
-    let is_submit_button = match tag.as_str() {
-        "button" => {
-            // <button type=submit> or unspecified type (default is submit).
-            let ty = dom.with_attribute(submitter, "type", |v| v.map(|s| s.to_ascii_lowercase()));
-            ty.is_none() || ty.as_deref() == Some("submit")
-        }
-        "input" => {
-            let ty = dom.with_attribute(submitter, "type", |v| v.map(|s| s.to_ascii_lowercase()));
-            matches!(ty.as_deref(), Some("submit") | Some("image"))
-        }
-        _ => false,
+    // `eq_ignore_ascii_case` against the static tag literals avoids
+    // the per-call `to_ascii_lowercase` allocation that an explicit
+    // owned-String round-trip would incur.
+    let is_button = dom.with_tag_name(submitter, |t| {
+        t.is_some_and(|s| s.eq_ignore_ascii_case("button"))
+    });
+    let is_input = dom.with_tag_name(submitter, |t| {
+        t.is_some_and(|s| s.eq_ignore_ascii_case("input"))
+    });
+    let is_submit_button = if is_button {
+        // <button type=submit> or unspecified type (default is submit).
+        dom.with_attribute(submitter, "type", |v| match v {
+            None => true,
+            Some(s) => s.eq_ignore_ascii_case("submit"),
+        })
+    } else if is_input {
+        dom.with_attribute(submitter, "type", |v| {
+            v.is_some_and(|s| s.eq_ignore_ascii_case("submit") || s.eq_ignore_ascii_case("image"))
+        })
+    } else {
+        false
     };
     if !is_submit_button {
         return false;

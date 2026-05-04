@@ -201,7 +201,10 @@ fn native_label_get_form(
     let Some(control) = resolve_label_control(ctx, entity) else {
         return Ok(JsValue::Null);
     };
-    match find_form_ancestor_dom(ctx, control) {
+    // `label.form === control.form` per HTML §4.10.4.  Route through
+    // the shared §4.10.18.3 walker so the control's `form="<id>"`
+    // IDREF is honoured (in addition to the ancestor fallback).
+    match super::form_assoc::resolve_form_association(ctx, control) {
         Some(form) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(form))),
         None => Ok(JsValue::Null),
     }
@@ -319,27 +322,4 @@ fn is_labelable(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
         }
         _ => false,
     }
-}
-
-/// Walk `entity`'s ancestor chain for the nearest `<form>` element.
-/// Mirrors `elidex_form::submit::find_form_ancestor` semantics but
-/// avoids pulling that crate in for Phase 1 — Phase 4 (HTMLFormElement)
-/// will switch to the elidex-form helper once the dep lands.
-fn find_form_ancestor_dom(ctx: &mut NativeContext<'_>, entity: Entity) -> Option<Entity> {
-    let dom = ctx.host().dom();
-    let mut cur = dom.get_parent(entity);
-    let mut depth: u32 = 0;
-    while let Some(p) = cur {
-        if depth > 1024 {
-            // Defensive bound — runaway parents indicate a cycle or
-            // pathological tree depth that is already a bug elsewhere.
-            return None;
-        }
-        if dom.has_tag(p, "form") {
-            return Some(p);
-        }
-        cur = dom.get_parent(p);
-        depth += 1;
-    }
-    None
 }

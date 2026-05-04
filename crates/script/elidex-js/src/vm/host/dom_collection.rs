@@ -405,7 +405,7 @@ fn resolve_entities_with_needles(
 /// included in `fieldset.elements`; we approximate here by including
 /// every `<input>` and refining at a future spec-tightening pass
 /// (slot #11-form-image-button-exclusion).
-fn is_listed_form_element_tag(tag: &str) -> bool {
+pub(super) fn is_listed_form_element_tag(tag: &str) -> bool {
     const LISTED_ELEMENTS: [&str; 7] = [
         "button", "fieldset", "input", "object", "output", "select", "textarea",
     ];
@@ -956,17 +956,22 @@ fn collection_item_impl(
     })
 }
 
-fn native_collection_named_item(
+/// Shared `namedItem` walk: id match wins over name match (WHATWG
+/// §4.2.10.2.1).  The `name_tag_allowlist` argument decides whether
+/// the `name` attribute fallback is restricted to a specific set of
+/// tags (HTMLCollection's allowlist via [`tag_allows_name_lookup`])
+/// or accepts every element (HTMLFormControlsCollection per HTML
+/// §4.10.18.4 — every listed element supports `name`).  Multi-match
+/// radio-group RadioNodeList is deferred per slot
+/// #11-tags-radionodelist.
+fn named_item_lookup(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
+    interface: &'static str,
+    name_tag_allowlist: bool,
 ) -> Result<JsValue, VmError> {
-    // HTMLCollection-only method — unconditionally brand-check
-    // against HTMLCollection.  A NodeList receiver fails at the
-    // require_collection_receiver call since `interface`=HTMLCollection
-    // rejects non-HTMLCollection kinds.
-    let (id, _is_html_collection) =
-        require_collection_receiver(ctx, this, "namedItem", "HTMLCollection")?;
+    let (id, _) = require_collection_receiver(ctx, this, "namedItem", interface)?;
     let Some(arg) = args.first().copied() else {
         return Ok(JsValue::Null);
     };
@@ -976,18 +981,21 @@ fn native_collection_named_item(
         return Ok(JsValue::Null);
     }
     let entities = resolve_receiver_entities(ctx, id);
-    // Pass 1 — id match wins over name match (WHATWG §4.2.10.2 step 2.1).
     let mut name_hit: Option<Entity> = None;
     for &e in &entities {
         let dom = ctx.host().dom();
         if dom.with_attribute(e, "id", |v| v == Some(key.as_str())) {
             return Ok(JsValue::Object(ctx.vm.create_element_wrapper(e)));
         }
-        if name_hit.is_none()
-            && dom.with_tag_name(e, |t| t.is_some_and(tag_allows_name_lookup))
-            && dom.with_attribute(e, "name", |v| v == Some(key.as_str()))
-        {
-            name_hit = Some(e);
+        if name_hit.is_none() {
+            let name_tag_ok = if name_tag_allowlist {
+                dom.with_tag_name(e, |t| t.is_some_and(tag_allows_name_lookup))
+            } else {
+                true
+            };
+            if name_tag_ok && dom.with_attribute(e, "name", |v| v == Some(key.as_str())) {
+                name_hit = Some(e);
+            }
         }
     }
     Ok(match name_hit {
@@ -996,42 +1004,24 @@ fn native_collection_named_item(
     })
 }
 
+fn native_collection_named_item(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    named_item_lookup(ctx, this, args, "HTMLCollection", true)
+}
+
 /// `HTMLFormControlsCollection.prototype.namedItem(name)` per HTML
-/// §4.10.18.4.  Walks the FCC's listed-element set, looking for a
-/// matching `id` (id match wins) or `name` attribute (no tag
-/// allowlist — every listed element supports `name`).  Returns the
-/// first match in tree order; multi-match radio-group RadioNodeList
-/// is deferred per slot #11-tags-radionodelist.
+/// §4.10.18.4 — same id-then-name walk as the parent class, but
+/// without the tag allowlist (every listed form element exposes
+/// `name`).
 fn native_form_controls_named_item(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (id, _) =
-        require_collection_receiver(ctx, this, "namedItem", "HTMLFormControlsCollection")?;
-    let Some(arg) = args.first().copied() else {
-        return Ok(JsValue::Null);
-    };
-    let key_sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let key = ctx.vm.strings.get_utf8(key_sid);
-    if key.is_empty() {
-        return Ok(JsValue::Null);
-    }
-    let entities = resolve_receiver_entities(ctx, id);
-    let mut name_hit: Option<Entity> = None;
-    for &e in &entities {
-        let dom = ctx.host().dom();
-        if dom.with_attribute(e, "id", |v| v == Some(key.as_str())) {
-            return Ok(JsValue::Object(ctx.vm.create_element_wrapper(e)));
-        }
-        if name_hit.is_none() && dom.with_attribute(e, "name", |v| v == Some(key.as_str())) {
-            name_hit = Some(e);
-        }
-    }
-    Ok(match name_hit {
-        Some(e) => JsValue::Object(ctx.vm.create_element_wrapper(e)),
-        None => JsValue::Null,
-    })
+    named_item_lookup(ctx, this, args, "HTMLFormControlsCollection", false)
 }
 
 // Per-interface `@@iterator` wrappers.

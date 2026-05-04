@@ -300,7 +300,11 @@ fn native_button_get_type(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let submit = ctx.vm.well_known.submit_str;
+    // The HTMLButtonElement.type missing/invalid default is "submit"
+    // (HTML §4.10.6) — same string as `form.submit()`'s method name,
+    // so we reuse the pre-interned `submit_method` StringId rather
+    // than allocate a second well_known slot for the same literal.
+    let submit = ctx.vm.well_known.submit_method;
     let Some(entity) = require_button_receiver(ctx, this, "type")? else {
         return Ok(JsValue::String(submit));
     };

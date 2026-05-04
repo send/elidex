@@ -479,9 +479,9 @@ fn native_option_get_form(
     let Some(select) = enclosing_select(ctx, entity) else {
         return Ok(JsValue::Null);
     };
-    // Resolve select's form association: explicit `form="<id>"` IDREF
-    // wins, otherwise nearest <form> ancestor.
-    match resolve_form_association_for(ctx, select) {
+    // Resolve select's form association via the shared HTML
+    // §4.10.18.3 walker.
+    match super::form_assoc::resolve_form_association(ctx, select) {
         Some(f) => Ok(JsValue::Object(ctx.vm.create_element_wrapper(f))),
         None => Ok(JsValue::Null),
     }
@@ -539,49 +539,6 @@ fn visit_select_options(
         }
         child = dom.get_next_sibling(c);
     }
-}
-
-/// HTML §4.10.18.3 form association walk for a form-associated
-/// element: `form="<id>"` content attribute IDREF wins (resolved in
-/// the element's tree); otherwise the nearest `<form>` ancestor.
-fn resolve_form_association_for(ctx: &mut NativeContext<'_>, entity: Entity) -> Option<Entity> {
-    let dom = ctx.host().dom();
-    let form_id = dom.with_attribute(entity, "form", |v| {
-        v.filter(|s| !s.is_empty()).map(String::from)
-    });
-    if let Some(id) = form_id {
-        let root = dom.owner_document(entity).unwrap_or_else(|| {
-            let mut cur = entity;
-            let mut depth: u32 = 0;
-            while let Some(p) = dom.get_parent(cur) {
-                if depth > 1024 {
-                    break;
-                }
-                cur = p;
-                depth += 1;
-            }
-            cur
-        });
-        if let Some(target) = dom.find_by_id(root, &id) {
-            if dom.has_tag(target, "form") {
-                return Some(target);
-            }
-        }
-        return None;
-    }
-    let mut cur = dom.get_parent(entity);
-    let mut depth: u32 = 0;
-    while let Some(p) = cur {
-        if depth > 1024 {
-            return None;
-        }
-        if dom.has_tag(p, "form") {
-            return Some(p);
-        }
-        cur = dom.get_parent(p);
-        depth += 1;
-    }
-    None
 }
 
 /// Collect the option's text per HTML §4.10.10.  Walks every Text

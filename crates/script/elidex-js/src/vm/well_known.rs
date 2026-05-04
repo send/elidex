@@ -791,9 +791,9 @@ define_well_known_strings! {
         form_no_validate => "formNoValidate",
         form_target => "formTarget",
         labels_attr => "labels",
-        // Default-values for enumerated attrs (HTMLButtonElement.type
-        // missing-value → "submit", invalid-value → "submit").
-        submit_str => "submit",
+        // (HTMLButtonElement.type's missing/invalid-value default
+        // "submit" is also "submit" — reuses `submit_method`
+        // above rather than declaring a sibling field.)
         // HTMLTextAreaElement (Phase 6) reflected attributes +
         // accessors + Selection API members.
         html_textarea_element => "HTMLTextAreaElement",
