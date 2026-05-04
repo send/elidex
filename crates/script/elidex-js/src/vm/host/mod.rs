@@ -26,7 +26,10 @@
 //!   | call-site ToString (coerce_first_arg_to_string)
 //!   v
 //! dom_bridge::invoke_dom_api(ctx, "<method>", entity, &args)
-//!   | Phase 1: prepare_arg → PreVal (Symbol/BigInt → TypeError)
+//!   | Phase 1: prepare_arg → PreVal (Symbol → TypeError per WebIDL
+//!   |          §3.10.14; raw BigInt → TypeError as a bridge-level
+//!   |          defensive rule — call sites that ToString-coerce
+//!   |          first land here as JsValue::String)
 //!   | Phase 2: with_session_and_dom — materialize args (session-side
 //!   |          identity_map → JsObjectRef), invoke handler, resolve
 //!   |          ObjectRef return through identity_map → Entity

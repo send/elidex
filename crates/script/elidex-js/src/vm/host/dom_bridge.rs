@@ -241,19 +241,39 @@ enum PreVal {
 }
 
 impl PreVal {
-    /// Convert to a final `elidex_plugin::JsValue`.  For `Entity`,
-    /// classifies the kind (`ComponentKind`) from the bound DOM and
-    /// allocates / returns the cached `JsObjectRef` from the
-    /// session's identity map.
-    fn materialize(&self, session: &mut SessionCore, dom: &EcsDom) -> elidex_plugin::JsValue {
+    /// Convert to a final `elidex_plugin::JsValue`.  Consumes `self`
+    /// so primitive `Pv::String` payloads can move directly into the
+    /// args vec without re-allocating.  For `Entity`, classifies the
+    /// kind (`ComponentKind`) via [`EcsDom::node_kind_inferred`] —
+    /// falling back through `TagType` / `TextContent` / `CommentData`
+    /// / `DocTypeData` so legacy entities that predate the explicit
+    /// `NodeKind` component still resolve.  An entity that resolves
+    /// to none surfaces a `TypeError` rather than silently classifying
+    /// as `Element`.
+    ///
+    /// In practice every current call site routes Node-typed
+    /// arguments through `require_node_arg` (`node_proto.rs`), which
+    /// already runs `node_kind_inferred` and rejects bare entities
+    /// before dispatch.  This `None`-arm is therefore
+    /// **defense-in-depth**: a future native that hands the bridge a
+    /// HostObject without a brand check still fails closed instead
+    /// of fabricating an Element wrapper through the session's
+    /// identity map.
+    fn materialize(
+        self,
+        session: &mut SessionCore,
+        dom: &EcsDom,
+    ) -> Result<elidex_plugin::JsValue, DomApiError> {
         match self {
-            PreVal::Primitive(v) => v.clone(),
+            PreVal::Primitive(v) => Ok(v),
             PreVal::Entity(entity) => {
-                let kind = ComponentKind::from_node_kind(
-                    dom.node_kind(*entity).unwrap_or(NodeKind::Element),
-                );
-                let obj_ref = session.get_or_create_wrapper(*entity, kind);
-                elidex_plugin::JsValue::ObjectRef(obj_ref.to_raw())
+                let node_kind = dom.node_kind_inferred(entity).ok_or_else(|| DomApiError {
+                    kind: DomApiErrorKind::TypeError,
+                    message: "DOM API: argument is not a valid Node".into(),
+                })?;
+                let kind = ComponentKind::from_node_kind(node_kind);
+                let obj_ref = session.get_or_create_wrapper(entity, kind);
+                Ok(elidex_plugin::JsValue::ObjectRef(obj_ref.to_raw()))
             }
         }
     }
@@ -270,11 +290,18 @@ enum HandlerOut {
 
 /// Pre-validate a single VM `JsValue` argument: primitives convert
 /// directly, `Object` extracts its bound entity bits (deferring
-/// session-side ID allocation to the materialize phase), and
-/// `Symbol` / `BigInt` raise `TypeError` per WebIDL §3.10.14
-/// (Symbol coercion is total-throw across all non-Symbol types,
-/// BigInt likewise rejects implicit string/number coercion in DOM
-/// API contexts).
+/// session-side ID allocation to the materialize phase).
+///
+/// `Symbol` raises `TypeError` per WebIDL §3.10.14 / ECMA §7.1.17
+/// (Symbol coercion is total-throw across all non-Symbol types).
+/// `BigInt` rejection here is a **defensive bridge-level rule**, not
+/// a WebIDL mandate — ECMA §7.1.17 lets `BigInt → String` coerce
+/// successfully (`1n` ⇒ `"1"`), and call-site coercion (e.g.
+/// [`coerce_first_arg_to_string`]) already converts BigInt before it
+/// reaches the bridge.  This arm only fires when a future call site
+/// hands `prepare_arg` a raw `BigInt`, in which case rejecting is
+/// safer than guessing whether a string or number coercion was
+/// intended.
 fn prepare_arg(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<PreVal, VmError> {
     use elidex_plugin::JsValue as Pv;
     Ok(match v {
@@ -344,9 +371,15 @@ fn plugin_primitive_to_vm_value(
 
 /// Convert a `DomApiError` returned by a handler into a VM-flavoured
 /// `VmError`.  ECMA-spec exceptions (`TypeError`, `SyntaxError`)
-/// become their plain-error counterparts; the rest become
-/// `DOMException`s with the appropriate `name` looked up from the
-/// pre-interned `WellKnownStrings` (alloc-free on the throw path).
+/// become their plain-error counterparts; named `DOMException`
+/// variants resolve to a `DOMException` whose `name` comes from the
+/// pre-interned `WellKnownStrings` (alloc-free on the throw path);
+/// `Other` and any future-added `DomApiErrorKind` variants surface
+/// as `VmError::internal` — that path means "bridge encountered an
+/// unmapped error kind" and is intentionally distinct from a
+/// spec-named DOMException so a missed mapping shows up as an
+/// internal error rather than masquerading as a generic
+/// `DOMException("Error", …)`.
 fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
     let msg = err.message.clone();
     let wk = &vm.well_known;
@@ -372,11 +405,11 @@ fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
         DomApiErrorKind::NotSupportedError => {
             VmError::dom_exception(wk.dom_exc_not_supported_error, msg)
         }
-        // Generic / unclassified
+        // Generic / unclassified.  `DomApiErrorKind` is
+        // `#[non_exhaustive]`; new variants land here until they get
+        // an explicit arm above, so a missed mapping surfaces as an
+        // internal error rather than a generic DOMException.
         DomApiErrorKind::Other => VmError::internal(msg),
-        // `DomApiErrorKind` is `#[non_exhaustive]`; future variants
-        // surface as `DOMException("Error", ...)` until the bridge
-        // is taught their proper name.
         _ => VmError::internal(msg),
     }
 }
@@ -388,8 +421,12 @@ fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
 /// 1. **VM pre-validate** — each input `JsValue` becomes a
 ///    [`PreVal`].  String args allocate (`String::from`) at the
 ///    boundary — a known cost we accept here; subsequent slots
-///    consider a fast-path variant if benchmarks demand.  Symbol /
-///    BigInt args raise `TypeError` immediately (WebIDL §3.10.14).
+///    consider a fast-path variant if benchmarks demand.  Symbol
+///    args raise `TypeError` (WebIDL §3.10.14 / ECMA §7.1.17 —
+///    Symbol ToString is total-throw); raw BigInt args also reject
+///    here as a defensive rule (call sites that ToString-coerce
+///    first feed `prepare_arg` a `JsValue::String` and never trip
+///    this arm).
 /// 2. **Dual-borrow** — inside [`HostData::with_session_and_dom`],
 ///    materialize each `PreVal` (allocating a [`JsObjectRef`] for
 ///    `Entity` args via `IdentityMap::get_or_create`), invoke the
@@ -431,8 +468,10 @@ pub(super) fn invoke_dom_api(
         .as_deref_mut()
         .expect("invoke_dom_api requires HostData to be bound (Vm::bind not called)");
     let result: Result<HandlerOut, DomApiError> = host_data.with_session_and_dom(|session, dom| {
-        let args_plugin: Vec<elidex_plugin::JsValue> =
-            pre.iter().map(|p| p.materialize(session, dom)).collect();
+        let args_plugin: Vec<elidex_plugin::JsValue> = pre
+            .into_iter()
+            .map(|p| p.materialize(session, dom))
+            .collect::<Result<_, _>>()?;
         let raw = handler.invoke(this, &args_plugin, session, dom)?;
         Ok(match raw {
             elidex_plugin::JsValue::ObjectRef(r) => {

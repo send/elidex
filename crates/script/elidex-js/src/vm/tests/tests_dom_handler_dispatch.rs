@@ -3,8 +3,13 @@
 //!
 //! Covers the boundary contracts the bridge guarantees, independent
 //! of any specific handler's spec semantics:
-//! - Symbol / BigInt arguments raise `TypeError` immediately
-//!   (WebIDL §3.10.14 — Symbol coercion is total-throw).
+//! - Symbol arguments raise `TypeError` (WebIDL §3.10.14 / ECMA
+//!   §7.1.17 — Symbol ToString is total-throw).  Raw BigInt args
+//!   reject at the bridge as a **defensive** rule, but call sites
+//!   that ToString-coerce first (the common path) feed the bridge a
+//!   `JsValue::String` (`1n` ⇒ `"1"`) and never trip the
+//!   `prepare_arg` BigInt arm — `dispatch_with_bigint_arg_through_string_coercion_succeeds`
+//!   exercises that path.
 //! - Non-Node `Object` arguments where a Node is expected raise
 //!   `TypeError`.
 //! - Round-trips: `ObjectRef` returned by a handler resolves back to
@@ -70,7 +75,7 @@ fn eval_in_doc_bool(source: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Symbol / BigInt argument rejection (WebIDL §3.10.14)
+// Symbol rejection (WebIDL §3.10.14) + BigInt ToString-coercion path
 // ---------------------------------------------------------------------------
 
 #[test]
