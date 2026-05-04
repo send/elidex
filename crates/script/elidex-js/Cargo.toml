@@ -18,6 +18,8 @@ engine = [
     "elidex-plugin",
     "elidex-css",
     "elidex-net",
+    "elidex-dom-api",
+    "elidex-form",
     "bytes",
     "encoding_rs",
 ]
@@ -50,6 +52,18 @@ bytes = { workspace = true, optional = true }
 # engine-gated because the surface depends on the engine-only
 # `Uint8Array` + `ArrayBuffer` wrappers.
 encoding_rs = { workspace = true, optional = true }
+# DOM API handler implementations dispatched via `DomApiHandler`
+# (engine-independent algorithms).  Required by the
+# `vm::host::dom_bridge::invoke_dom_api` path established in
+# slot #11-arch-hoist-a (drift incident
+# `memory/m4-12-architectural-drift-incident.md`).
+elidex-dom-api = { workspace = true, optional = true }
+# Form-control state, label association, validation, selection —
+# anchor dep for slot #11-tags-T1-v2 (re-implementation as thin
+# binding over `elidex-form` after PR #151 was discarded for
+# architectural drift).  Currently dep-only; VM consumers land in
+# T1-v2 phase.
+elidex-form = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
