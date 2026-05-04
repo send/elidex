@@ -288,6 +288,56 @@ fn will_validate_is_true_for_input_type_submit() {
     assert_eq!(out, "true");
 }
 
+// HTML §4.10.18.3 readonly bar — readonly text-controls are barred
+// from constraint validation.
+
+#[test]
+fn will_validate_is_false_for_readonly_input_text() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('readonly', ''); \
+         i.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_false_for_readonly_input_email() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'email'; \
+         i.setAttribute('readonly', ''); \
+         i.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_true_for_readonly_input_checkbox() {
+    // `readonly` only honours text-control types; on type=checkbox
+    // the attribute has no spec effect, so willValidate stays true.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'checkbox'; \
+         i.setAttribute('readonly', ''); \
+         i.willValidate.toString();");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn will_validate_is_false_for_readonly_textarea() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.setAttribute('readonly', ''); \
+         t.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn check_validity_returns_true_for_readonly_input_with_custom_error() {
+    // willValidate=false → exempt → checkValidity returns true
+    // even with a custom validity message.
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('readonly', ''); \
+         i.setCustomValidity('bad'); \
+         i.checkValidity().toString();");
+    assert_eq!(out, "true");
+}
+
 // --- checkValidity / reportValidity --------------------------------
 
 #[test]

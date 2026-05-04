@@ -216,32 +216,23 @@ fn resolve_label_control(ctx: &mut NativeContext<'_>, label: Entity) -> Option<E
     // Step 1 — `for=` IDREF lookup.  Read the attribute as a borrowed
     // owned `String` (no intern needed because the lookup is by the
     // raw id text).
-    let id_target = ctx.host().dom().with_attribute(label, "for", |v| {
-        v.filter(|s| !s.is_empty()).map(String::from)
-    });
-    if let Some(id) = id_target {
-        // Tree-scoped id lookup: per HTML §4.10.4 step 2, the search
-        // is rooted at the label's tree (the document if attached,
-        // otherwise the disconnected subtree's root).  Use
-        // `owner_document` first; fall back to walking up to the
-        // tree root for detached labels so a disconnected
-        // `<form><label for=x>` still resolves.
+    let for_attr = ctx
+        .host()
+        .dom()
+        .with_attribute(label, "for", |v| v.map(String::from));
+    if let Some(id) = for_attr {
+        // HTML §4.10.4 step 2 — once `for=` is PRESENT (any value
+        // including empty), the descendant fallback is suppressed.
+        // An empty IDREF can never match by id-equality, so the
+        // result is `None` rather than the wrapping-control path.
+        if id.is_empty() {
+            return None;
+        }
+        // Tree-scoped id lookup: search rooted at the label's
+        // physical tree root — doc for attached labels, the
+        // detached subtree's top otherwise.
         let dom = ctx.host().dom();
-        let root = dom.owner_document(label).unwrap_or_else(|| {
-            // Climb to the topmost ancestor.  Bounded by the same
-            // 1024-step depth guard used elsewhere; pathological
-            // depths are already a bug in the producer.
-            let mut cur = label;
-            let mut depth: u32 = 0;
-            while let Some(p) = dom.get_parent(cur) {
-                if depth > 1024 {
-                    break;
-                }
-                cur = p;
-                depth += 1;
-            }
-            cur
-        });
+        let root = dom.find_tree_root(label);
         if let Some(target) = dom.find_by_id(root, &id) {
             if is_labelable(ctx, target) {
                 return Some(target);

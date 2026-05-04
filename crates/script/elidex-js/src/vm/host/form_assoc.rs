@@ -43,22 +43,26 @@ pub(super) fn resolve_form_association(
 /// `&EcsDom` borrow that the `NativeContext` split-field pattern
 /// rules out at that site.
 pub(super) fn resolve_form_owner_dom(dom: &EcsDom, entity: Entity) -> Option<Entity> {
-    let form_id = dom.with_attribute(entity, "form", |v| {
-        v.filter(|s| !s.is_empty()).map(String::from)
-    });
-    if let Some(id) = form_id {
-        // IDREF lookup scoped to the entity's actual physical tree
-        // root — `find_tree_root` returns the doc for attached
-        // entities and the topmost detached ancestor otherwise.
-        let root = dom.find_tree_root(entity);
-        if let Some(target) = dom.find_by_id(root, &id) {
-            if dom.has_tag(target, "form") {
-                return Some(target);
+    let form_attr = dom.with_attribute(entity, "form", |v| v.map(String::from));
+    if let Some(id) = form_attr {
+        // HTML §4.10.18.3 — when the `form` content attribute is
+        // PRESENT (regardless of value, including the empty string),
+        // the ancestor fallback is suppressed.  An empty IDREF can
+        // never match by id-equality so the lookup returns `None`,
+        // and we surface that as "no association" without falling
+        // through.
+        if !id.is_empty() {
+            // IDREF lookup scoped to the entity's actual physical
+            // tree root — `find_tree_root` returns the doc for
+            // attached entities and the topmost detached ancestor
+            // otherwise.
+            let root = dom.find_tree_root(entity);
+            if let Some(target) = dom.find_by_id(root, &id) {
+                if dom.has_tag(target, "form") {
+                    return Some(target);
+                }
             }
         }
-        // Spec: if the form= IDREF fails to name a form element,
-        // there is no association — do NOT fall back to the
-        // ancestor walk.
         return None;
     }
 
@@ -116,14 +120,17 @@ pub(super) fn collect_labels_for(ctx: &mut NativeContext<'_>, control: Entity) -
         }
         let for_attr = dom.with_attribute(e, "for", |v| v.map(String::from));
         match for_attr.as_deref() {
-            Some(f) if !f.is_empty() => {
-                // Form 1 — id-based association.
-                if id_str == Some(f) {
+            Some(f) => {
+                // HTML §4.10.4 — once `for=` is PRESENT (regardless
+                // of value, including empty), the wrapping-ancestor
+                // path is suppressed.  Empty for matches no id, so
+                // the label is unassociated.
+                if !f.is_empty() && id_str == Some(f) {
                     result.push(e);
                 }
             }
-            _ => {
-                // Form 2 — wrapping `<label>` (no / empty `for=`).
+            None => {
+                // Form 2 — wrapping `<label>` with no `for=` at all.
                 // Match when `e` is an ancestor of `control`.
                 if dom.is_ancestor_or_self(e, control) && e != control {
                     result.push(e);

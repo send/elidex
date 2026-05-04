@@ -151,6 +151,19 @@ fn label_control_idref_skips_descendant_search_on_failure() {
 }
 
 #[test]
+fn label_control_returns_null_when_for_attribute_is_empty() {
+    // HTML §4.10.4 — once `for=` is PRESENT (any value, including
+    // empty), the descendant fallback is suppressed.  `for=""`
+    // can never resolve by id-equality so `.control` is null.
+    let out = run("var lbl = document.createElement('label'); \
+         var inp = document.createElement('input'); \
+         lbl.appendChild(inp); \
+         lbl.setAttribute('for', ''); \
+         (lbl.control === null) ? 'null' : 'wrong';");
+    assert_eq!(out, "null");
+}
+
+#[test]
 fn label_control_descendant_search_finds_first_labelable() {
     // No `for=` → walk descendants pre-order; first labelable wins.
     let out = run("var lbl = document.createElement('label'); \

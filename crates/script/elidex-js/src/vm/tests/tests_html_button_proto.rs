@@ -219,18 +219,20 @@ fn button_labels_skips_ancestor_label_with_unrelated_for_attribute() {
 }
 
 #[test]
-fn button_labels_dedupe_id_match_with_ancestor() {
-    // A label that both is an ancestor AND matches by id should
-    // count once.  (Spec dedupe per HTML §4.10.4: a label is in
-    // labels if associated by either route, but exactly once.)
+fn button_labels_id_match_through_wrapping_label_counts_once() {
+    // Per HTML §4.10.4: once `for=` is present, the wrapping-
+    // ancestor route is suppressed entirely.  A wrapping label
+    // whose `for=` resolves back to its wrapped control by id
+    // therefore matches exactly once via the id-route — the
+    // wrapping route is disabled by the presence of `for=`.
     let out = run("var lbl = document.createElement('label'); \
-         lbl.htmlFor = ''; \
+         lbl.htmlFor = 'btn'; \
          var b = document.createElement('button'); \
          b.id = 'btn'; \
          lbl.appendChild(b); \
          document.body.appendChild(lbl); \
-         b.labels.length.toString();");
-    assert_eq!(out, "1");
+         b.labels.length + '|' + (b.labels.item(0) === lbl);");
+    assert_eq!(out, "1|true");
 }
 
 #[test]

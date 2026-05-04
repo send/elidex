@@ -444,6 +444,29 @@ fn cv_get_validation_message(
     Ok(JsValue::String(sid))
 }
 
+/// `<input>` `type` keywords for which the `readonly` content
+/// attribute is honoured per HTML §4.10.5.1.20.  Outside these
+/// types, `readonly` has no defined effect (e.g. `<input
+/// type=checkbox readonly>` is not actually read-only).
+const READONLY_INPUT_TYPES: [&str; 13] = [
+    "text",
+    "search",
+    "url",
+    "tel",
+    "email",
+    "password",
+    "date",
+    "month",
+    "week",
+    "time",
+    "datetime-local",
+    "number",
+    // Default-empty / unrecognised input types resolve to "text",
+    // so callers fall back through the `None` arm of the type
+    // attribute lookup which we treat as "text" too.
+    "",
+];
+
 /// Returns `true` when `entity` participates in constraint
 /// validation per HTML §4.10.18.3.
 ///
@@ -459,10 +482,11 @@ fn cv_get_validation_message(
 ///   "not subject to constraint validation".
 /// - `<button>` with `type=button` or `type=reset` (default
 ///   `type=submit` validates).
+/// - `readonly` on a text-control (`<textarea>` or `<input>` with
+///   a type that honours `readonly` — see [`READONLY_INPUT_TYPES`]).
 ///
 /// Bars NOT yet applied (deferred with elidex-form dep landing,
-/// slot `#11-validity-state-real-flags`): `<datalist>` ancestor,
-/// readonly text-controls.
+/// slot `#11-validity-state-real-flags`): `<datalist>` ancestor.
 pub(super) fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
     let dom = ctx.host().dom();
     if dom.has_attribute(entity, "disabled") {
@@ -479,8 +503,9 @@ pub(super) fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) 
         }
         if tag.eq_ignore_ascii_case("input") {
             // Default `type` is "text" (validates); only the
-            // explicit barred keywords short-circuit.
-            return dom.with_attribute(entity, "type", |v| match v {
+            // explicit barred keywords short-circuit.  Then the
+            // `readonly` bar applies to text-control types.
+            let type_barred = dom.with_attribute(entity, "type", |v| match v {
                 Some(s) => {
                     s.eq_ignore_ascii_case("hidden")
                         || s.eq_ignore_ascii_case("button")
@@ -489,6 +514,19 @@ pub(super) fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) 
                 }
                 None => false,
             });
+            if type_barred {
+                return true;
+            }
+            if dom.has_attribute(entity, "readonly") {
+                let is_readonly_type = dom.with_attribute(entity, "type", |v| match v {
+                    Some(s) => READONLY_INPUT_TYPES
+                        .iter()
+                        .any(|kw| kw.eq_ignore_ascii_case(s)),
+                    None => true, // absent type defaults to "text"
+                });
+                return is_readonly_type;
+            }
+            return false;
         }
         if tag.eq_ignore_ascii_case("button") {
             // `<button>` default type is `submit` (validates);
@@ -497,6 +535,10 @@ pub(super) fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) 
                 Some(s) => s.eq_ignore_ascii_case("button") || s.eq_ignore_ascii_case("reset"),
                 None => false,
             });
+        }
+        if tag.eq_ignore_ascii_case("textarea") {
+            // `<textarea>` honours `readonly` unconditionally.
+            return dom.has_attribute(entity, "readonly");
         }
         false
     });

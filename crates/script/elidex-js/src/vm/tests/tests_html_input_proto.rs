@@ -433,6 +433,35 @@ fn input_form_resolves_through_ancestor() {
 }
 
 #[test]
+fn input_form_with_empty_form_attribute_suppresses_ancestor_fallback() {
+    // HTML §4.10.18.3 — once the `form` content attribute is
+    // PRESENT (any value, including empty), the ancestor-fallback
+    // path is suppressed.  `form=""` cannot resolve by id-equality
+    // so `.form` is null even when an ancestor `<form>` exists.
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         f.appendChild(i); \
+         document.body.appendChild(f); \
+         i.setAttribute('form', ''); \
+         (i.form === null) ? 'null' : 'wrong';");
+    assert_eq!(out, "null");
+}
+
+#[test]
+fn input_label_with_empty_for_attribute_does_not_match_wrapping() {
+    // A wrapping `<label for="">` should NOT count as a wrapping
+    // ancestor — per HTML §4.10.4 once `for=` is present (any
+    // value), the wrapping-ancestor association is suppressed.
+    let out = run("var lbl = document.createElement('label'); \
+         var i = document.createElement('input'); \
+         lbl.setAttribute('for', ''); \
+         lbl.appendChild(i); \
+         document.body.appendChild(lbl); \
+         i.labels.length.toString();");
+    assert_eq!(out, "0");
+}
+
+#[test]
 fn input_labels_collects_for_id_match() {
     let out = run("var i = document.createElement('input'); \
          i.id = 'x'; \
