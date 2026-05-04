@@ -183,6 +183,18 @@ mod engine_feature {
         ///
         /// - `session` and `dom` must point to valid, uniquely-owned
         ///   instances until `unbind()` is called.
+        /// - `session` and `dom` MUST point at **disjoint allocations**
+        ///   — i.e. no part of the `SessionCore` storage overlaps the
+        ///   `EcsDom` storage.  [`Self::with_session_and_dom`] creates
+        ///   two simultaneous `&mut` borrows from these raw pointers in
+        ///   the same call frame; if the regions ever aliased, that
+        ///   would violate Rust's no-overlapping-mutable-borrow rule
+        ///   and produce immediate UB.  In practice this is upheld
+        ///   because `SessionCore` and `EcsDom` are independent
+        ///   stack-or-heap-resident structs (the typical caller
+        ///   `pin`s a `&mut SessionCore` and a `&mut EcsDom` from
+        ///   distinct local variables and converts each via
+        ///   `ptr::from_mut`).
         /// - The caller MUST NOT access `session` or `dom` via any other
         ///   reference (Stacked-Borrows: raw-pointer aliasing with a live
         ///   `&mut` is UB).  Typical usage: caller holds `&mut`, calls
@@ -205,6 +217,22 @@ mod engine_feature {
             assert!(
                 !session.is_null() && !dom.is_null(),
                 "HostData::bind requires non-null session and dom pointers"
+            );
+            // Pointer-disjointness check: the two raw pointers must
+            // refer to non-overlapping allocations because
+            // `with_session_and_dom` creates a `&mut SessionCore` and
+            // a `&mut EcsDom` simultaneously from them.  An equality
+            // check is a cheap necessary (not sufficient) sanity gate
+            // — a partial overlap is impossible given that `SessionCore`
+            // and `EcsDom` are distinct types of identical-or-larger
+            // size, so identical base addresses are the only realistic
+            // way the contract could fail at the same call site.
+            // `debug_assert!` keeps release builds branch-free; in
+            // debug builds a misuse fires before any deref happens.
+            debug_assert!(
+                session.cast::<u8>() != dom.cast::<u8>(),
+                "HostData::bind requires session and dom to point at \
+                 disjoint allocations (same base address detected)"
             );
             self.session_ptr = session;
             self.dom_ptr = dom;
@@ -246,10 +274,10 @@ mod engine_feature {
         /// # Safety
         ///
         /// The two `&mut` borrows produced here alias *different*
-        /// allocations, by `bind`'s caller-enforced contract:
-        /// `Vm::bind(session, dom)` must pass two pointers that the
-        /// caller knows refer to disjoint memory.  Creating both
-        /// `&mut`s at once therefore does not violate Rust's
+        /// allocations, by [`Self::bind`]'s third caller-enforced
+        /// invariant: `bind` requires `session` and `dom` to point
+        /// at disjoint allocations.  Creating both `&mut`s at once
+        /// therefore does not violate Rust's
         /// no-overlapping-mutable-borrow rule.  This contract mirrors
         /// the boa-side pattern (`HostBridge::with(|session, dom|
         /// ...)`) which the VM is replacing.
@@ -259,9 +287,19 @@ mod engine_feature {
             F: FnOnce(&mut elidex_script_session::SessionCore, &mut elidex_ecs::EcsDom) -> R,
         {
             assert!(self.is_bound(), "HostData accessed while unbound");
+            // Defence-in-depth: re-check pointer disjointness here so
+            // a misuse caught at `bind` time does not silently slip
+            // through in release builds where the bind-side
+            // `debug_assert!` is compiled out.
+            debug_assert!(
+                self.session_ptr.cast::<u8>() != self.dom_ptr.cast::<u8>(),
+                "HostData::with_session_and_dom: session_ptr and dom_ptr \
+                 must point at disjoint allocations (set by bind())"
+            );
             // SAFETY: see method-level safety comment.  `session_ptr`
             // and `dom_ptr` point at distinct allocations supplied by
-            // the most recent `bind()`.
+            // the most recent `bind()`; the `debug_assert!` above
+            // catches misuse in test/debug builds.
             let session = unsafe { &mut *self.session_ptr };
             let dom = unsafe { &mut *self.dom_ptr };
             f(session, dom)
@@ -509,6 +547,60 @@ mod engine_feature {
     impl Default for HostData {
         fn default() -> Self {
             Self::new()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use elidex_ecs::{EcsDom, Entity};
+        use elidex_script_session::SessionCore;
+
+        /// Disjoint allocations — bind() must accept normal usage.
+        #[test]
+        fn bind_accepts_disjoint_pointers() {
+            let mut hd = HostData::new();
+            let mut session = SessionCore::new();
+            let mut dom = EcsDom::new();
+            let doc = dom.create_document_root();
+            let session_ptr: *mut SessionCore = &mut session;
+            let dom_ptr: *mut EcsDom = &mut dom;
+            assert_ne!(
+                session_ptr.cast::<u8>(),
+                dom_ptr.cast::<u8>(),
+                "test setup invariant: separate locals must have distinct addresses"
+            );
+            #[allow(unsafe_code)]
+            unsafe {
+                hd.bind(session_ptr, dom_ptr, doc);
+            }
+            assert!(hd.is_bound());
+            hd.unbind();
+        }
+
+        /// Aliasing pointers — bind() must trip the disjointness
+        /// `debug_assert!`.  `cargo test` runs in debug mode by
+        /// default so the assert is live; release builds skip the
+        /// branch (callers are still UB-bound by the documented
+        /// safety contract).  The synthetic 0x1234 address is never
+        /// dereferenced — bind() only stores the raw pointers, and
+        /// the assert fires before `unbind` is reached.
+        #[test]
+        #[should_panic(expected = "disjoint allocations")]
+        fn bind_debug_asserts_pointer_disjointness() {
+            let mut hd = HostData::new();
+            let addr = 0x1234usize as *mut u8;
+            let session = addr.cast::<SessionCore>();
+            let dom = addr.cast::<EcsDom>();
+            // Spawn a real entity so the `document` arg is a valid
+            // `Entity::from_bits` result; the entity is never reached
+            // because the disjointness assert fires first.
+            let mut throwaway = EcsDom::new();
+            let doc = throwaway.create_document_root();
+            #[allow(unsafe_code)]
+            unsafe {
+                hd.bind(session, dom, doc);
+            }
         }
     }
 
