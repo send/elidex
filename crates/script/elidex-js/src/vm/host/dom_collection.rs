@@ -148,6 +148,19 @@ pub(crate) enum LiveCollectionKind {
         /// collection enumerates.
         select: Entity,
     },
+    /// `select.selectedOptions` — live HTMLCollection of `<option>`
+    /// descendants whose `selected` content attribute is present.
+    /// Per HTML §4.10.7 — the IDL says "live" so the wrapper must
+    /// observe later attribute mutations on the option elements.
+    /// Cache opt-out for the same reason `FormControls` does:
+    /// membership depends on per-descendant attribute state which
+    /// `inclusive_descendants_version` does not bump on every
+    /// `set_attribute` site of every descendant.
+    SelectedOptions {
+        /// The `<select>` element whose descendant selected
+        /// `<option>`s the collection enumerates.
+        select: Entity,
+    },
 }
 
 impl LiveCollectionKind {
@@ -166,6 +179,7 @@ impl LiveCollectionKind {
                 | Self::Links { .. }
                 | Self::FormControls { .. }
                 | Self::Options { .. }
+                | Self::SelectedOptions { .. }
         )
     }
 
@@ -182,7 +196,7 @@ impl LiveCollectionKind {
             | Self::Links { doc }
             | Self::ByName { doc, .. } => Some(*doc),
             Self::FormControls { scope } => Some(*scope),
-            Self::Options { select } => Some(*select),
+            Self::Options { select } | Self::SelectedOptions { select } => Some(*select),
             Self::Snapshot { .. } => None,
         }
     }
@@ -205,13 +219,20 @@ impl LiveCollectionKind {
     /// typical forms are <50 elements and the per-access walk cost
     /// is bounded.
     fn is_cacheable(&self) -> bool {
-        // Only `FormControls` opts out — its filter consults the
-        // `form` attribute on cross-tree associates, whose
-        // mutations don't bump the form's `inclusive_descendants_version`.
+        // `FormControls` and `SelectedOptions` opt out: both filters
+        // consult attributes on descendants whose `set_attribute`
+        // sites bump `rev_version` only on the mutated entity's
+        // ancestor chain, NOT on the form/select scope that
+        // consumes the value through its filter.  Caching would
+        // silently return stale entity lists across attribute edits
+        // (e.g. toggling `selected` on an option).
         // `Options` filters by tag only (`<option>` descendants of
         // `<select>`), so the standard descendants-version cache
         // tracks every mutation that affects membership.
-        !matches!(self, Self::FormControls { .. })
+        !matches!(
+            self,
+            Self::FormControls { .. } | Self::SelectedOptions { .. }
+        )
     }
 }
 
@@ -394,6 +415,20 @@ fn resolve_entities_with_needles(
                     return true;
                 }
                 if scope_is_form {
+                    // HTML §4.10.18.4 — image button input elements
+                    // are excluded from `form.elements`.  Detected
+                    // by the canonical `type` attribute "image"
+                    // (case-insensitive); `<input>` with no `type`
+                    // defaults to "text" so the absence path is
+                    // already non-image.
+                    let is_image_input = dom
+                        .with_tag_name(e, |t| t.is_some_and(|s| s.eq_ignore_ascii_case("input")))
+                        && dom.with_attribute(e, "type", |v| {
+                            v.is_some_and(|s| s.eq_ignore_ascii_case("image"))
+                        });
+                    if is_image_input {
+                        return true;
+                    }
                     if super::form_assoc::resolve_form_owner_dom(dom, e) == Some(*scope) {
                         out.push(e);
                     }
@@ -420,6 +455,27 @@ fn resolve_entities_with_needles(
                     return true;
                 }
                 if dom.with_tag_name(e, |t| t.is_some_and(|s| s.eq_ignore_ascii_case("option"))) {
+                    out.push(e);
+                }
+                true
+            });
+            out
+        }
+        LiveCollectionKind::SelectedOptions { select } => {
+            // HTML §4.10.7 — `select.selectedOptions` is the live
+            // subset of `select.options` whose `selected` content
+            // attribute is present.
+            let mut out = Vec::new();
+            dom.traverse_descendants(*select, |e| {
+                if e == *select {
+                    return true;
+                }
+                if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
+                    return true;
+                }
+                let is_option =
+                    dom.with_tag_name(e, |t| t.is_some_and(|s| s.eq_ignore_ascii_case("option")));
+                if is_option && dom.has_attribute(e, "selected") {
                     out.push(e);
                 }
                 true

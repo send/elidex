@@ -451,16 +451,15 @@ fn sel_get_selected_options(
     let Some(entity) = require_select_receiver(ctx, this, "selectedOptions")? else {
         return Ok(JsValue::Null);
     };
-    let options = collect_options(ctx, entity);
-    let dom = ctx.host().dom();
-    let selected: Vec<Entity> = options
-        .into_iter()
-        .filter(|&o| dom.has_attribute(o, "selected"))
-        .collect();
+    // HTML §4.10.7 — `selectedOptions` is a *live* HTMLCollection,
+    // so it must observe later attribute mutations on descendant
+    // `<option>` elements (e.g. toggling `selected` after the
+    // accessor was read).  Allocated through the live variant
+    // rather than a `Snapshot` clone of the current selection.
     let id = ctx
         .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot {
-            entities: selected,
+        .alloc_collection(super::dom_collection::LiveCollectionKind::SelectedOptions {
+            select: entity,
         });
     Ok(JsValue::Object(id))
 }

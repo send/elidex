@@ -209,6 +209,24 @@ fn select_selected_options_filters_to_selected_only() {
     assert_eq!(out, "1|true");
 }
 
+#[test]
+fn select_selected_options_is_live_after_attribute_toggle() {
+    // HTML §4.10.7 — `selectedOptions` is a *live* HTMLCollection,
+    // so a cached reference must observe later changes to the
+    // `selected` attribute on descendant <option>s.
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); \
+         var sel = s.selectedOptions; \
+         var before = sel.length; \
+         o1.selected = true; \
+         o2.selected = true; \
+         var after = sel.length; \
+         before + '|' + after;");
+    assert_eq!(out, "0|2");
+}
+
 // --- selectedIndex (RW) -------------------------------------------
 
 #[test]

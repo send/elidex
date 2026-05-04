@@ -272,6 +272,33 @@ fn form_length_observes_cross_tree_form_attribute() {
 }
 
 #[test]
+fn form_elements_excludes_input_type_image() {
+    // HTML §4.10.18.4 — image button input elements are excluded
+    // from `form.elements` (and `form.length`) even though they're
+    // listed.  fieldset.elements still includes them per §4.10.7.
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         i.type = 'image'; \
+         f.appendChild(i); \
+         document.body.appendChild(f); \
+         f.length + '|' + f.elements.length;");
+    assert_eq!(out, "0|0");
+}
+
+#[test]
+fn fieldset_elements_includes_input_type_image() {
+    // Inverse: fieldset.elements should still include image inputs
+    // (HTML §4.10.7 has no image-button carve-out for fieldsets).
+    let out = run("var fs = document.createElement('fieldset'); \
+         var i = document.createElement('input'); \
+         i.type = 'image'; \
+         fs.appendChild(i); \
+         document.body.appendChild(fs); \
+         fs.elements.length.toString();");
+    assert_eq!(out, "1");
+}
+
+#[test]
 fn form_elements_excludes_descendants_when_form_attribute_points_elsewhere() {
     // A descendant whose `form="<otherId>"` points at a different
     // form must NOT appear in this form's elements collection.

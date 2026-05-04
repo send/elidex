@@ -209,6 +209,85 @@ fn will_validate_is_false_for_second_legend_of_disabled_fieldset() {
     assert_eq!(out, "false");
 }
 
+// HTML §4.10.18.3 type-level bars — input types `hidden`, `button`,
+// `reset`, `image` and button types `button` / `reset` are barred
+// from constraint validation; fieldset / output / object are listed
+// but not submittable so they don't validate either.
+
+#[test]
+fn will_validate_is_false_for_input_type_hidden() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'hidden'; \
+         i.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_false_for_input_type_button() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'button'; \
+         i.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_false_for_input_type_reset() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'reset'; \
+         i.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_false_for_input_type_image() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'image'; \
+         i.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_true_for_default_button_type_submit() {
+    // <button> default `type` is "submit" — submit buttons DO
+    // participate in constraint validation.
+    let out = run("var b = document.createElement('button'); \
+         b.willValidate.toString();");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn will_validate_is_false_for_button_type_button() {
+    let out = run("var b = document.createElement('button'); \
+         b.type = 'button'; \
+         b.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_false_for_button_type_reset() {
+    let out = run("var b = document.createElement('button'); \
+         b.type = 'reset'; \
+         b.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_false_for_fieldset() {
+    let out = run("var fs = document.createElement('fieldset'); \
+         fs.willValidate.toString();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn will_validate_is_true_for_input_type_submit() {
+    // type=submit is submittable AND validates (only types
+    // hidden/button/reset/image are barred).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'submit'; \
+         i.willValidate.toString();");
+    assert_eq!(out, "true");
+}
+
 // --- checkValidity / reportValidity --------------------------------
 
 #[test]

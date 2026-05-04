@@ -445,18 +445,62 @@ fn cv_get_validation_message(
 }
 
 /// Returns `true` when `entity` participates in constraint
-/// validation: not disabled and not inside a disabled `<fieldset>`.
-/// HTML §4.10.18.3.  Stricter spec gating (form-association,
-/// button-type exclusions, hidden inputs, datalist-descendant
-/// exclusion) lands with the elidex-form dep.
+/// validation per HTML §4.10.18.3.
 ///
-/// HTML §4.10.12 disabled-fieldset carve-out: descendants of the
-/// disabled `<fieldset>`'s **first `<legend>` element child** stay
-/// enabled, so a control inside that legend still participates in
-/// validation even when an outer fieldset is disabled.
+/// Bars applied:
+///
+/// - `disabled` content attribute on the entity itself.
+/// - Ancestor `<fieldset>` with `disabled` set, EXCEPT entities
+///   inside that fieldset's **first `<legend>` element child**
+///   (HTML §4.10.12 carve-out).
+/// - Tag-level: `<fieldset>` / `<output>` / `<object>` are listed
+///   but NOT submittable, so they never participate.
+/// - `<input>` types `hidden` / `button` / `reset` / `image` are
+///   "not subject to constraint validation".
+/// - `<button>` with `type=button` or `type=reset` (default
+///   `type=submit` validates).
+///
+/// Bars NOT yet applied (deferred with elidex-form dep landing,
+/// slot `#11-validity-state-real-flags`): `<datalist>` ancestor,
+/// readonly text-controls.
 pub(super) fn entity_will_validate(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
     let dom = ctx.host().dom();
     if dom.has_attribute(entity, "disabled") {
+        return false;
+    }
+    // Tag-level / type-level bars.
+    let bar_by_kind = dom.with_tag_name(entity, |t| {
+        let Some(tag) = t else { return false };
+        if tag.eq_ignore_ascii_case("fieldset")
+            || tag.eq_ignore_ascii_case("output")
+            || tag.eq_ignore_ascii_case("object")
+        {
+            return true;
+        }
+        if tag.eq_ignore_ascii_case("input") {
+            // Default `type` is "text" (validates); only the
+            // explicit barred keywords short-circuit.
+            return dom.with_attribute(entity, "type", |v| match v {
+                Some(s) => {
+                    s.eq_ignore_ascii_case("hidden")
+                        || s.eq_ignore_ascii_case("button")
+                        || s.eq_ignore_ascii_case("reset")
+                        || s.eq_ignore_ascii_case("image")
+                }
+                None => false,
+            });
+        }
+        if tag.eq_ignore_ascii_case("button") {
+            // `<button>` default type is `submit` (validates);
+            // only `type=button` / `type=reset` are barred.
+            return dom.with_attribute(entity, "type", |v| match v {
+                Some(s) => s.eq_ignore_ascii_case("button") || s.eq_ignore_ascii_case("reset"),
+                None => false,
+            });
+        }
+        false
+    });
+    if bar_by_kind {
         return false;
     }
     let mut cur = dom.get_parent(entity);
