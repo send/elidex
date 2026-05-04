@@ -157,14 +157,24 @@ fn element_query_selector_relative_combinator_syntax() {
     // successful return (e.g. a non-null Element) or error kind
     // would be a regression.
     let result = vm.eval("section.querySelector('> .target');");
+    let syntax_err_name = vm.inner.well_known.dom_exc_syntax_error;
     match result {
         Ok(JsValue::Null) => {}
-        Err(e) if matches!(e.kind, super::super::value::VmErrorKind::SyntaxError) => {}
+        // `parse_dom_selector` throws `DOMException("SyntaxError")`
+        // per WHATWG DOM §4.7 (the spec-mandated DOM SyntaxError is
+        // a DOMException, not the ECMA `SyntaxError` class).  R8 of
+        // the arch-hoist-a PR migrated this path off
+        // `VmError::syntax_error`.
+        Err(e)
+            if matches!(
+                e.kind,
+                super::super::value::VmErrorKind::DomException { name } if name == syntax_err_name
+            ) => {}
         Ok(other) => {
-            panic!("expected null or SyntaxError, got Ok({other:?})");
+            panic!("expected null or DOMException(\"SyntaxError\"), got Ok({other:?})");
         }
         Err(e) => {
-            panic!("expected null or SyntaxError, got {e:?}");
+            panic!("expected null or DOMException(\"SyntaxError\"), got {e:?}");
         }
     }
     vm.unbind();

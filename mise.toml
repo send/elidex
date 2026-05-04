@@ -1,25 +1,25 @@
 [tasks.check]
 description = "Run cargo check"
-run = "cargo check --workspace --all-targets"
+run = "cargo check --workspace --all-targets --all-features"
 
 [tasks.test]
 description = "Run all tests (nextest, no doc-tests)"
-run = "cargo nextest run --workspace"
+run = "cargo nextest run --workspace --all-features"
 
 [tasks.test-doc]
 description = "Run doc-tests only"
-run = "cargo test --workspace --doc"
+run = "cargo test --workspace --doc --all-features"
 
 [tasks.test-all]
 description = "Run all tests including doc-tests"
 run = """
-cargo nextest run --workspace
-cargo test --workspace --doc
+cargo nextest run --workspace --all-features
+cargo test --workspace --doc --all-features
 """
 
 [tasks.lint-clippy]
 description = "Run clippy"
-run = "cargo clippy --workspace --all-targets -- -D warnings"
+run = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
 
 [tasks.lint-fmt]
 description = "Check formatting"
