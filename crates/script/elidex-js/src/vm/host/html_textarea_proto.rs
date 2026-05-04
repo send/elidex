@@ -505,26 +505,19 @@ fn read_default_value(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
     super::form_control_state::descendant_text(ctx.host().dom(), entity)
 }
 
-/// Compute the textarea's IDL value — `dirty_value` slot when set,
-/// otherwise the defaultValue (textContent walk).  Allocates an
-/// owned String; use [`value_utf16_len`] when only the length is
-/// needed (Selection API setter hot path).
+/// Compute the textarea's IDL value — delegates the `dirty ?? default`
+/// pattern to [`super::form_control_state::read_value`]; the closure
+/// supplies the textarea-specific defaultValue source (descendant
+/// text content per HTML §4.10.11.5).
 fn read_value(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
-    if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
-        return dirty.to_string();
-    }
-    read_default_value(ctx, entity)
+    super::form_control_state::read_value(ctx, entity, read_default_value)
 }
 
-/// Allocation-free length variant of [`read_value`] — returns the
-/// IDL value's UTF-16 length without materialising an owned String.
-/// Used by Selection-API setters that only need to clamp against
-/// the value bounds.
+/// Allocation-free length variant of [`read_value`].
 fn value_utf16_len(ctx: &mut NativeContext<'_>, entity: Entity) -> u32 {
-    if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
-        return utf16_len(dirty);
-    }
-    super::form_control_state::descendant_text_utf16_len(ctx.host().dom(), entity)
+    super::form_control_state::value_utf16_len(ctx, entity, |ctx, e| {
+        super::form_control_state::descendant_text_utf16_len(ctx.host().dom(), e)
+    })
 }
 
 fn ta_get_value(

@@ -835,30 +835,25 @@ fn inp_set_type(
 
 // --- value / checked ----------------------------------------------
 
-/// Read the input's IDL value — dirty value if set, else the
-/// `value` content attribute (defaultValue), or `""`.  Allocates an
-/// owned String; use [`value_utf16_len`] on the Selection API setter
-/// hot path when only the length is needed.
+/// Read the input's IDL value — delegates the `dirty ?? default`
+/// pattern to [`super::form_control_state::read_value`]; the closure
+/// supplies the input-specific defaultValue source (the `value`
+/// content attribute).
 fn read_value(ctx: &mut NativeContext<'_>, entity: Entity) -> String {
-    if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
-        return dirty.to_string();
-    }
-    ctx.host()
-        .dom()
-        .with_attribute(entity, "value", |v| v.unwrap_or("").to_string())
+    super::form_control_state::read_value(ctx, entity, |ctx, e| {
+        ctx.host()
+            .dom()
+            .with_attribute(e, "value", |v| v.unwrap_or("").to_string())
+    })
 }
 
-/// Allocation-free length variant of [`read_value`].  Returns the
-/// IDL value's UTF-16 length without materialising a String — used
-/// by every Selection-API setter that only clamps against the value
-/// bound (no slicing required).
+/// Allocation-free length variant of [`read_value`].
 fn value_utf16_len(ctx: &mut NativeContext<'_>, entity: Entity) -> u32 {
-    if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
-        return utf16_len(dirty);
-    }
-    ctx.host()
-        .dom()
-        .with_attribute(entity, "value", |v| utf16_len(v.unwrap_or("")))
+    super::form_control_state::value_utf16_len(ctx, entity, |ctx, e| {
+        ctx.host()
+            .dom()
+            .with_attribute(e, "value", |v| utf16_len(v.unwrap_or("")))
+    })
 }
 
 fn inp_get_value(

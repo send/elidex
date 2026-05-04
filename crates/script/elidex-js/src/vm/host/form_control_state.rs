@@ -111,6 +111,53 @@ impl VmInner {
     }
 }
 
+/// Read the IDL value of a form control: returns the dirty value
+/// when the IDL setter has fired at least once, otherwise calls
+/// `default_value` to materialise the per-element defaultValue.
+/// Centralises the `dirty ?? default` pattern so every form-control
+/// prototype's `value` getter shares a single dirty-check
+/// implementation — when the elidex-form dep landing migrates the
+/// dirty slot from this map into the ECS-resident
+/// `FormControlState`, this helper is the only place that needs to
+/// change.
+///
+/// Borrow shape: the dirty fast-path returns before invoking
+/// `default_value`, so the closure runs with `&mut NativeContext`
+/// uncontested.
+pub(super) fn read_value<F>(
+    ctx: &mut super::super::value::NativeContext<'_>,
+    entity: Entity,
+    default_value: F,
+) -> String
+where
+    F: FnOnce(&mut super::super::value::NativeContext<'_>, Entity) -> String,
+{
+    if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
+        return dirty.to_string();
+    }
+    default_value(ctx, entity)
+}
+
+/// Length-only counterpart of [`read_value`] — returns the IDL
+/// value's UTF-16 length without materialising a String when the
+/// dirty slot is unset.  `default_value_utf16_len` is the per-element
+/// fallback that counts the defaultValue's UTF-16 units (e.g.
+/// `descendant_text_utf16_len` for textarea, `value` content
+/// attribute length for input).
+pub(super) fn value_utf16_len<F>(
+    ctx: &mut super::super::value::NativeContext<'_>,
+    entity: Entity,
+    default_value_utf16_len: F,
+) -> u32
+where
+    F: FnOnce(&mut super::super::value::NativeContext<'_>, Entity) -> u32,
+{
+    if let Some(dirty) = ctx.vm.form_control_dirty_value(entity) {
+        return utf16_len(dirty);
+    }
+    default_value_utf16_len(ctx, entity)
+}
+
 /// Concatenate the `TextContent` data of every descendant of
 /// `root` in tree order.  Mirrors HTML "child text content"
 /// semantics used by HTMLTextAreaElement.defaultValue (§4.10.11.5)
