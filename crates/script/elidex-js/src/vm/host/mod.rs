@@ -6,7 +6,7 @@
 //! pointers live through `NativeContext::host()`) and is only reachable
 //! from code paths that have already verified boundness.
 //!
-//! ## Layering mandate (CLAUDE.md, drift incident 2026-05-04)
+//! ## Layering mandate
 //!
 //! Files under `vm/host/` are restricted to **engine-bound responsibilities
 //! only**: prototype install, brand check, and `JsValue` ↔ `Entity`
@@ -14,12 +14,11 @@
 //! validation, live-collection walkers, label association, and constraint
 //! validation must be invoked through engine-independent crates
 //! (`elidex-dom-api` / `elidex-form` / `elidex-css` /
-//! `elidex-script-session::DomApiHandler`).  See
-//! `memory/m4-12-architectural-drift-incident.md` for the prior incident
-//! that led to this rule and `m4-12-arch-hoist-roadmap.md` for the
-//! recovery sequence (`#11-arch-hoist-{a..e}` → `#11-tags-T1-v2`).
+//! `elidex-script-session::DomApiHandler`).  See CLAUDE.md "Layering
+//! mandate" and `memory/m4-12-architectural-drift-incident.md` for
+//! the rationale.
 //!
-//! ## Handler dispatch flow (slot #11-arch-hoist-a)
+//! ## Handler dispatch flow
 //!
 //! ```text
 //! native fn (vm/host/*.rs)
@@ -37,11 +36,11 @@
 //! ```
 //!
 //! `VmInner.dom_registry: Rc<DomHandlerRegistry>` is initialised once
-//! at `Vm::new` (`vm/init.rs`) and never mutated.  Handler resolution
-//! is by `&'static str` method name; missing handlers are a hard
-//! error (`VmError::type_error("Unknown DOM method: ...")`) — there
-//! is intentionally no direct-call fallback so that drift back to
-//! `EcsDom::*` direct calls cannot silently re-occur.
+//! at `Vm::new` and never mutated.  Handler resolution is by
+//! `&'static str` method name; missing handlers raise
+//! `VmError::type_error("Unknown DOM method: ...")` — there is no
+//! `EcsDom::*` direct-call fallback so that the layering rule cannot
+//! silently regress.
 //!
 //! Submodule responsibilities:
 //!
@@ -65,8 +64,7 @@
 //!   non-Element Nodes).
 //! - [`dom_bridge`] — shared selector-parse / wrapper-lift helpers
 //!   used by both `document.rs` and Element / Node prototype natives,
-//!   **plus** the `DomApiHandler` dispatch bridge
-//!   (`invoke_dom_api`) introduced by slot #11-arch-hoist-a.
+//!   **plus** the `DomApiHandler` dispatch bridge (`invoke_dom_api`).
 
 pub(crate) mod abort;
 pub(super) mod abort_statics;

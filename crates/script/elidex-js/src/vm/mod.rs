@@ -171,9 +171,8 @@ pub(crate) struct VmInner {
     /// DOM API handler dispatch table.  Initialized once at `Vm::new`
     /// (engine feature only) and shared across every native DOM
     /// method invocation via `vm/host/dom_bridge.rs::invoke_dom_api`.
-    /// Established in slot #11-arch-hoist-a (see drift incident
-    /// `memory/m4-12-architectural-drift-incident.md` and CLAUDE.md
-    /// "Layering mandate").
+    /// Keeping the `DomApiHandler` dispatch path on the engine-
+    /// independent side enforces the CLAUDE.md "Layering mandate".
     #[cfg(feature = "engine")]
     pub(crate) dom_registry: std::rc::Rc<elidex_dom_api::registry::DomHandlerRegistry>,
     /// Promise.prototype object (§25.6.5).

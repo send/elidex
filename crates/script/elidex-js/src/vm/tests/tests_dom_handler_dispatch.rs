@@ -1,8 +1,8 @@
-//! Tests for the `DomApiHandler` dispatch bridge established in
-//! slot #11-arch-hoist-a (`vm/host/dom_bridge.rs::invoke_dom_api`).
+//! Tests for the `DomApiHandler` dispatch bridge in
+//! `vm/host/dom_bridge.rs::invoke_dom_api`.
 //!
-//! Covers the boundary contracts that the bridge guarantees,
-//! independent of any specific handler's spec semantics:
+//! Covers the boundary contracts the bridge guarantees, independent
+//! of any specific handler's spec semantics:
 //! - Symbol / BigInt arguments raise `TypeError` immediately
 //!   (WebIDL §3.10.14 — Symbol coercion is total-throw).
 //! - Non-Node `Object` arguments where a Node is expected raise
@@ -12,8 +12,6 @@
 //!   intern correctly across the marshalling boundary.
 //! - `DomApiError` → `DOMException` mapping for the variants the
 //!   bridge currently handles (`HierarchyRequestError`).
-//!
-//! Drift incident: `memory/m4-12-architectural-drift-incident.md`.
 
 #![cfg(feature = "engine")]
 
@@ -100,13 +98,11 @@ fn dispatch_with_bigint_arg_through_string_coercion_succeeds() {
     // Symbol throws on ToString); BigInt(1n) coerces to the string
     // `"1"`.  `coerce_first_arg_to_string` therefore lets BigInt
     // through, and `getElementById("1")` returns null when no
-    // matching id exists.  This documents that the marshalling
-    // layer's `prepare_arg` BigInt rejection is a defensive
-    // contract for future call sites that pass BigInt **directly**
-    // (without prior ToString); the 5 PoC fns introduced by slot
-    // #11-arch-hoist-a all pre-coerce string args at the call
-    // site, so BigInt never actually reaches `prepare_arg` through
-    // them.
+    // matching id exists.  Documents that the marshalling layer's
+    // `prepare_arg` BigInt rejection is a defensive contract for
+    // future call sites that pass BigInt directly without prior
+    // ToString — current call sites all pre-coerce, so BigInt never
+    // actually reaches `prepare_arg` through them.
     with_doc_vm(|vm| {
         let r = vm.eval("document.getElementById(1n);").unwrap();
         assert!(matches!(r, JsValue::Null));

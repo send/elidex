@@ -32,8 +32,9 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, invoke_dom_api, parse_dom_selector, query_selector_in_subtree_all,
-    query_selector_in_subtree_first, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api, parse_dom_selector,
+    query_selector_in_subtree_all, query_selector_in_subtree_first, wrap_entities_as_array,
+    wrap_entity_or_null,
 };
 
 use elidex_ecs::{Entity, NodeKind};
@@ -90,17 +91,11 @@ pub(super) fn native_document_get_element_by_id(
         return Ok(JsValue::Null);
     };
     // Spec-precise ToString coercion (Object via `[Symbol.toPrimitive]`
-    // / `toString`) runs at call site; handler's
+    // / `toString`) runs at the call site — handler's
     // `require_string_arg` would reject `ObjectRef` and cannot
-    // reproduce the WebIDL-correct stringifier path.
-    let target = coerce_first_arg_to_string(ctx, args)?;
-    let target_sid = ctx.intern(&target);
-    let result = invoke_dom_api(ctx, "getElementById", doc, &[JsValue::String(target_sid)])?;
-    // Handler returns `null` (`Pv::Null`) when the id is not found —
-    // `null` is the spec result, but `Pv::Null` rendered as
-    // `JsValue::Null` matches the prior `wrap_entity_or_null` shape
-    // exactly.
-    Ok(result)
+    // reproduce the WebIDL stringifier path.
+    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "getElementById", doc, &[JsValue::String(target_sid)])
 }
 
 // ---------------------------------------------------------------------------
@@ -250,8 +245,7 @@ pub(super) fn native_document_create_element(
     };
     // ToString at call site; handler does the lowercase normalisation
     // and the "node document" anchoring (WHATWG DOM §4.5 / §4.4).
-    let tag = coerce_first_arg_to_string(ctx, args)?;
-    let tag_sid = ctx.intern(&tag);
+    let tag_sid = coerce_first_arg_to_string_id(ctx, args)?;
     invoke_dom_api(
         ctx,
         "createElement",

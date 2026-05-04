@@ -68,9 +68,20 @@ pub(super) fn coerce_first_arg_to_string(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
 ) -> Result<String, VmError> {
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    let sid = coerce_first_arg_to_string_id(ctx, args)?;
     Ok(ctx.vm.strings.get_utf8(sid))
+}
+
+/// Coerce the first argument to a string and return the interned
+/// `StringId` directly — skips the `get_utf8 → intern` round trip
+/// for callers that need the id (e.g. building `JsValue::String` for
+/// handler dispatch).
+pub(super) fn coerce_first_arg_to_string_id(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+) -> Result<super::super::value::StringId, VmError> {
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    super::super::coerce::to_string(ctx.vm, arg)
 }
 
 /// Shared body for every "map `this` through one `EcsDom` tree-nav
@@ -211,15 +222,12 @@ pub(super) fn query_selector_in_subtree_all(
 // read, so this file no longer needs a static snapshot helper.
 
 // ---------------------------------------------------------------------------
-// `DomApiHandler` dispatch — boa-parity bridge from VM-internal
-// `JsValue` → engine-independent `elidex_plugin::JsValue` and back,
-// invoking `DomApiHandler::invoke()` through the registry stored on
-// `VmInner.dom_registry`.
-//
-// Established by slot #11-arch-hoist-a (drift incident
-// `memory/m4-12-architectural-drift-incident.md`).  Subsequent slots
-// (b/c/d/e) migrate the remaining `EcsDom::*` direct-call sites onto
-// this bridge.
+// `DomApiHandler` dispatch — bridge from VM-internal `JsValue` →
+// engine-independent `elidex_plugin::JsValue` and back, invoking
+// `DomApiHandler::invoke()` through the registry stored on
+// `VmInner.dom_registry`.  Keeps DOM mutation algorithms / selector
+// matching / form validation / live-collection walking on the
+// engine-independent side per the CLAUDE.md Layering mandate.
 // ---------------------------------------------------------------------------
 
 /// VM-side pre-validated argument representation — primitives are
@@ -394,11 +402,9 @@ fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
 ///    allocation through `VmInner::create_element_wrapper`).
 ///
 /// Handler-not-registered is a hard error (`VmError::type_error`):
-/// `direct-call fallback` is intentionally not provided so that a
-/// missing handler surfaces as a build / migration bug rather than
-/// silently regressing to the very `EcsDom::*` direct-call path
-/// that motivated the slot #11-arch-hoist-a hoist (see drift
-/// incident memo).
+/// no `EcsDom::*` direct-call fallback is provided, so a missing
+/// handler surfaces as a build error rather than silently
+/// regressing to the layer this bridge exists to keep separated.
 pub(super) fn invoke_dom_api(
     ctx: &mut NativeContext<'_>,
     handler_name: &'static str,

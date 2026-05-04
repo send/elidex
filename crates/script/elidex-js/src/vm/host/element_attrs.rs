@@ -16,7 +16,9 @@
 #![cfg(feature = "engine")]
 
 use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
-use super::dom_bridge::{coerce_first_arg_to_string, invoke_dom_api};
+use super::dom_bridge::{
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
+};
 use super::event_target::entity_from_this;
 
 use elidex_ecs::Entity;
@@ -100,8 +102,7 @@ pub(super) fn native_element_get_attribute(
     };
     // Spec-precise ToString runs at call site (handler's
     // `require_string_arg` rejects `ObjectRef`).
-    let name = coerce_first_arg_to_string(ctx, args)?;
-    let name_sid = ctx.intern(&name);
+    let name_sid = coerce_first_arg_to_string_id(ctx, args)?;
     invoke_dom_api(ctx, "getAttribute", entity, &[JsValue::String(name_sid)])
 }
 
@@ -115,8 +116,7 @@ pub(super) fn native_element_set_attribute(
     };
     // Coerce BOTH args (name then value) per WebIDL ToString — handler
     // path expects pre-stringified values.
-    let name = coerce_first_arg_to_string(ctx, args)?;
-    let name_sid = ctx.intern(&name);
+    let name_sid = coerce_first_arg_to_string_id(ctx, args)?;
     let value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let value_sid = super::super::coerce::to_string(ctx.vm, value_arg)?;
     invoke_dom_api(
