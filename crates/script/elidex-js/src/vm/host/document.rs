@@ -726,24 +726,13 @@ pub(super) fn native_document_get_active_element(
         });
         focused_connected.or_else(|| {
             let html = find_html_root_of(ctx, doc)?;
-            // Spec fallback: the first body-or-frameset child of
-            // `<html>` in document order, falling back to `<html>` if
-            // neither exists.  Walking the children once (mirroring
-            // `GetBody`'s logic) is required for `document.body` and
-            // `document.activeElement` to agree when BOTH tags are
-            // present — a two-pass `first_child_with_tag("body")
-            // .or_else(... "frameset")` would resolve a later `<body>`
-            // over an earlier `<frameset>`.
-            let dom = ctx.host().dom();
-            dom.children_iter(html)
-                .find(|c| {
-                    dom.world()
-                        .get::<&elidex_ecs::TagType>(*c)
-                        .ok()
-                        .is_some_and(|t| {
-                            t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset")
-                        })
-                })
+            // Spec fallback: first body-or-frameset child of `<html>`,
+            // else `<html>`.  Reuses the engine-independent
+            // `first_body_or_frameset_child` helper that `GetBody` calls
+            // so the two accessors stay locked together (PR #156 R6
+            // drifted them once when the body|frameset find was
+            // inlined here as a two-pass that lost document order).
+            elidex_dom_api::char_data::first_body_or_frameset_child(ctx.host().dom(), html)
                 .or(Some(html))
         })
     };

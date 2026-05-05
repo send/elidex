@@ -99,6 +99,27 @@ fn find_child_element(dom: &EcsDom, parent: Entity, tag_name: &str) -> Option<En
     dom.first_child_with_tag(parent, tag_name)
 }
 
+/// Find the first child of `html` that is a `<body>` or `<frameset>`
+/// element, in document order, ASCII case-insensitively.
+///
+/// Shared between `GetBody::invoke` (this module) and
+/// `vm/host/document.rs::native_document_get_active_element` (the
+/// VM-side focus-fallback walker, currently deferred to slot
+/// `#11-focus-management-hoist`).  Centralising the body-or-frameset
+/// match here keeps the two accessors locked together — PR #156 R6
+/// already drifted them once when activeElement carried a private
+/// `first_child_with_tag("body").or_else(... "frameset")` two-pass
+/// fallback that lost document order vs `GetBody`'s single-walk
+/// scan.
+#[must_use]
+pub fn first_body_or_frameset_child(dom: &EcsDom, html: Entity) -> Option<Entity> {
+    dom.children_iter(html).find(|child| {
+        dom.world().get::<&TagType>(*child).ok().is_some_and(|t| {
+            t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset")
+        })
+    })
+}
+
 /// `document.documentElement` getter — first Element child of the document.
 pub struct GetDocumentElement;
 
@@ -168,15 +189,7 @@ impl DomApiHandler for GetBody {
         let Some(html) = find_child_element(dom, this, "html") else {
             return Ok(JsValue::Null);
         };
-        // Per spec, body is the first child of <html> that is <body> or
-        // <frameset>.  ASCII case-insensitive comparison matches the
-        // policy of `find_child_element` / `first_child_with_tag`.
-        let body = dom.children_iter(html).find(|child| {
-            dom.world().get::<&TagType>(*child).ok().is_some_and(|t| {
-                t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset")
-            })
-        });
-        let Some(body) = body else {
+        let Some(body) = first_body_or_frameset_child(dom, html) else {
             return Ok(JsValue::Null);
         };
         let obj_ref = session.get_or_create_wrapper(body, ComponentKind::Element);
