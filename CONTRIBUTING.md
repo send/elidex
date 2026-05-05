@@ -32,11 +32,14 @@ Thanks for your interest in contributing!
 
 ## CI
 
-Pull requests are tested on Ubuntu, macOS, and Windows. CI checks:
+Pull requests are tested on Ubuntu, macOS, and Windows. CI checks (all
+cargo-invoking steps run with `--all-features` so feature-gated code paths
+like `#![cfg(feature = "engine")]` are exercised):
 
 - `cargo fmt --all -- --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace`
-- `cargo doc --workspace --no-deps` (with `-D warnings`)
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- `cargo nextest run --workspace --all-features` (unit tests, no doc-tests)
+- `cargo test --workspace --doc --all-features` (doc-tests only)
+- `cargo doc --workspace --no-deps --all-features` (with `-D warnings`)
 - `cargo deny check` (licenses and vulnerabilities)
 - MSRV compatibility (Rust 1.88)
