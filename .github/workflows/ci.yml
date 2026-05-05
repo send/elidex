@@ -39,10 +39,12 @@ jobs:
               - '.rustfmt.toml'
               - 'clippy.toml'
               - 'mise.toml'
+              - '.github/workflows/**'
             config:
               - 'deny.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.github/workflows/**'
 
   check:
     name: Check, Test, Lint
