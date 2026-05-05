@@ -148,6 +148,7 @@ pub(crate) enum CorsOutcome {
 /// upstream in `origin_for_request`; this function's `None`
 /// path is now unreachable from VM-side fetch and only serves
 /// the embedder fallback contract.
+#[allow(clippy::too_many_arguments)] // CORS classifier inputs are spec-mandated, not refactorable
 pub(crate) fn classify_response_type(
     request_origin: Option<&url::Origin>,
     request_url: &Url,

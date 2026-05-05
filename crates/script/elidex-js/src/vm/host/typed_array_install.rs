@@ -35,10 +35,10 @@ impl VmInner {
     /// `%TypedArray%` constructor, `@@toStringTag` / `@@species` /
     /// `constructor` links, and all 11 concrete subclass prototypes
     /// + constructors.  Must run during `register_globals()` after
-    /// `register_array_buffer_global` (ArrayBuffer backs the
-    /// TypedArray's bytes) and before
-    /// `register_structured_clone_global` (so C6 clone arms can
-    /// reach the subclass prototype ids).
+    ///   `register_array_buffer_global` (ArrayBuffer backs the
+    ///   TypedArray's bytes) and before
+    ///   `register_structured_clone_global` (so C6 clone arms can
+    ///   reach the subclass prototype ids).
     ///
     /// # Panics
     ///
@@ -121,6 +121,7 @@ impl VmInner {
     /// authoritative spec slots carried inline on
     /// [`ObjectKind::TypedArray`], so they work uniformly across
     /// every subclass instance without per-subclass install.
+    #[allow(clippy::too_many_lines)] // single function installs the full %TypedArray%.prototype suite — splitting would obscure the spec-mirrored ordering
     fn install_typed_array_prototype_members(&mut self, proto_id: ObjectId) {
         let accessors: [(StringId, NativeFn); 4] = [
             (
@@ -330,8 +331,8 @@ impl VmInner {
 
     /// Allocate one subclass `Xxx.prototype → %TypedArray%.prototype`
     /// + constructor `Xxx → %TypedArray%` (via prototype link),
-    /// install `BYTES_PER_ELEMENT` on both ctor and prototype, and
-    /// expose the ctor on `globals`.
+    ///   install `BYTES_PER_ELEMENT` on both ctor and prototype, and
+    ///   expose the ctor on `globals`.
     ///
     /// Per PR5b D4 per-interface brand wrappers lesson, each
     /// subclass gets its own static native fn so error messages

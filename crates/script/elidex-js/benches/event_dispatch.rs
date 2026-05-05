@@ -52,7 +52,7 @@ fn setup() -> (Box<Vm>, Box<SessionCore>, Box<EcsDom>, ObjectId, Entity) {
     vm.install_host_data(HostData::new());
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&mut *session as *mut _, &mut *dom as *mut _, doc);
+        vm.bind(&raw mut *session, &raw mut *dom, doc);
     }
     let target = vm.create_element_wrapper(el);
     (vm, session, dom, target, el)

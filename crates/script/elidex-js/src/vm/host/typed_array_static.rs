@@ -451,13 +451,13 @@ pub(crate) fn native_typed_array_of(
     // matches the wider invariant).
     let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
     let mut sub_ctx = NativeContext { vm: &mut g };
-    let (buf_id, byte_offset) = match sub_ctx.vm.get_object(view_id).kind {
-        ObjectKind::TypedArray {
-            buffer_id,
-            byte_offset,
-            ..
-        } => (buffer_id, byte_offset),
-        _ => unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray"),
+    let ObjectKind::TypedArray {
+        buffer_id: buf_id,
+        byte_offset,
+        ..
+    } = sub_ctx.vm.get_object(view_id).kind
+    else {
+        unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray")
     };
     for (i, value) in args.iter().enumerate() {
         #[allow(clippy::cast_possible_truncation)]
@@ -607,13 +607,13 @@ fn allocate_and_write_view_from_array_like(
     let view_id = create_typed_array_for_length(ctx, ek, proto_override, elems_len)?;
     let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
     let mut sub_ctx = NativeContext { vm: &mut g };
-    let (buf_id, byte_offset) = match sub_ctx.vm.get_object(view_id).kind {
-        ObjectKind::TypedArray {
-            buffer_id,
-            byte_offset,
-            ..
-        } => (buffer_id, byte_offset),
-        _ => unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray"),
+    let ObjectKind::TypedArray {
+        buffer_id: buf_id,
+        byte_offset,
+        ..
+    } = sub_ctx.vm.get_object(view_id).kind
+    else {
+        unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray")
     };
     for i in 0..elems_len {
         #[allow(clippy::cast_precision_loss)]
@@ -656,13 +656,13 @@ fn allocate_and_write_view(
     let view_id = create_typed_array_for_length(ctx, ek, proto_override, len)?;
     let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
     let mut sub_ctx = NativeContext { vm: &mut g };
-    let (buf_id, byte_offset) = match sub_ctx.vm.get_object(view_id).kind {
-        ObjectKind::TypedArray {
-            buffer_id,
-            byte_offset,
-            ..
-        } => (buffer_id, byte_offset),
-        _ => unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray"),
+    let ObjectKind::TypedArray {
+        buffer_id: buf_id,
+        byte_offset,
+        ..
+    } = sub_ctx.vm.get_object(view_id).kind
+    else {
+        unreachable!("create_typed_array_for_length always produces ObjectKind::TypedArray")
     };
     for i in 0..elems_len {
         // `JsValue` is `Copy`; this snapshot ends before the

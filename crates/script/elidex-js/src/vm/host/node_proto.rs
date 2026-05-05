@@ -201,9 +201,8 @@ pub(super) fn require_node_arg(
             "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
         ))
     };
-    let id = match value {
-        JsValue::Object(id) => id,
-        _ => return Err(not_a_node()),
+    let JsValue::Object(id) = value else {
+        return Err(not_a_node());
     };
     let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
         return Err(not_a_node());
@@ -233,7 +232,7 @@ fn native_node_get_parent_node(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.get_parent(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::get_parent)
 }
 
 /// `Node.prototype.parentElement` — returns the parent only if it is
@@ -276,7 +275,7 @@ fn native_node_get_next_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.next_exposed_sibling(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::next_exposed_sibling)
 }
 
 fn native_node_get_previous_sibling(
@@ -284,7 +283,7 @@ fn native_node_get_previous_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.prev_exposed_sibling(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::prev_exposed_sibling)
 }
 
 fn native_node_get_child_nodes(
@@ -325,7 +324,7 @@ fn native_node_get_is_connected(
         .vm
         .host_data
         .as_deref()
-        .and_then(|hd| hd.document_entity_opt())
+        .and_then(super::super::host_data::HostData::document_entity_opt)
         .is_some_and(|doc| root == doc);
     Ok(JsValue::Boolean(connected))
 }
@@ -352,14 +351,14 @@ fn native_node_get_node_name(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
     enum NodeNameKind {
         Upper(String),
         Hash(StringId),
         Empty,
     }
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
     let kind = {
         let dom = ctx.host().dom();
         let upper = dom.with_tag_name(entity, |t| t.map(str::to_ascii_uppercase));

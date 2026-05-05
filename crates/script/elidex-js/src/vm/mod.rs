@@ -851,9 +851,9 @@ pub(crate) struct VmInner {
     /// Per-`URL` instance state keyed by the instance's own
     /// `ObjectId` (WHATWG URL §6.1).  Holds the parsed [`url::Url`]
     /// + the linked `URLSearchParams` `ObjectId` allocated by the
-    /// constructor (eager-create for `searchParams` identity
-    /// stability — `url.searchParams === url.searchParams` is a
-    /// spec invariant).
+    ///   constructor (eager-create for `searchParams` identity
+    ///   stability — `url.searchParams === url.searchParams` is a
+    ///   spec invariant).
     ///
     /// GC contract: the trace step marks the linked `search_params`
     /// `ObjectId` if any.  Sweep tail prunes entries whose key

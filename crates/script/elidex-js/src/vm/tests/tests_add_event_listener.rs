@@ -212,7 +212,7 @@ fn calls_on_non_host_object_silently_no_op() {
     vm.install_host_data(HostData::new());
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+        vm.bind(&raw mut session, &raw mut dom, doc);
     }
 
     // Pull `addEventListener` off the EventTarget prototype (reached
@@ -263,7 +263,7 @@ fn calls_after_unbind_are_silent_no_op() {
     // work (entity is the same; bound state is restored).
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&mut session as *mut _, &mut dom as *mut _, doc);
+        vm.bind(&raw mut session, &raw mut dom, doc);
     }
     let result = vm.eval("savedDoc.addEventListener('click', function () {});");
     assert!(

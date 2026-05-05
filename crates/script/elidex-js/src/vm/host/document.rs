@@ -455,17 +455,16 @@ pub(super) fn native_document_set_title(
     // find_or_create_title.  We want a single <title> in <head>; if
     // absent, allocate one and append (with the correct owner
     // document).
-    let title = match ctx.host().dom().first_child_with_tag(head, "title") {
-        Some(t) => t,
-        None => {
-            let new_title = ctx.host().dom().create_element_with_owner(
-                "title",
-                elidex_ecs::Attributes::default(),
-                Some(doc),
-            );
-            let _ = ctx.host().dom().append_child(head, new_title);
-            new_title
-        }
+    let title = if let Some(t) = ctx.host().dom().first_child_with_tag(head, "title") {
+        t
+    } else {
+        let new_title = ctx.host().dom().create_element_with_owner(
+            "title",
+            elidex_ecs::Attributes::default(),
+            Some(doc),
+        );
+        let _ = ctx.host().dom().append_child(head, new_title);
+        new_title
     };
 
     // Clear existing text-node children; legal <title> content per
@@ -523,7 +522,11 @@ pub(super) fn native_document_get_default_view(
     };
     // Only the bound document has a Window.  Non-bound (cloned)
     // documents are detached from any browsing context.
-    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    let bound_doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document);
     if bound_doc != Some(doc) {
         return Ok(JsValue::Null);
     }
@@ -585,7 +588,11 @@ pub(super) fn native_document_get_cookie(
     let Some(doc) = document_receiver(ctx, this, "cookie")? else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    let bound_doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document);
     if bound_doc != Some(doc) {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
@@ -624,7 +631,11 @@ pub(super) fn native_document_set_cookie(
     let Some(doc) = document_receiver(ctx, this, "cookie")? else {
         return Ok(JsValue::Undefined);
     };
-    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    let bound_doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document);
     if bound_doc != Some(doc) {
         return Ok(JsValue::Undefined);
     }
@@ -667,7 +678,11 @@ pub(super) fn native_document_get_referrer(
     let Some(doc) = document_receiver(ctx, this, "referrer")? else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let bound_doc = ctx.vm.host_data.as_deref().map(|hd| hd.document());
+    let bound_doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document);
     if bound_doc != Some(doc) {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }

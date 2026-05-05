@@ -721,7 +721,7 @@ fn blob_array_buffer_read_via_data_view() {
              });",
             "r",
         ),
-        0x0102_0304 as f64
+        f64::from(0x0102_0304)
     );
 }
 
@@ -768,6 +768,6 @@ fn overlapping_views_on_shared_buffer_method_composition() {
              copied[0] + lo + hi_byte;"
         ),
         // u8[0] via copy = 0x34 ; lo = 0x1234 (LE) ; hi_byte = u8[2] post-write = 0xFE
-        (0x34 + 0x1234 + 0xFE) as f64
+        f64::from(0x34 + 0x1234 + 0xFE)
     );
 }

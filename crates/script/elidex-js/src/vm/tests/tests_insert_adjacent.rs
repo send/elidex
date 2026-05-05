@@ -319,7 +319,7 @@ fn insert_adjacent_element_stale_entity_arg_reports_detached_not_wrong_type() {
     // eval can hold a HostObject reference), then destroy the
     // underlying Entity.  The wrapper survives, but its
     // `entity_bits` now point at a recycled / empty slot.
-    let _stray_wrapper = vm.create_element_wrapper(stray);
+    let stray_wrapper = vm.create_element_wrapper(stray);
     vm.unbind();
     assert!(dom.destroy_entity(stray));
     #[allow(unsafe_code)]
@@ -340,7 +340,7 @@ fn insert_adjacent_element_stale_entity_arg_reports_detached_not_wrong_type() {
           detached + '|' + wrongType; }";
     vm.set_global(
         "__stale_wrapper",
-        super::super::value::JsValue::Object(_stray_wrapper),
+        super::super::value::JsValue::Object(stray_wrapper),
     );
     let result = vm.eval(script).unwrap();
     let JsValue::String(sid) = result else {

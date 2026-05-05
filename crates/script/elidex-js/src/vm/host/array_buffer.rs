@@ -172,7 +172,7 @@ fn require_array_buffer_this(
 /// entry ⇒ zero-length, which matches a freshly allocated but
 /// uninstalled instance (defensive — should not happen).
 pub(crate) fn array_buffer_byte_length(vm: &VmInner, id: ObjectId) -> usize {
-    vm.body_data.get(&id).map_or(0, |b| b.len())
+    vm.body_data.get(&id).map_or(0, std::vec::Vec::len)
 }
 
 /// Return a snapshot of the full backing byte slice as an owned

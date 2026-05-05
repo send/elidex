@@ -276,7 +276,7 @@ fn native_element_get_first_element_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.first_element_child(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::first_element_child)
 }
 
 fn native_element_get_last_element_child(
@@ -284,7 +284,7 @@ fn native_element_get_last_element_child(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.last_element_child(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::last_element_child)
 }
 
 fn native_element_get_next_element_sibling(
@@ -292,7 +292,7 @@ fn native_element_get_next_element_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.next_element_sibling(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::next_element_sibling)
 }
 
 fn native_element_get_previous_element_sibling(
@@ -300,7 +300,7 @@ fn native_element_get_previous_element_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| dom.prev_element_sibling(e))
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::prev_element_sibling)
 }
 
 fn native_element_get_children(
@@ -333,7 +333,10 @@ fn native_element_get_child_element_count(
         .children_iter(entity)
         .filter(|c| dom.world().get::<&TagType>(*c).is_ok())
         .count();
-    Ok(JsValue::Number(count as f64))
+    #[allow(clippy::cast_precision_loss)]
+    // child counts in practice fit in u32, well within f64 mantissa
+    let count_f = count as f64;
+    Ok(JsValue::Number(count_f))
 }
 
 // ---------------------------------------------------------------------------

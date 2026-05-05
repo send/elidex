@@ -200,16 +200,13 @@ fn native_form_data_constructor(
     // silently here since the form-element walk is deferred; a
     // primitive like `new FormData("foo")` rejects with TypeError
     // to match WebIDL nullable-interface coercion).
+    // TODO: walk `<form>` controls when the form-submission
+    // integration lands.  Until then we install an empty
+    // entry list for `JsValue::Object(_)` — matches `<form>` with
+    // no submittable controls, observably correct for tests that
+    // construct `new FormData(formEl)` and immediately append.
     match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined | JsValue::Null => {}
-        JsValue::Object(_) => {
-            // TODO: walk `<form>` controls when the form-submission
-            // integration lands.  Until then we install an empty
-            // entry list — matches `<form>` with no submittable
-            // controls, observably correct for tests that
-            // construct `new FormData(formEl)` and immediately
-            // append.
-        }
+        JsValue::Undefined | JsValue::Null | JsValue::Object(_) => {}
         _ => {
             return Err(VmError::type_error(
                 "Failed to construct 'FormData': parameter 1 is not of type 'HTMLFormElement'",
@@ -326,13 +323,13 @@ fn native_fd_set(
             if e.name != new_entry.name {
                 return true;
             }
-            if !replaced {
+            if replaced {
+                false
+            } else {
                 e.value = new_entry.value;
                 e.filename = new_entry.filename;
                 replaced = true;
                 true
-            } else {
-                false
             }
         });
         if !replaced {

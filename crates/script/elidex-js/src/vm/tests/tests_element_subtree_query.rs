@@ -136,35 +136,42 @@ fn element_query_selector_invalid_selector_throws() {
 
 #[test]
 fn element_query_selector_relative_combinator_syntax() {
-    // Sanity: the underlying selectors crate's behaviour on `>` at
-    // the start of a selector — we don't yet support `:scope`, so
-    // the current implementation either parses the selector and
-    // finds no match (meaning it treats `>` as part of a relative
-    // combinator that has nothing to the left) or raises SyntaxError.
-    //
-    // This test pins whichever behaviour holds today and flags the
-    // need to revisit alongside `:scope` (PR5a).
+    // Regression: the relative `>` combinator at the start of a
+    // selector has no `:scope` to attach to (we don't support
+    // `:scope` rooting yet, PR5a).  `parse_dom_selector`
+    // (engine-independent layer) must reject this at parse time
+    // with `DOMException("SyntaxError")` per WHATWG DOM §4.7 — the
+    // assertion below pins that exact outcome.  Will need to be
+    // revisited alongside `:scope` (PR5a) — at which point the
+    // expected outcome may shift to a successful parse with zero
+    // matches.
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
     build_fixture(&mut vm);
-    // The relative `>` combinator is valid for `:scope`-rooted
-    // queries but ambiguous without a `:scope` prefix — the two
-    // outcomes the selector engine is allowed to produce are
-    // `null` (parsed, zero matches) or a SyntaxError.  Any other
-    // successful return (e.g. a non-null Element) or error kind
-    // would be a regression.
+    // The relative `>` combinator is invalid without a `:scope`
+    // prefix.  `parse_dom_selector` (engine-independent layer)
+    // rejects it at parse time and throws `DOMException("SyntaxError")`
+    // per WHATWG DOM §4.7.  Pinning the throw — `Ok(JsValue::Null)`
+    // and any other error kind are regressions of either the
+    // selector parser (silently parsing what it should reject) or
+    // the error taxonomy (R8 of #11-arch-hoist-a migrated this path
+    // off `VmError::syntax_error`).
     let result = vm.eval("section.querySelector('> .target');");
+    let syntax_err_name = vm.inner.well_known.dom_exc_syntax_error;
     match result {
-        Ok(JsValue::Null) => {}
-        Err(e) if matches!(e.kind, super::super::value::VmErrorKind::SyntaxError) => {}
+        Err(e)
+            if matches!(
+                e.kind,
+                super::super::value::VmErrorKind::DomException { name } if name == syntax_err_name
+            ) => {}
         Ok(other) => {
-            panic!("expected null or SyntaxError, got Ok({other:?})");
+            panic!("expected DOMException(\"SyntaxError\"), got Ok({other:?})");
         }
         Err(e) => {
-            panic!("expected null or SyntaxError, got {e:?}");
+            panic!("expected DOMException(\"SyntaxError\"), got {e:?}");
         }
     }
     vm.unbind();

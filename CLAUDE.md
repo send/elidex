@@ -18,15 +18,15 @@ Experimental browser engine written in Rust.
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
-- **Push 前**: `mise run ci`（check + lint + test-all + doc + deny）
-- **テストは変更クレートに絞る**: `cargo test -p <crate>`。`--workspace` / `mise run test` は最終検証時のみ
+- **Push 前**: `mise run ci`（check + lint + test-all + doc + deny）。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate されているので feature-gated code (`#![cfg(feature = "engine")]` 等) も含めて回る (`lint-fmt` / `deny` は feature と無関係のため対象外)
+- **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 
 ## Commands
 
 ```sh
 mise run ci          # 全 CI (push 前必須)
-mise run test        # cargo nextest run --workspace (fast, no doc-tests)
+mise run test        # cargo nextest run --workspace --all-features (fast, no doc-tests)
 mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 ```
@@ -57,4 +57,4 @@ mise run fmt         # cargo fmt --all
 
 ## CI
 
-4 jobs: `changes` (path filter via `dorny/paths-filter@v3`) / `check` (ubuntu/macos/windows: fmt + clippy + test) / `doc` (cargo doc -D warnings) / `deny` (standalone). Push to main always runs all jobs. Actions pinned (`actions/checkout@v4`, `Swatinem/rust-cache@v2`, `taiki-e/install-action@v2`). Toolchain stable (`rust-toolchain.toml`).
+4 jobs: `changes` (path filter via `dorny/paths-filter@v4` — includes `.github/workflows/**` so workflow-only edits trigger the gate) / `check` (ubuntu/macos/windows: fmt check + clippy `--all-features` + nextest `--all-features` + doc-tests `--all-features`; cargo-nextest installed via `taiki-e/install-action@v2`) / `doc` (cargo doc `--all-features` -D warnings) / `deny` (standalone). Push to main always runs all jobs. Actions pinned (`actions/checkout@v6`, `Swatinem/rust-cache@v2`, `taiki-e/install-action@v2`). Toolchain stable (`rust-toolchain.toml`).

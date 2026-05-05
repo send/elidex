@@ -67,17 +67,20 @@ docs/
 
 - Rust stable toolchain (MSRV: 1.88)
 - [mise](https://mise.jdx.dev/) (task runner)
+- [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`) — used by `mise run test` / `test-all` / `ci`
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (license/vulnerability checks)
 
 ### Common Tasks
 
 ```sh
 mise run check     # cargo check
-mise run test      # run all tests
+mise run test      # cargo nextest (unit tests only — no doc-tests)
+mise run test-doc  # cargo test --doc (doc-tests only)
+mise run test-all  # nextest + doc-tests (full suite, run by `ci`)
 mise run lint      # clippy + fmt check
 mise run fmt       # format code
 mise run deny      # license/vulnerability check
-mise run ci        # run all CI checks locally
+mise run ci        # run all CI checks locally (check + lint + test-all + doc + deny)
 ```
 
 ### Running the Crawler

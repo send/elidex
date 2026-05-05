@@ -108,15 +108,11 @@ pub(in crate::vm::host) fn parse_headers_init_entries(
                     )));
                 }
                 let mut out = Vec::new();
-                loop {
-                    // A throw from `iter_next` itself means the iterator's
-                    // own `.next()` raised — per ES §7.4.6 the iterator is
-                    // already considered closed, so `IteratorClose` must
-                    // *not* be called.  Propagate directly.
-                    let pair = match ctx.vm.iter_next(iter)? {
-                        Some(p) => p,
-                        None => break,
-                    };
+                // A throw from `iter_next` itself means the iterator's
+                // own `.next()` raised — per ES §7.4.6 the iterator is
+                // already considered closed, so `IteratorClose` must
+                // *not* be called.  Propagate directly.
+                while let Some(pair) = ctx.vm.iter_next(iter)? {
                     // A throw from `validate_pair_entry` is an abrupt
                     // completion of the for-of-like loop body; §7.4.6
                     // requires `IteratorClose` (i.e. call `.return()` on
@@ -220,13 +216,9 @@ fn collect_header_pair_values(
         }
     };
     let mut values: Vec<JsValue> = Vec::with_capacity(2);
-    loop {
-        // `iter_next` throw → iterator already considered closed
-        // (§7.4.6); propagate without `.return()`.
-        let v = match ctx.vm.iter_next(iter)? {
-            Some(v) => v,
-            None => break,
-        };
+    // `iter_next` throw → iterator already considered closed
+    // (§7.4.6); propagate without `.return()`.
+    while let Some(v) = ctx.vm.iter_next(iter)? {
         values.push(v);
         if values.len() > 2 {
             // Early exit on arity overflow.  Closing the iterator

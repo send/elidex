@@ -6,6 +6,7 @@ Thanks for your interest in contributing!
 
 1. Fork the repository and clone your fork.
 2. Install prerequisites: Rust stable toolchain, [mise](https://mise.jdx.dev/),
+   [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`),
    and [cargo-deny](https://github.com/EmbarkStudios/cargo-deny).
 3. Run `mise run ci` to verify everything works locally.
 
@@ -20,7 +21,7 @@ Thanks for your interest in contributing!
 ## Code Style
 
 - Run `cargo fmt --all` before committing.
-- Fix all clippy warnings (`cargo clippy --workspace --all-targets -- -D warnings`).
+- Fix all clippy warnings (`cargo clippy --workspace --all-targets --all-features -- -D warnings`).
 - Follow existing patterns in the codebase.
 
 ## Commit Messages
@@ -31,11 +32,16 @@ Thanks for your interest in contributing!
 
 ## CI
 
-Pull requests are tested on Ubuntu, macOS, and Windows. CI checks:
+Pull requests are tested on Ubuntu, macOS, and Windows. CI checks (the
+clippy / test / doc steps run with `--all-features` so feature-gated code
+paths like `#![cfg(feature = "engine")]` are exercised; `cargo fmt --check`
+and `cargo deny check` don't depend on feature selection and so don't need
+the flag):
 
 - `cargo fmt --all -- --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace`
-- `cargo doc --workspace --no-deps` (with `-D warnings`)
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- `cargo nextest run --workspace --all-features` (unit tests, no doc-tests)
+- `cargo test --workspace --doc --all-features` (doc-tests only)
+- `cargo doc --workspace --no-deps --all-features` (with `-D warnings`)
 - `cargo deny check` (licenses and vulnerabilities)
 - MSRV compatibility (Rust 1.88)

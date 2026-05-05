@@ -495,14 +495,14 @@ impl VmInner {
         key: JsValue,
         val: JsValue,
     ) -> Option<Result<(), VmError>> {
-        let (buffer_id, byte_offset, byte_length, element_kind) = match self.get_object(id).kind {
-            ObjectKind::TypedArray {
-                buffer_id,
-                byte_offset,
-                byte_length,
-                element_kind,
-            } => (buffer_id, byte_offset, byte_length, element_kind),
-            _ => return None,
+        let ObjectKind::TypedArray {
+            buffer_id,
+            byte_offset,
+            byte_length,
+            element_kind,
+        } = self.get_object(id).kind
+        else {
+            return None;
         };
         // Resolve a canonical integer index.  Non-canonical strings
         // (`"01"`, `"1.5e2"`) fall through to ordinary property

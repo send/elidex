@@ -287,14 +287,11 @@ fn native_promise_rejection_event_constructor(
     //   - Non-object primitive (number / string / bool) → WebIDL
     //     dictionary coercion error (`parameter 2 is not of type
     //     'PromiseRejectionEventInit'`).
-    let init_arg = match args.get(1).copied() {
-        Some(v) => v,
-        None => {
-            return Err(VmError::type_error(
-                "Failed to construct 'PromiseRejectionEvent': \
-                 2 arguments required, but only 1 present.",
-            ));
-        }
+    let Some(init_arg) = args.get(1).copied() else {
+        return Err(VmError::type_error(
+            "Failed to construct 'PromiseRejectionEvent': \
+             2 arguments required, but only 1 present.",
+        ));
     };
     let opts_id = match init_arg {
         JsValue::Object(id) => Some(id),

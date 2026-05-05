@@ -39,10 +39,12 @@ jobs:
               - '.rustfmt.toml'
               - 'clippy.toml'
               - 'mise.toml'
+              - '.github/workflows/**'
             config:
               - 'deny.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.github/workflows/**'
 
   check:
     name: Check, Test, Lint
@@ -69,14 +71,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Run tests
-        run: cargo test --workspace
+      - name: Run tests (nextest, no doc-tests)
+        run: cargo nextest run --workspace --all-features
+
+      - name: Run doc-tests
+        run: cargo test --workspace --doc --all-features
 
   doc:
     name: Documentation
@@ -92,7 +101,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build documentation
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
 

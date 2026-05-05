@@ -64,7 +64,10 @@ pub(super) fn parse_dom_selector(
             format!("Invalid selector: {selector_str}"),
         )
     })?;
-    if selectors.iter().any(|s| s.has_shadow_pseudo()) {
+    if selectors
+        .iter()
+        .any(elidex_css::Selector::has_shadow_pseudo)
+    {
         return Err(VmError::dom_exception(
             syntax_error_name,
             format!(":host and ::slotted() are not valid in {shadow_method_label}"),
@@ -493,6 +496,9 @@ fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
         // `#[non_exhaustive]`; new variants land here until they get
         // an explicit arm above, so a missed mapping surfaces as an
         // internal error rather than a generic DOMException.
+        // The `Other` arm is kept distinct from `_` so future
+        // variants are easy to spot in code review.
+        #[allow(clippy::match_same_arms)]
         DomApiErrorKind::Other => VmError::internal(message),
         _ => VmError::internal(message),
     }

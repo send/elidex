@@ -21,7 +21,7 @@ mod engine_feature {
     use std::collections::{HashMap, HashSet};
 
     /// Four-way partition of DOM wrapper prototype chains used by
-    /// [`super::super::VmInner::create_element_wrapper`].  The
+    /// `VmInner::create_element_wrapper`.  The
     /// [`PrototypeKind`] is derived from the entity's ECS components
     /// so the caller does not need to run independent
     /// `is_element_entity` / `is_character_data_entity` checks.
@@ -53,7 +53,7 @@ mod engine_feature {
         document_entity: Option<Entity>,
         /// Entity backing `globalThis` / `window` (WHATWG HTML §7.2).
         ///
-        /// Created on the first [`Vm::bind`](super::Vm::bind) via the
+        /// Created on the first [`Vm::bind`](super::super::Vm::bind) via the
         /// bound `dom` and **retained across unbind cycles** — identity
         /// is stable for the whole lifetime of the `HostData`.
         ///
@@ -506,7 +506,7 @@ mod engine_feature {
         }
 
         /// Return the cached Window entity, or `None` if
-        /// [`Vm::bind`](super::Vm::bind) has never run on this `HostData`.
+        /// [`Vm::bind`](super::super::Vm::bind) has never run on this `HostData`.
         ///
         /// Unlike [`Self::document`], this **does not** require the
         /// `HostData` to be currently bound — the Window entity is
@@ -519,7 +519,7 @@ mod engine_feature {
             self.window_entity
         }
 
-        /// Record the Window entity allocated by [`Vm::bind`](super::Vm::bind).
+        /// Record the Window entity allocated by [`Vm::bind`](super::super::Vm::bind).
         ///
         /// # Panics
         ///
@@ -618,8 +618,8 @@ mod engine_feature {
             let mut session = SessionCore::new();
             let mut dom = EcsDom::new();
             let doc = dom.create_document_root();
-            let session_ptr: *mut SessionCore = &mut session;
-            let dom_ptr: *mut EcsDom = &mut dom;
+            let session_ptr: *mut SessionCore = &raw mut session;
+            let dom_ptr: *mut EcsDom = &raw mut dom;
             assert_ne!(
                 session_ptr.cast::<u8>(),
                 dom_ptr.cast::<u8>(),
@@ -640,11 +640,18 @@ mod engine_feature {
         /// pointer twice).  Pure comparison, never derefs.
         #[test]
         fn pointers_alias_at_base_detects_same_address() {
-            let addr = 0x1234usize as *const u8;
-            assert!(pointers_alias_at_base(
-                addr.cast::<SessionCore>(),
-                addr.cast::<EcsDom>(),
-            ));
+            // Cast the same numeric address directly to each typed
+            // pointer (rather than going through `*const u8 ->
+            // .cast::<T>()`, which clippy flags as `cast_ptr_alignment`
+            // because a 1-byte-aligned `*const u8` can't safely be
+            // upgraded to an 8-byte-aligned `*const SessionCore` /
+            // `*const EcsDom` in general).  We only ever compare the
+            // numeric addresses — no deref happens, so the alignment
+            // is irrelevant for the test, but going `usize -> *const T`
+            // directly keeps the lint clean.
+            let session = 0x1234_usize as *const SessionCore;
+            let dom = 0x1234_usize as *const EcsDom;
+            assert!(pointers_alias_at_base(session, dom));
         }
 
         /// Two distinct stack locals never share a base address
@@ -656,10 +663,7 @@ mod engine_feature {
         fn pointers_alias_at_base_distinguishes_distinct_addresses() {
             let session = SessionCore::new();
             let dom = EcsDom::new();
-            assert!(!pointers_alias_at_base(
-                &session as *const SessionCore,
-                &dom as *const EcsDom,
-            ));
+            assert!(!pointers_alias_at_base(&raw const session, &raw const dom,));
         }
     }
 

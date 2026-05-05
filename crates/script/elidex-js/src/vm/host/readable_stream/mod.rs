@@ -102,7 +102,8 @@ pub(crate) enum ReadableStreamStateKind {
 /// through `controller.stream_id`.  Queue chunks are arbitrary
 /// `JsValue`s for the default-controller flavour (byte streams /
 /// BYOB land with M4-13.3 and switch to `Vec<u8>` chunks).
-#[allow(dead_code)] // Fields land progressively across Stages 1a / 1b / 2.
+#[allow(dead_code, clippy::struct_excessive_bools)]
+// Fields land progressively across Stages 1a / 1b / 2; spec-mirrored flags map directly to WHATWG state machine
 #[derive(Debug)]
 pub(crate) struct ReadableStreamState {
     pub(crate) state: ReadableStreamStateKind,
@@ -639,7 +640,7 @@ pub(super) fn do_stream_cancel(vm: &mut VmInner, stream_id: ObjectId, reason: Js
         .unwrap_or(JsValue::Undefined);
     if let Some(JsValue::Object(fn_id)) = cancel_cb {
         let result = {
-            let mut ctx = NativeContext { vm: &mut *g_p };
+            let mut ctx = NativeContext { vm: &mut g_p };
             ctx.call_function(fn_id, this_arg, &[reason])
         };
         match result {

@@ -33,9 +33,8 @@ fn bind_installs_document_as_host_object() {
     else {
         panic!("document must be an Object");
     };
-    let entity_bits = match vm.inner.get_object(doc_id).kind {
-        ObjectKind::HostObject { entity_bits } => entity_bits,
-        _ => panic!("document must be HostObject"),
+    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(doc_id).kind else {
+        panic!("document must be HostObject");
     };
     assert_eq!(
         entity_bits,

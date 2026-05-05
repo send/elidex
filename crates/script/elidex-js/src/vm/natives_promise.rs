@@ -377,6 +377,7 @@ fn process_pending_rejections(vm: &mut VmInner) {
 /// and `JsValue` through `elidex-plugin`'s engine-agnostic payload
 /// enum.
 #[cfg(feature = "engine")]
+#[allow(clippy::too_many_lines)] // dispatch is a single algorithm; splitting would scatter the linear capture/bubble flow
 fn dispatch_unhandled_rejection_event(
     vm: &mut VmInner,
     promise_id: super::value::ObjectId,
@@ -384,6 +385,12 @@ fn dispatch_unhandled_rejection_event(
 ) -> bool {
     use super::shape::PropertyAttrs;
     use super::value::{PropertyKey, PropertyValue};
+
+    struct PendingListener {
+        id: elidex_script_session::ListenerId,
+        once: bool,
+        passive: bool,
+    }
 
     // `HostData` must be bound and the document entity must have at
     // least one `unhandledrejection` listener — otherwise nothing to
@@ -401,11 +408,6 @@ fn dispatch_unhandled_rejection_event(
     // `script_dispatch_event_core`'s behaviour and prevents the bug
     // where `{once: true, passive: true}` listeners on
     // unhandledrejection silently bypassed both options.
-    struct PendingListener {
-        id: elidex_script_session::ListenerId,
-        once: bool,
-        passive: bool,
-    }
     let pending: Vec<PendingListener> = {
         let dom = vm.host_data.as_deref_mut().unwrap().dom();
         let Ok(listeners) = dom

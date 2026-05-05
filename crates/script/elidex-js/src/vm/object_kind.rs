@@ -471,7 +471,7 @@ pub enum ObjectKind {
     /// `URLSearchParams` instance (WHATWG URL §6).  Payload-free;
     /// the entry list (`Vec<(StringId, StringId)>` of name/value
     /// pairs in insertion order) lives out-of-band in
-    /// [`super::VmInner::url_search_params_states`] keyed by this
+    /// `VmInner::url_search_params_states` keyed by this
     /// `ObjectId`.  Same model as `Headers` — keeping the variant
     /// payload-free preserves per-variant size discipline.
     ///
@@ -496,21 +496,11 @@ pub enum ObjectKind {
     /// `VmInner::usp_parent_url` to write changes back to the
     /// URL's query).  Sweep tail prunes entries whose key
     /// `ObjectId` was collected.
-    //
-    // Plain backticks instead of intra-doc links to the private
-    // `VmInner` fields — the `rustdoc::private_intra_doc_links`
-    // lint fires public→private (this `URL` variant is `pub`).
-    // Pre-existing siblings (`FormData`, `ReadableStream`,
-    // `URLSearchParams`) have the same broken-link pattern and
-    // `mise run doc` masks it by not enabling the `engine`
-    // feature, but the docs build cleanly under
-    // `cargo doc --features engine -D warnings` for this variant.
-    // (Lesson #140.)
     #[cfg(feature = "engine")]
     URL,
     /// `FormData` instance (WHATWG XHR §4.3).  Payload-free;
     /// the entry list lives out-of-band in
-    /// [`super::VmInner::form_data_states`] keyed by this
+    /// `VmInner::form_data_states` keyed by this
     /// `ObjectId`.  Each entry is `(name, value, filename?)`,
     /// where `value` is either a `StringId` (string entry) or a
     /// `Blob` `ObjectId` (file entry).
@@ -526,7 +516,7 @@ pub enum ObjectKind {
     /// the state machine (state enum, queue, controller back-ref,
     /// reader back-ref, source callbacks, queuing-strategy
     /// algorithm) lives out-of-band in
-    /// [`super::VmInner::readable_stream_states`] keyed by this
+    /// `VmInner::readable_stream_states` keyed by this
     /// `ObjectId`.
     ///
     /// GC contract: the trace step marks reachable values inside
@@ -540,7 +530,7 @@ pub enum ObjectKind {
     /// Payload-free; reader-owned state (back-ref to the stream,
     /// FIFO of pending `read()` promises, cached `closed` promise)
     /// lives out-of-band in
-    /// [`super::VmInner::readable_stream_reader_states`].
+    /// `VmInner::readable_stream_reader_states`.
     ///
     /// GC contract: trace step marks the stream back-ref + every
     /// pending read Promise + the cached `closed` Promise.  This

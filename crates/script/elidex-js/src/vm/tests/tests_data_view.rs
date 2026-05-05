@@ -143,7 +143,7 @@ fn data_view_default_endianness_is_big_endian() {
             "var dv = new DataView(new ArrayBuffer(4)); \
              dv.setInt16(0, 0x1234); dv.getUint8(0);"
         ),
-        0x12 as f64
+        f64::from(0x12)
     );
 }
 
@@ -158,7 +158,7 @@ fn data_view_little_endian_flag() {
             "var dv = new DataView(new ArrayBuffer(4)); \
              dv.setInt16(0, 0x1234, true); dv.getUint8(0);"
         ),
-        0x34 as f64
+        f64::from(0x34)
     );
 }
 
@@ -277,7 +277,7 @@ fn data_view_shares_backing_with_typed_array() {
              u[0] = 0x78; u[1] = 0x56; u[2] = 0x34; u[3] = 0x12; \
              var dv = new DataView(b); dv.getUint32(0, true);"
         ),
-        0x12345678_u32 as f64
+        f64::from(0x1234_5678_u32)
     );
 }
 

@@ -111,7 +111,7 @@ fn setup(tree_size: usize) -> (Box<Vm>, Box<SessionCore>, Box<EcsDom>) {
     vm.install_host_data(HostData::new());
     #[allow(unsafe_code)]
     unsafe {
-        vm.bind(&mut *session as *mut _, &mut *dom as *mut _, doc);
+        vm.bind(&raw mut *session, &raw mut *dom, doc);
     }
     (vm, session, dom)
 }
@@ -132,12 +132,9 @@ fn setup_globals(vm: &mut Vm, tree_size: usize) {
     let bootstrap = format!(
         "globalThis.__coll = document.getElementsByTagName('div');
          globalThis.__mid  = {mid};
-         globalThis.__lenLoop  = function() {{ var n = 0; for (var i = 0; i < {LEN}; i++) {{ n += __coll.length; }} return n; }};
-         globalThis.__iterLoop = function() {{ var n = 0; for (var i = 0; i < {ITER}; i++) {{ for (var e of __coll) n++; }} return n; }};
-         globalThis.__itemLoop = function() {{ var n = 0; for (var i = 0; i < {ITEM}; i++) {{ if (__coll.item(__mid)) n++; }} return n; }};",
-        LEN = LOOP_LENGTH,
-        ITER = LOOP_ITER,
-        ITEM = LOOP_ITEM,
+         globalThis.__lenLoop  = function() {{ var n = 0; for (var i = 0; i < {LOOP_LENGTH}; i++) {{ n += __coll.length; }} return n; }};
+         globalThis.__iterLoop = function() {{ var n = 0; for (var i = 0; i < {LOOP_ITER}; i++) {{ for (var e of __coll) n++; }} return n; }};
+         globalThis.__itemLoop = function() {{ var n = 0; for (var i = 0; i < {LOOP_ITEM}; i++) {{ if (__coll.item(__mid)) n++; }} return n; }};",
     );
     vm.eval(&bootstrap)
         .expect("bench bootstrap script must compile and run");

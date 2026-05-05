@@ -204,10 +204,7 @@ fn native_data_view_constructor(
         JsValue::Undefined => buf_len - byte_offset,
         other => {
             let len = coerce::to_index_u32(ctx, other, "DataView", "byteLength")?;
-            if byte_offset
-                .checked_add(len)
-                .map_or(true, |end| end > buf_len)
-            {
+            if byte_offset.checked_add(len).is_none_or(|end| end > buf_len) {
                 return Err(VmError::range_error(
                     "Failed to construct 'DataView': Invalid data view length",
                 ));
@@ -351,7 +348,7 @@ fn ensure_in_range(n: f64, dv_len: u32, size: u32, method: &str) -> Result<u32, 
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let offset = truncated as u32;
-    if offset.checked_add(size).map_or(true, |end| end > dv_len) {
+    if offset.checked_add(size).is_none_or(|end| end > dv_len) {
         return Err(VmError::range_error(format!(
             "Failed to execute '{method}' on 'DataView': Offset is outside the bounds of the DataView"
         )));
@@ -498,7 +495,7 @@ macro_rules! dv_set {
 // ---------------------------------------------------------------------------
 
 dv_get!(native_data_view_get_int8, "getInt8", byte, |_ctx, b| Ok(
-    JsValue::Number(f64::from(b as i8))
+    JsValue::Number(f64::from(b.cast_signed()))
 ));
 dv_get!(native_data_view_get_uint8, "getUint8", byte, |_ctx, b| Ok(
     JsValue::Number(f64::from(b))
@@ -569,12 +566,9 @@ dv_get!(
 // Setters
 // ---------------------------------------------------------------------------
 
-dv_set!(
-    native_data_view_set_int8,
-    "setInt8",
-    byte,
-    |ctx, val| super::super::coerce::to_int8(ctx.vm, val)? as u8
-);
+dv_set!(native_data_view_set_int8, "setInt8", byte, |ctx, val| {
+    super::super::coerce::to_int8(ctx.vm, val)?.cast_unsigned()
+});
 dv_set!(native_data_view_set_uint8, "setUint8", byte, |ctx, val| {
     super::super::coerce::to_uint8(ctx.vm, val)?
 });

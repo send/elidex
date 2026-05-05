@@ -596,12 +596,12 @@ fn native_hidden_get(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_html_element_receiver(ctx, this, "hidden")?;
     enum HiddenKind {
         Absent,
         Present,
         UntilFound,
     }
+    let entity = require_html_element_receiver(ctx, this, "hidden")?;
     let kind = ctx
         .host()
         .dom()

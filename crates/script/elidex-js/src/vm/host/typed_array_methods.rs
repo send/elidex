@@ -406,7 +406,7 @@ pub(crate) fn native_typed_array_set(
             let src_len = src_bytelen / src_bpe;
             if target_offset
                 .checked_add(src_len)
-                .map_or(true, |end| end > dst_len)
+                .is_none_or(|end| end > dst_len)
             {
                 return Err(VmError::range_error(
                     "Failed to execute 'set' on 'TypedArray': offset + length out of range",
@@ -526,7 +526,7 @@ fn set_array_like_body(
     };
     if target_offset
         .checked_add(src_len)
-        .map_or(true, |end| end > dst_len)
+        .is_none_or(|end| end > dst_len)
     {
         return Err(VmError::range_error(
             "Failed to execute 'set' on 'TypedArray': offset + length out of range",
@@ -726,7 +726,9 @@ pub(crate) fn native_typed_array_last_index_of(
     };
     let mut i: i64 = from;
     while i >= 0 {
-        let v = read_element_raw(ctx.vm, buffer_id, byte_offset, i as u32, ek);
+        #[allow(clippy::cast_sign_loss)] // i >= 0 guaranteed by loop condition
+        let idx = i as u32;
+        let v = read_element_raw(ctx.vm, buffer_id, byte_offset, idx, ek);
         if coerce::strict_eq(ctx.vm, v, search) {
             #[allow(clippy::cast_precision_loss)]
             return Ok(JsValue::Number(i as f64));

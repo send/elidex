@@ -113,8 +113,7 @@ pub(super) fn native_readable_stream_get_reader(
     // finding).
     let opts_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     match opts_arg {
-        JsValue::Undefined | JsValue::Null => {}
-        JsValue::Object(_) => {}
+        JsValue::Undefined | JsValue::Null | JsValue::Object(_) => {}
         _ => {
             return Err(VmError::type_error(
                 "Failed to execute 'getReader' on 'ReadableStream': options must be an object",

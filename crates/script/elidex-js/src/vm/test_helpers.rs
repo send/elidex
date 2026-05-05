@@ -51,7 +51,11 @@ pub unsafe fn bind_vm(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, 
         vm.install_host_data(HostData::new());
     }
     unsafe {
-        vm.bind(session as *mut _, dom as *mut _, document);
+        vm.bind(
+            std::ptr::from_mut(session),
+            std::ptr::from_mut(dom),
+            document,
+        );
     }
 }
 
