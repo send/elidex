@@ -113,9 +113,11 @@ pub(super) fn native_node_get_root_node(
 /// receiver (no `HostObject` brand) silently returns the
 /// "disconnected, preceding" bitmask matching elidex's softer
 /// unbound-receiver policy; browsers throw TypeError here.  Non-Node
-/// `other` argument is rejected at the bridge boundary
-/// (`prepare_arg → require_node_wrapper_kind`) with a generic
-/// TypeError, no method-specific brand check needed at the VM seam.
+/// `other` argument is rejected at the bridge boundary —
+/// `prepare_arg` requires `JsValue::Object` to wrap a `HostObject`
+/// (TypeError otherwise) and `PreVal::materialize` /
+/// `arg_component_kind` rejects Window-as-Node — so no
+/// method-specific brand check is needed at the VM seam.
 pub(super) fn native_node_compare_document_position(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
