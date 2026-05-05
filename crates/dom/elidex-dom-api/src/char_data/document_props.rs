@@ -102,15 +102,20 @@ fn find_child_element(dom: &EcsDom, parent: Entity, tag_name: &str) -> Option<En
 /// Find the first child of `html` that is a `<body>` or `<frameset>`
 /// element, in document order, ASCII case-insensitively.
 ///
-/// Shared between `GetBody::invoke` (this module) and
-/// `vm/host/document.rs::native_document_get_active_element` (the
-/// VM-side focus-fallback walker, currently deferred to slot
-/// `#11-focus-management-hoist`).  Centralising the body-or-frameset
-/// match here keeps the two accessors locked together — PR #156 R6
-/// already drifted them once when activeElement carried a private
-/// `first_child_with_tag("body").or_else(... "frameset")` two-pass
-/// fallback that lost document order vs `GetBody`'s single-walk
-/// scan.
+/// Shared between `GetBody::invoke` (this module) and the VM-side
+/// focus-fallback walker in
+/// `crates/script/elidex-js/src/vm/host/document.rs::
+/// native_document_get_active_element` (currently on the
+/// `#11-focus-management-hoist` deferral).  Centralising the
+/// body-or-frameset match keeps the two accessors locked together —
+/// PR #156 R6 drifted them once when activeElement inlined a private
+/// two-pass fallback that lost document order.
+///
+/// **Internal integration helper.**  The visibility is `pub` only so
+/// the elidex-js crate can call it; callers outside the elidex
+/// workspace should not depend on it.  No semver stability — the
+/// signature may change when the focus walker is fully hoisted.
+#[doc(hidden)]
 #[must_use]
 pub fn first_body_or_frameset_child(dom: &EcsDom, html: Entity) -> Option<Entity> {
     dom.children_iter(html).find(|child| {
