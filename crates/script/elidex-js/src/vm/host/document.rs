@@ -97,9 +97,20 @@ fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<
 }
 
 /// Brand-check `this` as a Document and dispatch to a no-arg
-/// `DomApiHandler` by name.  Returns `fallback` when the receiver is
-/// unbound or non-Document — matching the silent no-op policy of the
-/// rest of the document accessor family.
+/// `DomApiHandler` by name.
+///
+/// Three outcomes (matching `document_receiver` / `require_receiver`):
+/// - `this` is the bound Document (or any other HostObject whose
+///   `NodeKind` is `Document`, e.g. a cloned doc) → dispatch to
+///   `handler_name`.
+/// - `this` is unbound / non-HostObject → return `fallback` (silent
+///   no-op, matches the rest of the document accessor family).
+/// - `this` is a HostObject of a different `NodeKind` (e.g.
+///   `Document.documentElement.get.call(element)`) → propagates
+///   the WebIDL "Illegal invocation" `TypeError` from
+///   `document_receiver`.  This is **not** swallowed into `fallback`;
+///   re-using this helper without that branding contract produces
+///   a different brand-check shape.
 fn invoke_document_accessor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
