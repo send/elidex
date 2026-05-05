@@ -115,6 +115,42 @@ fn element_query_selector_all_collects_all() {
 }
 
 #[test]
+fn element_query_selector_all_invalid_throws_dom_exception_syntax_error() {
+    // Like `document.querySelectorAll`, the element-scoped variant
+    // bypasses `invoke_dom_api` and uses
+    // `dom_bridge::query_selector_all_snapshot` which maps
+    // `DomApiError -> VmError` directly.  Pin the SyntaxError /
+    // DOMException mapping at the JS layer for both invalid syntax
+    // and shadow-pseudo rejection.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("globalThis.d = document.createElement('div');")
+        .unwrap();
+
+    let result = vm.eval(
+        "try { d.querySelectorAll('>>>'); 'no-throw'; } \
+         catch (e) { (e instanceof DOMException) + ':' + e.name; }",
+    );
+    let JsValue::String(sid) = result.unwrap() else {
+        panic!()
+    };
+    assert_eq!(vm.get_string(sid), "true:SyntaxError");
+
+    let result = vm.eval(
+        "try { d.querySelectorAll(':host'); 'no-throw'; } \
+         catch (e) { (e instanceof DOMException) + ':' + e.name; }",
+    );
+    let JsValue::String(sid) = result.unwrap() else {
+        panic!()
+    };
+    assert_eq!(vm.get_string(sid), "true:SyntaxError");
+    vm.unbind();
+}
+
+#[test]
 fn element_query_selector_invalid_selector_throws() {
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]

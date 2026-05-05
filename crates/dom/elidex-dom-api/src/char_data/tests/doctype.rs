@@ -50,3 +50,23 @@ fn get_doctype_none() {
     let result = GetDoctype.invoke(doc, &[], &mut session, &mut dom).unwrap();
     assert_eq!(result, JsValue::Null);
 }
+
+#[test]
+fn get_doctype_legacy_doc_type_data_without_node_kind() {
+    // Legacy html5ever-era fixtures attach `DocTypeData` payload but
+    // not the explicit `NodeKind` component.  `find_doctype` must
+    // route through `EcsDom::node_kind_inferred` so the entity still
+    // surfaces — same fallback policy as `HostData::prototype_kind_for`
+    // / `require_node_arg`.  Pinned at the dom-api layer so a future
+    // refactor that reverts to a strict `NodeKind` component check
+    // surfaces here rather than only via VM-level integration tests.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let dt = dom.create_document_type("html", "", "");
+    dom.append_child(doc, dt);
+    let _ = dom.world_mut().remove_one::<NodeKind>(dt);
+    assert!(dom.node_kind(dt).is_none());
+    let mut session = SessionCore::new();
+    let result = GetDoctype.invoke(doc, &[], &mut session, &mut dom).unwrap();
+    assert!(matches!(result, JsValue::ObjectRef(_)));
+}

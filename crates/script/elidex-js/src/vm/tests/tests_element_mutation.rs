@@ -424,6 +424,50 @@ fn element_closest_returns_null_when_no_match() {
     vm.unbind();
 }
 
+#[test]
+fn element_closest_invalid_throws_dom_exception_syntax_error() {
+    // `closest()` goes through `invoke_dom_api` → handler →
+    // `dom_api_error_to_vm_error`.  The handler-layer test in
+    // `child_node/tests/selectors.rs` pins the rejection contract,
+    // but the VM-bridge path needs its own JS-level coverage so a
+    // future regression in the handler-side error mapping (e.g.
+    // dropping the SyntaxError → DOMException name conversion) is
+    // caught from the JS entry point.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Invalid selector — SyntaxError DOMException expected.
+    let result = vm.eval(
+        "var root = document.getElementById('root');\
+         try { root.closest('>>>'); 'no-throw'; } \
+         catch (e) { (e instanceof DOMException) + ':' + e.name; }",
+    );
+    let JsValue::String(sid) = result.unwrap() else {
+        panic!()
+    };
+    assert_eq!(vm.get_string(sid), "true:SyntaxError");
+
+    // Shadow-pseudo `:host` — same SyntaxError DOMException.
+    let result = vm.eval(
+        "var root = document.getElementById('root');\
+         try { root.closest(':host'); 'no-throw'; } \
+         catch (e) { (e instanceof DOMException) + ':' + e.name; }",
+    );
+    let JsValue::String(sid) = result.unwrap() else {
+        panic!()
+    };
+    assert_eq!(vm.get_string(sid), "true:SyntaxError");
+
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // Node / Window prototype separation (addresses Copilot #1 / #2)
 // ---------------------------------------------------------------------------

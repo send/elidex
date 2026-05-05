@@ -88,16 +88,41 @@ impl DomApiHandler for GetCharacterSet {
     }
 }
 
-/// Find the first child element of `parent` with tag matching `tag_name`.
+/// Find the first child element of `parent` whose tag matches
+/// `tag_name` ASCII case-insensitively.  Mirrors
+/// [`EcsDom::first_child_with_tag`] — HTML elements are identified
+/// by their localName per WHATWG, but `TagType` stores the raw
+/// (parser- or API-supplied) tag string which may not yet be
+/// normalised, so accessor lookups must compare without regard to
+/// case.
 fn find_child_element(dom: &EcsDom, parent: Entity, tag_name: &str) -> Option<Entity> {
-    for child in dom.children_iter(parent) {
-        if let Ok(tag) = dom.world().get::<&TagType>(child) {
-            if tag.0 == tag_name {
-                return Some(child);
-            }
-        }
-    }
-    None
+    dom.first_child_with_tag(parent, tag_name)
+}
+
+/// Find the first child of `html` that is a `<body>` or `<frameset>`
+/// element, in document order, ASCII case-insensitively.
+///
+/// Shared between `GetBody::invoke` (this module) and the VM-side
+/// focus-fallback walker in
+/// `crates/script/elidex-js/src/vm/host/document.rs::
+/// native_document_get_active_element` (currently on the
+/// `#11-focus-management-hoist` deferral).  Centralising the
+/// body-or-frameset match keeps the two accessors locked together —
+/// PR #156 R6 drifted them once when activeElement inlined a private
+/// two-pass fallback that lost document order.
+///
+/// **Internal integration helper.**  The visibility is `pub` only so
+/// the elidex-js crate can call it; callers outside the elidex
+/// workspace should not depend on it.  No semver stability — the
+/// signature may change when the focus walker is fully hoisted.
+#[doc(hidden)]
+#[must_use]
+pub fn first_body_or_frameset_child(dom: &EcsDom, html: Entity) -> Option<Entity> {
+    dom.children_iter(html).find(|child| {
+        dom.world().get::<&TagType>(*child).ok().is_some_and(|t| {
+            t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset")
+        })
+    })
 }
 
 /// `document.documentElement` getter — first Element child of the document.
@@ -169,11 +194,7 @@ impl DomApiHandler for GetBody {
         let Some(html) = find_child_element(dom, this, "html") else {
             return Ok(JsValue::Null);
         };
-        // Per spec, body is the first child of <html> that is <body> or <frameset>.
-        let body = dom
-            .children_iter(html)
-            .find(|child| dom.has_tag(*child, "body") || dom.has_tag(*child, "frameset"));
-        let Some(body) = body else {
+        let Some(body) = first_body_or_frameset_child(dom, html) else {
             return Ok(JsValue::Null);
         };
         let obj_ref = session.get_or_create_wrapper(body, ComponentKind::Element);
@@ -218,8 +239,17 @@ impl DomApiHandler for GetTitle {
         };
 
         let raw = child_text_content(title_elem, dom);
-        // Strip and collapse whitespace per WHATWG HTML spec.
-        let collapsed: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+        // WHATWG HTML §dom-document-title: "strip and collapse ASCII
+        // whitespace" — only U+0009 / U+000A / U+000C / U+000D /
+        // U+0020 collapse to a single SPACE.  Rust's `split_whitespace`
+        // would also collapse NBSP / ideographic space / other Unicode
+        // whitespace, which mangles localized titles (`is_ascii_whitespace`
+        // matches the spec set exactly).
+        let collapsed: String = raw
+            .split(|c: char| c.is_ascii_whitespace())
+            .filter(|seg| !seg.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
         Ok(JsValue::String(collapsed))
     }
 }
@@ -251,8 +281,11 @@ impl DomApiHandler for SetTitle {
         let title_elem = if let Some(e) = find_child_element(dom, head, "title") {
             e
         } else {
-            // Create <title> element and append to <head>.
-            let t = dom.create_element("title", Attributes::default());
+            // Anchor the new <title> to the receiver Document (WHATWG
+            // DOM §4.4 "node document") so a setter call on a cloned
+            // doc puts the synthesised element under the clone, not
+            // the bound document.
+            let t = dom.create_element_with_owner("title", Attributes::default(), Some(this));
             let ok = dom.append_child(head, t);
             debug_assert!(ok, "append_child: head verified");
             t
@@ -265,9 +298,10 @@ impl DomApiHandler for SetTitle {
             debug_assert!(ok, "remove_child: child from children_iter");
         }
 
-        // Add text node.
+        // Add text node — same owner-anchoring contract as the
+        // synthesised <title> above.
         if !title_text.is_empty() {
-            let text_node = dom.create_text(&title_text);
+            let text_node = dom.create_text_with_owner(&title_text, Some(this));
             let ok = dom.append_child(title_elem, text_node);
             debug_assert!(ok, "append_child: title_elem verified");
         }
@@ -286,13 +320,13 @@ impl DomApiHandler for CreateDocumentFragment {
 
     fn invoke(
         &self,
-        _this: Entity,
+        this: Entity,
         _args: &[JsValue],
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let entity = dom.create_document_fragment();
-        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
+        let entity = dom.create_document_fragment_with_owner(Some(this));
+        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::DocumentFragment);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
 }
@@ -307,14 +341,14 @@ impl DomApiHandler for CreateComment {
 
     fn invoke(
         &self,
-        _this: Entity,
+        this: Entity,
         args: &[JsValue],
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let data = require_string_arg(args, 0)?;
-        let entity = dom.create_comment(&data);
-        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
+        let entity = dom.create_comment_with_owner(&data, Some(this));
+        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Comment);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
 }

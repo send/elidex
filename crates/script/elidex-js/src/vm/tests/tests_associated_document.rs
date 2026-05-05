@@ -108,6 +108,123 @@ fn create_document_fragment_owner_document_is_receiver_document() {
 }
 
 #[test]
+fn cloned_document_create_text_reports_clone_not_bound_document() {
+    // Same shape as `createElement` clone test, for the
+    // `createTextNode` migration — pins the bridge `this`-passing
+    // contract so a future regression that drops `Some(this)` in
+    // the handler doesn't slip past the test suite.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval(
+            "var cloneDoc = document.cloneNode(true);\
+             var t = cloneDoc.createTextNode('hi');\
+             t.ownerDocument === cloneDoc && t.ownerDocument !== document;"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn cloned_document_create_comment_reports_clone_not_bound_document() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval(
+            "var cloneDoc = document.cloneNode(true);\
+             var c = cloneDoc.createComment('c');\
+             c.ownerDocument === cloneDoc && c.ownerDocument !== document;"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn cloned_document_create_document_fragment_reports_clone_not_bound_document() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval(
+            "var cloneDoc = document.cloneNode(true);\
+             var f = cloneDoc.createDocumentFragment();\
+             f.ownerDocument === cloneDoc && f.ownerDocument !== document;"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn cloned_document_set_title_anchors_synthesised_nodes_to_clone() {
+    // PR #156 R1 + R7: `cloneDoc.title = 'x'` must anchor the
+    // synthesised `<title>` + text-node children to `cloneDoc`, not
+    // the bound document.  Without this end-to-end test, a future
+    // bridge regression that drops the cloneDoc receiver in the
+    // VM-side dispatch would silently revert to bound-document
+    // anchoring and slip past the suite.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    // Need a `<head>` for SetTitle to land — `build_fixture`'s
+    // body-only tree makes the setter a no-op.
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let head = dom.create_element("head", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, head));
+    assert!(dom.append_child(html, body));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval(
+            "var cloneDoc = document.cloneNode(true);\
+             cloneDoc.title = 'X';\
+             var titleEl = cloneDoc.head.firstChild;\
+             titleEl !== null && \
+             titleEl.ownerDocument === cloneDoc && \
+             titleEl.ownerDocument !== document;"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
 fn cloned_document_create_element_reports_clone_not_bound_document() {
     // PR4e R12 F1 — the observable bug we're fixing.
     //

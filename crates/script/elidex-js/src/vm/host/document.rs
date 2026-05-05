@@ -5,36 +5,59 @@
 //!
 //! # Scope
 //!
-//! - `getElementById(id)` — pre-order DFS from the document root
-//!   (WHATWG DOM §4.2.4 "document descendants").  Uses
-//!   `EcsDom::find_by_id`.
-//! - `createElement(tag)` / `createTextNode(data)` /
-//!   `createComment(data)` / `createDocumentFragment()` — allocate
-//!   ECS entities and return their wrappers.  Text wrappers chain
-//!   through `Text.prototype → CharacterData.prototype →
-//!   Node.prototype → EventTarget.prototype` so `data`, `length`,
-//!   `splitText`, `appendData` etc. resolve on the returned handle;
-//!   Comment wrappers chain through `CharacterData.prototype`
-//!   directly; Fragment wrappers chain through `Node.prototype`.
-//! - `body` / `head` / `documentElement` — tree walk from the
-//!   document root looking for the first `<html>` child, then within
-//!   that for `<head>` / `<body>`.  Phase 2 returns `null` when the
-//!   structure is missing rather than synthesising fallback nodes.
-//! - `title` (get) — concatenates text children of the first
-//!   `<title>` element descending from `<head>`; setter lands with
-//!   the rest of the HTMLDocument polish in PR4f.
-//! - `URL` / `documentURI` — `VmInner::navigation.current_url`.
+//! Most natives in this module are thin marshalling shims over the
+//! engine-independent `DomApiHandler`s in
+//! `crates/dom/elidex-dom-api/src/{document,char_data/document_props}.rs`
+//! (see [`super::dom_bridge::invoke_dom_api`]).  The shape of every
+//! migrated native is identical: brand-check the receiver via
+//! [`document_receiver`], short-circuit on unbound / non-Document,
+//! coerce the first arg if any, and dispatch by handler name.
+//!
+//! - `getElementById(id)` — handler `"getElementById"`; pre-order DFS
+//!   from the document root (WHATWG DOM §4.2.4 "document descendants").
+//! - `querySelector` / `querySelectorAll` — handler `"querySelector"`
+//!   plus the engine-independent free function
+//!   `elidex_dom_api::query_selector_all` (the latter because handlers
+//!   cannot return `Vec<Entity>`).  Both reject `:host` /
+//!   `::slotted()` (WHATWG Selectors §1.2).
+//! - `createElement` / `createTextNode` / `createComment` /
+//!   `createDocumentFragment` — handlers anchor the new node's
+//!   "node document" (WHATWG DOM §4.4) to the receiver Document so
+//!   `clonedDoc.create*().ownerDocument === clonedDoc`.  Text
+//!   wrappers chain through `Text.prototype → CharacterData.prototype
+//!   → Node.prototype → EventTarget.prototype`; Comment wrappers
+//!   through `CharacterData.prototype`; Fragment wrappers through
+//!   `Node.prototype`.
+//! - `body` / `head` / `documentElement` — handlers walk the tree
+//!   from the receiver document; return `null` when the structure is
+//!   missing (no synthesised fallback).
+//! - `title` (get/set) — handlers walk `<html>` → `<head>` → `<title>`;
+//!   getter applies WHATWG whitespace normalisation; setter creates
+//!   `<title>` if missing or no-ops if `<head>` is absent.
+//! - `doctype` — handler returns the first `DocumentType` child via
+//!   `EcsDom::node_kind_inferred` (legacy `DocTypeData` fallback
+//!   preserved).
+//! - `URL` / `documentURI` — `VmInner::navigation.current_url`
+//!   (navigation state, not DOM).
 //! - `readyState` — stub returning `"complete"` (the VM has no notion
 //!   of document loading state yet; the shell owns that in PR6).
+//! - `cookie` / `referrer` — `elidex-net::CookieJar` /
+//!   `NavigationState`, kept VM-side because they read browsing-context
+//!   state.
+//! - `forms` / `images` / `links` / `getElementsByTagName` /
+//!   `ClassName` / `Name` — `LiveCollectionKind` allocations stay
+//!   VM-side; handler-side migration carved out in slot
+//!   `#11-arch-hoist-e`.
+//! - `activeElement` / `hasFocus` — focus state from `HostData`,
+//!   carved out in `#11-focus-management-hoist`.
 
 #![cfg(feature = "engine")]
 
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api, parse_dom_selector,
-    query_selector_in_subtree_all, query_selector_in_subtree_first, wrap_entities_as_array,
-    wrap_entity_or_null,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
+    query_selector_all_snapshot, wrap_entities_as_array, wrap_entity_or_null,
 };
 
 use elidex_ecs::{Entity, NodeKind};
@@ -71,6 +94,34 @@ fn document_receiver(
 fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<Entity> {
     let dom = ctx.host().dom();
     dom.first_child_with_tag(doc_entity, "html")
+}
+
+/// Brand-check `this` as a Document and dispatch to a no-arg
+/// `DomApiHandler` by name.
+///
+/// Three outcomes (matching `document_receiver` / `require_receiver`):
+/// - `this` is the bound Document (or any other HostObject whose
+///   `NodeKind` is `Document`, e.g. a cloned doc) → dispatch to
+///   `handler_name`.
+/// - `this` is unbound / non-HostObject → return `fallback` (silent
+///   no-op, matches the rest of the document accessor family).
+/// - `this` is a HostObject of a different `NodeKind` (e.g.
+///   `Document.documentElement.get.call(element)`) → propagates
+///   the WebIDL "Illegal invocation" `TypeError` from
+///   `document_receiver`.  This is **not** swallowed into `fallback`;
+///   re-using this helper without that branding contract produces
+///   a different brand-check shape.
+fn invoke_document_accessor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+    handler_name: &'static str,
+    fallback: JsValue,
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, method)? else {
+        return Ok(fallback);
+    };
+    invoke_dom_api(ctx, handler_name, doc, &[])
 }
 
 // ---------------------------------------------------------------------------
@@ -114,11 +165,10 @@ pub(super) fn native_document_query_selector(
     let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
         return Ok(JsValue::Null);
     };
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
-    let selectors = parse_dom_selector(&selector_str, "querySelector", syntax_err)?;
-    let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
-    Ok(wrap_entity_or_null(ctx.vm, matched))
+    // ToString at call site to honour the WebIDL stringifier path
+    // (handler's `require_string_arg` rejects `ObjectRef`).
+    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "querySelector", doc, &[JsValue::String(target_sid)])
 }
 
 pub(super) fn native_document_query_selector_all(
@@ -134,16 +184,11 @@ pub(super) fn native_document_query_selector_all(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
-    let selectors = parse_dom_selector(&selector_str, "querySelectorAll", syntax_err)?;
-    let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
     // WHATWG §4.2.6: `querySelectorAll` returns a **static** NodeList.
-    // Store the snapshot entity vec; every read re-serves from the
-    // cached list (no re-traversal, no filter re-evaluation).
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot { entities });
-    Ok(JsValue::Object(id))
+    // The handler protocol cannot return `Vec<Entity>`, so this opts
+    // out of `invoke_dom_api` and uses the engine-independent free
+    // function instead.
+    query_selector_all_snapshot(ctx, doc, &selector_str)
 }
 
 // ---------------------------------------------------------------------------
@@ -267,15 +312,13 @@ pub(super) fn native_document_create_text_node(
     let Some(doc_entity) = document_receiver(ctx, this, "createTextNode")? else {
         return Ok(JsValue::Null);
     };
-    let data = coerce_first_arg_to_string(ctx, args)?;
-    let new_entity = ctx
-        .host()
-        .dom()
-        .create_text_with_owner(data, Some(doc_entity));
-    // Text wrappers chain through `Text.prototype →
-    // CharacterData.prototype → Node.prototype → …` so `data` /
-    // `length` / `splitText` resolve on the returned handle.
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    let data_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(
+        ctx,
+        "createTextNode",
+        doc_entity,
+        &[JsValue::String(data_sid)],
+    )
 }
 
 /// `document.createComment(data)` — WHATWG DOM §4.5.  Allocates a
@@ -293,12 +336,13 @@ pub(super) fn native_document_create_comment(
     let Some(doc_entity) = document_receiver(ctx, this, "createComment")? else {
         return Ok(JsValue::Null);
     };
-    let data = coerce_first_arg_to_string(ctx, args)?;
-    let new_entity = ctx
-        .host()
-        .dom()
-        .create_comment_with_owner(data, Some(doc_entity));
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    let data_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(
+        ctx,
+        "createComment",
+        doc_entity,
+        &[JsValue::String(data_sid)],
+    )
 }
 
 /// `document.createDocumentFragment()` — WHATWG DOM §4.5.  Allocates
@@ -315,11 +359,7 @@ pub(super) fn native_document_create_document_fragment(
     let Some(doc_entity) = document_receiver(ctx, this, "createDocumentFragment")? else {
         return Ok(JsValue::Null);
     };
-    let new_entity = ctx
-        .host()
-        .dom()
-        .create_document_fragment_with_owner(Some(doc_entity));
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    invoke_dom_api(ctx, "createDocumentFragment", doc_entity, &[])
 }
 
 // ---------------------------------------------------------------------------
@@ -331,9 +371,13 @@ pub(super) fn native_document_get_document_element(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let html = document_receiver(ctx, this, "documentElement")?
-        .and_then(|doc| find_html_root_of(ctx, doc));
-    Ok(wrap_entity_or_null(ctx.vm, html))
+    invoke_document_accessor(
+        ctx,
+        this,
+        "documentElement",
+        "document.documentElement.get",
+        JsValue::Null,
+    )
 }
 
 pub(super) fn native_document_get_head(
@@ -341,10 +385,7 @@ pub(super) fn native_document_get_head(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let head = document_receiver(ctx, this, "head")?
-        .and_then(|doc| find_html_root_of(ctx, doc))
-        .and_then(|html| ctx.host().dom().first_child_with_tag(html, "head"));
-    Ok(wrap_entity_or_null(ctx.vm, head))
+    invoke_document_accessor(ctx, this, "head", "document.head.get", JsValue::Null)
 }
 
 pub(super) fn native_document_get_body(
@@ -352,10 +393,7 @@ pub(super) fn native_document_get_body(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let body = document_receiver(ctx, this, "body")?
-        .and_then(|doc| find_html_root_of(ctx, doc))
-        .and_then(|html| ctx.host().dom().first_child_with_tag(html, "body"));
-    Ok(wrap_entity_or_null(ctx.vm, body))
+    invoke_document_accessor(ctx, this, "body", "document.body.get", JsValue::Null)
 }
 
 pub(super) fn native_document_get_title(
@@ -363,34 +401,8 @@ pub(super) fn native_document_get_title(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let title_text: String = {
-        let Some(doc) = document_receiver(ctx, this, "title")? else {
-            return Ok(JsValue::String(ctx.vm.well_known.empty));
-        };
-        let Some(html) = find_html_root_of(ctx, doc) else {
-            return Ok(JsValue::String(ctx.vm.well_known.empty));
-        };
-        let dom = ctx.host().dom();
-        let Some(head) = dom.first_child_with_tag(html, "head") else {
-            return Ok(JsValue::String(ctx.vm.well_known.empty));
-        };
-        let Some(title) = dom.first_child_with_tag(head, "title") else {
-            return Ok(JsValue::String(ctx.vm.well_known.empty));
-        };
-        // Concat all text-node children (matches WHATWG §3.2.9
-        // "descendant text content", but for title we only walk
-        // immediate children — title cannot legally contain nested
-        // elements).
-        let mut out = String::new();
-        for child in dom.children_iter(title) {
-            if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(child) {
-                out.push_str(&text.0);
-            }
-        }
-        out
-    };
-    let sid = ctx.vm.strings.intern(&title_text);
-    Ok(JsValue::String(sid))
+    let empty = JsValue::String(ctx.vm.well_known.empty);
+    invoke_document_accessor(ctx, this, "title", "document.title.get", empty)
 }
 
 pub(super) fn native_document_get_url(
@@ -438,45 +450,12 @@ pub(super) fn native_document_set_title(
     };
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
     let value_sid = super::super::coerce::to_string(ctx.vm, value)?;
-    let new_text = ctx.vm.strings.get_utf8(value_sid);
-
-    // Locate <head> under <html> for the receiver document.  Spec
-    // uses "html root" → "first head child"; legacy html5ever-shaped
-    // trees hand us exactly that shape already.
-    let Some(html) = find_html_root_of(ctx, doc) else {
-        return Ok(JsValue::Undefined);
-    };
-    let head_opt = ctx.host().dom().first_child_with_tag(html, "head");
-    let Some(head) = head_opt else {
-        // No <head> — spec is explicit: return without mutating.
-        return Ok(JsValue::Undefined);
-    };
-
-    // find_or_create_title.  We want a single <title> in <head>; if
-    // absent, allocate one and append (with the correct owner
-    // document).
-    let title = if let Some(t) = ctx.host().dom().first_child_with_tag(head, "title") {
-        t
-    } else {
-        let new_title = ctx.host().dom().create_element_with_owner(
-            "title",
-            elidex_ecs::Attributes::default(),
-            Some(doc),
-        );
-        let _ = ctx.host().dom().append_child(head, new_title);
-        new_title
-    };
-
-    // Clear existing text-node children; legal <title> content per
-    // WHATWG is text-only but we defensively include Element children
-    // too in case a bad parse left some in there.
-    let existing: Vec<elidex_ecs::Entity> = ctx.host().dom().children_iter(title).collect();
-    for child in existing {
-        let _ = ctx.host().dom().remove_child(title, child);
-    }
-    let text_entity = ctx.host().dom().create_text_with_owner(new_text, Some(doc));
-    let _ = ctx.host().dom().append_child(title, text_entity);
-    Ok(JsValue::Undefined)
+    invoke_dom_api(
+        ctx,
+        "document.title.set",
+        doc,
+        &[JsValue::String(value_sid)],
+    )
 }
 
 /// `document.compatMode` — WHATWG §4.5 accessor.
@@ -540,27 +519,7 @@ pub(super) fn native_document_get_doctype(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(doc) = document_receiver(ctx, this, "doctype")? else {
-        return Ok(JsValue::Null);
-    };
-    let doctype = {
-        let dom = ctx.host().dom();
-        let mut found = None;
-        for child in dom.children_iter(doc) {
-            // `node_kind_inferred` matches the legacy-fallback used
-            // by `HostData::prototype_kind_for` and
-            // `require_node_arg`: entities that carry `DocTypeData`
-            // payload without an explicit `NodeKind` component still
-            // surface as doctype.  Keeps html5ever-produced fixtures
-            // (which predate the `NodeKind` component) discoverable.
-            if matches!(dom.node_kind_inferred(child), Some(NodeKind::DocumentType)) {
-                found = Some(child);
-                break;
-            }
-        }
-        found
-    };
-    Ok(wrap_entity_or_null(ctx.vm, doctype))
+    invoke_document_accessor(ctx, this, "doctype", "doctype.get", JsValue::Null)
 }
 
 // ---------------------------------------------------------------------------
@@ -767,9 +726,13 @@ pub(super) fn native_document_get_active_element(
         });
         focused_connected.or_else(|| {
             let html = find_html_root_of(ctx, doc)?;
-            ctx.host()
-                .dom()
-                .first_child_with_tag(html, "body")
+            // Spec fallback: first body-or-frameset child of `<html>`,
+            // else `<html>`.  Reuses the engine-independent
+            // `first_body_or_frameset_child` helper that `GetBody` calls
+            // so the two accessors stay locked together (PR #156 R6
+            // drifted them once when the body|frameset find was
+            // inlined here as a two-pass that lost document order).
+            elidex_dom_api::char_data::first_body_or_frameset_child(ctx.host().dom(), html)
                 .or(Some(html))
         })
     };

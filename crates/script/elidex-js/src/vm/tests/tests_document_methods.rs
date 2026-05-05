@@ -404,6 +404,163 @@ fn document_title_is_empty_string_without_title_element() {
 }
 
 #[test]
+fn document_title_preserves_non_ascii_whitespace_through_bridge() {
+    // End-to-end pin for WHATWG HTML §dom-document-title "strip and
+    // collapse ASCII whitespace": NBSP / ideographic space are not in
+    // the spec's whitespace set and must round-trip through the
+    // VM-handler bridge unchanged.  The handler-layer test
+    // (`title_get_preserves_non_ascii_whitespace` in elidex-dom-api)
+    // alone wouldn't catch a future bridge ToString-coercion or
+    // intern-table bug that re-applied Unicode collapsing.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let head = dom.create_element("head", Attributes::default());
+    let title = dom.create_element("title", Attributes::default());
+    let title_text = dom.create_text("a\u{00A0}b\u{3000}c");
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, head));
+    assert!(dom.append_child(head, title));
+    assert!(dom.append_child(title, title_text));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::String(id) = vm.eval("document.title;").unwrap() else {
+        panic!("title getter must return a string")
+    };
+    assert_eq!(vm.get_string(id), "a\u{00A0}b\u{3000}c");
+    vm.unbind();
+}
+
+#[test]
+fn document_active_element_picks_first_body_or_frameset_in_document_order() {
+    // Guard against a two-pass fallback that scans for `<body>`
+    // first and `<frameset>` second — that would resolve a later
+    // `<body>` over an earlier `<frameset>`, disagreeing with
+    // `document.body`'s WHATWG "first body-or-frameset child" rule.
+    // Build `<html><frameset/><body/></html>` (frameset first) and
+    // verify both accessors agree on the frameset.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let frameset = dom.create_element("frameset", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, frameset));
+    assert!(dom.append_child(html, body));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // `document.body` and `document.activeElement` must agree, and
+    // both must be the frameset (which appears first under html).
+    assert!(matches!(
+        vm.eval(
+            "document.body === document.activeElement && \
+             document.body.tagName.toLowerCase() === 'frameset';"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn document_active_element_falls_back_to_frameset_when_no_body() {
+    // After the body-frameset alignment in R4, `document.body`
+    // returns the `<frameset>` element when no `<body>` exists.
+    // The `activeElement` fallback chain must agree — otherwise a
+    // frameset document observes
+    // `document.body !== document.activeElement` when nothing is
+    // focused.  Pin the consistency at the JS layer.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let frameset = dom.create_element("frameset", Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, frameset));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    assert!(matches!(
+        vm.eval("document.body === document.activeElement;")
+            .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn document_body_returns_frameset_when_no_body_present() {
+    // Post-arch-hoist-c, `document.body` accepts `<frameset>` as well
+    // as `<body>` per WHATWG HTML §dom-document-body — pre-PR VM
+    // filter only accepted `<body>`.  Pin the new behaviour at the
+    // JS layer to catch any future bridge regression that re-narrows
+    // it.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let frameset = dom.create_element("frameset", Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, frameset));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Object(id) = vm.eval("document.body;").unwrap() else {
+        panic!("document.body must return the frameset element");
+    };
+    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(id).kind else {
+        unreachable!()
+    };
+    assert_eq!(entity_bits, frameset.to_bits().get());
+    vm.unbind();
+}
+
+#[test]
+fn document_element_returns_first_element_child_regardless_of_tag() {
+    // Post-arch-hoist-c, `document.documentElement` returns the first
+    // Element child of the Document per WHATWG DOM §document-element
+    // — no `<html>` tag filter.  Pre-PR VM walked specifically for
+    // `<html>`.  Pin the spec-correct behaviour for documents whose
+    // root element is something other than `<html>` (e.g. SVG-rooted
+    // synthesised fixtures).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let svg = dom.create_element("svg", Attributes::default());
+    assert!(dom.append_child(doc, svg));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Object(id) = vm.eval("document.documentElement;").unwrap() else {
+        panic!("documentElement must return the first element child");
+    };
+    let ObjectKind::HostObject { entity_bits } = vm.inner.get_object(id).kind else {
+        unreachable!()
+    };
+    assert_eq!(entity_bits, svg.to_bits().get());
+    vm.unbind();
+}
+
+#[test]
 fn document_url_reflects_navigation_state() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
@@ -657,6 +814,47 @@ fn query_selector_all_empty() {
         .eval("document.querySelectorAll('article').length;")
         .unwrap();
     assert!(matches!(v, JsValue::Number(n) if n == 0.0));
+    vm.unbind();
+}
+
+#[test]
+fn query_selector_all_invalid_throws_dom_exception_syntax_error() {
+    // `document.querySelectorAll` opts out of `invoke_dom_api` (the
+    // standalone-fn path can't return Vec<Entity> through the
+    // handler protocol) and uses the
+    // `dom_bridge::query_selector_all_snapshot` helper that maps
+    // `DomApiError -> VmError` directly.  Pin the SyntaxError /
+    // DOMException mapping at the JS layer so a regression in that
+    // helper-specific path surfaces as a test failure.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Invalid selector — SyntaxError DOMException expected.
+    let result = vm.eval(
+        "try { document.querySelectorAll('>>>'); 'no-throw'; } \
+         catch (e) { (e instanceof DOMException) + ':' + e.name; }",
+    );
+    let JsValue::String(sid) = result.unwrap() else {
+        panic!("expected string from try/catch")
+    };
+    assert_eq!(vm.get_string(sid), "true:SyntaxError");
+
+    // Shadow-pseudo `:host` — same SyntaxError DOMException.
+    let result = vm.eval(
+        "try { document.querySelectorAll(':host'); 'no-throw'; } \
+         catch (e) { (e instanceof DOMException) + ':' + e.name; }",
+    );
+    let JsValue::String(sid) = result.unwrap() else {
+        panic!()
+    };
+    assert_eq!(vm.get_string(sid), "true:SyntaxError");
+
     vm.unbind();
 }
 
