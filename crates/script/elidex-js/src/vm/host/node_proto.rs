@@ -40,6 +40,16 @@
 //!
 //! Element-only members (`getAttribute`, `children`, `matches`, …)
 //! live on `Element.prototype` which chains here.
+//!
+//! Every mutation / nodeValue / textContent / identity native here is
+//! a thin binding that runs WebIDL coercion + brand check at the VM
+//! boundary, then dispatches through
+//! [`super::dom_bridge::invoke_dom_api`] to the engine-independent
+//! handler in `elidex-dom-api`. The DOM mutation algorithm proper —
+//! pre-insertion validity, ECS structural mutation, mutation-record
+//! emission — lives there per the CLAUDE.md Layering mandate.
+//! `cloneNode` / `isEqualNode` / `compareDocumentPosition` retain
+//! their VM-side bodies in `node_methods_extras.rs`.
 
 #![cfg(feature = "engine")]
 
@@ -394,23 +404,7 @@ fn native_node_get_node_value(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let data: Option<String> = {
-        let dom = ctx.host().dom();
-        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(entity) {
-            Some(text.0.clone())
-        } else if let Ok(c) = dom.world().get::<&elidex_ecs::CommentData>(entity) {
-            Some(c.0.clone())
-        } else {
-            None
-        }
-    };
-    match data {
-        Some(s) => {
-            let sid = ctx.vm.strings.intern(&s);
-            Ok(JsValue::String(sid))
-        }
-        None => Ok(JsValue::Null),
-    }
+    super::dom_bridge::invoke_dom_api(ctx, "nodeValue.get", entity, &[])
 }
 
 /// `nodeValue` setter — spec-defined only for character-data (Text
@@ -423,30 +417,14 @@ fn native_node_set_node_value(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    // WHATWG §4.4: nodeValue setter treats null as empty string; every
-    // other value is coerced via ToString.
+    // WHATWG §4.4 nodeValue setter step 1: WebIDL `DOMString?`, with
+    // `[LegacyNullToEmptyString]` semantics — `null` is the literal
+    // empty string, every other value goes through ToString.  The
+    // coercion happens at the boundary so the handler sees only a
+    // primitive `JsValue::String`.
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let data: String = match arg {
-        JsValue::Null => String::new(),
-        other => {
-            let sid = super::super::coerce::to_string(ctx.vm, other)?;
-            ctx.vm.strings.get_utf8(sid)
-        }
-    };
-    {
-        let dom = ctx.host().dom();
-        let is_text = dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok();
-        if is_text {
-            if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
-                text.0 = data;
-            }
-        } else if dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok() {
-            if let Ok(mut c) = dom.world_mut().get::<&mut elidex_ecs::CommentData>(entity) {
-                c.0 = data;
-            }
-        }
-    }
-    Ok(JsValue::Undefined)
+    let coerced = coerce_legacy_null_to_empty_string(ctx, arg)?;
+    super::dom_bridge::invoke_dom_api(ctx, "nodeValue.set", entity, &[coerced])
 }
 
 // ---------------------------------------------------------------------------
@@ -461,46 +439,7 @@ fn native_node_get_text_content(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let result: Option<String> = {
-        let dom = ctx.host().dom();
-        // Character-data nodes return their own data directly.
-        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(entity) {
-            Some(text.0.clone())
-        } else if let Ok(c) = dom.world().get::<&elidex_ecs::CommentData>(entity) {
-            Some(c.0.clone())
-        } else {
-            // WHATWG §4.4: only Element and DocumentFragment
-            // concatenate descendant Text data.  Document,
-            // DocumentType, and everything else return `null` — in
-            // particular `document.textContent === null` in every
-            // major browser.
-            let kind = dom.node_kind(entity);
-            match kind {
-                Some(NodeKind::Element | NodeKind::DocumentFragment) => {
-                    let mut buf = String::new();
-                    dom.traverse_descendants(entity, |e| {
-                        if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(e) {
-                            buf.push_str(&text.0);
-                        }
-                        true
-                    });
-                    Some(buf)
-                }
-                _ => None,
-            }
-        }
-    };
-    match result {
-        Some(s) => {
-            if s.is_empty() {
-                Ok(JsValue::String(ctx.vm.well_known.empty))
-            } else {
-                let sid = ctx.vm.strings.intern(&s);
-                Ok(JsValue::String(sid))
-            }
-        }
-        None => Ok(JsValue::Null),
-    }
+    super::dom_bridge::invoke_dom_api(ctx, "textContent.get", entity, &[])
 }
 
 fn native_node_set_text_content(
@@ -511,54 +450,28 @@ fn native_node_set_text_content(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
+    // WHATWG §4.4 textContent setter: same `[LegacyNullToEmptyString]`
+    // contract as nodeValue — null → empty string, else ToString.
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let data: String = match arg {
-        JsValue::Null => String::new(),
+    let coerced = coerce_legacy_null_to_empty_string(ctx, arg)?;
+    super::dom_bridge::invoke_dom_api(ctx, "textContent.set", entity, &[coerced])
+}
+
+/// Apply WebIDL `[LegacyNullToEmptyString]`-style coercion at the bridge
+/// boundary: `null` becomes `""`; anything else routes through ToString
+/// before reaching the handler.  Used by `nodeValue` / `textContent`
+/// setters which are spec-typed `DOMString?` with the legacy null mapping.
+fn coerce_legacy_null_to_empty_string(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+) -> Result<JsValue, VmError> {
+    match value {
+        JsValue::Null => Ok(JsValue::String(ctx.vm.well_known.empty)),
         other => {
             let sid = super::super::coerce::to_string(ctx.vm, other)?;
-            ctx.vm.strings.get_utf8(sid)
-        }
-    };
-    {
-        let dom = ctx.host().dom();
-        // Character-data fast path.  Perform the type check with a
-        // shared borrow, then upgrade to a mutable one for the
-        // actual mutation — hecs's `RefMut` destructor re-enters the
-        // world, so two back-to-back `get::<&mut _>` calls in the
-        // same scope would clash even with ok/err short-circuits.
-        let is_text = dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok();
-        if is_text {
-            if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
-                text.0 = data;
-            }
-            return Ok(JsValue::Undefined);
-        }
-        let is_comment = dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok();
-        if is_comment {
-            if let Ok(mut c) = dom.world_mut().get::<&mut elidex_ecs::CommentData>(entity) {
-                c.0 = data;
-            }
-            return Ok(JsValue::Undefined);
-        }
-        // WHATWG §4.4: only Element and DocumentFragment replace
-        // children.  Document.textContent = …  is a no-op — every
-        // other node kind (including Document) falls through here.
-        let kind = dom.node_kind(entity);
-        if !matches!(kind, Some(NodeKind::Element | NodeKind::DocumentFragment)) {
-            return Ok(JsValue::Undefined);
-        }
-        // Remove every existing child.  Collect first to avoid
-        // mutating the sibling chain mid-iteration.
-        let existing: Vec<Entity> = dom.children_iter(entity).collect();
-        for child in existing {
-            let _ = dom.remove_child(entity, child);
-        }
-        if !data.is_empty() {
-            let text_entity = dom.create_text(data);
-            let _ = dom.append_child(entity, text_entity);
+            Ok(JsValue::String(sid))
         }
     }
-    Ok(JsValue::Undefined)
 }
 
 // ---------------------------------------------------------------------------
@@ -625,22 +538,13 @@ fn native_node_append_child(
         return Ok(JsValue::Undefined);
     };
     let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // `require_node_arg` runs the brand check (TypeError if `child`
-    // is not a Node) BEFORE the handler dispatch — preserves the
-    // existing behaviour where non-Node arguments throw TypeError
-    // immediately rather than producing a generic
-    // `HierarchyRequestError`.  The extracted `Entity` is currently
-    // discarded and `prepare_arg` decodes it again from `child_arg`
-    // — duplicate work on the dispatch path.  Tracked for
-    // `#11-arch-hoist-b`: that slot migrates ~30 Node-arg handlers,
-    // at which point the bridge gets a `BridgeArg` enum (or
-    // pre-validated entity hint) to skip re-extraction.  The PoC's
-    // single Node-arg handler doesn't justify the API surface
-    // change in isolation.
+    // Brand-check before dispatch so non-Node args raise TypeError
+    // rather than the generic HierarchyRequestError the handler would
+    // emit if `prepare_arg` somehow let a non-HostObject through. The
+    // extracted Entity is intentionally discarded — `prepare_arg`
+    // decodes it again from `child_arg` (duplicate work the bridge
+    // accepts in exchange for a clean brand-check seam).
     require_node_arg(ctx, child_arg, "appendChild")?;
-    // Handler resolves the ObjectRef back to the child entity via
-    // the session identity map and emits `HierarchyRequestError`
-    // DOMException on pre-insertion validity violations.
     super::dom_bridge::invoke_dom_api(ctx, "appendChild", parent, &[child_arg])
 }
 
@@ -653,20 +557,8 @@ fn native_node_remove_child(
         return Ok(JsValue::Undefined);
     };
     let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let child = require_node_arg(ctx, child_arg, "removeChild")?;
-    // Capture the interned `"NotFoundError"` StringId BEFORE the
-    // `&mut dom` borrow so the cold error path doesn't fight the
-    // host mutable borrow.
-    let not_found = ctx.vm.well_known.dom_exc_not_found_error;
-    let ok = ctx.host().dom().remove_child(parent, child);
-    if !ok {
-        return Err(super::dom_exception::not_found_error(
-            not_found,
-            "removeChild",
-            "The node to be removed is not a child of this node.",
-        ));
-    }
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(child)))
+    require_node_arg(ctx, child_arg, "removeChild")?;
+    super::dom_bridge::invoke_dom_api(ctx, "removeChild", parent, &[child_arg])
 }
 
 fn native_node_insert_before(
@@ -678,31 +570,15 @@ fn native_node_insert_before(
         return Ok(JsValue::Undefined);
     };
     let new_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let new_node = require_node_arg(ctx, new_arg, "insertBefore")?;
-    // `ref_node` may be `null` → append at end.
-    let ref_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    match ref_arg {
-        JsValue::Null | JsValue::Undefined => {
-            if !ctx.host().dom().append_child(parent, new_node) {
-                return Err(VmError::type_error(
-                    "Failed to execute 'insertBefore' on 'Node': \
-                     the new child node cannot be inserted.",
-                ));
-            }
-        }
-        _ => {
-            let ref_node = require_node_arg(ctx, ref_arg, "insertBefore")?;
-            let not_found = ctx.vm.well_known.dom_exc_not_found_error;
-            if !ctx.host().dom().insert_before(parent, new_node, ref_node) {
-                return Err(super::dom_exception::not_found_error(
-                    not_found,
-                    "insertBefore",
-                    "the reference node is not a child of this node.",
-                ));
-            }
-        }
+    require_node_arg(ctx, new_arg, "insertBefore")?;
+    // `refChild` is `Node?` per WHATWG: `null` / `undefined` mean
+    // "append at end"; the InsertBefore handler interprets the second
+    // arg the same way (matches `args.get(1) == None | Some(Null)`).
+    let ref_arg = args.get(1).copied().unwrap_or(JsValue::Null);
+    if !matches!(ref_arg, JsValue::Null | JsValue::Undefined) {
+        require_node_arg(ctx, ref_arg, "insertBefore")?;
     }
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_node)))
+    super::dom_bridge::invoke_dom_api(ctx, "insertBefore", parent, &[new_arg, ref_arg])
 }
 
 fn native_node_replace_child(
@@ -714,19 +590,10 @@ fn native_node_replace_child(
         return Ok(JsValue::Undefined);
     };
     let new_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let new_node = require_node_arg(ctx, new_arg, "replaceChild")?;
+    require_node_arg(ctx, new_arg, "replaceChild")?;
     let old_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let old_node = require_node_arg(ctx, old_arg, "replaceChild")?;
-    let not_found = ctx.vm.well_known.dom_exc_not_found_error;
-    if !ctx.host().dom().replace_child(parent, new_node, old_node) {
-        return Err(super::dom_exception::not_found_error(
-            not_found,
-            "replaceChild",
-            "the node to be replaced is not a child of this node.",
-        ));
-    }
-    // Spec: returns the *replaced* (old) node.
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(old_node)))
+    require_node_arg(ctx, old_arg, "replaceChild")?;
+    super::dom_bridge::invoke_dom_api(ctx, "replaceChild", parent, &[new_arg, old_arg])
 }
 
 // The `ownerDocument` / `isSameNode` / `getRootNode` /

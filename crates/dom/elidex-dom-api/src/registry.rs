@@ -58,6 +58,7 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("appendChild", Box::new(super::AppendChild));
     r.register_static("insertBefore", Box::new(super::InsertBefore));
     r.register_static("removeChild", Box::new(super::RemoveChild));
+    r.register_static("replaceChild", Box::new(super::ReplaceChild));
 
     // --- Element — attributes ---
     r.register_static("getAttribute", Box::new(super::GetAttribute));
@@ -246,6 +247,7 @@ mod tests {
             "appendChild",
             "insertBefore",
             "removeChild",
+            "replaceChild",
             "getAttribute",
             "setAttribute",
             "removeAttribute",

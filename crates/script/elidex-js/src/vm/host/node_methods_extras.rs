@@ -10,12 +10,19 @@
 //!
 //! - Accessors: `ownerDocument`.
 //! - Methods:   `isSameNode`, `getRootNode`, `compareDocumentPosition`,
-//!   `isEqualNode`, `cloneNode`.
+//!   `isEqualNode`, `cloneNode`, `normalize`.
+//!
+//! `ownerDocument` / `isSameNode` / `getRootNode` / `normalize` are
+//! thin bindings around the `elidex-dom-api` handlers via
+//! [`super::dom_bridge::invoke_dom_api`] — the algorithm proper lives
+//! engine-independently per the CLAUDE.md Layering mandate.
+//! `compareDocumentPosition`, `isEqualNode`, and `cloneNode` keep
+//! their VM-side bodies because they share traversal helpers that
+//! have not yet moved to `elidex-dom-api`.
 
 #![cfg(feature = "engine")]
 
 use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
-use super::dom_bridge::wrap_entity_or_null;
 use super::event_target::entity_from_this;
 use super::node_proto::require_node_arg;
 
@@ -27,24 +34,11 @@ use elidex_ecs::{Entity, NodeKind};
 
 /// `Node.prototype.ownerDocument` — WHATWG §4.4.
 ///
-/// Delegates to [`EcsDom::owner_document`], which honours the
-/// per-node [`AssociatedDocument`] component set at creation time and
-/// falls back to the tree-root walk for legacy entities.  Result
-/// mapping:
-///
-/// - Document receiver → `null` (per spec).
-/// - [`AssociatedDocument`] present and points at a live Document →
-///   that Document's wrapper (fixes `cloneDoc.createElement(...)` →
-///   reports the clone, not the bound global).
-/// - No component and tree-root is a Document → that Document
-///   (preserves html5ever-produced fixtures and anything already
-///   rooted in the main tree).
-/// - Otherwise (true orphan whose root is not a Document) → fall
-///   back to the bound global document so that pre-PR4f callers
-///   relying on the implicit single-document fallback keep working.
-///
-/// [`AssociatedDocument`]: elidex_ecs::AssociatedDocument
-/// [`EcsDom::owner_document`]: elidex_ecs::EcsDom::owner_document
+/// Dispatches to the `ownerDocument.get` handler in `elidex-dom-api`,
+/// which honours the per-entity `AssociatedDocument` component (so
+/// `clonedDoc.createElement(...)` reports the clone, not the bound
+/// global) and falls back to `EcsDom::document_root` for orphans whose
+/// tree-root walk does not land on a Document.
 pub(super) fn native_node_get_owner_document(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -53,24 +47,7 @@ pub(super) fn native_node_get_owner_document(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Null);
     };
-    let dom = ctx.host().dom();
-    if matches!(dom.node_kind(entity), Some(NodeKind::Document)) {
-        return Ok(JsValue::Null);
-    }
-    if let Some(doc) = dom.owner_document(entity) {
-        return Ok(JsValue::Object(ctx.vm.create_element_wrapper(doc)));
-    }
-    // Orphan / fragment root — fall back to the bound document so
-    // that nodes created outside the VM (parser fixtures, bare
-    // `EcsDom::create_*` calls in tests) still report a sensible
-    // ownerDocument.  VM-created nodes never reach this branch once
-    // `createElement` sets `AssociatedDocument` at birth.
-    let doc = ctx
-        .vm
-        .host_data
-        .as_deref()
-        .and_then(super::super::host_data::HostData::document_entity_opt);
-    Ok(wrap_entity_or_null(ctx.vm, doc))
+    super::dom_bridge::invoke_dom_api(ctx, "ownerDocument.get", entity, &[])
 }
 
 /// `Node.prototype.isSameNode(other)` — WHATWG §4.4.  Legacy alias of
@@ -78,26 +55,23 @@ pub(super) fn native_node_get_owner_document(
 ///
 /// WebIDL signature is `boolean isSameNode(Node? otherNode)`:
 /// `null` / `undefined` ⇒ `false`, non-Node object ⇒ `TypeError`
-/// (matches `contains` / `isEqualNode` / `compareDocumentPosition`
-/// which all delegate to [`require_node_arg`]).
+/// (the same brand-check seam every Node-arg method uses).
 pub(super) fn native_node_is_same_node(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let Some(self_entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Boolean(false));
+    };
     let other = args.first().copied().unwrap_or(JsValue::Undefined);
     if matches!(other, JsValue::Null | JsValue::Undefined) {
         return Ok(JsValue::Boolean(false));
     }
-    // Brand check — throw TypeError for non-Node arguments before
-    // the identity comparison, so `node.isSameNode({})` matches
-    // browser behaviour instead of silently returning `false`.
-    let _other_entity = require_node_arg(ctx, other, "isSameNode")?;
-    let same = matches!(
-        (this, other),
-        (JsValue::Object(a), JsValue::Object(b)) if a == b
-    );
-    Ok(JsValue::Boolean(same))
+    // Brand check before dispatch so `node.isSameNode({})` raises
+    // TypeError rather than returning a stable handler result.
+    require_node_arg(ctx, other, "isSameNode")?;
+    super::dom_bridge::invoke_dom_api(ctx, "isSameNode", self_entity, &[other])
 }
 
 /// `Node.prototype.getRootNode(options?)` — WHATWG §4.4.  Returns the
@@ -113,6 +87,8 @@ pub(super) fn native_node_get_root_node(
     };
     // WebIDL treats a non-object argument as a zero-filled
     // dictionary — primitive / null / undefined all yield defaults.
+    // Extract `options.composed` at the boundary so the handler sees a
+    // primitive `JsValue::Bool`.
     let composed = match args.first().copied() {
         Some(JsValue::Object(opts_id)) => {
             let v = ctx
@@ -122,15 +98,7 @@ pub(super) fn native_node_get_root_node(
         }
         _ => false,
     };
-    let root = {
-        let dom = ctx.host().dom();
-        if composed {
-            dom.find_tree_root_composed(entity)
-        } else {
-            dom.find_tree_root(entity)
-        }
-    };
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(root)))
+    super::dom_bridge::invoke_dom_api(ctx, "getRootNode", entity, &[JsValue::Boolean(composed)])
 }
 
 // ---------------------------------------------------------------------------
@@ -422,26 +390,17 @@ pub(super) fn native_node_clone_node(
 
 /// `Node.prototype.normalize()` — WHATWG DOM §4.4.
 ///
-/// For each exclusive Text descendant of `this`:
-/// - remove it if its data is empty, otherwise
-/// - absorb every following contiguous Text sibling's data and
-///   remove those siblings.
+/// Dispatches to the `normalize` handler in `elidex-dom-api`. The handler
+/// recurses through `this`'s descendants, removing empty Text nodes and
+/// merging adjacent Text siblings — see `Normalize::normalize_entity`
+/// (`crates/dom/elidex-dom-api/src/node_methods/core.rs`). Unbound
+/// receivers (no `HostObject` brand) silently no-op, matching every
+/// other Node method here; Window wrappers never reach this native
+/// because `Window.prototype` does not chain through `Node.prototype`.
 ///
-/// elidex details:
-/// - Iteration is snapshot-based (pre-order DFS via
-///   [`EcsDom::traverse_descendants`] which skips `ShadowRoot`) so
-///   the walk is safe against the in-loop mutations `remove_child`
-///   performs.
-/// - Text entities that a prior merge has detached from their parent
-///   are silently skipped — the outer pass can otherwise revisit a
-///   swallowed sibling.
-/// - Unbound / non-HostObject receivers are silent no-ops, matching
-///   every other Node method here.  Window wrappers never reach this
-///   native because `Window.prototype` does not chain through
-///   `Node.prototype`.
-/// - Live [`Range`] offset adjustment (spec steps 6.1-6.4) is skipped:
-///   elidex does not yet implement [`Range`], so there are no ranges
-///   to fix up.  `PR-Range` will re-visit this when `Range` lands.
+/// Live [`Range`] offset adjustment (spec steps 6.1-6.4) is still
+/// out of scope — `Range` is not yet implemented; `PR-Range` will
+/// re-visit when it lands.
 pub(super) fn native_node_normalize(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -450,70 +409,5 @@ pub(super) fn native_node_normalize(
     let Some(root) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-
-    // --- Pass 1: snapshot every descendant Text entity in pre-order.
-    let dom = ctx.host().dom();
-    if !dom.contains(root) {
-        return Ok(JsValue::Undefined);
-    }
-    let mut text_nodes: Vec<Entity> = Vec::new();
-    dom.traverse_descendants(root, |entity| {
-        if matches!(dom.node_kind_inferred(entity), Some(NodeKind::Text)) {
-            text_nodes.push(entity);
-        }
-        true
-    });
-
-    // --- Pass 2: empty-data removal + contiguous-sibling merge.
-    for text in text_nodes {
-        let dom = ctx.host().dom();
-        if !dom.contains(text) {
-            // Already destroyed (defence — `remove_child` only
-            // detaches in this codebase, but stay resilient).
-            continue;
-        }
-        // A prior iteration may have merged this entry into an
-        // earlier Text and then detached it; detached nodes have no
-        // parent and are no longer descendants of `root`.
-        let Some(parent) = dom.get_parent(text) else {
-            continue;
-        };
-
-        let original = match dom.world().get::<&elidex_ecs::TextContent>(text) {
-            Ok(t) => t.0.clone(),
-            Err(_) => continue,
-        };
-        if original.is_empty() {
-            let _ = dom.remove_child(parent, text);
-            continue;
-        }
-
-        // Walk forward through contiguous Text siblings, collecting
-        // their data.  `get_next_sibling` is re-read each iteration
-        // because removing a sibling rewires the sibling chain.
-        let mut merged = original.clone();
-        while let Some(next) = dom.get_next_sibling(text) {
-            if !matches!(dom.node_kind_inferred(next), Some(NodeKind::Text)) {
-                break;
-            }
-            let next_data = match dom.world().get::<&elidex_ecs::TextContent>(next) {
-                Ok(t) => t.0.clone(),
-                Err(_) => break,
-            };
-            merged.push_str(&next_data);
-            // `next` is a child of the same parent — by construction
-            // `get_next_sibling(text)` returns a sibling under
-            // `parent`.  `remove_child` detaches without destroying.
-            let _ = dom.remove_child(parent, next);
-        }
-
-        if merged != original {
-            if let Ok(mut t) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(text) {
-                t.0 = merged;
-            }
-            dom.rev_version(text);
-        }
-    }
-
-    Ok(JsValue::Undefined)
+    super::dom_bridge::invoke_dom_api(ctx, "normalize", root, &[])
 }

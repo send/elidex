@@ -56,7 +56,7 @@ pub use element::{
     GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth, GetScrollHeight,
     GetScrollLeft, GetScrollTop, GetScrollWidth, HasAttribute, InsertAdjacentElement,
     InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveAttribute, RemoveChild,
-    ScrollIntoView, SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
+    ReplaceChild, ScrollIntoView, SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
 };
 pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,

@@ -24,17 +24,13 @@
 //! - Methods:   `appendData`, `insertData`, `deleteData`,
 //!   `replaceData`, `substringData`.
 //!
-//! ## UTF-16 / WTF-16 caveat
-//!
-//! WHATWG `data` / offsets are defined in **UTF-16 code units**.  JS
-//! strings inside the VM are Rust `String`s (UTF-8) — the methods
-//! below round-trip via `encode_utf16().collect::<Vec<u16>>()` so
-//! surrogate pairs are honoured.  Spec-valid operations can split a
-//! surrogate pair (offsets are per-code-unit), producing a lone
-//! surrogate in the intermediate `Vec<u16>`; `String::from_utf16_lossy`
-//! maps that to `U+FFFD` on write-back.  That is a lossy divergence
-//! from the spec, but not a panic — a fully correct fix requires a
-//! WTF-16 ECS text buffer.
+//! Each native is a thin binding that runs WebIDL coercion + a
+//! `NodeKind ∈ {Text, Comment}` brand check at the boundary, then
+//! dispatches through [`super::dom_bridge::invoke_dom_api`] to the
+//! engine-independent handler in `elidex-dom-api`. The UTF-16 splice
+//! algorithm (and its surrogate-pair lossy decode contract — see
+//! `splice_utf16` in `crates/dom/elidex-dom-api/src/char_data/`) lives
+//! exclusively on the handler side per the CLAUDE.md Layering mandate.
 
 #![cfg(feature = "engine")]
 
@@ -45,7 +41,7 @@ use super::super::value::{
 use super::super::{NativeFn, VmInner};
 use super::event_target::entity_from_this;
 
-use elidex_ecs::{CommentData, Entity, NodeKind, TextContent};
+use elidex_ecs::{Entity, NodeKind};
 
 impl VmInner {
     /// Allocate `CharacterData.prototype` whose parent is
@@ -108,21 +104,8 @@ impl VmInner {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// VM-boundary helpers
 // ---------------------------------------------------------------------------
-
-/// Resolve the string data on `entity` — `TextContent` for Text nodes,
-/// `CommentData` for Comment nodes, `None` otherwise.
-pub(super) fn char_data_get(ctx: &mut NativeContext<'_>, entity: Entity) -> Option<String> {
-    let dom = ctx.host().dom();
-    if let Ok(text) = dom.world().get::<&TextContent>(entity) {
-        return Some(text.0.clone());
-    }
-    if let Ok(c) = dom.world().get::<&CommentData>(entity) {
-        return Some(c.0.clone());
-    }
-    None
-}
 
 /// TypeError for CharacterData methods invoked on a non-Text /
 /// non-Comment receiver.  Matches the WebIDL behaviour (the method
@@ -135,90 +118,56 @@ fn wrong_receiver_error(method: &str) -> VmError {
     ))
 }
 
-/// Overwrite the string data on `entity` based on its `NodeKind`.
-/// Returns `false` if the entity is neither a Text nor a Comment (the
-/// CharacterData methods are non-meaningful on other kinds).
+/// Brand check: the receiver entity must be a Text or Comment node.
 ///
-/// Uses `node_kind_inferred` so legacy Text/Comment entities that lack
-/// an explicit `NodeKind` component are still accepted — `char_data_get`
-/// already reads them by component presence, and `HostData::prototype
-/// _kind_for` routes them onto `Text.prototype` / `CharacterData.
-/// prototype`, so every other code path treats them as first-class
-/// nodes.
-pub(super) fn char_data_set(ctx: &mut NativeContext<'_>, entity: Entity, data: String) -> bool {
-    let dom = ctx.host().dom();
-    match dom.node_kind_inferred(entity) {
-        Some(NodeKind::Text) => {
-            if let Ok(mut text) = dom.world_mut().get::<&mut TextContent>(entity) {
-                text.0 = data;
-                return true;
-            }
-            false
-        }
-        Some(NodeKind::Comment) => {
-            if let Ok(mut c) = dom.world_mut().get::<&mut CommentData>(entity) {
-                c.0 = data;
-                return true;
-            }
-            false
-        }
-        _ => false,
+/// Performed at the VM boundary so a wrong-receiver call (e.g.
+/// `text.appendData.call(elementWrapper, …)`) raises **TypeError**
+/// — the WebIDL-mandated shape — before the handler dispatches and
+/// the algorithm-side `InvalidStateError` would bubble up as a
+/// DOMException instead.  Uses `node_kind_inferred` so legacy
+/// payload-only entities (no explicit `NodeKind` component) are still
+/// accepted, mirroring the prior `char_data_get` / `char_data_set`
+/// component-presence check.
+fn ensure_character_data(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    method: &str,
+) -> Result<(), VmError> {
+    match ctx.host().dom().node_kind_inferred(entity) {
+        Some(NodeKind::Text | NodeKind::Comment) => Ok(()),
+        _ => Err(wrong_receiver_error(method)),
     }
 }
 
-/// Edit a UTF-8 string via a UTF-16 offset/count window, producing the
-/// new contents.
-///
-/// `offset` and `count` are UTF-16 code unit positions (WHATWG spec).
-/// Returns `Err(RangeError)` when `offset > len`.  `count` is clamped
-/// to the distance from `offset` to the end, matching WHATWG §4.10.1
-/// steps 1-2 for every `*Data` method.
-///
-/// `replacement` — `None` for deleteData (remove only); `Some(s)` for
-/// replaceData / insertData (insert); appendData can use offset=len,
-/// count=0, replacement=Some(data).
-fn edit_data_utf16(
-    original: &str,
-    offset: usize,
-    count: usize,
-    replacement: Option<&str>,
-    method: &str,
-) -> Result<String, VmError> {
-    let units: Vec<u16> = original.encode_utf16().collect();
-    let len = units.len();
-    if offset > len {
-        return Err(VmError::range_error(format!(
-            "Failed to execute '{method}' on 'CharacterData': \
-             offset {offset} exceeds data length {len}."
-        )));
-    }
-    let end = offset.saturating_add(count).min(len);
-    // Capacity is measured in `u16` code units, not bytes — use
-    // `encode_utf16().count()` rather than `str::len` so non-ASCII
-    // replacements don't silently under-allocate (`str::len`
-    // returns UTF-8 bytes, which can exceed or undershoot the
-    // corresponding UTF-16 length).
-    let replacement_units = replacement.map_or(0, |r| r.encode_utf16().count());
-    // Final size = prefix + replacement + suffix.  Using the
-    // clamped removal (`end - offset`) instead of the raw `count`
-    // avoids under-allocating when `count` overshoots the data's
-    // trailing bytes (spec clamps silently; we'd otherwise reserve
-    // for a larger removal than actually happens).
-    let mut out: Vec<u16> = Vec::with_capacity(len - (end - offset) + replacement_units);
-    out.extend_from_slice(&units[..offset]);
-    if let Some(rep) = replacement {
-        out.extend(rep.encode_utf16());
-    }
-    out.extend_from_slice(&units[end..]);
-    // WHATWG §4.10.1 offsets are UTF-16 code units, so a spec-valid
-    // edit can split a surrogate pair and leave `out` with a lone
-    // surrogate.  `String::from_utf16_lossy` maps that to U+FFFD;
-    // the divergence from spec only matters when user JS round-trips
-    // such data through `data` / `appendData` / etc. and is
-    // accepted as a known limitation until CharacterData moves to a
-    // WTF-16 buffer.  Do NOT panic here — lossy coercion is the
-    // correct Phase 2 behaviour.
-    Ok(String::from_utf16_lossy(&out))
+/// Coerce the arg at `idx` via WebIDL `unsigned long` (ToUint32,
+/// ES2020 §7.1.7) — the spec-mandated conversion for CharacterData
+/// offsets.  Unlike a naive `to_number + floor`, this wraps
+/// out-of-range / negative inputs mod 2^32 before range-checking
+/// against the data length, matching browser behaviour.  Returns the
+/// uint32 packaged as a `JsValue::Number` so the caller can hand it
+/// straight to the handler dispatch (the dom-api `require_usize_arg`
+/// extracts via `JsValue::Number(n) as usize`).
+fn coerce_offset_arg(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    idx: usize,
+) -> Result<JsValue, VmError> {
+    let arg = args.get(idx).copied().unwrap_or(JsValue::Undefined);
+    let n = super::super::coerce::to_uint32(ctx.vm, arg)?;
+    Ok(JsValue::Number(f64::from(n)))
+}
+
+/// Coerce the arg at `idx` to a string (ToString) and rewrap as
+/// `JsValue::String(StringId)` so the bridge's `prepare_arg` can
+/// materialize it as a primitive `String` for the handler.
+fn coerce_string_arg(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    idx: usize,
+) -> Result<JsValue, VmError> {
+    let arg = args.get(idx).copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
+    Ok(JsValue::String(sid))
 }
 
 // ---------------------------------------------------------------------------
@@ -233,21 +182,8 @@ fn native_char_data_get_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    // WebIDL branding: any HostObject receiver that is not a Text /
-    // Comment node raises TypeError, matching every CharacterData
-    // method on this prototype.  `entity_from_this` already returns
-    // `None` for non-HostObject / post-unbind receivers (silent
-    // no-op), so reaching here with a `None` from `char_data_get`
-    // means the wrapper is an Element / Window / DocumentFragment /
-    // etc.
-    let Some(s) = char_data_get(ctx, entity) else {
-        return Err(wrong_receiver_error("data"));
-    };
-    if s.is_empty() {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    }
-    let sid = ctx.vm.strings.intern(&s);
-    Ok(JsValue::String(sid))
+    ensure_character_data(ctx, entity, "data")?;
+    super::dom_bridge::invoke_dom_api(ctx, "data.get", entity, &[])
 }
 
 fn native_char_data_set_data(
@@ -258,18 +194,14 @@ fn native_char_data_set_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
+    ensure_character_data(ctx, entity, "data")?;
     // WebIDL `CharacterData.data` is a non-nullable `DOMString`: every
     // value (including `null`) goes through `ToString`, so `null`
     // becomes the literal string `"null"`.  This differs from
     // `Node.nodeValue` / `textContent`, whose nullable setters treat
     // `null` as the empty string.
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    let data = ctx.vm.strings.get_utf8(sid);
-    if !char_data_set(ctx, entity, data) {
-        return Err(wrong_receiver_error("data"));
-    }
-    Ok(JsValue::Undefined)
+    let coerced = coerce_string_arg(ctx, args, 0)?;
+    super::dom_bridge::invoke_dom_api(ctx, "data.set", entity, &[coerced])
 }
 
 fn native_char_data_get_length(
@@ -280,40 +212,13 @@ fn native_char_data_get_length(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Number(0.0));
     };
-    let Some(s) = char_data_get(ctx, entity) else {
-        return Err(wrong_receiver_error("length"));
-    };
-    // WHATWG §4.10: length is UTF-16 code unit count.  `chars().count()`
-    // would undercount surrogate pairs — must use `encode_utf16`.
-    #[allow(clippy::cast_precision_loss)]
-    let len = s.encode_utf16().count() as f64;
-    Ok(JsValue::Number(len))
+    ensure_character_data(ctx, entity, "length")?;
+    super::dom_bridge::invoke_dom_api(ctx, "length.get", entity, &[])
 }
 
 // ---------------------------------------------------------------------------
 // Natives: methods
 // ---------------------------------------------------------------------------
-
-/// Coerce the arg at `idx` via WebIDL `unsigned long` (ToUint32,
-/// ES2020 §7.1.7) — the spec-mandated conversion for CharacterData
-/// offsets.  Unlike a naive `to_number + floor`, this wraps
-/// out-of-range / negative inputs mod 2^32 before range-checking
-/// against the data length, matching browser behaviour.
-fn coerce_offset(
-    ctx: &mut NativeContext<'_>,
-    args: &[JsValue],
-    idx: usize,
-) -> Result<usize, VmError> {
-    let arg = args.get(idx).copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_uint32(ctx.vm, arg)?;
-    Ok(n as usize)
-}
-
-fn coerce_data_arg(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<String, VmError> {
-    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-    Ok(ctx.vm.strings.get_utf8(sid))
-}
 
 fn native_char_data_append_data(
     ctx: &mut NativeContext<'_>,
@@ -323,13 +228,9 @@ fn native_char_data_append_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let append = coerce_data_arg(ctx, args)?;
-    let mut current = char_data_get(ctx, entity).unwrap_or_default();
-    current.push_str(&append);
-    if !char_data_set(ctx, entity, current) {
-        return Err(wrong_receiver_error("appendData"));
-    }
-    Ok(JsValue::Undefined)
+    ensure_character_data(ctx, entity, "appendData")?;
+    let data_arg = coerce_string_arg(ctx, args, 0)?;
+    super::dom_bridge::invoke_dom_api(ctx, "appendData", entity, &[data_arg])
 }
 
 fn native_char_data_insert_data(
@@ -340,18 +241,10 @@ fn native_char_data_insert_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0)?;
-    let data = {
-        let arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-        let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-        ctx.vm.strings.get_utf8(sid)
-    };
-    let current = char_data_get(ctx, entity).unwrap_or_default();
-    let new = edit_data_utf16(&current, offset, 0, Some(&data), "insertData")?;
-    if !char_data_set(ctx, entity, new) {
-        return Err(wrong_receiver_error("insertData"));
-    }
-    Ok(JsValue::Undefined)
+    ensure_character_data(ctx, entity, "insertData")?;
+    let offset_arg = coerce_offset_arg(ctx, args, 0)?;
+    let data_arg = coerce_string_arg(ctx, args, 1)?;
+    super::dom_bridge::invoke_dom_api(ctx, "insertData", entity, &[offset_arg, data_arg])
 }
 
 fn native_char_data_delete_data(
@@ -362,14 +255,10 @@ fn native_char_data_delete_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0)?;
-    let count = coerce_offset(ctx, args, 1)?;
-    let current = char_data_get(ctx, entity).unwrap_or_default();
-    let new = edit_data_utf16(&current, offset, count, None, "deleteData")?;
-    if !char_data_set(ctx, entity, new) {
-        return Err(wrong_receiver_error("deleteData"));
-    }
-    Ok(JsValue::Undefined)
+    ensure_character_data(ctx, entity, "deleteData")?;
+    let offset_arg = coerce_offset_arg(ctx, args, 0)?;
+    let count_arg = coerce_offset_arg(ctx, args, 1)?;
+    super::dom_bridge::invoke_dom_api(ctx, "deleteData", entity, &[offset_arg, count_arg])
 }
 
 fn native_char_data_replace_data(
@@ -380,19 +269,16 @@ fn native_char_data_replace_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
-    let offset = coerce_offset(ctx, args, 0)?;
-    let count = coerce_offset(ctx, args, 1)?;
-    let data = {
-        let arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-        let sid = super::super::coerce::to_string(ctx.vm, arg)?;
-        ctx.vm.strings.get_utf8(sid)
-    };
-    let current = char_data_get(ctx, entity).unwrap_or_default();
-    let new = edit_data_utf16(&current, offset, count, Some(&data), "replaceData")?;
-    if !char_data_set(ctx, entity, new) {
-        return Err(wrong_receiver_error("replaceData"));
-    }
-    Ok(JsValue::Undefined)
+    ensure_character_data(ctx, entity, "replaceData")?;
+    let offset_arg = coerce_offset_arg(ctx, args, 0)?;
+    let count_arg = coerce_offset_arg(ctx, args, 1)?;
+    let data_arg = coerce_string_arg(ctx, args, 2)?;
+    super::dom_bridge::invoke_dom_api(
+        ctx,
+        "replaceData",
+        entity,
+        &[offset_arg, count_arg, data_arg],
+    )
 }
 
 fn native_char_data_substring_data(
@@ -403,26 +289,8 @@ fn native_char_data_substring_data(
     let Some(entity) = entity_from_this(ctx, this) else {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let offset = coerce_offset(ctx, args, 0)?;
-    let count = coerce_offset(ctx, args, 1)?;
-    let current = char_data_get(ctx, entity).unwrap_or_default();
-    let units: Vec<u16> = current.encode_utf16().collect();
-    let len = units.len();
-    if offset > len {
-        return Err(VmError::range_error(format!(
-            "Failed to execute 'substringData' on 'CharacterData': \
-             offset {offset} exceeds data length {len}."
-        )));
-    }
-    let end = offset.saturating_add(count).min(len);
-    let slice = &units[offset..end];
-    // UTF-16 code-unit slicing can split a surrogate pair per spec;
-    // `from_utf16_lossy` coerces the resulting lone surrogate to
-    // U+FFFD.  See module-level WTF-16 caveat.
-    let s = String::from_utf16_lossy(slice);
-    if s.is_empty() {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    }
-    let sid = ctx.vm.strings.intern(&s);
-    Ok(JsValue::String(sid))
+    ensure_character_data(ctx, entity, "substringData")?;
+    let offset_arg = coerce_offset_arg(ctx, args, 0)?;
+    let count_arg = coerce_offset_arg(ctx, args, 1)?;
+    super::dom_bridge::invoke_dom_api(ctx, "substringData", entity, &[offset_arg, count_arg])
 }

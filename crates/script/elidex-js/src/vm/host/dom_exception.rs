@@ -57,16 +57,6 @@ pub(super) fn hierarchy_request_error(
     )
 }
 
-/// `DOMException("NotFoundError")` factory for `Node.prototype`
-/// mutation methods (WHATWG DOM §4.4).  Interface is always `Node`
-/// for this error shape.
-pub(super) fn not_found_error(name_sid: StringId, method: &str, detail: &str) -> VmError {
-    VmError::dom_exception(
-        name_sid,
-        format!("Failed to execute '{method}' on 'Node': {detail}"),
-    )
-}
-
 /// `DOMException("InvalidStateError")` factory.  Used by the WHATWG
 /// DOM §2.9 step 3 re-dispatch throw in `EventTarget.dispatchEvent`
 /// (event whose dispatch flag is already set); future callers may

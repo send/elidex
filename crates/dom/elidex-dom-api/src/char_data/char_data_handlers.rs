@@ -75,10 +75,14 @@ pub(crate) fn utf16_len(s: &str) -> usize {
     s.encode_utf16().count()
 }
 
-/// Convert a UTF-16 code unit offset to a byte offset in a Rust (UTF-8) string.
+/// Convert a UTF-16 code unit offset to a byte offset in a Rust (UTF-8)
+/// string. Returns `None` if `utf16_offset` exceeds the string's UTF-16
+/// length or lands in the middle of a surrogate pair.
 ///
-/// Returns `None` if `utf16_offset` exceeds the string's UTF-16 length or
-/// lands in the middle of a surrogate pair.
+/// Currently used by [`Range`](crate::Range) for boundary-point math
+/// where a `None` result is tolerated via `.unwrap_or(s.len())`. The
+/// CharacterData splice methods use [`splice_utf16`] instead because
+/// they must accept mid-surrogate offsets per WHATWG §11.2.
 pub(crate) fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize> {
     let mut utf16_pos = 0;
     for (byte_pos, ch) in s.char_indices() {
@@ -87,12 +91,61 @@ pub(crate) fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize
         }
         utf16_pos += ch.len_utf16();
     }
-    // offset == total length means "end of string"
     if utf16_pos == utf16_offset {
         Some(s.len())
     } else {
         None
     }
+}
+
+/// Splice a UTF-16 view of `original` and return the result as a Rust
+/// `String`.
+///
+/// **Caller contract**: `offset` MUST be ≤ the UTF-16 length of
+/// `original`. This helper is **not** a spec-validating primitive —
+/// the CharacterData spec (§11.2) requires `offset > length` to raise
+/// `IndexSizeError`, and that check lives in every caller
+/// (`InsertData` / `DeleteData` / `ReplaceData` / `SubstringData`).
+/// Adding a new caller? Validate `offset` first. Debug builds enforce
+/// the contract via `debug_assert!`; release builds rely on the slice
+/// indexing below to panic on violation rather than silently clamp.
+///
+/// `count` IS clamped to `len - offset` to match the spec's silent
+/// clamp ("if offset+count is greater than length, end at length").
+/// `replacement` is `None` for delete, `Some` for replace / insert /
+/// append.
+///
+/// Splitting through a surrogate pair (offset / end mid-pair) is
+/// **spec-valid** — UTF-16 offsets ignore character boundaries — and
+/// produces lone surrogates in the intermediate `Vec<u16>`. Rust's
+/// `String` storage cannot represent lone surrogates, so the result is
+/// rendered through `from_utf16_lossy` which substitutes `U+FFFD` for
+/// each unpaired half. This intentionally degrades into a known-lossy
+/// shape rather than panicking; matches the pre-arch-hoist VM-side
+/// behaviour and the lossy-not-panic contract pinned by
+/// `tests_character_data::*surrogate_pair*`.
+pub(crate) fn splice_utf16(
+    original: &str,
+    offset: usize,
+    count: usize,
+    replacement: Option<&str>,
+) -> String {
+    let units: Vec<u16> = original.encode_utf16().collect();
+    let len = units.len();
+    debug_assert!(
+        offset <= len,
+        "splice_utf16: offset {offset} exceeds UTF-16 length {len}; caller must \
+         validate via `if offset > utf16_len(&data)` before invocation"
+    );
+    let end = offset.saturating_add(count).min(len);
+    let replacement_units = replacement.map_or(0, |r| r.encode_utf16().count());
+    let mut out: Vec<u16> = Vec::with_capacity(len - (end - offset) + replacement_units);
+    out.extend_from_slice(&units[..offset]);
+    if let Some(rep) = replacement {
+        out.extend(rep.encode_utf16());
+    }
+    out.extend_from_slice(&units[end..]);
+    String::from_utf16_lossy(&out)
 }
 
 // ===========================================================================
@@ -188,12 +241,13 @@ impl DomApiHandler for SubstringData {
         if offset > len {
             return Err(index_size_error("offset exceeds data length"));
         }
-        let byte_start = utf16_to_byte_offset(&data, offset)
-            .ok_or_else(|| index_size_error("offset not on character boundary"))?;
-        let end = (offset + count).min(len);
-        let byte_end = utf16_to_byte_offset(&data, end)
-            .ok_or_else(|| index_size_error("end not on character boundary"))?;
-        Ok(JsValue::String(data[byte_start..byte_end].to_string()))
+        let end = offset.saturating_add(count).min(len);
+        // UTF-16 slicing through a surrogate pair degrades to U+FFFD per
+        // `splice_utf16` doc — spec-valid and matches the lossy-not-panic
+        // test contract.
+        let units: Vec<u16> = data.encode_utf16().collect();
+        let s = String::from_utf16_lossy(&units[offset..end]);
+        Ok(JsValue::String(s))
     }
 }
 
@@ -242,12 +296,7 @@ impl DomApiHandler for InsertData {
         if offset > utf16_len(&data) {
             return Err(index_size_error("offset exceeds data length"));
         }
-        let byte_off = utf16_to_byte_offset(&data, offset)
-            .ok_or_else(|| index_size_error("offset not on character boundary"))?;
-        let mut result = String::with_capacity(data.len() + insert_str.len());
-        result.push_str(&data[..byte_off]);
-        result.push_str(&insert_str);
-        result.push_str(&data[byte_off..]);
+        let result = splice_utf16(&data, offset, 0, Some(&insert_str));
         set_char_data(this, dom, &result)?;
         dom.rev_version(this);
         Ok(JsValue::Undefined)
@@ -272,18 +321,10 @@ impl DomApiHandler for DeleteData {
         let offset = require_usize_arg(args, 0)?;
         let count = require_usize_arg(args, 1)?;
         let data = get_char_data(this, dom)?;
-        let len = utf16_len(&data);
-        if offset > len {
+        if offset > utf16_len(&data) {
             return Err(index_size_error("offset exceeds data length"));
         }
-        let byte_start = utf16_to_byte_offset(&data, offset)
-            .ok_or_else(|| index_size_error("offset not on character boundary"))?;
-        let end = (offset + count).min(len);
-        let byte_end = utf16_to_byte_offset(&data, end)
-            .ok_or_else(|| index_size_error("end not on character boundary"))?;
-        let mut result = String::with_capacity(data.len() - (byte_end - byte_start));
-        result.push_str(&data[..byte_start]);
-        result.push_str(&data[byte_end..]);
+        let result = splice_utf16(&data, offset, count, None);
         set_char_data(this, dom, &result)?;
         dom.rev_version(this);
         Ok(JsValue::Undefined)
@@ -309,20 +350,10 @@ impl DomApiHandler for ReplaceData {
         let count = require_usize_arg(args, 1)?;
         let replace_str = require_string_arg(args, 2)?;
         let data = get_char_data(this, dom)?;
-        let len = utf16_len(&data);
-        if offset > len {
+        if offset > utf16_len(&data) {
             return Err(index_size_error("offset exceeds data length"));
         }
-        let byte_start = utf16_to_byte_offset(&data, offset)
-            .ok_or_else(|| index_size_error("offset not on character boundary"))?;
-        let end = (offset + count).min(len);
-        let byte_end = utf16_to_byte_offset(&data, end)
-            .ok_or_else(|| index_size_error("end not on character boundary"))?;
-        let mut result =
-            String::with_capacity(data.len() - (byte_end - byte_start) + replace_str.len());
-        result.push_str(&data[..byte_start]);
-        result.push_str(&replace_str);
-        result.push_str(&data[byte_end..]);
+        let result = splice_utf16(&data, offset, count, Some(&replace_str));
         set_char_data(this, dom, &result)?;
         dom.rev_version(this);
         Ok(JsValue::Undefined)
