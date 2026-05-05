@@ -80,7 +80,7 @@ mise run test-all  # nextest + doc-tests (full suite, run by `ci`)
 mise run lint      # clippy + fmt check
 mise run fmt       # format code
 mise run deny      # license/vulnerability check
-mise run ci        # run all CI checks locally (test-all + lint + doc + deny)
+mise run ci        # run all CI checks locally (check + lint + test-all + doc + deny)
 ```
 
 ### Running the Crawler
