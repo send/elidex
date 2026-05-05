@@ -103,14 +103,14 @@ pub(crate) fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize
 ///
 /// **Caller contract**: `offset` MUST be ≤ the UTF-16 length of
 /// `original`. This helper is **not** a spec-validating primitive —
-/// it silently clamps `offset` and `count` to the data length. The
-/// CharacterData spec (§11.2) requires `offset > length` to raise
-/// `IndexSizeError`; that check lives in every caller (`InsertData` /
-/// `DeleteData` / `ReplaceData` / `SubstringData`), gated by an
-/// explicit `if offset > utf16_len(&data) { return Err(index_size_error(…)) }`.
-/// Adding a new caller? Validate `offset` first.
+/// the CharacterData spec (§11.2) requires `offset > length` to raise
+/// `IndexSizeError`, and that check lives in every caller
+/// (`InsertData` / `DeleteData` / `ReplaceData` / `SubstringData`).
+/// Adding a new caller? Validate `offset` first. Debug builds enforce
+/// the contract via `debug_assert!`; release builds rely on the slice
+/// indexing below to panic on violation rather than silently clamp.
 ///
-/// `count` is clamped to `len - offset` to match the spec's silent
+/// `count` IS clamped to `len - offset` to match the spec's silent
 /// clamp ("if offset+count is greater than length, end at length").
 /// `replacement` is `None` for delete, `Some` for replace / insert /
 /// append.
@@ -132,11 +132,15 @@ pub(crate) fn splice_utf16(
 ) -> String {
     let units: Vec<u16> = original.encode_utf16().collect();
     let len = units.len();
-    let start = offset.min(len);
-    let end = start.saturating_add(count).min(len);
+    debug_assert!(
+        offset <= len,
+        "splice_utf16: offset {offset} exceeds UTF-16 length {len}; caller must \
+         validate via `if offset > utf16_len(&data)` before invocation"
+    );
+    let end = offset.saturating_add(count).min(len);
     let replacement_units = replacement.map_or(0, |r| r.encode_utf16().count());
-    let mut out: Vec<u16> = Vec::with_capacity(len - (end - start) + replacement_units);
-    out.extend_from_slice(&units[..start]);
+    let mut out: Vec<u16> = Vec::with_capacity(len - (end - offset) + replacement_units);
+    out.extend_from_slice(&units[..offset]);
     if let Some(rep) = replacement {
         out.extend(rep.encode_utf16());
     }

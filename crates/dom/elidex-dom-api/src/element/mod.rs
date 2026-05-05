@@ -255,10 +255,11 @@ mod tests {
     }
 
     #[test]
-    fn replace_child_self_replace_is_hierarchy_request_error() {
+    fn replace_child_when_new_child_is_receiver_is_hierarchy_request_error() {
         // newChild == parent: WHATWG §4.4 step 2 (host-including
         // ancestor check). EcsDom::replace_child rejects when
-        // newChild == parent.
+        // newChild == parent. Distinct from the self-replace
+        // (newChild == oldChild) no-op case covered separately below.
         let (mut dom, parent, child, mut session) = setup();
         dom.append_child(parent, child);
         let parent_ref = session
