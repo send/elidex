@@ -12,7 +12,6 @@ use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
 use super::super::VmInner;
 use super::event_target::entity_from_this;
 
-use elidex_css::{parse_selector_from_str, Selector};
 use elidex_ecs::{EcsDom, Entity, NodeKind};
 use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, SessionCore,
@@ -36,44 +35,6 @@ pub(super) fn wrap_entities_as_array(vm: &mut VmInner, entities: &[Entity]) -> J
         .map(|&e| JsValue::Object(vm.create_element_wrapper(e)))
         .collect();
     JsValue::Object(vm.create_array_object(elements))
-}
-
-/// Parse a selector string and reject shadow-scoped pseudos.  Shared
-/// by `document.querySelector*` and `Element.prototype.matches` /
-/// `closest` — all four throw a `DOMException` named `"SyntaxError"`
-/// on invalid input and on `:host` / `::slotted()`, which are only
-/// valid inside shadow-tree context (WHATWG DOM §4.7 / WHATWG
-/// Selectors API §1.2 — the spec-mandated exception class is
-/// `DOMException`, *not* the ECMA `SyntaxError` constructor).
-///
-/// `syntax_error_name` is the pre-interned `StringId` for
-/// `"SyntaxError"` (`WellKnownStrings::dom_exc_syntax_error`); the
-/// caller threads it in to keep this helper independent of
-/// `&VmInner` and avoid an extra borrow in the hot path.  The
-/// `method` name appears in the shadow-pseudo error message so
-/// callers get a call-site-accurate complaint (`… are not valid in
-/// querySelector` vs `… in matches/closest`).
-pub(super) fn parse_dom_selector(
-    selector_str: &str,
-    shadow_method_label: &str,
-    syntax_error_name: super::super::value::StringId,
-) -> Result<Vec<Selector>, VmError> {
-    let selectors = parse_selector_from_str(selector_str).map_err(|()| {
-        VmError::dom_exception(
-            syntax_error_name,
-            format!("Invalid selector: {selector_str}"),
-        )
-    })?;
-    if selectors
-        .iter()
-        .any(elidex_css::Selector::has_shadow_pseudo)
-    {
-        return Err(VmError::dom_exception(
-            syntax_error_name,
-            format!(":host and ::slotted() are not valid in {shadow_method_label}"),
-        ));
-    }
-    Ok(selectors)
 }
 
 /// Coerce the first argument to a string and hand back its UTF-8
@@ -116,33 +77,6 @@ pub(super) fn tree_nav_getter(
     };
     let target = lookup(ctx.host().dom(), entity);
     Ok(wrap_entity_or_null(ctx.vm, target))
-}
-
-/// Pre-order DFS over descendants of `root` looking for the first
-/// element that matches any selector in `selectors`.  `root` itself is
-/// **not** a match candidate — WHATWG §4.2.6 step 3.  Returns the
-/// matched entity, or `None` if none found.
-///
-/// Shared by both `document.querySelector` and
-/// `Element.prototype.querySelector`.
-pub(super) fn query_selector_in_subtree_first(
-    dom: &EcsDom,
-    root: Entity,
-    selectors: &[elidex_css::Selector],
-) -> Option<Entity> {
-    use elidex_ecs::TagType;
-    let mut result = None;
-    dom.traverse_descendants(root, |entity| {
-        if dom.world().get::<&TagType>(entity).is_ok()
-            && selectors.iter().any(|s| s.matches(entity, dom))
-        {
-            result = Some(entity);
-            false
-        } else {
-            true
-        }
-    });
-    result
 }
 
 /// Recursively flatten `node` into the list of real nodes to insert.
@@ -209,25 +143,15 @@ pub(super) fn drain_fragment_descendants(ctx: &mut NativeContext<'_>, root: Enti
     }
 }
 
-/// Pre-order DFS collecting every descendant of `root` matching any
-/// selector in `selectors`.  `root` itself is not a match candidate.
-pub(super) fn query_selector_in_subtree_all(
-    dom: &EcsDom,
-    root: Entity,
-    selectors: &[elidex_css::Selector],
-) -> Vec<Entity> {
-    use elidex_ecs::TagType;
-    let mut out = Vec::new();
-    dom.traverse_descendants(root, |entity| {
-        if dom.world().get::<&TagType>(entity).is_ok()
-            && selectors.iter().any(|s| s.matches(entity, dom))
-        {
-            out.push(entity);
-        }
-        true
-    });
-    out
-}
+// `parse_dom_selector` / `query_selector_in_subtree_first` /
+// `query_selector_in_subtree_all` lived here until #11-arch-hoist-c
+// migrated every caller (`document.querySelector*` /
+// `Element.prototype.matches` / `closest` / `querySelector*`) onto the
+// engine-independent dispatch (`invoke_dom_api(..., "querySelector"|
+// "matches"|"closest", ...)`) and the standalone
+// `elidex_dom_api::query_selector_all` free function.  Selector
+// parsing + shadow-pseudo rejection + DFS now live exclusively in
+// `crates/dom/elidex-dom-api/src/{document,child_node/selectors}.rs`.
 
 // `collect_descendants_by_tag_name` / `collect_descendants_by_class_name`
 // lived here until PR5b §C3 migrated every caller (`document.getElementsBy*`
