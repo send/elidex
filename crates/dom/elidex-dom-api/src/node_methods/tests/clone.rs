@@ -237,3 +237,19 @@ fn clone_node_document_fragment_deep_preserves_children() {
         "hello"
     );
 }
+
+#[test]
+fn clone_node_attribute_kind_yields_not_supported_error() {
+    // Pin Copilot R2 vLY2J: ECS cloners snapshot only TagType /
+    // TextContent / CommentData / DocTypeData / Attributes — they
+    // don't carry AttrData, so dispatching an Attribute entity
+    // through them would produce a structurally invalid clone
+    // (NodeKind=Attribute, AttrData missing).  Refuse early.
+    let (mut dom, mut session) = setup();
+    let attr = dom.create_attribute("id");
+    wrap(attr, &mut session);
+    let err = CloneNode
+        .invoke(attr, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .expect_err("Attribute kind must surface as DomApiError");
+    assert_eq!(err.kind, DomApiErrorKind::NotSupportedError);
+}

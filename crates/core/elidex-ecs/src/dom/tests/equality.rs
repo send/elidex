@@ -4,7 +4,7 @@
 //! and the `elidex-js` VM-side natives delegate to.
 
 use super::*;
-use crate::components::AttrData;
+use crate::components::{AttrData, NodeKind};
 use crate::dom::equality::{
     DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,
     DOCUMENT_POSITION_FOLLOWING, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC,
@@ -123,6 +123,19 @@ fn nodes_equal_attr_payload_distinguishes_local_name_and_value() {
     assert!(dom.nodes_equal(id_x, id_x_clone));
     assert!(!dom.nodes_equal(id_x, id_y));
     assert!(!dom.nodes_equal(id_x, class_x));
+}
+
+#[test]
+fn nodes_equal_attribute_missing_attrdata_returns_false() {
+    // Pin Copilot R2 vLY2q: a NodeKind::Attribute entity without
+    // an AttrData component is malformed (would only happen via a
+    // botched clone path).  `attr_payload_equal` must refuse to
+    // vacuously equate two such malformed entities so the
+    // malformation surfaces instead of getting masked.
+    let mut dom = EcsDom::new();
+    let malformed_a = dom.world_mut().spawn((NodeKind::Attribute,));
+    let malformed_b = dom.world_mut().spawn((NodeKind::Attribute,));
+    assert!(!dom.nodes_equal(malformed_a, malformed_b));
 }
 
 #[test]

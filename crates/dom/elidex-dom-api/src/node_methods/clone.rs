@@ -7,7 +7,7 @@
 //! live in `elidex-ecs` so layout / parser / WPT runner consumers
 //! see the same WHATWG §4.5 semantics through one entry point.
 
-use elidex_ecs::{EcsDom, Entity, ShadowRoot};
+use elidex_ecs::{EcsDom, Entity, NodeKind, ShadowRoot};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
@@ -28,15 +28,46 @@ impl DomApiHandler for CloneNode {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        // Reject ShadowRoot up front so the failure surfaces as the
-        // spec-mandated NotSupportedError rather than a structurally
-        // invalid clone (the ECS cloners would happily copy the
-        // `ShadowRoot` payload via `clone_node_shallow_unchecked`).
+        // Reject up front any node whose payload the ECS cloners do
+        // not handle.  `clone_node_shallow_unchecked` snapshots only
+        // TagType / TextContent / CommentData / DocTypeData /
+        // Attributes — so dispatching an Attribute (`AttrData`),
+        // ProcessingInstruction (no payload component yet), or
+        // Window (not a Node) entity through it would yield a
+        // structurally invalid clone (NodeKind set, payload
+        // missing).  ShadowRoot is rejected by spec (WHATWG §4.5
+        // explicitly excludes shadow trees) and would otherwise
+        // produce a fragment-shaped clone because the cloner does
+        // NOT copy the `ShadowRoot` component — neither the
+        // structural-invalid path nor the spec-error path is
+        // acceptable, so refuse early with the spec-named
+        // DOMException.
         if dom.world().get::<&ShadowRoot>(this).is_ok() {
             return Err(DomApiError {
                 kind: DomApiErrorKind::NotSupportedError,
                 message: "cloneNode: ShadowRoot cannot be cloned".into(),
             });
+        }
+        match dom.node_kind(this) {
+            Some(NodeKind::Attribute) => {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::NotSupportedError,
+                    message: "cloneNode: Attribute cloning is not yet supported".into(),
+                });
+            }
+            Some(NodeKind::ProcessingInstruction) => {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::NotSupportedError,
+                    message: "cloneNode: ProcessingInstruction cloning is not yet supported".into(),
+                });
+            }
+            Some(NodeKind::Window) => {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::NotSupportedError,
+                    message: "cloneNode: Window is not a Node".into(),
+                });
+            }
+            _ => {}
         }
 
         let deep = matches!(args.first(), Some(JsValue::Bool(true)));

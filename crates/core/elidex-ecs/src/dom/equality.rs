@@ -264,11 +264,14 @@ fn attr_owner(dom: &EcsDom, entity: Entity) -> Option<Entity> {
 }
 
 fn attr_payload_equal(dom: &EcsDom, a: Entity, b: Entity) -> bool {
+    // `NodeKind::Attribute` is expected to always carry `AttrData`.
+    // A missing `AttrData` indicates a malformed entity (e.g. a
+    // botched clone path); refuse equality so the malformation
+    // doesn't get masked by a vacuous true.
     let aa = dom.world().get::<&AttrData>(a).ok();
     let bb = dom.world().get::<&AttrData>(b).ok();
     match (aa.as_deref(), bb.as_deref()) {
         (Some(x), Some(y)) => x.local_name == y.local_name && x.value == y.value,
-        (None, None) => true,
         _ => false,
     }
 }
