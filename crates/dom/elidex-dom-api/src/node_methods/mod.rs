@@ -3,6 +3,12 @@
 //! Covers: `contains`, `compareDocumentPosition`, `cloneNode`, `normalize`,
 //! `isConnected`, `getRootNode`, `textContent` (NodeKind-aware), `nodeValue`,
 //! `ownerDocument`, `isSameNode`, `isEqualNode`.
+//!
+//! `cloneNode` / `compareDocumentPosition` / `isEqualNode` are
+//! marshalling-only thin wrappers over `elidex-ecs` primitives —
+//! tree-walking algorithms (clone subtree, position bitmask, deep
+//! equality) live engine-independently in [`elidex_ecs::EcsDom`]
+//! per the CLAUDE.md Layering mandate.
 
 mod clone;
 mod core;
@@ -14,16 +20,14 @@ pub use core::{
     Normalize, OwnerDocument,
 };
 #[cfg(test)]
-pub(crate) use core::{
+pub(crate) use elidex_ecs::{
     DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,
     DOCUMENT_POSITION_FOLLOWING, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC,
     DOCUMENT_POSITION_PRECEDING,
 };
 pub use text_content::{GetTextContentNodeKind, SetNodeValue, SetTextContentNodeKind};
 
-use elidex_ecs::{
-    Attributes, CommentData, DocTypeData, EcsDom, Entity, NodeKind, TagType, TextContent,
-};
+use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiErrorKind, JsObjectRef, SessionCore};
 
@@ -74,86 +78,6 @@ pub(crate) fn find_root(entity: Entity, dom: &EcsDom) -> Entity {
 /// (non-composed root). Delegates to `EcsDom::find_tree_root`.
 pub(crate) fn find_root_non_composed(entity: Entity, dom: &EcsDom) -> Entity {
     dom.find_tree_root(entity)
-}
-
-/// Check deep structural equality of two nodes.
-pub(crate) fn nodes_equal(a: Entity, b: Entity, dom: &EcsDom) -> bool {
-    let kind_a = dom.node_kind(a);
-    let kind_b = dom.node_kind(b);
-    if kind_a != kind_b {
-        return false;
-    }
-
-    match kind_a {
-        Some(NodeKind::Element) => {
-            let tag_a = dom.world().get::<&TagType>(a).ok().map(|t| t.0.clone());
-            let tag_b = dom.world().get::<&TagType>(b).ok().map(|t| t.0.clone());
-            if tag_a != tag_b {
-                return false;
-            }
-            let attrs_a = dom.world().get::<&Attributes>(a).ok();
-            let attrs_b = dom.world().get::<&Attributes>(b).ok();
-            match (&attrs_a, &attrs_b) {
-                (Some(a_ref), Some(b_ref)) => {
-                    if a_ref.len() != b_ref.len() {
-                        return false;
-                    }
-                    for (name, val) in a_ref.iter() {
-                        if b_ref.get(name) != Some(val) {
-                            return false;
-                        }
-                    }
-                }
-                (None, None) => {}
-                _ => return false,
-            }
-        }
-        Some(NodeKind::Text | NodeKind::CdataSection) => {
-            let ta = dom.world().get::<&TextContent>(a).ok().map(|t| t.0.clone());
-            let tb = dom.world().get::<&TextContent>(b).ok().map(|t| t.0.clone());
-            if ta != tb {
-                return false;
-            }
-        }
-        Some(NodeKind::Comment) => {
-            let ca = dom.world().get::<&CommentData>(a).ok().map(|c| c.0.clone());
-            let cb = dom.world().get::<&CommentData>(b).ok().map(|c| c.0.clone());
-            if ca != cb {
-                return false;
-            }
-        }
-        Some(NodeKind::DocumentType) => {
-            let da = dom
-                .world()
-                .get::<&DocTypeData>(a)
-                .ok()
-                .map(|d| (d.name.clone(), d.public_id.clone(), d.system_id.clone()));
-            let db = dom
-                .world()
-                .get::<&DocTypeData>(b)
-                .ok()
-                .map(|d| (d.name.clone(), d.public_id.clone(), d.system_id.clone()));
-            if da != db {
-                return false;
-            }
-        }
-        Some(NodeKind::Document | NodeKind::DocumentFragment) => {}
-        _ => {
-            if kind_a.is_none() {
-                return false;
-            }
-        }
-    }
-
-    let children_a = dom.children(a);
-    let children_b = dom.children(b);
-    if children_a.len() != children_b.len() {
-        return false;
-    }
-    children_a
-        .iter()
-        .zip(children_b.iter())
-        .all(|(&ca, &cb)| nodes_equal(ca, cb, dom))
 }
 
 #[cfg(test)]
