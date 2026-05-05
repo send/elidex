@@ -21,7 +21,7 @@ mod engine_feature {
     use std::collections::{HashMap, HashSet};
 
     /// Four-way partition of DOM wrapper prototype chains used by
-    /// [`super::super::VmInner::create_element_wrapper`].  The
+    /// `VmInner::create_element_wrapper`.  The
     /// [`PrototypeKind`] is derived from the entity's ECS components
     /// so the caller does not need to run independent
     /// `is_element_entity` / `is_character_data_entity` checks.
@@ -53,7 +53,7 @@ mod engine_feature {
         document_entity: Option<Entity>,
         /// Entity backing `globalThis` / `window` (WHATWG HTML §7.2).
         ///
-        /// Created on the first [`Vm::bind`](super::Vm::bind) via the
+        /// Created on the first [`Vm::bind`](super::super::Vm::bind) via the
         /// bound `dom` and **retained across unbind cycles** — identity
         /// is stable for the whole lifetime of the `HostData`.
         ///
@@ -506,7 +506,7 @@ mod engine_feature {
         }
 
         /// Return the cached Window entity, or `None` if
-        /// [`Vm::bind`](super::Vm::bind) has never run on this `HostData`.
+        /// [`Vm::bind`](super::super::Vm::bind) has never run on this `HostData`.
         ///
         /// Unlike [`Self::document`], this **does not** require the
         /// `HostData` to be currently bound — the Window entity is
@@ -519,7 +519,7 @@ mod engine_feature {
             self.window_entity
         }
 
-        /// Record the Window entity allocated by [`Vm::bind`](super::Vm::bind).
+        /// Record the Window entity allocated by [`Vm::bind`](super::super::Vm::bind).
         ///
         /// # Panics
         ///

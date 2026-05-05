@@ -92,7 +92,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build documentation
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
 

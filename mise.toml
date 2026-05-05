@@ -36,7 +36,7 @@ run = "cargo fmt --all"
 [tasks.doc]
 description = "Build documentation (same flags as CI — warnings are errors)"
 env = { RUSTDOCFLAGS = "-D warnings" }
-run = "cargo doc --workspace --no-deps"
+run = "cargo doc --workspace --no-deps --all-features"
 
 [tasks.deny]
 description = "Check licenses and vulnerabilities"

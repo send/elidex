@@ -161,7 +161,7 @@ impl NativeContext<'_> {
 
     /// Borrow the bound DOM (shared) and the string pool (exclusive)
     /// simultaneously via disjoint field projection on
-    /// [`super::VmInner`].
+    /// `VmInner`.
     ///
     /// Lets a native function call
     /// [`elidex_ecs::EcsDom::with_attribute`] (or any other
