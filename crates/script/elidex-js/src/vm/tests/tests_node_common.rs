@@ -697,17 +697,10 @@ fn compare_document_position_disconnected_antisymmetric_js() {
 }
 
 #[test]
-fn compare_document_position_attr_same_owner_implementation_specific_js() {
-    // Pin the Attr-vs-Attr same-owner path through the bridge:
-    // setAttributeNode results aren't routinely used in JS, so we
-    // approximate via getAttributeNode-style attr handle if exposed,
-    // or fall back to verifying disconnected branch behaviour.
-    //
-    // Since elidex's Attr getter surface is partial (Attr lifecycle
-    // WIP), this case is exercised at the ECS unit-test layer only;
-    // the JS mirror here pins the *non-Attr* same-tree
-    // PRECEDING/FOLLOWING contract (which routes through the same
-    // ECS impl).
+fn compare_document_position_same_tree_following_js() {
+    // Pin the same-tree FOLLOWING bit (= 0x04) through handler
+    // dispatch.  Attr-vs-Attr is exercised at the ECS unit-test
+    // layer (no Attr JS surface yet — Attr lifecycle WIP).
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {

@@ -239,13 +239,9 @@ fn clone_node_allocates_distinct_entity() {
 
 #[test]
 fn cloned_document_clone_node_owner_propagates() {
-    // Pin AssociatedDocument propagation through cloneNode -> bridge
-    // -> Document-install hook.  After cloning the document, the
-    // cloned root's ownerDocument lookup goes through the same ECS
-    // path that the WhatWG §4.5 step "set node document" prescribes;
-    // the post-dispatch hook must install the document method bag
-    // onto the cloned wrapper so subsequent `.cloneNode(...)` calls
-    // on it also resolve.
+    // Chained cloneNode must keep installing document methods on
+    // each cloned wrapper — pin that c2.createElement still resolves
+    // and reports c2 as ownerDocument.
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {

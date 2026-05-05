@@ -92,10 +92,6 @@ impl EcsDom {
             if kids_a.len() != kids_b.len() {
                 return false;
             }
-            // Push in reverse so explicit-stack popping mirrors a
-            // recursive walk's left-to-right depth-first order — not
-            // required for correctness (inequality is order-stable)
-            // but keeps early-exit behaviour predictable.
             for (ca, cb) in kids_a.iter().zip(kids_b.iter()).rev() {
                 stack.push((*ca, *cb));
             }
@@ -139,34 +135,48 @@ impl EcsDom {
             return 0;
         }
 
-        let this_is_attr = self.node_kind(this) == Some(NodeKind::Attribute);
-        let other_is_attr = self.node_kind(other) == Some(NodeKind::Attribute);
+        let this_owner = if self.node_kind(this) == Some(NodeKind::Attribute) {
+            attr_owner(self, this)
+        } else {
+            None
+        };
+        let other_owner = if self.node_kind(other) == Some(NodeKind::Attribute) {
+            attr_owner(self, other)
+        } else {
+            None
+        };
 
-        if this_is_attr && other_is_attr {
-            let to = attr_owner(self, this);
-            let oo = attr_owner(self, other);
-            if let (Some(to), Some(oo)) = (to, oo) {
-                if to == oo {
-                    let dir = if this.to_bits() < other.to_bits() {
-                        DOCUMENT_POSITION_PRECEDING
-                    } else {
-                        DOCUMENT_POSITION_FOLLOWING
-                    };
-                    return DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | dir;
-                }
+        if let (Some(to), Some(oo)) = (this_owner, other_owner) {
+            if to == oo {
+                let dir = if this.to_bits() < other.to_bits() {
+                    DOCUMENT_POSITION_PRECEDING
+                } else {
+                    DOCUMENT_POSITION_FOLLOWING
+                };
+                return DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | dir;
             }
         }
 
-        let effective_this = if this_is_attr {
-            attr_owner(self, this).unwrap_or(this)
-        } else {
-            this
-        };
-        let effective_other = if other_is_attr {
-            attr_owner(self, other).unwrap_or(other)
-        } else {
-            other
-        };
+        let effective_this = this_owner.unwrap_or(this);
+        let effective_other = other_owner.unwrap_or(other);
+
+        // Roots first: a single ancestor walk per operand decides
+        // disconnection, which would otherwise force the
+        // is_light_tree_ancestor_or_self probes below to walk the
+        // full chain twice each just to discover the operands aren't
+        // related.
+        let root_this = self.find_tree_root(effective_this);
+        let root_other = self.find_tree_root(effective_other);
+        if root_this != root_other {
+            let dir = if effective_this.to_bits() < effective_other.to_bits() {
+                DOCUMENT_POSITION_FOLLOWING
+            } else {
+                DOCUMENT_POSITION_PRECEDING
+            };
+            return DOCUMENT_POSITION_DISCONNECTED
+                | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC
+                | dir;
+        }
 
         if effective_other != effective_this
             && self.is_light_tree_ancestor_or_self(effective_other, effective_this)
@@ -177,20 +187,6 @@ impl EcsDom {
             && self.is_light_tree_ancestor_or_self(effective_this, effective_other)
         {
             return DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING;
-        }
-
-        if self.find_tree_root(effective_this) != self.find_tree_root(effective_other) {
-            // Disconnected — entity bits give a stable, antisymmetric
-            // ordering independent of tree structure so
-            // `cmp(a,b) ^ cmp(b,a) == PRECEDING | FOLLOWING`.
-            let dir = if effective_this.to_bits() < effective_other.to_bits() {
-                DOCUMENT_POSITION_FOLLOWING
-            } else {
-                DOCUMENT_POSITION_PRECEDING
-            };
-            return DOCUMENT_POSITION_DISCONNECTED
-                | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC
-                | dir;
         }
 
         match self.tree_order_cmp(effective_this, effective_other) {

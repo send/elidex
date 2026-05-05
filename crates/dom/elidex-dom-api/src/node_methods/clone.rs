@@ -28,10 +28,8 @@ impl DomApiHandler for CloneNode {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        // ShadowRoot cannot be cloned (WHATWG §4.5 explicitly
-        // excludes shadow trees).  Reject before dispatching to ECS
-        // so the error surfaces with the spec-mandated DOMException
-        // name rather than as a silent `None` from the cloner.
+        // Reject ShadowRoot before dispatching so the failure is a
+        // DOMException, not a silent `None` from the cloner.
         if dom.world().get::<&ShadowRoot>(this).is_ok() {
             return Err(DomApiError {
                 kind: DomApiErrorKind::NotSupportedError,
