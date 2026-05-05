@@ -253,3 +253,20 @@ fn clone_node_attribute_kind_yields_not_supported_error() {
         .expect_err("Attribute kind must surface as DomApiError");
     assert_eq!(err.kind, DomApiErrorKind::NotSupportedError);
 }
+
+#[test]
+fn clone_node_window_kind_yields_type_error() {
+    // Pin Copilot R3 vLknj: Window is not a Node per WHATWG DOM
+    // (EventTarget mixin only, no nodeType).  Calling cloneNode on
+    // a Window receiver is a WebIDL §3.6.5 "illegal invocation",
+    // which must surface as a plain TypeError, NOT a DOMException
+    // (the latter is reserved for Node receivers whose operation
+    // can't be performed — Attribute / ProcessingInstruction above).
+    let (mut dom, mut session) = setup();
+    let window = dom.create_window_root();
+    wrap(window, &mut session);
+    let err = CloneNode
+        .invoke(window, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .expect_err("Window receiver must surface as DomApiError");
+    assert_eq!(err.kind, DomApiErrorKind::TypeError);
+}
