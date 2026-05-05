@@ -726,16 +726,24 @@ pub(super) fn native_document_get_active_element(
         });
         focused_connected.or_else(|| {
             let html = find_html_root_of(ctx, doc)?;
-            // Spec fallback: first body or frameset child of <html>.
-            // Pre-PR this only checked `<body>` — the body-frameset
-            // alignment with `document.body` (R4) requires the same
-            // policy here so frameset documents don't observe
-            // `document.body !== document.activeElement` when nothing
-            // is focused.
-            ctx.host()
-                .dom()
-                .first_child_with_tag(html, "body")
-                .or_else(|| ctx.host().dom().first_child_with_tag(html, "frameset"))
+            // Spec fallback: the first body-or-frameset child of
+            // `<html>` in document order, falling back to `<html>` if
+            // neither exists.  Walking the children once (mirroring
+            // `GetBody`'s logic) is required for `document.body` and
+            // `document.activeElement` to agree when BOTH tags are
+            // present — a two-pass `first_child_with_tag("body")
+            // .or_else(... "frameset")` would resolve a later `<body>`
+            // over an earlier `<frameset>`.
+            let dom = ctx.host().dom();
+            dom.children_iter(html)
+                .find(|c| {
+                    dom.world()
+                        .get::<&elidex_ecs::TagType>(*c)
+                        .ok()
+                        .is_some_and(|t| {
+                            t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset")
+                        })
+                })
                 .or(Some(html))
         })
     };

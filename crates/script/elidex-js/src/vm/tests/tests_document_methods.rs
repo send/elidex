@@ -437,6 +437,42 @@ fn document_title_preserves_non_ascii_whitespace_through_bridge() {
 }
 
 #[test]
+fn document_active_element_picks_first_body_or_frameset_in_document_order() {
+    // Guard against a two-pass fallback that scans for `<body>`
+    // first and `<frameset>` second — that would resolve a later
+    // `<body>` over an earlier `<frameset>`, disagreeing with
+    // `document.body`'s WHATWG "first body-or-frameset child" rule.
+    // Build `<html><frameset/><body/></html>` (frameset first) and
+    // verify both accessors agree on the frameset.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let frameset = dom.create_element("frameset", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, frameset));
+    assert!(dom.append_child(html, body));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // `document.body` and `document.activeElement` must agree, and
+    // both must be the frameset (which appears first under html).
+    assert!(matches!(
+        vm.eval(
+            "document.body === document.activeElement && \
+             document.body.tagName.toLowerCase() === 'frameset';"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
 fn document_active_element_falls_back_to_frameset_when_no_body() {
     // After the body-frameset alignment in R4, `document.body`
     // returns the `<frameset>` element when no `<body>` exists.

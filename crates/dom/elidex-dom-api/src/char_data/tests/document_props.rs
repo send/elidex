@@ -231,29 +231,50 @@ fn document_body_accepts_uppercase_frameset() {
 
 #[test]
 fn title_set_anchors_synthesised_nodes_to_receiver_document() {
-    // The receiver Document's "node document" must own the synthesised
-    // <title> element + its text-node child even when the receiver is
-    // not the bound document — same WHATWG DOM §4.4 contract as the
-    // create* family.  Pre-fix, `SetTitle` used `create_element` /
-    // `create_text` (no owner) so a setter call on a cloned doc
-    // would put the new nodes under whatever document the parent
-    // tree happened to point at.
-    let (mut dom, doc, mut session) = setup_document();
+    // Build two independent Document entities.  Calling SetTitle
+    // on `target_doc` must anchor the synthesised <title> + text-node
+    // children to `target_doc`, NOT `other_doc` — directly verifies
+    // the handler honours its `this` argument instead of falling
+    // back to some hardcoded / first-allocated document.  Pre-fix,
+    // `SetTitle` used `create_element` / `create_text` (no owner)
+    // so the new nodes would inherit the tree-walk fallback rather
+    // than the receiver's "node document" (WHATWG DOM §4.4).
+    let mut dom = EcsDom::new();
+
+    // Distractor doc that must remain untouched.
+    let other_doc = dom.create_document_root();
+    let other_html = dom.create_element("html", Attributes::default());
+    let other_head = dom.create_element("head", Attributes::default());
+    dom.append_child(other_doc, other_html);
+    dom.append_child(other_html, other_head);
+
+    // Target doc — receiver of the SetTitle call.
+    let target_doc = dom.create_document_root();
+    let target_html = dom.create_element("html", Attributes::default());
+    let target_head = dom.create_element("head", Attributes::default());
+    dom.append_child(target_doc, target_html);
+    dom.append_child(target_html, target_head);
+
+    let mut session = SessionCore::new();
     SetTitle
         .invoke(
-            doc,
+            target_doc,
             &[JsValue::String("Anchored".into())],
             &mut session,
             &mut dom,
         )
         .unwrap();
 
-    let html = find_child_element(&dom, doc, "html").unwrap();
-    let head = find_child_element(&dom, html, "head").unwrap();
-    let title = find_child_element(&dom, head, "title").expect("title created");
-    assert_eq!(dom.owner_document(title), Some(doc));
+    let title = find_child_element(&dom, target_head, "title").expect("title created in target");
+    assert_eq!(dom.owner_document(title), Some(target_doc));
     let text = dom.children_iter(title).next().expect("text child");
-    assert_eq!(dom.owner_document(text), Some(doc));
+    assert_eq!(dom.owner_document(text), Some(target_doc));
+
+    // Distractor doc must not have a synthesised title.
+    assert!(
+        find_child_element(&dom, other_head, "title").is_none(),
+        "SetTitle must not touch a non-receiver document"
+    );
 }
 
 #[test]
