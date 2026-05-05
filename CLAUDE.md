@@ -18,7 +18,7 @@ Experimental browser engine written in Rust.
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
-- **Push 前**: `mise run ci`（check + lint + test-all + doc + deny）。全 task は `--all-features` で gate されているので feature-gated code (`#![cfg(feature = "engine")]` 等) も含めて回る
+- **Push 前**: `mise run ci`（check + lint + test-all + doc + deny）。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate されているので feature-gated code (`#![cfg(feature = "engine")]` 等) も含めて回る (`lint-fmt` / `deny` は feature と無関係のため対象外)
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 
