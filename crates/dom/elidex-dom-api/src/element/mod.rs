@@ -345,6 +345,36 @@ mod tests {
     }
 
     #[test]
+    fn replace_child_self_replace_is_noop() {
+        // Browser parity (Chrome / Firefox / WebKit):
+        // `parent.replaceChild(x, x)` returns x without throwing —
+        // the spec §4.4 step 8 reference-child adjustment makes the
+        // insert+remove sequence collapse.  EcsDom::replace_child
+        // rejects `new == old` early, so the handler must short-circuit
+        // before dispatch or it would surface as HierarchyRequestError.
+        let (mut dom, parent, child, mut session) = setup();
+        dom.append_child(parent, child);
+        let child_ref = session
+            .get_or_create_wrapper(child, ComponentKind::Element)
+            .to_raw();
+        let result = ReplaceChild
+            .invoke(
+                parent,
+                &[JsValue::ObjectRef(child_ref), JsValue::ObjectRef(child_ref)],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(result, JsValue::ObjectRef(child_ref));
+        assert_eq!(
+            dom.children(parent),
+            vec![child],
+            "self-replace must leave the tree unchanged"
+        );
+        assert_eq!(dom.get_parent(child), Some(parent));
+    }
+
+    #[test]
     fn replace_child_unknown_object_ref_is_not_found() {
         // ObjectRef that doesn't resolve via the session identity map
         // produces NotFoundError (matches AppendChild / RemoveChild).

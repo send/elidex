@@ -101,11 +101,19 @@ pub(crate) fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize
 /// Splice a UTF-16 view of `original` and return the result as a Rust
 /// `String`.
 ///
-/// `offset` and `count` are UTF-16 code unit positions per WHATWG DOM
-/// §11.2. `count` is clamped to `len - offset` to match the spec's
-/// silent clamp ("if offset+count is greater than length, end at
-/// length"). `replacement` is `None` for delete, `Some` for replace /
-/// insert / append.
+/// **Caller contract**: `offset` MUST be ≤ the UTF-16 length of
+/// `original`. This helper is **not** a spec-validating primitive —
+/// it silently clamps `offset` and `count` to the data length. The
+/// CharacterData spec (§11.2) requires `offset > length` to raise
+/// `IndexSizeError`; that check lives in every caller (`InsertData` /
+/// `DeleteData` / `ReplaceData` / `SubstringData`), gated by an
+/// explicit `if offset > utf16_len(&data) { return Err(index_size_error(…)) }`.
+/// Adding a new caller? Validate `offset` first.
+///
+/// `count` is clamped to `len - offset` to match the spec's silent
+/// clamp ("if offset+count is greater than length, end at length").
+/// `replacement` is `None` for delete, `Some` for replace / insert /
+/// append.
 ///
 /// Splitting through a surrogate pair (offset / end mid-pair) is
 /// **spec-valid** — UTF-16 offsets ignore character boundaries — and
@@ -113,9 +121,9 @@ pub(crate) fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize
 /// `String` storage cannot represent lone surrogates, so the result is
 /// rendered through `from_utf16_lossy` which substitutes `U+FFFD` for
 /// each unpaired half. This intentionally degrades into a known-lossy
-/// shape rather than panicking or raising `IndexSizeError`; matches the
-/// pre-arch-hoist VM-side behaviour and the lossy-not-panic test
-/// contract pinned by `tests_character_data::*surrogate_pair*`.
+/// shape rather than panicking; matches the pre-arch-hoist VM-side
+/// behaviour and the lossy-not-panic contract pinned by
+/// `tests_character_data::*surrogate_pair*`.
 pub(crate) fn splice_utf16(
     original: &str,
     offset: usize,

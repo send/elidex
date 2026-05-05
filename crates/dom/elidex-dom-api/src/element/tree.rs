@@ -69,10 +69,8 @@ impl DomApiHandler for InsertBefore {
 
         // WebIDL `Node?` — both `null` and `undefined` mean "no
         // reference child"; missing arg is the same.
-        let ref_child_is_null = matches!(
-            args.get(1),
-            None | Some(JsValue::Null) | Some(JsValue::Undefined)
-        );
+        let ref_child_is_null =
+            matches!(args.get(1), None | Some(JsValue::Null | JsValue::Undefined));
         if ref_child_is_null {
             if !dom.append_child(this, new_entity) {
                 return Err(DomApiError {
@@ -184,6 +182,16 @@ impl DomApiHandler for ReplaceChild {
             return Err(not_found_error(
                 "the node to be replaced is not a child of this node",
             ));
+        }
+
+        // Self-replace (`parent.replaceChild(x, x)`) is a no-op per
+        // browser parity (Chrome / Firefox / WebKit) — the spec
+        // §4.4 step 8 reference-child adjustment makes the insert+remove
+        // sequence collapse to nothing.  EcsDom::replace_child rejects
+        // `new == old` early (would surface as HierarchyRequestError),
+        // so handle it here before dispatching.
+        if new_entity == old_entity {
+            return Ok(JsValue::ObjectRef(old_ref));
         }
 
         if !dom.replace_child(this, new_entity, old_entity) {

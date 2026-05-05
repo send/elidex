@@ -314,10 +314,14 @@ impl DomApiHandler for GetRootNode {
 
 /// `node.ownerDocument` getter (WHATWG DOM §4.4).
 ///
-/// Honours the per-entity [`elidex_ecs::AssociatedDocument`] component
-/// so `clonedDoc.createElement(…)` reports the clone, not the
-/// singleton. Falls back to `EcsDom::document_root` for orphans whose
-/// tree-root walk does not land on a Document.
+/// Resolution order (each step short-circuits on hit):
+/// 1. Document receiver → `null` (per spec).
+/// 2. Per-entity [`elidex_ecs::AssociatedDocument`] component → that
+///    Document (so `clonedDoc.createElement(…)` reports the clone, not
+///    the singleton).
+/// 3. Tree-root walk: if root is a Document, return it.
+/// 4. Singleton fallback: [`EcsDom::document_root`].
+/// 5. `null` only when no Document has been created in this DOM.
 pub struct OwnerDocument;
 
 impl DomApiHandler for OwnerDocument {
