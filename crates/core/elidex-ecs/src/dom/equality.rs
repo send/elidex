@@ -75,23 +75,14 @@ impl EcsDom {
             if !tags_match {
                 return false;
             }
-            match kind {
-                Some(NodeKind::Text | NodeKind::CdataSection) => {
-                    if !text_content_equal(self, a, b) {
-                        return false;
-                    }
-                }
-                Some(NodeKind::Comment) => {
-                    if !comment_data_equal(self, a, b) {
-                        return false;
-                    }
-                }
-                Some(NodeKind::DocumentType) => {
-                    if !doctype_data_equal(self, a, b) {
-                        return false;
-                    }
-                }
-                _ => {}
+            let payload_equal = match kind {
+                Some(NodeKind::Text | NodeKind::CdataSection) => text_content_equal(self, a, b),
+                Some(NodeKind::Comment) => comment_data_equal(self, a, b),
+                Some(NodeKind::DocumentType) => doctype_data_equal(self, a, b),
+                _ => true,
+            };
+            if !payload_equal {
+                return false;
             }
             if !attributes_equal(self, a, b) {
                 return false;

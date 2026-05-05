@@ -51,25 +51,25 @@ fn nodes_equal_legacy_kind_inferred_distinguishes_payloads() {
 fn nodes_equal_per_kind_branches() {
     let mut dom = EcsDom::new();
     // Element: same tag + same attrs (order-independent) -> equal
-    let a = elem(&mut dom, "p");
-    let b = elem(&mut dom, "p");
-    assert!(dom.set_attribute(a, "id", "x".into()));
-    assert!(dom.set_attribute(a, "class", "y".into()));
-    assert!(dom.set_attribute(b, "class", "y".into()));
-    assert!(dom.set_attribute(b, "id", "x".into()));
-    assert!(dom.nodes_equal(a, b));
+    let same_attrs_lhs = elem(&mut dom, "p");
+    let same_attrs_rhs = elem(&mut dom, "p");
+    assert!(dom.set_attribute(same_attrs_lhs, "id", "x".into()));
+    assert!(dom.set_attribute(same_attrs_lhs, "class", "y".into()));
+    assert!(dom.set_attribute(same_attrs_rhs, "class", "y".into()));
+    assert!(dom.set_attribute(same_attrs_rhs, "id", "x".into()));
+    assert!(dom.nodes_equal(same_attrs_lhs, same_attrs_rhs));
 
     // Element: differing attribute value -> not equal
-    let c = elem(&mut dom, "p");
-    let d = elem(&mut dom, "p");
-    assert!(dom.set_attribute(c, "id", "x".into()));
-    assert!(dom.set_attribute(d, "id", "z".into()));
-    assert!(!dom.nodes_equal(c, d));
+    let differ_lhs = elem(&mut dom, "p");
+    let differ_rhs = elem(&mut dom, "p");
+    assert!(dom.set_attribute(differ_lhs, "id", "x".into()));
+    assert!(dom.set_attribute(differ_rhs, "id", "z".into()));
+    assert!(!dom.nodes_equal(differ_lhs, differ_rhs));
 
     // Element: differing tag -> not equal
-    let e = elem(&mut dom, "p");
-    let f = elem(&mut dom, "div");
-    assert!(!dom.nodes_equal(e, f));
+    let p_node = elem(&mut dom, "p");
+    let div_node = elem(&mut dom, "div");
+    assert!(!dom.nodes_equal(p_node, div_node));
 
     // Text: same payload -> equal; different -> not equal
     let t1 = dom.create_text("hello");
