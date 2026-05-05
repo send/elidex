@@ -150,31 +150,27 @@ fn element_query_selector_relative_combinator_syntax() {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
     build_fixture(&mut vm);
-    // The relative `>` combinator is valid for `:scope`-rooted
-    // queries but ambiguous without a `:scope` prefix — the two
-    // outcomes the selector engine is allowed to produce are
-    // `null` (parsed, zero matches) or a SyntaxError.  Any other
-    // successful return (e.g. a non-null Element) or error kind
-    // would be a regression.
+    // The relative `>` combinator is invalid without a `:scope`
+    // prefix.  `parse_dom_selector` (engine-independent layer)
+    // rejects it at parse time and throws `DOMException("SyntaxError")`
+    // per WHATWG DOM §4.7.  Pinning the throw — `Ok(JsValue::Null)`
+    // and any other error kind are regressions of either the
+    // selector parser (silently parsing what it should reject) or
+    // the error taxonomy (R8 of #11-arch-hoist-a migrated this path
+    // off `VmError::syntax_error`).
     let result = vm.eval("section.querySelector('> .target');");
     let syntax_err_name = vm.inner.well_known.dom_exc_syntax_error;
     match result {
-        Ok(JsValue::Null) => {}
-        // `parse_dom_selector` throws `DOMException("SyntaxError")`
-        // per WHATWG DOM §4.7 (the spec-mandated DOM SyntaxError is
-        // a DOMException, not the ECMA `SyntaxError` class).  R8 of
-        // the arch-hoist-a PR migrated this path off
-        // `VmError::syntax_error`.
         Err(e)
             if matches!(
                 e.kind,
                 super::super::value::VmErrorKind::DomException { name } if name == syntax_err_name
             ) => {}
         Ok(other) => {
-            panic!("expected null or DOMException(\"SyntaxError\"), got Ok({other:?})");
+            panic!("expected DOMException(\"SyntaxError\"), got Ok({other:?})");
         }
         Err(e) => {
-            panic!("expected null or DOMException(\"SyntaxError\"), got {e:?}");
+            panic!("expected DOMException(\"SyntaxError\"), got {e:?}");
         }
     }
     vm.unbind();

@@ -67,7 +67,7 @@ docs/
 
 - Rust stable toolchain (MSRV: 1.88)
 - [mise](https://mise.jdx.dev/) (task runner)
-- [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`) — used by `mise run test` / `test-all`
+- [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`) — used by `mise run test` / `test-all` / `ci`
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (license/vulnerability checks)
 
 ### Common Tasks
