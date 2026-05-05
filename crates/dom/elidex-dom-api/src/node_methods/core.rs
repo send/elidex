@@ -1,11 +1,18 @@
 //! Core Node interface methods: contains, compareDocumentPosition, normalize,
 //! isConnected, getRootNode, ownerDocument, isSameNode, isEqualNode.
+//!
+//! `compareDocumentPosition` and `isEqualNode` are marshalling-only
+//! delegates over [`elidex_ecs::EcsDom::compare_document_position`] /
+//! [`elidex_ecs::EcsDom::nodes_equal`].  Algorithmic concerns
+//! (bitmask construction, Attr-vs-Attr handling, light-tree
+//! traversal, deep equality) live in `elidex-ecs` per the CLAUDE.md
+//! Layering mandate.
 
-use elidex_ecs::{AttrData, EcsDom, Entity, NodeKind, TextContent};
+use elidex_ecs::{EcsDom, Entity, NodeKind, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, DomApiError, DomApiHandler, JsObjectRef, SessionCore};
 
-use super::{find_root, find_root_non_composed, nodes_equal, resolve_optional_entity};
+use super::{find_root, find_root_non_composed, resolve_optional_entity};
 use crate::util::{not_found_error, require_object_ref_arg};
 
 // ---------------------------------------------------------------------------
@@ -39,15 +46,13 @@ impl DomApiHandler for Contains {
 // 2. CompareDocumentPosition
 // ---------------------------------------------------------------------------
 
-/// Bitmask constants for `compareDocumentPosition`.
-pub(crate) const DOCUMENT_POSITION_DISCONNECTED: u32 = 1;
-pub(crate) const DOCUMENT_POSITION_PRECEDING: u32 = 2;
-pub(crate) const DOCUMENT_POSITION_FOLLOWING: u32 = 4;
-pub(crate) const DOCUMENT_POSITION_CONTAINS: u32 = 8;
-pub(crate) const DOCUMENT_POSITION_CONTAINED_BY: u32 = 16;
-pub(crate) const DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC: u32 = 32;
-
-/// `node.compareDocumentPosition(other)` — returns a bitmask.
+/// `node.compareDocumentPosition(other)` — returns a WHATWG DOM §4.4
+/// bitmask describing `other`'s position relative to `this`.
+///
+/// Marshalling-only: delegates to
+/// [`elidex_ecs::EcsDom::compare_document_position`] for the actual
+/// algorithm (bitmask, Attr-substitute-ownerElement, light-tree
+/// traversal, disconnected entity-bits ordering).
 pub struct CompareDocumentPosition;
 
 impl DomApiHandler for CompareDocumentPosition {
@@ -67,103 +72,9 @@ impl DomApiHandler for CompareDocumentPosition {
             .identity_map()
             .get(JsObjectRef::from_raw(other_ref))
             .ok_or_else(|| not_found_error("other node not found"))?;
-
-        if this == other {
-            return Ok(JsValue::Number(0.0));
-        }
-
-        // WHATWG DOM §5.4 step 3: If either node is an Attr, use its ownerElement.
-        // If both are Attr nodes on the same element, compare by attribute list order.
-        let this_is_attr = dom.node_kind(this) == Some(NodeKind::Attribute);
-        let other_is_attr = dom.node_kind(other) == Some(NodeKind::Attribute);
-
-        if this_is_attr && other_is_attr {
-            let this_owner = dom
-                .world()
-                .get::<&AttrData>(this)
-                .ok()
-                .and_then(|a| a.owner_element);
-            let other_owner = dom
-                .world()
-                .get::<&AttrData>(other)
-                .ok()
-                .and_then(|a| a.owner_element);
-            if let (Some(to), Some(oo)) = (this_owner, other_owner) {
-                if to == oo {
-                    // Same owner element: WHATWG DOM §4.2.8 step 5 says compare
-                    // by attribute list position. We use entity bits as a stable
-                    // ordering proxy (IMPLEMENTATION_SPECIFIC) since Attr entities
-                    // are created in attribute insertion order.
-                    let dir = if this.to_bits() < other.to_bits() {
-                        DOCUMENT_POSITION_PRECEDING
-                    } else {
-                        DOCUMENT_POSITION_FOLLOWING
-                    };
-                    return Ok(JsValue::Number(f64::from(
-                        DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | dir,
-                    )));
-                }
-            }
-        }
-
-        // Replace Attr with ownerElement for tree-based comparison.
-        let effective_this = if this_is_attr {
-            dom.world()
-                .get::<&AttrData>(this)
-                .ok()
-                .and_then(|a| a.owner_element)
-                .unwrap_or(this)
-        } else {
-            this
-        };
-        let effective_other = if other_is_attr {
-            dom.world()
-                .get::<&AttrData>(other)
-                .ok()
-                .and_then(|a| a.owner_element)
-                .unwrap_or(other)
-        } else {
-            other
-        };
-
-        let (this, other) = (effective_this, effective_other);
-
-        // Check if they share a common root.
-        let root_this = find_root(this, dom);
-        let root_other = find_root(other, dom);
-
-        if root_this != root_other {
-            // Disconnected — use entity bits for consistent ordering.
-            let dir = if this.to_bits() < other.to_bits() {
-                DOCUMENT_POSITION_PRECEDING
-            } else {
-                DOCUMENT_POSITION_FOLLOWING
-            };
-            return Ok(JsValue::Number(f64::from(
-                DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | dir,
-            )));
-        }
-
-        // Check containment.
-        if dom.is_ancestor_or_self(other, this) && other != this {
-            return Ok(JsValue::Number(f64::from(
-                DOCUMENT_POSITION_CONTAINS | DOCUMENT_POSITION_PRECEDING,
-            )));
-        }
-        if dom.is_ancestor_or_self(this, other) && this != other {
-            return Ok(JsValue::Number(f64::from(
-                DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING,
-            )));
-        }
-
-        // Use tree order comparison.
-        match dom.tree_order_cmp(this, other) {
-            std::cmp::Ordering::Less => Ok(JsValue::Number(f64::from(DOCUMENT_POSITION_FOLLOWING))),
-            std::cmp::Ordering::Greater => {
-                Ok(JsValue::Number(f64::from(DOCUMENT_POSITION_PRECEDING)))
-            }
-            std::cmp::Ordering::Equal => Ok(JsValue::Number(0.0)),
-        }
+        Ok(JsValue::Number(f64::from(
+            dom.compare_document_position(this, other),
+        )))
     }
 }
 
@@ -392,6 +303,10 @@ impl DomApiHandler for IsSameNode {
 // ---------------------------------------------------------------------------
 
 /// `node.isEqualNode(other)` — deep structural equality.
+///
+/// Marshalling-only: delegates to [`elidex_ecs::EcsDom::nodes_equal`]
+/// for the iterative-stack equality walk + per-NodeKind payload
+/// comparison.
 pub struct IsEqualNode;
 
 impl DomApiHandler for IsEqualNode {
@@ -407,9 +322,8 @@ impl DomApiHandler for IsEqualNode {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let other = resolve_optional_entity(args, 0, session)?;
-        match other {
-            None => Ok(JsValue::Bool(false)),
-            Some(other_entity) => Ok(JsValue::Bool(nodes_equal(this, other_entity, dom))),
-        }
+        Ok(JsValue::Bool(
+            other.is_some_and(|b| dom.nodes_equal(this, b)),
+        ))
     }
 }

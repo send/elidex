@@ -181,3 +181,92 @@ fn clone_node_component_kind_document() {
         panic!("expected ObjectRef");
     }
 }
+
+#[test]
+fn clone_node_destroyed_source_yields_not_found_error() {
+    // Pin Copilot R1 vLGj: when EcsDom::clone_subtree returns None
+    // it means the source entity no longer exists, which maps to
+    // DOMException("NotFoundError"), not NotSupportedError.
+    let (mut dom, mut session) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    wrap(div, &mut session);
+    // Despawn the source so the cloner returns None.
+    let _ = dom.world_mut().despawn(div);
+    let err = CloneNode
+        .invoke(div, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .expect_err("destroyed source must surface as DomApiError");
+    assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
+}
+
+#[test]
+fn clone_node_document_fragment_deep_preserves_children() {
+    // Pin DocumentFragment.cloneNode(true) — the handler test
+    // surface previously covered Element / Text / DocumentType but
+    // not DocumentFragment, leaving the kind branch in
+    // EcsDom::clone_subtree unpinned at this layer.
+    let (mut dom, mut session) = setup();
+    let frag = dom.create_document_fragment();
+    let child = dom.create_element("p", Attributes::default());
+    let grandchild = dom.create_text("hello");
+    dom.append_child(child, grandchild);
+    dom.append_child(frag, child);
+    wrap(frag, &mut session);
+
+    let r = CloneNode
+        .invoke(frag, &[JsValue::Bool(true)], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::ObjectRef(ref_id) = r else {
+        panic!("expected ObjectRef");
+    };
+    let (cloned_frag, kind) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(ref_id))
+        .unwrap();
+    assert_ne!(cloned_frag, frag);
+    assert_eq!(kind, ComponentKind::DocumentFragment);
+    let kids = dom.children(cloned_frag);
+    assert_eq!(kids.len(), 1, "deep clone preserves direct children");
+    let cloned_text = dom.children(kids[0]);
+    assert_eq!(
+        cloned_text.len(),
+        1,
+        "deep clone recurses into grandchildren"
+    );
+    assert_eq!(
+        dom.world().get::<&TextContent>(cloned_text[0]).unwrap().0,
+        "hello"
+    );
+}
+
+#[test]
+fn clone_node_attribute_kind_yields_not_supported_error() {
+    // Pin Copilot R2 vLY2J: ECS cloners snapshot only TagType /
+    // TextContent / CommentData / DocTypeData / Attributes — they
+    // don't carry AttrData, so dispatching an Attribute entity
+    // through them would produce a structurally invalid clone
+    // (NodeKind=Attribute, AttrData missing).  Refuse early.
+    let (mut dom, mut session) = setup();
+    let attr = dom.create_attribute("id");
+    wrap(attr, &mut session);
+    let err = CloneNode
+        .invoke(attr, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .expect_err("Attribute kind must surface as DomApiError");
+    assert_eq!(err.kind, DomApiErrorKind::NotSupportedError);
+}
+
+#[test]
+fn clone_node_window_kind_yields_type_error() {
+    // Pin Copilot R3 vLknj: Window is not a Node per WHATWG DOM
+    // (EventTarget mixin only, no nodeType).  Calling cloneNode on
+    // a Window receiver is a WebIDL §3.6.5 "illegal invocation",
+    // which must surface as a plain TypeError, NOT a DOMException
+    // (the latter is reserved for Node receivers whose operation
+    // can't be performed — Attribute / ProcessingInstruction above).
+    let (mut dom, mut session) = setup();
+    let window = dom.create_window_root();
+    wrap(window, &mut session);
+    let err = CloneNode
+        .invoke(window, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .expect_err("Window receiver must surface as DomApiError");
+    assert_eq!(err.kind, DomApiErrorKind::TypeError);
+}

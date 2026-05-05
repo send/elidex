@@ -4,7 +4,9 @@ mod equality_owner;
 mod normalize_text;
 
 use super::*;
-use elidex_ecs::{Attributes, CommentData, DocTypeData, EcsDom, Entity, InlineStyle, TextContent};
+use elidex_ecs::{
+    Attributes, CommentData, DocTypeData, EcsDom, Entity, InlineStyle, TagType, TextContent,
+};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     ComponentKind, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,

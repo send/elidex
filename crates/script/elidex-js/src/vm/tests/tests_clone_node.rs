@@ -232,3 +232,65 @@ fn clone_node_allocates_distinct_entity() {
     assert_ne!(o, c);
     vm.unbind();
 }
+
+// ---------------------------------------------------------------------------
+// arch-hoist-d pre-emptive regression tests (skill lesson #149).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cloned_element_does_not_acquire_document_methods() {
+    // Pin install_document_methods_if_cloned_doc gate: cloning a
+    // non-Document must NOT install document-only methods on the
+    // resulting wrapper.  Reaching `createElement` on an Element
+    // clone should be undefined (not a function), which `typeof`
+    // reports as "undefined".
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var el = document.createElement('div').cloneNode(true);\n\
+             typeof el.createElement === 'undefined';",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(b);
+    vm.unbind();
+}
+
+#[test]
+fn cloned_document_clone_node_owner_propagates() {
+    // Chained cloneNode must keep installing document methods on
+    // each cloned wrapper — pin that c2.createElement still resolves
+    // and reports c2 as ownerDocument.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var c1 = document.cloneNode(true);\n\
+             var c2 = c1.cloneNode(true);\n\
+             // c2 must itself be a Document with a working createElement
+             // (proves install_document_methods_if_cloned_doc fired on c2).
+             typeof c2.createElement === 'function' && \
+             c2.createElement('p').ownerDocument === c2;",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(b);
+    vm.unbind();
+}
+
+// Note: `cloneNode` ShadowRoot rejection is covered at the handler
+// layer in `crates/dom/elidex-dom-api/src/node_methods/tests/clone.rs::
+// clone_node_shadow_root_error`.  A JS-layer mirror would require
+// `Element.prototype.attachShadow`, which is not yet exposed (defer
+// slot `#11-arch-hoist-e` / PR5b).
