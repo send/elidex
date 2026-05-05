@@ -67,7 +67,12 @@ impl DomApiHandler for InsertBefore {
             .get(JsObjectRef::from_raw(new_ref))
             .ok_or_else(|| not_found_error("newChild not found"))?;
 
-        let ref_child_is_null = matches!(args.get(1), None | Some(JsValue::Null));
+        // WebIDL `Node?` — both `null` and `undefined` mean "no
+        // reference child"; missing arg is the same.
+        let ref_child_is_null = matches!(
+            args.get(1),
+            None | Some(JsValue::Null) | Some(JsValue::Undefined)
+        );
         if ref_child_is_null {
             if !dom.append_child(this, new_entity) {
                 return Err(DomApiError {

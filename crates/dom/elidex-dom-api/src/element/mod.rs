@@ -383,6 +383,27 @@ mod tests {
     }
 
     #[test]
+    fn insert_before_undefined_ref_appends() {
+        // WebIDL `Node?` treats both `null` and `undefined` as
+        // "no reference child" — `parent.insertBefore(x, undefined)`
+        // must append, not raise TypeError.
+        let (mut dom, parent, child, mut session) = setup();
+        let child_ref = session
+            .get_or_create_wrapper(child, ComponentKind::Element)
+            .to_raw();
+        let result = InsertBefore
+            .invoke(
+                parent,
+                &[JsValue::ObjectRef(child_ref), JsValue::Undefined],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(result, JsValue::ObjectRef(child_ref));
+        assert_eq!(dom.children(parent), vec![child]);
+    }
+
+    #[test]
     fn get_attribute_case_insensitive() {
         let (mut dom, parent, _, mut session) = setup();
         let set_handler = SetAttribute;
