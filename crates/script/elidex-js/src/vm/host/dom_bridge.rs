@@ -462,7 +462,7 @@ fn plugin_primitive_to_vm_value(
 /// is intentionally distinct from a spec-named DOMException so a
 /// missed mapping shows up as an internal error rather than
 /// masquerading as a generic `DOMException("Error", …)`.
-fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
+pub(super) fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
     let DomApiError { kind, message } = err;
     let wk = &vm.well_known;
     match kind {

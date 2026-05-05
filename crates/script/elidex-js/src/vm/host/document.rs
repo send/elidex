@@ -32,9 +32,8 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api, parse_dom_selector,
-    query_selector_in_subtree_all, query_selector_in_subtree_first, wrap_entities_as_array,
-    wrap_entity_or_null,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, dom_api_error_to_vm_error,
+    invoke_dom_api, wrap_entities_as_array, wrap_entity_or_null,
 };
 
 use elidex_ecs::{Entity, NodeKind};
@@ -114,11 +113,12 @@ pub(super) fn native_document_query_selector(
     let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
         return Ok(JsValue::Null);
     };
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
-    let selectors = parse_dom_selector(&selector_str, "querySelector", syntax_err)?;
-    let matched = query_selector_in_subtree_first(ctx.host().dom(), doc, &selectors);
-    Ok(wrap_entity_or_null(ctx.vm, matched))
+    // Selector string ToString runs at the call site so an `ObjectRef`
+    // arg passes the WebIDL stringifier (handler's `require_string_arg`
+    // would reject `ObjectRef`).  Handler runs the same parse +
+    // shadow-pseudo reject + DFS algorithm previously inlined here.
+    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "querySelector", doc, &[JsValue::String(target_sid)])
 }
 
 pub(super) fn native_document_query_selector_all(
@@ -134,9 +134,13 @@ pub(super) fn native_document_query_selector_all(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
-    let selectors = parse_dom_selector(&selector_str, "querySelectorAll", syntax_err)?;
-    let entities = query_selector_in_subtree_all(ctx.host().dom(), doc, &selectors);
+    // `query_selector_all` is the engine-independent free function in
+    // `elidex-dom-api` — `DomApiHandler::invoke` cannot return a
+    // `Vec<Entity>` so the live-collection wrapping stays VM-side.
+    // The selector parse, shadow-pseudo reject, and DFS now happen
+    // inside the dom-api crate (single source of truth).
+    let entities = elidex_dom_api::query_selector_all(doc, &selector_str, ctx.host().dom())
+        .map_err(|e| dom_api_error_to_vm_error(ctx.vm, e))?;
     // WHATWG §4.2.6: `querySelectorAll` returns a **static** NodeList.
     // Store the snapshot entity vec; every read re-serves from the
     // cached list (no re-traversal, no filter re-evaluation).
@@ -267,15 +271,16 @@ pub(super) fn native_document_create_text_node(
     let Some(doc_entity) = document_receiver(ctx, this, "createTextNode")? else {
         return Ok(JsValue::Null);
     };
-    let data = coerce_first_arg_to_string(ctx, args)?;
-    let new_entity = ctx
-        .host()
-        .dom()
-        .create_text_with_owner(data, Some(doc_entity));
-    // Text wrappers chain through `Text.prototype →
-    // CharacterData.prototype → Node.prototype → …` so `data` /
-    // `length` / `splitText` resolve on the returned handle.
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    // ToString at call site; handler anchors to `doc_entity` via
+    // `create_text_with_owner` (WHATWG DOM §4.4 node-document
+    // association).
+    let data_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(
+        ctx,
+        "createTextNode",
+        doc_entity,
+        &[JsValue::String(data_sid)],
+    )
 }
 
 /// `document.createComment(data)` — WHATWG DOM §4.5.  Allocates a
@@ -293,12 +298,13 @@ pub(super) fn native_document_create_comment(
     let Some(doc_entity) = document_receiver(ctx, this, "createComment")? else {
         return Ok(JsValue::Null);
     };
-    let data = coerce_first_arg_to_string(ctx, args)?;
-    let new_entity = ctx
-        .host()
-        .dom()
-        .create_comment_with_owner(data, Some(doc_entity));
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    let data_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(
+        ctx,
+        "createComment",
+        doc_entity,
+        &[JsValue::String(data_sid)],
+    )
 }
 
 /// `document.createDocumentFragment()` — WHATWG DOM §4.5.  Allocates
@@ -315,11 +321,7 @@ pub(super) fn native_document_create_document_fragment(
     let Some(doc_entity) = document_receiver(ctx, this, "createDocumentFragment")? else {
         return Ok(JsValue::Null);
     };
-    let new_entity = ctx
-        .host()
-        .dom()
-        .create_document_fragment_with_owner(Some(doc_entity));
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
+    invoke_dom_api(ctx, "createDocumentFragment", doc_entity, &[])
 }
 
 // ---------------------------------------------------------------------------
