@@ -726,9 +726,16 @@ pub(super) fn native_document_get_active_element(
         });
         focused_connected.or_else(|| {
             let html = find_html_root_of(ctx, doc)?;
+            // Spec fallback: first body or frameset child of <html>.
+            // Pre-PR this only checked `<body>` — the body-frameset
+            // alignment with `document.body` (R4) requires the same
+            // policy here so frameset documents don't observe
+            // `document.body !== document.activeElement` when nothing
+            // is focused.
             ctx.host()
                 .dom()
                 .first_child_with_tag(html, "body")
+                .or_else(|| ctx.host().dom().first_child_with_tag(html, "frameset"))
                 .or(Some(html))
         })
     };

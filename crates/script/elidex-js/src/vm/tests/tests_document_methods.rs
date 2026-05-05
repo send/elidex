@@ -437,6 +437,35 @@ fn document_title_preserves_non_ascii_whitespace_through_bridge() {
 }
 
 #[test]
+fn document_active_element_falls_back_to_frameset_when_no_body() {
+    // After the body-frameset alignment in R4, `document.body`
+    // returns the `<frameset>` element when no `<body>` exists.
+    // The `activeElement` fallback chain must agree — otherwise a
+    // frameset document observes
+    // `document.body !== document.activeElement` when nothing is
+    // focused.  Pin the consistency at the JS layer.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let frameset = dom.create_element("frameset", Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, frameset));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    assert!(matches!(
+        vm.eval("document.body === document.activeElement;")
+            .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
 fn document_body_returns_frameset_when_no_body_present() {
     // Post-arch-hoist-c, `document.body` accepts `<frameset>` as well
     // as `<body>` per WHATWG HTML §dom-document-body — pre-PR VM

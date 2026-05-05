@@ -108,6 +108,82 @@ fn create_document_fragment_owner_document_is_receiver_document() {
 }
 
 #[test]
+fn cloned_document_create_text_reports_clone_not_bound_document() {
+    // Same shape as `createElement` clone test, for the
+    // `createTextNode` migration — pins the bridge `this`-passing
+    // contract so a future regression that drops `Some(this)` in
+    // the handler doesn't slip past the test suite.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval(
+            "var cloneDoc = document.cloneNode(true);\
+             var t = cloneDoc.createTextNode('hi');\
+             t.ownerDocument === cloneDoc && t.ownerDocument !== document;"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn cloned_document_create_comment_reports_clone_not_bound_document() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval(
+            "var cloneDoc = document.cloneNode(true);\
+             var c = cloneDoc.createComment('c');\
+             c.ownerDocument === cloneDoc && c.ownerDocument !== document;"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
+fn cloned_document_create_document_fragment_reports_clone_not_bound_document() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    assert!(matches!(
+        vm.eval(
+            "var cloneDoc = document.cloneNode(true);\
+             var f = cloneDoc.createDocumentFragment();\
+             f.ownerDocument === cloneDoc && f.ownerDocument !== document;"
+        )
+        .unwrap(),
+        JsValue::Boolean(true),
+    ));
+    vm.unbind();
+}
+
+#[test]
 fn cloned_document_create_element_reports_clone_not_bound_document() {
     // PR4e R12 F1 — the observable bug we're fixing.
     //
