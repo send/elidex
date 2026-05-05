@@ -40,6 +40,19 @@
 //!
 //! Element-only members (`getAttribute`, `children`, `matches`, …)
 //! live on `Element.prototype` which chains here.
+//!
+//! ## Algorithm placement (post #11-arch-hoist-b)
+//!
+//! Every mutation / nodeValue / textContent / identity native here is
+//! a thin binding that runs WebIDL coercion + brand check at the VM
+//! boundary, then dispatches through
+//! [`super::dom_bridge::invoke_dom_api`] to the engine-independent
+//! handler in `elidex-dom-api`. The DOM mutation algorithm proper —
+//! pre-insertion validity, ECS structural mutation, mutation-record
+//! emission — lives there per the CLAUDE.md Layering mandate. The
+//! tree-walk family (`cloneNode`, `isEqualNode`,
+//! `compareDocumentPosition`) is still VM-side; slot
+//! **#11-arch-hoist-d** migrates that group.
 
 #![cfg(feature = "engine")]
 
