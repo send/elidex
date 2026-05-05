@@ -817,6 +817,47 @@ fn query_selector_all_empty() {
     vm.unbind();
 }
 
+#[test]
+fn query_selector_all_invalid_throws_dom_exception_syntax_error() {
+    // `document.querySelectorAll` opts out of `invoke_dom_api` (the
+    // standalone-fn path can't return Vec<Entity> through the
+    // handler protocol) and uses the
+    // `dom_bridge::query_selector_all_snapshot` helper that maps
+    // `DomApiError -> VmError` directly.  Pin the SyntaxError /
+    // DOMException mapping at the JS layer so a regression in that
+    // helper-specific path surfaces as a test failure.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _, _, _) = build_query_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Invalid selector — SyntaxError DOMException expected.
+    let result = vm.eval(
+        "try { document.querySelectorAll('>>>'); 'no-throw'; } \
+         catch (e) { (e instanceof DOMException) + ':' + e.name; }",
+    );
+    let JsValue::String(sid) = result.unwrap() else {
+        panic!("expected string from try/catch")
+    };
+    assert_eq!(vm.get_string(sid), "true:SyntaxError");
+
+    // Shadow-pseudo `:host` — same SyntaxError DOMException.
+    let result = vm.eval(
+        "try { document.querySelectorAll(':host'); 'no-throw'; } \
+         catch (e) { (e instanceof DOMException) + ':' + e.name; }",
+    );
+    let JsValue::String(sid) = result.unwrap() else {
+        panic!()
+    };
+    assert_eq!(vm.get_string(sid), "true:SyntaxError");
+
+    vm.unbind();
+}
+
 // ---------------------------------------------------------------------------
 // getElementsByTagName / getElementsByClassName
 // ---------------------------------------------------------------------------
