@@ -5,27 +5,51 @@
 //!
 //! # Scope
 //!
-//! - `getElementById(id)` — pre-order DFS from the document root
-//!   (WHATWG DOM §4.2.4 "document descendants").  Uses
-//!   `EcsDom::find_by_id`.
-//! - `createElement(tag)` / `createTextNode(data)` /
-//!   `createComment(data)` / `createDocumentFragment()` — allocate
-//!   ECS entities and return their wrappers.  Text wrappers chain
-//!   through `Text.prototype → CharacterData.prototype →
-//!   Node.prototype → EventTarget.prototype` so `data`, `length`,
-//!   `splitText`, `appendData` etc. resolve on the returned handle;
-//!   Comment wrappers chain through `CharacterData.prototype`
-//!   directly; Fragment wrappers chain through `Node.prototype`.
-//! - `body` / `head` / `documentElement` — tree walk from the
-//!   document root looking for the first `<html>` child, then within
-//!   that for `<head>` / `<body>`.  Phase 2 returns `null` when the
-//!   structure is missing rather than synthesising fallback nodes.
-//! - `title` (get) — concatenates text children of the first
-//!   `<title>` element descending from `<head>`; setter lands with
-//!   the rest of the HTMLDocument polish in PR4f.
-//! - `URL` / `documentURI` — `VmInner::navigation.current_url`.
+//! Most natives in this module are thin marshalling shims over the
+//! engine-independent `DomApiHandler`s in
+//! `crates/dom/elidex-dom-api/src/{document,char_data/document_props}.rs`
+//! (see [`super::dom_bridge::invoke_dom_api`]).  The shape of every
+//! migrated native is identical: brand-check the receiver via
+//! [`document_receiver`], short-circuit on unbound / non-Document,
+//! coerce the first arg if any, and dispatch by handler name.
+//!
+//! - `getElementById(id)` — handler `"getElementById"`; pre-order DFS
+//!   from the document root (WHATWG DOM §4.2.4 "document descendants").
+//! - `querySelector` / `querySelectorAll` — handler `"querySelector"`
+//!   plus the engine-independent free function
+//!   `elidex_dom_api::query_selector_all` (the latter because handlers
+//!   cannot return `Vec<Entity>`).  Both reject `:host` /
+//!   `::slotted()` (WHATWG Selectors §1.2).
+//! - `createElement` / `createTextNode` / `createComment` /
+//!   `createDocumentFragment` — handlers anchor the new node's
+//!   "node document" (WHATWG DOM §4.4) to the receiver Document so
+//!   `clonedDoc.create*().ownerDocument === clonedDoc`.  Text
+//!   wrappers chain through `Text.prototype → CharacterData.prototype
+//!   → Node.prototype → EventTarget.prototype`; Comment wrappers
+//!   through `CharacterData.prototype`; Fragment wrappers through
+//!   `Node.prototype`.
+//! - `body` / `head` / `documentElement` — handlers walk the tree
+//!   from the receiver document; return `null` when the structure is
+//!   missing (no synthesised fallback).
+//! - `title` (get/set) — handlers walk `<html>` → `<head>` → `<title>`;
+//!   getter applies WHATWG whitespace normalisation; setter creates
+//!   `<title>` if missing or no-ops if `<head>` is absent.
+//! - `doctype` — handler returns the first `DocumentType` child via
+//!   `EcsDom::node_kind_inferred` (legacy `DocTypeData` fallback
+//!   preserved).
+//! - `URL` / `documentURI` — `VmInner::navigation.current_url`
+//!   (navigation state, not DOM).
 //! - `readyState` — stub returning `"complete"` (the VM has no notion
 //!   of document loading state yet; the shell owns that in PR6).
+//! - `cookie` / `referrer` — `elidex-net::CookieJar` /
+//!   `NavigationState`, kept VM-side because they read browsing-context
+//!   state.
+//! - `forms` / `images` / `links` / `getElementsByTagName` /
+//!   `ClassName` / `Name` — `LiveCollectionKind` allocations stay
+//!   VM-side; handler-side migration carved out in slot
+//!   `#11-arch-hoist-e`.
+//! - `activeElement` / `hasFocus` — focus state from `HostData`,
+//!   carved out in `#11-focus-management-hoist`.
 
 #![cfg(feature = "engine")]
 
