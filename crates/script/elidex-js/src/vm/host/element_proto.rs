@@ -45,8 +45,8 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{
-    coerce_first_arg_to_string, parse_dom_selector, query_selector_in_subtree_all,
-    query_selector_in_subtree_first, tree_nav_getter, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, dom_api_error_to_vm_error,
+    invoke_dom_api, tree_nav_getter, wrap_entities_as_array,
 };
 use super::element_attrs::{
     native_element_get_attribute, native_element_get_attribute_names,
@@ -59,7 +59,7 @@ use super::element_attrs::{
 };
 use super::event_target::entity_from_this;
 
-use elidex_ecs::{Entity, NodeKind, TagType};
+use elidex_ecs::{NodeKind, TagType};
 
 impl VmInner {
     /// Allocate `Element.prototype` whose parent is
@@ -355,17 +355,15 @@ fn native_element_matches(
     else {
         return Ok(JsValue::Boolean(false));
     };
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
-    let selectors = parse_dom_selector(&selector_str, "matches/closest", syntax_err)?;
-    let dom = ctx.host().dom();
-    let matched = selectors.iter().any(|s| s.matches(entity, dom));
-    Ok(JsValue::Boolean(matched))
+    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "matches", entity, &[JsValue::String(target_sid)])
 }
 
 /// `Element.prototype.querySelector(selector)` (WHATWG §4.2.6).
 /// Subtree-scoped — `this` itself is never a match candidate, only
-/// its descendants.
+/// its descendants.  The `QuerySelector` handler in `elidex-dom-api`
+/// runs the same DFS regardless of whether the receiver is a
+/// Document or an Element.
 fn native_element_query_selector(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -378,11 +376,8 @@ fn native_element_query_selector(
     else {
         return Ok(JsValue::Null);
     };
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
-    let selectors = parse_dom_selector(&selector_str, "querySelector", syntax_err)?;
-    let matched = query_selector_in_subtree_first(ctx.host().dom(), entity, &selectors);
-    Ok(wrap_entity_or_null(ctx.vm, matched))
+    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "querySelector", entity, &[JsValue::String(target_sid)])
 }
 
 /// `Element.prototype.querySelectorAll(selector)` — subtree-scoped.
@@ -392,6 +387,9 @@ fn native_element_query_selector(
 /// `Snapshot` kind, and subsequent reads serve from that frozen
 /// list.  Live collection kinds (ByTag / ByClass) are reserved for
 /// `getElementsBy*` and `element.children`.
+///
+/// Uses the engine-independent `elidex_dom_api::query_selector_all`
+/// free function (handler architecture cannot return `Vec<Entity>`).
 fn native_element_query_selector_all(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -405,9 +403,8 @@ fn native_element_query_selector_all(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
-    let selectors = parse_dom_selector(&selector_str, "querySelectorAll", syntax_err)?;
-    let entities = query_selector_in_subtree_all(ctx.host().dom(), entity, &selectors);
+    let entities = elidex_dom_api::query_selector_all(entity, &selector_str, ctx.host().dom())
+        .map_err(|e| dom_api_error_to_vm_error(ctx.vm, e))?;
     let id = ctx
         .vm
         .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot { entities });
@@ -426,36 +423,8 @@ fn native_element_closest(
     else {
         return Ok(JsValue::Null);
     };
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let syntax_err = ctx.vm.well_known.dom_exc_syntax_error;
-    let selectors = parse_dom_selector(&selector_str, "matches/closest", syntax_err)?;
-
-    // Walk self → parent ancestors, returning the first matching
-    // Element.  WHATWG §4.9 closest() is inclusive and stops at the
-    // first non-Element parent (or at the root).
-    let matched: Option<Entity> = {
-        let dom = ctx.host().dom();
-        let mut current = Some(entity);
-        let mut out = None;
-        while let Some(e) = current {
-            if dom.world().get::<&TagType>(e).is_ok() && selectors.iter().any(|s| s.matches(e, dom))
-            {
-                out = Some(e);
-                break;
-            }
-            // Walk only to Element ancestors, matching
-            // `parentElement` semantics — this naturally stops at
-            // the `ShadowRoot` (no TagType) so closest() does not
-            // cross the shadow boundary to the host.  Document root
-            // also has no TagType, so the walk stops there in the
-            // normal case too.
-            current = dom
-                .get_parent(e)
-                .filter(|p| dom.world().get::<&TagType>(*p).is_ok());
-        }
-        out
-    };
-    Ok(wrap_entity_or_null(ctx.vm, matched))
+    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "closest", entity, &[JsValue::String(target_sid)])
 }
 
 // ---------------------------------------------------------------------------

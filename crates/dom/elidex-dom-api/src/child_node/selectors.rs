@@ -69,7 +69,14 @@ impl DomApiHandler for Closest {
         // (CSS Scoping §3).
         reject_shadow_pseudos(&selectors)?;
 
-        // Walk ancestors including self. Only check elements (entities with TagType).
+        // Walk self → parent ancestors, returning the first matching
+        // Element.  WHATWG §4.9 closest() is inclusive and stops at
+        // the first non-Element parent — this is also how the walk
+        // honours the shadow boundary, since `ShadowRoot` carries no
+        // `TagType` (only `Element`s have it) so a walk from inside a
+        // shadow tree does not climb to the host.  The Document root
+        // also has no `TagType`, so the walk stops there in the
+        // normal case too.
         let mut current = Some(this);
         while let Some(entity) = current {
             let is_element = dom.world().get::<&TagType>(entity).is_ok();
@@ -77,7 +84,13 @@ impl DomApiHandler for Closest {
                 let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
                 return Ok(JsValue::ObjectRef(obj_ref.to_raw()));
             }
-            current = dom.get_parent(entity);
+            // Stop the walk at the first non-Element parent so the
+            // shadow boundary (ShadowRoot has no TagType) is not
+            // crossed.  Without this filter, closest() inside a shadow
+            // tree would silently match elements in the light tree.
+            current = dom
+                .get_parent(entity)
+                .filter(|p| dom.world().get::<&TagType>(*p).is_ok());
         }
 
         Ok(JsValue::Null)
