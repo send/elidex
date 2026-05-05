@@ -63,11 +63,12 @@ impl DomApiHandler for CloneNode {
             }
             Some(NodeKind::Window) => {
                 // Window is NOT a Node per WHATWG DOM (no nodeType,
-                // EventTarget mixin only).  A `Node.prototype.cloneNode.
-                // call(window)` is a receiver-type mismatch and per
-                // WebIDL §3.6.5 "illegal invocation" must surface as
-                // a plain TypeError, not a DOMException — DOMException
-                // is reserved for Node receivers whose operation can't
+                // EventTarget mixin only), so an explicit
+                // `Node.prototype.cloneNode.call(window)` from JS is
+                // a receiver-type mismatch.  Per WebIDL §3.6.5
+                // "illegal invocation" that must surface as a plain
+                // TypeError, not a DOMException — DOMException is
+                // reserved for Node receivers whose operation can't
                 // be performed (e.g. Attribute / ProcessingInstruction
                 // above) rather than for "this isn't a Node at all".
                 return Err(DomApiError {
