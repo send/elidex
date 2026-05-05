@@ -13,6 +13,7 @@ mod associated_document;
 mod clone;
 mod creation;
 mod destroy;
+mod equality;
 mod node_kind;
 mod shadow_dom;
 mod traversal;

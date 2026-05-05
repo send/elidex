@@ -13,6 +13,11 @@ pub use components::{
     ShadowRootMode, SlotAssignment, SlotAssignmentMode, SlottedMarker, TagType, TemplateContent,
     TextContent,
 };
+pub use dom::equality::{
+    DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,
+    DOCUMENT_POSITION_FOLLOWING, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC,
+    DOCUMENT_POSITION_PRECEDING,
+};
 pub use dom::{EcsDom, MAX_ANCESTOR_DEPTH};
 
 // Re-export hecs Entity for downstream consumers.

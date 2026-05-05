@@ -15,6 +15,7 @@
 //!   removed from the world via `destroy_entity` return `false` and never
 //!   mutate the tree.
 
+pub(crate) mod equality;
 mod shadow;
 mod tree;
 mod tree_clone;
