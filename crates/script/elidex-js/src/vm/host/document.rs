@@ -333,9 +333,10 @@ pub(super) fn native_document_get_document_element(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let html = document_receiver(ctx, this, "documentElement")?
-        .and_then(|doc| find_html_root_of(ctx, doc));
-    Ok(wrap_entity_or_null(ctx.vm, html))
+    let Some(doc) = document_receiver(ctx, this, "documentElement")? else {
+        return Ok(JsValue::Null);
+    };
+    invoke_dom_api(ctx, "document.documentElement.get", doc, &[])
 }
 
 pub(super) fn native_document_get_head(
@@ -343,10 +344,10 @@ pub(super) fn native_document_get_head(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let head = document_receiver(ctx, this, "head")?
-        .and_then(|doc| find_html_root_of(ctx, doc))
-        .and_then(|html| ctx.host().dom().first_child_with_tag(html, "head"));
-    Ok(wrap_entity_or_null(ctx.vm, head))
+    let Some(doc) = document_receiver(ctx, this, "head")? else {
+        return Ok(JsValue::Null);
+    };
+    invoke_dom_api(ctx, "document.head.get", doc, &[])
 }
 
 pub(super) fn native_document_get_body(
@@ -354,10 +355,10 @@ pub(super) fn native_document_get_body(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let body = document_receiver(ctx, this, "body")?
-        .and_then(|doc| find_html_root_of(ctx, doc))
-        .and_then(|html| ctx.host().dom().first_child_with_tag(html, "body"));
-    Ok(wrap_entity_or_null(ctx.vm, body))
+    let Some(doc) = document_receiver(ctx, this, "body")? else {
+        return Ok(JsValue::Null);
+    };
+    invoke_dom_api(ctx, "document.body.get", doc, &[])
 }
 
 pub(super) fn native_document_get_title(
@@ -365,34 +366,15 @@ pub(super) fn native_document_get_title(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let title_text: String = {
-        let Some(doc) = document_receiver(ctx, this, "title")? else {
-            return Ok(JsValue::String(ctx.vm.well_known.empty));
-        };
-        let Some(html) = find_html_root_of(ctx, doc) else {
-            return Ok(JsValue::String(ctx.vm.well_known.empty));
-        };
-        let dom = ctx.host().dom();
-        let Some(head) = dom.first_child_with_tag(html, "head") else {
-            return Ok(JsValue::String(ctx.vm.well_known.empty));
-        };
-        let Some(title) = dom.first_child_with_tag(head, "title") else {
-            return Ok(JsValue::String(ctx.vm.well_known.empty));
-        };
-        // Concat all text-node children (matches WHATWG §3.2.9
-        // "descendant text content", but for title we only walk
-        // immediate children — title cannot legally contain nested
-        // elements).
-        let mut out = String::new();
-        for child in dom.children_iter(title) {
-            if let Ok(text) = dom.world().get::<&elidex_ecs::TextContent>(child) {
-                out.push_str(&text.0);
-            }
-        }
-        out
+    // Handler walks `<html>` → `<head>` → `<title>` and returns the
+    // text-children concat with WHATWG whitespace normalization
+    // applied (collapsing runs of whitespace + strip).  The pre-hoist
+    // VM-native returned a raw concat — the normalization is an
+    // observable improvement (handler is spec-correct).
+    let Some(doc) = document_receiver(ctx, this, "title")? else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    let sid = ctx.vm.strings.intern(&title_text);
-    Ok(JsValue::String(sid))
+    invoke_dom_api(ctx, "document.title.get", doc, &[])
 }
 
 pub(super) fn native_document_get_url(
@@ -438,47 +420,16 @@ pub(super) fn native_document_set_title(
     let Some(doc) = document_receiver(ctx, this, "title")? else {
         return Ok(JsValue::Undefined);
     };
+    // ToString at call site (handler's `require_string_arg` rejects
+    // `ObjectRef` and cannot reproduce the WebIDL stringifier path).
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
     let value_sid = super::super::coerce::to_string(ctx.vm, value)?;
-    let new_text = ctx.vm.strings.get_utf8(value_sid);
-
-    // Locate <head> under <html> for the receiver document.  Spec
-    // uses "html root" → "first head child"; legacy html5ever-shaped
-    // trees hand us exactly that shape already.
-    let Some(html) = find_html_root_of(ctx, doc) else {
-        return Ok(JsValue::Undefined);
-    };
-    let head_opt = ctx.host().dom().first_child_with_tag(html, "head");
-    let Some(head) = head_opt else {
-        // No <head> — spec is explicit: return without mutating.
-        return Ok(JsValue::Undefined);
-    };
-
-    // find_or_create_title.  We want a single <title> in <head>; if
-    // absent, allocate one and append (with the correct owner
-    // document).
-    let title = if let Some(t) = ctx.host().dom().first_child_with_tag(head, "title") {
-        t
-    } else {
-        let new_title = ctx.host().dom().create_element_with_owner(
-            "title",
-            elidex_ecs::Attributes::default(),
-            Some(doc),
-        );
-        let _ = ctx.host().dom().append_child(head, new_title);
-        new_title
-    };
-
-    // Clear existing text-node children; legal <title> content per
-    // WHATWG is text-only but we defensively include Element children
-    // too in case a bad parse left some in there.
-    let existing: Vec<elidex_ecs::Entity> = ctx.host().dom().children_iter(title).collect();
-    for child in existing {
-        let _ = ctx.host().dom().remove_child(title, child);
-    }
-    let text_entity = ctx.host().dom().create_text_with_owner(new_text, Some(doc));
-    let _ = ctx.host().dom().append_child(title, text_entity);
-    Ok(JsValue::Undefined)
+    invoke_dom_api(
+        ctx,
+        "document.title.set",
+        doc,
+        &[JsValue::String(value_sid)],
+    )
 }
 
 /// `document.compatMode` — WHATWG §4.5 accessor.
@@ -545,24 +496,7 @@ pub(super) fn native_document_get_doctype(
     let Some(doc) = document_receiver(ctx, this, "doctype")? else {
         return Ok(JsValue::Null);
     };
-    let doctype = {
-        let dom = ctx.host().dom();
-        let mut found = None;
-        for child in dom.children_iter(doc) {
-            // `node_kind_inferred` matches the legacy-fallback used
-            // by `HostData::prototype_kind_for` and
-            // `require_node_arg`: entities that carry `DocTypeData`
-            // payload without an explicit `NodeKind` component still
-            // surface as doctype.  Keeps html5ever-produced fixtures
-            // (which predate the `NodeKind` component) discoverable.
-            if matches!(dom.node_kind_inferred(child), Some(NodeKind::DocumentType)) {
-                found = Some(child);
-                break;
-            }
-        }
-        found
-    };
-    Ok(wrap_entity_or_null(ctx.vm, doctype))
+    invoke_dom_api(ctx, "doctype.get", doc, &[])
 }
 
 // ---------------------------------------------------------------------------
