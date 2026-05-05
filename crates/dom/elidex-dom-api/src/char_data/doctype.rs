@@ -43,7 +43,7 @@ impl DomApiHandler for GetDoctype {
     ) -> Result<JsValue, DomApiError> {
         match find_doctype(dom, this) {
             Some(entity) => {
-                let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
+                let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::DocumentType);
                 Ok(JsValue::ObjectRef(obj_ref.to_raw()))
             }
             None => Ok(JsValue::Null),

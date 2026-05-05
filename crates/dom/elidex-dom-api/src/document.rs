@@ -196,10 +196,7 @@ impl DomApiHandler for CreateTextNode {
     ) -> Result<JsValue, DomApiError> {
         let text = require_string_arg(args, 0)?;
         let entity = dom.create_text_with_owner(text, Some(this));
-        // ComponentKind::Element is used for text nodes because
-        // ComponentKind has no TextNode variant. The JS bridge treats both
-        // element and text node wrappers uniformly (same property layout).
-        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
+        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::TextNode);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
 }

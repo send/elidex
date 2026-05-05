@@ -305,7 +305,7 @@ impl DomApiHandler for CreateDocumentFragment {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let entity = dom.create_document_fragment_with_owner(Some(this));
-        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
+        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::DocumentFragment);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
 }
@@ -327,7 +327,7 @@ impl DomApiHandler for CreateComment {
     ) -> Result<JsValue, DomApiError> {
         let data = require_string_arg(args, 0)?;
         let entity = dom.create_comment_with_owner(&data, Some(this));
-        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
+        let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Comment);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
 }
