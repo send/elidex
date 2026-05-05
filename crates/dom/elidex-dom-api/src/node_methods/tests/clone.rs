@@ -197,3 +197,43 @@ fn clone_node_destroyed_source_yields_not_found_error() {
         .expect_err("destroyed source must surface as DomApiError");
     assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
 }
+
+#[test]
+fn clone_node_document_fragment_deep_preserves_children() {
+    // Pin DocumentFragment.cloneNode(true) — the handler test
+    // surface previously covered Element / Text / DocumentType but
+    // not DocumentFragment, leaving the kind branch in
+    // EcsDom::clone_subtree unpinned at this layer.
+    let (mut dom, mut session) = setup();
+    let frag = dom.create_document_fragment();
+    let child = dom.create_element("p", Attributes::default());
+    let grandchild = dom.create_text("hello");
+    dom.append_child(child, grandchild);
+    dom.append_child(frag, child);
+    wrap(frag, &mut session);
+
+    let r = CloneNode
+        .invoke(frag, &[JsValue::Bool(true)], &mut session, &mut dom)
+        .unwrap();
+    let JsValue::ObjectRef(ref_id) = r else {
+        panic!("expected ObjectRef");
+    };
+    let (cloned_frag, kind) = session
+        .identity_map()
+        .get(JsObjectRef::from_raw(ref_id))
+        .unwrap();
+    assert_ne!(cloned_frag, frag);
+    assert_eq!(kind, ComponentKind::DocumentFragment);
+    let kids = dom.children(cloned_frag);
+    assert_eq!(kids.len(), 1, "deep clone preserves direct children");
+    let cloned_text = dom.children(kids[0]);
+    assert_eq!(
+        cloned_text.len(),
+        1,
+        "deep clone recurses into grandchildren"
+    );
+    assert_eq!(
+        dom.world().get::<&TextContent>(cloned_text[0]).unwrap().0,
+        "hello"
+    );
+}

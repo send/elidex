@@ -228,6 +228,60 @@ fn compare_document_position_preceding_and_following_siblings() {
 }
 
 #[test]
+fn compare_document_position_parent_child_xor_antisymmetric() {
+    // Per WHATWG §4.4, parent.cmp(child) ^ child.cmp(parent) must
+    // include both containment bits AND both directional bits — the
+    // XOR equals (CONTAINS | CONTAINED_BY | PRECEDING | FOLLOWING)
+    // = 0x1E.  Pins the invariant that swapping operands flips
+    // CONTAINS↔CONTAINED_BY together with PRECEDING↔FOLLOWING.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "section");
+    let child = elem(&mut dom, "p");
+    let _ = dom.append_child(parent, child);
+    let pc = dom.compare_document_position(parent, child);
+    let cp = dom.compare_document_position(child, parent);
+    assert_eq!(
+        pc ^ cp,
+        DOCUMENT_POSITION_CONTAINS
+            | DOCUMENT_POSITION_CONTAINED_BY
+            | DOCUMENT_POSITION_PRECEDING
+            | DOCUMENT_POSITION_FOLLOWING
+    );
+}
+
+#[test]
+fn compare_document_position_cousins_use_tree_order_cmp() {
+    // Cousins = same-tree, neither ancestor of the other, different
+    // depths.  Exercises the tree_order_cmp fallback (line ~196 in
+    // equality.rs) which sibling tests don't reach.
+    //
+    //   root
+    //   ├─ branch_a
+    //   │   └─ leaf_a
+    //   └─ branch_b
+    //       └─ leaf_b
+    let mut dom = EcsDom::new();
+    let root = elem(&mut dom, "section");
+    let branch_a = elem(&mut dom, "div");
+    let leaf_a = elem(&mut dom, "p");
+    let branch_b = elem(&mut dom, "div");
+    let leaf_b = elem(&mut dom, "p");
+    let _ = dom.append_child(root, branch_a);
+    let _ = dom.append_child(branch_a, leaf_a);
+    let _ = dom.append_child(root, branch_b);
+    let _ = dom.append_child(branch_b, leaf_b);
+    // leaf_a is in document order before leaf_b -> leaf_b FOLLOWS.
+    assert_eq!(
+        dom.compare_document_position(leaf_a, leaf_b),
+        DOCUMENT_POSITION_FOLLOWING
+    );
+    assert_eq!(
+        dom.compare_document_position(leaf_b, leaf_a),
+        DOCUMENT_POSITION_PRECEDING
+    );
+}
+
+#[test]
 fn compare_document_position_disconnected_antisymmetric() {
     let mut dom = EcsDom::new();
     let a = elem(&mut dom, "div");
