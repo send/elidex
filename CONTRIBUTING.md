@@ -6,6 +6,7 @@ Thanks for your interest in contributing!
 
 1. Fork the repository and clone your fork.
 2. Install prerequisites: Rust stable toolchain, [mise](https://mise.jdx.dev/),
+   [cargo-nextest](https://nexte.st/) (`cargo install cargo-nextest --locked`),
    and [cargo-deny](https://github.com/EmbarkStudios/cargo-deny).
 3. Run `mise run ci` to verify everything works locally.
 
@@ -20,7 +21,7 @@ Thanks for your interest in contributing!
 ## Code Style
 
 - Run `cargo fmt --all` before committing.
-- Fix all clippy warnings (`cargo clippy --workspace --all-targets -- -D warnings`).
+- Fix all clippy warnings (`cargo clippy --workspace --all-targets --all-features -- -D warnings`).
 - Follow existing patterns in the codebase.
 
 ## Commit Messages
