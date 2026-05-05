@@ -20,7 +20,7 @@ pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use tree::{
     collect_text_content, serialize_inner_html, validate_attribute_name, AppendChild, GetInnerHtml,
     InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveChild,
-    SetInnerHtml,
+    ReplaceChild, SetInnerHtml,
 };
 
 #[cfg(test)]
@@ -197,6 +197,170 @@ mod tests {
         let handler = GetInnerHtml;
         let result = handler.invoke(div, &[], &mut session, &mut dom).unwrap();
         assert_eq!(result, JsValue::String("<br><img src=\"test.png\">".into()));
+    }
+
+    // -----------------------------------------------------------------------
+    // replaceChild tests (WHATWG DOM §4.4)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn replace_child_returns_old_node() {
+        let (mut dom, parent, child, mut session) = setup();
+        dom.append_child(parent, child);
+        let new_child = dom.create_element("h1", Attributes::default());
+        let new_ref = session
+            .get_or_create_wrapper(new_child, ComponentKind::Element)
+            .to_raw();
+        let old_ref = session
+            .get_or_create_wrapper(child, ComponentKind::Element)
+            .to_raw();
+        let result = ReplaceChild
+            .invoke(
+                parent,
+                &[JsValue::ObjectRef(new_ref), JsValue::ObjectRef(old_ref)],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(result, JsValue::ObjectRef(old_ref));
+        assert_eq!(dom.children(parent), vec![new_child]);
+        // Old child is detached.
+        assert_eq!(dom.get_parent(child), None);
+    }
+
+    #[test]
+    fn replace_child_old_not_a_child_is_not_found_error() {
+        // §4.4 step 5: oldChild whose parent is not `parent` raises
+        // NotFoundError, *not* HierarchyRequestError.
+        let (mut dom, parent, _child, mut session) = setup();
+        // `child` from setup is NOT appended to `parent`, so it counts
+        // as a non-child for this test.
+        let other = dom.create_element("h1", Attributes::default());
+        let new_child = dom.create_element("section", Attributes::default());
+        let new_ref = session
+            .get_or_create_wrapper(new_child, ComponentKind::Element)
+            .to_raw();
+        let other_ref = session
+            .get_or_create_wrapper(other, ComponentKind::Element)
+            .to_raw();
+        let err = ReplaceChild
+            .invoke(
+                parent,
+                &[JsValue::ObjectRef(new_ref), JsValue::ObjectRef(other_ref)],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap_err();
+        assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
+    }
+
+    #[test]
+    fn replace_child_self_replace_is_hierarchy_request_error() {
+        // newChild == parent: WHATWG §4.4 step 2 (host-including
+        // ancestor check). EcsDom::replace_child rejects when
+        // newChild == parent.
+        let (mut dom, parent, child, mut session) = setup();
+        dom.append_child(parent, child);
+        let parent_ref = session
+            .get_or_create_wrapper(parent, ComponentKind::Element)
+            .to_raw();
+        let child_ref = session
+            .get_or_create_wrapper(child, ComponentKind::Element)
+            .to_raw();
+        let err = ReplaceChild
+            .invoke(
+                parent,
+                &[
+                    JsValue::ObjectRef(parent_ref),
+                    JsValue::ObjectRef(child_ref),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap_err();
+        assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+    }
+
+    #[test]
+    fn replace_child_ancestor_cycle_is_hierarchy_request_error() {
+        // newChild is an ancestor of parent (host-including ancestor
+        // check, §4.4 step 2). Layout: grand → parent → old_child.
+        // Replace old_child with grand — must throw HierarchyRequestError.
+        let (mut dom, parent, child, mut session) = setup();
+        let grand = dom.create_element("body", Attributes::default());
+        dom.append_child(grand, parent);
+        dom.append_child(parent, child);
+        let grand_ref = session
+            .get_or_create_wrapper(grand, ComponentKind::Element)
+            .to_raw();
+        let child_ref = session
+            .get_or_create_wrapper(child, ComponentKind::Element)
+            .to_raw();
+        let err = ReplaceChild
+            .invoke(
+                parent,
+                &[JsValue::ObjectRef(grand_ref), JsValue::ObjectRef(child_ref)],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap_err();
+        assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+    }
+
+    #[test]
+    fn replace_child_detaches_new_from_prior_parent() {
+        // newChild that already lives elsewhere is detached and
+        // re-parented (the §4.4 "adopt" + reparent semantics).
+        let (mut dom, parent, child, mut session) = setup();
+        dom.append_child(parent, child);
+        let donor = dom.create_element("section", Attributes::default());
+        let new_child = dom.create_element("img", Attributes::default());
+        dom.append_child(donor, new_child);
+        let new_ref = session
+            .get_or_create_wrapper(new_child, ComponentKind::Element)
+            .to_raw();
+        let old_ref = session
+            .get_or_create_wrapper(child, ComponentKind::Element)
+            .to_raw();
+        ReplaceChild
+            .invoke(
+                parent,
+                &[JsValue::ObjectRef(new_ref), JsValue::ObjectRef(old_ref)],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(dom.children(parent), vec![new_child]);
+        assert!(dom.children(donor).is_empty());
+    }
+
+    #[test]
+    fn replace_child_requires_object_ref_args() {
+        // Missing args → TypeError (require_object_ref_arg).
+        let (mut dom, parent, _, mut session) = setup();
+        let err = ReplaceChild
+            .invoke(parent, &[], &mut session, &mut dom)
+            .unwrap_err();
+        assert_eq!(err.kind, DomApiErrorKind::TypeError);
+    }
+
+    #[test]
+    fn replace_child_unknown_object_ref_is_not_found() {
+        // ObjectRef that doesn't resolve via the session identity map
+        // produces NotFoundError (matches AppendChild / RemoveChild).
+        let (mut dom, parent, _, mut session) = setup();
+        let err = ReplaceChild
+            .invoke(
+                parent,
+                &[
+                    JsValue::ObjectRef(0xDEAD_BEEF),
+                    JsValue::ObjectRef(0xCAFE_BABE),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap_err();
+        assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
     }
 
     #[test]

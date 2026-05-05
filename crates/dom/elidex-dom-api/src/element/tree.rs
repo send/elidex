@@ -127,6 +127,73 @@ impl DomApiHandler for RemoveChild {
 }
 
 // ---------------------------------------------------------------------------
+// replaceChild
+// ---------------------------------------------------------------------------
+
+/// `parent.replaceChild(newChild, oldChild)` — replaces `oldChild` with
+/// `newChild` and returns the replaced node (WHATWG DOM §4.4 "replace").
+///
+/// Error mapping:
+/// - `oldChild` is not a child of `parent` → `NotFoundError`
+///   (WHATWG §4.4 step 5; matches Chrome/Firefox/WebKit).
+/// - `newChild` is `parent` itself, an ancestor of `parent`, or any other
+///   pre-insertion validity violation → `HierarchyRequestError`
+///   (§4.4 steps 1-2, 4). Cross-document violations also map here per
+///   §4.2.3 — `WrongDocumentError` is not a separate `DomApiErrorKind`.
+///
+/// The replace is delegated to a single `EcsDom::replace_child` op so that
+/// the future `MutationObserver` integration emits exactly one mutation
+/// record per spec (§4.4 step 10), not the two records a naive
+/// remove-then-insert composition would produce.
+pub struct ReplaceChild;
+
+impl DomApiHandler for ReplaceChild {
+    fn method_name(&self) -> &str {
+        "replaceChild"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let new_ref = require_object_ref_arg(args, 0)?;
+        let old_ref = require_object_ref_arg(args, 1)?;
+        let (new_entity, _) = session
+            .identity_map()
+            .get(JsObjectRef::from_raw(new_ref))
+            .ok_or_else(|| not_found_error("newChild not found"))?;
+        let (old_entity, _) = session
+            .identity_map()
+            .get(JsObjectRef::from_raw(old_ref))
+            .ok_or_else(|| not_found_error("oldChild not found"))?;
+
+        // §4.4 step 5: if oldChild's parent is not parent, NotFoundError.
+        // EcsDom::replace_child collapses every failure to a single bool;
+        // splitting the parent check out lets us distinguish NotFoundError
+        // from HierarchyRequestError without re-implementing the rest of
+        // the algorithm at the API layer.
+        if dom.get_parent(old_entity) != Some(this) {
+            return Err(not_found_error(
+                "the node to be replaced is not a child of this node",
+            ));
+        }
+
+        if !dom.replace_child(this, new_entity, old_entity) {
+            return Err(DomApiError {
+                kind: DomApiErrorKind::HierarchyRequestError,
+                message: "replaceChild: hierarchy request error (cycle, invalid kind, \
+                          or self/ancestor receiver)"
+                    .into(),
+            });
+        }
+        Ok(JsValue::ObjectRef(old_ref))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // textContent helpers
 // ---------------------------------------------------------------------------
 
