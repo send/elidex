@@ -12,21 +12,20 @@
 //! - Methods:   `isSameNode`, `getRootNode`, `compareDocumentPosition`,
 //!   `isEqualNode`, `cloneNode`, `normalize`.
 //!
-//! `ownerDocument` / `isSameNode` / `getRootNode` / `normalize` are
-//! thin bindings around the `elidex-dom-api` handlers via
+//! All members are thin bindings around the corresponding
+//! `elidex-dom-api` / `elidex-ecs` handlers via
 //! [`super::dom_bridge::invoke_dom_api`] — the algorithm proper lives
 //! engine-independently per the CLAUDE.md Layering mandate.
-//! `compareDocumentPosition`, `isEqualNode`, and `cloneNode` keep
-//! their VM-side bodies because they share traversal helpers that
-//! have not yet moved to `elidex-dom-api`.
+//! `cloneNode` carries one extra step VM-side: a Document clone gets
+//! the document-specific own-property suite installed onto its
+//! wrapper post-dispatch ([`install_document_methods_if_cloned_doc`]).
 
 #![cfg(feature = "engine")]
 
+use super::super::object_kind::ObjectKind;
 use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
 use super::event_target::entity_from_this;
 use super::node_proto::require_node_arg;
-
-use elidex_ecs::{Entity, NodeKind};
 
 // ---------------------------------------------------------------------------
 // ownerDocument / isSameNode / getRootNode (WHATWG DOM §4.4)
@@ -105,78 +104,36 @@ pub(super) fn native_node_get_root_node(
 // compareDocumentPosition (WHATWG DOM §4.4)
 // ---------------------------------------------------------------------------
 
-/// `Node.prototype.compareDocumentPosition(other)` — returns a bit
-/// flag describing the relative position of `other` to `this`.
+/// `Node.prototype.compareDocumentPosition(other)` — returns the
+/// WHATWG §4.4 bitmask for `other`'s position relative to `this`.
 ///
-/// Bit values (WHATWG §4.4):
-/// - `0x01 DOCUMENT_POSITION_DISCONNECTED`
-/// - `0x02 DOCUMENT_POSITION_PRECEDING`
-/// - `0x04 DOCUMENT_POSITION_FOLLOWING`
-/// - `0x08 DOCUMENT_POSITION_CONTAINS`
-/// - `0x10 DOCUMENT_POSITION_CONTAINED_BY`
-/// - `0x20 DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC` — set in the
-///   disconnected-trees branch per WHATWG §4.4 ("the result must
-///   also include IMPLEMENTATION_SPECIFIC"), zero elsewhere.
-///
-/// `this === other` → `0`.  Non-Node argument throws TypeError.
-///
-/// Shadow-tree awareness is light-tree only in Phase 2; full
-/// shadow-including semantics land with Custom Elements (PR5b).
+/// Thin binding over the `compareDocumentPosition` handler in
+/// `elidex-dom-api` (which delegates to
+/// [`elidex_ecs::EcsDom::compare_document_position`]).  Unbound
+/// receiver (no `HostObject` brand) silently returns the
+/// "disconnected, preceding" bitmask matching elidex's softer
+/// unbound-receiver policy; browsers throw TypeError here.  Non-Node
+/// `other` argument is rejected at the bridge boundary
+/// (`prepare_arg → require_node_wrapper_kind`) with a generic
+/// TypeError, no method-specific brand check needed at the VM seam.
 pub(super) fn native_node_compare_document_position(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    const DISCONNECTED: u32 = 0x01;
-    const PRECEDING: u32 = 0x02;
-    const FOLLOWING: u32 = 0x04;
-    const CONTAINS: u32 = 0x08;
-    const CONTAINED_BY: u32 = 0x10;
-    const IMPLEMENTATION_SPECIFIC: u32 = 0x20;
-
+    use elidex_ecs::{
+        DOCUMENT_POSITION_DISCONNECTED, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC,
+        DOCUMENT_POSITION_PRECEDING,
+    };
     let Some(self_entity) = entity_from_this(ctx, this) else {
-        // Unbound receiver: fall through to DISCONNECTED.  Browsers
-        // throw TypeError here, but elidex's unbound-receiver policy
-        // is the softer silent path.
         return Ok(JsValue::Number(f64::from(
-            DISCONNECTED | IMPLEMENTATION_SPECIFIC | PRECEDING,
+            DOCUMENT_POSITION_DISCONNECTED
+                | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC
+                | DOCUMENT_POSITION_PRECEDING,
         )));
     };
     let other_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let other_entity = require_node_arg(ctx, other_arg, "compareDocumentPosition")?;
-    if self_entity == other_entity {
-        return Ok(JsValue::Number(0.0));
-    }
-    let dom = ctx.host().dom();
-    if dom.is_light_tree_ancestor_or_self(other_entity, self_entity) {
-        return Ok(JsValue::Number(f64::from(CONTAINS | PRECEDING)));
-    }
-    if dom.is_light_tree_ancestor_or_self(self_entity, other_entity) {
-        return Ok(JsValue::Number(f64::from(CONTAINED_BY | FOLLOWING)));
-    }
-    if dom.find_tree_root(self_entity) != dom.find_tree_root(other_entity) {
-        // WHATWG §4.4: when DISCONNECTED is set the result must also
-        // include IMPLEMENTATION_SPECIFIC and one of PRECEDING /
-        // FOLLOWING, with a *consistent* relative ordering.  The
-        // ordering must be antisymmetric: swapping the operands must
-        // flip PRECEDING ↔ FOLLOWING.  Compare by entity bits (a
-        // stable, total order independent of tree structure) so
-        // `a.compareDocumentPosition(b) ^ b.compareDocumentPosition(a)`
-        // is always `(PRECEDING | FOLLOWING)` for disconnected nodes.
-        let order = if self_entity.to_bits().get() < other_entity.to_bits().get() {
-            FOLLOWING
-        } else {
-            PRECEDING
-        };
-        return Ok(JsValue::Number(f64::from(
-            DISCONNECTED | IMPLEMENTATION_SPECIFIC | order,
-        )));
-    }
-    match dom.tree_order_cmp(self_entity, other_entity) {
-        std::cmp::Ordering::Less => Ok(JsValue::Number(f64::from(FOLLOWING))),
-        std::cmp::Ordering::Greater => Ok(JsValue::Number(f64::from(PRECEDING))),
-        std::cmp::Ordering::Equal => Ok(JsValue::Number(0.0)),
-    }
+    super::dom_bridge::invoke_dom_api(ctx, "compareDocumentPosition", self_entity, &[other_arg])
 }
 
 // ---------------------------------------------------------------------------
@@ -185,18 +142,11 @@ pub(super) fn native_node_compare_document_position(
 
 /// `Node.prototype.isEqualNode(other)` — structural deep equality.
 ///
-/// Returns `true` iff both nodes have:
-/// - the same `NodeKind`,
-/// - the same node name (tag for Elements, fixed `#text` / `#comment` /
-///   `#document` / `#document-fragment` for others),
-/// - identical attribute sets (names and values, order-independent),
-///   for Elements,
-/// - identical character-data (for Text / Comment),
-/// - the same DocTypeData (for DocumentType),
-/// - the same number of children, each pair of which is isEqualNode.
-///
-/// Event listeners are ignored.  WebIDL `Node? other`: null / undefined
-/// → `false`.
+/// Thin binding over the `isEqualNode` handler in `elidex-dom-api`
+/// (which delegates to [`elidex_ecs::EcsDom::nodes_equal`]).  WebIDL
+/// `Node? other`: null / undefined return `false` without dispatch.
+/// Unbound receiver returns `false`.  Non-Node `other` is rejected
+/// at the bridge boundary with a generic TypeError.
 pub(super) fn native_node_is_equal_node(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -209,113 +159,7 @@ pub(super) fn native_node_is_equal_node(
     if matches!(other_arg, JsValue::Null | JsValue::Undefined) {
         return Ok(JsValue::Boolean(false));
     }
-    // Non-Node arguments go through WebIDL's `Node?` conversion and
-    // throw TypeError, matching `compareDocumentPosition` and every
-    // shipping browser (null / undefined are handled above).
-    let other_entity = require_node_arg(ctx, other_arg, "isEqualNode")?;
-    let equal = {
-        let dom = ctx.host().dom();
-        nodes_equal(dom, self_entity, other_entity)
-    };
-    Ok(JsValue::Boolean(equal))
-}
-
-/// Structural deep-equality for two Node entities.  Walks children
-/// via `children_iter` (shadow-root entities are skipped in both
-/// subtrees, matching WHATWG light-tree semantics).
-///
-/// Iterative DFS over `(a, b)` pairs — deep DOM trees must not
-/// overflow the Rust call stack (matches the explicit-stack pattern
-/// used by `despawn_subtree` and `clone_children_recursive`).
-fn nodes_equal(dom: &elidex_ecs::EcsDom, a: Entity, b: Entity) -> bool {
-    let mut stack: Vec<(Entity, Entity)> = vec![(a, b)];
-    while let Some((a, b)) = stack.pop() {
-        // `node_kind_inferred` falls back to payload-based inference
-        // for legacy entities missing the `NodeKind` component.
-        // Comparing raw `node_kind` would treat two legacy entities
-        // of different payload kinds (e.g. a legacy Text and a
-        // legacy Comment, both reporting `kind == None`) as equal
-        // because the character-data match arms below would both
-        // be skipped.
-        let kind = dom.node_kind_inferred(a);
-        if kind != dom.node_kind_inferred(b) {
-            return false;
-        }
-        let tags_match = dom.with_tag_name(a, |ta| dom.with_tag_name(b, |tb| ta == tb));
-        if !tags_match {
-            return false;
-        }
-        // Character-data equality is dispatched by kind — Text compares
-        // TextContent, Comment compares CommentData, everything else has
-        // neither component and skips the lookup entirely.
-        match kind {
-            Some(NodeKind::Text) => {
-                let ta = dom.world().get::<&elidex_ecs::TextContent>(a).ok();
-                let tb = dom.world().get::<&elidex_ecs::TextContent>(b).ok();
-                if ta.as_deref().map(|t| &t.0) != tb.as_deref().map(|t| &t.0) {
-                    return false;
-                }
-            }
-            Some(NodeKind::Comment) => {
-                let ca = dom.world().get::<&elidex_ecs::CommentData>(a).ok();
-                let cb = dom.world().get::<&elidex_ecs::CommentData>(b).ok();
-                if ca.as_deref().map(|c| &c.0) != cb.as_deref().map(|c| &c.0) {
-                    return false;
-                }
-            }
-            Some(NodeKind::DocumentType) => {
-                let da = dom.world().get::<&elidex_ecs::DocTypeData>(a).ok();
-                let db = dom.world().get::<&elidex_ecs::DocTypeData>(b).ok();
-                match (da.as_deref(), db.as_deref()) {
-                    (Some(x), Some(y)) => {
-                        if x.name != y.name
-                            || x.public_id != y.public_id
-                            || x.system_id != y.system_id
-                        {
-                            return false;
-                        }
-                    }
-                    (Some(_), None) | (None, Some(_)) => return false,
-                    (None, None) => {}
-                }
-            }
-            _ => {}
-        }
-        if !attributes_equal(dom, a, b) {
-            return false;
-        }
-        let kids_a: Vec<Entity> = dom.children_iter(a).collect();
-        let kids_b: Vec<Entity> = dom.children_iter(b).collect();
-        if kids_a.len() != kids_b.len() {
-            return false;
-        }
-        // Push in reverse so pre-order pops match recursive walk order
-        // (not functionally required for equality, but keeps early-exit
-        // behaviour predictable and easier to reason about in logs).
-        for (ca, cb) in kids_a.iter().zip(kids_b.iter()).rev() {
-            stack.push((*ca, *cb));
-        }
-    }
-    true
-}
-
-/// Attribute-set equality — same keys, same values, order-independent.
-fn attributes_equal(dom: &elidex_ecs::EcsDom, a: Entity, b: Entity) -> bool {
-    let attrs_a = dom.world().get::<&elidex_ecs::Attributes>(a).ok();
-    let attrs_b = dom.world().get::<&elidex_ecs::Attributes>(b).ok();
-    match (attrs_a, attrs_b) {
-        (None, None) => true,
-        (Some(a), Some(b)) => {
-            if a.len() != b.len() {
-                return false;
-            }
-            a.iter().all(|(k, v)| b.get(k) == Some(v))
-        }
-        // One side has an `Attributes` component, the other does not —
-        // treat an absent component as an empty attribute set.
-        (Some(a), None) => a.is_empty(),
-        (None, Some(b)) => b.is_empty(),
-    }
+    super::dom_bridge::invoke_dom_api(ctx, "isEqualNode", self_entity, &[other_arg])
 }
 
 // ---------------------------------------------------------------------------
@@ -353,35 +197,39 @@ pub(super) fn native_node_clone_node(
     };
     let deep_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let deep = super::super::coerce::to_boolean(ctx.vm, deep_arg);
+    let result =
+        super::dom_bridge::invoke_dom_api(ctx, "cloneNode", src, &[JsValue::Boolean(deep)])?;
+    install_document_methods_if_cloned_doc(ctx, result);
+    Ok(result)
+}
 
-    let new_entity = {
-        let dom = ctx.host().dom();
-        let cloned = if deep {
-            dom.clone_subtree(src)
-        } else {
-            // `cloneNode(false)` — skip the subtree walk entirely
-            // so shallow clone stays O(attrs + character-data)
-            // rather than O(|descendants|).
-            dom.clone_node_shallow(src)
-        };
-        match cloned {
-            Some(new_root) => new_root,
-            None => return Ok(JsValue::Null),
-        }
+/// Post-dispatch hook for `cloneNode`: when the cloned wrapper wraps
+/// a Document entity, install the per-Document own-property suite
+/// onto it.  The bridge's `create_element_wrapper` set up the
+/// prototype chain; this adds the document-specific method bag
+/// (`createElement`, `body`/`head` accessors, etc.) so
+/// `document.cloneNode(true).createElement('p')` works.
+///
+/// File-local single-use helper — only `cloneNode` produces
+/// Documents through the clone path.  Centralising this hook at the
+/// bridge layer is tracked under the deferred slot
+/// `#11-bridge-document-post-install`.
+fn install_document_methods_if_cloned_doc(ctx: &mut NativeContext<'_>, result: JsValue) {
+    let JsValue::Object(wrapper) = result else {
+        return;
     };
-    // Stash the cloned NodeKind before `create_element_wrapper` so
-    // that we can patch the document-specific method suite onto the
-    // clone's wrapper.
-    let is_document = matches!(
-        ctx.host().dom().node_kind(new_entity),
-        Some(NodeKind::Document)
-    );
-    let wrapper = ctx.vm.create_element_wrapper(new_entity);
-    if is_document {
-        ctx.vm
-            .install_document_methods_for_entity(new_entity, wrapper);
+    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(wrapper).kind else {
+        return;
+    };
+    let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) else {
+        return;
+    };
+    if matches!(
+        ctx.host().dom().node_kind(entity),
+        Some(elidex_ecs::NodeKind::Document)
+    ) {
+        ctx.vm.install_document_methods_for_entity(entity, wrapper);
     }
-    Ok(JsValue::Object(wrapper))
 }
 
 // ---------------------------------------------------------------------------
