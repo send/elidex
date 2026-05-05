@@ -57,4 +57,4 @@ mise run fmt         # cargo fmt --all
 
 ## CI
 
-4 jobs: `changes` (path filter via `dorny/paths-filter@v3`) / `check` (ubuntu/macos/windows: fmt + clippy + test) / `doc` (cargo doc -D warnings) / `deny` (standalone). Push to main always runs all jobs. Actions pinned (`actions/checkout@v4`, `Swatinem/rust-cache@v2`, `taiki-e/install-action@v2`). Toolchain stable (`rust-toolchain.toml`).
+4 jobs: `changes` (path filter via `dorny/paths-filter@v4` — includes `.github/workflows/**` so workflow-only edits trigger the gate) / `check` (ubuntu/macos/windows: fmt check + clippy `--all-features` + nextest `--all-features` + doc-tests `--all-features`; cargo-nextest installed via `taiki-e/install-action@v2`) / `doc` (cargo doc `--all-features` -D warnings) / `deny` (standalone). Push to main always runs all jobs. Actions pinned (`actions/checkout@v6`, `Swatinem/rust-cache@v2`, `taiki-e/install-action@v2`). Toolchain stable (`rust-toolchain.toml`).

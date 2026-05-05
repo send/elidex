@@ -32,9 +32,11 @@ Thanks for your interest in contributing!
 
 ## CI
 
-Pull requests are tested on Ubuntu, macOS, and Windows. CI checks (all
-cargo-invoking steps run with `--all-features` so feature-gated code paths
-like `#![cfg(feature = "engine")]` are exercised):
+Pull requests are tested on Ubuntu, macOS, and Windows. CI checks (the
+clippy / test / doc steps run with `--all-features` so feature-gated code
+paths like `#![cfg(feature = "engine")]` are exercised; `cargo fmt --check`
+and `cargo deny check` don't depend on feature selection and so don't need
+the flag):
 
 - `cargo fmt --all -- --check`
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
