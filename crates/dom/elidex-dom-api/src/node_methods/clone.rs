@@ -28,8 +28,10 @@ impl DomApiHandler for CloneNode {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        // Reject ShadowRoot before dispatching so the failure is a
-        // DOMException, not a silent `None` from the cloner.
+        // Reject ShadowRoot up front so the failure surfaces as the
+        // spec-mandated NotSupportedError rather than a structurally
+        // invalid clone (the ECS cloners would happily copy the
+        // `ShadowRoot` payload via `clone_node_shallow_unchecked`).
         if dom.world().get::<&ShadowRoot>(this).is_ok() {
             return Err(DomApiError {
                 kind: DomApiErrorKind::NotSupportedError,
@@ -43,10 +45,13 @@ impl DomApiHandler for CloneNode {
         } else {
             dom.clone_node_shallow(this)
         };
+        // ECS cloners return `None` only when `this` no longer
+        // exists in the world (per their `#[must_use]` contract), so
+        // map that to NotFoundError rather than NotSupportedError.
         let Some(cloned) = cloned else {
             return Err(DomApiError {
-                kind: DomApiErrorKind::NotSupportedError,
-                message: "cloneNode: source not found".into(),
+                kind: DomApiErrorKind::NotFoundError,
+                message: "cloneNode: source entity does not exist".into(),
             });
         };
 

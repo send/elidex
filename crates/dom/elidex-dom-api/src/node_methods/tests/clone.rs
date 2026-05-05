@@ -181,3 +181,19 @@ fn clone_node_component_kind_document() {
         panic!("expected ObjectRef");
     }
 }
+
+#[test]
+fn clone_node_destroyed_source_yields_not_found_error() {
+    // Pin Copilot R1 vLGj: when EcsDom::clone_subtree returns None
+    // it means the source entity no longer exists, which maps to
+    // DOMException("NotFoundError"), not NotSupportedError.
+    let (mut dom, mut session) = setup();
+    let div = dom.create_element("div", Attributes::default());
+    wrap(div, &mut session);
+    // Despawn the source so the cloner returns None.
+    let _ = dom.world_mut().despawn(div);
+    let err = CloneNode
+        .invoke(div, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .expect_err("destroyed source must surface as DomApiError");
+    assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
+}

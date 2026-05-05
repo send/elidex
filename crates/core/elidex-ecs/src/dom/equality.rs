@@ -71,14 +71,22 @@ impl EcsDom {
             if kind != self.node_kind_inferred(b) {
                 return false;
             }
+            // Two non-DOM entities (no payload, no NodeKind component)
+            // must not vacuously equal — the rest of this loop body
+            // is structurally a no-op for them, which would otherwise
+            // make `nodes_equal(non_node_a, non_node_b)` return true.
+            let Some(kind) = kind else {
+                return false;
+            };
             let tags_match = self.with_tag_name(a, |ta| self.with_tag_name(b, |tb| ta == tb));
             if !tags_match {
                 return false;
             }
             let payload_equal = match kind {
-                Some(NodeKind::Text | NodeKind::CdataSection) => text_content_equal(self, a, b),
-                Some(NodeKind::Comment) => comment_data_equal(self, a, b),
-                Some(NodeKind::DocumentType) => doctype_data_equal(self, a, b),
+                NodeKind::Text | NodeKind::CdataSection => text_content_equal(self, a, b),
+                NodeKind::Comment => comment_data_equal(self, a, b),
+                NodeKind::DocumentType => doctype_data_equal(self, a, b),
+                NodeKind::Attribute => attr_payload_equal(self, a, b),
                 _ => true,
             };
             if !payload_equal {
@@ -148,10 +156,13 @@ impl EcsDom {
 
         if let (Some(to), Some(oo)) = (this_owner, other_owner) {
             if to == oo {
+                // `compareDocumentPosition` returns flags describing
+                // OTHER relative to THIS, so this < other → other
+                // FOLLOWS this.
                 let dir = if this.to_bits() < other.to_bits() {
-                    DOCUMENT_POSITION_PRECEDING
-                } else {
                     DOCUMENT_POSITION_FOLLOWING
+                } else {
+                    DOCUMENT_POSITION_PRECEDING
                 };
                 return DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | dir;
             }
@@ -250,4 +261,14 @@ fn attr_owner(dom: &EcsDom, entity: Entity) -> Option<Entity> {
         .get::<&AttrData>(entity)
         .ok()
         .and_then(|a| a.owner_element)
+}
+
+fn attr_payload_equal(dom: &EcsDom, a: Entity, b: Entity) -> bool {
+    let aa = dom.world().get::<&AttrData>(a).ok();
+    let bb = dom.world().get::<&AttrData>(b).ok();
+    match (aa.as_deref(), bb.as_deref()) {
+        (Some(x), Some(y)) => x.local_name == y.local_name && x.value == y.value,
+        (None, None) => true,
+        _ => false,
+    }
 }

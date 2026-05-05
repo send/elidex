@@ -99,6 +99,76 @@ fn nodes_equal_per_kind_branches() {
 }
 
 #[test]
+fn nodes_equal_attr_payload_distinguishes_local_name_and_value() {
+    // Pin Copilot R1 vLFr: distinct Attr nodes must NOT vacuously
+    // equal — local_name and value must contribute to the payload
+    // comparison.
+    let mut dom = EcsDom::new();
+    let id_x = dom.create_attribute("id");
+    if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(id_x) {
+        a.value = "x".into();
+    }
+    let id_x_clone = dom.create_attribute("id");
+    if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(id_x_clone) {
+        a.value = "x".into();
+    }
+    let id_y = dom.create_attribute("id");
+    if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(id_y) {
+        a.value = "y".into();
+    }
+    let class_x = dom.create_attribute("class");
+    if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(class_x) {
+        a.value = "x".into();
+    }
+    assert!(dom.nodes_equal(id_x, id_x_clone));
+    assert!(!dom.nodes_equal(id_x, id_y));
+    assert!(!dom.nodes_equal(id_x, class_x));
+}
+
+#[test]
+fn nodes_equal_non_dom_entities_return_false() {
+    // Pin Copilot R1 vLFr second leg: two bare entities without a
+    // NodeKind component or DOM payload must NOT compare equal —
+    // node_kind_inferred returns None for both, and the per-kind
+    // arms would otherwise no-op into a vacuous true.
+    let mut dom = EcsDom::new();
+    let bare_a = dom.world_mut().spawn(());
+    let bare_b = dom.world_mut().spawn(());
+    assert!(!dom.nodes_equal(bare_a, bare_b));
+}
+
+#[test]
+fn compare_document_position_attr_same_owner_direction_follows_this_lt_other() {
+    // Pin Copilot R1 vLGI: this.compareDocumentPosition(other) flags
+    // describe OTHER's position relative to THIS, so when this < other
+    // in entity order, the result must include FOLLOWING (other
+    // follows this), not PRECEDING.
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let first = dom.create_attribute("id");
+    let second = dom.create_attribute("class");
+    if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(first) {
+        a.owner_element = Some(host);
+    }
+    if let Ok(mut a) = dom.world_mut().get::<&mut AttrData>(second) {
+        a.owner_element = Some(host);
+    }
+    // first.to_bits() < second.to_bits() because Attr entities
+    // allocate in attribute insertion order.
+    assert!(first.to_bits() < second.to_bits());
+    let cmp = dom.compare_document_position(first, second);
+    assert_eq!(
+        cmp,
+        DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | DOCUMENT_POSITION_FOLLOWING
+    );
+    let rev = dom.compare_document_position(second, first);
+    assert_eq!(
+        rev,
+        DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | DOCUMENT_POSITION_PRECEDING
+    );
+}
+
+#[test]
 fn nodes_equal_children_count_must_match() {
     let mut dom = EcsDom::new();
     let a = elem(&mut dom, "div");
