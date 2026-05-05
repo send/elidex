@@ -136,14 +136,15 @@ fn element_query_selector_invalid_selector_throws() {
 
 #[test]
 fn element_query_selector_relative_combinator_syntax() {
-    // Sanity: the underlying selectors crate's behaviour on `>` at
-    // the start of a selector — we don't yet support `:scope`, so
-    // the current implementation either parses the selector and
-    // finds no match (meaning it treats `>` as part of a relative
-    // combinator that has nothing to the left) or raises SyntaxError.
-    //
-    // This test pins whichever behaviour holds today and flags the
-    // need to revisit alongside `:scope` (PR5a).
+    // Regression: the relative `>` combinator at the start of a
+    // selector has no `:scope` to attach to (we don't support
+    // `:scope` rooting yet, PR5a).  `parse_dom_selector`
+    // (engine-independent layer) must reject this at parse time
+    // with `DOMException("SyntaxError")` per WHATWG DOM §4.7 — the
+    // assertion below pins that exact outcome.  Will need to be
+    // revisited alongside `:scope` (PR5a) — at which point the
+    // expected outcome may shift to a successful parse with zero
+    // matches.
     let (mut vm, mut session, mut dom, doc) = setup();
     #[allow(unsafe_code)]
     unsafe {

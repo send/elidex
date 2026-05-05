@@ -74,11 +74,13 @@ docs/
 
 ```sh
 mise run check     # cargo check
-mise run test      # run all tests
+mise run test      # cargo nextest (unit tests only — no doc-tests)
+mise run test-doc  # cargo test --doc (doc-tests only)
+mise run test-all  # nextest + doc-tests (full suite, run by `ci`)
 mise run lint      # clippy + fmt check
 mise run fmt       # format code
 mise run deny      # license/vulnerability check
-mise run ci        # run all CI checks locally
+mise run ci        # run all CI checks locally (test-all + lint + doc + deny)
 ```
 
 ### Running the Crawler
