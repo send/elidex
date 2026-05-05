@@ -218,8 +218,17 @@ impl DomApiHandler for GetTitle {
         };
 
         let raw = child_text_content(title_elem, dom);
-        // Strip and collapse whitespace per WHATWG HTML spec.
-        let collapsed: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+        // WHATWG HTML §dom-document-title: "strip and collapse ASCII
+        // whitespace" — only U+0009 / U+000A / U+000C / U+000D /
+        // U+0020 collapse to a single SPACE.  Rust's `split_whitespace`
+        // would also collapse NBSP / ideographic space / other Unicode
+        // whitespace, which mangles localized titles (`is_ascii_whitespace`
+        // matches the spec set exactly).
+        let collapsed: String = raw
+            .split(|c: char| c.is_ascii_whitespace())
+            .filter(|seg| !seg.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
         Ok(JsValue::String(collapsed))
     }
 }

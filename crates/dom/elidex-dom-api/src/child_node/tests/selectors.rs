@@ -188,3 +188,44 @@ fn closest_rejects_host_pseudo() {
 fn closest_rejects_slotted_pseudo() {
     assert_rejects_shadow_pseudo(&Closest, "::slotted(span)");
 }
+
+#[test]
+fn closest_stops_at_non_element_parent() {
+    // The ancestor walk must not climb past a non-Element parent —
+    // this is how `closest()` honours shadow-tree boundaries
+    // (`ShadowRoot` carries no `TagType`, so the walk from inside a
+    // shadow tree does not reach the host).  Pinned at the dom-api
+    // layer so a future refactor that drops the filter surfaces here
+    // rather than only via VM-level integration tests.
+    use elidex_ecs::ShadowRootMode;
+    let mut dom = EcsDom::new();
+    let mut host_attrs = Attributes::default();
+    host_attrs.set("id", "host");
+    let host = dom.create_element("div", host_attrs);
+    let shadow = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow");
+    let inner = dom.create_element("article", Attributes::default());
+    assert!(dom.append_child(shadow, inner));
+    let mut session = SessionCore::new();
+
+    let self_match = Closest
+        .invoke(
+            inner,
+            &[JsValue::String("article".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert!(matches!(self_match, JsValue::ObjectRef(_)));
+
+    let cross_boundary = Closest
+        .invoke(
+            inner,
+            &[JsValue::String("#host".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(cross_boundary, JsValue::Null);
+}

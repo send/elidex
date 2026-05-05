@@ -114,6 +114,25 @@ fn title_get_empty() {
 }
 
 #[test]
+fn title_get_preserves_non_ascii_whitespace() {
+    // WHATWG HTML §dom-document-title strips and collapses **ASCII**
+    // whitespace only (U+0009/A/C/D/20).  NBSP (U+00A0) and the
+    // ideographic space (U+3000) are NOT in that set and must be
+    // preserved as content.  Rust's `split_whitespace` would collapse
+    // them too — pinning the ASCII-only behaviour here.
+    let (mut dom, doc, mut session) = setup_document();
+    let html = find_child_element(&dom, doc, "html").unwrap();
+    let head = find_child_element(&dom, html, "head").unwrap();
+    let title = dom.create_element("title", Attributes::default());
+    let text = dom.create_text("a\u{00A0}b\u{3000}c");
+    dom.append_child(head, title);
+    dom.append_child(title, text);
+
+    let result = GetTitle.invoke(doc, &[], &mut session, &mut dom).unwrap();
+    assert_eq!(result, JsValue::String("a\u{00A0}b\u{3000}c".into()));
+}
+
+#[test]
 fn title_set() {
     let (mut dom, doc, mut session) = setup_document();
 
