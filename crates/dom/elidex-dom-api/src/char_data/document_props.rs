@@ -260,8 +260,11 @@ impl DomApiHandler for SetTitle {
         let title_elem = if let Some(e) = find_child_element(dom, head, "title") {
             e
         } else {
-            // Create <title> element and append to <head>.
-            let t = dom.create_element("title", Attributes::default());
+            // Anchor the new <title> to the receiver Document (WHATWG
+            // DOM §4.4 "node document") so a setter call on a cloned
+            // doc puts the synthesised element under the clone, not
+            // the bound document.
+            let t = dom.create_element_with_owner("title", Attributes::default(), Some(this));
             let ok = dom.append_child(head, t);
             debug_assert!(ok, "append_child: head verified");
             t
@@ -274,9 +277,10 @@ impl DomApiHandler for SetTitle {
             debug_assert!(ok, "remove_child: child from children_iter");
         }
 
-        // Add text node.
+        // Add text node — same owner-anchoring contract as the
+        // synthesised <title> above.
         if !title_text.is_empty() {
-            let text_node = dom.create_text(&title_text);
+            let text_node = dom.create_text_with_owner(&title_text, Some(this));
             let ok = dom.append_child(title_elem, text_node);
             debug_assert!(ok, "append_child: title_elem verified");
         }

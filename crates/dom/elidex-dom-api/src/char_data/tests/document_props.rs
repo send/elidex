@@ -167,6 +167,33 @@ fn title_set_creates_element() {
 }
 
 #[test]
+fn title_set_anchors_synthesised_nodes_to_receiver_document() {
+    // The receiver Document's "node document" must own the synthesised
+    // <title> element + its text-node child even when the receiver is
+    // not the bound document — same WHATWG DOM §4.4 contract as the
+    // create* family.  Pre-fix, `SetTitle` used `create_element` /
+    // `create_text` (no owner) so a setter call on a cloned doc
+    // would put the new nodes under whatever document the parent
+    // tree happened to point at.
+    let (mut dom, doc, mut session) = setup_document();
+    SetTitle
+        .invoke(
+            doc,
+            &[JsValue::String("Anchored".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    let html = find_child_element(&dom, doc, "html").unwrap();
+    let head = find_child_element(&dom, html, "head").unwrap();
+    let title = find_child_element(&dom, head, "title").expect("title created");
+    assert_eq!(dom.owner_document(title), Some(doc));
+    let text = dom.children_iter(title).next().expect("text child");
+    assert_eq!(dom.owner_document(text), Some(doc));
+}
+
+#[test]
 fn title_set_replaces_existing() {
     let (mut dom, doc, mut session) = setup_document();
     let html = find_child_element(&dom, doc, "html").unwrap();

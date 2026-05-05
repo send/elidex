@@ -221,7 +221,11 @@ pub(crate) fn reject_shadow_pseudos(selectors: &[Selector]) -> Result<(), DomApi
     if selectors.iter().any(Selector::has_shadow_pseudo) {
         return Err(DomApiError {
             kind: DomApiErrorKind::SyntaxError,
-            message: ":host and ::slotted() are not valid in querySelector".to_string(),
+            // API-neutral wording — the helper is shared across
+            // `querySelector` / `querySelectorAll` / `matches` /
+            // `closest`, so naming a single API in the message
+            // misleads callers of the others.
+            message: ":host and ::slotted() are only valid inside a shadow tree".to_string(),
         });
     }
     Ok(())
