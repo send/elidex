@@ -88,16 +88,15 @@ impl DomApiHandler for GetCharacterSet {
     }
 }
 
-/// Find the first child element of `parent` with tag matching `tag_name`.
+/// Find the first child element of `parent` whose tag matches
+/// `tag_name` ASCII case-insensitively.  Mirrors
+/// [`EcsDom::first_child_with_tag`] — HTML elements are identified
+/// by their localName per WHATWG, but `TagType` stores the raw
+/// (parser- or API-supplied) tag string which may not yet be
+/// normalised, so accessor lookups must compare without regard to
+/// case.
 fn find_child_element(dom: &EcsDom, parent: Entity, tag_name: &str) -> Option<Entity> {
-    for child in dom.children_iter(parent) {
-        if let Ok(tag) = dom.world().get::<&TagType>(child) {
-            if tag.0 == tag_name {
-                return Some(child);
-            }
-        }
-    }
-    None
+    dom.first_child_with_tag(parent, tag_name)
 }
 
 /// `document.documentElement` getter — first Element child of the document.
@@ -169,10 +168,14 @@ impl DomApiHandler for GetBody {
         let Some(html) = find_child_element(dom, this, "html") else {
             return Ok(JsValue::Null);
         };
-        // Per spec, body is the first child of <html> that is <body> or <frameset>.
-        let body = dom
-            .children_iter(html)
-            .find(|child| dom.has_tag(*child, "body") || dom.has_tag(*child, "frameset"));
+        // Per spec, body is the first child of <html> that is <body> or
+        // <frameset>.  ASCII case-insensitive comparison matches the
+        // policy of `find_child_element` / `first_child_with_tag`.
+        let body = dom.children_iter(html).find(|child| {
+            dom.world().get::<&TagType>(*child).ok().is_some_and(|t| {
+                t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset")
+            })
+        });
         let Some(body) = body else {
             return Ok(JsValue::Null);
         };

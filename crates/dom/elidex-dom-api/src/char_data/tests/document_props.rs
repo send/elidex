@@ -167,6 +167,69 @@ fn title_set_creates_element() {
 }
 
 #[test]
+fn document_accessors_match_html_tags_case_insensitively() {
+    // Pre-arch-hoist-c, the VM-side getters used
+    // `EcsDom::first_child_with_tag` which is ASCII case-insensitive
+    // (matching HTML element identity rules — TagType stores the
+    // raw tag, not the normalized localName).  After migration the
+    // handlers must preserve that policy: `<HTML>` / `<HEAD>` /
+    // `<BODY>` / `<TITLE>` constructed via `dom.create_element` with
+    // upper-case tags must still resolve through
+    // `document.{documentElement, head, body, title}` accessors.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("HTML", Attributes::default());
+    let head = dom.create_element("HEAD", Attributes::default());
+    let body = dom.create_element("BODY", Attributes::default());
+    let title = dom.create_element("TITLE", Attributes::default());
+    let title_text = dom.create_text("Mixed Case");
+    dom.append_child(doc, html);
+    dom.append_child(html, head);
+    dom.append_child(html, body);
+    dom.append_child(head, title);
+    dom.append_child(title, title_text);
+
+    let mut session = SessionCore::new();
+
+    assert!(matches!(
+        GetDocumentElement
+            .invoke(doc, &[], &mut session, &mut dom)
+            .unwrap(),
+        JsValue::ObjectRef(_)
+    ));
+    assert!(matches!(
+        GetHead.invoke(doc, &[], &mut session, &mut dom).unwrap(),
+        JsValue::ObjectRef(_)
+    ));
+    assert!(matches!(
+        GetBody.invoke(doc, &[], &mut session, &mut dom).unwrap(),
+        JsValue::ObjectRef(_)
+    ));
+    assert_eq!(
+        GetTitle.invoke(doc, &[], &mut session, &mut dom).unwrap(),
+        JsValue::String("Mixed Case".into())
+    );
+}
+
+#[test]
+fn document_body_accepts_uppercase_frameset() {
+    // Same case-insensitive policy for the `<frameset>` branch of
+    // GetBody.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("HTML", Attributes::default());
+    let frameset = dom.create_element("FRAMESET", Attributes::default());
+    dom.append_child(doc, html);
+    dom.append_child(html, frameset);
+    let mut session = SessionCore::new();
+
+    assert!(matches!(
+        GetBody.invoke(doc, &[], &mut session, &mut dom).unwrap(),
+        JsValue::ObjectRef(_)
+    ));
+}
+
+#[test]
 fn title_set_anchors_synthesised_nodes_to_receiver_document() {
     // The receiver Document's "node document" must own the synthesised
     // <title> element + its text-node child even when the receiver is
