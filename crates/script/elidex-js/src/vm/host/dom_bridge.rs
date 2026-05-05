@@ -143,15 +143,26 @@ pub(super) fn drain_fragment_descendants(ctx: &mut NativeContext<'_>, root: Enti
     }
 }
 
-// `parse_dom_selector` / `query_selector_in_subtree_first` /
-// `query_selector_in_subtree_all` lived here until #11-arch-hoist-c
-// migrated every caller (`document.querySelector*` /
-// `Element.prototype.matches` / `closest` / `querySelector*`) onto the
-// engine-independent dispatch (`invoke_dom_api(..., "querySelector"|
-// "matches"|"closest", ...)`) and the standalone
-// `elidex_dom_api::query_selector_all` free function.  Selector
-// parsing + shadow-pseudo rejection + DFS now live exclusively in
-// `crates/dom/elidex-dom-api/src/{document,child_node/selectors}.rs`.
+/// Run `elidex_dom_api::query_selector_all` against `root` and wrap
+/// the matched entities in a `LiveCollectionKind::Snapshot`.  Shared
+/// by `document.querySelectorAll` and
+/// `Element.prototype.querySelectorAll` — both opt out of
+/// `invoke_dom_api` because the handler protocol cannot return
+/// `Vec<Entity>`.  Keeping the dispatch + error-mapping + snapshot
+/// allocation in one place lets `dom_api_error_to_vm_error` stay
+/// file-local.
+pub(super) fn query_selector_all_snapshot(
+    ctx: &mut NativeContext<'_>,
+    root: Entity,
+    selector_str: &str,
+) -> Result<JsValue, VmError> {
+    let entities = elidex_dom_api::query_selector_all(root, selector_str, ctx.host().dom())
+        .map_err(|e| dom_api_error_to_vm_error(ctx.vm, e))?;
+    let id = ctx
+        .vm
+        .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot { entities });
+    Ok(JsValue::Object(id))
+}
 
 // `collect_descendants_by_tag_name` / `collect_descendants_by_class_name`
 // lived here until PR5b §C3 migrated every caller (`document.getElementsBy*`
@@ -386,7 +397,7 @@ fn plugin_primitive_to_vm_value(
 /// is intentionally distinct from a spec-named DOMException so a
 /// missed mapping shows up as an internal error rather than
 /// masquerading as a generic `DOMException("Error", …)`.
-pub(super) fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
+fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
     let DomApiError { kind, message } = err;
     let wk = &vm.well_known;
     match kind {

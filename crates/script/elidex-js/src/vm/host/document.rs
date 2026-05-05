@@ -56,8 +56,8 @@
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::Vm;
 use super::dom_bridge::{
-    coerce_first_arg_to_string, coerce_first_arg_to_string_id, dom_api_error_to_vm_error,
-    invoke_dom_api, wrap_entities_as_array, wrap_entity_or_null,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
+    query_selector_all_snapshot, wrap_entities_as_array, wrap_entity_or_null,
 };
 
 use elidex_ecs::{Entity, NodeKind};
@@ -94,6 +94,23 @@ fn document_receiver(
 fn find_html_root_of(ctx: &mut NativeContext<'_>, doc_entity: Entity) -> Option<Entity> {
     let dom = ctx.host().dom();
     dom.first_child_with_tag(doc_entity, "html")
+}
+
+/// Brand-check `this` as a Document and dispatch to a no-arg
+/// `DomApiHandler` by name.  Returns `fallback` when the receiver is
+/// unbound or non-Document — matching the silent no-op policy of the
+/// rest of the document accessor family.
+fn invoke_document_accessor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+    handler_name: &'static str,
+    fallback: JsValue,
+) -> Result<JsValue, VmError> {
+    let Some(doc) = document_receiver(ctx, this, method)? else {
+        return Ok(fallback);
+    };
+    invoke_dom_api(ctx, handler_name, doc, &[])
 }
 
 // ---------------------------------------------------------------------------
@@ -137,10 +154,8 @@ pub(super) fn native_document_query_selector(
     let Some(doc) = document_receiver(ctx, this, "querySelector")? else {
         return Ok(JsValue::Null);
     };
-    // Selector string ToString runs at the call site so an `ObjectRef`
-    // arg passes the WebIDL stringifier (handler's `require_string_arg`
-    // would reject `ObjectRef`).  Handler runs the same parse +
-    // shadow-pseudo reject + DFS algorithm previously inlined here.
+    // ToString at call site to honour the WebIDL stringifier path
+    // (handler's `require_string_arg` rejects `ObjectRef`).
     let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
     invoke_dom_api(ctx, "querySelector", doc, &[JsValue::String(target_sid)])
 }
@@ -158,20 +173,11 @@ pub(super) fn native_document_query_selector_all(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    // `query_selector_all` is the engine-independent free function in
-    // `elidex-dom-api` — `DomApiHandler::invoke` cannot return a
-    // `Vec<Entity>` so the live-collection wrapping stays VM-side.
-    // The selector parse, shadow-pseudo reject, and DFS now happen
-    // inside the dom-api crate (single source of truth).
-    let entities = elidex_dom_api::query_selector_all(doc, &selector_str, ctx.host().dom())
-        .map_err(|e| dom_api_error_to_vm_error(ctx.vm, e))?;
     // WHATWG §4.2.6: `querySelectorAll` returns a **static** NodeList.
-    // Store the snapshot entity vec; every read re-serves from the
-    // cached list (no re-traversal, no filter re-evaluation).
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot { entities });
-    Ok(JsValue::Object(id))
+    // The handler protocol cannot return `Vec<Entity>`, so this opts
+    // out of `invoke_dom_api` and uses the engine-independent free
+    // function instead.
+    query_selector_all_snapshot(ctx, doc, &selector_str)
 }
 
 // ---------------------------------------------------------------------------
@@ -295,9 +301,6 @@ pub(super) fn native_document_create_text_node(
     let Some(doc_entity) = document_receiver(ctx, this, "createTextNode")? else {
         return Ok(JsValue::Null);
     };
-    // ToString at call site; handler anchors to `doc_entity` via
-    // `create_text_with_owner` (WHATWG DOM §4.4 node-document
-    // association).
     let data_sid = coerce_first_arg_to_string_id(ctx, args)?;
     invoke_dom_api(
         ctx,
@@ -357,10 +360,13 @@ pub(super) fn native_document_get_document_element(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(doc) = document_receiver(ctx, this, "documentElement")? else {
-        return Ok(JsValue::Null);
-    };
-    invoke_dom_api(ctx, "document.documentElement.get", doc, &[])
+    invoke_document_accessor(
+        ctx,
+        this,
+        "documentElement",
+        "document.documentElement.get",
+        JsValue::Null,
+    )
 }
 
 pub(super) fn native_document_get_head(
@@ -368,10 +374,7 @@ pub(super) fn native_document_get_head(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(doc) = document_receiver(ctx, this, "head")? else {
-        return Ok(JsValue::Null);
-    };
-    invoke_dom_api(ctx, "document.head.get", doc, &[])
+    invoke_document_accessor(ctx, this, "head", "document.head.get", JsValue::Null)
 }
 
 pub(super) fn native_document_get_body(
@@ -379,10 +382,7 @@ pub(super) fn native_document_get_body(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(doc) = document_receiver(ctx, this, "body")? else {
-        return Ok(JsValue::Null);
-    };
-    invoke_dom_api(ctx, "document.body.get", doc, &[])
+    invoke_document_accessor(ctx, this, "body", "document.body.get", JsValue::Null)
 }
 
 pub(super) fn native_document_get_title(
@@ -390,15 +390,8 @@ pub(super) fn native_document_get_title(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Handler walks `<html>` → `<head>` → `<title>` and returns the
-    // text-children concat with WHATWG whitespace normalization
-    // applied (collapsing runs of whitespace + strip).  The pre-hoist
-    // VM-native returned a raw concat — the normalization is an
-    // observable improvement (handler is spec-correct).
-    let Some(doc) = document_receiver(ctx, this, "title")? else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
-    invoke_dom_api(ctx, "document.title.get", doc, &[])
+    let empty = JsValue::String(ctx.vm.well_known.empty);
+    invoke_document_accessor(ctx, this, "title", "document.title.get", empty)
 }
 
 pub(super) fn native_document_get_url(
@@ -444,8 +437,6 @@ pub(super) fn native_document_set_title(
     let Some(doc) = document_receiver(ctx, this, "title")? else {
         return Ok(JsValue::Undefined);
     };
-    // ToString at call site (handler's `require_string_arg` rejects
-    // `ObjectRef` and cannot reproduce the WebIDL stringifier path).
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
     let value_sid = super::super::coerce::to_string(ctx.vm, value)?;
     invoke_dom_api(
@@ -517,10 +508,7 @@ pub(super) fn native_document_get_doctype(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(doc) = document_receiver(ctx, this, "doctype")? else {
-        return Ok(JsValue::Null);
-    };
-    invoke_dom_api(ctx, "doctype.get", doc, &[])
+    invoke_document_accessor(ctx, this, "doctype", "doctype.get", JsValue::Null)
 }
 
 // ---------------------------------------------------------------------------

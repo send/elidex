@@ -156,58 +156,35 @@ fn closest_skips_text() {
 
 // ---- shadow-pseudo rejection (CSS Scoping §3) ----
 
-#[test]
-fn matches_rejects_host_pseudo() {
+fn assert_rejects_shadow_pseudo<H: DomApiHandler>(handler: &H, pseudo: &str) {
     let (mut dom, _body, div, _span, _p, mut session) = setup();
-    let err = Matches
+    let err = handler
         .invoke(
             div,
-            &[JsValue::String(":host".into())],
+            &[JsValue::String(pseudo.into())],
             &mut session,
             &mut dom,
         )
-        .expect_err("`:host` must throw outside a shadow tree");
+        .expect_err("shadow-scoped pseudo must throw outside a shadow tree");
     assert_eq!(err.kind, DomApiErrorKind::SyntaxError);
+}
+
+#[test]
+fn matches_rejects_host_pseudo() {
+    assert_rejects_shadow_pseudo(&Matches, ":host");
 }
 
 #[test]
 fn matches_rejects_slotted_pseudo() {
-    let (mut dom, _body, div, _span, _p, mut session) = setup();
-    let err = Matches
-        .invoke(
-            div,
-            &[JsValue::String("::slotted(span)".into())],
-            &mut session,
-            &mut dom,
-        )
-        .expect_err("`::slotted()` must throw outside a shadow tree");
-    assert_eq!(err.kind, DomApiErrorKind::SyntaxError);
+    assert_rejects_shadow_pseudo(&Matches, "::slotted(span)");
 }
 
 #[test]
 fn closest_rejects_host_pseudo() {
-    let (mut dom, _body, div, _span, _p, mut session) = setup();
-    let err = Closest
-        .invoke(
-            div,
-            &[JsValue::String(":host".into())],
-            &mut session,
-            &mut dom,
-        )
-        .expect_err("`:host` must throw outside a shadow tree");
-    assert_eq!(err.kind, DomApiErrorKind::SyntaxError);
+    assert_rejects_shadow_pseudo(&Closest, ":host");
 }
 
 #[test]
 fn closest_rejects_slotted_pseudo() {
-    let (mut dom, _body, div, _span, _p, mut session) = setup();
-    let err = Closest
-        .invoke(
-            div,
-            &[JsValue::String("::slotted(span)".into())],
-            &mut session,
-            &mut dom,
-        )
-        .expect_err("`::slotted()` must throw outside a shadow tree");
-    assert_eq!(err.kind, DomApiErrorKind::SyntaxError);
+    assert_rejects_shadow_pseudo(&Closest, "::slotted(span)");
 }

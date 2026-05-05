@@ -45,8 +45,8 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{
-    coerce_first_arg_to_string, coerce_first_arg_to_string_id, dom_api_error_to_vm_error,
-    invoke_dom_api, tree_nav_getter, wrap_entities_as_array,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
+    query_selector_all_snapshot, tree_nav_getter, wrap_entities_as_array,
 };
 use super::element_attrs::{
     native_element_get_attribute, native_element_get_attribute_names,
@@ -403,12 +403,7 @@ fn native_element_query_selector_all(
         return Ok(JsValue::Null);
     };
     let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    let entities = elidex_dom_api::query_selector_all(entity, &selector_str, ctx.host().dom())
-        .map_err(|e| dom_api_error_to_vm_error(ctx.vm, e))?;
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot { entities });
-    Ok(JsValue::Object(id))
+    query_selector_all_snapshot(ctx, entity, &selector_str)
 }
 
 fn native_element_closest(

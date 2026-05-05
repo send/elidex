@@ -195,12 +195,8 @@ impl DomApiHandler for CreateTextNode {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let text = require_string_arg(args, 0)?;
-        // Anchor the new node's "node document" (WHATWG DOM §4.4) to
-        // the receiver Document so `clonedDoc.createTextNode(...)
-        // .ownerDocument === clonedDoc` even before insertion.  Same
-        // shape as `createElement`'s `_with_owner` call.
         let entity = dom.create_text_with_owner(text, Some(this));
-        // Note: ComponentKind::Element is used for text nodes because
+        // ComponentKind::Element is used for text nodes because
         // ComponentKind has no TextNode variant. The JS bridge treats both
         // element and text node wrappers uniformly (same property layout).
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
