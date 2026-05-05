@@ -628,6 +628,109 @@ fn compare_document_position_disconnected_is_antisymmetric() {
     vm.unbind();
 }
 
+// ---------------------------------------------------------------------------
+// arch-hoist-d pre-emptive regression tests (skill lesson #149).
+//
+// Pinning behaviour the elidex-ecs algorithm move (PR #11-arch-hoist-d
+// C1) introduces or preserves through the bridge, so any future
+// regression surfaces at JS-level rather than only at the unit-test
+// layer.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn is_equal_node_deep_tree_no_overflow_js() {
+    // JS-level mirror of the ECS deep-tree contract: two trees of
+    // depth ~3000 must compare equal without exhausting the call
+    // stack.  Pre-PR the VM-side iterative walker handled this; the
+    // post-PR delegation must keep the property end-to-end.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Boolean(b) = vm
+        .eval(
+            "var build = function() {\n\
+               var root = document.createElement('div');\n\
+               var cur = root;\n\
+               for (var i = 0; i < 3000; i++) {\n\
+                 var child = document.createElement('span');\n\
+                 cur.appendChild(child);\n\
+                 cur = child;\n\
+               }\n\
+               return root;\n\
+             };\n\
+             build().isEqualNode(build());",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(b);
+    vm.unbind();
+}
+
+#[test]
+fn compare_document_position_disconnected_antisymmetric_js() {
+    // Pin antisymmetry through the bridge: cmp(a,b) ^ cmp(b,a)
+    // must equal PRECEDING|FOLLOWING (= 0x06) for two disconnected
+    // operands.  Regression here means the ECS impl lost the
+    // entity-bits ordering tiebreak.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Number(n) = vm
+        .eval(
+            "var a = document.createElement('div');\n\
+             var b = document.createElement('div');\n\
+             a.compareDocumentPosition(b) ^ b.compareDocumentPosition(a);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    // 0x02 (PRECEDING) | 0x04 (FOLLOWING) == 0x06.
+    assert_eq!(n, 6.0);
+    vm.unbind();
+}
+
+#[test]
+fn compare_document_position_attr_same_owner_implementation_specific_js() {
+    // Pin the Attr-vs-Attr same-owner path through the bridge:
+    // setAttributeNode results aren't routinely used in JS, so we
+    // approximate via getAttributeNode-style attr handle if exposed,
+    // or fall back to verifying disconnected branch behaviour.
+    //
+    // Since elidex's Attr getter surface is partial (Attr lifecycle
+    // WIP), this case is exercised at the ECS unit-test layer only;
+    // the JS mirror here pins the *non-Attr* same-tree
+    // PRECEDING/FOLLOWING contract (which routes through the same
+    // ECS impl).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let JsValue::Number(n) = vm
+        .eval(
+            "var p = document.createElement('div');\n\
+             var a = document.createElement('span');\n\
+             var b = document.createElement('span');\n\
+             p.appendChild(a);\n\
+             p.appendChild(b);\n\
+             a.compareDocumentPosition(b);",
+        )
+        .unwrap()
+    else {
+        panic!()
+    };
+    // FOLLOWING == 0x04.
+    assert_eq!(n, 4.0);
+    vm.unbind();
+}
+
 #[test]
 fn get_root_node_attached_returns_document() {
     let (mut vm, mut session, mut dom, doc) = setup();
