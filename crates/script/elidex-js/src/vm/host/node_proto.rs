@@ -41,18 +41,15 @@
 //! Element-only members (`getAttribute`, `children`, `matches`, …)
 //! live on `Element.prototype` which chains here.
 //!
-//! ## Algorithm placement (post #11-arch-hoist-b)
-//!
 //! Every mutation / nodeValue / textContent / identity native here is
 //! a thin binding that runs WebIDL coercion + brand check at the VM
 //! boundary, then dispatches through
 //! [`super::dom_bridge::invoke_dom_api`] to the engine-independent
 //! handler in `elidex-dom-api`. The DOM mutation algorithm proper —
 //! pre-insertion validity, ECS structural mutation, mutation-record
-//! emission — lives there per the CLAUDE.md Layering mandate. The
-//! tree-walk family (`cloneNode`, `isEqualNode`,
-//! `compareDocumentPosition`) is still VM-side; slot
-//! **#11-arch-hoist-d** migrates that group.
+//! emission — lives there per the CLAUDE.md Layering mandate.
+//! `cloneNode` / `isEqualNode` / `compareDocumentPosition` retain
+//! their VM-side bodies in `node_methods_extras.rs`.
 
 #![cfg(feature = "engine")]
 
@@ -541,22 +538,13 @@ fn native_node_append_child(
         return Ok(JsValue::Undefined);
     };
     let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // `require_node_arg` runs the brand check (TypeError if `child`
-    // is not a Node) BEFORE the handler dispatch — preserves the
-    // existing behaviour where non-Node arguments throw TypeError
-    // immediately rather than producing a generic
-    // `HierarchyRequestError`.  The extracted `Entity` is currently
-    // discarded and `prepare_arg` decodes it again from `child_arg`
-    // — duplicate work on the dispatch path.  Tracked for
-    // `#11-arch-hoist-b`: that slot migrates ~30 Node-arg handlers,
-    // at which point the bridge gets a `BridgeArg` enum (or
-    // pre-validated entity hint) to skip re-extraction.  The PoC's
-    // single Node-arg handler doesn't justify the API surface
-    // change in isolation.
+    // Brand-check before dispatch so non-Node args raise TypeError
+    // rather than the generic HierarchyRequestError the handler would
+    // emit if `prepare_arg` somehow let a non-HostObject through. The
+    // extracted Entity is intentionally discarded — `prepare_arg`
+    // decodes it again from `child_arg` (duplicate work the bridge
+    // accepts in exchange for a clean brand-check seam).
     require_node_arg(ctx, child_arg, "appendChild")?;
-    // Handler resolves the ObjectRef back to the child entity via
-    // the session identity map and emits `HierarchyRequestError`
-    // DOMException on pre-insertion validity violations.
     super::dom_bridge::invoke_dom_api(ctx, "appendChild", parent, &[child_arg])
 }
 

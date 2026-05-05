@@ -16,9 +16,9 @@
 //! thin bindings around the `elidex-dom-api` handlers via
 //! [`super::dom_bridge::invoke_dom_api`] — the algorithm proper lives
 //! engine-independently per the CLAUDE.md Layering mandate.
-//! `compareDocumentPosition`, `isEqualNode`, and `cloneNode` retain
-//! their VM-side implementations until slot **#11-arch-hoist-d**
-//! migrates the tree-walk family.
+//! `compareDocumentPosition`, `isEqualNode`, and `cloneNode` keep
+//! their VM-side bodies because they share traversal helpers that
+//! have not yet moved to `elidex-dom-api`.
 
 #![cfg(feature = "engine")]
 

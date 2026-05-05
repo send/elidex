@@ -315,13 +315,9 @@ impl DomApiHandler for GetRootNode {
 /// `node.ownerDocument` getter (WHATWG DOM §4.4).
 ///
 /// Honours the per-entity [`elidex_ecs::AssociatedDocument`] component
-/// via [`EcsDom::owner_document`]: cloned `Document`s, fragment roots
-/// created with an explicit owner, and any node born from
-/// `clonedDoc.createElement(…)` all report the document they were
-/// allocated against, not the bound singleton. Only when an entity has
-/// no `AssociatedDocument` AND its tree-root walk does not land on a
-/// `Document` does the handler return `JsValue::Null` — at which point
-/// the VM-side caller may apply its own bound-document fallback.
+/// so `clonedDoc.createElement(…)` reports the clone, not the
+/// singleton. Falls back to `EcsDom::document_root` for orphans whose
+/// tree-root walk does not land on a Document.
 pub struct OwnerDocument;
 
 impl DomApiHandler for OwnerDocument {
