@@ -69,14 +69,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Run tests
-        run: cargo test --workspace --all-features
+      - name: Run tests (nextest, no doc-tests)
+        run: cargo nextest run --workspace --all-features
+
+      - name: Run doc-tests
+        run: cargo test --workspace --doc --all-features
 
   doc:
     name: Documentation

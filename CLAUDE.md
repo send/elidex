@@ -26,7 +26,7 @@ Experimental browser engine written in Rust.
 
 ```sh
 mise run ci          # 全 CI (push 前必須)
-mise run test        # cargo nextest run --workspace (fast, no doc-tests)
+mise run test        # cargo nextest run --workspace --all-features (fast, no doc-tests)
 mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 ```
