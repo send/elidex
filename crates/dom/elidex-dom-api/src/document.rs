@@ -189,13 +189,17 @@ impl DomApiHandler for CreateTextNode {
 
     fn invoke(
         &self,
-        _this: Entity,
+        this: Entity,
         args: &[JsValue],
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let text = require_string_arg(args, 0)?;
-        let entity = dom.create_text(text);
+        // Anchor the new node's "node document" (WHATWG DOM §4.4) to
+        // the receiver Document so `clonedDoc.createTextNode(...)
+        // .ownerDocument === clonedDoc` even before insertion.  Same
+        // shape as `createElement`'s `_with_owner` call.
+        let entity = dom.create_text_with_owner(text, Some(this));
         // Note: ComponentKind::Element is used for text nodes because
         // ComponentKind has no TextNode variant. The JS bridge treats both
         // element and text node wrappers uniformly (same property layout).
@@ -210,8 +214,14 @@ impl DomApiHandler for CreateTextNode {
 
 /// Check that no selector uses shadow-scoped pseudos (`:host`, `::slotted()`).
 ///
-/// These are invalid in `querySelector`/`querySelectorAll` per CSS Scoping §3.
-fn reject_shadow_pseudos(selectors: &[Selector]) -> Result<(), DomApiError> {
+/// These are invalid in `querySelector` / `querySelectorAll` /
+/// `Element.matches` / `Element.closest` per CSS Scoping §3 — the
+/// pseudos are only valid inside a shadow tree's scoped style or
+/// when the selector is being matched from a `ShadowRoot`.  Shared
+/// across selector-accepting handlers in this crate (intentional
+/// `pub(crate)` visibility — no `elidex-dom-api` external caller
+/// has a reason to validate selector shape independently of a handler).
+pub(crate) fn reject_shadow_pseudos(selectors: &[Selector]) -> Result<(), DomApiError> {
     if selectors.iter().any(Selector::has_shadow_pseudo) {
         return Err(DomApiError {
             kind: DomApiErrorKind::SyntaxError,

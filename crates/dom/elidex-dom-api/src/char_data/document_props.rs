@@ -286,12 +286,14 @@ impl DomApiHandler for CreateDocumentFragment {
 
     fn invoke(
         &self,
-        _this: Entity,
+        this: Entity,
         _args: &[JsValue],
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let entity = dom.create_document_fragment();
+        // Anchor to the receiver Document (WHATWG DOM §4.4) so cloned
+        // documents return fragments owned by the clone.
+        let entity = dom.create_document_fragment_with_owner(Some(this));
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
@@ -307,13 +309,14 @@ impl DomApiHandler for CreateComment {
 
     fn invoke(
         &self,
-        _this: Entity,
+        this: Entity,
         args: &[JsValue],
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let data = require_string_arg(args, 0)?;
-        let entity = dom.create_comment(&data);
+        // Anchor to the receiver Document (WHATWG DOM §4.4).
+        let entity = dom.create_comment_with_owner(&data, Some(this));
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }

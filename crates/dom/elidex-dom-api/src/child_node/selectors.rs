@@ -7,6 +7,7 @@ use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
 };
 
+use crate::document::reject_shadow_pseudos;
 use crate::util::require_string_arg;
 
 /// `element.matches(selector)` — returns true if this element matches the selector.
@@ -29,6 +30,11 @@ impl DomApiHandler for Matches {
             kind: DomApiErrorKind::SyntaxError,
             message: format!("Invalid selector: {selector_str}"),
         })?;
+        // CSS Scoping §3: `:host` / `::slotted()` are only valid inside
+        // a shadow tree.  Browsers throw `DOMException("SyntaxError")`
+        // from `matches` / `closest` when the selector uses these
+        // pseudos against a non-shadow root.
+        reject_shadow_pseudos(&selectors)?;
         let matched = selectors.iter().any(|sel| sel.matches(this, dom));
         Ok(JsValue::Bool(matched))
     }
@@ -59,6 +65,9 @@ impl DomApiHandler for Closest {
             kind: DomApiErrorKind::SyntaxError,
             message: format!("Invalid selector: {selector_str}"),
         })?;
+        // Same shadow-pseudo rejection as `matches` / `querySelector`
+        // (CSS Scoping §3).
+        reject_shadow_pseudos(&selectors)?;
 
         // Walk ancestors including self. Only check elements (entities with TagType).
         let mut current = Some(this);
