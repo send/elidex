@@ -6,11 +6,6 @@
 
 use elidex_ecs::{Attributes, EcsDom, Entity, ShadowRoot, TagType};
 
-/// Sentinel version that never matches any real subtree version, ensuring the
-/// first access always triggers a refresh. Equivalent to WHATWG's "created with
-/// an empty snapshot" semantics.
-const UNINITIALIZED_VERSION: u64 = u64::MAX;
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -59,12 +54,18 @@ pub enum CollectionKind {
 ///
 /// `root` is `None` for `Snapshot` collections — their entity list is
 /// frozen at construction so there is no subtree version to track.
+///
+/// `cached_version` is `Option<u64>` rather than a `u64` sentinel: a sentinel
+/// value (e.g. `u64::MAX`) could legally collide with a real subtree version
+/// since `EcsDom::rev_version` increments via `wrapping_add(1)`, so a
+/// collection created at exact wraparound would false-hit the cache check
+/// and silently surface an empty snapshot. `None` is structurally distinct.
 #[derive(Debug)]
 pub struct LiveCollection {
     root: Option<Entity>,
     filter: CollectionFilter,
     kind: CollectionKind,
-    cached_version: u64,
+    cached_version: Option<u64>,
     cached_snapshot: Vec<Entity>,
 }
 
@@ -100,7 +101,7 @@ impl LiveCollection {
             root: Some(root),
             filter,
             kind,
-            cached_version: UNINITIALIZED_VERSION,
+            cached_version: None,
             cached_snapshot: Vec::new(),
         }
     }
@@ -124,11 +125,12 @@ impl LiveCollection {
             root: None,
             filter: CollectionFilter::Snapshot,
             kind,
-            // The actual refresh bypass is the
+            // Refresh bypass for Snapshot is the
             // `CollectionFilter::Snapshot` early return in
-            // `refresh_if_stale` — this numeric value is observably
-            // unused. `0` is the conventional "fresh" marker.
-            cached_version: 0,
+            // `refresh_if_stale`; this field is observably unused
+            // here. `None` matches the structural "no refresh has
+            // run" state.
+            cached_version: None,
             cached_snapshot: entities,
         }
     }
@@ -175,9 +177,9 @@ impl LiveCollection {
             return;
         };
         let current_version = dom.inclusive_descendants_version(root);
-        if current_version != self.cached_version {
+        if self.cached_version != Some(current_version) {
             self.refresh(dom);
-            self.cached_version = current_version;
+            self.cached_version = Some(current_version);
         }
     }
 
@@ -695,8 +697,29 @@ mod tests {
         dom.append_child(body, span);
 
         // The version on `div` should not have changed.
-        assert_eq!(dom.inclusive_descendants_version(div), version_after_first);
+        assert_eq!(
+            Some(dom.inclusive_descendants_version(div)),
+            version_after_first
+        );
         assert_eq!(coll.length(&dom), 0);
+    }
+
+    #[test]
+    fn cache_uninitialized_state_distinct_from_any_real_version() {
+        // Regression: `cached_version` was a `u64` with `u64::MAX` as
+        // an "uninitialized" sentinel, which could legally collide
+        // with `EcsDom::rev_version`'s `wrapping_add(1)` value at
+        // wraparound. `Option<u64>` makes the "no refresh has run"
+        // state structurally distinct from any real version.
+        let (dom, doc) = setup_dom();
+        let coll = LiveCollection::new(
+            doc,
+            CollectionFilter::ByTagName("div".into()),
+            CollectionKind::HtmlCollection,
+        );
+        // Pre-first-access state is `None`, not a sentinel u64.
+        assert_eq!(coll.cached_version, None);
+        let _ = &dom; // Touch so the imports stay used in this test.
     }
 
     #[test]
