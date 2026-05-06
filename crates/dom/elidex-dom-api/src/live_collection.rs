@@ -78,13 +78,18 @@ impl LiveCollection {
     /// `ByTagName` filters are lowercased at creation (WHATWG HTML spec: tag
     /// names are ASCII-lowercased for HTML documents).
     ///
-    /// Use [`Self::new_snapshot`] for `Snapshot` collections — both paths
-    /// yield identical observable behaviour (`refresh_if_stale` short-
-    /// circuits on the filter variant), but `new_snapshot` is the
-    /// conventional constructor and stores `root: None`, making the
-    /// "no subtree to track" intent explicit.
+    /// `Snapshot` is **not** a valid filter for `new` — the entity list of
+    /// a static collection lives in [`Self::new_snapshot`]'s in-place
+    /// buffer (no per-filter Vec), so passing `CollectionFilter::Snapshot`
+    /// here yields a permanently empty collection. Debug builds assert
+    /// against this; release builds construct the empty collection silently
+    /// (caller should use [`Self::new_snapshot`] instead).
     #[must_use]
     pub fn new(root: Entity, filter: CollectionFilter, kind: CollectionKind) -> Self {
+        debug_assert!(
+            !matches!(filter, CollectionFilter::Snapshot),
+            "LiveCollection::new called with Snapshot filter — use new_snapshot instead"
+        );
         let filter = match filter {
             CollectionFilter::ByTagName(tag) => {
                 CollectionFilter::ByTagName(tag.to_ascii_lowercase())
@@ -119,10 +124,10 @@ impl LiveCollection {
             root: None,
             filter: CollectionFilter::Snapshot,
             kind,
-            // Any non-`UNINITIALIZED_VERSION` value disables the
-            // version-check refresh path. Snapshot collections
-            // never refresh, so the field is observably unused; `0`
-            // is the conventional "fresh" marker.
+            // The actual refresh bypass is the
+            // `CollectionFilter::Snapshot` early return in
+            // `refresh_if_stale` — this numeric value is observably
+            // unused. `0` is the conventional "fresh" marker.
             cached_version: 0,
             cached_snapshot: entities,
         }
@@ -799,6 +804,17 @@ mod tests {
         let mut coll = LiveCollection::new_snapshot(Vec::new(), CollectionKind::NodeList);
         assert_eq!(coll.length(&dom), 0);
         assert_eq!(coll.item(0, &dom), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "use new_snapshot instead")]
+    fn new_with_snapshot_filter_panics_in_debug() {
+        // The Snapshot filter routes through `new_snapshot` only;
+        // calling `new` with it would silently produce an empty
+        // collection because `cached_snapshot` starts empty and
+        // `refresh_if_stale` skips Snapshot. Debug builds assert.
+        let (_dom, doc) = setup_dom();
+        let _coll = LiveCollection::new(doc, CollectionFilter::Snapshot, CollectionKind::NodeList);
     }
 
     #[test]
