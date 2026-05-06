@@ -641,3 +641,175 @@ fn mutation_observer_added_nodes_are_element_wrappers() {
     assert_eq!(vm.inner.strings.get_utf8(sid), "SPAN");
     vm.unbind();
 }
+
+// --- Plan §G #17 — characterData record ----------------------------
+
+#[test]
+fn mutation_observer_delivers_character_data_record() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    let text_node = dom.create_text("hello");
+    assert!(dom.append_child(root, text_node));
+
+    vm.eval(
+        "globalThis.records = null; \
+         var mo = new MutationObserver(function(rec){ globalThis.records = rec; }); \
+         mo.observe(root, {characterData:true, characterDataOldValue:true, subtree:true});",
+    )
+    .unwrap();
+
+    let record = SessionRecord {
+        kind: MutationKind::CharacterData,
+        target: text_node,
+        added_nodes: vec![],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: Some("hello".to_string()),
+    };
+    vm.deliver_mutation_records(std::slice::from_ref(&record));
+
+    let length = vm.eval("records.length").unwrap();
+    assert_eq!(length, JsValue::Number(1.0));
+    let type_v = vm.eval("records[0].type").unwrap();
+    let JsValue::String(sid) = type_v else {
+        panic!("expected string, got {type_v:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "characterData");
+    let old_v = vm.eval("records[0].oldValue").unwrap();
+    let JsValue::String(sid) = old_v else {
+        panic!("expected oldValue string, got {old_v:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "hello");
+    vm.unbind();
+}
+
+// --- Plan §G #26 — records array survives GC during callback --------
+
+#[test]
+fn mutation_observer_records_array_survives_gc() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    // Callback forces an explicit GC mid-delivery via a stress allocation
+    // sequence + a direct `collect_garbage` shot from Rust below.  The
+    // `push_temp_root` rooting in `build_mutation_records_array` /
+    // `Vm::deliver_mutation_records` must keep the records array and its
+    // embedded element wrappers alive across the cycle.
+    vm.eval(
+        "globalThis.recordsLen = -1; \
+         globalThis.firstAddedTag = ''; \
+         var mo = new MutationObserver(function(rec){ \
+           /* stress allocation so any un-rooted intermediate would be \
+              collectable before we read the record fields */ \
+           var noise = []; \
+           for (var i = 0; i < 64; i++) noise.push({i: i, s: 'x' + i}); \
+           globalThis.recordsLen = rec.length; \
+           globalThis.firstAddedTag = rec[0].addedNodes[0].tagName; \
+         }); \
+         mo.observe(root, {childList:true});",
+    )
+    .unwrap();
+
+    let added = dom.create_element("section", elidex_ecs::Attributes::default());
+    let record = SessionRecord {
+        kind: MutationKind::ChildList,
+        target: root,
+        added_nodes: vec![added],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    };
+    // Force GC immediately before delivery so the rooting path is the
+    // only thing holding the just-allocated records array.
+    vm.inner.collect_garbage();
+    vm.deliver_mutation_records(std::slice::from_ref(&record));
+    // And again after, to catch any post-callback dangling references.
+    vm.inner.collect_garbage();
+
+    let len = vm.eval("recordsLen").unwrap();
+    assert_eq!(len, JsValue::Number(1.0));
+    let tag = vm.eval("firstAddedTag").unwrap();
+    let JsValue::String(sid) = tag else {
+        panic!("expected tag string, got {tag:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "SECTION");
+    vm.unbind();
+}
+
+// --- Plan §H R4 #28 — re-entrancy: callback mutates registry --------
+
+#[test]
+fn mutation_observer_callback_can_re_observe_other_target() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    let other = dom.create_element("aside", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(root, other));
+    let other_wrapper = vm.inner.create_element_wrapper(other);
+    vm.set_global("other", JsValue::Object(other_wrapper));
+
+    // First delivery: callback adds `other` as a second observe target.
+    // Verifies the registry borrow is released between iterations so a
+    // re-entrant `observe` from inside the callback does not deadlock or
+    // panic (Plan §L Finding 2).
+    vm.eval(
+        "globalThis.firstCount = 0; \
+         globalThis.secondCount = 0; \
+         globalThis.mo = new MutationObserver(function(rec){ \
+           if (firstCount === 0) { \
+             firstCount = rec.length; \
+             mo.observe(other, {attributes:true}); \
+           } else { \
+             secondCount = rec.length; \
+           } \
+         }); \
+         mo.observe(root, {childList:true});",
+    )
+    .unwrap();
+
+    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let r1 = SessionRecord {
+        kind: MutationKind::ChildList,
+        target: root,
+        added_nodes: vec![added],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    };
+    vm.deliver_mutation_records(std::slice::from_ref(&r1));
+
+    // Second delivery — `other` is now observed because the first
+    // callback called `mo.observe(other, ...)`.
+    let r2 = SessionRecord {
+        kind: MutationKind::Attribute,
+        target: other,
+        added_nodes: vec![],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: Some("class".to_string()),
+        old_value: None,
+    };
+    vm.deliver_mutation_records(std::slice::from_ref(&r2));
+
+    let first = vm.eval("firstCount").unwrap();
+    assert_eq!(first, JsValue::Number(1.0));
+    let second = vm.eval("secondCount").unwrap();
+    assert_eq!(
+        second,
+        JsValue::Number(1.0),
+        "second delivery must include the re-attached target"
+    );
+    vm.unbind();
+}
