@@ -408,8 +408,12 @@ fn dataset_delete_with_null_key_vacuous_true() {
 //
 // `el.dataset` retained across `Vm::unbind()` must not panic.
 // [[Get]] / [[Has]] / [[OwnKeys]] fall through to ordinary semantics
-// (sealed wrapper → no own keys); [[Set]] is a silent no-op;
-// [[Delete]] returns vacuous true.
+// (sealed wrapper → no own keys); [[Set]] / [[Delete]] still apply
+// the usual `ToPropertyKey` / `ToString(value)` coercions (so
+// Symbol-keyed access or a Symbol RHS still throws TypeError), but
+// the bound-state DOM mutation is skipped — the trap returns
+// `Ok(())` for [[Set]] and `Ok(true)` for [[Delete]] only when
+// coercion succeeds.
 
 #[test]
 fn dataset_traps_after_unbind_do_not_panic() {
