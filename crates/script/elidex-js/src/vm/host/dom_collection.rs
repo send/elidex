@@ -24,8 +24,9 @@
 //! `length` / `item(i)` / indexed accesses.
 //!
 //! Cache validation against
-//! [`EcsDom::inclusive_descendants_version`] lives entirely inside
-//! the engine-independent [`elidex_dom_api::LiveCollection`]; this
+//! [`elidex_ecs::EcsDom::inclusive_descendants_version`] lives
+//! entirely inside the engine-independent
+//! [`elidex_dom_api::LiveCollection`]; this
 //! module supplies the marshalling + brand-check + named-property
 //! lookup glue and forwards `length` / `item` / iteration calls
 //! straight to the API's [`snapshot`](elidex_dom_api::LiveCollection::snapshot)
