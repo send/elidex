@@ -76,10 +76,11 @@ impl LiveCollection {
     /// `ByTagName` filters are lowercased at creation (WHATWG HTML spec: tag
     /// names are ASCII-lowercased for HTML documents).
     ///
-    /// Construct `Snapshot` collections via [`Self::new_snapshot`] instead —
-    /// passing `CollectionFilter::Snapshot(...)` here will work but loses the
-    /// `Option<Entity>` "no root" representation that bypasses subtree version
-    /// tracking.
+    /// Use [`Self::new_snapshot`] for `Snapshot` collections — both paths
+    /// yield identical observable behaviour (`refresh_if_stale` short-
+    /// circuits on the filter variant), but `new_snapshot` is the
+    /// conventional constructor and stores `root: None`, making the
+    /// "no subtree to track" intent explicit.
     #[must_use]
     pub fn new(root: Entity, filter: CollectionFilter, kind: CollectionKind) -> Self {
         let filter = match filter {
@@ -100,8 +101,11 @@ impl LiveCollection {
     /// Create a static (`Snapshot`) collection from a pre-captured entity list.
     ///
     /// Used for `querySelectorAll` results — the entity list is frozen at
-    /// construction and never re-walks the DOM. `kind` defaults to
-    /// `NodeList` per WHATWG DOM §4.2.6 ("a non-live `NodeList`").
+    /// construction and never re-walks the DOM. `querySelectorAll` callers
+    /// should pass `CollectionKind::NodeList` per WHATWG DOM §4.2.6 ("a
+    /// non-live `NodeList`"). The parameter is explicit (not defaulted)
+    /// to keep future `HTMLCollection`-shaped snapshot users
+    /// (e.g. potential XPath bindings) able to opt in.
     #[must_use]
     pub fn new_snapshot(entities: Vec<Entity>, kind: CollectionKind) -> Self {
         Self {
@@ -168,10 +172,14 @@ impl LiveCollection {
 
     /// Refresh the cached snapshot, reusing the existing `Vec`'s capacity.
     ///
-    /// Mutation-heavy workloads stabilise the buffer at the result-set's
-    /// high-water mark; subsequent miss-path refreshes become allocation-
-    /// free. Replacing this with `self.cached_snapshot = self.populate(dom)`
-    /// would leak that amortisation (one alloc per refresh).
+    /// `populate(dom)` still allocates one fresh `Vec<Entity>` per call
+    /// (see `populate` for the per-filter dispatch), but the cached
+    /// buffer (`self.cached_snapshot`) is amortised: `clear() +
+    /// extend_from_slice` reuses its capacity once the result set
+    /// stabilises at its high-water mark, where re-assigning the field
+    /// (`self.cached_snapshot = self.populate(dom)`) would discard the
+    /// growable allocation each refresh. A future fully-zero-alloc
+    /// path is tracked under `#11-arch-hoist-e-bench-completion`.
     fn refresh(&mut self, dom: &EcsDom) {
         let fresh = self.populate(dom);
         self.cached_snapshot.clear();
@@ -251,8 +259,13 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
             if tag == "*" {
                 return dom.is_element(entity);
             }
+            // ASCII case-insensitive comparison matches WHATWG DOM
+            // §4.2.6.2 ("the qualified name is matched ASCII case-
+            // insensitively for HTML documents") and the pre-hoist VM
+            // walker's behaviour. The constructor still lowercases
+            // `tag`, so only the element side needs the CI compare.
             match dom.world().get::<&TagType>(entity) {
-                Ok(tt) => tt.0 == *tag,
+                Ok(tt) => tt.0.eq_ignore_ascii_case(tag),
                 Err(_) => false,
             }
         }
@@ -409,9 +422,11 @@ mod tests {
     }
 
     #[test]
-    fn by_tag_name_uppercase_element_no_match() {
-        // An element created with uppercase tag won't match a lowercased filter
-        // (exact match). In real usage, the parser always lowercases tags.
+    fn by_tag_name_uppercase_element_matches_via_ascii_ci() {
+        // Per WHATWG DOM §4.2.6.2, tag matching for HTML documents is
+        // ASCII case-insensitive. Elements with non-canonical TagType
+        // (`EcsDom::create_element("DIV", _)`) match a filter whose
+        // needle was constructor-lowercased to "div".
         let (mut dom, doc) = setup_dom();
         let body = dom.children(dom.children(doc)[0])[0];
         let div = dom.create_element("DIV", Attributes::default());
@@ -422,13 +437,14 @@ mod tests {
             CollectionFilter::ByTagName("DIV".into()),
             CollectionKind::HtmlCollection,
         );
-        // Filter "DIV" lowercased to "div", element tag is "DIV" → no match.
-        assert_eq!(coll.length(&dom), 0);
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(div));
     }
 
     #[test]
-    fn by_tag_name_exact_match_semantics() {
-        // Verify exact match: "Div" (mixed case) element won't match "div" filter.
+    fn by_tag_name_mixed_case_element_matches_via_ascii_ci() {
+        // Mixed-case TagType ("Div") still matches a lowercased filter
+        // ("div") via ASCII-CI comparison.
         let (mut dom, doc) = setup_dom();
         let body = dom.children(dom.children(doc)[0])[0];
         let mixed = dom.create_element("Div", Attributes::default());
@@ -439,7 +455,8 @@ mod tests {
             CollectionFilter::ByTagName("div".into()),
             CollectionKind::HtmlCollection,
         );
-        assert_eq!(coll.length(&dom), 0);
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(mixed));
     }
 
     #[test]

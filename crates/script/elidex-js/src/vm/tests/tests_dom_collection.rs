@@ -740,6 +740,38 @@ fn forms_uppercase_tag_seen_via_document_forms() {
 }
 
 #[test]
+fn get_elements_by_tag_name_matches_uppercase_element_via_ascii_ci() {
+    // Regression: pre-hoist VM walker matched ASCII case-insensitive,
+    // post-hoist API stub had drifted to exact-match — silently
+    // dropping `getElementsByTagName('div')` matches against
+    // `EcsDom::create_element("DIV", ...)`. WHATWG DOM §4.2.6.2
+    // mandates ASCII-CI for HTML documents.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let upper = dom.create_element("DIV", Attributes::default());
+    let lower = dom.create_element("div", Attributes::default());
+    let mixed = dom.create_element("Div", Attributes::default());
+    assert!(dom.append_child(body, upper));
+    assert!(dom.append_child(body, lower));
+    assert!(dom.append_child(body, mixed));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm
+        .eval("document.getElementsByTagName('div').length;")
+        .unwrap();
+    assert!(matches!(result, JsValue::Number(n) if (n - 3.0).abs() < 1e-9));
+    vm.unbind();
+}
+
+#[test]
 fn images_uppercase_tag_seen_via_document_images() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
