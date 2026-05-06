@@ -81,12 +81,12 @@ impl LiveCollection {
     /// `Snapshot` is **not** a valid filter for `new` — the entity list of
     /// a static collection lives in [`Self::new_snapshot`]'s in-place
     /// buffer (no per-filter Vec), so passing `CollectionFilter::Snapshot`
-    /// here yields a permanently empty collection. Debug builds assert
-    /// against this; release builds construct the empty collection silently
-    /// (caller should use [`Self::new_snapshot`] instead).
+    /// here would yield a permanently empty collection. All builds panic
+    /// to surface the misuse immediately; callers must use
+    /// [`Self::new_snapshot`] for static lists.
     #[must_use]
     pub fn new(root: Entity, filter: CollectionFilter, kind: CollectionKind) -> Self {
-        debug_assert!(
+        assert!(
             !matches!(filter, CollectionFilter::Snapshot),
             "LiveCollection::new called with Snapshot filter — use new_snapshot instead"
         );
@@ -808,11 +808,12 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "use new_snapshot instead")]
-    fn new_with_snapshot_filter_panics_in_debug() {
+    fn new_with_snapshot_filter_panics() {
         // The Snapshot filter routes through `new_snapshot` only;
         // calling `new` with it would silently produce an empty
         // collection because `cached_snapshot` starts empty and
-        // `refresh_if_stale` skips Snapshot. Debug builds assert.
+        // `refresh_if_stale` skips Snapshot. All builds panic
+        // (release-safe assertion).
         let (_dom, doc) = setup_dom();
         let _coll = LiveCollection::new(doc, CollectionFilter::Snapshot, CollectionKind::NodeList);
     }
