@@ -140,6 +140,10 @@ pub(crate) mod readable_stream;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;
 #[cfg(feature = "engine")]
+pub(super) mod storage;
+#[cfg(feature = "engine")]
+pub(super) mod storage_event;
+#[cfg(feature = "engine")]
 pub(super) mod structured_clone;
 #[cfg(feature = "engine")]
 pub(crate) mod text_encoding;

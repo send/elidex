@@ -40,6 +40,14 @@ pub(crate) fn collect_own_keys_es_order(
                 return result;
             }
         }
+        // Storage [[OwnPropertyKeys]] — stored keys in insertion
+        // order, prototype-shadowed names filtered.
+        let is_storage = matches!(vm.get_object(obj_id).kind, ObjectKind::Storage { .. });
+        if is_storage {
+            if let Some(result) = super::host::storage::collect_keys(vm, obj_id) {
+                return result;
+            }
+        }
     }
 
     let obj = vm.get_object(obj_id);

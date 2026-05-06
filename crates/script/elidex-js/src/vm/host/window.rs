@@ -315,6 +315,11 @@ impl VmInner {
         // its backing field (`VmInner::window_name`) is initialised to
         // an empty string and updated by the setter.
         self.install_rw_accessors(proto_id, WINDOW_RW_ACCESSORS);
+        // `localStorage` / `sessionStorage` accessor pair (WHATWG HTML
+        // §11.2).  Read-only getter that returns the cached `Storage`
+        // wrapper from `VmInner::alloc_or_cached_storage` so
+        // `localStorage === localStorage` holds (`[SameObject]`).
+        self.install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS);
 
         self.window_prototype = Some(proto_id);
     }
@@ -370,3 +375,31 @@ const WINDOW_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
 
 const WINDOW_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] =
     &[("name", native_window_get_name, native_window_set_name)];
+
+const WINDOW_STORAGE_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
+    ("localStorage", native_window_get_local_storage),
+    ("sessionStorage", native_window_get_session_storage),
+];
+
+/// `window.localStorage` getter (WHATWG HTML §11.2).  `[SameObject]`:
+/// returns the same `Storage` wrapper across reads, allocated lazily
+/// on the first access via [`crate::vm::VmInner::alloc_or_cached_storage`].
+fn native_window_get_local_storage(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = ctx.vm.alloc_or_cached_storage(true);
+    Ok(JsValue::Object(id))
+}
+
+/// `window.sessionStorage` getter — sibling of
+/// [`native_window_get_local_storage`] for the per-VM in-memory area.
+fn native_window_get_session_storage(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = ctx.vm.alloc_or_cached_storage(false);
+    Ok(JsValue::Object(id))
+}

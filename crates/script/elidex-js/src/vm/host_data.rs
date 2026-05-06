@@ -18,7 +18,22 @@ mod engine_feature {
     use super::super::value::ObjectId;
     use elidex_ecs::{Entity, NodeKind};
     use elidex_script_session::ListenerId;
+    use elidex_storage_core::{SessionStorageState, WebStorageManager};
     use std::collections::{HashMap, HashSet};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
+    /// Per-process counter for opaque-origin sentinels (e.g. `about:blank`,
+    /// `data:` URLs).  Each `HostData` claims one ID at construction time
+    /// and uses it to scope `localStorage` entries so two opaque-origin
+    /// VMs do not see each other's data through the manager's
+    /// origin-keyed registry.  Resets on process restart.
+    static OPAQUE_ORIGIN_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn next_opaque_origin_id() -> String {
+        let n = OPAQUE_ORIGIN_COUNTER.fetch_add(1, Ordering::Relaxed);
+        format!("opaque-origin:{n}")
+    }
 
     /// Four-way partition of DOM wrapper prototype chains used by
     /// `VmInner::create_element_wrapper`.  The
@@ -162,6 +177,38 @@ mod engine_feature {
         /// reference cannot pin the JS wrapper.  Same retain-across-
         /// unbind contract as [`Self::mutation_observer_callbacks`].
         pub(crate) mutation_observer_instances: HashMap<u64, ObjectId>,
+        /// Origin-scoped `localStorage` backend (WHATWG HTML §11.2).
+        /// Wrapped in `Arc` so multiple `HostData` instances (e.g. one
+        /// per browsing-context VM) can share a single per-process
+        /// manager + on-disk JSON tree.  `None` until the embedder
+        /// calls [`Self::install_web_storage`] — the JS-visible
+        /// `localStorage` natives operate on a private stub when no
+        /// backend is installed (no panic, but the data is per-VM
+        /// in-memory and lost on `Vm::unbind`, matching Chrome's
+        /// "cookie-averse" fallback for `document.cookie`).
+        web_storage: Option<Arc<WebStorageManager>>,
+        /// Per-VM `sessionStorage` backing (WHATWG HTML §11.2). In
+        /// memory only; cleared on `Vm::unbind` (the spec models
+        /// sessionStorage as scoped to a browsing context, so the
+        /// existing bind/unbind cycle expresses that boundary).
+        pub(crate) session_storage: SessionStorageState,
+        /// Stable per-`HostData` opaque-origin sentinel — used for
+        /// localStorage scoping when `Vm::navigation`'s URL has an
+        /// opaque origin (`about:blank`, `data:`, …).  Generated at
+        /// `HostData::new` via [`OPAQUE_ORIGIN_COUNTER`] so two such
+        /// VMs in the same process do not alias on the manager's
+        /// origin-keyed registry.
+        opaque_origin_sentinel: String,
+        /// Fallback in-memory `localStorage` used when no
+        /// `WebStorageManager` is installed.  Same `IndexMap` shape
+        /// as the disk-backed path so `setItem` / `getItem` / `key`
+        /// observe identical insertion-order semantics.
+        ///
+        /// Ephemeral by design: cleared on `Vm::unbind` (matching
+        /// `session_storage` lifetime).  Tests that exercise
+        /// localStorage persistence install a real
+        /// `WebStorageManager`.
+        pub(crate) fallback_local_storage: SessionStorageState,
     }
 
     /// Returns `true` when two raw pointers share their base
@@ -195,7 +242,37 @@ mod engine_feature {
                 mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
                 mutation_observer_callbacks: HashMap::new(),
                 mutation_observer_instances: HashMap::new(),
+                web_storage: None,
+                session_storage: SessionStorageState::new(),
+                opaque_origin_sentinel: next_opaque_origin_id(),
+                fallback_local_storage: SessionStorageState::new(),
             }
+        }
+
+        /// Install the shell-owned `WebStorageManager` (idempotent
+        /// replace).  Tests that exercise `localStorage` persistence
+        /// across VM lifetimes pass a `tempfile::tempdir()`-based
+        /// manager here; production embedders share one
+        /// `Arc<WebStorageManager>` across browsing-context VMs.
+        pub fn install_web_storage(&mut self, manager: Arc<WebStorageManager>) {
+            self.web_storage = Some(manager);
+        }
+
+        /// Borrow the installed `WebStorageManager`, if any.  Used by
+        /// the `vm/host/storage.rs` natives to route `getItem` /
+        /// `setItem` / `removeItem` / `clear` / `length` / `key` for
+        /// `localStorage`.  Returns `None` when no backend is
+        /// installed; callers fall back to
+        /// [`Self::fallback_local_storage`] in that case.
+        pub(crate) fn web_storage(&self) -> Option<&Arc<WebStorageManager>> {
+            self.web_storage.as_ref()
+        }
+
+        /// Stable per-VM opaque-origin string (e.g. `"opaque-origin:7"`).
+        /// Used by `vm/host/storage.rs` for `localStorage` scoping when
+        /// the current navigation URL's origin is opaque.
+        pub(crate) fn opaque_origin_sentinel(&self) -> &str {
+            &self.opaque_origin_sentinel
         }
 
         /// Install the shell-owned cookie jar.  Idempotent —

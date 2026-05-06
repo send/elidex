@@ -314,6 +314,39 @@ impl VmInner {
                 self.mutation_observer_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 64 + 1 (M4-12 slot #11-storage-web:
+                // Storage.prototype, WHATWG HTML §11.2). Chains to
+                // `Object.prototype`. Cached `localStorage` /
+                // `sessionStorage` instances are rooted via separate
+                // slots below.
+                #[cfg(feature = "engine")]
+                self.storage_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 65 + 1 = 66 (M4-12 slot #11-storage-web:
+                // StorageEvent.prototype, WHATWG HTML §11.4.2).
+                // Chains to `Event.prototype`.
+                #[cfg(feature = "engine")]
+                self.storage_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 66 + 1 = 67 — cached `localStorage` Storage
+                // instance ([SameObject] semantics).  Stored as an
+                // intrinsic root rather than a wrapper-cache entry
+                // because it has no owner Entity to weak-anchor on;
+                // cleared on `Vm::unbind` to avoid cross-origin
+                // leakage.
+                #[cfg(feature = "engine")]
+                self.storage_local_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 67 + 1 = 68 — cached `sessionStorage` Storage
+                // instance.  Same lifecycle as
+                // `storage_local_instance`.
+                #[cfg(feature = "engine")]
+                self.storage_session_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

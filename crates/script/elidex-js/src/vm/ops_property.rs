@@ -86,6 +86,18 @@ impl VmInner {
                         return result;
                     }
                 }
+                // Storage (localStorage / sessionStorage) named-
+                // property exotic [[Get]] — `localStorage.k` reads
+                // the stored value, falling through to prototype
+                // for built-in method names.
+                #[cfg(feature = "engine")]
+                if matches!(self.get_object(id).kind, ObjectKind::Storage { .. }) {
+                    if let Some(result) =
+                        super::host::storage::try_get(self, id, JsValue::String(key))
+                    {
+                        return result;
+                    }
+                }
                 if id == self.global_object {
                     if let Some(result) = get_property(self, id, pk) {
                         return self.resolve_property(result, obj);
@@ -293,6 +305,22 @@ impl VmInner {
                 }
             }
         }
+        // Storage named-property exotic [[Delete]] — `delete
+        // localStorage.k` removes the stored entry.  Built-in method
+        // names fall through to the ordinary delete path (WebIDL §3.10
+        // non-`[LegacyOverrideBuiltIns]`).
+        #[cfg(feature = "engine")]
+        if matches!(
+            self.get_object(id).kind,
+            super::value::ObjectKind::Storage { .. }
+        ) {
+            if let PropertyKey::String(sid) = pk {
+                let result = super::host::storage::try_delete(self, id, JsValue::String(sid));
+                if let Some(r) = result {
+                    return r;
+                }
+            }
+        }
         // Check existence and configurability while still in Shaped mode
         // to avoid unnecessary Dictionary conversion.
         {
@@ -462,6 +490,17 @@ impl VmInner {
         ) {
             if let Some(result) =
                 super::host::dataset::try_set(self, target_id, JsValue::String(key), val)
+            {
+                return result;
+            }
+        }
+        // Storage named-property exotic [[Set]] — `localStorage.k =
+        // v` writes via the storage backend; setItem path enforces
+        // the 5 MiB origin quota.
+        #[cfg(feature = "engine")]
+        if matches!(self.get_object(target_id).kind, ObjectKind::Storage { .. }) {
+            if let Some(result) =
+                super::host::storage::try_set(self, target_id, JsValue::String(key), val)
             {
                 return result;
             }

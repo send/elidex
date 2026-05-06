@@ -619,6 +619,19 @@ pub(super) fn native_object_get_own_property_descriptor(
             )));
         }
     }
+    // Storage named-property exotic [[GetOwnProperty]] — supported
+    // names are own properties (writable/enumerable/configurable per
+    // WebIDL §3.10) so `Object.getOwnPropertyDescriptor(localStorage,
+    // 'k')` reflects the stored entry.
+    #[cfg(feature = "engine")]
+    if matches!(ctx.get_object(obj_id).kind, ObjectKind::Storage { .. }) {
+        if let Some(result) = super::host::storage::try_get(ctx.vm, obj_id, prop) {
+            let value = result?;
+            return Ok(JsValue::Object(build_data_descriptor(
+                ctx, value, true, true, true,
+            )));
+        }
+    }
     let key = to_property_key(ctx, prop)?;
     let result = ctx.get_object(obj_id).storage.get(key, &ctx.vm.shapes);
     let Some((slot, attrs)) = result else {
@@ -964,6 +977,14 @@ pub(super) fn native_object_has_own_property(
     #[cfg(feature = "engine")]
     if matches!(ctx.get_object(obj_id).kind, ObjectKind::DOMStringMap { .. }) {
         if let Some(result) = super::host::dataset::try_has(ctx.vm, obj_id, prop) {
+            return result.map(JsValue::Boolean);
+        }
+    }
+    // Storage `hasOwnProperty` — stored keys are own properties at
+    // the WebIDL level.
+    #[cfg(feature = "engine")]
+    if matches!(ctx.get_object(obj_id).kind, ObjectKind::Storage { .. }) {
+        if let Some(result) = super::host::storage::try_has(ctx.vm, obj_id, prop) {
             return result.map(JsValue::Boolean);
         }
     }

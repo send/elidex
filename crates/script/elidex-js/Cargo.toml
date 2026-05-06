@@ -21,6 +21,7 @@ engine = [
     "elidex-dom-api",
     "elidex-api-observers",
     "elidex-form",
+    "elidex-storage-core",
     "bytes",
     "encoding_rs",
 ]
@@ -65,6 +66,11 @@ elidex-api-observers = { workspace = true, optional = true }
 # consumed by upcoming HTMLFormElement / HTMLInputElement prototype
 # bindings.  Currently dep-only.
 elidex-form = { workspace = true, optional = true }
+# `WebStorageManager` + `SessionStorageState` backing the WHATWG
+# HTML §11.2 Storage VM thin binding (slot #11-storage-web).
+# Engine-gated because the Storage surface depends on the
+# engine-only Window prototype + DOMException mapping.
+elidex-storage-core = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

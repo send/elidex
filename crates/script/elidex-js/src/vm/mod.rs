@@ -390,6 +390,29 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) mutation_observer_prototype: Option<ObjectId>,
+    /// `Storage.prototype` (WHATWG HTML §11.2).  Chains to
+    /// `Object.prototype` and carries `getItem` / `setItem` /
+    /// `removeItem` / `clear` / `key` / `length`.  `None` until
+    /// `register_storage_global()` runs during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) storage_prototype: Option<ObjectId>,
+    /// `StorageEvent.prototype` (WHATWG HTML §11.4.2).  Chains to
+    /// `Event.prototype`.  `None` until
+    /// `register_storage_event_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) storage_event_prototype: Option<ObjectId>,
+    /// Cached `Storage` wrapper for `window.localStorage`
+    /// (`[SameObject]` per WebIDL — same `ObjectId` returned across
+    /// reads for the lifetime of one bind cycle).  Cleared on
+    /// `Vm::unbind` to avoid cross-origin data leaking through a
+    /// retained reference after a rebind to a different document.
+    #[cfg(feature = "engine")]
+    pub(crate) storage_local_instance: Option<ObjectId>,
+    /// Cached `Storage` wrapper for `window.sessionStorage` —
+    /// mirror of [`Self::storage_local_instance`].  Cleared on
+    /// `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) storage_session_instance: Option<ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
     /// [`Self::html_element_prototype`] (after PR5b splice) so

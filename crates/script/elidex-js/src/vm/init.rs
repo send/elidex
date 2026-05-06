@@ -137,6 +137,14 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 mutation_observer_prototype: None,
                 #[cfg(feature = "engine")]
+                storage_prototype: None,
+                #[cfg(feature = "engine")]
+                storage_event_prototype: None,
+                #[cfg(feature = "engine")]
+                storage_local_instance: None,
+                #[cfg(feature = "engine")]
+                storage_session_instance: None,
+                #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,

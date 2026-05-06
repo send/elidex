@@ -9,6 +9,7 @@ pub mod origin_manager;
 pub mod quota;
 pub mod sqlite;
 pub mod util;
+pub mod web_storage;
 
 pub use backend::{
     CustomOp, Migration, OpenOptions, StorageBackend, StorageConnection, StorageOp, StorageResult,
@@ -19,3 +20,4 @@ pub use origin_manager::{OriginKey, OriginStorageManager, StorageType};
 pub use quota::{QuotaEstimate, QuotaManager};
 pub use sqlite::{SqliteBackend, SqliteConnection};
 pub use util::sanitize_sql_name;
+pub use web_storage::{SessionStorageState, StorageArea, WebStorageManager, STORAGE_QUOTA_BYTES};

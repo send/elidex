@@ -472,6 +472,34 @@ define_well_known_strings! {
         attribute_name => "attributeName",
     }
 
+    "Storage / StorageEvent (slot #11-storage-web)" {
+        // Constructor / global identifier names (WHATWG HTML §11.2).
+        // `localStorage` / `sessionStorage` are accessor properties
+        // installed on `Window.prototype` (matching the
+        // `[SameObject]` semantics of the Storage interface — the
+        // getter returns a single cached wrapper per area).
+        local_storage_global => "localStorage",
+        session_storage_global => "sessionStorage",
+        storage_global => "Storage",
+        storage_event_global => "StorageEvent",
+        // Method names on `Storage.prototype`.  `clear` / `key` /
+        // `length` are reused from earlier sections.
+        get_item => "getItem",
+        set_item => "setItem",
+        remove_item => "removeItem",
+        clear_method => "clear",
+        // `StorageEvent` IDL attribute name not already present.
+        // `key` / `oldValue` / `newValue` / `url` already live in
+        // earlier sections and are reused here.
+        storage_area => "storageArea",
+        // DOMException name surfaced when `setItem` exceeds the
+        // 5 MiB origin quota (WHATWG HTML §11.2.1 +
+        // `StorageError::quota_exceeded` round-trip).  Pre-interned
+        // here so the `vm/host/storage.rs` quota path can produce
+        // the DOMException without a per-call `strings.intern(...)`.
+        dom_exc_quota_exceeded_error => "QuotaExceededError",
+    }
+
     "DOMTokenList / DOMStringMap (slot #11-classlist-dataset)" {
         // `Element.classList` (DOMTokenList) accessor + method names.
         // `length` / `value` / `item` / `contains` already live in the

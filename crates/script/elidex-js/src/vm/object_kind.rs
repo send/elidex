@@ -646,6 +646,36 @@ pub enum ObjectKind {
     /// callback intact.
     #[cfg(feature = "engine")]
     MutationObserver { observer_id: u64 },
+    /// `Storage` instance backing `window.localStorage` /
+    /// `window.sessionStorage` (WHATWG HTML §11.2).
+    ///
+    /// Carries the area discriminator inline (`is_local: true` for
+    /// localStorage, `false` for sessionStorage). Identity is preserved
+    /// via `VmInner::storage_local_instance` /
+    /// `VmInner::storage_session_instance` — the Window getters return
+    /// the cached `ObjectId` so `localStorage === localStorage` (WebIDL
+    /// `[SameObject]`). The wrapper itself is stateless; every method
+    /// reads through to `HostData::web_storage` (origin-scoped JSON
+    /// persistence) for `Local` and `HostData::session_storage`
+    /// (per-VM in-memory `IndexMap`) for `Session`.
+    ///
+    /// GC contract: payload-free in trace terms (`is_local: bool` is
+    /// not an `ObjectId`); the caches in `VmInner` are cleared on
+    /// `Vm::unbind` so a retained reference cannot leak the previous
+    /// origin's data after a rebind.
+    #[cfg(feature = "engine")]
+    Storage { is_local: bool },
+    /// `StorageEvent` instance (WHATWG HTML §11.4.2). Subclass of
+    /// `Event`; the `key` / `oldValue` / `newValue` / `url` /
+    /// `storageArea` attributes live as own-data props at terminal
+    /// shape `precomputed_event_shapes.storage`.  No side-table state
+    /// — payload is fully shape-resident.
+    ///
+    /// GC contract: this variant carries no inline `ObjectId`; the
+    /// shape-resident `storageArea` slot (potentially a Storage
+    /// reference) is traced via the ordinary shaped-storage walk.
+    #[cfg(feature = "engine")]
+    StorageEvent,
 }
 
 impl ObjectKind {
