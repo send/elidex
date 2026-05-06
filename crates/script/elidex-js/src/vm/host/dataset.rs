@@ -36,7 +36,8 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, StringId, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, StringId,
+    VmError,
 };
 use super::super::VmInner;
 use super::dom_bridge::invoke_dom_api;
@@ -118,6 +119,32 @@ fn is_bound(vm: &VmInner) -> bool {
         .is_some_and(super::super::host_data::HostData::is_bound)
 }
 
+/// WebIDL §3.10 named-property visibility — DOMStringMap is *not*
+/// `[LegacyOverrideBuiltIns]`, so a key already exposed as an own
+/// property on any object in the prototype chain (`DOMStringMap.prototype`
+/// → `Object.prototype` → null) MUST take precedence over the
+/// supported-name → `data-*` mapping.  Returns `true` when the
+/// dispatch sites should fall through to the ordinary [[Get]] /
+/// [[HasProperty]] / [[Delete]] / [[Set]] / [[OwnPropertyKeys]]
+/// path so inherited members like `Object.prototype.toString` /
+/// `Object.prototype.hasOwnProperty` are not shadowed by a
+/// hypothetical `data-toString` / `data-hasOwnProperty` attribute.
+fn key_on_prototype_chain(vm: &VmInner, dataset_id: ObjectId, key_sid: StringId) -> bool {
+    let mut current = vm.get_object(dataset_id).prototype;
+    while let Some(proto_id) = current {
+        let proto = vm.get_object(proto_id);
+        if proto
+            .storage
+            .get(PropertyKey::String(key_sid), &vm.shapes)
+            .is_some()
+        {
+            return true;
+        }
+        current = proto.prototype;
+    }
+    false
+}
+
 /// `[[HasProperty]]` trap (WebIDL §3.10 named-property exotic).
 /// Returns `Some(true)` when the key names a present `data-*`
 /// attribute (so `'fooBar' in el.dataset` is true after
@@ -139,6 +166,9 @@ pub(crate) fn try_has(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    if key_on_prototype_chain(vm, id, sid) {
+        return None;
+    }
     if !is_bound(vm) {
         return None;
     }
@@ -173,6 +203,9 @@ pub(crate) fn try_get(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    if key_on_prototype_chain(vm, id, sid) {
+        return None;
+    }
     if !is_bound(vm) {
         return None;
     }
@@ -199,6 +232,9 @@ pub(crate) fn try_set(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    if key_on_prototype_chain(vm, id, key_sid) {
+        return None;
+    }
     let val_sid = match super::super::coerce::to_string(vm, value) {
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
@@ -231,6 +267,9 @@ pub(crate) fn try_delete(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    if key_on_prototype_chain(vm, id, key_sid) {
+        return None;
+    }
     if !is_bound(vm) {
         return Some(Ok(true));
     }
@@ -268,7 +307,17 @@ pub(crate) fn collect_keys(
             } else {
                 joined.split('\0').map(|s| vm.strings.intern(s)).collect()
             };
-            Ok(keys)
+            // WebIDL §3.10 named-property visibility — drop any key
+            // whose own-property descriptor would have been
+            // shadowed by `Object.prototype` so `Object.keys(dataset)`
+            // never surfaces a stub like `"toString"` even if a
+            // `data-toString` attribute exists.  The shadowed key
+            // remains accessible via `el.getAttribute("data-toString")`.
+            let filtered = keys
+                .into_iter()
+                .filter(|sid| !key_on_prototype_chain(vm, id, *sid))
+                .collect();
+            Ok(filtered)
         }
         _ => Err(VmError::type_error(
             "DOMStringMap dataset.keys must return a string",

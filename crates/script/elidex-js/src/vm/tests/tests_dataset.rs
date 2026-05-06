@@ -246,6 +246,81 @@ fn dataset_in_operator_inherited_methods_visible() {
     assert_eq!(out, "true/true/true");
 }
 
+// --- WebIDL §3.10 LegacyOverrideBuiltIns absent (R5 #1) ----------
+//
+// DOMStringMap is *not* `[LegacyOverrideBuiltIns]`; a `data-*`
+// attribute whose camelCase key collides with an `Object.prototype`
+// member MUST NOT shadow the inherited member — the named-property
+// exotic [[Get]] / [[HasProperty]] / [[Delete]] / [[Set]] /
+// [[OwnPropertyKeys]] traps fall through to the ordinary path.
+// Tests use kebab-case attribute names (`data-to-string`) since
+// HTML attribute storage lowercases names; the camel-conversion
+// (`data-to-string` → `toString`) is what materialises the
+// prototype-collision case.
+
+#[test]
+fn dataset_does_not_shadow_object_prototype_to_string() {
+    // Even with a `data-to-string` attribute set, `dataset.toString`
+    // must remain a function (`Object.prototype.toString`), not the
+    // attribute value.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-to-string', 'shadow'); \
+         (typeof d.dataset.toString === 'function') ? 'function' : 'string';");
+    assert_eq!(out, "function");
+}
+
+#[test]
+fn dataset_does_not_shadow_object_prototype_has_own_property() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-has-own-property', 'shadow'); \
+         (typeof d.dataset.hasOwnProperty === 'function') ? 'function' : 'string';");
+    assert_eq!(out, "function");
+}
+
+#[test]
+fn dataset_in_operator_with_shadowed_key_returns_true_via_prototype() {
+    // `'toString' in dataset` must be true (Object.prototype has it),
+    // even when `data-to-string` exists.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-to-string', 'shadow'); \
+         '' + ('toString' in d.dataset);");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn dataset_object_keys_filters_shadowed_keys() {
+    // Object.keys(dataset) must NOT surface 'toString' even when
+    // `data-to-string` is set.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-to-string', 'shadow'); \
+         d.setAttribute('data-foo', '1'); \
+         Object.keys(d.dataset).join(',');");
+    assert_eq!(out, "foo");
+}
+
+#[test]
+fn dataset_set_with_shadowed_key_does_not_create_data_attr() {
+    // `dataset.toString = 'x'` must fall through to ordinary [[Set]]
+    // on the sealed wrapper.  Whether that throws TypeError or
+    // silently fails depends on strict-mode context; in either case
+    // the `data-to-string` attribute MUST NOT be created.
+    let out = run("var d = document.createElement('div'); \
+         try { d.dataset.toString = 'x'; } catch (e) {} \
+         '' + d.hasAttribute('data-to-string');");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn dataset_shadowed_key_still_reachable_via_get_attribute() {
+    // The `data-to-string` attribute is still reachable through
+    // `getAttribute('data-to-string')` — only the dataset trap layer
+    // is required to fall through to inherited members.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-to-string', 'attr-value'); \
+         d.getAttribute('data-to-string');");
+    assert_eq!(out, "attr-value");
+}
+
 #[test]
 fn dataset_has_own_property_reflects_attr() {
     let out = run("var d = document.createElement('div'); \
