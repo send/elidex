@@ -77,6 +77,25 @@ fn mutation_observer_constructor_creates_instance() {
 }
 
 #[test]
+fn mutation_observer_constructor_without_host_data_throws() {
+    // Regression: prior implementation called `ctx.host()`
+    // unconditionally, panicking when JS executed before
+    // `Vm::install_host_data` (e.g. embedder ergonomics tests or
+    // any pre-bind `vm.eval`).  The constructor must surface a
+    // TypeError instead so `try { new MutationObserver(...) }
+    // catch (e) {}` works pre-init.
+    let mut vm = Vm::new();
+    let err = vm
+        .eval("new MutationObserver(function(){})")
+        .expect_err("constructor must error pre-install_host_data");
+    let err_text = format!("{err:?}");
+    assert!(
+        err_text.contains("host environment is not initialised"),
+        "expected pre-init TypeError, got: {err_text}"
+    );
+}
+
+#[test]
 fn mutation_observer_constructor_requires_callable() {
     let err = run_throws("new MutationObserver(123);");
     assert!(

@@ -29,14 +29,20 @@
 //! observer ID inline (`observer_id: u64`); the JS object itself
 //! has no other own state.
 //!
-//! ## Post-unbind tolerance
+//! ## Lifecycle preconditions
 //!
-//! User code can retain a `MutationObserver` reference across
-//! [`super::super::Vm::unbind`].  Each native checks
-//! `ctx.host_if_bound()` first and returns a safe no-op
-//! (`takeRecords` → empty array, `observe` / `disconnect` →
-//! undefined).  Constructor calls are top-level and unreachable
-//! while unbound (no JS executes).
+//! - **Constructor** (`new MutationObserver(cb)`) requires
+//!   [`super::super::Vm::install_host_data`] to have been called.
+//!   It does *not* require a bound `EcsDom`/`SessionCore`, because
+//!   callback / instance bookkeeping lives entirely on the
+//!   `HostData`-owned side tables (no DOM pointer access during
+//!   construction).  Pre-`install_host_data` calls return a
+//!   `TypeError` rather than panicking via
+//!   [`super::super::native_context::NativeContext::host`].
+//! - **Method natives** (`observe` / `disconnect` / `takeRecords`)
+//!   check `ctx.host_if_bound()` first and return a safe no-op
+//!   (empty array / `undefined`) so a retained `mo` reference
+//!   survives a [`super::super::Vm::unbind`] boundary.
 
 #![cfg(feature = "engine")]
 
@@ -166,6 +172,16 @@ fn native_mutation_observer_constructor(
         unreachable!("constructor `this` is always an Object after `do_new`");
     };
 
+    // Pre-`install_host_data` guard: callback / instance bookkeeping
+    // lives on `HostData` side tables, so without it there's nowhere
+    // to store the JS callback.  A bare `ctx.host()` would panic
+    // (`HostData accessed while unbound` is the bound-state assert,
+    // but `host()` itself panics earlier when `host_data` is `None`).
+    if ctx.host_opt().is_none() {
+        return Err(VmError::type_error(
+            "Failed to construct 'MutationObserver': host environment is not initialised",
+        ));
+    }
     // Allocate an observer ID in the registry, then promote the
     // pre-allocated Ordinary instance to `MutationObserver` so the
     // `new.target.prototype` chain installed by `do_new` is preserved
