@@ -251,10 +251,13 @@ fn native_class_list_add(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "add")?;
-    // Coerce every arg first so SyntaxError / InvalidCharacterError
-    // are still raised post-unbind (matches the bound-state observable
-    // pattern: "throw on first invalid token, mutate nothing later").
-    // Coercion (`to_string`) only throws TypeError for Symbol args.
+    // Coerce every arg up front so the only `TypeError` that can
+    // surface — `ToString(Symbol)` — is still observable post-unbind.
+    // Handler-side `SyntaxError` / `InvalidCharacterError` checks
+    // are gated by the bound-state guard below: post-unbind callers
+    // get a silent no-op (no DOM exists to mutate or validate
+    // against), matching the rest of the post-unbind tolerance
+    // contract (NamedNodeMap mutators / Attr setters etc.).
     let mut sids = Vec::with_capacity(args.len());
     for arg in args {
         sids.push(super::super::coerce::to_string(ctx.vm, *arg)?);
@@ -274,6 +277,9 @@ fn native_class_list_remove(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "remove")?;
+    // Same coerce-then-gate pattern as `add`: ToString TypeError
+    // surfaces regardless of bound state; handler validation only
+    // runs when bound.
     let mut sids = Vec::with_capacity(args.len());
     for arg in args {
         sids.push(super::super::coerce::to_string(ctx.vm, *arg)?);

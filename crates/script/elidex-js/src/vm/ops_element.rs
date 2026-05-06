@@ -302,8 +302,13 @@ impl VmInner {
             }
 
             // DOMTokenList (Element.classList) indexed-property
-            // exotic — `tokens[i]` returns the i-th token string,
-            // out-of-range and non-canonical keys fall through.
+            // exotic — `tokens[i]` returns the i-th token string for
+            // an in-range integer index.  Out-of-range integer
+            // indices short-circuit to `Undefined` (browsers do not
+            // surface inherited `Object.prototype` members at numeric
+            // indices); only non-canonical numeric or non-numeric
+            // keys fall through to the regular `Object` property
+            // dispatch / prototype chain.
             #[cfg(feature = "engine")]
             if matches!(self.get_object(id).kind, ObjectKind::DOMTokenList { .. }) {
                 if let Some(result) = super::host::class_list::try_indexed_get(self, id, key) {
