@@ -117,6 +117,51 @@ mod engine_feature {
         /// the setter is a no-op in that case (the
         /// "cookie-averse" path of WHATWG §6.5.2).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+        /// `MutationObserver` registry (WHATWG DOM §4.3) — owns the
+        /// per-observer target list, options, and pending records.
+        /// Held here (rather than on `VmInner`) so the registry's
+        /// lifetime tracks the bound DOM world: `Vm::unbind` clears
+        /// per-observer target lists via
+        /// `MutationObserverRegistry::clear_all_targets` to avoid
+        /// cross-`EcsDom` Entity aliasing on rebind, while observer
+        /// IDs and registrations themselves stay live so a JS
+        /// reference held to a `MutationObserver` instance across
+        /// the unbind boundary continues to brand-check.
+        pub(crate) mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry,
+        /// JS callback `ObjectId` per observer ID.  Keyed by the
+        /// raw `MutationObserverId` u64 (matches the inline
+        /// `ObjectKind::MutationObserver { observer_id }` payload)
+        /// and rooted via [`Self::gc_root_object_ids`] so the
+        /// callback survives any GC cycle while the observer is
+        /// alive.
+        ///
+        /// **Retained across `Vm::unbind`** — the map is keyed by
+        /// VM-monotonic `observer_id`, not by `Entity` or recycled
+        /// `ObjectId`, so cross-DOM aliasing does not apply.  A
+        /// retained `mo` reference can re-`observe` after a rebind
+        /// (same or different DOM) and have its callback fire.
+        /// Trade-off: this map (and its sibling
+        /// `mutation_observer_instances`) grows monotonically with
+        /// the count of `new MutationObserver()` calls and is never
+        /// shrunk — `disconnect()` does not remove the entry, and
+        /// `Vm::unbind` intentionally retains it.  Long-lived VMs
+        /// that churn many observers would accumulate dead entries;
+        /// weak-rooting / sweep-time cleanup is tracked at
+        /// `#11-mutation-observer-extras`.
+        pub(crate) mutation_observer_callbacks: HashMap<u64, ObjectId>,
+        /// Reverse lookup from observer ID to the JS instance
+        /// `ObjectId`.  Needed at delivery time so the embedder can
+        /// pass the same `MutationObserver` JS object back as the
+        /// callback's `this` and second argument (WHATWG DOM §4.3.4).
+        /// Also rooted via [`Self::gc_root_object_ids`] — without
+        /// this root, a user that calls `new
+        /// MutationObserver(cb)`-and-immediately-drops would let the
+        /// instance be collected before its first delivery; the
+        /// registry-side `observer_id` is just `u64`, so the
+        /// per-spec "registered observer keeps target alive"
+        /// reference cannot pin the JS wrapper.  Same retain-across-
+        /// unbind contract as [`Self::mutation_observer_callbacks`].
+        pub(crate) mutation_observer_instances: HashMap<u64, ObjectId>,
     }
 
     /// Returns `true` when two raw pointers share their base
@@ -147,6 +192,9 @@ mod engine_feature {
                 wrapper_cache: HashMap::new(),
                 focused_entity: None,
                 cookie_jar: None,
+                mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
+                mutation_observer_callbacks: HashMap::new(),
+                mutation_observer_instances: HashMap::new(),
             }
         }
 
@@ -417,6 +465,49 @@ mod engine_feature {
             dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
         }
 
+        /// Borrow the bound DOM (shared) and the
+        /// [`elidex_api_observers::mutation::MutationObserverRegistry`]
+        /// (exclusive) simultaneously via disjoint field projection.
+        ///
+        /// Lets [`super::super::Vm::deliver_mutation_records`] hand
+        /// [`elidex_ecs::EcsDom::is_ancestor_or_self`] to the
+        /// registry's subtree-ancestry callback while keeping the
+        /// `&mut MutationObserverRegistry` borrowed for
+        /// [`elidex_api_observers::mutation::MutationObserverRegistry::notify`].
+        ///
+        /// Without this disjoint projection, the natural form
+        /// `let dom = host.dom(); host.mutation_observers.notify(...)`
+        /// would conflict — `host.dom()` re-borrows `&mut self` to
+        /// hand back a `&mut EcsDom`, and the closure inside `notify`
+        /// would alias that `&mut`.
+        ///
+        /// # Safety
+        ///
+        /// Same `dom_ptr` aliasing contract as [`Self::dom_shared`] —
+        /// callers must not invoke any sibling `host()` / `host().dom()`
+        /// path while either of the returned references is live.  The
+        /// `EcsDom` allocation is disjoint from the `HostData`'s
+        /// registry storage by `bind`'s "disjoint allocations"
+        /// contract, so the `&EcsDom` and `&mut MutationObserverRegistry`
+        /// cannot alias.
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_and_observers(
+            &mut self,
+        ) -> (
+            &elidex_ecs::EcsDom,
+            &mut elidex_api_observers::mutation::MutationObserverRegistry,
+        ) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: see method-level safety comment.  `dom_ptr` is
+            // the bound `&mut EcsDom` supplied by the most recent
+            // `bind()`; we only synthesise a shared ref here, and
+            // the returned `&mut MutationObserverRegistry` projects
+            // a disjoint field (the registry lives inside
+            // `HostData` itself, not behind `dom_ptr`).
+            let dom = unsafe { &*self.dom_ptr };
+            (dom, &mut self.mutation_observers)
+        }
+
         /// ASCII-case-insensitive tag-name match — used by
         /// `create_element_wrapper`'s per-tag prototype dispatch
         /// (e.g. `<iframe>` → `HTMLIFrameElement.prototype`).
@@ -596,6 +687,8 @@ mod engine_feature {
                 .values()
                 .copied()
                 .chain(self.wrapper_cache.values().copied())
+                .chain(self.mutation_observer_callbacks.values().copied())
+                .chain(self.mutation_observer_instances.values().copied())
         }
     }
 

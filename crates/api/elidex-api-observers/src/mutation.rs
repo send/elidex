@@ -141,6 +141,40 @@ impl MutationObserverRegistry {
         }
     }
 
+    /// **Internal coupling — not a supported public API.**  Drain
+    /// every observer's target list and pending records, keeping
+    /// observer IDs registered.
+    ///
+    /// `pub fn` is required because this crate is consumed across a
+    /// crate boundary by `elidex-js::Vm::unbind`, but `#[doc(hidden)]`
+    /// signals "do not depend on this from external code".  External
+    /// callers ignoring that signal will get no semver guarantee:
+    /// the visibility / signature / location may change in any
+    /// release.  A sealed-trait or feature-gate refactor that
+    /// formalises the engine↔registry coupling without leaking
+    /// surface area is tracked at `#11-mutation-observer-extras`.
+    ///
+    /// **Use only from a VM bind/unbind cycle.**  Calling this from
+    /// any other context silently invalidates every active
+    /// observation across the embedder, breaking the spec contract
+    /// that an `observe()` call remains in effect until matching
+    /// `disconnect()`.
+    ///
+    /// Rationale: after `unbind`, two `EcsDom::new()` worlds share
+    /// `Entity` index space — without draining targets here, a
+    /// post-rebind `notify` would match a `target` Entity that
+    /// happens to collide with an observation registered against the
+    /// previous world.  Observer IDs themselves are monotonic per-VM
+    /// and stay live so post-unbind method calls on retained JS
+    /// instances continue to brand-check.
+    #[doc(hidden)]
+    pub fn clear_all_targets(&mut self) {
+        for entry in &mut self.observers {
+            entry.targets.clear();
+            entry.records.clear();
+        }
+    }
+
     /// Queue matching records from a session-level `MutationRecord` to all interested observers.
     ///
     /// `is_descendant_fn` checks whether a `target` is a descendant of an `ancestor`

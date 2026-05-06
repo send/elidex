@@ -1998,6 +1998,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "criterion",
+ "elidex-api-observers",
  "elidex-css",
  "elidex-dom-api",
  "elidex-ecs",

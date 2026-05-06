@@ -383,6 +383,13 @@ pub(crate) struct VmInner {
     /// pruned in the GC sweep tail.
     #[cfg(feature = "engine")]
     pub(crate) dataset_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `MutationObserver.prototype` (WHATWG DOM §4.3).  Chains to
+    /// `Object.prototype` and carries the `observe` / `disconnect` /
+    /// `takeRecords` methods.  `None` until
+    /// `register_mutation_observer_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) mutation_observer_prototype: Option<ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
     /// [`Self::html_element_prototype`] (after PR5b splice) so

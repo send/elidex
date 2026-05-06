@@ -333,6 +333,29 @@ impl Vm {
             // Clearing here keeps post-rebind lookups allocate-fresh.
             self.inner.class_list_wrapper_cache.clear();
             self.inner.dataset_wrapper_cache.clear();
+            // `mutation_observers.clear_all_targets()` drains every
+            // observer's target list + record queue so a post-rebind
+            // `notify` cannot match a `target` Entity that happens to
+            // collide with an observation registered against the
+            // previous `EcsDom` world (two `EcsDom::new()` worlds
+            // share Entity index space).  Observer IDs themselves
+            // stay live in the registry so brand checks on retained
+            // JS instances continue to succeed.
+            //
+            // `mutation_observer_callbacks` /
+            // `mutation_observer_instances` are intentionally NOT
+            // cleared here — they are keyed by VM-monotonic
+            // `observer_id` (not by `Entity` or recycled `ObjectId`),
+            // so cross-DOM aliasing does not apply, and a retained
+            // `mo` that re-observes after a rebind needs its callback
+            // intact to fire.  The trade-off is a bounded leak per
+            // `new MutationObserver()` call (callback + instance
+            // wrapper rooted until the VM drops); cleanup belongs to
+            // a future weak-rooting design tracked in
+            // `#11-mutation-observer-extras`.
+            if let Some(hd) = self.inner.host_data.as_deref_mut() {
+                hd.mutation_observers.clear_all_targets();
+            }
             // `attr_wrapper_cache` is keyed by `(Entity, StringId)`
             // and faces the same cross-DOM aliasing — `el2.getAttributeNode('id')`
             // after a rebind would otherwise resolve through the
@@ -340,6 +363,49 @@ impl Vm {
             // index slot is shared between `EcsDom::new()` worlds.
             self.inner.attr_wrapper_cache.clear();
         }
+    }
+
+    /// Deliver session-level `MutationRecord`s to every registered
+    /// `MutationObserver` (WHATWG DOM §4.3.4).
+    ///
+    /// This is an **embedder API** — the VM does not auto-deliver
+    /// mutation records.  Embedders call this once per script-task
+    /// boundary so callbacks fire as part of the WHATWG "queue a
+    /// mutation observer microtask" semantics.  Standalone tests
+    /// must call this explicitly between mutating the DOM and
+    /// asserting on observer side effects.
+    ///
+    /// Each session record is fed to the registry via
+    /// `MutationObserverRegistry::notify`, with a closure that
+    /// walks `EcsDom::get_parent` to test subtree-ancestry
+    /// matches.  After every record is queued, observers with
+    /// pending records are drained one at a time, their records
+    /// marshalled into JS via `mutation_record_to_js`, and their
+    /// callback invoked with `(records, observer)`.  Re-entrant
+    /// `mo.observe(other, ...)` / `mo.disconnect()` from inside a
+    /// callback is supported because the observer-id list is
+    /// captured up front and registry access between iterations is
+    /// always a fresh borrow (no nested mutation in a single
+    /// borrow).
+    ///
+    /// Trailing microtask checkpoint runs so any
+    /// `Promise.resolve().then(...)` queued from a callback fires
+    /// before this call returns — matches the `eval` /
+    /// `tick_network` policy.
+    ///
+    /// While bound, the trailing microtask checkpoint runs
+    /// unconditionally — even when no records are queued and no
+    /// observers have pending records on entry — to keep the
+    /// embedder API uniform across script-task boundaries (the
+    /// cost of an empty drain is negligible).  Post-unbind the
+    /// implementation early-returns before any work, including the
+    /// microtask drain, because no JS executes while the VM is
+    /// unbound.  Callbacks that throw are reported via `eprintln!`
+    /// and do not propagate (matches the boa-side behaviour and
+    /// "report" semantics in HTML §8.1.5).
+    #[cfg(feature = "engine")]
+    pub fn deliver_mutation_records(&mut self, records: &[elidex_script_session::MutationRecord]) {
+        self.inner.deliver_mutation_records(records);
     }
 
     /// Drain pending network events (broker `FetchResponse` replies)

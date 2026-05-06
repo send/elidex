@@ -303,6 +303,17 @@ impl VmInner {
                 self.close_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 63 + 1 (M4-12 slot #11-mutation-observer:
+                // MutationObserver) = 64.  Chains to
+                // `Object.prototype`.  Same `delete
+                // globalThis.MutationObserver` invariant as the URL
+                // prototype above — the
+                // `VmInner::mutation_observer_prototype` field
+                // retains a stale id otherwise.
+                #[cfg(feature = "engine")]
+                self.mutation_observer_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
