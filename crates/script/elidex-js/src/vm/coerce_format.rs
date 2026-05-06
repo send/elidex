@@ -16,6 +16,24 @@ use super::VmInner;
 pub(crate) fn collect_own_keys_es_order(vm: &mut VmInner, obj_id: ObjectId) -> Vec<StringId> {
     use super::value::ObjectKind;
 
+    // DOMStringMap (HTMLElement.dataset) named-property exotic
+    // [[OwnPropertyKeys]] — supported names are the camelCase form
+    // of every `data-*` attribute on the owner element (WHATWG
+    // HTML §3.2.6).  The wrapper is sealed at construction
+    // (`extensible: false`), so it cannot accumulate ordinary own
+    // properties; the supported names alone make up the full key
+    // set.  Branch off here before the ordinary key collection
+    // because `dataset.keys` needs `&mut VmInner`.
+    #[cfg(feature = "engine")]
+    {
+        let is_dataset = matches!(vm.get_object(obj_id).kind, ObjectKind::DOMStringMap { .. });
+        if is_dataset {
+            if let Some(Ok(keys)) = super::host::dataset::collect_keys(vm, obj_id) {
+                return keys;
+            }
+        }
+    }
+
     let obj = vm.get_object(obj_id);
 
     // StringWrapper: index properties "0".."n-1" are own enumerable properties

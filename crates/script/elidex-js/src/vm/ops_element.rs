@@ -300,6 +300,28 @@ impl VmInner {
                     }
                 }
             }
+
+            // DOMTokenList (Element.classList) indexed-property
+            // exotic — `tokens[i]` returns the i-th token string,
+            // out-of-range and non-canonical keys fall through.
+            #[cfg(feature = "engine")]
+            if matches!(self.get_object(id).kind, ObjectKind::DOMTokenList { .. }) {
+                if let Some(result) = super::host::class_list::try_indexed_get(self, id, key) {
+                    return result;
+                }
+            }
+            // DOMStringMap (HTMLElement.dataset) named-property
+            // exotic [[Get]] — `dataset.fooBar` reads through to the
+            // backing `data-foo-bar` attribute via the
+            // `dataset.get` handler.  Symbol keys fall through to
+            // the prototype chain (so `Symbol.iterator` / etc.
+            // resolve via `Object.prototype`).
+            #[cfg(feature = "engine")]
+            if matches!(self.get_object(id).kind, ObjectKind::DOMStringMap { .. }) {
+                if let Some(result) = super::host::dataset::try_get(self, id, key) {
+                    return result;
+                }
+            }
             // Symbol key -> direct property lookup.
             if let JsValue::Symbol(sid) = key {
                 let pk = PropertyKey::Symbol(sid);
@@ -611,6 +633,18 @@ impl VmInner {
                 let pk = PropertyKey::Symbol(sid);
                 self.ordinary_set(id, pk, val, obj)?;
                 return Ok(());
+            }
+            // DOMStringMap (HTMLElement.dataset) named-property
+            // exotic [[Set]] — `dataset.fooBar = "x"` writes the
+            // backing `data-foo-bar` attribute via the
+            // `dataset.set` handler (WHATWG HTML §3.2.6 named
+            // setter).  String-coerced keys only; Symbol keys
+            // already short-circuited above.
+            #[cfg(feature = "engine")]
+            if matches!(self.get_object(id).kind, ObjectKind::DOMStringMap { .. }) {
+                if let Some(result) = super::host::dataset::try_set(self, id, key, val) {
+                    return result;
+                }
             }
             let key_id = to_string(self, key)?;
             // Numeric-string key on Array → dense-storage fast path.

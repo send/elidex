@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 61],
+    pub(super) proto_roots: [Option<ObjectId>; 63],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -166,6 +166,18 @@ pub(super) struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     pub(super) attr_wrapper_cache:
         &'a HashMap<(elidex_ecs::Entity, super::super::value::StringId), ObjectId>,
+    /// `DOMTokenList` (`Element.classList`) wrapper identity cache.
+    /// Same weak-through-owner semantics as
+    /// [`Self::attr_wrapper_cache`] — entries are pinned only when
+    /// the owner element wrapper is still reachable.  Sweep tail
+    /// prunes entries whose value `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    pub(super) class_list_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `DOMStringMap` (`HTMLElement.dataset`) wrapper identity cache.
+    /// Same weak-through-owner semantics as
+    /// [`Self::class_list_wrapper_cache`].
+    #[cfg(feature = "engine")]
+    pub(super) dataset_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -271,6 +283,23 @@ pub(super) fn mark_roots(
         for ((entity, _), &attr_id) in roots.attr_wrapper_cache {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(attr_id, obj_marks, work);
+            }
+        }
+        // (e3) `DOMTokenList` / `DOMStringMap` identity caches —
+        // weak-through-owner like `attr_wrapper_cache` above: a
+        // cached wrapper survives only while the owner element
+        // wrapper is still rooted via `HostData::wrapper_cache`.
+        // The variants are payload-free, so a single mark suffices.
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.class_list_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.dataset_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
             }
         }
     }

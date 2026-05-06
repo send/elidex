@@ -554,6 +554,46 @@ pub(super) fn native_object_set_prototype_of(
     Ok(obj_val)
 }
 
+/// Build a plain `{value, writable, enumerable, configurable}`
+/// descriptor object for a data property — shared between the
+/// ordinary `[[GetOwnProperty]]` path below and the WebIDL named-
+/// property exotic branches (currently DOMStringMap supported
+/// names; other exotics can route through this helper as they
+/// land).
+#[cfg(feature = "engine")]
+fn build_data_descriptor(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    writable: bool,
+    enumerable: bool,
+    configurable: bool,
+) -> super::value::ObjectId {
+    let desc_id = ctx.alloc_object(Object {
+        kind: ObjectKind::Ordinary,
+        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+        prototype: ctx.vm.object_prototype,
+        extensible: true,
+    });
+    let value_key = PropertyKey::String(ctx.vm.well_known.value);
+    let writable_key = PropertyKey::String(ctx.vm.well_known.writable);
+    let enumerable_key = PropertyKey::String(ctx.vm.well_known.enumerable);
+    let configurable_key = PropertyKey::String(ctx.vm.well_known.configurable);
+    for (key, val) in [
+        (value_key, value),
+        (writable_key, JsValue::Boolean(writable)),
+        (enumerable_key, JsValue::Boolean(enumerable)),
+        (configurable_key, JsValue::Boolean(configurable)),
+    ] {
+        ctx.vm.define_shaped_property(
+            desc_id,
+            key,
+            super::value::PropertyValue::Data(val),
+            super::shape::PropertyAttrs::DATA,
+        );
+    }
+    desc_id
+}
+
 /// `Object.getOwnPropertyDescriptor(obj, prop)` — ES2020 §19.1.2.6
 pub(super) fn native_object_get_own_property_descriptor(
     ctx: &mut NativeContext<'_>,
@@ -562,6 +602,23 @@ pub(super) fn native_object_get_own_property_descriptor(
 ) -> Result<JsValue, VmError> {
     let obj_id = to_object_arg(ctx, args)?;
     let prop = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    // DOMStringMap (HTMLElement.dataset) named-property exotic
+    // [[GetOwnProperty]] — supported names ARE own properties at
+    // the WebIDL level (writable, enumerable, configurable), so
+    // `Object.getOwnPropertyDescriptor(dataset, 'fooBar')` must
+    // return a real data descriptor when `data-foo-bar` is set.
+    // Without this branch, we'd return `undefined` (sealed wrapper
+    // has no entries in `storage`), which breaks Reflect-style
+    // introspection and structuredClone-of-descriptors.
+    #[cfg(feature = "engine")]
+    if matches!(ctx.get_object(obj_id).kind, ObjectKind::DOMStringMap { .. }) {
+        if let Some(result) = super::host::dataset::try_get(ctx.vm, obj_id, prop) {
+            let value = result?;
+            return Ok(JsValue::Object(build_data_descriptor(
+                ctx, value, true, true, true,
+            )));
+        }
+    }
     let key = to_property_key(ctx, prop)?;
     let result = ctx.get_object(obj_id).storage.get(key, &ctx.vm.shapes);
     let Some((slot, attrs)) = result else {
@@ -898,6 +955,18 @@ pub(super) fn native_object_has_own_property(
 ) -> Result<JsValue, VmError> {
     let obj_id = super::coerce::to_object(ctx.vm, this)?;
     let prop = args.first().copied().unwrap_or(JsValue::Undefined);
+    // DOMStringMap (HTMLElement.dataset) named-property exotic
+    // [[GetOwnProperty]] — supported names ARE own properties at
+    // the WebIDL level, so `el.dataset.hasOwnProperty('fooBar')`
+    // must reflect `data-foo-bar` presence.  Pre-coercion (we
+    // pass the raw `prop` JsValue so Symbol keys fall through to
+    // the ordinary `to_property_key` path below).
+    #[cfg(feature = "engine")]
+    if matches!(ctx.get_object(obj_id).kind, ObjectKind::DOMStringMap { .. }) {
+        if let Some(result) = super::host::dataset::try_has(ctx.vm, obj_id, prop) {
+            return result.map(JsValue::Boolean);
+        }
+    }
     let key = to_property_key(ctx, prop)?;
     // Check storage first
     if ctx.get_object(obj_id).storage.has(key, &ctx.vm.shapes) {

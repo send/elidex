@@ -391,6 +391,36 @@ pub enum ObjectKind {
     /// prunes entries whose key `ObjectId` was collected.
     #[cfg(feature = "engine")]
     NamedNodeMap,
+    /// `DOMTokenList` instance (WHATWG DOM §3.5 / §7.1) — the
+    /// live wrapper backing `Element.classList`.  Carries the owner
+    /// `Entity` inline (`entity_bits`) so the indexed-property
+    /// exotic + the 10 `classList.*` natives can recover the owner
+    /// without a side-table lookup; every accessor re-reads the
+    /// owner's `class` attribute through the
+    /// `elidex_dom_api::class_list` handlers, so the wrapper is
+    /// stateless beyond the entity reference.
+    ///
+    /// Identity is preserved via `VmInner::class_list_wrapper_cache`
+    /// keyed by owner `Entity`.  GC contract: payload-free in trace
+    /// terms (the `entity_bits` is not an `ObjectId`); the sweep tail
+    /// prunes `class_list_wrapper_cache` entries whose value
+    /// `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    DOMTokenList { entity_bits: u64 },
+    /// `DOMStringMap` instance (WHATWG HTML §3.2.6 / WebIDL §3.10)
+    /// — the named-property exotic backing `HTMLElement.dataset`.
+    /// Carries the owner `Entity` inline.  `[[Get]]` / `[[Set]]` /
+    /// `[[Delete]]` / `[[OwnPropertyKeys]]` route through
+    /// `dataset.*` handlers in `elidex_dom_api::element::attrs`.
+    ///
+    /// Identity is preserved via `VmInner::dataset_wrapper_cache`
+    /// keyed by owner `Entity`.  GC contract: same as
+    /// [`Self::DOMTokenList`] — the `entity_bits` is not an
+    /// `ObjectId`, so trace fan-out is a no-op; the sweep tail prunes
+    /// `dataset_wrapper_cache` entries whose value `ObjectId` was
+    /// collected.
+    #[cfg(feature = "engine")]
+    DOMStringMap { entity_bits: u64 },
     /// `Attr` instance (WHATWG DOM §4.9.2) — the wrapper returned by
     /// `getAttributeNode` / `setAttributeNode` / NamedNodeMap
     /// indexed + named access.  Payload-free; the backing

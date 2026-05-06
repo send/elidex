@@ -294,6 +294,23 @@ pub(crate) struct VmInner {
     /// `[Symbol.iterator]`.
     #[cfg(feature = "engine")]
     pub(crate) named_node_map_prototype: Option<ObjectId>,
+    /// `DOMTokenList.prototype` — shared prototype for every
+    /// `ObjectKind::DOMTokenList` wrapper backing
+    /// `Element.classList` (WHATWG DOM §3.5 / §7.1).  Chains to
+    /// `Object.prototype`; carries `length` / `value` accessors,
+    /// `item` / `contains` / `add` / `remove` / `toggle` / `replace`
+    /// / `supports` methods, and `[Symbol.iterator]`.
+    #[cfg(feature = "engine")]
+    pub(crate) dom_token_list_prototype: Option<ObjectId>,
+    /// `DOMStringMap.prototype` — shared prototype for every
+    /// `ObjectKind::DOMStringMap` wrapper backing
+    /// `HTMLElement.dataset` (WHATWG HTML §3.2.6 / WebIDL §3.10).
+    /// Chains to `Object.prototype`; carries no own members — the
+    /// named-property exotic semantics are dispatched directly from
+    /// `ops_element` / `ops_property` / `dispatch_iter` /
+    /// `coerce_format` based on `ObjectKind`.
+    #[cfg(feature = "engine")]
+    pub(crate) dom_string_map_prototype: Option<ObjectId>,
     /// Backing state for `ObjectKind::NamedNodeMap` wrappers — the
     /// Element entity whose attributes the map reflects.  Shared
     /// across repeated `element.attributes` reads because live
@@ -351,6 +368,21 @@ pub(crate) struct VmInner {
     /// it never extends an Attr's lifetime past its owner.
     #[cfg(feature = "engine")]
     pub(crate) attr_wrapper_cache: HashMap<(elidex_ecs::Entity, StringId), ObjectId>,
+    /// Identity cache for `DOMTokenList` wrappers backing
+    /// `Element.classList` (WHATWG DOM §3.5).  Keyed by owner
+    /// `Entity`; a hit returns the same `ObjectId` so
+    /// `el.classList === el.classList`.  Pruned in the GC sweep tail
+    /// when the wrapper `ObjectId` is collected; entries do not
+    /// extend wrapper lifetimes (the wrapper is rooted via
+    /// `HostData::wrapper_cache` for the owner element instead).
+    #[cfg(feature = "engine")]
+    pub(crate) class_list_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// Identity cache for `DOMStringMap` wrappers backing
+    /// `HTMLElement.dataset` (WHATWG HTML §3.2.6).  Same shape as
+    /// [`Self::class_list_wrapper_cache`] — keyed by owner `Entity`,
+    /// pruned in the GC sweep tail.
+    #[cfg(feature = "engine")]
+    pub(crate) dataset_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
     /// [`Self::html_element_prototype`] (after PR5b splice) so

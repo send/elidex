@@ -325,6 +325,14 @@ impl Vm {
             // `_coll.length` reads `0`, `_coll.item(i)` reads `null`,
             // identical to the JS-still-bound-but-empty-tree case.
             self.inner.live_collection_states.clear();
+            // Same cross-DOM aliasing risk for the Entity-keyed
+            // `class_list` / `dataset` wrapper identity caches: a
+            // stale entry would let `el2.classList` from a rebind
+            // pick up the previous DOM's cached wrapper because the
+            // two `EcsDom::new()` worlds share entity-index space.
+            // Clearing here keeps post-rebind lookups allocate-fresh.
+            self.inner.class_list_wrapper_cache.clear();
+            self.inner.dataset_wrapper_cache.clear();
         }
     }
 

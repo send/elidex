@@ -257,6 +257,13 @@ impl VmInner {
             // still `None`.
             self.register_attr_prototype();
             self.register_named_node_map_prototype();
+            // DOMTokenList.prototype / DOMStringMap.prototype —
+            // backing `Element.classList` / `HTMLElement.dataset`.
+            // Chain to `Object.prototype` so they are not
+            // EventTargets (mirrors the legacy collection
+            // prototypes' policy).
+            self.register_dom_token_list_prototype();
+            self.register_dom_string_map_prototype();
         }
 
         // Window.prototype — prototype for the `globalThis` `HostObject`

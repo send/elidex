@@ -83,9 +83,13 @@ mod byte_io;
 pub(super) mod character_data_proto;
 pub(super) mod childnode;
 #[cfg(feature = "engine")]
+pub(super) mod class_list;
+#[cfg(feature = "engine")]
 pub(crate) mod cors;
 #[cfg(feature = "engine")]
 pub(crate) mod data_view;
+#[cfg(feature = "engine")]
+pub(super) mod dataset;
 pub(super) mod document;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;

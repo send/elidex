@@ -113,6 +113,29 @@ impl VmInner {
         // Collect enumerable string keys from the object and its
         // prototype chain, skipping shadowed properties.
         let keys = if let JsValue::Object(obj_id) = obj {
+            // DOMStringMap (HTMLElement.dataset) for-in: yield only
+            // the supported property names (camelCase keys backing
+            // each `data-*` attribute) per WebIDL §3.10.  No
+            // ordinary own keys are visible (the wrapper is sealed
+            // with `extensible: false`), and prototype enumeration
+            // skips because `Object.prototype` has no enumerable
+            // properties.
+            #[cfg(feature = "engine")]
+            if matches!(
+                self.objects[obj_id.0 as usize].as_ref().map(|o| &o.kind),
+                Some(ObjectKind::DOMStringMap { .. })
+            ) {
+                if let Some(Ok(keys)) = super::host::dataset::collect_keys(self, obj_id) {
+                    let iter_obj = self.alloc_object(Object {
+                        kind: ObjectKind::ForInIterator(ForInState { keys, index: 0 }),
+                        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                        prototype: None,
+                        extensible: true,
+                    });
+                    self.stack.push(JsValue::Object(iter_obj));
+                    return Ok(());
+                }
+            }
             let mut keys = Vec::new();
             let mut seen = std::collections::HashSet::new();
             let mut current = Some(obj_id);

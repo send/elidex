@@ -189,7 +189,23 @@ impl VmInner {
                 self.attr_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 46 + 2 (PR5-typed-array §C1/C2: %TypedArray% abstract
+                // 46 + 2 (DOMTokenList + DOMStringMap) = 48.  Both
+                // chain directly to Object.prototype.  Without
+                // marking, the prototype gets collected while
+                // `dom_token_list_prototype` / `dom_string_map_prototype`
+                // retain a stale id; the next `el.classList` /
+                // `el.dataset` then binds a fresh wrapper to a
+                // recycled slot of an unrelated type.  Same invariant
+                // as every other intrinsic prototype in this list.
+                #[cfg(feature = "engine")]
+                self.dom_token_list_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.dom_string_map_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 48 + 2 (PR5-typed-array §C1/C2: %TypedArray% abstract
                 // + DataView) = 48.  The 11 concrete subclass
                 // prototypes used to live here as cfg-gated slots; SP14
                 // moved them into the chained
@@ -331,6 +347,10 @@ impl VmInner {
             pending_tasks: &self.pending_tasks,
             #[cfg(feature = "engine")]
             attr_wrapper_cache: &self.attr_wrapper_cache,
+            #[cfg(feature = "engine")]
+            class_list_wrapper_cache: &self.class_list_wrapper_cache,
+            #[cfg(feature = "engine")]
+            dataset_wrapper_cache: &self.dataset_wrapper_cache,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
         };
@@ -534,6 +554,15 @@ impl VmInner {
             // owner-wrapper presence.
             self.attr_wrapper_cache
                 .retain(|_, attr_id| bit_get(marks, attr_id.0));
+            // `class_list_wrapper_cache` / `dataset_wrapper_cache` —
+            // same prune contract as `attr_wrapper_cache`: drop
+            // entries whose wrapper `ObjectId` was collected this
+            // sweep.  Owner-wrapper destruction flows through the
+            // mark-roots `(e3)` gate.
+            self.class_list_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            self.dataset_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are
