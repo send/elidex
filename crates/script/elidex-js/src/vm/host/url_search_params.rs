@@ -262,7 +262,7 @@ fn parse_init_entries(
             }
             // Record branch: own enumerable string keys + `ToString`
             // each value.
-            let keys = super::super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
+            let keys = super::super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)?;
             let mut out = Vec::with_capacity(keys.len());
             for key_sid in keys {
                 let value = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;

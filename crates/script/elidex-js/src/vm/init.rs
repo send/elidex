@@ -121,11 +121,19 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 named_node_map_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                dom_token_list_prototype: None,
+                #[cfg(feature = "engine")]
+                dom_string_map_prototype: None,
+                #[cfg(feature = "engine")]
                 attr_prototype: None,
                 #[cfg(feature = "engine")]
                 attr_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 attr_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
+                class_list_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
+                dataset_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]

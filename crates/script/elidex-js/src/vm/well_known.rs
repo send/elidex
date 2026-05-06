@@ -445,6 +445,24 @@ define_well_known_strings! {
         hash_document_fragment => "#document-fragment",
     }
 
+    "DOMTokenList / DOMStringMap (slot #11-classlist-dataset)" {
+        // `Element.classList` (DOMTokenList) accessor + method names.
+        // `length` / `value` / `item` / `contains` already live in the
+        // core/Element-children sections above and are reused here —
+        // pre-interning the new identifiers keeps method install + JS
+        // dispatch on a single StringId per name.  WHATWG DOM §3.5 / §7.1.
+        class_list => "classList",
+        add => "add",
+        toggle => "toggle",
+        replace => "replace",
+        supports => "supports",
+        // `HTMLElement.dataset` (DOMStringMap) accessor name.  Named-
+        // property exotic semantics dispatch through ObjectKind, so no
+        // per-method identifier is needed beyond the accessor name.
+        // WHATWG HTML §3.2.6 / WebIDL §3.10.
+        dataset => "dataset",
+    }
+
     "AbortController / AbortSignal (PR4d)" {
         // Method, accessor, and listener-option key names.  Pre-interned
         // here so `parse_listener_options` can look up `signal` without

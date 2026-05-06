@@ -51,8 +51,8 @@ use super::dom_bridge::{
 use super::element_attrs::{
     native_element_get_attribute, native_element_get_attribute_names,
     native_element_get_attribute_node, native_element_get_attributes,
-    native_element_get_class_name, native_element_get_id, native_element_get_tag_name,
-    native_element_has_attribute, native_element_remove_attribute,
+    native_element_get_class_list, native_element_get_class_name, native_element_get_id,
+    native_element_get_tag_name, native_element_has_attribute, native_element_remove_attribute,
     native_element_remove_attribute_node, native_element_set_attribute,
     native_element_set_attribute_node, native_element_set_class_name, native_element_set_id,
     native_element_toggle_attribute,
@@ -185,6 +185,19 @@ impl VmInner {
             proto_id,
             self.well_known.attributes,
             native_element_get_attributes,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+
+        // `classList` accessor — returns an identity-preserving
+        // `DOMTokenList` wrapper backed by the element's `class`
+        // attribute (WHATWG DOM §3.5).  Defined on Element rather
+        // than HTMLElement per the spec interface boundary.
+        #[cfg(feature = "engine")]
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.class_list,
+            native_element_get_class_list,
             None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );

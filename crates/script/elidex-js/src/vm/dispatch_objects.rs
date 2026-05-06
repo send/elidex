@@ -381,6 +381,21 @@ impl VmInner {
                 "Cannot use 'in' operator to search for property in non-object",
             ));
         };
+        // DOMStringMap (HTMLElement.dataset) named-property exotic
+        // [[HasProperty]] — `'fooBar' in el.dataset` must check the
+        // supported-name set (data-* attributes), not the ordinary
+        // own + prototype walk (the wrapper is sealed and inherits
+        // no own members).  Symbol keys fall through to ordinary so
+        // `Symbol.iterator in dataset` resolves via Object.prototype.
+        #[cfg(feature = "engine")]
+        if matches!(
+            self.get_object(obj_id).kind,
+            ObjectKind::DOMStringMap { .. }
+        ) {
+            if let Some(result) = super::host::dataset::try_has(self, obj_id, lhs) {
+                return result;
+            }
+        }
         let pk = self.make_property_key(lhs)?;
         let obj = self.get_object(obj_id);
         Ok(match (&obj.kind, &pk) {

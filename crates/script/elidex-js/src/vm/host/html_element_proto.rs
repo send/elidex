@@ -98,6 +98,16 @@ impl VmInner {
         self.html_element_prototype = Some(proto_id);
         self.install_html_element_methods(proto_id);
         self.install_html_element_idl_attrs(proto_id);
+        // `dataset` accessor — returns an identity-preserving
+        // `DOMStringMap` wrapper backed by the element's `data-*`
+        // attributes (WHATWG HTML §3.2.6).
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.dataset,
+            native_html_element_get_dataset,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
     }
 
     /// Install `focus()` / `blur()` on `HTMLElement.prototype`.
@@ -230,6 +240,21 @@ fn native_html_element_focus(
         hd.set_focused_entity(entity);
     }
     Ok(JsValue::Undefined)
+}
+
+/// `HTMLElement.prototype.dataset` getter — return an
+/// identity-preserving `DOMStringMap` wrapper backed by the
+/// element's `data-*` attributes (WHATWG HTML §3.2.6).  Repeated
+/// reads return the same `ObjectId` via
+/// [`crate::vm::VmInner::alloc_or_cached_dataset`].
+fn native_html_element_get_dataset(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_html_element_receiver(ctx, this, "dataset")?;
+    let id = ctx.vm.alloc_or_cached_dataset(entity);
+    Ok(JsValue::Object(id))
 }
 
 /// `HTMLElement.prototype.blur()` (WHATWG HTML §6.7.1).

@@ -207,6 +207,23 @@ pub(super) fn native_element_get_attributes(
     Ok(JsValue::Object(id))
 }
 
+/// `element.classList` getter — return an identity-preserving
+/// [`crate::vm::value::ObjectKind::DOMTokenList`] wrapper backed by
+/// the element's `class` attribute (WHATWG DOM §3.5).  Repeated
+/// reads return the same `ObjectId` via
+/// [`crate::vm::VmInner::alloc_or_cached_class_list`].
+pub(super) fn native_element_get_class_list(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let id = ctx.vm.alloc_or_cached_class_list(entity);
+    Ok(JsValue::Object(id))
+}
+
 /// `element.getAttributeNode(name)` — return an Attr wrapper for
 /// the named attribute, or `null` when absent.  Repeated calls for
 /// the same `(entity, qualified_name)` return the same `ObjectId`

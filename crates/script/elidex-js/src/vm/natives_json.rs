@@ -17,7 +17,16 @@ use super::value::{
 
 /// Maximum nesting depth for `JSON.stringify` / `JSON.parse` recursion.
 /// Prevents Rust-stack exhaustion from attacker-crafted deep nesting
-/// (`"[[[[[...]]]]]"` etc.) — matches V8's 1000-ish limit.
+/// (`"[[[[[...]]]]]"` etc.) — release builds match V8's ~1000 limit.
+/// Debug builds drop to 800: each `serialize_object` frame is larger
+/// without optimizer inlining, so 1000-deep inputs can outgrow the
+/// thread's stack budget; the
+/// `tests_string_complement::json_stringify_depth_cap` 2000-deep
+/// regression still trips the cap and surfaces a RangeError under
+/// either limit.
+#[cfg(debug_assertions)]
+const MAX_JSON_DEPTH: usize = 800;
+#[cfg(not(debug_assertions))]
 const MAX_JSON_DEPTH: usize = 1000;
 
 /// Serialization state for `JSON.stringify`.
@@ -230,7 +239,7 @@ impl JsonSerializer {
             // §24.5.2.3 step 5: EnumerableOwnPropertyNames / OrdinaryOwnPropertyKeys.
             // Array-index keys come first in ascending numeric order, then
             // other string keys in insertion order.
-            collect_own_keys_es_order(ctx.vm, obj_id)
+            collect_own_keys_es_order(ctx.vm, obj_id)?
         };
 
         self.output.push('{');
@@ -882,7 +891,7 @@ fn internalize(
                 }
                 ObjectKind::Ordinary | ObjectKind::Arguments { .. } => {
                     // Snapshot keys in ES spec order (§24.5.1.1 step 5).
-                    let keys = collect_own_keys_es_order(ctx.vm, obj_id);
+                    let keys = collect_own_keys_es_order(ctx.vm, obj_id)?;
 
                     for key_sid in keys {
                         let child = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;

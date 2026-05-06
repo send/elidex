@@ -70,6 +70,22 @@ impl VmInner {
         let pk = PropertyKey::String(key);
         match obj {
             JsValue::Object(id) => {
+                // DOMStringMap (HTMLElement.dataset) named-property
+                // exotic [[Get]] — `dataset.fooBar` reads the
+                // `data-foo-bar` attribute via the `dataset.get`
+                // handler.  Returning `Some(_)` short-circuits
+                // before the ordinary prototype walk; `None`
+                // (absent attribute) falls through so
+                // `dataset.toString` still resolves to
+                // `Object.prototype.toString`.
+                #[cfg(feature = "engine")]
+                if matches!(self.get_object(id).kind, ObjectKind::DOMStringMap { .. }) {
+                    if let Some(result) =
+                        super::host::dataset::try_get(self, id, JsValue::String(key))
+                    {
+                        return result;
+                    }
+                }
                 if id == self.global_object {
                     if let Some(result) = get_property(self, id, pk) {
                         return self.resolve_property(result, obj);
@@ -260,6 +276,23 @@ impl VmInner {
         id: ObjectId,
         pk: PropertyKey,
     ) -> Result<bool, VmError> {
+        // DOMStringMap (HTMLElement.dataset) named-property exotic
+        // [[Delete]] — `delete dataset.fooBar` removes the backing
+        // `data-foo-bar` attribute via the `dataset.delete` handler
+        // (WHATWG HTML §3.2.6 named deleter).  String keys only;
+        // Symbol keys fall through to the ordinary path.
+        #[cfg(feature = "engine")]
+        if matches!(
+            self.get_object(id).kind,
+            super::value::ObjectKind::DOMStringMap { .. }
+        ) {
+            if let PropertyKey::String(sid) = pk {
+                let result = super::host::dataset::try_delete(self, id, JsValue::String(sid));
+                if let Some(r) = result {
+                    return r;
+                }
+            }
+        }
         // Check existence and configurability while still in Shaped mode
         // to avoid unnecessary Dictionary conversion.
         {
@@ -416,6 +449,23 @@ impl VmInner {
             JsValue::Object(id) => id,
             _ => super::coerce::to_object(self, obj)?,
         };
+        // DOMStringMap (HTMLElement.dataset) named-property exotic
+        // [[Set]] — `dataset.fooBar = x` writes the
+        // `data-foo-bar` attribute via the `dataset.set` handler.
+        // Bypasses the ordinary set path because the wrapper is
+        // sealed (`extensible: false`) — `ordinary_set` would
+        // otherwise reject the write with "non-extensible".
+        #[cfg(feature = "engine")]
+        if matches!(
+            self.get_object(target_id).kind,
+            ObjectKind::DOMStringMap { .. }
+        ) {
+            if let Some(result) =
+                super::host::dataset::try_set(self, target_id, JsValue::String(key), val)
+            {
+                return result;
+            }
+        }
         let is_global = target_id == self.global_object;
         let outcome = self.ordinary_set(target_id, pk, val, obj)?;
         // Sync the global variable table only when a data property was

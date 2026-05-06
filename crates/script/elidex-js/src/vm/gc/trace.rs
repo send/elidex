@@ -342,6 +342,16 @@ pub(super) fn trace_work_list(
             // prunes entries whose key `ObjectId` was collected.
             #[cfg(feature = "engine")]
             ObjectKind::NamedNodeMap | ObjectKind::Attr => {}
+            // `DOMTokenList` / `DOMStringMap` carry only an inline
+            // `entity_bits: u64` (not an `ObjectId`) and have no
+            // side table — every accessor reads through to the
+            // owner `Entity`'s `class` / `data-*` attributes via
+            // `elidex_dom_api` handlers.  Trace fan-out is a no-op;
+            // identity caches (`class_list_wrapper_cache` /
+            // `dataset_wrapper_cache`) are scanned in mark-roots
+            // step `(e3)` and pruned in the sweep tail.
+            #[cfg(feature = "engine")]
+            ObjectKind::DOMTokenList { .. } | ObjectKind::DOMStringMap { .. } => {}
             // `TypedArray` / `DataView` each carry the backing
             // `ArrayBuffer`'s `ObjectId` inline — the trace step
             // keeps the buffer alive while any view is reachable.

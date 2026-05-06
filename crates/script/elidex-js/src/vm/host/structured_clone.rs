@@ -265,6 +265,8 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::NodeList => CloneKind::Unclonable("NodeList"),
         ObjectKind::NamedNodeMap => CloneKind::Unclonable("NamedNodeMap"),
         ObjectKind::Attr => CloneKind::Unclonable("Attr"),
+        ObjectKind::DOMTokenList { .. } => CloneKind::Unclonable("DOMTokenList"),
+        ObjectKind::DOMStringMap { .. } => CloneKind::Unclonable("DOMStringMap"),
         ObjectKind::URLSearchParams => CloneKind::Unclonable("URLSearchParams"),
         ObjectKind::URL => CloneKind::Unclonable("URL"),
         ObjectKind::FormData => CloneKind::Unclonable("FormData"),

@@ -3,7 +3,7 @@
 //! - `write_number_es`: ES §7.1.12.1 Number::toString
 //! - `collect_own_keys_es_order`: ES §9.1.11.1 OrdinaryOwnPropertyKeys
 
-use super::value::{ObjectId, PropertyKey, StringId};
+use super::value::{ObjectId, PropertyKey, StringId, VmError};
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -13,8 +13,34 @@ use super::VmInner;
 /// Collect own enumerable string keys in ES spec order (§9.1.11.1):
 /// array-index keys in ascending numeric order, then other string keys
 /// in insertion order.
-pub(crate) fn collect_own_keys_es_order(vm: &mut VmInner, obj_id: ObjectId) -> Vec<StringId> {
+///
+/// Returns a `Result` so handler-side errors from the
+/// [`super::host::dataset::collect_keys`] DOMStringMap branch surface
+/// at `Object.keys/values/entries`, `JSON.stringify`, and record-coercion
+/// callers instead of silently degrading to an empty key set.
+pub(crate) fn collect_own_keys_es_order(
+    vm: &mut VmInner,
+    obj_id: ObjectId,
+) -> Result<Vec<StringId>, VmError> {
     use super::value::ObjectKind;
+
+    // DOMStringMap (HTMLElement.dataset) named-property exotic
+    // [[OwnPropertyKeys]] — supported names are the camelCase form
+    // of every `data-*` attribute on the owner element (WHATWG
+    // HTML §3.2.6).  The wrapper is sealed at construction
+    // (`extensible: false`), so it cannot accumulate ordinary own
+    // properties; the supported names alone make up the full key
+    // set.  Branch off here before the ordinary key collection
+    // because `dataset.keys` needs `&mut VmInner`.
+    #[cfg(feature = "engine")]
+    {
+        let is_dataset = matches!(vm.get_object(obj_id).kind, ObjectKind::DOMStringMap { .. });
+        if is_dataset {
+            if let Some(result) = super::host::dataset::collect_keys(vm, obj_id) {
+                return result;
+            }
+        }
+    }
 
     let obj = vm.get_object(obj_id);
 
@@ -57,7 +83,7 @@ pub(crate) fn collect_own_keys_es_order(vm: &mut VmInner, obj_id: ObjectId) -> V
     let mut keys = Vec::with_capacity(index_keys.len() + other_keys.len());
     keys.extend(index_keys.into_iter().map(|(_, sid)| sid));
     keys.extend(other_keys);
-    keys
+    Ok(keys)
 }
 
 /// Parse a WTF-16 string as an ES array index (0..2^32-2). Returns `None` for

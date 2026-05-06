@@ -693,3 +693,50 @@ fn removed_attr_stays_detached_after_same_name_set() {
            ? 'ok' : 'fail:' + snapshotBefore + '/' + snapshotAfter;");
     assert_eq!(out, "ok");
 }
+
+// ---------------------------------------------------------------------------
+// R2 #3 regression — `Vm::unbind` must clear the Entity-keyed
+// `attr_wrapper_cache` so a rebind to a fresh `EcsDom::new()` cannot
+// resolve through a previous DOM's cached Attr wrapper (the two
+// worlds share entity-index space).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn attr_wrapper_cache_cleared_on_unbind() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "var d = document.createElement('div'); \
+         d.setAttribute('id', 'x'); \
+         d.getAttributeNode('id');",
+    )
+    .unwrap();
+    assert!(
+        !vm.inner.attr_wrapper_cache.is_empty(),
+        "attr_wrapper_cache should be populated after getAttributeNode"
+    );
+    vm.unbind();
+    assert!(
+        vm.inner.attr_wrapper_cache.is_empty(),
+        "attr_wrapper_cache must be empty after unbind to avoid cross-DOM aliasing"
+    );
+    assert!(
+        vm.inner.class_list_wrapper_cache.is_empty(),
+        "class_list_wrapper_cache must be empty after unbind"
+    );
+    assert!(
+        vm.inner.dataset_wrapper_cache.is_empty(),
+        "dataset_wrapper_cache must be empty after unbind"
+    );
+}
