@@ -121,14 +121,14 @@ fn is_bound(vm: &VmInner) -> bool {
 /// `[[HasProperty]]` trap (WebIDL §3.10 named-property exotic).
 /// Returns `Some(true)` when the key names a present `data-*`
 /// attribute (so `'fooBar' in el.dataset` is true after
-/// `el.setAttribute('data-foo-bar', _)`); `Some(false)` for a
-/// string-coercible key whose data-* attribute is absent (so
-/// non-supported names short-circuit before the prototype walk —
-/// the wrapper is sealed and inherits no enumerable members);
-/// `None` for Symbol / non-string keys so the dispatch site falls
-/// through to ordinary `[[HasProperty]]` (Symbol membership and
-/// inherited methods like `toString` resolve via the prototype
-/// chain).
+/// `el.setAttribute('data-foo-bar', _)`).  Returns `None` in every
+/// other case — Symbol / non-coercible keys, absent `data-*` keys,
+/// and post-unbind — so the dispatch site falls through to the
+/// ordinary `[[HasProperty]]` / prototype walk.  Without this
+/// fall-through, inherited methods like `'toString' in el.dataset`
+/// would incorrectly return `false` because the wrapper itself is
+/// sealed: the prototype-chain walk is the only path that surfaces
+/// `Object.prototype` members.
 pub(crate) fn try_has(
     vm: &mut VmInner,
     id: ObjectId,
@@ -144,7 +144,11 @@ pub(crate) fn try_has(
     }
     let mut ctx = NativeContext { vm };
     let result = invoke_dom_api(&mut ctx, "dataset.get", entity, &[JsValue::String(sid)]);
-    Some(result.map(|v| !matches!(v, JsValue::Undefined)))
+    match result {
+        Ok(JsValue::Undefined) => None,
+        Ok(_) => Some(Ok(true)),
+        Err(e) => Some(Err(e)),
+    }
 }
 
 /// `[[Get]]` trap (WebIDL §3.10 named-property getter).  Returns

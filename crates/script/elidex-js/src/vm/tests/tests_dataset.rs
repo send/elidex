@@ -225,6 +225,28 @@ fn dataset_in_operator_reflects_attr_presence() {
 }
 
 #[test]
+fn dataset_in_operator_falls_through_to_prototype() {
+    // `'toString' in dataset` must walk the prototype chain and find
+    // `Object.prototype.toString`.  The named-property exotic
+    // [[HasProperty]] trap returns `Some(true)` only for present
+    // data-* keys; absent keys return `None` to enable fall-through.
+    let out = run("var d = document.createElement('div'); \
+         '' + ('toString' in d.dataset);");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn dataset_in_operator_inherited_methods_visible() {
+    // Confirms the prototype-chain fall-through across multiple
+    // canonical Object.prototype names.
+    let out = run("var d = document.createElement('div'); \
+         ('hasOwnProperty' in d.dataset) + '/' \
+         + ('isPrototypeOf' in d.dataset) + '/' \
+         + ('valueOf' in d.dataset);");
+    assert_eq!(out, "true/true/true");
+}
+
+#[test]
 fn dataset_has_own_property_reflects_attr() {
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('data-foo', '1'); \

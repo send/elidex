@@ -132,7 +132,7 @@ pub(in crate::vm::host) fn parse_headers_init_entries(
             // Record branch: no `@@iterator` — iterate own enumerable
             // string keys (§9.1.11.1 order) and coerce each value.
             let keys =
-                super::super::super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
+                super::super::super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)?;
             let mut out = Vec::with_capacity(keys.len());
             for key_sid in keys {
                 let value = ctx.get_property_value(obj_id, PropertyKey::String(key_sid))?;

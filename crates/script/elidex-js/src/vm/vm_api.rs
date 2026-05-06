@@ -333,6 +333,12 @@ impl Vm {
             // Clearing here keeps post-rebind lookups allocate-fresh.
             self.inner.class_list_wrapper_cache.clear();
             self.inner.dataset_wrapper_cache.clear();
+            // `attr_wrapper_cache` is keyed by `(Entity, StringId)`
+            // and faces the same cross-DOM aliasing — `el2.getAttributeNode('id')`
+            // after a rebind would otherwise resolve through the
+            // previous DOM's cached Attr wrapper because the Entity
+            // index slot is shared between `EcsDom::new()` worlds.
+            self.inner.attr_wrapper_cache.clear();
         }
     }
 

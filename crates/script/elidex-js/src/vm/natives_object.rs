@@ -28,7 +28,7 @@ pub(super) fn native_object_keys(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let obj_id = to_object_arg(ctx, args)?;
-    let keys: Vec<JsValue> = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)
+    let keys: Vec<JsValue> = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)?
         .into_iter()
         .map(JsValue::String)
         .collect();
@@ -42,7 +42,7 @@ pub(super) fn native_object_values(
 ) -> Result<JsValue, VmError> {
     let obj_id = to_object_arg(ctx, args)?;
     // §7.3.21 EnumerableOwnPropertyNames in ES key order, then Get per key.
-    let keys = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
+    let keys = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)?;
     let mut values = Vec::with_capacity(keys.len());
     for sid in &keys {
         values.push(ctx.get_property_value(obj_id, PropertyKey::String(*sid))?);
@@ -462,7 +462,7 @@ pub(super) fn native_object_entries(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let obj_id = to_object_arg(ctx, args)?;
-    let keys = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id);
+    let keys = super::coerce_format::collect_own_keys_es_order(ctx.vm, obj_id)?;
     let mut entries = Vec::with_capacity(keys.len());
     for sid in &keys {
         let val = ctx.get_property_value(obj_id, PropertyKey::String(*sid))?;
