@@ -45,9 +45,10 @@
 //!   `NavigationState`, kept VM-side because they read browsing-context
 //!   state.
 //! - `forms` / `images` / `links` / `getElementsByTagName` /
-//!   `ClassName` / `Name` — `LiveCollectionKind` allocations stay
-//!   VM-side; handler-side migration carved out in slot
-//!   `#11-arch-hoist-e`.
+//!   `ClassName` / `Name` — VM-side natives construct
+//!   [`elidex_dom_api::LiveCollection`] directly; the walker /
+//!   cache / case-insensitive matching live engine-independent in
+//!   that crate.
 //! - `activeElement` / `hasFocus` — focus state from `HostData`,
 //!   carved out in `#11-focus-management-hoist`.
 
@@ -207,14 +208,11 @@ pub(super) fn native_document_get_elements_by_tag_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let tag = coerce_first_arg_to_string(ctx, args)?;
-    let tag_sid = ctx.vm.strings.intern(&tag);
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::ByTag {
-            root: doc,
-            tag: tag_sid,
-            all: tag == "*",
-        });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        doc,
+        elidex_dom_api::CollectionFilter::ByTagName(tag),
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
     Ok(JsValue::Object(id))
 }
 
@@ -230,16 +228,20 @@ pub(super) fn native_document_get_elements_by_class_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let class_str = coerce_first_arg_to_string(ctx, args)?;
-    let class_names: Vec<_> = class_str
-        .split_whitespace()
-        .map(|c| ctx.vm.strings.intern(c))
+    // ASCII whitespace per WHATWG DOM §4.2.6.2 + HTML §2.4.5.3
+    // ("ordered set parser"). Matches the element-side splitter in
+    // `LiveCollection`'s `ByClassNames` matcher; `split_whitespace`
+    // would split on Unicode whitespace (e.g. NBSP) the spec
+    // doesn't recognise as a token boundary.
+    let class_names: Vec<String> = class_str
+        .split_ascii_whitespace()
+        .map(str::to_owned)
         .collect();
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::ByClass {
-            root: doc,
-            class_names,
-        });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        doc,
+        elidex_dom_api::CollectionFilter::ByClassNames(class_names),
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
     Ok(JsValue::Object(id))
 }
 
@@ -258,13 +260,12 @@ pub(super) fn native_document_get_elements_by_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let name = coerce_first_arg_to_string(ctx, args)?;
-    let name_sid = ctx.vm.strings.intern(&name);
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::ByName {
-            doc,
-            name: name_sid,
-        });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        doc,
+        elidex_dom_api::CollectionFilter::ByName(name),
+        // WHATWG HTML §3.1.5: getElementsByName returns NodeList.
+        elidex_dom_api::CollectionKind::NodeList,
+    ));
     Ok(JsValue::Object(id))
 }
 
@@ -662,9 +663,11 @@ pub(super) fn native_document_get_forms(
     let Some(doc) = document_receiver(ctx, this, "forms")? else {
         return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
     };
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Forms { doc });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        doc,
+        elidex_dom_api::CollectionFilter::Forms,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
     Ok(JsValue::Object(id))
 }
 
@@ -678,9 +681,11 @@ pub(super) fn native_document_get_images(
     let Some(doc) = document_receiver(ctx, this, "images")? else {
         return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
     };
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Images { doc });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        doc,
+        elidex_dom_api::CollectionFilter::Images,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
     Ok(JsValue::Object(id))
 }
 
@@ -777,7 +782,8 @@ pub(super) fn native_document_has_focus(
 /// `document.links` — live `HTMLCollection` of every `<a>` /
 /// `<area>` descendant carrying an `href` attribute (§4.5: anchors
 /// without `href` are **excluded** from the collection; the filter
-/// runs on read inside `resolve_entities_with_needles`).
+/// runs on read inside [`elidex_dom_api::LiveCollection`]'s
+/// populate path).
 pub(super) fn native_document_get_links(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -786,9 +792,11 @@ pub(super) fn native_document_get_links(
     let Some(doc) = document_receiver(ctx, this, "links")? else {
         return Ok(super::dom_bridge::wrap_entities_as_array(ctx.vm, &[]));
     };
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Links { doc });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        doc,
+        elidex_dom_api::CollectionFilter::Links,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
     Ok(JsValue::Object(id))
 }
 

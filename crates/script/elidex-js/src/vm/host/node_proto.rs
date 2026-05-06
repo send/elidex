@@ -309,9 +309,11 @@ fn native_node_get_child_nodes(
     // made after the collection was obtained.  Shares the
     // `live_collection_states` infrastructure with HTMLCollection
     // (see `dom_collection.rs`).
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::ChildNodes { parent: entity });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::ChildNodes,
+        elidex_dom_api::CollectionKind::NodeList,
+    ));
     Ok(JsValue::Object(id))
 }
 

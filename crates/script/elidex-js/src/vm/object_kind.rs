@@ -330,36 +330,46 @@ pub enum ObjectKind {
     /// `HTMLCollection` instance (WHATWG DOM §4.2.10).  A *live*
     /// ordered collection of Element nodes matching one of several
     /// filter kinds (by tag, by class, children, forms / images /
-    /// links).  Payload-free; the discriminator + filter parameters
-    /// (root Entity, tag StringId, …) live out-of-band in
-    /// `VmInner::live_collection_states` keyed by this object's
+    /// links).  Payload-free; the backing
+    /// [`elidex_dom_api::LiveCollection`] (root Entity, owned filter
+    /// strings, cached snapshot, subtree version) lives out-of-band
+    /// in `VmInner::live_collection_states` keyed by this object's
     /// `ObjectId`.
     ///
     /// Live semantics: every read (`length`, `item(i)`, indexed
-    /// access, iterator) re-traverses the ECS from the stored root.
-    /// Callers that need a snapshot can spread into an Array.
+    /// access, iterator) consults the cached snapshot, refreshing
+    /// it from the ECS on a subtree-version bump. Callers that need
+    /// a snapshot can spread into an Array.
     ///
-    /// GC contract: the side-table holds only `Entity` and
-    /// `StringId` values (no `ObjectId`), so **no GC tracing is
-    /// required**; the sweep tail prunes `live_collection_states`
-    /// entries whose `ObjectId` key was collected.
+    /// GC contract: the side-table holds only `Entity`, owned
+    /// `String` / `Vec<String>` (filter needles for
+    /// `ByTagName` / `ByName` / `ByClassNames`), `Vec<Entity>`
+    /// (cached snapshot + `Snapshot` filter's frozen list), and
+    /// `u64` (cached subtree version) — no `ObjectId` references,
+    /// so **no GC tracing is required**; the sweep tail prunes
+    /// `live_collection_states` entries whose `ObjectId` key was
+    /// collected.
     #[cfg(feature = "engine")]
     HtmlCollection,
     /// `NodeList` instance (WHATWG DOM §4.2.10.1).  An ordered
     /// collection of Node values — may be *live* (from
     /// `Node.prototype.childNodes` or `document.getElementsByName`)
-    /// or *static* (from `querySelectorAll`, per §4.2.6).  Shares
+    /// or *static* (from `querySelectorAll`, per §4.2.6 — backed by
+    /// [`elidex_dom_api::CollectionFilter::Snapshot`]).  Shares
     /// the `live_collection_states` side-table with `HtmlCollection`;
-    /// the side-table's discriminator disambiguates between the two
-    /// interfaces, and also records whether a `NodeList` is live or
-    /// snapshot-backed.
+    /// the [`elidex_dom_api::LiveCollection::kind`] field
+    /// disambiguates between the two interfaces, and the filter
+    /// variant records whether a `NodeList` is live or snapshot-
+    /// backed. Do not extend `ObjectKind` for new collection
+    /// variants — extend `CollectionFilter` / `CollectionKind`
+    /// instead so the engine-bound prototype split stays minimal.
     ///
     /// GC contract: identical to [`Self::HtmlCollection`] — the
     /// side-table carries no `ObjectId` references; pruning alongside
     /// HTMLCollection entries in the sweep tail is sufficient.  For
-    /// static NodeLists, the `VmInner::live_collection_states` entry's
-    /// snapshot state stores a `Vec<Entity>` whose entries are plain
-    /// ECS keys (no ObjectId), so the `Vec` likewise needs no tracing.
+    /// static NodeLists, the `LiveCollection`'s `Snapshot` filter
+    /// stores a `Vec<Entity>` whose entries are plain ECS keys (no
+    /// ObjectId), so the `Vec` likewise needs no tracing.
     #[cfg(feature = "engine")]
     NodeList,
     /// `NamedNodeMap` instance (WHATWG DOM §4.9.1) — the live

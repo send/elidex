@@ -315,6 +315,16 @@ impl Vm {
             {
                 *entity_bits = 0;
             }
+            // Drop live-collection state so retained wrappers cannot
+            // surface entries from the previous DOM after a rebind to
+            // a different `EcsDom`. Two `EcsDom::new()` worlds produce
+            // overlapping internal entity indices, so a stored
+            // `Entity` from doc1 silently aliases a real entity in
+            // doc2 and the cached filter would walk doc2's tree.
+            // Clearing here keeps the post-unbind contract observable:
+            // `_coll.length` reads `0`, `_coll.item(i)` reads `null`,
+            // identical to the JS-still-bound-but-empty-tree case.
+            self.inner.live_collection_states.clear();
         }
     }
 
