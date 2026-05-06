@@ -117,6 +117,38 @@ mod engine_feature {
         /// the setter is a no-op in that case (the
         /// "cookie-averse" path of WHATWG §6.5.2).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+        /// `MutationObserver` registry (WHATWG DOM §4.3) — owns the
+        /// per-observer target list, options, and pending records.
+        /// Held here (rather than on `VmInner`) so the registry's
+        /// lifetime tracks the bound DOM world: `Vm::unbind` clears
+        /// per-observer target lists via
+        /// `MutationObserverRegistry::clear_all_targets` to avoid
+        /// cross-`EcsDom` Entity aliasing on rebind, while observer
+        /// IDs and registrations themselves stay live so a JS
+        /// reference held to a `MutationObserver` instance across
+        /// the unbind boundary continues to brand-check.
+        pub(crate) mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry,
+        /// JS callback `ObjectId` per observer ID.  Keyed by the
+        /// raw `MutationObserverId` u64 (matches the inline
+        /// `ObjectKind::MutationObserver { observer_id }` payload)
+        /// and rooted via [`Self::gc_root_object_ids`] so the
+        /// callback survives any GC cycle while the observer is
+        /// alive.  Cleared by `Vm::unbind` to avoid cross-DOM
+        /// aliasing of recycled `ObjectId` slots.
+        pub(crate) mutation_observer_callbacks: HashMap<u64, ObjectId>,
+        /// Reverse lookup from observer ID to the JS instance
+        /// `ObjectId`.  Needed at delivery time so the embedder can
+        /// pass the same `MutationObserver` JS object back as the
+        /// callback's `this` and second argument (WHATWG DOM §4.3.4).
+        /// Also rooted via [`Self::gc_root_object_ids`] — without
+        /// this root, a user that calls `new
+        /// MutationObserver(cb)`-and-immediately-drops would let the
+        /// instance be collected before its first delivery; the
+        /// registry-side `observer_id` is just `u64`, so the
+        /// per-spec "registered observer keeps target alive"
+        /// reference cannot pin the JS wrapper.  Cleared alongside
+        /// `mutation_observer_callbacks` on unbind.
+        pub(crate) mutation_observer_instances: HashMap<u64, ObjectId>,
     }
 
     /// Returns `true` when two raw pointers share their base
@@ -147,6 +179,9 @@ mod engine_feature {
                 wrapper_cache: HashMap::new(),
                 focused_entity: None,
                 cookie_jar: None,
+                mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
+                mutation_observer_callbacks: HashMap::new(),
+                mutation_observer_instances: HashMap::new(),
             }
         }
 
@@ -596,6 +631,8 @@ mod engine_feature {
                 .values()
                 .copied()
                 .chain(self.wrapper_cache.values().copied())
+                .chain(self.mutation_observer_callbacks.values().copied())
+                .chain(self.mutation_observer_instances.values().copied())
         }
     }
 

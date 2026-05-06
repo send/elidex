@@ -141,6 +141,23 @@ impl MutationObserverRegistry {
         }
     }
 
+    /// Drain every observer's target list and pending records,
+    /// keeping the observer IDs registered.  Called from a VM
+    /// `unbind` step so a retained `MutationObserver` reference can
+    /// be re-bound to a fresh DOM without inheriting stale `Entity`
+    /// indices from the prior world (two `EcsDom::new()` worlds
+    /// share `Entity` index space — without this the post-rebind
+    /// `notify` would match a `target` Entity that happens to
+    /// collide with an old observation).  Observer IDs themselves
+    /// are monotonic per-VM and stay live so post-unbind method
+    /// calls on retained instances continue to brand-check.
+    pub fn clear_all_targets(&mut self) {
+        for entry in &mut self.observers {
+            entry.targets.clear();
+            entry.records.clear();
+        }
+    }
+
     /// Queue matching records from a session-level `MutationRecord` to all interested observers.
     ///
     /// `is_descendant_fn` checks whether a `target` is a descendant of an `ancestor`

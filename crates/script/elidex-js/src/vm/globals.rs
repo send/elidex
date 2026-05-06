@@ -264,6 +264,11 @@ impl VmInner {
             // prototypes' policy).
             self.register_dom_token_list_prototype();
             self.register_dom_string_map_prototype();
+            // MutationObserver — chains directly to Object.prototype.
+            // Registered after object_prototype is populated and
+            // before the Window splice, since the constructor is a
+            // top-level global and has no Window dependency.
+            self.register_mutation_observer_global();
         }
 
         // Window.prototype — prototype for the `globalThis` `HostObject`

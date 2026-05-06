@@ -19,6 +19,7 @@ engine = [
     "elidex-css",
     "elidex-net",
     "elidex-dom-api",
+    "elidex-api-observers",
     "elidex-form",
     "bytes",
     "encoding_rs",
@@ -56,6 +57,10 @@ encoding_rs = { workspace = true, optional = true }
 # `DomApiHandler` from `vm::host::dom_bridge::invoke_dom_api`.  See
 # CLAUDE.md "Layering mandate".
 elidex-dom-api = { workspace = true, optional = true }
+# Observer registries (`MutationObserverRegistry` etc.) consumed by
+# the `MutationObserver` VM thin binding.  Engine-gated because the
+# observer surface is engine-only.
+elidex-api-observers = { workspace = true, optional = true }
 # Form-control state, label association, validation, selection —
 # consumed by upcoming HTMLFormElement / HTMLInputElement prototype
 # bindings.  Currently dep-only.

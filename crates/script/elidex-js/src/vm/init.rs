@@ -135,6 +135,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 dataset_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
+                mutation_observer_prototype: None,
+                #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,

@@ -352,6 +352,18 @@ pub(super) fn trace_work_list(
             // step `(e3)` and pruned in the sweep tail.
             #[cfg(feature = "engine")]
             ObjectKind::DOMTokenList { .. } | ObjectKind::DOMStringMap { .. } => {}
+            // `MutationObserver` carries only an inline observer ID
+            // (not an `ObjectId`).  The JS callback is stored in
+            // `HostData::mutation_observer_callbacks` keyed by that
+            // ID and reaches GC via [`super::super::host_data::HostData::gc_root_object_ids`]
+            // — every entry there pins its callback for the
+            // observer's lifetime, so trace fan-out from this
+            // variant is a no-op.  The registry's queued
+            // `MutationRecord`s hold only `Entity` / `String`
+            // values (no `ObjectId`), so the registry itself needs
+            // no trace pass either.
+            #[cfg(feature = "engine")]
+            ObjectKind::MutationObserver { .. } => {}
             // `TypedArray` / `DataView` each carry the backing
             // `ArrayBuffer`'s `ObjectId` inline — the trace step
             // keeps the buffer alive while any view is reachable.

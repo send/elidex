@@ -621,6 +621,26 @@ pub enum ObjectKind {
     /// caller's `cancel()` Promise with the source-cancel result.
     #[cfg(feature = "engine")]
     ReadableStreamCancelStep { promise: ObjectId, is_reject: bool },
+    /// `MutationObserver` instance (WHATWG DOM §4.3) — observes
+    /// childList / attributes / characterData mutations.
+    /// Payload-free at the JS-object level; the per-observer
+    /// registration (target list, options, pending records) lives
+    /// in `HostData::mutation_observers` and the JS callback in
+    /// `HostData::mutation_observer_callbacks`, both keyed by
+    /// `observer_id`.  The observer ID is monotonic per-VM and
+    /// sized at 64 bits to match
+    /// `elidex_api_observers::mutation::MutationObserverId::raw`.
+    ///
+    /// GC contract: the variant has no inline `ObjectId`, so the
+    /// trace step has nothing to fan out.  The JS callback
+    /// `ObjectId` stored in
+    /// `HostData::mutation_observer_callbacks` is rooted via
+    /// `HostData::gc_root_object_ids` — it stays alive as long as
+    /// the observer is registered.  `Vm::unbind` clears the callback
+    /// map and drains the registry's per-observer target lists so a
+    /// rebind to a different `EcsDom` cannot match a stale Entity.
+    #[cfg(feature = "engine")]
+    MutationObserver { observer_id: u64 },
 }
 
 impl ObjectKind {

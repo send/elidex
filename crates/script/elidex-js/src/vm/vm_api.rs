@@ -333,6 +333,22 @@ impl Vm {
             // Clearing here keeps post-rebind lookups allocate-fresh.
             self.inner.class_list_wrapper_cache.clear();
             self.inner.dataset_wrapper_cache.clear();
+            // `mutation_observer_callbacks` /
+            // `mutation_observer_instances` are keyed by observer ID,
+            // not Entity, but the JS callbacks/instances reach back
+            // into the prior `EcsDom` via the wrappers held inside
+            // their closures.  Clear so a retained `mo` reference
+            // post-rebind cannot accidentally re-fire callbacks
+            // against a different DOM.  Observer IDs themselves stay
+            // live in the registry so brand checks still succeed;
+            // `clear_all_targets` drains the per-observer target
+            // lists so cross-DOM Entity collisions cannot match a
+            // stale observation.
+            if let Some(hd) = self.inner.host_data.as_deref_mut() {
+                hd.mutation_observer_callbacks.clear();
+                hd.mutation_observer_instances.clear();
+                hd.mutation_observers.clear_all_targets();
+            }
             // `attr_wrapper_cache` is keyed by `(Entity, StringId)`
             // and faces the same cross-DOM aliasing — `el2.getAttributeNode('id')`
             // after a rebind would otherwise resolve through the
@@ -340,6 +356,43 @@ impl Vm {
             // index slot is shared between `EcsDom::new()` worlds.
             self.inner.attr_wrapper_cache.clear();
         }
+    }
+
+    /// Deliver session-level `MutationRecord`s to every registered
+    /// `MutationObserver` (WHATWG DOM §4.3.4).
+    ///
+    /// This is an **embedder API** — the VM does not auto-deliver
+    /// mutation records.  Embedders call this once per script-task
+    /// boundary so callbacks fire as part of the WHATWG "queue a
+    /// mutation observer microtask" semantics.  Standalone tests
+    /// must call this explicitly between mutating the DOM and
+    /// asserting on observer side effects.
+    ///
+    /// Each session record is fed to the registry via
+    /// `MutationObserverRegistry::notify`, with a closure that
+    /// walks `EcsDom::get_parent` to test subtree-ancestry
+    /// matches.  After every record is queued, observers with
+    /// pending records are drained one at a time, their records
+    /// marshalled into JS via `mutation_record_to_js`, and their
+    /// callback invoked with `(records, observer)`.  Re-entrant
+    /// `mo.observe(other, ...)` / `mo.disconnect()` from inside a
+    /// callback is supported because the observer-id list is
+    /// captured up front and registry access between iterations is
+    /// always a fresh borrow (no nested mutation in a single
+    /// borrow).
+    ///
+    /// Trailing microtask checkpoint runs so any
+    /// `Promise.resolve().then(...)` queued from a callback fires
+    /// before this call returns — matches the `eval` /
+    /// `tick_network` policy.
+    ///
+    /// No-op if no records are supplied AND no observers have
+    /// pending records on entry.  Callbacks that throw are
+    /// reported via `eprintln!` and do not propagate (matches the
+    /// boa-side behaviour and "report" semantics in HTML §8.1.5).
+    #[cfg(feature = "engine")]
+    pub fn deliver_mutation_records(&mut self, records: &[elidex_script_session::MutationRecord]) {
+        self.inner.deliver_mutation_records(records);
     }
 
     /// Drain pending network events (broker `FetchResponse` replies)

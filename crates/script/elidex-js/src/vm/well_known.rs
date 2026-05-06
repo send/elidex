@@ -445,6 +445,33 @@ define_well_known_strings! {
         hash_document_fragment => "#document-fragment",
     }
 
+    "MutationObserver (slot #11-mutation-observer)" {
+        // Constructor global + method names (`disconnect` is unique
+        // here; `observe` is unique to observer surfaces and only
+        // referenced from this file going forward).
+        // `MutationObserverInit` dictionary keys + `MutationRecord`
+        // shape keys are pre-interned so each
+        // `parse_mutation_observer_init` field read and each
+        // `mutation_record_to_js` property write avoids a per-call
+        // `strings.intern(...)` round-trip.  WHATWG DOM §4.3.
+        // `target` / `attributes` / `next_sibling` /
+        // `previous_sibling` / `old_value` already live in earlier
+        // sections and are reused here.
+        mutation_observer_global => "MutationObserver",
+        observe => "observe",
+        disconnect => "disconnect",
+        take_records => "takeRecords",
+        child_list => "childList",
+        character_data => "characterData",
+        subtree => "subtree",
+        attribute_old_value => "attributeOldValue",
+        character_data_old_value => "characterDataOldValue",
+        attribute_filter => "attributeFilter",
+        added_nodes => "addedNodes",
+        removed_nodes => "removedNodes",
+        attribute_name => "attributeName",
+    }
+
     "DOMTokenList / DOMStringMap (slot #11-classlist-dataset)" {
         // `Element.classList` (DOMTokenList) accessor + method names.
         // `length` / `value` / `item` / `contains` already live in the

@@ -124,6 +124,8 @@ pub(super) mod html_iframe_proto;
 pub(super) mod location;
 #[cfg(feature = "engine")]
 pub(super) mod multipart;
+#[cfg(feature = "engine")]
+pub(super) mod mutation_observer;
 pub(super) mod named_node_map;
 pub(super) mod navigation;
 pub(super) mod navigator;
