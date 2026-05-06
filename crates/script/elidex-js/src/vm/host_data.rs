@@ -140,9 +140,13 @@ mod engine_feature {
         /// `ObjectId`, so cross-DOM aliasing does not apply.  A
         /// retained `mo` reference can re-`observe` after a rebind
         /// (same or different DOM) and have its callback fire.
-        /// Trade-off: callback ObjectIds stay rooted until the VM
-        /// itself drops, a bounded leak per `new MutationObserver()`
-        /// call.  Sweep-time cleanup tracked at
+        /// Trade-off: this map (and its sibling
+        /// `mutation_observer_instances`) grows monotonically with
+        /// the count of `new MutationObserver()` calls and is never
+        /// shrunk — `disconnect()` does not remove the entry, and
+        /// `Vm::unbind` intentionally retains it.  Long-lived VMs
+        /// that churn many observers would accumulate dead entries;
+        /// weak-rooting / sweep-time cleanup is tracked at
         /// `#11-mutation-observer-extras`.
         pub(crate) mutation_observer_callbacks: HashMap<u64, ObjectId>,
         /// Reverse lookup from observer ID to the JS instance

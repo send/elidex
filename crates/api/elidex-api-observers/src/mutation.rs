@@ -141,16 +141,24 @@ impl MutationObserverRegistry {
         }
     }
 
-    /// Internal: drain every observer's target list and pending
-    /// records, keeping the observer IDs registered.
+    /// **Internal coupling — not a supported public API.**  Drain
+    /// every observer's target list and pending records, keeping
+    /// observer IDs registered.
+    ///
+    /// `pub fn` is required because this crate is consumed across a
+    /// crate boundary by `elidex-js::Vm::unbind`, but `#[doc(hidden)]`
+    /// signals "do not depend on this from external code".  External
+    /// callers ignoring that signal will get no semver guarantee:
+    /// the visibility / signature / location may change in any
+    /// release.  A sealed-trait or feature-gate refactor that
+    /// formalises the engine↔registry coupling without leaking
+    /// surface area is tracked at `#11-mutation-observer-extras`.
     ///
     /// **Use only from a VM bind/unbind cycle.**  Calling this from
     /// any other context silently invalidates every active
     /// observation across the embedder, breaking the spec contract
     /// that an `observe()` call remains in effect until matching
-    /// `disconnect()`.  No semver stability — internal coupling
-    /// between the engine-independent registry and the VM's
-    /// `Vm::unbind` hook only.
+    /// `disconnect()`.
     ///
     /// Rationale: after `unbind`, two `EcsDom::new()` worlds share
     /// `Entity` index space — without draining targets here, a

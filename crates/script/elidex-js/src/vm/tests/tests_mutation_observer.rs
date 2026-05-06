@@ -231,6 +231,49 @@ fn mutation_observer_observe_character_data_implicit_via_old_value() {
 }
 
 #[test]
+fn mutation_observer_observe_explicit_attributes_false_with_old_value_throws() {
+    // WHATWG DOM §4.3.2 step 6: `attributeOldValue: true` requires
+    // `attributes: true` (or absent).  Browser-aligned: Chrome /
+    // Firefox throw a TypeError citing both fields.
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(document, {childList:true, attributes:false, attributeOldValue:true});",
+    );
+    assert!(
+        err.contains("'attributeOldValue'") && err.contains("'attributes'"),
+        "expected attributeOldValue/attributes mismatch TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn mutation_observer_observe_explicit_attributes_false_with_filter_throws() {
+    // §4.3.2 step 7: `attributeFilter` requires `attributes: true`
+    // (or absent).
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(document, {childList:true, attributes:false, attributeFilter:['class']});",
+    );
+    assert!(
+        err.contains("'attributeFilter'") && err.contains("'attributes'"),
+        "expected attributeFilter/attributes mismatch TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn mutation_observer_observe_explicit_character_data_false_with_old_value_throws() {
+    // §4.3.2 step 8: `characterDataOldValue: true` requires
+    // `characterData: true` (or absent).
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(document, {childList:true, characterData:false, characterDataOldValue:true});",
+    );
+    assert!(
+        err.contains("'characterDataOldValue'") && err.contains("'characterData'"),
+        "expected characterDataOldValue/characterData mismatch TypeError, got: {err}"
+    );
+}
+
+#[test]
 fn mutation_observer_observe_attribute_filter_non_iterable_throws() {
     // WebIDL §3.10.20 sequence conversion: a non-iterable
     // `attributeFilter` must TypeError, not silently fall through to

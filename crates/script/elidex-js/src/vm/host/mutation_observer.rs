@@ -365,10 +365,13 @@ fn mutation_record_to_js(
     let wk_attr_name = removed_guard.well_known.attribute_name;
     let wk_old_value = removed_guard.well_known.old_value;
     // WHATWG DOM §4.3.5: every `MutationRecord` member is a
-    // `readonly attribute`, so install with `WEBIDL_RO` (¬W, E, C)
-    // — silent assignment failure in non-strict, TypeError in
-    // strict.  Matches the event-object property installation
-    // pattern.
+    // `readonly attribute`, so install with `WEBIDL_RO` (¬W, E, C).
+    // This VM's property-set path throws `TypeError("Cannot assign
+    // to read only property")` on any assignment regardless of
+    // strict-mode (browsers silently ignore in non-strict; the
+    // strict-mode parity gap is a VM-wide concern, not specific to
+    // MutationRecord).  Matches the event-object property
+    // installation pattern.
     for (key_sid, value) in [
         (wk_type, type_val),
         (wk_target, target_val),
@@ -617,6 +620,33 @@ fn parse_mutation_observer_init(
     // `characterData` is not, set `characterData` to true.
     if !character_data_explicit && init.character_data_old_value {
         init.character_data = true;
+    }
+    // §4.3.2 step 6: `attributeOldValue: true` requires `attributes`
+    // to be true (or absent — covered by step 3 above).  Fires only
+    // when `attributes` was explicitly set to false.
+    if init.attribute_old_value && !init.attributes {
+        return Err(VmError::type_error(
+            "Failed to execute 'observe' on 'MutationObserver': The options object \
+             may only set 'attributeOldValue' to true when 'attributes' is true \
+             or not present.",
+        ));
+    }
+    // §4.3.2 step 7: `attributeFilter` requires `attributes` to be
+    // true (or absent).
+    if init.attribute_filter.is_some() && !init.attributes {
+        return Err(VmError::type_error(
+            "Failed to execute 'observe' on 'MutationObserver': The options object \
+             may only set 'attributeFilter' when 'attributes' is true or not present.",
+        ));
+    }
+    // §4.3.2 step 8: `characterDataOldValue: true` requires
+    // `characterData` to be true (or absent).
+    if init.character_data_old_value && !init.character_data {
+        return Err(VmError::type_error(
+            "Failed to execute 'observe' on 'MutationObserver': The options object \
+             may only set 'characterDataOldValue' to true when 'characterData' is \
+             true or not present.",
+        ));
     }
 
     Ok(init)
