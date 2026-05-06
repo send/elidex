@@ -36,8 +36,7 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, StringId,
-    VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
 use super::super::VmInner;
 use super::dom_bridge::invoke_dom_api;
@@ -92,58 +91,7 @@ fn entity_from_id(vm: &VmInner, id: ObjectId) -> Option<Entity> {
     Entity::from_bits(entity_bits)
 }
 
-/// Coerce a property key into a `StringId` for handler dispatch, or
-/// signal fall-through.  ECMA §7.1.19 ToPropertyKey turns every
-/// non-Symbol value into a string, so `dataset[true]`, `dataset[null]`,
-/// `'fooBar' in dataset`, and `Object.getOwnPropertyDescriptor(dataset,
-/// 0)` all need to reach the named-property exotic with a string key.
-/// Symbol keys return `None` so the dispatch site falls through to the
-/// ordinary property path (Symbol-keyed access resolves via the
-/// prototype chain, never via `data-*`).
-fn coerce_key_or_none(vm: &mut VmInner, key: JsValue) -> Option<Result<StringId, VmError>> {
-    match key {
-        JsValue::Symbol(_) => None,
-        _ => Some(super::super::coerce::to_string(vm, key)),
-    }
-}
-
-/// Post-unbind tolerance helper: `DOMStringMap` wrappers are plain JS
-/// objects (not `HostObject`), so user code can retain `el.dataset`
-/// across a `Vm::unbind()` boundary.  When the VM is unbound, the
-/// trap helpers must not call [`invoke_dom_api`] (it panics via
-/// `HostData::with_session_and_dom`'s `is_bound()` assert).  Mirrors
-/// [`super::named_node_map::attribute_names_snapshot_if_bound`].
-fn is_bound(vm: &VmInner) -> bool {
-    vm.host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-}
-
-/// WebIDL §3.10 named-property visibility — DOMStringMap is *not*
-/// `[LegacyOverrideBuiltIns]`, so a key already exposed as an own
-/// property on any object in the prototype chain (`DOMStringMap.prototype`
-/// → `Object.prototype` → null) MUST take precedence over the
-/// supported-name → `data-*` mapping.  Returns `true` when the
-/// dispatch sites should fall through to the ordinary [[Get]] /
-/// [[HasProperty]] / [[Delete]] / [[Set]] / [[OwnPropertyKeys]]
-/// path so inherited members like `Object.prototype.toString` /
-/// `Object.prototype.hasOwnProperty` are not shadowed by a
-/// hypothetical `data-toString` / `data-hasOwnProperty` attribute.
-fn key_on_prototype_chain(vm: &VmInner, dataset_id: ObjectId, key_sid: StringId) -> bool {
-    let mut current = vm.get_object(dataset_id).prototype;
-    while let Some(proto_id) = current {
-        let proto = vm.get_object(proto_id);
-        if proto
-            .storage
-            .get(PropertyKey::String(key_sid), &vm.shapes)
-            .is_some()
-        {
-            return true;
-        }
-        current = proto.prototype;
-    }
-    false
-}
+use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototype_chain};
 
 /// `[[HasProperty]]` trap (WebIDL §3.10 named-property exotic).
 /// Returns `Some(true)` when the key names a present `data-*`

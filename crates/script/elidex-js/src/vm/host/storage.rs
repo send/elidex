@@ -61,6 +61,7 @@ use super::super::value::{
     PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
+use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototype_chain};
 
 // ---------------------------------------------------------------------------
 // Origin derivation
@@ -470,48 +471,6 @@ fn area_from_id(vm: &VmInner, id: ObjectId) -> Option<bool> {
     }
 }
 
-/// Coerce a property key into a `StringId`.  Symbol keys return
-/// `None` so the dispatch site falls through to the prototype-chain
-/// walk.
-fn coerce_key_or_none(vm: &mut VmInner, key: JsValue) -> Option<Result<StringId, VmError>> {
-    match key {
-        JsValue::Symbol(_) => None,
-        _ => Some(super::super::coerce::to_string(vm, key)),
-    }
-}
-
-/// WebIDL §3.10 named-property visibility — Storage is *not*
-/// `[LegacyOverrideBuiltIns]`, so a key already exposed as an own
-/// property anywhere on the prototype chain (`getItem` / `setItem` /
-/// `length` / inherited `Object.prototype.toString` / …) takes
-/// precedence over the supported-name → stored-value mapping.
-fn key_on_prototype_chain(vm: &VmInner, storage_id: ObjectId, key_sid: StringId) -> bool {
-    let mut current = vm.get_object(storage_id).prototype;
-    while let Some(proto_id) = current {
-        let proto = vm.get_object(proto_id);
-        if proto
-            .storage
-            .get(PropertyKey::String(key_sid), &vm.shapes)
-            .is_some()
-        {
-            return true;
-        }
-        current = proto.prototype;
-    }
-    false
-}
-
-/// Return `true` if `storage` was bound at the time of the call.
-/// Storage wrappers can outlive the bind cycle (cached as JS
-/// references).  Trap helpers must not call into the storage
-/// backend when unbound — `backend_for` would `expect` on a missing
-/// `host_data`.
-fn is_bound(vm: &VmInner) -> bool {
-    vm.host_data
-        .as_deref()
-        .is_some_and(super::super::host_data::HostData::is_bound)
-}
-
 /// `[[HasProperty]]` trap.
 pub(crate) fn try_has(
     vm: &mut VmInner,
@@ -641,21 +600,23 @@ pub(crate) fn collect_keys(
     let backend = backend_for(vm, is_local);
     let raw_keys = backend.keys();
     drop(backend);
-    let interned: Vec<StringId> = raw_keys
+    let filtered = raw_keys
         .into_iter()
-        .map(|k| vm.strings.intern(&k))
-        .collect();
-    let filtered = interned
-        .into_iter()
-        .filter(|sid| !key_on_prototype_chain(vm, id, *sid))
+        .filter_map(|k| {
+            let sid = vm.strings.intern(&k);
+            (!key_on_prototype_chain(vm, id, sid)).then_some(sid)
+        })
         .collect();
     Some(Ok(filtered))
 }
 
-/// Clear the per-VM Storage instance cache.  Called from `Vm::unbind`
-/// so a retained `localStorage` reference cannot serve the previous
-/// origin's data after a rebind to a document with a different origin.
-pub(crate) fn clear_instance_cache(vm: &mut VmInner) {
-    vm.storage_local_instance = None;
-    vm.storage_session_instance = None;
+impl VmInner {
+    /// Clear the per-VM Storage instance cache.  Called from
+    /// `Vm::unbind` so a retained `localStorage` reference cannot
+    /// serve the previous origin's data after a rebind to a document
+    /// with a different origin.
+    pub(in crate::vm) fn clear_storage_instance_cache(&mut self) {
+        self.storage_local_instance = None;
+        self.storage_session_instance = None;
+    }
 }

@@ -26,13 +26,13 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::shape::PropertyAttrs;
 use super::super::value::{
     JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, StringId, VmError,
 };
-use super::super::{NativeFn, VmInner};
+use super::super::VmInner;
 
-use super::events::{check_construct, install_ctor, parse_event_init, type_arg};
+use super::events::{check_construct, parse_event_init, type_arg};
+use super::events_extras::register_event_subclass;
 
 impl VmInner {
     /// Allocate `StorageEvent.prototype` chained to `Event.prototype`,
@@ -42,23 +42,12 @@ impl VmInner {
     ///
     /// Called from `register_globals()` after `register_event_global`.
     pub(in crate::vm) fn register_storage_event_global(&mut self) {
-        let parent = self
-            .event_prototype
-            .expect("register_storage_event_global called before register_event_prototype");
-        let proto_id = self.alloc_object(super::super::value::Object {
-            kind: ObjectKind::Ordinary,
-            storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
-            prototype: Some(parent),
-            extensible: true,
-        });
-        self.storage_event_prototype = Some(proto_id);
-        let func: NativeFn = native_storage_event_constructor;
-        install_ctor(
+        register_event_subclass(
             self,
-            proto_id,
             "StorageEvent",
-            func,
+            native_storage_event_constructor,
             self.well_known.storage_event_global,
+            |vm, proto_id| vm.storage_event_prototype = Some(proto_id),
         );
     }
 }
@@ -165,10 +154,6 @@ fn native_storage_event_constructor(
         PropertyValue::Data(url_val),
         PropertyValue::Data(storage_area_val),
     ];
-    let _ = ctx
-        .vm
-        .storage_event_prototype
-        .expect("StorageEvent.prototype must be registered before ctor");
     // Root all 5 attribute values across the (possibly GC-triggering)
     // shape allocation so a GC during `create_fresh_event_object` does
     // not collect the just-coerced JS strings before they reach the
@@ -178,8 +163,6 @@ fn native_storage_event_constructor(
     let mut g2 = g1.push_temp_root(new_val);
     let mut g3 = g2.push_temp_root(url_val);
     let mut g = g3.push_temp_root(storage_area_val);
-    // Promote the freshly-allocated instance to `StorageEvent` and
-    // install slots.
     let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
     g.get_object_mut(id).kind = ObjectKind::StorageEvent;
     drop(g);
@@ -187,8 +170,5 @@ fn native_storage_event_constructor(
     drop(g2);
     drop(g1);
     drop(g0);
-    // Mark the slot attrs as WEBIDL_RO is handled by the shape itself
-    // (see `event_shapes.rs::storage`'s `extend(... WEBIDL_RO)` chain).
-    let _ = PropertyAttrs::WEBIDL_RO; // suppress unused-import lint
     Ok(JsValue::Object(id))
 }

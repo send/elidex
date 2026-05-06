@@ -373,7 +373,7 @@ impl Vm {
             // cleared because its data lives on `HostData::session_storage`,
             // which is per-VM by spec — see the `session_storage.clear()`
             // call below.
-            super::host::storage::clear_instance_cache(&mut self.inner);
+            self.inner.clear_storage_instance_cache();
             // sessionStorage is per-VM and per-browsing-context.  An
             // unbind boundary expresses the browsing-context
             // teardown — drop entries so a rebind cannot observe

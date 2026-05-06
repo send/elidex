@@ -127,6 +127,8 @@ pub(super) mod multipart;
 #[cfg(feature = "engine")]
 pub(super) mod mutation_observer;
 pub(super) mod named_node_map;
+#[cfg(feature = "engine")]
+pub(super) mod named_property_exotic;
 pub(super) mod navigation;
 pub(super) mod navigator;
 pub(super) mod node_methods_extras;

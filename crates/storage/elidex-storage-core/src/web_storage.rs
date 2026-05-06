@@ -111,6 +111,26 @@ impl LocalStore {
     }
 }
 
+/// Thread-local fast-path cache — keyed by `(manager_id, origin)`,
+/// holds an `Arc<Mutex<LocalStore>>` so repeated same-origin calls
+/// from the same OS thread skip the global registry mutex
+/// acquisition.  Mirrors the boa-side `bridge/local_storage.rs`
+/// pattern and is the single largest perf win on `for..in
+/// localStorage` / `length` hot loops.
+struct StoreCacheEntry {
+    /// Address of the owning `WebStorageManager`, used to
+    /// distinguish caches across multiple managers in one process
+    /// (e.g. tests) without keeping an `Arc<WebStorageManager>` root.
+    manager_id: usize,
+    origin: String,
+    store: Arc<Mutex<LocalStore>>,
+}
+
+thread_local! {
+    static CACHED_STORE: std::cell::RefCell<Option<StoreCacheEntry>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Compute the deterministic on-disk filename for an origin.
 ///
 /// SHA-256 hex avoids filesystem-unsafe characters and prevents
@@ -168,19 +188,51 @@ impl WebStorageManager {
     }
 
     fn store_for(&self, origin: &str) -> Arc<Mutex<LocalStore>> {
-        let mut registry = self
-            .registry
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        registry
-            .entry(origin.to_string())
-            .or_insert_with(|| {
-                let path = self
-                    .local_storage_dir()
-                    .join(format!("{}.json", origin_file_stem(origin)));
-                Arc::new(Mutex::new(LocalStore::load(path)))
+        // Fast path: a same-thread caller hitting the same origin
+        // (the dominant case — `for..in`/`length` loops, repeated
+        // `getItem` from one VM) reuses the cached `Arc` without
+        // touching the global registry mutex.  Manager identity
+        // distinguishes caches across multiple managers in the
+        // same process.
+        let manager_id = std::ptr::from_ref(self) as usize;
+        let cached = CACHED_STORE.with(|cache| {
+            let cache = cache.borrow();
+            cache.as_ref().and_then(|c| {
+                if c.manager_id == manager_id && c.origin == origin {
+                    Some(c.store.clone())
+                } else {
+                    None
+                }
             })
-            .clone()
+        });
+        if let Some(store) = cached {
+            return store;
+        }
+
+        let store = {
+            let mut registry = self
+                .registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            registry
+                .entry(origin.to_string())
+                .or_insert_with(|| {
+                    let path = self
+                        .local_storage_dir()
+                        .join(format!("{}.json", origin_file_stem(origin)));
+                    Arc::new(Mutex::new(LocalStore::load(path)))
+                })
+                .clone()
+        };
+
+        CACHED_STORE.with(|cache| {
+            *cache.borrow_mut() = Some(StoreCacheEntry {
+                manager_id,
+                origin: origin.to_string(),
+                store: store.clone(),
+            });
+        });
+        store
     }
 
     fn mark_dirty(&self, origin: &str) {
@@ -216,8 +268,7 @@ impl WebStorageManager {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let old_value = guard.data.get(key).cloned();
-        let old_entry_bytes = old_value.as_ref().map_or(0, |v| key.len() + v.len());
+        let old_entry_bytes = guard.data.get(key).map_or(0, |v| key.len() + v.len());
         let new_entry_bytes = key.len() + value.len();
         let projected = guard.byte_size - old_entry_bytes + new_entry_bytes;
 
@@ -227,7 +278,7 @@ impl WebStorageManager {
             )));
         }
 
-        guard.data.insert(key.to_string(), value.to_string());
+        let old_value = guard.data.insert(key.to_string(), value.to_string());
         guard.byte_size = projected;
         guard.dirty = true;
         drop(guard);
@@ -367,8 +418,7 @@ impl SessionStorageState {
     /// Mirror of [`WebStorageManager::local_set`] — returns previous
     /// value, errors on quota overrun.
     pub fn set(&mut self, key: &str, value: &str) -> Result<Option<String>, StorageError> {
-        let old_value = self.data.get(key).cloned();
-        let old_entry_bytes = old_value.as_ref().map_or(0, |v| key.len() + v.len());
+        let old_entry_bytes = self.data.get(key).map_or(0, |v| key.len() + v.len());
         let new_entry_bytes = key.len() + value.len();
         let projected = self.byte_size - old_entry_bytes + new_entry_bytes;
         if projected > STORAGE_QUOTA_BYTES {
@@ -376,7 +426,7 @@ impl SessionStorageState {
                 "sessionStorage quota exceeded: {projected} > {STORAGE_QUOTA_BYTES}"
             )));
         }
-        self.data.insert(key.to_string(), value.to_string());
+        let old_value = self.data.insert(key.to_string(), value.to_string());
         self.byte_size = projected;
         Ok(old_value)
     }

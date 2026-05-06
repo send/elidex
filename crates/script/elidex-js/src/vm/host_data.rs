@@ -30,9 +30,15 @@ mod engine_feature {
     /// origin-keyed registry.  Resets on process restart.
     static OPAQUE_ORIGIN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+    /// Prefix on per-VM opaque-origin sentinel strings.  Distinct
+    /// from any `url::Origin::ascii_serialization()` output (which is
+    /// always `scheme://host[:port]`) so the sentinel cannot collide
+    /// with a real origin.
+    const OPAQUE_ORIGIN_PREFIX: &str = "opaque-origin:";
+
     fn next_opaque_origin_id() -> String {
         let n = OPAQUE_ORIGIN_COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("opaque-origin:{n}")
+        format!("{OPAQUE_ORIGIN_PREFIX}{n}")
     }
 
     /// Four-way partition of DOM wrapper prototype chains used by
