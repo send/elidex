@@ -740,6 +740,23 @@ fn forms_uppercase_tag_seen_via_document_forms() {
 }
 
 #[test]
+fn get_elements_by_class_name_tokenizes_on_ascii_whitespace() {
+    // WHATWG DOM §4.2.6.2 + HTML §2.4.5.3: classNames is parsed as
+    // an "ordered set of unique space-separated tokens" using ASCII
+    // whitespace. NBSP (U+00A0) is a token character, not a
+    // separator. The element-side matcher already uses
+    // `split_ascii_whitespace`; the caller-side splitter must agree
+    // or class names containing NBSP fail to match.
+    let out = run("var el = document.createElement('div'); \
+         el.className = 'foo\\xa0bar'; \
+         document.body.appendChild(el); \
+         var byNbsp = document.getElementsByClassName('foo\\xa0bar').length; \
+         var byAscii = document.getElementsByClassName('foo bar').length; \
+         (byNbsp === 1 && byAscii === 0) ? 'ok' : 'fail:' + byNbsp + '/' + byAscii;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn get_elements_by_tag_name_matches_uppercase_element_via_ascii_ci() {
     // Regression: pre-hoist VM walker matched ASCII case-insensitive,
     // post-hoist API stub had drifted to exact-match — silently

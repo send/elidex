@@ -228,7 +228,15 @@ pub(super) fn native_document_get_elements_by_class_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let class_str = coerce_first_arg_to_string(ctx, args)?;
-    let class_names: Vec<String> = class_str.split_whitespace().map(str::to_owned).collect();
+    // ASCII whitespace per WHATWG DOM §4.2.6.2 + HTML §2.4.5.3
+    // ("ordered set parser"). Matches the element-side splitter in
+    // `LiveCollection`'s `ByClassNames` matcher; `split_whitespace`
+    // would split on Unicode whitespace (e.g. NBSP) the spec
+    // doesn't recognise as a token boundary.
+    let class_names: Vec<String> = class_str
+        .split_ascii_whitespace()
+        .map(str::to_owned)
+        .collect();
     let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
         doc,
         elidex_dom_api::CollectionFilter::ByClassNames(class_names),

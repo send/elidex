@@ -477,7 +477,12 @@ pub(super) fn native_element_get_elements_by_class_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let class_str = coerce_first_arg_to_string(ctx, args)?;
-    let class_names: Vec<String> = class_str.split_whitespace().map(str::to_owned).collect();
+    // ASCII whitespace per WHATWG DOM §4.2.6.2 — see the matching
+    // comment on `native_document_get_elements_by_class_name`.
+    let class_names: Vec<String> = class_str
+        .split_ascii_whitespace()
+        .map(str::to_owned)
+        .collect();
     let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
         root,
         elidex_dom_api::CollectionFilter::ByClassNames(class_names),

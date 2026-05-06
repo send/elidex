@@ -170,60 +170,58 @@ impl LiveCollection {
         }
     }
 
-    /// Refresh the cached snapshot, reusing the existing `Vec`'s capacity.
+    /// Refresh the cached snapshot in place, reusing both the
+    /// `Vec`'s capacity and the underlying allocation.
     ///
-    /// `populate(dom)` still allocates one fresh `Vec<Entity>` per call
-    /// (see `populate` for the per-filter dispatch), but the cached
-    /// buffer (`self.cached_snapshot`) is amortised: `clear() +
-    /// extend_from_slice` reuses its capacity once the result set
-    /// stabilises at its high-water mark, where re-assigning the field
-    /// (`self.cached_snapshot = self.populate(dom)`) would discard the
-    /// growable allocation each refresh. A future fully-zero-alloc
-    /// path is tracked under `#11-arch-hoist-e-bench-completion`.
+    /// `populate_into` writes directly into `self.cached_snapshot`
+    /// after `clear()`, avoiding any intermediate `Vec<Entity>`.
+    /// Once the result set stabilises at its high-water mark,
+    /// subsequent miss-path refreshes are allocation-free.
     fn refresh(&mut self, dom: &EcsDom) {
-        let fresh = self.populate(dom);
-        self.cached_snapshot.clear();
-        self.cached_snapshot.extend_from_slice(&fresh);
+        let LiveCollection {
+            filter,
+            root,
+            cached_snapshot,
+            ..
+        } = self;
+        cached_snapshot.clear();
+        Self::populate_into(filter, *root, dom, cached_snapshot);
     }
 
-    fn populate(&self, dom: &EcsDom) -> Vec<Entity> {
+    fn populate_into(
+        filter: &CollectionFilter,
+        root: Option<Entity>,
+        dom: &EcsDom,
+        out: &mut Vec<Entity>,
+    ) {
         // Snapshot is the only filter shape that has no `root` — every
         // other variant needs one to walk from. Short-circuit the
-        // root-less filters first so the rest of the match can rely on
+        // root-less filter first so the rest of the match can rely on
         // a present root.
-        if let CollectionFilter::Snapshot(entities) = &self.filter {
-            return entities.clone();
+        if let CollectionFilter::Snapshot(entities) = filter {
+            out.extend_from_slice(entities);
+            return;
         }
-        let Some(root) = self.root else {
-            return Vec::new();
+        let Some(root) = root else {
+            return;
         };
-        match &self.filter {
+        match filter {
             CollectionFilter::Snapshot(_) => unreachable!("handled above"),
-            CollectionFilter::ChildNodes => {
-                let mut result = Vec::new();
-                collect_direct_children(dom, root, &mut result, true);
-                result
-            }
-            CollectionFilter::ElementChildren => {
-                let mut result = Vec::new();
-                collect_direct_children(dom, root, &mut result, false);
-                result
-            }
+            CollectionFilter::ChildNodes => collect_direct_children(dom, root, out, true),
+            CollectionFilter::ElementChildren => collect_direct_children(dom, root, out, false),
             // ByClassNames with empty vec always returns empty.
-            CollectionFilter::ByClassNames(names) if names.is_empty() => Vec::new(),
+            CollectionFilter::ByClassNames(names) if names.is_empty() => {}
             // All other filters: pre-order traversal of the subtree.
             // Shadow boundaries are respected because the child
             // iterators used by `traverse_descendants` skip
             // ShadowRoot entities, so shadow subtrees are unreachable.
-            filter => {
-                let mut result = Vec::new();
+            f => {
                 dom.traverse_descendants(root, |entity| {
-                    if matches_filter(entity, filter, dom) {
-                        result.push(entity);
+                    if matches_filter(entity, f, dom) {
+                        out.push(entity);
                     }
                     true
                 });
-                result
             }
         }
     }
