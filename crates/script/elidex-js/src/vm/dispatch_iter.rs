@@ -125,7 +125,12 @@ impl VmInner {
                 self.objects[obj_id.0 as usize].as_ref().map(|o| &o.kind),
                 Some(ObjectKind::DOMStringMap { .. })
             ) {
-                if let Some(Ok(keys)) = super::host::dataset::collect_keys(self, obj_id) {
+                // Propagate handler errors instead of silently falling
+                // through to the ordinary for-in path: a stale entity
+                // or bridge error on `dataset.keys` should surface as
+                // a thrown exception, not a quiet "no own keys".
+                if let Some(result) = super::host::dataset::collect_keys(self, obj_id) {
+                    let keys = result?;
                     let iter_obj = self.alloc_object(Object {
                         kind: ObjectKind::ForInIterator(ForInState { keys, index: 0 }),
                         storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),

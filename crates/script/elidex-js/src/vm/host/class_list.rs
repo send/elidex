@@ -130,6 +130,23 @@ impl VmInner {
 }
 
 // ---------------------------------------------------------------------------
+// Post-unbind tolerance
+// ---------------------------------------------------------------------------
+
+/// `DOMTokenList` wrappers are plain JS objects, so user code can
+/// retain `el.classList` across a `Vm::unbind()` boundary; calling
+/// [`invoke_dom_api`] in that state panics at the
+/// `HostData::with_session_and_dom` assert.  Each native checks
+/// `ctx.host_if_bound()` first and returns a safe default
+/// (length=0 / value="" / contains=false / item=null / mutations
+/// no-op).  Mirrors `Attr` / `NamedNodeMap` post-unbind handling.
+fn vm_is_bound(vm: &super::super::VmInner) -> bool {
+    vm.host_data
+        .as_deref()
+        .is_some_and(super::super::host_data::HostData::is_bound)
+}
+
+// ---------------------------------------------------------------------------
 // Brand check
 // ---------------------------------------------------------------------------
 
@@ -165,6 +182,9 @@ fn native_class_list_length_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "length")?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Number(0.0));
+    }
     invoke_dom_api(ctx, "classList.length", entity, &[])
 }
 
@@ -174,6 +194,9 @@ fn native_class_list_value_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "value")?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
     invoke_dom_api(ctx, "classList.value.get", entity, &[])
 }
 
@@ -184,6 +207,9 @@ fn native_class_list_value_set(
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "value")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Undefined);
+    }
     invoke_dom_api(ctx, "classList.value.set", entity, &[JsValue::String(sid)])
 }
 
@@ -195,6 +221,9 @@ fn native_class_list_item(
     let entity = require_dom_token_list_receiver(ctx, this, "item")?;
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_number(ctx.vm, arg)?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
     invoke_dom_api(ctx, "classList.item", entity, &[JsValue::Number(n)])
 }
 
@@ -205,6 +234,9 @@ fn native_class_list_contains(
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "contains")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Boolean(false));
+    }
     invoke_dom_api(ctx, "classList.contains", entity, &[JsValue::String(sid)])
 }
 
@@ -219,8 +251,18 @@ fn native_class_list_add(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "add")?;
+    // Coerce every arg first so SyntaxError / InvalidCharacterError
+    // are still raised post-unbind (matches the bound-state observable
+    // pattern: "throw on first invalid token, mutate nothing later").
+    // Coercion (`to_string`) only throws TypeError for Symbol args.
+    let mut sids = Vec::with_capacity(args.len());
     for arg in args {
-        let sid = super::super::coerce::to_string(ctx.vm, *arg)?;
+        sids.push(super::super::coerce::to_string(ctx.vm, *arg)?);
+    }
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Undefined);
+    }
+    for sid in sids {
         invoke_dom_api(ctx, "classList.add", entity, &[JsValue::String(sid)])?;
     }
     Ok(JsValue::Undefined)
@@ -232,8 +274,14 @@ fn native_class_list_remove(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "remove")?;
+    let mut sids = Vec::with_capacity(args.len());
     for arg in args {
-        let sid = super::super::coerce::to_string(ctx.vm, *arg)?;
+        sids.push(super::super::coerce::to_string(ctx.vm, *arg)?);
+    }
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Undefined);
+    }
+    for sid in sids {
         invoke_dom_api(ctx, "classList.remove", entity, &[JsValue::String(sid)])?;
     }
     Ok(JsValue::Undefined)
@@ -258,6 +306,9 @@ fn native_class_list_toggle(
             vm_args.push(JsValue::Boolean(b));
         }
     }
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Boolean(false));
+    }
     invoke_dom_api(ctx, "classList.toggle", entity, &vm_args)
 }
 
@@ -271,6 +322,9 @@ fn native_class_list_replace(
     let new_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let old_sid = super::super::coerce::to_string(ctx.vm, old_arg)?;
     let new_sid = super::super::coerce::to_string(ctx.vm, new_arg)?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Boolean(false));
+    }
     invoke_dom_api(
         ctx,
         "classList.replace",
@@ -291,6 +345,9 @@ fn native_class_list_to_string(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "toString")?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
     invoke_dom_api(ctx, "classList.value.get", entity, &[])
 }
 
@@ -304,6 +361,13 @@ fn native_class_list_supports(
     // returns a `DomApiErrorKind::TypeError` which maps to ECMA
     // `TypeError` in `dom_api_error_to_vm_error`.
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
+    if ctx.host_if_bound().is_none() {
+        // Match the handler's message verbatim so bound and unbound
+        // paths surface the same observable error.
+        return Err(VmError::type_error(
+            "classList.supports() is not supported for classList",
+        ));
+    }
     invoke_dom_api(ctx, "classList.supports", entity, &[JsValue::String(sid)])
 }
 
@@ -318,6 +382,22 @@ fn native_class_list_iterator(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "@@iterator")?;
+    if ctx.host_if_bound().is_none() {
+        // Empty iterator post-unbind — token snapshot is the empty list.
+        let array_id = ctx.vm.create_array_object(Vec::new());
+        let proto = ctx.vm.array_iterator_prototype;
+        let iter_obj = ctx.vm.alloc_object(Object {
+            kind: ObjectKind::ArrayIterator(ArrayIterState {
+                array_id,
+                index: 0,
+                kind: ARRAY_ITER_KIND_VALUES,
+            }),
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: proto,
+            extensible: true,
+        });
+        return Ok(JsValue::Object(iter_obj));
+    }
     let len_val = invoke_dom_api(ctx, "classList.length", entity, &[])?;
     let JsValue::Number(len) = len_val else {
         return Err(VmError::type_error(
@@ -393,6 +473,13 @@ pub(crate) fn try_indexed_get(
     // with the prototype-resident `item()`.  Allocate a NativeContext
     // inline; the bridge needs `&mut NativeContext` and `try_indexed_get`
     // is called from `ops_element::get_element` with a clean `&mut VmInner`.
+    if !vm_is_bound(vm) {
+        // Post-unbind: indexed access on a retained `el.classList`
+        // wrapper returns `undefined` (matches Copilot R1 guidance —
+        // out-of-range integer-typed indices fall to `Undefined`,
+        // which is what an empty token list yields for every index).
+        return Some(Ok(JsValue::Undefined));
+    }
     let mut ctx = NativeContext { vm };
     let result = invoke_dom_api(
         &mut ctx,

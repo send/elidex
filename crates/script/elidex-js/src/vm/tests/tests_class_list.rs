@@ -265,3 +265,76 @@ fn class_list_method_brand_check() {
          catch (e) { (e instanceof TypeError) ? 'TypeError' : 'wrong:' + e.name; }");
     assert_eq!(out, "TypeError");
 }
+
+// --- post-unbind tolerance (R1 #3) -------------------------------
+//
+// `el.classList` retained across `Vm::unbind()` must not panic.
+// `length` → 0, `value` → "", `contains/toggle/replace` → false,
+// `item(i)` / `tokens[i]` → null/undefined, mutators no-op,
+// `supports` throws TypeError matching the bound-state message.
+
+#[test]
+fn class_list_methods_after_unbind_return_safe_defaults() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "var d = document.createElement('div'); \
+         d.setAttribute('class', 'a b c'); \
+         globalThis.cl = d.classList;",
+    )
+    .unwrap();
+    vm.unbind();
+
+    let r = vm.eval("globalThis.cl.length;").unwrap();
+    assert!(matches!(r, JsValue::Number(n) if n == 0.0), "{r:?}");
+    let r = vm.eval("globalThis.cl.value;").unwrap();
+    if let JsValue::String(sid) = r {
+        assert_eq!(vm.inner.strings.get_utf8(sid), "");
+    } else {
+        panic!("expected String, got {r:?}");
+    }
+    let r = vm.eval("globalThis.cl.contains('a');").unwrap();
+    assert!(matches!(r, JsValue::Boolean(false)), "{r:?}");
+    let r = vm.eval("globalThis.cl.item(0);").unwrap();
+    assert!(matches!(r, JsValue::Null), "{r:?}");
+    // Indexed exotic also tolerates unbound.
+    let r = vm.eval("globalThis.cl[0];").unwrap();
+    assert!(matches!(r, JsValue::Undefined), "{r:?}");
+    let r = vm.eval("globalThis.cl.toggle('a');").unwrap();
+    assert!(matches!(r, JsValue::Boolean(false)), "{r:?}");
+    let r = vm.eval("globalThis.cl.replace('a', 'b');").unwrap();
+    assert!(matches!(r, JsValue::Boolean(false)), "{r:?}");
+    // Mutators no-op (does not panic).
+    vm.eval("globalThis.cl.add('z'); globalThis.cl.remove('a');")
+        .unwrap();
+    // `value` setter no-op.
+    vm.eval("globalThis.cl.value = 'x';").unwrap();
+    // Iterator yields zero values.
+    let r = vm
+        .eval("var n = 0; for (var t of globalThis.cl) n++; n;")
+        .unwrap();
+    assert!(matches!(r, JsValue::Number(n) if n == 0.0), "{r:?}");
+    // Stringifier returns "".
+    let r = vm.eval("'' + globalThis.cl;").unwrap();
+    if let JsValue::String(sid) = r {
+        assert_eq!(vm.inner.strings.get_utf8(sid), "");
+    } else {
+        panic!("expected String, got {r:?}");
+    }
+    // `supports` still throws TypeError (matches bound-state spec).
+    let r = vm
+        .eval("try { globalThis.cl.supports('x'); 'no-throw'; } catch(e) { e.name; }")
+        .unwrap();
+    if let JsValue::String(sid) = r {
+        assert_eq!(vm.inner.strings.get_utf8(sid), "TypeError");
+    } else {
+        panic!("expected String, got {r:?}");
+    }
+}

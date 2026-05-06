@@ -250,3 +250,105 @@ fn dataset_set_visible_through_get_attribute() {
          d.getAttribute('data-a-aa');");
     assert_eq!(out, "v");
 }
+
+// --- ToPropertyKey coercion (R1 #1) ------------------------------
+//
+// ECMA §7.1.19 ToPropertyKey turns every non-Symbol value into a
+// string before the named-property exotic dispatch.  Boolean / null /
+// undefined / numeric keys must reflect the corresponding `data-*`
+// attribute (or fall through to ordinary [[Get]] when absent).
+
+#[test]
+fn dataset_bracket_access_with_boolean_key() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-true', 'yes'); \
+         d.dataset[true];");
+    assert_eq!(out, "yes");
+}
+
+#[test]
+fn dataset_bracket_access_with_null_key() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-null', 'nil'); \
+         d.dataset[null];");
+    assert_eq!(out, "nil");
+}
+
+#[test]
+fn dataset_bracket_access_with_undefined_key() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-undefined', 'u'); \
+         d.dataset[undefined];");
+    assert_eq!(out, "u");
+}
+
+#[test]
+fn dataset_in_operator_with_boolean_key() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('data-false', '1'); \
+         (false in d.dataset) + '/' + (true in d.dataset);");
+    assert_eq!(out, "true/false");
+}
+
+#[test]
+fn dataset_set_with_boolean_key() {
+    let out = run("var d = document.createElement('div'); \
+         d.dataset[true] = 'present'; \
+         d.getAttribute('data-true');");
+    assert_eq!(out, "present");
+}
+
+#[test]
+fn dataset_delete_with_null_key_vacuous_true() {
+    // [[Delete]] returns true even for an absent key (WebIDL §3.10
+    // deleter).  `null` coerces to "null" via ToPropertyKey.
+    let out = run("var d = document.createElement('div'); \
+         '' + (delete d.dataset[null]);");
+    assert_eq!(out, "true");
+}
+
+// --- post-unbind tolerance (R1 #2) -------------------------------
+//
+// `el.dataset` retained across `Vm::unbind()` must not panic.
+// [[Get]] / [[Has]] / [[OwnKeys]] fall through to ordinary semantics
+// (sealed wrapper → no own keys); [[Set]] is a silent no-op;
+// [[Delete]] returns vacuous true.
+
+#[test]
+fn dataset_traps_after_unbind_do_not_panic() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "var d = document.createElement('div'); \
+         d.setAttribute('data-foo', '1'); \
+         globalThis.ds = d.dataset;",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // [[Get]] falls through → undefined for data-* keys post-unbind.
+    let r = vm.eval("globalThis.ds.foo;").unwrap();
+    assert!(matches!(r, JsValue::Undefined), "{r:?}");
+    // [[Has]] falls through → false (sealed wrapper, no inherited
+    // 'foo' on Object.prototype).
+    let r = vm.eval("'foo' in globalThis.ds;").unwrap();
+    assert!(matches!(r, JsValue::Boolean(false)), "{r:?}");
+    // [[Set]] is a silent no-op (does not panic).
+    vm.eval("globalThis.ds.bar = 'x';").unwrap();
+    // [[Delete]] returns vacuous true.
+    let r = vm.eval("delete globalThis.ds.foo;").unwrap();
+    assert!(matches!(r, JsValue::Boolean(true)), "{r:?}");
+    // for-in yields no keys (collect_keys returns Some(Ok([]))
+    // post-unbind; ordinary for-in fallback would also yield 0).
+    let r = vm
+        .eval("var n = 0; for (var k in globalThis.ds) n++; n;")
+        .unwrap();
+    assert!(matches!(r, JsValue::Number(n) if n == 0.0), "{r:?}");
+}

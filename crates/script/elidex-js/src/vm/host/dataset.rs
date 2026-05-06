@@ -92,17 +92,30 @@ fn entity_from_id(vm: &VmInner, id: ObjectId) -> Option<Entity> {
 }
 
 /// Coerce a property key into a `StringId` for handler dispatch, or
-/// signal fall-through.  Strings pass through; numeric keys are
-/// stringified per ECMA §10.5 ToPropertyKey conversion (an integer
-/// key exists as a string in the supported-name set).  Symbol keys /
-/// non-coercible keys return `None` so the dispatch site falls
-/// through to the ordinary property path / prototype chain.
+/// signal fall-through.  ECMA §7.1.19 ToPropertyKey turns every
+/// non-Symbol value into a string, so `dataset[true]`, `dataset[null]`,
+/// `'fooBar' in dataset`, and `Object.getOwnPropertyDescriptor(dataset,
+/// 0)` all need to reach the named-property exotic with a string key.
+/// Symbol keys return `None` so the dispatch site falls through to the
+/// ordinary property path (Symbol-keyed access resolves via the
+/// prototype chain, never via `data-*`).
 fn coerce_key_or_none(vm: &mut VmInner, key: JsValue) -> Option<Result<StringId, VmError>> {
     match key {
-        JsValue::String(sid) => Some(Ok(sid)),
-        JsValue::Number(_) => Some(super::super::coerce::to_string(vm, key)),
-        _ => None,
+        JsValue::Symbol(_) => None,
+        _ => Some(super::super::coerce::to_string(vm, key)),
     }
+}
+
+/// Post-unbind tolerance helper: `DOMStringMap` wrappers are plain JS
+/// objects (not `HostObject`), so user code can retain `el.dataset`
+/// across a `Vm::unbind()` boundary.  When the VM is unbound, the
+/// trap helpers must not call [`invoke_dom_api`] (it panics via
+/// `HostData::with_session_and_dom`'s `is_bound()` assert).  Mirrors
+/// [`super::named_node_map::attribute_names_snapshot_if_bound`].
+fn is_bound(vm: &VmInner) -> bool {
+    vm.host_data
+        .as_deref()
+        .is_some_and(super::super::host_data::HostData::is_bound)
 }
 
 /// `[[HasProperty]]` trap (WebIDL §3.10 named-property exotic).
@@ -126,6 +139,9 @@ pub(crate) fn try_has(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    if !is_bound(vm) {
+        return None;
+    }
     let mut ctx = NativeContext { vm };
     let result = invoke_dom_api(&mut ctx, "dataset.get", entity, &[JsValue::String(sid)]);
     Some(result.map(|v| !matches!(v, JsValue::Undefined)))
@@ -153,6 +169,9 @@ pub(crate) fn try_get(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    if !is_bound(vm) {
+        return None;
+    }
     let mut ctx = NativeContext { vm };
     let result = invoke_dom_api(&mut ctx, "dataset.get", entity, &[JsValue::String(sid)]);
     match result {
@@ -180,6 +199,9 @@ pub(crate) fn try_set(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    if !is_bound(vm) {
+        return Some(Ok(()));
+    }
     let mut ctx = NativeContext { vm };
     let result = invoke_dom_api(
         &mut ctx,
@@ -205,6 +227,9 @@ pub(crate) fn try_delete(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    if !is_bound(vm) {
+        return Some(Ok(true));
+    }
     let mut ctx = NativeContext { vm };
     let result = invoke_dom_api(
         &mut ctx,
@@ -226,6 +251,9 @@ pub(crate) fn collect_keys(
     id: ObjectId,
 ) -> Option<Result<Vec<super::super::value::StringId>, VmError>> {
     let entity = entity_from_id(vm, id)?;
+    if !is_bound(vm) {
+        return Some(Ok(Vec::new()));
+    }
     let mut ctx = NativeContext { vm };
     let result = invoke_dom_api(&mut ctx, "dataset.keys", entity, &[]);
     Some(result.and_then(|raw| match raw {
