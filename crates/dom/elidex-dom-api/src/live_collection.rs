@@ -927,7 +927,8 @@ mod tests {
     fn refresh_reuses_cache_buffer_capacity() {
         // Mutation-heavy refresh path must not re-allocate `cached_snapshot`
         // each time. Repeated refresh cycles preserve the high-water-mark
-        // capacity (regression for §C-1-6 buffer reuse pattern).
+        // capacity AND the underlying allocation (clear()+extend_from_slice,
+        // not assignment).
         let (mut dom, doc) = setup_dom();
         let body = dom.children(dom.children(doc)[0])[0];
 
@@ -944,14 +945,17 @@ mod tests {
         );
         assert_eq!(coll.length(&dom), 5);
         let cap_after_first = coll.cached_snapshot.capacity();
+        let ptr_after_first = coll.cached_snapshot.as_ptr();
         assert!(cap_after_first >= 5);
 
-        // Trigger a refresh by mutating the subtree.
+        // Trigger a refresh that doesn't grow past the high-water mark.
         let extra = dom.create_element("span", Attributes::default());
         dom.append_child(body, extra);
         assert_eq!(coll.length(&dom), 5); // div count unchanged
 
-        // Capacity is at least preserved; clear()+extend_from_slice never shrinks.
-        assert!(coll.cached_snapshot.capacity() >= cap_after_first);
+        // Capacity preserved AND allocation reused — no reallocation
+        // when the refreshed result fits in the existing buffer.
+        assert_eq!(coll.cached_snapshot.capacity(), cap_after_first);
+        assert_eq!(coll.cached_snapshot.as_ptr(), ptr_after_first);
     }
 }

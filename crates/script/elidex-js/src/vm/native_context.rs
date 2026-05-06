@@ -199,9 +199,14 @@ impl NativeContext<'_> {
     /// Mirrors [`Self::dom_and_strings_if_bound`] for the
     /// `live_collection_states` map: lets a native function pass
     /// `&EcsDom` to [`elidex_dom_api::LiveCollection::snapshot`]
-    /// while keeping `&mut LiveCollection` borrowed out of the map,
-    /// avoiding the `ctx.host()` / `ctx.vm.live_collection_states`
-    /// aliasing conflict that an unsplit `&mut ctx` borrow would hit.
+    /// while keeping `&mut LiveCollection` borrowed out of the map.
+    ///
+    /// Without this disjoint projection, the natural form
+    /// `let dom = ctx.host().dom(); let coll = ctx.vm.live_collection_states.get_mut(&id);`
+    /// would conflict — `ctx.host()` re-borrows `&mut ctx` to hand
+    /// back a `&mut HostData`, and that re-borrow blocks the
+    /// subsequent `&mut ctx.vm.<field>` access. Projecting through
+    /// `*self.vm` skips the `&mut ctx` re-borrow entirely.
     ///
     /// # Safety
     ///
