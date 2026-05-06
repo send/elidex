@@ -37,10 +37,12 @@ pub enum CollectionFilter {
     /// All direct child *elements* (excluding text nodes) — `HTMLCollection` semantics.
     ElementChildren,
     /// Static, pre-captured entity list (`querySelectorAll` result).
-    /// Bypasses descendant traversal entirely — populate returns a clone
-    /// of the stored vec. Per WHATWG DOM §4.2.6, this is the single
-    /// non-live `NodeList` case.
-    Snapshot(Vec<Entity>),
+    /// Per WHATWG DOM §4.2.6, the single non-live `NodeList` case.
+    /// The entities themselves live in the collection's internal
+    /// snapshot buffer directly — populated at construction by
+    /// [`LiveCollection::new_snapshot`] and never refreshed, so no
+    /// second buffer holds them.
+    Snapshot,
 }
 
 /// Whether the collection behaves as an `HTMLCollection` or a `NodeList`.
@@ -106,14 +108,23 @@ impl LiveCollection {
     /// non-live `NodeList`"). The parameter is explicit (not defaulted)
     /// to keep future `HTMLCollection`-shaped snapshot users
     /// (e.g. potential XPath bindings) able to opt in.
+    ///
+    /// The captured entities are moved into `cached_snapshot` at
+    /// construction; subsequent `length` / `item` / `snapshot` calls
+    /// read directly from that buffer without a per-access refresh
+    /// or a duplicated filter-side copy.
     #[must_use]
     pub fn new_snapshot(entities: Vec<Entity>, kind: CollectionKind) -> Self {
         Self {
             root: None,
-            filter: CollectionFilter::Snapshot(entities),
+            filter: CollectionFilter::Snapshot,
             kind,
-            cached_version: UNINITIALIZED_VERSION,
-            cached_snapshot: Vec::new(),
+            // Any non-`UNINITIALIZED_VERSION` value disables the
+            // version-check refresh path. Snapshot collections
+            // never refresh, so the field is observably unused; `0`
+            // is the conventional "fresh" marker.
+            cached_version: 0,
+            cached_snapshot: entities,
         }
     }
 
@@ -150,14 +161,9 @@ impl LiveCollection {
     // -- private -------------------------------------------------------------
 
     fn refresh_if_stale(&mut self, dom: &EcsDom) {
-        // Snapshot collections are frozen at construction. Populate the
-        // cached vec on first access (when `cached_version` still holds
-        // the sentinel) and never re-walk after that.
-        if matches!(self.filter, CollectionFilter::Snapshot(_)) {
-            if self.cached_version == UNINITIALIZED_VERSION {
-                self.refresh(dom);
-                self.cached_version = 0;
-            }
+        // Snapshot collections are frozen — `cached_snapshot` was
+        // populated by `new_snapshot` and never re-walks.
+        if matches!(self.filter, CollectionFilter::Snapshot) {
             return;
         }
         let Some(root) = self.root else {
@@ -194,19 +200,16 @@ impl LiveCollection {
         dom: &EcsDom,
         out: &mut Vec<Entity>,
     ) {
-        // Snapshot is the only filter shape that has no `root` — every
-        // other variant needs one to walk from. Short-circuit the
-        // root-less filter first so the rest of the match can rely on
-        // a present root.
-        if let CollectionFilter::Snapshot(entities) = filter {
-            out.extend_from_slice(entities);
-            return;
-        }
+        // Snapshot is never refreshed (see `refresh_if_stale`), so
+        // `populate_into` never receives one. Every other variant
+        // needs `root` to walk from.
         let Some(root) = root else {
             return;
         };
         match filter {
-            CollectionFilter::Snapshot(_) => unreachable!("handled above"),
+            CollectionFilter::Snapshot => {
+                unreachable!("Snapshot is populated at construction; never re-walks")
+            }
             CollectionFilter::ChildNodes => collect_direct_children(dom, root, out, true),
             CollectionFilter::ElementChildren => collect_direct_children(dom, root, out, false),
             // ByClassNames with empty vec always returns empty.
@@ -320,7 +323,7 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
         // ChildNodes / ElementChildren / Snapshot are handled in populate() directly.
         CollectionFilter::ChildNodes
         | CollectionFilter::ElementChildren
-        | CollectionFilter::Snapshot(_) => false,
+        | CollectionFilter::Snapshot => false,
     }
 }
 
@@ -803,7 +806,7 @@ mod tests {
         // WHATWG DOM §4.2.6 — querySelectorAll returns a non-live NodeList.
         let coll = LiveCollection::new_snapshot(Vec::new(), CollectionKind::NodeList);
         assert_eq!(coll.kind(), CollectionKind::NodeList);
-        assert!(matches!(coll.filter(), CollectionFilter::Snapshot(_)));
+        assert!(matches!(coll.filter(), CollectionFilter::Snapshot));
     }
 
     // -- Case-insensitive Forms / Images / Links ------------------------------

@@ -915,9 +915,21 @@ fn live_collection_post_unbind_silent() {
     assert!(matches!(pre, JsValue::Number(n) if (n - 1.0).abs() < 1e-9));
     vm.unbind();
 
-    // Re-bind a different DOM instance — same wrapper, should read 0.
+    // Re-bind a different DOM instance with a `<div>` already in
+    // place. If the retained wrapper accidentally reads from the
+    // new DOM, `length` would surface 1 (not 0); a fresh DOM with
+    // no matching elements would mask the bug. The mutation makes
+    // the leak observable.
     let mut fresh_dom = EcsDom::new();
     let fresh_root = build_doc(&mut fresh_dom);
+    let fresh_body = fresh_dom
+        .first_child_with_tag(
+            fresh_dom.first_child_with_tag(fresh_root, "html").unwrap(),
+            "body",
+        )
+        .unwrap();
+    let fresh_div = fresh_dom.create_element("div", Attributes::default());
+    assert!(fresh_dom.append_child(fresh_body, fresh_div));
     #[allow(unsafe_code)]
     unsafe {
         bind_vm(&mut vm, &mut session, &mut fresh_dom, fresh_root);
