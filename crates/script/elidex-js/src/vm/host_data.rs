@@ -452,6 +452,52 @@ mod engine_feature {
             dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
         }
 
+        /// Borrow the bound DOM (shared) and the
+        /// [`elidex_api_observers::mutation::MutationObserverRegistry`]
+        /// (exclusive) simultaneously via disjoint field projection.
+        ///
+        /// Mirrors [`Self::dom_and_strings_if_bound`] but for the
+        /// mutation-observer registry: lets
+        /// [`super::super::Vm::deliver_mutation_records`] hand
+        /// [`elidex_ecs::EcsDom::is_ancestor_or_self`] to the
+        /// registry's subtree-ancestry callback while keeping the
+        /// `&mut MutationObserverRegistry` borrowed for
+        /// [`elidex_api_observers::mutation::MutationObserverRegistry::notify`].
+        ///
+        /// Without this disjoint projection, the natural form
+        /// `let dom = host.dom(); host.mutation_observers.notify(...)`
+        /// would conflict — `host.dom()` re-borrows `&mut self` to
+        /// hand back a `&mut EcsDom`, and the closure inside `notify`
+        /// would alias that `&mut`.
+        ///
+        /// # Safety
+        ///
+        /// Same `dom_ptr` aliasing contract as
+        /// [`Self::dom_and_strings_if_bound`] — callers must not invoke
+        /// any sibling `host()` / `host().dom()` path while either of
+        /// the returned references is live.  The `EcsDom` allocation
+        /// is disjoint from the `HostData`'s registry storage by
+        /// `bind`'s "disjoint allocations" contract, so the
+        /// `&EcsDom` and `&mut MutationObserverRegistry` cannot
+        /// alias.
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_and_observers(
+            &mut self,
+        ) -> (
+            &elidex_ecs::EcsDom,
+            &mut elidex_api_observers::mutation::MutationObserverRegistry,
+        ) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: see method-level safety comment.  `dom_ptr` is
+            // the bound `&mut EcsDom` supplied by the most recent
+            // `bind()`; we only synthesise a shared ref here, and
+            // the returned `&mut MutationObserverRegistry` projects
+            // a disjoint field (the registry lives inside
+            // `HostData` itself, not behind `dom_ptr`).
+            let dom = unsafe { &*self.dom_ptr };
+            (dom, &mut self.mutation_observers)
+        }
+
         /// ASCII-case-insensitive tag-name match — used by
         /// `create_element_wrapper`'s per-tag prototype dispatch
         /// (e.g. `<iframe>` → `HTMLIFrameElement.prototype`).

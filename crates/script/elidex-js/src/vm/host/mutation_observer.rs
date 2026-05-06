@@ -266,44 +266,57 @@ pub(super) fn build_mutation_records_array(
 
 /// Marshal a single [`elidex_api_observers::mutation::MutationRecord`]
 /// to a JS Object with WHATWG DOM §4.3.5 shape.
+///
+/// `addedNodes` / `removedNodes` are rooted (via `push_temp_root`)
+/// across the wrapper allocation so a GC triggered by `alloc_object`
+/// cannot collect the just-allocated arrays before the wrapper
+/// reaches them through `define_shaped_property` (Lesson R8).
 fn mutation_record_to_js(
     vm: &mut VmInner,
     record: &elidex_api_observers::mutation::MutationRecord,
 ) -> JsValue {
     use super::super::shape::PropertyAttrs;
 
-    // Build the inner arrays first, rooting each so the subsequent
-    // wrapper allocation (which itself can trigger GC) cannot
-    // collect them.
     let added = build_node_array(vm, &record.added_nodes);
     let mut added_guard = vm.push_temp_root(added);
     let removed = build_node_array(&mut added_guard, &record.removed_nodes);
     let mut removed_guard = added_guard.push_temp_root(removed);
 
-    // Marshal the optional sibling / attribute / oldValue fields —
-    // none allocate, so no rooting needed.
-    let target_id = removed_guard.create_element_wrapper(record.target);
-    let target_val = JsValue::Object(target_id);
-    let prev_sibling = match record.previous_sibling {
-        Some(e) => JsValue::Object(removed_guard.create_element_wrapper(e)),
-        None => JsValue::Null,
+    let target_val = JsValue::Object(removed_guard.create_element_wrapper(record.target));
+    let prev_sibling = record.previous_sibling.map_or(JsValue::Null, |e| {
+        JsValue::Object(removed_guard.create_element_wrapper(e))
+    });
+    let next_sibling = record.next_sibling.map_or(JsValue::Null, |e| {
+        JsValue::Object(removed_guard.create_element_wrapper(e))
+    });
+    let attribute_name = record
+        .attribute_name
+        .as_deref()
+        .map_or(JsValue::Null, |name| {
+            JsValue::String(removed_guard.strings.intern(name))
+        });
+    let old_value = record.old_value.as_deref().map_or(JsValue::Null, |v| {
+        JsValue::String(removed_guard.strings.intern(v))
+    });
+    // The 3 spec values for `MutationRecord.type` are already
+    // pre-interned via `well_known.{child_list,attributes,character_data}`
+    // (StringPool dedupes by literal) — match the registry's
+    // `mutation_type` String against them so each delivery skips
+    // the `intern(...)` round-trip on the dominant childList /
+    // attribute hot path.
+    let wk = &removed_guard.well_known;
+    let type_sid = match record.mutation_type.as_str() {
+        "childList" => wk.child_list,
+        "attributes" => wk.attributes,
+        "characterData" => wk.character_data,
+        // Forward-compat: an unknown variant from
+        // `MutationObserverRegistry::notify` is a contract violation,
+        // but fall back to a fresh intern rather than panic so the
+        // record still surfaces with its actual type string.
+        other => removed_guard.strings.intern(other),
     };
-    let next_sibling = match record.next_sibling {
-        Some(e) => JsValue::Object(removed_guard.create_element_wrapper(e)),
-        None => JsValue::Null,
-    };
-    let attribute_name = match &record.attribute_name {
-        Some(name) => JsValue::String(removed_guard.strings.intern(name)),
-        None => JsValue::Null,
-    };
-    let old_value = match &record.old_value {
-        Some(v) => JsValue::String(removed_guard.strings.intern(v)),
-        None => JsValue::Null,
-    };
-    let type_sid = removed_guard.strings.intern(record.mutation_type.as_str());
     let type_val = JsValue::String(type_sid);
 
-    // Allocate the record wrapper now that every field value is in hand.
     let object_proto = removed_guard.object_prototype;
     let record_obj = removed_guard.alloc_object(Object {
         kind: ObjectKind::Ordinary,
@@ -368,11 +381,8 @@ impl VmInner {
         &mut self,
         records: &[elidex_script_session::MutationRecord],
     ) {
-        // Step 1 — fan out session records to the registry.  Each
-        // call resolves subtree matches via `EcsDom::get_parent`.
-        // The `Some(host)` guard makes the embedder API silent
-        // post-unbind (a stray late delivery from the shell does
-        // not panic).
+        // Silent no-op post-unbind so a stray late delivery from the
+        // shell does not panic via `host_data.dom()`.
         if !self
             .host_data
             .as_deref()
@@ -384,10 +394,9 @@ impl VmInner {
             self.notify_one(record);
         }
 
-        // Step 2 — collect observer IDs that have pending records.
-        // Done up front so re-entrant `mo.observe` / `mo.disconnect`
-        // calls from callbacks see the post-callback registry state
-        // rather than a snapshot taken mid-loop.
+        // Collect observer IDs up front so re-entrant
+        // `mo.observe` / `mo.disconnect` calls from callbacks see the
+        // post-callback registry state rather than a mid-loop snapshot.
         let host = self
             .host_data
             .as_deref_mut()
@@ -398,33 +407,20 @@ impl VmInner {
             .map(elidex_api_observers::mutation::MutationObserverId::raw)
             .collect();
 
-        // Step 3 — for each observer with pending records, take +
-        // marshal + invoke.  Re-borrows `host` per iteration so a
-        // callback that mutates the registry is observed by the
-        // next iteration's `take_records`.
         for observer_id in observer_ids {
             let mo_id = elidex_api_observers::mutation::MutationObserverId::from_raw(observer_id);
-            let records = {
-                let host = self
-                    .host_data
-                    .as_deref_mut()
-                    .expect("deliver_mutation_records: HostData required when bound");
-                host.mutation_observers.take_records(mo_id)
-            };
+            let host = self
+                .host_data
+                .as_deref_mut()
+                .expect("deliver_mutation_records: HostData required when bound");
+            let records = host.mutation_observers.take_records(mo_id);
             if records.is_empty() {
                 continue;
             }
-            let (callback_id, observer_obj_id) = {
-                let host = self.host_data.as_deref().expect("bound earlier");
-                (
-                    host.mutation_observer_callbacks.get(&observer_id).copied(),
-                    host.mutation_observer_instances.get(&observer_id).copied(),
-                )
-            };
-            let Some(callback_id) = callback_id else {
-                continue;
-            };
-            let Some(observer_obj_id) = observer_obj_id else {
+            let (Some(callback_id), Some(observer_obj_id)) = (
+                host.mutation_observer_callbacks.get(&observer_id).copied(),
+                host.mutation_observer_instances.get(&observer_id).copied(),
+            ) else {
                 continue;
             };
             let observer_val = JsValue::Object(observer_obj_id);
@@ -440,63 +436,29 @@ impl VmInner {
             drop(observer_guard);
         }
 
-        // Step 4 — microtask checkpoint so any
-        // `Promise.resolve().then(...)` chained inside a callback
-        // fires before the embedder API returns (WHATWG §8.1.4.3).
+        // Microtask checkpoint so `Promise.resolve().then(...)` chained
+        // from a callback fires before the embedder API returns
+        // (WHATWG §8.1.4.3).
         self.drain_microtasks();
     }
 
     /// Wrapper around `MutationObserverRegistry::notify` that
-    /// supplies the session-level subtree-ancestry walker.
+    /// supplies the subtree-ancestry walker via
+    /// [`elidex_ecs::EcsDom::is_ancestor_or_self`] (which carries a
+    /// `MAX_ANCESTOR_DEPTH` corruption-loop guard on top of the
+    /// straight-line parent walk).  The registry only invokes the
+    /// closure when `record.target != observed_target`, so the
+    /// `is_ancestor_or_self` self-match arm is unreachable from this
+    /// caller — passing the inclusive helper is still spec-correct.
     fn notify_one(&mut self, record: &elidex_script_session::MutationRecord) {
-        // Borrow split: `mutation_observers` (mutable) lives on
-        // `host_data`, `dom_ptr` is read through `host_data.dom()`
-        // — `dom_shared()` would alias with the `&mut` we obtain
-        // through `dom()` because the closure body needs an
-        // exclusive `&mut HostData` to reach the registry.
-        // Workaround: clone-out the parent map for the closure
-        // would explode for deep trees.  Instead: take the
-        // `dom_ptr` raw pointer via an unsafe scope that the
-        // existing `HostData` already exposes through
-        // `with_session_and_dom`.
-        //
-        // Simplest sound path: capture `dom_shared()` first into a
-        // raw pointer, then drop the borrow before re-borrowing
-        // `host_data` mutably.  Both pointers were established by
-        // the same `bind` call, and the closure does not mutate
-        // the DOM — it only walks `get_parent`.
         let host = self
-            .host_data
-            .as_deref()
-            .expect("notify_one: HostData required when bound");
-        let dom_ref: *const elidex_ecs::EcsDom = host.dom_shared();
-        let host_mut = self
             .host_data
             .as_deref_mut()
             .expect("notify_one: HostData required when bound");
-        // SAFETY: `dom_ref` was obtained from the bound
-        // `dom_ptr` via `dom_shared()`, which has the same lifetime
-        // as the bind window.  We hold no other borrow on the DOM
-        // during the closure (the callback is `Fn`), so creating a
-        // shared ref through the raw pointer here aliases nothing
-        // mutable.  `host_mut` mutates only the registry, which
-        // lives in `HostData` and is disjoint from the `EcsDom`
-        // allocation per `bind`'s "disjoint allocations"
-        // contract.
-        #[allow(unsafe_code)]
-        let dom_ref: &elidex_ecs::EcsDom = unsafe { &*dom_ref };
-        host_mut
-            .mutation_observers
-            .notify(record, &|target, ancestor| {
-                let mut current = dom_ref.get_parent(target);
-                while let Some(node) = current {
-                    if node == ancestor {
-                        return true;
-                    }
-                    current = dom_ref.get_parent(node);
-                }
-                false
-            });
+        let (dom, observers) = host.split_dom_and_observers();
+        observers.notify(record, &|target, ancestor| {
+            dom.is_ancestor_or_self(ancestor, target)
+        });
     }
 }
 
@@ -579,13 +541,10 @@ fn parse_mutation_observer_init(
     }
     if let Some(JsValue::Object(arr_id)) = read_dict_field(ctx, opts_id, wk_attribute_filter)? {
         let len_val = ctx.get_property_value(arr_id, PropertyKey::String(wk_length))?;
-        let len = ctx.to_number(len_val)?;
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        let len_u32 = if len.is_finite() && len >= 0.0 {
-            (len as u64).min(u64::from(u32::MAX)) as u32
-        } else {
-            0
-        };
+        // WebIDL §3.10.20 sequence conversion uses ToUint32 for the
+        // `length` IDL attribute pull (matches every other native that
+        // walks an array-shaped dictionary value).
+        let len_u32 = super::super::coerce::to_uint32(ctx.vm, len_val)?;
         let mut filter = Vec::with_capacity(len_u32 as usize);
         for i in 0..len_u32 {
             let item_key = PropertyKey::String(ctx.vm.strings.intern(&i.to_string()));
