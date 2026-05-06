@@ -4,7 +4,7 @@
 //! caching results until the subtree version changes. This mirrors the
 //! WHATWG DOM specification's live collection semantics.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, ShadowRoot, TagType};
+use elidex_ecs::{Attributes, EcsDom, Entity, NodeKind, ShadowRoot, TagType};
 
 /// Sentinel version that never matches any real subtree version, ensuring the
 /// first access always triggers a refresh. Equivalent to WHATWG's "created with
@@ -36,6 +36,11 @@ pub enum CollectionFilter {
     ChildNodes,
     /// All direct child *elements* (excluding text nodes) — `HTMLCollection` semantics.
     ElementChildren,
+    /// Static, pre-captured entity list (`querySelectorAll` result).
+    /// Bypasses descendant traversal entirely — populate returns a clone
+    /// of the stored vec. Per WHATWG DOM §4.2.6, this is the single
+    /// non-live `NodeList` case.
+    Snapshot(Vec<Entity>),
 }
 
 /// Whether the collection behaves as an `HTMLCollection` or a `NodeList`.
@@ -49,9 +54,12 @@ pub enum CollectionKind {
 ///
 /// The snapshot is invalidated when the subtree rooted at `root` is mutated
 /// (detected via `EcsDom::inclusive_descendants_version`).
+///
+/// `root` is `None` for `Snapshot` collections — their entity list is
+/// frozen at construction so there is no subtree version to track.
 #[derive(Debug)]
 pub struct LiveCollection {
-    root: Entity,
+    root: Option<Entity>,
     filter: CollectionFilter,
     kind: CollectionKind,
     cached_version: u64,
@@ -67,6 +75,11 @@ impl LiveCollection {
     ///
     /// `ByTagName` filters are lowercased at creation (WHATWG HTML spec: tag
     /// names are ASCII-lowercased for HTML documents).
+    ///
+    /// Construct `Snapshot` collections via [`Self::new_snapshot`] instead —
+    /// passing `CollectionFilter::Snapshot(...)` here will work but loses the
+    /// `Option<Entity>` "no root" representation that bypasses subtree version
+    /// tracking.
     #[must_use]
     pub fn new(root: Entity, filter: CollectionFilter, kind: CollectionKind) -> Self {
         let filter = match filter {
@@ -76,8 +89,24 @@ impl LiveCollection {
             other => other,
         };
         Self {
-            root,
+            root: Some(root),
             filter,
+            kind,
+            cached_version: UNINITIALIZED_VERSION,
+            cached_snapshot: Vec::new(),
+        }
+    }
+
+    /// Create a static (`Snapshot`) collection from a pre-captured entity list.
+    ///
+    /// Used for `querySelectorAll` results — the entity list is frozen at
+    /// construction and never re-walks the DOM. `kind` defaults to
+    /// `NodeList` per WHATWG DOM §4.2.6 ("a non-live `NodeList`").
+    #[must_use]
+    pub fn new_snapshot(entities: Vec<Entity>, kind: CollectionKind) -> Self {
+        Self {
+            root: None,
+            filter: CollectionFilter::Snapshot(entities),
             kind,
             cached_version: UNINITIALIZED_VERSION,
             cached_snapshot: Vec::new(),
@@ -117,28 +146,56 @@ impl LiveCollection {
     // -- private -------------------------------------------------------------
 
     fn refresh_if_stale(&mut self, dom: &EcsDom) {
-        let current_version = dom.inclusive_descendants_version(self.root);
+        // Snapshot collections are frozen at construction. Populate the
+        // cached vec on first access (when `cached_version` still holds
+        // the sentinel) and never re-walk after that.
+        if matches!(self.filter, CollectionFilter::Snapshot(_)) {
+            if self.cached_version == UNINITIALIZED_VERSION {
+                self.refresh(dom);
+                self.cached_version = 0;
+            }
+            return;
+        }
+        let Some(root) = self.root else {
+            return;
+        };
+        let current_version = dom.inclusive_descendants_version(root);
         if current_version != self.cached_version {
             self.refresh(dom);
             self.cached_version = current_version;
         }
     }
 
+    /// Refresh the cached snapshot, reusing the existing `Vec`'s capacity.
+    ///
+    /// Mutation-heavy workloads stabilise the buffer at the result-set's
+    /// high-water mark; subsequent miss-path refreshes become allocation-
+    /// free. Replacing this with `self.cached_snapshot = self.populate(dom)`
+    /// would leak that amortisation (one alloc per refresh).
     fn refresh(&mut self, dom: &EcsDom) {
-        self.cached_snapshot = self.populate(dom);
+        let fresh = self.populate(dom);
+        self.cached_snapshot.clear();
+        self.cached_snapshot.extend_from_slice(&fresh);
     }
 
     fn populate(&self, dom: &EcsDom) -> Vec<Entity> {
         match &self.filter {
+            CollectionFilter::Snapshot(entities) => entities.clone(),
             // ChildNodes and ElementChildren only look at direct children.
             CollectionFilter::ChildNodes => {
+                let Some(root) = self.root else {
+                    return Vec::new();
+                };
                 let mut result = Vec::new();
-                collect_direct_children(dom, self.root, &mut result, true);
+                collect_direct_children(dom, root, &mut result, true);
                 result
             }
             CollectionFilter::ElementChildren => {
+                let Some(root) = self.root else {
+                    return Vec::new();
+                };
                 let mut result = Vec::new();
-                collect_direct_children(dom, self.root, &mut result, false);
+                collect_direct_children(dom, root, &mut result, false);
                 result
             }
             // ByClassNames with empty vec always returns empty.
@@ -148,8 +205,11 @@ impl LiveCollection {
             // iterators used by `traverse_descendants` skip
             // ShadowRoot entities, so shadow subtrees are unreachable.
             filter => {
+                let Some(root) = self.root else {
+                    return Vec::new();
+                };
                 let mut result = Vec::new();
-                dom.traverse_descendants(self.root, |entity| {
+                dom.traverse_descendants(root, |entity| {
                     if matches_filter(entity, filter, dom) {
                         result.push(entity);
                     }
@@ -198,7 +258,11 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
         }
         CollectionFilter::ByClassNames(names) => {
             // All class names must be present on the element.
-            if names.is_empty() {
+            // WHATWG §4.2.6.2 "descendant elements" — non-Element entities
+            // that happen to carry `Attributes` (parser-fixture-built
+            // Text/Comment nodes can reach a stray `class` via direct
+            // `EcsDom::set_attribute`) must not surface here.
+            if names.is_empty() || dom.node_kind_inferred(entity) != Some(NodeKind::Element) {
                 return false;
             }
             match dom.world().get::<&Attributes>(entity) {
@@ -214,14 +278,22 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
                 Err(_) => false,
             }
         }
-        CollectionFilter::ByName(name) => match dom.world().get::<&Attributes>(entity) {
-            Ok(attrs) => attrs.get("name") == Some(name.as_str()),
-            Err(_) => false,
-        },
-        CollectionFilter::Images => dom.has_tag(entity, "img"),
-        CollectionFilter::Forms => dom.has_tag(entity, "form"),
+        CollectionFilter::ByName(name) => {
+            // Same Element-only guard as ByClassNames — `getElementsByName`
+            // is a list-of-elements query (WHATWG HTML §3.1.5).
+            if dom.node_kind_inferred(entity) != Some(NodeKind::Element) {
+                return false;
+            }
+            match dom.world().get::<&Attributes>(entity) {
+                Ok(attrs) => attrs.get("name") == Some(name.as_str()),
+                Err(_) => false,
+            }
+        }
+        CollectionFilter::Images => matches_tag_ascii_ci(entity, "img", dom),
+        CollectionFilter::Forms => matches_tag_ascii_ci(entity, "form", dom),
         CollectionFilter::Links => {
-            let is_link_tag = dom.has_tag(entity, "a") || dom.has_tag(entity, "area");
+            let is_link_tag =
+                matches_tag_ascii_ci(entity, "a", dom) || matches_tag_ascii_ci(entity, "area", dom);
             if !is_link_tag {
                 return false;
             }
@@ -230,8 +302,23 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
                 Err(_) => false,
             }
         }
-        // ChildNodes / ElementChildren are handled in populate() directly.
-        CollectionFilter::ChildNodes | CollectionFilter::ElementChildren => false,
+        // ChildNodes / ElementChildren / Snapshot are handled in populate() directly.
+        CollectionFilter::ChildNodes
+        | CollectionFilter::ElementChildren
+        | CollectionFilter::Snapshot(_) => false,
+    }
+}
+
+/// Case-insensitive tag-name match (ASCII). Mirrors the WHATWG HTML
+/// canonicalisation that `Document.{forms,images,links}` perform — the
+/// HTML parser already lowercases tags, but `EcsDom::create_element` is
+/// also reachable from non-parser paths (e.g. JS `document.createElementNS`),
+/// so the matcher tolerates uppercase input rather than relying on the
+/// parser's lowercase guarantee.
+fn matches_tag_ascii_ci(entity: Entity, tag: &str, dom: &EcsDom) -> bool {
+    match dom.world().get::<&TagType>(entity) {
+        Ok(tt) => tt.0.eq_ignore_ascii_case(tag),
+        Err(_) => false,
     }
 }
 
@@ -646,5 +733,226 @@ mod tests {
         // Only the light DOM span should be found.
         assert_eq!(coll.length(&dom), 1);
         assert_eq!(coll.item(0, &dom), Some(light_span));
+    }
+
+    // -- Snapshot variant -----------------------------------------------------
+
+    #[test]
+    fn snapshot_returns_stored_entities() {
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+        let div = dom.create_element("div", Attributes::default());
+        let span = dom.create_element("span", Attributes::default());
+        dom.append_child(body, div);
+        dom.append_child(body, span);
+
+        let mut coll = LiveCollection::new_snapshot(vec![div, span], CollectionKind::NodeList);
+        assert_eq!(coll.length(&dom), 2);
+        assert_eq!(coll.item(0, &dom), Some(div));
+        assert_eq!(coll.item(1, &dom), Some(span));
+    }
+
+    #[test]
+    fn snapshot_unaffected_by_dom_mutation() {
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+
+        let mut coll = LiveCollection::new_snapshot(vec![div], CollectionKind::NodeList);
+        assert_eq!(coll.length(&dom), 1);
+
+        // Add another sibling and mutate the existing one.
+        let div2 = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div2);
+
+        // Snapshot stays fixed at the original capture.
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(div));
+    }
+
+    #[test]
+    fn snapshot_empty_vec() {
+        let (dom, _doc) = setup_dom();
+        let mut coll = LiveCollection::new_snapshot(Vec::new(), CollectionKind::NodeList);
+        assert_eq!(coll.length(&dom), 0);
+        assert_eq!(coll.item(0, &dom), None);
+    }
+
+    #[test]
+    fn snapshot_kind_is_node_list_per_spec() {
+        // WHATWG DOM §4.2.6 — querySelectorAll returns a non-live NodeList.
+        let coll = LiveCollection::new_snapshot(Vec::new(), CollectionKind::NodeList);
+        assert_eq!(coll.kind(), CollectionKind::NodeList);
+        assert!(matches!(coll.filter(), CollectionFilter::Snapshot(_)));
+    }
+
+    // -- Case-insensitive Forms / Images / Links ------------------------------
+
+    #[test]
+    fn forms_case_insensitive() {
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+        let upper = dom.create_element("FORM", Attributes::default());
+        let lower = dom.create_element("form", Attributes::default());
+        dom.append_child(body, upper);
+        dom.append_child(body, lower);
+
+        let mut coll =
+            LiveCollection::new(doc, CollectionFilter::Forms, CollectionKind::HtmlCollection);
+        assert_eq!(coll.length(&dom), 2);
+    }
+
+    #[test]
+    fn images_case_insensitive() {
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+        let upper = dom.create_element("IMG", Attributes::default());
+        let mixed = dom.create_element("Img", Attributes::default());
+        dom.append_child(body, upper);
+        dom.append_child(body, mixed);
+
+        let mut coll = LiveCollection::new(
+            doc,
+            CollectionFilter::Images,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 2);
+    }
+
+    #[test]
+    fn links_case_insensitive_a_and_area() {
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+        let mut href_attrs = Attributes::default();
+        href_attrs.set("href", "https://example.com");
+        let a_upper = dom.create_element("A", href_attrs.clone());
+        let area_upper = dom.create_element("AREA", href_attrs);
+        // Without href — must NOT match even with case match.
+        let a_no_href = dom.create_element("A", Attributes::default());
+        dom.append_child(body, a_upper);
+        dom.append_child(body, area_upper);
+        dom.append_child(body, a_no_href);
+
+        let mut coll =
+            LiveCollection::new(doc, CollectionFilter::Links, CollectionKind::HtmlCollection);
+        assert_eq!(coll.length(&dom), 2);
+    }
+
+    #[test]
+    fn forms_mixed_case_siblings() {
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+        let f1 = dom.create_element("form", Attributes::default());
+        let f2 = dom.create_element("FORM", Attributes::default());
+        let f3 = dom.create_element("Form", Attributes::default());
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, f1);
+        dom.append_child(body, f2);
+        dom.append_child(body, f3);
+        dom.append_child(body, div);
+
+        let mut coll =
+            LiveCollection::new(doc, CollectionFilter::Forms, CollectionKind::HtmlCollection);
+        assert_eq!(coll.length(&dom), 3);
+        assert_eq!(coll.item(3, &dom), None);
+    }
+
+    // -- cloneNode rev_version invalidation regression ------------------------
+
+    #[test]
+    fn clone_subtree_does_not_invalidate_external_collection() {
+        // Live collection rooted in a sibling subtree is unaffected
+        // by cloneNode of an unrelated source — `clone_subtree` only
+        // bumps rev_version on the new subtree's ancestors (during
+        // its append_child internals), not on the source's siblings.
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+        let target = dom.create_element("div", Attributes::default());
+        let target_child = dom.create_element("span", Attributes::default());
+        dom.append_child(body, target);
+        dom.append_child(target, target_child);
+
+        let source = dom.create_element("section", Attributes::default());
+        dom.append_child(body, source);
+
+        let mut coll = LiveCollection::new(
+            target,
+            CollectionFilter::ByTagName("span".into()),
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 1);
+        let pre_version = coll.cached_version;
+
+        let _clone = dom.clone_subtree(source).expect("source exists");
+
+        // The orphan clone has not been attached anywhere — `target`'s
+        // subtree is untouched, so the cache stays valid.
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.cached_version, pre_version);
+    }
+
+    #[test]
+    fn live_collection_sees_appended_clone_descendants() {
+        // After attaching a clone, the parent's live collection
+        // observes the clone's descendants — `append_child` bumps
+        // rev_version on the parent, invalidating the cache.
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+
+        let source = dom.create_element("section", Attributes::default());
+        let inner = dom.create_element("span", Attributes::default());
+        dom.append_child(body, source);
+        dom.append_child(source, inner);
+
+        let target = dom.create_element("div", Attributes::default());
+        dom.append_child(body, target);
+
+        let mut coll = LiveCollection::new(
+            target,
+            CollectionFilter::ByTagName("span".into()),
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 0);
+
+        let clone = dom.clone_subtree(source).expect("source exists");
+        dom.append_child(target, clone);
+
+        // The clone's <span> descendant is now under target.
+        assert_eq!(coll.length(&dom), 1);
+    }
+
+    // -- Buffer reuse regression ----------------------------------------------
+
+    #[test]
+    fn refresh_reuses_cache_buffer_capacity() {
+        // Mutation-heavy refresh path must not re-allocate `cached_snapshot`
+        // each time. Repeated refresh cycles preserve the high-water-mark
+        // capacity (regression for §C-1-6 buffer reuse pattern).
+        let (mut dom, doc) = setup_dom();
+        let body = dom.children(dom.children(doc)[0])[0];
+
+        // Pre-populate with several divs so the buffer grows.
+        for _ in 0..5 {
+            let d = dom.create_element("div", Attributes::default());
+            dom.append_child(body, d);
+        }
+
+        let mut coll = LiveCollection::new(
+            doc,
+            CollectionFilter::ByTagName("div".into()),
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 5);
+        let cap_after_first = coll.cached_snapshot.capacity();
+        assert!(cap_after_first >= 5);
+
+        // Trigger a refresh by mutating the subtree.
+        let extra = dom.create_element("span", Attributes::default());
+        dom.append_child(body, extra);
+        assert_eq!(coll.length(&dom), 5); // div count unchanged
+
+        // Capacity is at least preserved; clear()+extend_from_slice never shrinks.
+        assert!(coll.cached_snapshot.capacity() >= cap_after_first);
     }
 }

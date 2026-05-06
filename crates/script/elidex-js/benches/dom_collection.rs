@@ -8,11 +8,12 @@
 //! 2. `iter`   — `for (const e of coll) ...` over the same tree.
 //! 3. `item`   — repeated `coll.item(N/2)` calls.
 //!
-//! Today each access re-resolves the entire entity list via
-//! `resolve_entities_for` (see
-//! `vm/host/dom_collection.rs::resolve_entities_for`) — i.e. one fresh
-//! `EcsDom::traverse_descendants()` walk per read.  The numbers here
-//! are the input to the SP2-impl decision gate:
+//! Each access dispatches to
+//! [`elidex_dom_api::LiveCollection::snapshot`] (post-#11-arch-hoist-e),
+//! which version-checks against
+//! `EcsDom::inclusive_descendants_version` and refreshes via
+//! `EcsDom::traverse_descendants()` only on a subtree-version bump.
+//! The numbers here are the input to the SP2-impl decision gate:
 //!
 //! - `≥ 50µs/op` on a 1000-node tree → caching is a clear win, proceed
 //!   to SP2-impl + SP7.
@@ -58,8 +59,8 @@ const TREE_SIZE: usize = 1000;
 
 /// Inner-loop iteration counts for each bench.  Throughput is reported
 /// as `Elements(LOOP_…)` so the per-element time is the per-access
-/// cost of the underlying `resolve_entities_for` walk plus JS dispatch
-/// overhead.  Each criterion iteration calls a pre-resolved JS function
+/// cost of the underlying `LiveCollection::snapshot` walk plus JS
+/// dispatch overhead.  Each criterion iteration calls a pre-resolved JS function
 /// object via [`Vm::call`] (see `setup_globals`) — no per-iter parse
 /// or microtask drain — so the only constant overhead is one JS call
 /// dispatch per criterion iter, far below the inner-loop cost for any

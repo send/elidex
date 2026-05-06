@@ -955,31 +955,23 @@ pub(crate) struct VmInner {
     /// Backing state for `ObjectKind::HtmlCollection` /
     /// `ObjectKind::NodeList` wrappers (WHATWG DOM §4.2.10 / §4.2.10.1).
     ///
-    /// Shared between both collection interfaces because the filter
-    /// discriminator already distinguishes HTMLCollection kinds
-    /// (tag / class / children / forms / …) from NodeList kinds
-    /// (childNodes / querySelectorAll snapshot / getElementsByName).
-    /// One `HashMap` keeps the GC sweep tail tidy and lets the
-    /// indexed / named property lookup in `ops_property::get_element`
-    /// hit a single side-table regardless of the wrapper kind.
+    /// Shared between both collection interfaces because the
+    /// underlying [`elidex_dom_api::LiveCollection`] tracks both the
+    /// filter (`CollectionFilter`) and the kind (`CollectionKind`)
+    /// in one struct. One `HashMap` keeps the GC sweep tail tidy and
+    /// lets the indexed / named property lookup in
+    /// `ops_property::get_element` hit a single side-table
+    /// regardless of the wrapper kind.
     ///
-    /// GC contract: the stored `(LiveCollectionKind,
-    /// LiveCollectionCache)` tuple holds only `Entity`, `StringId`,
-    /// `Vec<StringId>` (class names), `Vec<Entity>` (querySelectorAll
-    /// snapshot + per-wrapper SP2 entity-list cache), and
-    /// `Cell<Option<u64>>` (cache version, `None` until the first
-    /// miss-path populates it) — **no `ObjectId` references**, so
-    /// the trace step does nothing.  The sweep tail prunes entries
-    /// whose key `ObjectId` was collected, same pattern as
+    /// GC contract: the stored `LiveCollection` holds only `Entity`,
+    /// owned `String` (filter needles), `Vec<Entity>` (cached
+    /// snapshot + querySelectorAll-bound static list), and `u64`
+    /// (subtree version) — **no `ObjectId` references** — so the
+    /// trace step does nothing. The sweep tail prunes entries whose
+    /// key `ObjectId` was collected, same pattern as
     /// `headers_states` / `blob_data`.
     #[cfg(feature = "engine")]
-    pub(crate) live_collection_states: HashMap<
-        ObjectId,
-        (
-            host::dom_collection::LiveCollectionKind,
-            host::dom_collection::LiveCollectionCache,
-        ),
-    >,
+    pub(crate) live_collection_states: HashMap<ObjectId, elidex_dom_api::LiveCollection>,
     /// Content-thread `NetworkHandle` used by the `fetch()` host
     /// global.  `None` in test / standalone mode (`fetch()` then
     /// rejects with `TypeError`); the embedding harness —

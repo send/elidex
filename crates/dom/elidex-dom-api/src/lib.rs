@@ -58,6 +58,7 @@ pub use element::{
     InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveAttribute, RemoveChild,
     ReplaceChild, ScrollIntoView, SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
 };
+pub use live_collection::{CollectionFilter, CollectionKind, LiveCollection};
 pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
     IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,

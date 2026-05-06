@@ -405,7 +405,8 @@ fn for_each_rejects_html_collection_receiver_with_illegal_invocation() {
 // wrapper retained across `Vm::unbind()`.  Earlier R2 fixed the
 // indexed-property `ops_property::get_element` path; R16 extends
 // the same guarantee to prototype-method paths via
-// `resolve_entities_for`'s `host_if_bound()` check.
+// `resolve_receiver_entities`'s
+// `dom_and_collection_states_if_bound()` check.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -615,9 +616,10 @@ fn shared_item_method_rejects_cross_interface_receiver() {
 
 // --- SP2 entity-list cache regression -----------------------------
 //
-// These tests target the per-wrapper `LiveCollectionCache` added in
-// SP2-impl: cache hits short-circuit `resolve_entities_for` to a
-// `Cell::get` + `Vec::clone` of the previously walked entity list.
+// These tests target the per-wrapper cache embedded in
+// `elidex_dom_api::LiveCollection` (post-#11-arch-hoist-e): cache
+// hits short-circuit the descendant walk to a slice borrow of the
+// previously walked entity list.
 // The visible JS semantics are unchanged (every read still reflects
 // the live tree), but the tests below pin down the invalidation
 // surface so a future regression that, say, forgets to bump
@@ -703,4 +705,183 @@ fn cache_persists_across_iter_constructions() {
            && seen1[0] === seen2[0] \
            && seen1[1] === seen2[1]) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
+}
+
+// --- Slot #11-arch-hoist-e regression tests (lesson #149 pre-empt) -------
+//
+// Cross-layer regressions that exercise the API/VM boundary post-γ
+// hoist: case-insensitive Forms/Images, cloneNode rev_version contract,
+// querySelectorAll Snapshot semantics, post-unbind silent-read.
+
+#[test]
+fn forms_uppercase_tag_seen_via_document_forms() {
+    // The HTML parser lowercases tags, but `EcsDom::create_element`
+    // tolerates uppercase from non-parser paths. The Forms filter
+    // must match `<FORM>` via `eq_ignore_ascii_case` (post-γ
+    // matches_filter helper) so document.forms is parser-input
+    // independent.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let upper_form = dom.create_element("FORM", Attributes::default());
+    let lower_form = dom.create_element("form", Attributes::default());
+    assert!(dom.append_child(body, upper_form));
+    assert!(dom.append_child(body, lower_form));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm.eval("document.forms.length;").unwrap();
+    assert!(matches!(result, JsValue::Number(n) if (n - 2.0).abs() < 1e-9));
+    vm.unbind();
+}
+
+#[test]
+fn images_uppercase_tag_seen_via_document_images() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let upper_img = dom.create_element("IMG", Attributes::default());
+    let mixed_img = dom.create_element("Img", Attributes::default());
+    assert!(dom.append_child(body, upper_img));
+    assert!(dom.append_child(body, mixed_img));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm.eval("document.images.length;").unwrap();
+    assert!(matches!(result, JsValue::Number(n) if (n - 2.0).abs() < 1e-9));
+    vm.unbind();
+}
+
+#[test]
+fn live_collection_unchanged_by_unrelated_clone() {
+    // cloning an unrelated subtree does NOT bump rev_version on a
+    // live collection's root, so a cached length read stays stable.
+    let out = run("var target = document.createElement('div'); \
+         target.appendChild(document.createElement('span')); \
+         document.body.appendChild(target); \
+         var source = document.createElement('section'); \
+         source.appendChild(document.createElement('span')); \
+         document.body.appendChild(source); \
+         var coll = target.getElementsByTagName('span'); \
+         var pre = coll.length; \
+         var clone = source.cloneNode(true); \
+         var post = coll.length; \
+         (pre === 1 && post === 1) ? 'ok' : 'fail:' + pre + '/' + post;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn live_collection_includes_appended_clone_descendants() {
+    // After attaching a clone under a live-collection's root, the
+    // clone's descendants surface on the next read (rev_version
+    // bumped by appendChild).
+    let out = run("var source = document.createElement('section'); \
+         source.appendChild(document.createElement('span')); \
+         document.body.appendChild(source); \
+         var target = document.createElement('div'); \
+         document.body.appendChild(target); \
+         var coll = target.getElementsByTagName('span'); \
+         var pre = coll.length; \
+         target.appendChild(source.cloneNode(true)); \
+         var post = coll.length; \
+         (pre === 0 && post === 1) ? 'ok' : 'fail:' + pre + '/' + post;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn query_selector_all_static_after_dom_mutation() {
+    // querySelectorAll returns a non-live NodeList (WHATWG §4.2.6).
+    // Subsequent DOM mutations do not affect the captured snapshot.
+    let out = run("var p = document.createElement('div'); \
+         p.appendChild(document.createElement('span')); \
+         document.body.appendChild(p); \
+         var snap = p.querySelectorAll('span'); \
+         var pre = snap.length; \
+         p.appendChild(document.createElement('span')); \
+         var post = snap.length; \
+         (pre === 1 && post === 1) ? 'ok' : 'fail:' + pre + '/' + post;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn query_selector_all_indexed_access_returns_captured_entity() {
+    // Snapshot indexed access should return the captured entity
+    // even if the DOM has since been mutated.
+    let out = run("var p = document.createElement('div'); \
+         var first = document.createElement('span'); first.id = 'a'; \
+         p.appendChild(first); \
+         document.body.appendChild(p); \
+         var snap = p.querySelectorAll('span'); \
+         p.removeChild(first); \
+         (snap[0] !== null && snap[0].id === 'a') ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn live_collection_construction_then_dom_mutation_visible() {
+    // Mirror of `children_is_live` but targeting getElementsByClassName,
+    // which post-γ runs through the same engine-independent walker as
+    // the ChildNodes / ElementChildren paths.
+    let out = run("var p = document.createElement('div'); \
+         document.body.appendChild(p); \
+         var coll = p.getElementsByClassName('hot'); \
+         var pre = coll.length; \
+         var hit = document.createElement('span'); hit.className = 'hot'; \
+         p.appendChild(hit); \
+         var post = coll.length; \
+         (pre === 0 && post === 1) ? 'ok' : 'fail:' + pre + '/' + post;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn live_collection_post_unbind_silent() {
+    // A wrapper retained across unbind() must read 0/null silently
+    // (post-γ `dom_and_collection_states_if_bound` returns None when
+    // unbound). Mirrors the pre-γ post-unbind contract.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis._coll = document.getElementsByTagName('div'); \
+         var p = document.createElement('div'); document.body.appendChild(p);",
+    )
+    .unwrap();
+    let pre = vm.eval("globalThis._coll.length;").unwrap();
+    assert!(matches!(pre, JsValue::Number(n) if (n - 1.0).abs() < 1e-9));
+    vm.unbind();
+
+    // Re-bind a different DOM instance — same wrapper, should read 0.
+    let mut fresh_dom = EcsDom::new();
+    let fresh_root = build_doc(&mut fresh_dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut fresh_dom, fresh_root);
+    }
+    let result = vm
+        .eval("globalThis._coll === undefined ? 'gone' : (globalThis._coll.length === 0 ? 'silent' : 'leaked');")
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    assert!(out == "silent" || out == "gone", "got {out}");
+    vm.unbind();
 }

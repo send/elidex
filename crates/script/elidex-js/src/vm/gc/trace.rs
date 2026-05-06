@@ -324,8 +324,11 @@ pub(super) fn trace_work_list(
             #[cfg(feature = "engine")]
             ObjectKind::ArrayBuffer | ObjectKind::Blob => {}
             // `HtmlCollection` / `NodeList` payloads (stored in
-            // `live_collection_states`) contain only `Entity`,
-            // `StringId`, `Vec<StringId>`, and `Vec<Entity>` — no
+            // `live_collection_states` as
+            // `elidex_dom_api::LiveCollection`) contain only
+            // `Entity`, owned `String` (filter needles),
+            // `Vec<Entity>` (cached snapshot + Snapshot-variant
+            // frozen list), and `u64` (subtree version) — no
             // `ObjectId` references, so the trace step has nothing
             // to fan out.  The sweep tail in [`super::sweep`] prunes
             // entries whose key `ObjectId` was collected.

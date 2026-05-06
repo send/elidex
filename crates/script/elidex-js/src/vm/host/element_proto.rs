@@ -314,9 +314,11 @@ fn native_element_get_children(
     // `element.children` is a live `HTMLCollection` — every access
     // re-traverses the parent's children to include concurrent
     // mutations (WHATWG §4.2.10).
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Children { parent: entity });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::ElementChildren,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
     Ok(JsValue::Object(id))
 }
 
@@ -449,14 +451,11 @@ pub(super) fn native_element_get_elements_by_tag_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let tag = coerce_first_arg_to_string(ctx, args)?;
-    let tag_sid = ctx.vm.strings.intern(&tag);
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::ByTag {
-            root,
-            tag: tag_sid,
-            all: tag == "*",
-        });
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        root,
+        elidex_dom_api::CollectionFilter::ByTagName(tag),
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
     Ok(JsValue::Object(id))
 }
 
@@ -478,12 +477,11 @@ pub(super) fn native_element_get_elements_by_class_name(
         return Ok(wrap_entities_as_array(ctx.vm, &[]));
     };
     let class_str = coerce_first_arg_to_string(ctx, args)?;
-    let class_names: Vec<_> = class_str
-        .split_whitespace()
-        .map(|c| ctx.vm.strings.intern(c))
-        .collect();
-    let id = ctx
-        .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::ByClass { root, class_names });
+    let class_names: Vec<String> = class_str.split_whitespace().map(str::to_owned).collect();
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        root,
+        elidex_dom_api::CollectionFilter::ByClassNames(class_names),
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
     Ok(JsValue::Object(id))
 }

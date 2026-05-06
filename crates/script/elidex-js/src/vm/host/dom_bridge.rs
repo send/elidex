@@ -144,8 +144,9 @@ pub(super) fn drain_fragment_descendants(ctx: &mut NativeContext<'_>, root: Enti
 }
 
 /// Run `elidex_dom_api::query_selector_all` against `root` and wrap
-/// the matched entities in a `LiveCollectionKind::Snapshot`.  Shared
-/// by `document.querySelectorAll` and
+/// the matched entities in a [`elidex_dom_api::LiveCollection`]
+/// constructed via [`elidex_dom_api::LiveCollection::new_snapshot`].
+/// Shared by `document.querySelectorAll` and
 /// `Element.prototype.querySelectorAll` — both opt out of
 /// `invoke_dom_api` because the handler protocol cannot return
 /// `Vec<Entity>`.  Keeping the dispatch + error-mapping + snapshot
@@ -160,7 +161,10 @@ pub(super) fn query_selector_all_snapshot(
         .map_err(|e| dom_api_error_to_vm_error(ctx.vm, e))?;
     let id = ctx
         .vm
-        .alloc_collection(super::dom_collection::LiveCollectionKind::Snapshot { entities });
+        .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
+            entities,
+            elidex_dom_api::CollectionKind::NodeList,
+        ));
     Ok(JsValue::Object(id))
 }
 
@@ -168,8 +172,9 @@ pub(super) fn query_selector_all_snapshot(
 // lived here until PR5b §C3 migrated every caller (`document.getElementsBy*`
 // / `element.getElementsBy*`) onto the shared live-collection
 // infrastructure in `dom_collection.rs`.  The traversal now runs
-// inside `LiveCollectionKind::{ByTag, ByClass}` resolution on each
-// read, so this file no longer needs a static snapshot helper.
+// inside `elidex_dom_api::LiveCollection`'s populate path on each
+// read (post-#11-arch-hoist-e), so this file no longer needs a
+// static snapshot helper.
 
 // ---------------------------------------------------------------------------
 // `DomApiHandler` dispatch — bridge from VM-internal `JsValue` →

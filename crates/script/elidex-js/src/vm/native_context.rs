@@ -192,6 +192,36 @@ impl NativeContext<'_> {
         Some((host.dom_shared(), &mut vm.strings))
     }
 
+    /// Borrow the bound DOM (shared) and the live-collection state map
+    /// (exclusive) simultaneously via disjoint field projection on
+    /// `VmInner`.
+    ///
+    /// Mirrors [`Self::dom_and_strings_if_bound`] for the
+    /// `live_collection_states` map: lets a native function pass
+    /// `&EcsDom` to [`elidex_dom_api::LiveCollection::snapshot`]
+    /// while keeping `&mut LiveCollection` borrowed out of the map,
+    /// without the temporary remove/re-insert dance the pre-γ
+    /// implementation needed to break the `ctx.host()` /
+    /// `ctx.vm.live_collection_states` aliasing.
+    ///
+    /// # Safety
+    ///
+    /// Same `dom_ptr` aliasing contract as
+    /// [`Self::dom_and_strings_if_bound`] — callers must not invoke
+    /// any sibling `host()` / `host().dom()` path while either of
+    /// the returned references is live.
+    #[cfg(feature = "engine")]
+    pub fn dom_and_collection_states_if_bound(
+        &mut self,
+    ) -> Option<(
+        &elidex_ecs::EcsDom,
+        &mut std::collections::HashMap<value::ObjectId, elidex_dom_api::LiveCollection>,
+    )> {
+        let vm = &mut *self.vm;
+        let host = vm.host_data.as_deref().filter(|h| h.is_bound())?;
+        Some((host.dom_shared(), &mut vm.live_collection_states))
+    }
+
     /// `HasProperty` + `Get` (§7.3.1): returns `None` if the property does
     /// not exist anywhere on the prototype chain, `Some(value)` otherwise.
     pub fn try_get_property_value(

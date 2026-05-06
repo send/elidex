@@ -5,46 +5,43 @@
 //! variants ([`ObjectKind::HtmlCollection`](super::super::value::ObjectKind::HtmlCollection)
 //! / [`ObjectKind::NodeList`](super::super::value::ObjectKind::NodeList))
 //! with their filter state held in
-//! [`VmInner::live_collection_states`](super::super::VmInner::live_collection_states).
-//! They share this single state table because every kind is
-//! resolved by the same per-access ECS traversal — the only
-//! distinction at read time is which variant of
-//! [`LiveCollectionKind`] drives the filter predicate and (for
-//! HTMLCollection only) whether `namedItem` is exposed.
+//! [`VmInner::live_collection_states`](super::super::VmInner::live_collection_states)
+//! as engine-independent
+//! [`elidex_dom_api::LiveCollection`] values. The single
+//! [`elidex_dom_api::CollectionKind`] discriminator drives prototype
+//! selection at wrapper construction; `namedItem` exposure follows
+//! the same `HtmlCollection` / `NodeList` split.
 //!
 //! ## Liveness
 //!
 //! Per spec, `HTMLCollection` is always live and `NodeList` is
 //! live *except* when returned by `querySelectorAll` (§4.2.6).
 //! That single static case is represented by
-//! [`LiveCollectionKind::Snapshot`], which carries a pre-captured
-//! `Vec<Entity>`; every other kind exposes the *observable*
-//! semantics that mutations made after the collection is obtained
-//! are visible on subsequent `length` / `item(i)` / indexed
-//! accesses.
+//! [`elidex_dom_api::CollectionFilter::Snapshot`] and constructed
+//! via [`elidex_dom_api::LiveCollection::new_snapshot`]; every other
+//! filter exposes the *observable* semantics that mutations made
+//! after the collection is obtained are visible on subsequent
+//! `length` / `item(i)` / indexed accesses.
 //!
-//! Each non-snapshot wrapper carries a [`LiveCollectionCache`]
-//! validated against [`EcsDom::inclusive_descendants_version`] of
-//! the collection's root: cache hit on an unchanged subtree skips
-//! the descendant walk, cache miss on a bumped version re-walks
-//! and refreshes.  Snapshot variants bypass the cache entirely
-//! (their entity list is frozen at construction).  This is a pure
-//! performance optimisation — the cache version check is driven
-//! by [`EcsDom::rev_version`], which is invoked from every tree-
-//! and attribute-mutation site so the cache stays observably
-//! equivalent to a per-read re-walk.
+//! Cache validation against
+//! [`EcsDom::inclusive_descendants_version`] lives entirely inside
+//! the engine-independent [`elidex_dom_api::LiveCollection`]; this
+//! module supplies the marshalling + brand-check + named-property
+//! lookup glue and forwards `length` / `item` / iteration calls
+//! straight to the API's [`snapshot`](elidex_dom_api::LiveCollection::snapshot)
+//! / [`item`](elidex_dom_api::LiveCollection::item) /
+//! [`length`](elidex_dom_api::LiveCollection::length) accessors.
 //!
 //! ## GC contract
 //!
 //! The prototypes are rooted via the `proto_roots` array (gc.rs).
-//! `LiveCollectionKind` and `LiveCollectionCache` together store
-//! only `Entity`, `StringId`, `Vec<StringId>`, `Vec<Entity>`, and
-//! `Cell<Option<u64>>` (the cached subtree version, `None` until
-//! the first miss-path populates it) — **no `ObjectId`
-//! references** — so the trace step has nothing to fan out.  The
-//! sweep tail prunes `live_collection_states` entries whose key
-//! `ObjectId` was collected, same pattern as
-//! `headers_states` / `blob_data`.
+//! [`elidex_dom_api::LiveCollection`] stores only `Entity`, owned
+//! `String` (filter needles), `Vec<Entity>` (cached snapshot +
+//! `Snapshot`-variant frozen list), and `u64` (cached subtree
+//! version) — **no `ObjectId` references** — so the trace step has
+//! nothing to fan out. The sweep tail prunes
+//! `live_collection_states` entries whose key `ObjectId` was
+//! collected, same pattern as `headers_states` / `blob_data`.
 //!
 //! ## Brand check
 //!
@@ -56,363 +53,15 @@
 
 #![cfg(feature = "engine")]
 
-use std::cell::{Cell, RefCell};
-
-use elidex_ecs::{EcsDom, Entity, NodeKind};
+use elidex_dom_api::{CollectionKind, LiveCollection};
+use elidex_ecs::Entity;
 
 use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError, ARRAY_ITER_KIND_VALUES,
 };
-use super::super::{NativeFn, StringId, VmInner};
-
-// -------------------------------------------------------------------------
-// Filter discriminator
-// -------------------------------------------------------------------------
-
-/// The filter backing an `HTMLCollection` / `NodeList` wrapper.
-///
-/// HTMLCollection variants filter to **Element** nodes only
-/// (WHATWG §4.2.10); NodeList variants include Text and Comment
-/// nodes as well.  The `Snapshot` variant alone is static — every
-/// other kind re-traverses on read.
-pub(crate) enum LiveCollectionKind {
-    // HTMLCollection filters (Element-only).
-    ByTag {
-        root: Entity,
-        tag: StringId,
-        all: bool,
-    },
-    ByClass {
-        root: Entity,
-        class_names: Vec<StringId>,
-    },
-    Children {
-        parent: Entity,
-    },
-    Forms {
-        doc: Entity,
-    },
-    Images {
-        doc: Entity,
-    },
-    Links {
-        doc: Entity,
-    },
-    // NodeList filters.
-    ChildNodes {
-        parent: Entity,
-    },
-    Snapshot {
-        entities: Vec<Entity>,
-    },
-    ByName {
-        doc: Entity,
-        name: StringId,
-    },
-}
-
-impl LiveCollectionKind {
-    /// `true` if this variant backs an `HTMLCollection`; `false`
-    /// for `NodeList` variants.  Drives prototype selection at
-    /// wrapper construction and `namedItem` exposure at method
-    /// install time.
-    fn is_html_collection(&self) -> bool {
-        matches!(
-            self,
-            Self::ByTag { .. }
-                | Self::ByClass { .. }
-                | Self::Children { .. }
-                | Self::Forms { .. }
-                | Self::Images { .. }
-                | Self::Links { .. }
-        )
-    }
-
-    /// Root entity whose `inclusive_descendants_version` drives the
-    /// cache validity check.  `None` for [`Self::Snapshot`] —
-    /// snapshot entity lists are frozen at construction and bypass
-    /// the cache entirely.
-    fn cache_root(&self) -> Option<Entity> {
-        match self {
-            Self::ByTag { root, .. } | Self::ByClass { root, .. } => Some(*root),
-            Self::Children { parent } | Self::ChildNodes { parent } => Some(*parent),
-            Self::Forms { doc }
-            | Self::Images { doc }
-            | Self::Links { doc }
-            | Self::ByName { doc, .. } => Some(*doc),
-            Self::Snapshot { .. } => None,
-        }
-    }
-}
-
-/// Per-wrapper entity-list cache, validated against
-/// [`EcsDom::inclusive_descendants_version`] of the kind's
-/// [`cache_root`](LiveCollectionKind::cache_root).
-///
-/// Stored alongside [`LiveCollectionKind`] in
-/// [`VmInner::live_collection_states`](super::super::VmInner::live_collection_states)
-/// so cache state survives across `length` / `item(i)` / iter
-/// reads on the same wrapper without `&mut self` access through
-/// the resolve path.  `Cell` + `RefCell` give the interior
-/// mutability needed for that — the cache is owned during the
-/// `remove → resolve → insert` dance in
-/// [`resolve_receiver_entities`] / [`try_indexed_get`], but the
-/// cache fields are written via shared-ref methods so the dance
-/// is purely a borrow-aliasing accommodation, not a logical
-/// requirement.
-/// `cached_version` is `Option<u64>` rather than `u64` so the
-/// default `None` state can never collide with a real
-/// [`EcsDom::inclusive_descendants_version`] value of `0` (a
-/// freshly spawned entity that has not yet been mutated through
-/// any `rev_version`-bumping site).  Without the explicit
-/// "uninitialized" marker the very first read on such an entity
-/// would false-hit `cache.cached_version.get() == 0` and return
-/// the empty `cached_entities` even when the descendant walk
-/// would have yielded a non-empty list — load-bearing safety
-/// margin against any future change to the rev_version
-/// invariants under which a node could end up with descendants
-/// before its own version has been bumped.
-#[derive(Default)]
-pub(crate) struct LiveCollectionCache {
-    cached_version: Cell<Option<u64>>,
-    cached_entities: RefCell<Vec<Entity>>,
-}
-
-// -------------------------------------------------------------------------
-// Entity resolution (per-access re-traversal)
-// -------------------------------------------------------------------------
-
-/// Re-resolve the entity list backing `kind`.  Every live variant
-/// walks the ECS at this point; `Snapshot` clones the cached vec.
-///
-/// Takes resolved UTF-8 needles (tag / class-name / name-attr)
-/// pre-materialised by the caller — avoids threading the
-/// `StringPool` through here alongside the `&EcsDom` borrow, which
-/// would otherwise fight the `NativeContext` split-field pattern.
-///
-/// Returning a `Vec` (not an iterator) is deliberate — callers
-/// typically need the length up front, and the re-allocation
-/// cost is dominated by the traversal anyway.
-fn resolve_entities_with_needles(
-    dom: &EcsDom,
-    kind: &LiveCollectionKind,
-    resolved_needles: &ResolvedNeedles,
-) -> Vec<Entity> {
-    match kind {
-        LiveCollectionKind::ByTag { root, all, .. } => {
-            let tag_str = resolved_needles.primary.as_deref().unwrap_or("");
-            let mut out = Vec::new();
-            dom.traverse_descendants(*root, |e| {
-                if e == *root {
-                    return true; // skip root itself (Element.getElementsByTagName semantics)
-                }
-                let matches = *all
-                    || dom.with_tag_name(e, |t| t.is_some_and(|s| s.eq_ignore_ascii_case(tag_str)));
-                if matches && dom.node_kind_inferred(e) == Some(NodeKind::Element) {
-                    out.push(e);
-                }
-                true
-            });
-            out
-        }
-        LiveCollectionKind::ByClass { root, .. } => {
-            if resolved_needles.class_names.is_empty() {
-                return Vec::new();
-            }
-            let mut out = Vec::new();
-            dom.traverse_descendants(*root, |e| {
-                if e == *root {
-                    return true;
-                }
-                if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
-                    return true;
-                }
-                let has_all = dom.with_attribute(e, "class", |class_attr| {
-                    class_attr.is_some_and(|c| {
-                        resolved_needles
-                            .class_names
-                            .iter()
-                            .all(|n| c.split_whitespace().any(|tok| tok == n))
-                    })
-                });
-                if has_all {
-                    out.push(e);
-                }
-                true
-            });
-            out
-        }
-        LiveCollectionKind::Children { parent } => dom
-            .children_iter(*parent)
-            .filter(|&e| dom.node_kind_inferred(e) == Some(NodeKind::Element))
-            .collect(),
-        LiveCollectionKind::Forms { doc } => collect_descendants_with_tag(dom, *doc, "form"),
-        LiveCollectionKind::Images { doc } => collect_descendants_with_tag(dom, *doc, "img"),
-        LiveCollectionKind::Links { doc } => {
-            let mut out = Vec::new();
-            dom.traverse_descendants(*doc, |e| {
-                if e == *doc {
-                    return true;
-                }
-                let tag_ok = dom.with_tag_name(e, |t| {
-                    t.is_some_and(|s| s.eq_ignore_ascii_case("a") || s.eq_ignore_ascii_case("area"))
-                });
-                if tag_ok && dom.has_attribute(e, "href") {
-                    out.push(e);
-                }
-                true
-            });
-            out
-        }
-        LiveCollectionKind::ChildNodes { parent } => dom.children_iter(*parent).collect(),
-        LiveCollectionKind::Snapshot { entities } => entities.clone(),
-        LiveCollectionKind::ByName { doc, .. } => {
-            let needle = resolved_needles.primary.as_deref().unwrap_or("");
-            let mut out = Vec::new();
-            dom.traverse_descendants(*doc, |e| {
-                // Skip the doc root itself — `getElementsByName` is
-                // a descendant-only query — and restrict to Element
-                // nodes per WHATWG HTML §3.1.5 step 1 ("list of
-                // elements with the given name").  Non-Element
-                // nodes that happen to carry a `name` attribute
-                // (possible via direct `EcsDom::set_attribute` on
-                // any entity) must not leak into the result.
-                if e == *doc {
-                    return true;
-                }
-                if dom.node_kind_inferred(e) != Some(NodeKind::Element) {
-                    return true;
-                }
-                if dom.with_attribute(e, "name", |v| v == Some(needle)) {
-                    out.push(e);
-                }
-                true
-            });
-            out
-        }
-    }
-}
-
-/// Pre-materialised UTF-8 needles for entity resolution — filled
-/// by [`resolve_needles`] from the filter's `StringId`s before
-/// the EcsDom borrow is taken.
-struct ResolvedNeedles {
-    primary: Option<String>,
-    class_names: Vec<String>,
-}
-
-/// Extract the UTF-8 strings a kind's filter consults so the
-/// actual traversal can run with a disjoint `&EcsDom` borrow.
-fn resolve_needles(vm: &VmInner, kind: &LiveCollectionKind) -> ResolvedNeedles {
-    match kind {
-        LiveCollectionKind::ByTag { tag, .. } => ResolvedNeedles {
-            primary: Some(vm.strings.get_utf8(*tag)),
-            class_names: Vec::new(),
-        },
-        LiveCollectionKind::ByClass { class_names, .. } => ResolvedNeedles {
-            primary: None,
-            class_names: class_names
-                .iter()
-                .map(|sid| vm.strings.get_utf8(*sid))
-                .collect(),
-        },
-        LiveCollectionKind::ByName { name, .. } => ResolvedNeedles {
-            primary: Some(vm.strings.get_utf8(*name)),
-            class_names: Vec::new(),
-        },
-        _ => ResolvedNeedles {
-            primary: None,
-            class_names: Vec::new(),
-        },
-    }
-}
-
-/// Public resolver — returns the cached entity list when the
-/// subtree's
-/// [`inclusive_descendants_version`](EcsDom::inclusive_descendants_version)
-/// is unchanged, otherwise materialises needles from the VM's
-/// string pool and runs the ECS traversal.
-///
-/// Hot-path semantics + drift-safety: the post-walk refresh runs
-/// through [`cache_store`], which is the single store-side helper
-/// shared with [`try_indexed_get`].  The version-check halves
-/// still differ between the two call sites because they have
-/// different borrow shapes — `NativeContext` / `host_if_bound`
-/// here vs an explicit `&EcsDom` arg in `try_indexed_get` — so
-/// the read sides are mirrored manually rather than abstracted.
-/// `host` is dropped between the cache-hit phase and the miss
-/// phase (re-borrowed below) so the shared `&VmInner` for needle
-/// materialisation does not alias the `&EcsDom` borrow used for
-/// the version check.
-pub(super) fn resolve_entities_for(
-    ctx: &mut NativeContext<'_>,
-    kind: &LiveCollectionKind,
-    cache: &LiveCollectionCache,
-) -> Vec<Entity> {
-    // Phase 1 — cache-hit check (no needle allocation).  The
-    // `host` borrow is scoped to this block; Phase 2 re-borrows.
-    let cur_version = if let Some(root) = kind.cache_root() {
-        // Post-unbind access to a retained collection wrapper must
-        // not panic; return an empty list so `.length` reads 0,
-        // `.item(i)` returns null, and `@@iterator` yields no
-        // elements.  `HostData::dom()` asserts `is_bound()`.
-        let Some(host) = ctx.host_if_bound() else {
-            return Vec::new();
-        };
-        let cur = host.dom().inclusive_descendants_version(root);
-        if cache.cached_version.get() == Some(cur) {
-            return cache.cached_entities.borrow().clone();
-        }
-        Some(cur)
-    } else {
-        None
-    };
-
-    // Phase 2 — cache miss (or Snapshot).  Needles only get
-    // materialised here, off the hot path.
-    let needles = resolve_needles(ctx.vm, kind);
-    let Some(host) = ctx.host_if_bound() else {
-        return Vec::new();
-    };
-    let fresh = resolve_entities_with_needles(host.dom(), kind, &needles);
-    cache_store(cache, cur_version, &fresh);
-    fresh
-}
-
-/// Refresh the cache after a successful descendant walk.  Skips
-/// the store when `cur_version == None` (Snapshot variants — see
-/// [`LiveCollectionKind::cache_root`]).
-///
-/// Reuses the existing `cached_entities` `Vec` capacity via
-/// `clear()` + `extend_from_slice` rather than re-allocating
-/// (`fresh.to_vec()`); on mutation-heavy workloads the cache buffer
-/// quickly stabilises at the result-set's high-water mark, after
-/// which subsequent miss-path refreshes become allocation-free.
-fn cache_store(cache: &LiveCollectionCache, cur_version: Option<u64>, fresh: &[Entity]) {
-    if let Some(cur) = cur_version {
-        cache.cached_version.set(Some(cur));
-        let mut buf = cache.cached_entities.borrow_mut();
-        buf.clear();
-        buf.extend_from_slice(fresh);
-    }
-}
-
-/// Helper — collect every descendant Element with a given tag.
-fn collect_descendants_with_tag(dom: &EcsDom, root: Entity, tag: &str) -> Vec<Entity> {
-    let mut out = Vec::new();
-    dom.traverse_descendants(root, |e| {
-        if e == root {
-            return true;
-        }
-        if dom.with_tag_name(e, |t| t.is_some_and(|s| s.eq_ignore_ascii_case(tag))) {
-            out.push(e);
-        }
-        true
-    });
-    out
-}
+use super::super::{NativeFn, VmInner};
 
 // -------------------------------------------------------------------------
 // Named item tag allowlist (HTMLCollection only)
@@ -529,23 +178,30 @@ impl VmInner {
         );
     }
 
-    /// Allocate a new collection wrapper backed by `kind`.  The
+    /// Allocate a new collection wrapper backed by `coll`. The
     /// returned `ObjectId` carries `ObjectKind::HtmlCollection` or
-    /// `ObjectKind::NodeList` (chosen by the kind's discriminator)
-    /// and points at the matching prototype.
-    pub(crate) fn alloc_collection(&mut self, kind: LiveCollectionKind) -> ObjectId {
-        let (object_kind, proto) = if kind.is_html_collection() {
-            (
+    /// `ObjectKind::NodeList` (chosen by the collection's
+    /// [`CollectionKind`]) and points at the matching prototype.
+    ///
+    /// Convention: do **not** add new collection variants by
+    /// extending [`ObjectKind`]; extend
+    /// [`elidex_dom_api::CollectionFilter`] (and where needed
+    /// [`elidex_dom_api::CollectionKind`]) instead. The two-enum
+    /// split here is purely engine-bound (`ObjectKind` selects a
+    /// prototype + brand) — collection *shape* belongs in the
+    /// engine-independent crate.
+    pub(crate) fn alloc_collection(&mut self, coll: LiveCollection) -> ObjectId {
+        let (object_kind, proto) = match coll.kind() {
+            CollectionKind::HtmlCollection => (
                 ObjectKind::HtmlCollection,
                 self.html_collection_prototype
                     .expect("alloc_collection before register_html_collection_prototype"),
-            )
-        } else {
-            (
+            ),
+            CollectionKind::NodeList => (
                 ObjectKind::NodeList,
                 self.node_list_prototype
                     .expect("alloc_collection before register_node_list_prototype"),
-            )
+            ),
         };
         let id = self.alloc_object(Object {
             kind: object_kind,
@@ -553,8 +209,7 @@ impl VmInner {
             prototype: Some(proto),
             extensible: false,
         });
-        self.live_collection_states
-            .insert(id, (kind, LiveCollectionCache::default()));
+        self.live_collection_states.insert(id, coll);
         id
     }
 }
@@ -613,20 +268,21 @@ fn require_collection_receiver(
 
 /// Resolve the backing entity list for a live collection receiver.
 ///
-/// The temporary remove / re-insert dance is deliberate: the
-/// traversal needs a shared borrow of `ctx.vm.strings` (via
-/// `resolve_needles`) **and** a shared borrow of `ctx.host().dom()`
-/// on the same `NativeContext`, but Rust's split-field rules deny
-/// two aliasing paths through `ctx.vm` in one expression.  Taking
-/// the kind out of the map temporarily breaks that aliasing into
-/// two sequential borrows.
+/// Returns an empty `Vec` when the VM is unbound (post-`unbind()`
+/// access through a retained wrapper) or when the receiver has no
+/// entry in `live_collection_states`. Uses
+/// [`NativeContext::dom_and_collection_states_if_bound`] to take
+/// disjoint borrows of `&EcsDom` and `&mut LiveCollection` so
+/// [`LiveCollection::snapshot`] can run with the `&EcsDom` borrow
+/// the VM-side state mutation needs concurrently for cache refresh.
 fn resolve_receiver_entities(ctx: &mut NativeContext<'_>, id: ObjectId) -> Vec<Entity> {
-    let Some((kind, cache)) = ctx.vm.live_collection_states.remove(&id) else {
+    let Some((dom, states)) = ctx.dom_and_collection_states_if_bound() else {
         return Vec::new();
     };
-    let entities = resolve_entities_for(ctx, &kind, &cache);
-    ctx.vm.live_collection_states.insert(id, (kind, cache));
-    entities
+    let Some(coll) = states.get_mut(&id) else {
+        return Vec::new();
+    };
+    coll.snapshot(dom).to_vec()
 }
 
 // Per-interface `length` getter wrappers — shared body, per-
@@ -653,9 +309,21 @@ fn collection_length_get_impl(
     interface: &'static str,
 ) -> Result<JsValue, VmError> {
     let (id, _) = require_collection_receiver(ctx, this, "length", interface)?;
-    let entities = resolve_receiver_entities(ctx, id);
+    // `LiveCollection::length` only needs the cached snapshot's
+    // length — bypass the full `to_vec()` materialisation that
+    // `resolve_receiver_entities` performs. Saves a per-call Vec
+    // allocation + memcpy on the hot path.
+    let len = {
+        let Some((dom, states)) = ctx.dom_and_collection_states_if_bound() else {
+            return Ok(JsValue::Number(0.0));
+        };
+        let Some(coll) = states.get_mut(&id) else {
+            return Ok(JsValue::Number(0.0));
+        };
+        coll.length(dom)
+    };
     #[allow(clippy::cast_precision_loss)]
-    Ok(JsValue::Number(entities.len() as f64))
+    Ok(JsValue::Number(len as f64))
 }
 
 // Per-interface `item` wrappers.
@@ -705,9 +373,22 @@ fn collection_item_impl(
         }
         None => return Ok(JsValue::Null),
     };
-    let entities = resolve_receiver_entities(ctx, id);
-    Ok(match entities.get(index) {
-        Some(&e) => JsValue::Object(ctx.vm.create_element_wrapper(e)),
+    // Read just the indexed entity — `LiveCollection::item` returns
+    // `Option<Entity>` directly so we avoid the per-call `to_vec()`
+    // that `resolve_receiver_entities` performs. The borrow scope
+    // is tight so `create_element_wrapper`'s `&mut ctx.vm` access
+    // can re-acquire after the entity is copied out.
+    let entity = {
+        let Some((dom, states)) = ctx.dom_and_collection_states_if_bound() else {
+            return Ok(JsValue::Null);
+        };
+        let Some(coll) = states.get_mut(&id) else {
+            return Ok(JsValue::Null);
+        };
+        coll.item(index, dom)
+    };
+    Ok(match entity {
+        Some(e) => JsValue::Object(ctx.vm.create_element_wrapper(e)),
         None => JsValue::Null,
     })
 }
@@ -849,61 +530,25 @@ fn native_node_list_for_each(
 /// so the caller can drop the `&EcsDom` borrow before invoking
 /// `create_element_wrapper`.  The wrapper path mutably borrows
 /// `VmInner::host_data::wrapper_cache`, which aliases the shared
-/// reborrow chain used to obtain this `&EcsDom` from `HostData`;
-/// splitting the phases eliminates the Stacked-Borrows violation.
+/// reborrow chain used to obtain this `&elidex_ecs::EcsDom` from
+/// `HostData`; splitting the phases eliminates the Stacked-Borrows
+/// violation.
 pub(crate) fn try_indexed_get(
     vm: &mut VmInner,
-    dom: &EcsDom,
+    dom: &elidex_ecs::EcsDom,
     id: ObjectId,
     key: JsValue,
 ) -> Option<Entity> {
     let is_html_collection = matches!(vm.get_object(id).kind, ObjectKind::HtmlCollection);
-    // Remove / re-insert mirrors `resolve_receiver_entities` so we
-    // can take concurrent borrows of `vm.strings` (for the needle
-    // lookup) and `dom` (for the traversal) without tripping the
-    // aliasing rules.
-    let (kind, cache) = vm.live_collection_states.remove(&id)?;
+    let coll = vm.live_collection_states.get_mut(&id)?;
+    // The API LiveCollection handles every variant uniformly —
+    // `Snapshot` returns its frozen list, every other filter
+    // re-walks (or hits the cache) against `dom`. The Stacked-
+    // Borrows-friendly slice borrow lives inside the API for the
+    // duration of this call.
+    let entities = coll.snapshot(dom);
 
-    // Resolve `entities` to a slice borrow.  Three branches:
-    //
-    // 1. `Snapshot` — slice directly into the stored `Vec`, no
-    //    clone (`querySelectorAll(...)[i]` is now O(1) through
-    //    here, not O(N) via the previous `entities.clone()`).
-    // 2. Cache hit — clone the cached `Vec` once.  Cloning rather
-    //    than re-borrowing keeps the `RefCell` borrow short so
-    //    the wrapper can be re-inserted into
-    //    `live_collection_states` below; the resulting `Vec` is
-    //    owned by `entities_storage` for the rest of the function.
-    // 3. Cache miss — materialise needles, walk descendants,
-    //    refresh the cache, and own the freshly walked `Vec`.
-    //
-    // `entities_storage` only carries the owned `Vec` for cases 2
-    // and 3; `entities: &[Entity]` is the unified slice the
-    // index / named-property logic reads from.
-    let entities_storage: Vec<Entity>;
-    let entities: &[Entity] = if let LiveCollectionKind::Snapshot { entities } = &kind {
-        entities.as_slice()
-    } else {
-        // Every non-Snapshot variant has `cache_root() == Some`
-        // (see [`LiveCollectionKind::cache_root`]).  Materialising
-        // `cur` outside the inner branches keeps it shared between
-        // the hit / miss arms.
-        let cur = dom.inclusive_descendants_version(
-            kind.cache_root()
-                .expect("non-Snapshot variants always have cache_root() == Some"),
-        );
-        if cache.cached_version.get() == Some(cur) {
-            entities_storage = cache.cached_entities.borrow().clone();
-        } else {
-            let needles = resolve_needles(vm, &kind);
-            let fresh = resolve_entities_with_needles(dom, &kind, &needles);
-            cache_store(&cache, Some(cur), &fresh);
-            entities_storage = fresh;
-        }
-        entities_storage.as_slice()
-    };
-
-    let result = match key {
+    match key {
         JsValue::Number(n) if n.is_finite() => {
             let trunc = n.trunc();
             if (trunc - n).abs() > f64::EPSILON || trunc < 0.0 {
@@ -953,8 +598,5 @@ pub(crate) fn try_indexed_get(
             }
         }
         _ => None,
-    };
-
-    vm.live_collection_states.insert(id, (kind, cache));
-    result
+    }
 }
