@@ -311,6 +311,29 @@ fn class_list_indexed_get_exact_integer_still_works() {
     assert_eq!(out, "b");
 }
 
+// Copilot R7 #1 — `DOMTokenList.item(unsigned long)` per WebIDL
+// §3.10.13: negative inputs are coerced via ToUint32 (mod 2^32),
+// which for `-1` yields `4294967295`, well past any token list
+// length → handler must return `null`.  Previously a generic
+// `to_number` would have passed `-1` through and the handler's
+// float→usize cast would map it to `0`, returning the first token.
+
+#[test]
+fn class_list_item_negative_index_returns_null_not_first_token() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('class', 'first second'); \
+         '' + (d.classList.item(-1) === null);");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn class_list_item_huge_index_returns_null() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('class', 'a b'); \
+         '' + (d.classList.item(2147483647) === null);");
+    assert_eq!(out, "true");
+}
+
 #[test]
 fn class_list_method_brand_check() {
     let out = run("var d = document.createElement('div'); \

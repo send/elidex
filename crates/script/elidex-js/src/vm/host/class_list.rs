@@ -220,11 +220,21 @@ fn native_class_list_item(
 ) -> Result<JsValue, VmError> {
     let entity = require_dom_token_list_receiver(ctx, this, "item")?;
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_number(ctx.vm, arg)?;
+    // WebIDL §3.10.13 indexed-property getter (`unsigned long`) → ToUint32
+    // (mod 2^32).  Without this, negative inputs like `tokens.item(-1)`
+    // would reach the handler as negative `f64` and the float→usize
+    // cast in `parse_array_index_u32` would map them to 0, returning
+    // the first token instead of `null`.
+    let idx = super::super::coerce::to_uint32(ctx.vm, arg)?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    invoke_dom_api(ctx, "classList.item", entity, &[JsValue::Number(n)])
+    invoke_dom_api(
+        ctx,
+        "classList.item",
+        entity,
+        &[JsValue::Number(f64::from(idx))],
+    )
 }
 
 fn native_class_list_contains(

@@ -311,8 +311,11 @@ pub(crate) fn collect_keys(
             // whose own-property descriptor would have been
             // shadowed by `Object.prototype` so `Object.keys(dataset)`
             // never surfaces a stub like `"toString"` even if a
-            // `data-toString` attribute exists.  The shadowed key
-            // remains accessible via `el.getAttribute("data-toString")`.
+            // `data-to-string` attribute exists (HTML attribute names
+            // are lowercased on storage; the camel↔kebab mapping
+            // turns `data-to-string` into the camelCase key
+            // `toString`).  The shadowed attribute remains
+            // accessible via `el.getAttribute("data-to-string")`.
             let filtered = keys
                 .into_iter()
                 .filter(|sid| !key_on_prototype_chain(vm, id, *sid))
