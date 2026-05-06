@@ -395,10 +395,16 @@ fn mutation_record_to_js(
     JsValue::Object(record_obj)
 }
 
-/// Build a JS Array of element wrappers for the given entity slice.
-/// Element wrappers go through [`super::elements::create_element_wrapper`]
-/// so identity caching applies (`addedNodes[0] === document.body` for
-/// matched targets).
+/// Build a JS Array of node wrappers for the given entity slice.
+/// `addedNodes` / `removedNodes` may carry non-Element nodes (Text /
+/// Comment / ProcessingInstruction / CDATA) per WHATWG DOM §4.3.5,
+/// and the underlying [`super::elements::create_element_wrapper`]
+/// dispatches to the right prototype per
+/// [`super::super::host_data::HostData::prototype_kind_for`]
+/// (Element / Text / CharacterData / Node) — the helper name is
+/// engine-historic, the behaviour covers every node kind.  Identity
+/// caching applies, so `addedNodes[0] === document.body` for matched
+/// targets.
 fn build_node_array(vm: &mut VmInner, entities: &[elidex_ecs::Entity]) -> JsValue {
     let mut elements = Vec::with_capacity(entities.len());
     for &e in entities {
@@ -599,9 +605,32 @@ fn parse_mutation_observer_init(
             ));
         };
         let len_val = ctx.get_property_value(arr_id, PropertyKey::String(wk_length))?;
-        let len_u32 = super::super::coerce::to_uint32(ctx.vm, len_val)?;
-        let mut filter = Vec::with_capacity(len_u32 as usize);
-        for i in 0..len_u32 {
+        // WebIDL §3.10.20 sequence conversion uses ToLength
+        // (ES §7.1.20), not ToUint32: ToUint32 wraps negative values
+        // mod-2^32, so `length: -1` becomes `4_294_967_295` and a
+        // subsequent `Vec::with_capacity` would attempt a ~4 GiB
+        // allocation and abort.  ToLength clamps NaN / negative to
+        // 0 and oversize values are surfaced as a RangeError (mirrors
+        // the typed-array `LengthOfArrayLike` pattern in
+        // `typed_array_methods.rs::set_array_like`).  No
+        // pre-allocation: the index-loop pushes incrementally so
+        // even a giant `length` only allocates as items are read.
+        let len_f = ctx.to_number(len_val)?;
+        let len_clamped = if len_f.is_nan() || len_f <= 0.0 {
+            0.0
+        } else {
+            len_f.trunc()
+        };
+        if len_clamped > f64::from(u32::MAX) {
+            return Err(VmError::range_error(
+                "Failed to execute 'observe' on 'MutationObserver': \
+                 'attributeFilter' length exceeds the supported maximum",
+            ));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let len = len_clamped as u32;
+        let mut filter = Vec::new();
+        for i in 0..len {
             let item_key = PropertyKey::String(ctx.vm.strings.intern(&i.to_string()));
             let item = ctx.get_property_value(arr_id, item_key)?;
             let sid = ctx.to_string_val(item)?;

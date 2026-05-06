@@ -297,6 +297,38 @@ fn mutation_observer_observe_attribute_filter_non_iterable_throws() {
 }
 
 #[test]
+fn mutation_observer_observe_attribute_filter_negative_length_clamps_to_zero() {
+    // Regression: prior `to_uint32` length conversion wrapped
+    // `length: -1` to `u32::MAX`, triggering a ~4 GiB
+    // `Vec::with_capacity` and an OOM abort.  ToLength clamps
+    // negative / NaN to 0; the iteration produces an empty filter.
+    let out = run("var mo = new MutationObserver(function(){}); \
+         try { mo.observe(document, {attributes:true, attributeFilter:{length:-1}}); 'ok' } \
+         catch(e) { 'threw: ' + e.message; }");
+    assert_eq!(out, "ok");
+    let out = run("var mo = new MutationObserver(function(){}); \
+         try { mo.observe(document, {attributes:true, attributeFilter:{length:NaN}}); 'ok' } \
+         catch(e) { 'threw: ' + e.message; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn mutation_observer_observe_attribute_filter_oversize_length_throws() {
+    // Lengths exceeding u32::MAX (4_294_967_295) are not
+    // representable as array indices in this VM; surface a
+    // RangeError rather than silently truncating or attempting a
+    // pathological allocation.
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(document, {attributes:true, attributeFilter:{length:4294967296}});",
+    );
+    assert!(
+        err.contains("supported maximum"),
+        "expected attributeFilter oversize RangeError, got: {err}"
+    );
+}
+
+#[test]
 fn mutation_observer_observe_attribute_filter_implies_attributes() {
     let out = run("var mo = new MutationObserver(function(){}); \
          try { mo.observe(document, {attributeFilter: ['class']}); 'ok' } \
