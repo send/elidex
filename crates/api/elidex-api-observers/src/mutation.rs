@@ -141,16 +141,25 @@ impl MutationObserverRegistry {
         }
     }
 
-    /// Drain every observer's target list and pending records,
-    /// keeping the observer IDs registered.  Called from a VM
-    /// `unbind` step so a retained `MutationObserver` reference can
-    /// be re-bound to a fresh DOM without inheriting stale `Entity`
-    /// indices from the prior world (two `EcsDom::new()` worlds
-    /// share `Entity` index space — without this the post-rebind
-    /// `notify` would match a `target` Entity that happens to
-    /// collide with an old observation).  Observer IDs themselves
-    /// are monotonic per-VM and stay live so post-unbind method
-    /// calls on retained instances continue to brand-check.
+    /// Internal: drain every observer's target list and pending
+    /// records, keeping the observer IDs registered.
+    ///
+    /// **Use only from a VM bind/unbind cycle.**  Calling this from
+    /// any other context silently invalidates every active
+    /// observation across the embedder, breaking the spec contract
+    /// that an `observe()` call remains in effect until matching
+    /// `disconnect()`.  No semver stability — internal coupling
+    /// between the engine-independent registry and the VM's
+    /// `Vm::unbind` hook only.
+    ///
+    /// Rationale: after `unbind`, two `EcsDom::new()` worlds share
+    /// `Entity` index space — without draining targets here, a
+    /// post-rebind `notify` would match a `target` Entity that
+    /// happens to collide with an observation registered against the
+    /// previous world.  Observer IDs themselves are monotonic per-VM
+    /// and stay live so post-unbind method calls on retained JS
+    /// instances continue to brand-check.
+    #[doc(hidden)]
     pub fn clear_all_targets(&mut self) {
         for entry in &mut self.observers {
             entry.targets.clear();

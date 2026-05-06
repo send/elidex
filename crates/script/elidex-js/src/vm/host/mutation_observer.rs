@@ -491,17 +491,22 @@ fn parse_mutation_observer_init(
     use elidex_api_observers::mutation::MutationObserverInit;
 
     let mut init = MutationObserverInit::default();
+    // WebIDL §3.10.7 dictionary conversion: `undefined` and `null`
+    // both yield the default-init dictionary (empty object branch).
+    // The subsequent "at least one of childList / attributes /
+    // characterData" check at the call site then surfaces a
+    // TypeError, matching Chrome/Firefox.
     let value = match arg {
-        None | Some(JsValue::Undefined) => return Ok(init),
+        None | Some(JsValue::Undefined | JsValue::Null) => return Ok(init),
         Some(v) => v,
     };
     let JsValue::Object(opts_id) = value else {
-        // WebIDL §3.10.7 dictionary conversion — for a non-object,
-        // non-undefined input, ToObject would throw.  Match the
-        // browser behaviour for null (TypeError) and primitives
-        // (silent default-init) by treating only `undefined` as
-        // "not provided" and everything else (`null`, primitives)
-        // as a TypeError.
+        // Primitives (number / boolean / string / Symbol / BigInt)
+        // would, per spec, be ToObject-coerced to a wrapper before
+        // reading fields — every field then absent so default-init
+        // applies.  Phase 2 simplification: reject with TypeError;
+        // tracked at `#11-mutation-observer-extras` for full
+        // primitive→ToObject parity (low real-world hit rate).
         return Err(VmError::type_error(
             "Failed to execute 'observe' on 'MutationObserver': options is not an object",
         ));

@@ -540,7 +540,15 @@ fn mutation_observer_methods_after_unbind_do_not_panic() {
 }
 
 #[test]
-fn mutation_observer_unbind_clears_callbacks() {
+fn mutation_observer_unbind_retains_callback_maps() {
+    // Inverse contract from initial Phase C5 sketch: callbacks +
+    // instance wrappers persist across `unbind()` so a retained
+    // `mo` reference can re-observe after a `bind()` to the same
+    // (or another) DOM and still have its callback fire.  The maps
+    // are keyed by VM-monotonic `observer_id`, not by `Entity` or
+    // recycled `ObjectId`, so cross-DOM aliasing cannot apply.
+    // Only `clear_all_targets` drains target lists + record queues
+    // (Entity-keyed state, where aliasing IS a risk).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -553,8 +561,16 @@ fn mutation_observer_unbind_clears_callbacks() {
     assert_eq!(host.mutation_observer_instances.len(), 1);
     vm.unbind();
     let host = vm.inner.host_data.as_deref().unwrap();
-    assert_eq!(host.mutation_observer_callbacks.len(), 0);
-    assert_eq!(host.mutation_observer_instances.len(), 0);
+    assert_eq!(
+        host.mutation_observer_callbacks.len(),
+        1,
+        "callbacks must persist across unbind so retained `mo` can re-observe"
+    );
+    assert_eq!(
+        host.mutation_observer_instances.len(),
+        1,
+        "instance wrapper must persist across unbind"
+    );
 }
 
 #[test]
@@ -811,5 +827,271 @@ fn mutation_observer_callback_can_re_observe_other_target() {
         JsValue::Number(1.0),
         "second delivery must include the re-attached target"
     );
+    vm.unbind();
+}
+
+// --- Multi-observer / repeat-observe semantics -----------------------
+
+#[test]
+fn mutation_observer_two_observers_both_receive_record() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.aLen = 0; globalThis.bLen = 0; \
+         var moA = new MutationObserver(function(rec){ aLen = rec.length; }); \
+         var moB = new MutationObserver(function(rec){ bLen = rec.length; }); \
+         moA.observe(root, {childList:true}); \
+         moB.observe(root, {childList:true});",
+    )
+    .unwrap();
+
+    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let record = SessionRecord {
+        kind: MutationKind::ChildList,
+        target: root,
+        added_nodes: vec![added],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    };
+    vm.deliver_mutation_records(std::slice::from_ref(&record));
+
+    let a = vm.eval("aLen").unwrap();
+    let b = vm.eval("bLen").unwrap();
+    assert_eq!(a, JsValue::Number(1.0));
+    assert_eq!(b, JsValue::Number(1.0));
+    vm.unbind();
+}
+
+#[test]
+fn mutation_observer_observe_replaces_existing_options_for_same_target() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         var mo = new MutationObserver(function(rec){ globalThis.records = rec; }); \
+         mo.observe(root, {childList:true}); \
+         mo.observe(root, {attributes:true});",
+    )
+    .unwrap();
+
+    // ChildList mutation must NOT fire because the second observe
+    // replaced childList:true with attributes:true (WHATWG §4.3.3
+    // step 7).
+    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    let r1 = SessionRecord {
+        kind: MutationKind::ChildList,
+        target: root,
+        added_nodes: vec![added],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    };
+    vm.deliver_mutation_records(std::slice::from_ref(&r1));
+    assert!(matches!(vm.eval("records").unwrap(), JsValue::Null));
+
+    // Attribute mutation MUST fire under the replaced options.
+    let r2 = SessionRecord {
+        kind: MutationKind::Attribute,
+        target: root,
+        added_nodes: vec![],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: Some("class".to_string()),
+        old_value: None,
+    };
+    vm.deliver_mutation_records(std::slice::from_ref(&r2));
+    assert_eq!(
+        vm.eval("records.length").unwrap(),
+        JsValue::Number(1.0),
+        "second mutation must fire under the replacing options"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn mutation_observer_observes_multiple_distinct_targets() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    let other = dom.create_element("aside", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(root, other));
+    let other_wrapper = vm.inner.create_element_wrapper(other);
+    vm.set_global("other", JsValue::Object(other_wrapper));
+
+    vm.eval(
+        "globalThis.calls = 0; \
+         var mo = new MutationObserver(function(){ calls++; }); \
+         mo.observe(root, {childList:true}); \
+         mo.observe(other, {attributes:true});",
+    )
+    .unwrap();
+
+    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    vm.deliver_mutation_records(&[SessionRecord {
+        kind: MutationKind::ChildList,
+        target: root,
+        added_nodes: vec![added],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    }]);
+    vm.deliver_mutation_records(&[SessionRecord {
+        kind: MutationKind::Attribute,
+        target: other,
+        added_nodes: vec![],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: Some("data-x".to_string()),
+        old_value: None,
+    }]);
+
+    assert_eq!(vm.eval("calls").unwrap(), JsValue::Number(2.0));
+    vm.unbind();
+}
+
+// --- Argument validation edge cases ----------------------------------
+
+#[test]
+fn mutation_observer_observe_null_target_throws() {
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(null, {childList:true});",
+    );
+    assert!(
+        err.contains("not of type 'Node'"),
+        "expected null-target TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn mutation_observer_observe_null_options_uses_defaults() {
+    // WebIDL §3.10.7: null and undefined both yield the default-init
+    // dictionary; the subsequent at-least-one-flag check then fires.
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(document, null);",
+    );
+    assert!(
+        err.contains("at least one"),
+        "null options should default-init then fail at-least-one-flag, got: {err}"
+    );
+}
+
+// --- Callback exception isolation ------------------------------------
+
+#[test]
+fn mutation_observer_callback_throw_does_not_block_sibling_observer() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    // moA throws; moB must still fire (WHATWG §4.3.4 / §8.1.5
+    // "report the exception" — does not abort sibling delivery).
+    vm.eval(
+        "globalThis.bRan = 0; \
+         var moA = new MutationObserver(function(){ throw new Error('boom'); }); \
+         var moB = new MutationObserver(function(){ bRan++; }); \
+         moA.observe(root, {childList:true}); \
+         moB.observe(root, {childList:true});",
+    )
+    .unwrap();
+
+    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    vm.deliver_mutation_records(&[SessionRecord {
+        kind: MutationKind::ChildList,
+        target: root,
+        added_nodes: vec![added],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    }]);
+
+    assert_eq!(
+        vm.eval("bRan").unwrap(),
+        JsValue::Number(1.0),
+        "sibling observer must run despite first observer throwing"
+    );
+    vm.unbind();
+}
+
+// --- takeRecords semantics ------------------------------------------
+
+#[test]
+fn mutation_observer_take_records_after_disconnect_is_empty() {
+    let out = run("var mo = new MutationObserver(function(){}); \
+         mo.observe(document, {childList:true}); \
+         mo.disconnect(); \
+         '' + mo.takeRecords().length;");
+    assert_eq!(out, "0");
+}
+
+#[test]
+fn mutation_observer_take_records_returns_fresh_array_each_call() {
+    let out = run("var mo = new MutationObserver(function(){}); \
+         var a = mo.takeRecords(); \
+         var b = mo.takeRecords(); \
+         (a !== b) ? 'fresh' : 'same';");
+    assert_eq!(out, "fresh");
+}
+
+// --- Rebind to same DOM ---------------------------------------------
+
+#[test]
+fn mutation_observer_methods_after_unbind_then_rebind_to_same_dom() {
+    // Retained `mo` across `unbind()` then `bind(same_doc)` — observer
+    // IDs persist in the registry (`clear_all_targets` only drains
+    // targets), so a fresh `observe` after rebind must work end-to-end.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.calls = 0; \
+         globalThis.mo = new MutationObserver(function(){ calls++; });",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // Rebind to the same dom + doc.
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wrapper = vm.inner.create_element_wrapper(root);
+    vm.set_global("root", JsValue::Object(wrapper));
+
+    vm.eval("mo.observe(root, {childList:true});").unwrap();
+    let added = dom.create_element("p", elidex_ecs::Attributes::default());
+    vm.deliver_mutation_records(&[SessionRecord {
+        kind: MutationKind::ChildList,
+        target: root,
+        added_nodes: vec![added],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    }]);
+    assert_eq!(vm.eval("calls").unwrap(), JsValue::Number(1.0));
     vm.unbind();
 }

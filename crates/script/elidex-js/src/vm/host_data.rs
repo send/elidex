@@ -133,8 +133,17 @@ mod engine_feature {
         /// `ObjectKind::MutationObserver { observer_id }` payload)
         /// and rooted via [`Self::gc_root_object_ids`] so the
         /// callback survives any GC cycle while the observer is
-        /// alive.  Cleared by `Vm::unbind` to avoid cross-DOM
-        /// aliasing of recycled `ObjectId` slots.
+        /// alive.
+        ///
+        /// **Retained across `Vm::unbind`** — the map is keyed by
+        /// VM-monotonic `observer_id`, not by `Entity` or recycled
+        /// `ObjectId`, so cross-DOM aliasing does not apply.  A
+        /// retained `mo` reference can re-`observe` after a rebind
+        /// (same or different DOM) and have its callback fire.
+        /// Trade-off: callback ObjectIds stay rooted until the VM
+        /// itself drops, a bounded leak per `new MutationObserver()`
+        /// call.  Sweep-time cleanup tracked at
+        /// `#11-mutation-observer-extras`.
         pub(crate) mutation_observer_callbacks: HashMap<u64, ObjectId>,
         /// Reverse lookup from observer ID to the JS instance
         /// `ObjectId`.  Needed at delivery time so the embedder can
@@ -146,8 +155,8 @@ mod engine_feature {
         /// instance be collected before its first delivery; the
         /// registry-side `observer_id` is just `u64`, so the
         /// per-spec "registered observer keeps target alive"
-        /// reference cannot pin the JS wrapper.  Cleared alongside
-        /// `mutation_observer_callbacks` on unbind.
+        /// reference cannot pin the JS wrapper.  Same retain-across-
+        /// unbind contract as [`Self::mutation_observer_callbacks`].
         pub(crate) mutation_observer_instances: HashMap<u64, ObjectId>,
     }
 
@@ -456,9 +465,7 @@ mod engine_feature {
         /// [`elidex_api_observers::mutation::MutationObserverRegistry`]
         /// (exclusive) simultaneously via disjoint field projection.
         ///
-        /// Mirrors [`Self::dom_and_strings_if_bound`] but for the
-        /// mutation-observer registry: lets
-        /// [`super::super::Vm::deliver_mutation_records`] hand
+        /// Lets [`super::super::Vm::deliver_mutation_records`] hand
         /// [`elidex_ecs::EcsDom::is_ancestor_or_self`] to the
         /// registry's subtree-ancestry callback while keeping the
         /// `&mut MutationObserverRegistry` borrowed for
@@ -472,14 +479,13 @@ mod engine_feature {
         ///
         /// # Safety
         ///
-        /// Same `dom_ptr` aliasing contract as
-        /// [`Self::dom_and_strings_if_bound`] — callers must not invoke
-        /// any sibling `host()` / `host().dom()` path while either of
-        /// the returned references is live.  The `EcsDom` allocation
-        /// is disjoint from the `HostData`'s registry storage by
-        /// `bind`'s "disjoint allocations" contract, so the
-        /// `&EcsDom` and `&mut MutationObserverRegistry` cannot
-        /// alias.
+        /// Same `dom_ptr` aliasing contract as [`Self::dom_shared`] —
+        /// callers must not invoke any sibling `host()` / `host().dom()`
+        /// path while either of the returned references is live.  The
+        /// `EcsDom` allocation is disjoint from the `HostData`'s
+        /// registry storage by `bind`'s "disjoint allocations"
+        /// contract, so the `&EcsDom` and `&mut MutationObserverRegistry`
+        /// cannot alias.
         #[allow(unsafe_code)]
         pub(crate) fn split_dom_and_observers(
             &mut self,
