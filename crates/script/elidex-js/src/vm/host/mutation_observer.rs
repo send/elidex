@@ -191,6 +191,24 @@ fn native_mutation_observer_observe(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_mutation_observer_receiver(ctx, this, "observe")?;
+    // Post-unbind no-op MUST come before any DOM access:
+    // `require_target_node` → `node_proto::require_node_arg` reaches
+    // `ctx.host().dom()`, which asserts on unbound state.  Honouring
+    // the documented post-unbind tolerance contract here lets a
+    // retained `mo.observe(...)` call survive an `unbind()` boundary.
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Undefined);
+    }
+    // WebIDL signature: `observe(Node target, MutationObserverInit options)` —
+    // both arguments required.  Match Chrome/Firefox arg-count error
+    // message before falling through to the per-argument coercion errors.
+    if args.len() < 2 {
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'observe' on 'MutationObserver': 2 arguments required, \
+             but only {} present.",
+            args.len()
+        )));
+    }
     let target = require_target_node(ctx, args.first().copied(), "observe")?;
     let init = parse_mutation_observer_init(ctx, args.get(1).copied())?;
     if !init.child_list && !init.attributes && !init.character_data {
@@ -198,9 +216,6 @@ fn native_mutation_observer_observe(
             "Failed to execute 'observe' on 'MutationObserver': The options object must \
              set at least one of 'attributes', 'characterData', or 'childList' to true.",
         ));
-    }
-    if ctx.host_if_bound().is_none() {
-        return Ok(JsValue::Undefined);
     }
     ctx.host().mutation_observers.observe(id, target, init);
     Ok(JsValue::Undefined)

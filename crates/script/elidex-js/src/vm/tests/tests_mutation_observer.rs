@@ -178,6 +178,23 @@ fn mutation_observer_observe_target_must_be_node() {
 }
 
 #[test]
+fn mutation_observer_observe_requires_two_arguments() {
+    // WebIDL: `observe(Node target, MutationObserverInit options)` —
+    // both required.  Match Chrome/Firefox arg-count error message
+    // before falling through to per-argument coercion errors.
+    let err_zero = run_throws("var mo = new MutationObserver(function(){}); mo.observe();");
+    assert!(
+        err_zero.contains("2 arguments required") && err_zero.contains("only 0 present"),
+        "expected '2 arguments required, but only 0 present', got: {err_zero}"
+    );
+    let err_one = run_throws("var mo = new MutationObserver(function(){}); mo.observe(document);");
+    assert!(
+        err_one.contains("2 arguments required") && err_one.contains("only 1 present"),
+        "expected '2 arguments required, but only 1 present', got: {err_one}"
+    );
+}
+
+#[test]
 fn mutation_observer_observe_attributes_implicit_via_old_value() {
     // attributeOldValue alone should be sufficient (spec §4.3.2 step 3).
     let out = run("var mo = new MutationObserver(function(){}); \
@@ -537,6 +554,38 @@ fn mutation_observer_methods_after_unbind_do_not_panic() {
     };
     assert_eq!(vm.inner.strings.get_utf8(sid), "undefined:object:0");
     vm.unbind();
+}
+
+#[test]
+fn mutation_observer_observe_after_unbind_does_not_panic() {
+    // Regression: `observe()` previously ran `require_target_node`
+    // and `parse_mutation_observer_init` BEFORE the `host_if_bound`
+    // early-return, so an unbound retained `mo` calling
+    // `mo.observe(retained_target, options)` would assert via
+    // `ctx.host().dom()` inside `node_proto::require_node_arg`.
+    // The contract documented at the top of `host/mutation_observer.rs`
+    // is that all three natives no-op when unbound.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.mo = new MutationObserver(function(){}); \
+         globalThis.savedRoot = root;",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // Call `observe(target, options)` while unbound — must no-op,
+    // not panic via the `HostData accessed while unbound` assertion.
+    let r = vm
+        .eval("typeof mo.observe(savedRoot, {childList:true})")
+        .unwrap();
+    let JsValue::String(sid) = r else {
+        panic!("expected string, got {r:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "undefined");
 }
 
 #[test]
