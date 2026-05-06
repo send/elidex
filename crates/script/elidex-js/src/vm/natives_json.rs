@@ -18,13 +18,12 @@ use super::value::{
 /// Maximum nesting depth for `JSON.stringify` / `JSON.parse` recursion.
 /// Prevents Rust-stack exhaustion from attacker-crafted deep nesting
 /// (`"[[[[[...]]]]]"` etc.) — release builds match V8's ~1000 limit.
-/// Debug builds drop to 800 because `serialize_object`'s frame is
-/// larger without optimizer inlining (the
-/// `collect_own_keys_es_order` Result-propagation widened the
-/// per-recursion stack slot enough that 1000-deep inputs overflow
-/// the test thread's 8 KB stack); the
+/// Debug builds drop to 800: each `serialize_object` frame is larger
+/// without optimizer inlining, so 1000-deep inputs can outgrow the
+/// thread's stack budget; the
 /// `tests_string_complement::json_stringify_depth_cap` 2000-deep
-/// regression still trips the limit and surfaces RangeError.
+/// regression still trips the cap and surfaces a RangeError under
+/// either limit.
 #[cfg(debug_assertions)]
 const MAX_JSON_DEPTH: usize = 800;
 #[cfg(not(debug_assertions))]

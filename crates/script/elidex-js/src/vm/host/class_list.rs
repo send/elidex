@@ -405,9 +405,15 @@ fn native_class_list_iterator(
     let entity = require_dom_token_list_receiver(ctx, this, "@@iterator")?;
     if ctx.host_if_bound().is_none() {
         // Empty iterator post-unbind — token snapshot is the empty list.
+        // GC-safety: temp-root `array_id` across `alloc_object` so a
+        // GC triggered by the iterator allocation cannot collect the
+        // backing snapshot before the `ArrayIterState.array_id` field
+        // becomes a strong reference.  Mirrors
+        // `host/headers/iteration.rs::wrap_in_array_iterator`.
         let array_id = ctx.vm.create_array_object(Vec::new());
         let proto = ctx.vm.array_iterator_prototype;
-        let iter_obj = ctx.vm.alloc_object(Object {
+        let mut rooted = ctx.vm.push_temp_root(JsValue::Object(array_id));
+        let iter_obj = rooted.alloc_object(Object {
             kind: ObjectKind::ArrayIterator(ArrayIterState {
                 array_id,
                 index: 0,
@@ -417,6 +423,7 @@ fn native_class_list_iterator(
             prototype: proto,
             extensible: true,
         });
+        drop(rooted);
         return Ok(JsValue::Object(iter_obj));
     }
     let len_val = invoke_dom_api(ctx, "classList.length", entity, &[])?;
@@ -434,8 +441,12 @@ fn native_class_list_iterator(
         values.push(v);
     }
     let array_id = ctx.vm.create_array_object(values);
+    // GC-safety: temp-root `array_id` across `alloc_object` (it can
+    // trigger GC before `ArrayIterState.array_id` becomes a strong
+    // reference).  Mirrors `host/headers/iteration.rs::wrap_in_array_iterator`.
     let proto = ctx.vm.array_iterator_prototype;
-    let iter_obj = ctx.vm.alloc_object(Object {
+    let mut rooted = ctx.vm.push_temp_root(JsValue::Object(array_id));
+    let iter_obj = rooted.alloc_object(Object {
         kind: ObjectKind::ArrayIterator(ArrayIterState {
             array_id,
             index: 0,
@@ -445,6 +456,7 @@ fn native_class_list_iterator(
         prototype: proto,
         extensible: true,
     });
+    drop(rooted);
     Ok(JsValue::Object(iter_obj))
 }
 

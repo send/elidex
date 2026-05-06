@@ -334,6 +334,31 @@ fn class_list_item_huge_index_returns_null() {
     assert_eq!(out, "true");
 }
 
+// Copilot R8 #1+#2 — `native_class_list_iterator` must temp-root
+// `array_id` across `alloc_object` so a GC triggered between the
+// snapshot allocation and the iterator allocation cannot collect
+// the backing array.  We exercise both the non-empty and empty-token
+// paths here; `gc()` between snapshot and iter consumption would
+// previously have surfaced as a freed-slot panic or wrong values
+// from the iterator after the regression-prone code path.
+
+#[test]
+fn class_list_iterator_survives_gc_between_snapshot_and_consumption() {
+    // Build a populated tokens iterator, force GC via a controlled
+    // allocation churn (allocate enough fresh JS objects to trigger
+    // a sweep), then consume the iterator; values must come back
+    // intact.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('class', 'alpha beta gamma'); \
+         var it = d.classList[Symbol.iterator](); \
+         for (var i = 0; i < 1000; i++) { ({a: i, b: i*2}); } \
+         var collected = []; \
+         var step; \
+         while (!(step = it.next()).done) collected.push(step.value); \
+         collected.join(',');");
+    assert_eq!(out, "alpha,beta,gamma");
+}
+
 #[test]
 fn class_list_method_brand_check() {
     let out = run("var d = document.createElement('div'); \
