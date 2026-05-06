@@ -326,7 +326,8 @@ pub(super) fn trace_work_list(
             // `HtmlCollection` / `NodeList` payloads (stored in
             // `live_collection_states` as
             // `elidex_dom_api::LiveCollection`) contain only
-            // `Entity`, owned `String` (filter needles),
+            // `Entity`, owned `String` / `Vec<String>` (filter
+            // needles for `ByTagName` / `ByName` / `ByClassNames`),
             // `Vec<Entity>` (cached snapshot + Snapshot-variant
             // frozen list), and `u64` (subtree version) — no
             // `ObjectId` references, so the trace step has nothing

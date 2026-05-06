@@ -36,10 +36,11 @@
 //!
 //! The prototypes are rooted via the `proto_roots` array (gc.rs).
 //! [`elidex_dom_api::LiveCollection`] stores only `Entity`, owned
-//! `String` (filter needles), `Vec<Entity>` (cached snapshot +
-//! `Snapshot`-variant frozen list), and `u64` (cached subtree
-//! version) — **no `ObjectId` references** — so the trace step has
-//! nothing to fan out. The sweep tail prunes
+//! `String` / `Vec<String>` (filter needles for
+//! `ByTagName` / `ByName` / `ByClassNames`), `Vec<Entity>` (cached
+//! snapshot + `Snapshot`-variant frozen list), and `u64` (cached
+//! subtree version) — **no `ObjectId` references** — so the trace
+//! step has nothing to fan out. The sweep tail prunes
 //! `live_collection_states` entries whose key `ObjectId` was
 //! collected, same pattern as `headers_states` / `blob_data`.
 //!

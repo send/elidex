@@ -341,10 +341,14 @@ pub enum ObjectKind {
     /// it from the ECS on a subtree-version bump. Callers that need
     /// a snapshot can spread into an Array.
     ///
-    /// GC contract: the side-table holds only `Entity`, `String`,
-    /// `Vec<Entity>`, and `u64` (no `ObjectId`), so **no GC tracing
-    /// is required**; the sweep tail prunes `live_collection_states`
-    /// entries whose `ObjectId` key was collected.
+    /// GC contract: the side-table holds only `Entity`, owned
+    /// `String` / `Vec<String>` (filter needles for
+    /// `ByTagName` / `ByName` / `ByClassNames`), `Vec<Entity>`
+    /// (cached snapshot + `Snapshot` filter's frozen list), and
+    /// `u64` (cached subtree version) — no `ObjectId` references,
+    /// so **no GC tracing is required**; the sweep tail prunes
+    /// `live_collection_states` entries whose `ObjectId` key was
+    /// collected.
     #[cfg(feature = "engine")]
     HtmlCollection,
     /// `NodeList` instance (WHATWG DOM §4.2.10.1).  An ordered

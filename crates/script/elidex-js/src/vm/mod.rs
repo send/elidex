@@ -964,11 +964,12 @@ pub(crate) struct VmInner {
     /// regardless of the wrapper kind.
     ///
     /// GC contract: the stored `LiveCollection` holds only `Entity`,
-    /// owned `String` (filter needles), `Vec<Entity>` (cached
-    /// snapshot + querySelectorAll-bound static list), and `u64`
-    /// (subtree version) — **no `ObjectId` references** — so the
-    /// trace step does nothing. The sweep tail prunes entries whose
-    /// key `ObjectId` was collected, same pattern as
+    /// owned `String` / `Vec<String>` (filter needles for
+    /// `ByTagName` / `ByName` / `ByClassNames`), `Vec<Entity>`
+    /// (cached snapshot + querySelectorAll-bound static list), and
+    /// `u64` (subtree version) — **no `ObjectId` references** — so
+    /// the trace step does nothing. The sweep tail prunes entries
+    /// whose key `ObjectId` was collected, same pattern as
     /// `headers_states` / `blob_data`.
     #[cfg(feature = "engine")]
     pub(crate) live_collection_states: HashMap<ObjectId, elidex_dom_api::LiveCollection>,

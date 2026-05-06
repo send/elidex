@@ -280,10 +280,15 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
                     let Some(class_str) = attrs.get("class") else {
                         return false;
                     };
-                    let element_classes: Vec<&str> = class_str.split_ascii_whitespace().collect();
-                    names
-                        .iter()
-                        .all(|name| element_classes.contains(&name.as_str()))
+                    // Iterator-based containment check — re-splits
+                    // `class_str` per needle, but avoids the per-entity
+                    // `Vec<&str>` allocation a `.collect()` would pay
+                    // on every visited descendant.
+                    names.iter().all(|name| {
+                        class_str
+                            .split_ascii_whitespace()
+                            .any(|tok| tok == name.as_str())
+                    })
                 }
                 Err(_) => false,
             }
