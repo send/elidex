@@ -39,6 +39,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
@@ -72,11 +73,24 @@ struct LocalStore {
     byte_size: usize,
 }
 
+/// Hard cap on the JSON-on-disk file size accepted by [`LocalStore::load`].
+///
+/// Set to ~2× [`STORAGE_QUOTA_BYTES`] so JSON syntax overhead (key /
+/// value quoting, commas, braces) cannot push a quota-respecting
+/// payload over the limit while still bounding memory use against a
+/// hand-crafted oversized file at the profile path (the only attacker
+/// who can write there is the user themselves, but enforcing a cap
+/// here keeps a corrupted / accidentally-grown file from OOMing the
+/// process on next bind).
+const MAX_LOCAL_STORE_FILE_BYTES: u64 = 2 * STORAGE_QUOTA_BYTES as u64;
+
 impl LocalStore {
     fn load(file_path: PathBuf) -> Self {
         let data = if file_path.exists() {
-            std::fs::read_to_string(&file_path)
+            std::fs::metadata(&file_path)
                 .ok()
+                .filter(|meta| meta.len() <= MAX_LOCAL_STORE_FILE_BYTES)
+                .and_then(|_| std::fs::read_to_string(&file_path).ok())
                 .and_then(|contents| {
                     serde_json::from_str::<IndexMap<String, String>>(&contents).ok()
                 })
@@ -118,10 +132,10 @@ impl LocalStore {
 /// pattern and is the single largest perf win on `for..in
 /// localStorage` / `length` hot loops.
 struct StoreCacheEntry {
-    /// Address of the owning `WebStorageManager`, used to
-    /// distinguish caches across multiple managers in one process
-    /// (e.g. tests) without keeping an `Arc<WebStorageManager>` root.
-    manager_id: usize,
+    /// Stable `WebStorageManager.manager_id` (monotonic counter, not
+    /// a pointer) — distinguishes caches across multiple managers
+    /// in one process without lifetime concerns.
+    manager_id: u64,
     origin: String,
     store: Arc<Mutex<LocalStore>>,
 }
@@ -143,6 +157,14 @@ fn origin_file_stem(origin: &str) -> String {
     })
 }
 
+/// Per-process counter for `WebStorageManager` instances — used as
+/// the stable cache key in [`CACHED_STORE`] instead of the manager's
+/// memory address.  Pointer-as-id is unsafe across drop+realloc
+/// cycles in long-running processes (the new manager would inherit
+/// the previous one's cache entries; with different `profile_dir`s
+/// that would silently route writes to the wrong tree).
+static MANAGER_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 /// Origin-scoped manager for `localStorage`.
 ///
 /// Holds the per-origin store registry plus a shared profile directory.
@@ -153,6 +175,11 @@ fn origin_file_stem(origin: &str) -> String {
 /// directly on the VM as a [`SessionStorageState`].
 pub struct WebStorageManager {
     profile_dir: PathBuf,
+    /// Stable identifier (monotonically allocated at construction)
+    /// used as the key for the thread-local fast-path cache.
+    /// Independent of memory address so a drop/realloc of the
+    /// containing struct cannot return a stale entry.
+    manager_id: u64,
     /// origin → shared `Arc<Mutex<LocalStore>>`. Cross-VM tabs of the
     /// same origin share one entry.
     registry: Mutex<HashMap<String, Arc<Mutex<LocalStore>>>>,
@@ -178,6 +205,7 @@ impl WebStorageManager {
     pub fn new(profile_dir: PathBuf) -> Self {
         Self {
             profile_dir,
+            manager_id: MANAGER_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
             registry: Mutex::new(HashMap::new()),
             dirty_origins: Mutex::new(HashSet::new()),
         }
@@ -191,10 +219,11 @@ impl WebStorageManager {
         // Fast path: a same-thread caller hitting the same origin
         // (the dominant case — `for..in`/`length` loops, repeated
         // `getItem` from one VM) reuses the cached `Arc` without
-        // touching the global registry mutex.  Manager identity
-        // distinguishes caches across multiple managers in the
-        // same process.
-        let manager_id = std::ptr::from_ref(self) as usize;
+        // touching the global registry mutex.  `manager_id` is a
+        // monotonic counter (not a pointer) so a drop+realloc of
+        // any `WebStorageManager` cannot collide with a live cache
+        // entry from a previous manager.
+        let manager_id = self.manager_id;
         let cached = CACHED_STORE.with(|cache| {
             let cache = cache.borrow();
             cache.as_ref().and_then(|c| {
@@ -270,7 +299,15 @@ impl WebStorageManager {
 
         let old_entry_bytes = guard.data.get(key).map_or(0, |v| key.len() + v.len());
         let new_entry_bytes = key.len() + value.len();
-        let projected = guard.byte_size - old_entry_bytes + new_entry_bytes;
+        // `saturating_sub`: defense in depth — by invariant
+        // `byte_size >= old_entry_bytes`, but a corrupted on-disk
+        // file could land us here with a stale `byte_size`. Saturating
+        // floors at 0 so the projected value still reflects the
+        // post-mutation upper bound rather than wrapping around.
+        let projected = guard
+            .byte_size
+            .saturating_sub(old_entry_bytes)
+            .saturating_add(new_entry_bytes);
 
         if projected > STORAGE_QUOTA_BYTES {
             return Err(StorageError::quota_exceeded(format!(
@@ -295,7 +332,7 @@ impl WebStorageManager {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let removed = guard.data.shift_remove(key);
         if let Some(ref old_val) = removed {
-            guard.byte_size -= key.len() + old_val.len();
+            guard.byte_size = guard.byte_size.saturating_sub(key.len() + old_val.len());
             guard.dirty = true;
             drop(guard);
             self.mark_dirty(origin);
@@ -420,7 +457,12 @@ impl SessionStorageState {
     pub fn set(&mut self, key: &str, value: &str) -> Result<Option<String>, StorageError> {
         let old_entry_bytes = self.data.get(key).map_or(0, |v| key.len() + v.len());
         let new_entry_bytes = key.len() + value.len();
-        let projected = self.byte_size - old_entry_bytes + new_entry_bytes;
+        // Saturating arithmetic — see `WebStorageManager::local_set`
+        // for the rationale (defense against invariant drift).
+        let projected = self
+            .byte_size
+            .saturating_sub(old_entry_bytes)
+            .saturating_add(new_entry_bytes);
         if projected > STORAGE_QUOTA_BYTES {
             return Err(StorageError::quota_exceeded(format!(
                 "sessionStorage quota exceeded: {projected} > {STORAGE_QUOTA_BYTES}"
@@ -434,7 +476,7 @@ impl SessionStorageState {
     pub fn remove(&mut self, key: &str) -> Option<String> {
         let removed = self.data.shift_remove(key);
         if let Some(ref old_val) = removed {
-            self.byte_size -= key.len() + old_val.len();
+            self.byte_size = self.byte_size.saturating_sub(key.len() + old_val.len());
         }
         removed
     }
@@ -581,6 +623,68 @@ mod tests {
         let more = "x".repeat(STORAGE_QUOTA_BYTES / 2 - 100);
         mgr.local_set("https://a", "c", &more)
             .expect("space freed by remove");
+    }
+
+    #[test]
+    fn local_thread_cache_invalidates_on_origin_switch() {
+        // Same-thread, ping-pong between two origins on one manager.
+        // Each switch must surface the right origin's data — the
+        // thread-local cache must invalidate on origin mismatch.
+        let (_dir, mgr) = manager();
+        mgr.local_set("https://a", "k", "alpha").unwrap();
+        mgr.local_set("https://b", "k", "beta").unwrap();
+        assert_eq!(mgr.local_get("https://a", "k").as_deref(), Some("alpha"));
+        assert_eq!(mgr.local_get("https://b", "k").as_deref(), Some("beta"));
+        assert_eq!(mgr.local_get("https://a", "k").as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn local_thread_cache_distinguishes_managers() {
+        // Two `WebStorageManager` instances on the same thread,
+        // same origin string. `manager_id` (counter, not pointer)
+        // must keep them distinct even if their addresses alias.
+        let dir1 = tempfile::tempdir().unwrap();
+        let dir2 = tempfile::tempdir().unwrap();
+        let mgr1 = WebStorageManager::new(dir1.path().to_path_buf());
+        let mgr2 = WebStorageManager::new(dir2.path().to_path_buf());
+        mgr1.local_set("https://a", "k", "from-1").unwrap();
+        mgr2.local_set("https://a", "k", "from-2").unwrap();
+        assert_eq!(mgr1.local_get("https://a", "k").as_deref(), Some("from-1"));
+        assert_eq!(mgr2.local_get("https://a", "k").as_deref(), Some("from-2"));
+    }
+
+    #[test]
+    fn local_load_caps_oversized_file() {
+        // A 3 MiB file (> MAX_LOCAL_STORE_FILE_BYTES would be > 10
+        // MiB; pick a size that's well under to confirm the path
+        // hasn't accidentally rejected a normal file).  Then test
+        // the actual cap via a synthetic file.
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = WebStorageManager::new(dir.path().to_path_buf());
+        let key = "k";
+        let value = "v".repeat(1024 * 1024); // 1 MiB
+        mgr.local_set("https://a", key, &value).unwrap();
+        mgr.flush_dirty();
+        // Reload — under cap, must succeed.
+        let mgr2 = WebStorageManager::new(dir.path().to_path_buf());
+        assert_eq!(
+            mgr2.local_get("https://a", key).as_deref(),
+            Some(value.as_str())
+        );
+
+        // Synthesise an oversized file directly at the on-disk path,
+        // confirming load() falls back to empty IndexMap silently.
+        let stem = origin_file_stem("https://b");
+        let path = dir.path().join("localStorage").join(format!("{stem}.json"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let oversized: String = "x".repeat(MAX_LOCAL_STORE_FILE_BYTES as usize + 100);
+        std::fs::write(&path, oversized).unwrap();
+        let mgr3 = WebStorageManager::new(dir.path().to_path_buf());
+        assert_eq!(
+            mgr3.local_len("https://b"),
+            0,
+            "oversized file must be rejected, not OOM-loaded"
+        );
     }
 
     #[test]

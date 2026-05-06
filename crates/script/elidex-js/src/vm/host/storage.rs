@@ -362,12 +362,16 @@ fn native_storage_key(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let is_local = require_receiver(ctx, this, "key")?;
+    if args.is_empty() {
+        return Err(VmError::type_error(
+            "Failed to execute 'key' on 'Storage': 1 argument required, but only 0 present.",
+        ));
+    }
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
-    // WebIDL `unsigned long` — ToUint32; absent / undefined → 0
-    // (rather than the 1-arg error a `[Throws]` modifier would
-    // surface, matching browser-observed leniency).
+    // WebIDL `unsigned long` — ToUint32 (NaN/Infinity → 0,
+    // negative wraps mod 2^32).
     let raw = args.first().copied().unwrap_or(JsValue::Undefined);
     let raw_num = ctx.to_number(raw)?;
     let idx = super::super::coerce::f64_to_uint32(raw_num) as usize;
@@ -389,6 +393,11 @@ fn native_storage_get_item(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let is_local = require_receiver(ctx, this, "getItem")?;
+    if args.is_empty() {
+        return Err(VmError::type_error(
+            "Failed to execute 'getItem' on 'Storage': 1 argument required, but only 0 present.",
+        ));
+    }
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
@@ -410,6 +419,13 @@ fn native_storage_set_item(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let is_local = require_receiver(ctx, this, "setItem")?;
+    if args.len() < 2 {
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'setItem' on 'Storage': 2 arguments required, \
+             but only {} present.",
+            args.len()
+        )));
+    }
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
@@ -434,6 +450,12 @@ fn native_storage_remove_item(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let is_local = require_receiver(ctx, this, "removeItem")?;
+    if args.is_empty() {
+        return Err(VmError::type_error(
+            "Failed to execute 'removeItem' on 'Storage': 1 argument required, \
+             but only 0 present.",
+        ));
+    }
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }

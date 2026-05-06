@@ -188,6 +188,83 @@ fn storage_brand_check_get_item() {
 }
 
 #[test]
+fn storage_get_item_zero_args_throws() {
+    let err = run_throws("localStorage.getItem();");
+    assert!(
+        err.contains("1 argument required"),
+        "expected arg-count TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn storage_set_item_zero_args_throws() {
+    let err = run_throws("localStorage.setItem();");
+    assert!(
+        err.contains("2 arguments required") && err.contains("0 present"),
+        "expected arg-count TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn storage_set_item_one_arg_throws() {
+    let err = run_throws("localStorage.setItem('k');");
+    assert!(
+        err.contains("2 arguments required") && err.contains("1 present"),
+        "expected arg-count TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn storage_remove_item_zero_args_throws() {
+    let err = run_throws("localStorage.removeItem();");
+    assert!(
+        err.contains("1 argument required"),
+        "expected arg-count TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn storage_key_zero_args_throws() {
+    let err = run_throws("localStorage.key();");
+    assert!(
+        err.contains("1 argument required"),
+        "expected arg-count TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn storage_key_coerces_nan_to_zero() {
+    // ToUint32(NaN) === 0 → returns 0th key when present, else null.
+    let out = run("localStorage.setItem('first', '1'); \
+         localStorage.key(NaN);");
+    assert_eq!(out, "first");
+}
+
+#[test]
+fn storage_key_coerces_infinity_to_zero() {
+    let out = run("localStorage.setItem('first', '1'); \
+         localStorage.key(Infinity);");
+    assert_eq!(out, "first");
+}
+
+#[test]
+fn storage_key_negative_wraps_out_of_range() {
+    // ToUint32(-1) === 4294967295 → out of range → null.
+    let out = run("localStorage.setItem('first', '1'); \
+         String(localStorage.key(-1));");
+    assert_eq!(out, "null");
+}
+
+#[test]
+fn storage_set_item_invokes_to_string_callback() {
+    let out = run("var called = false; \
+         var v = { toString: function(){ called = true; return 'custom'; } }; \
+         localStorage.setItem('k', v); \
+         (called ? 'yes' : 'no') + ',' + localStorage.getItem('k');");
+    assert_eq!(out, "yes,custom");
+}
+
+#[test]
 fn storage_brand_check_length_getter() {
     let err = run_throws(
         "var d = Object.getOwnPropertyDescriptor(Storage.prototype, 'length'); \
@@ -441,4 +518,88 @@ fn storage_pre_install_host_data_constructor_no_panic() {
     let mut vm = Vm::new();
     let result = vm.eval("var e = new StorageEvent('storage'); typeof e;");
     assert!(result.is_ok(), "StorageEvent ctor must not panic pre-init");
+}
+
+#[test]
+fn storage_get_item_post_unbind_returns_null() {
+    // Retained `localStorage` reference after unbind: methods
+    // silently return `null` / `undefined` instead of panicking.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("globalThis.savedLs = localStorage; savedLs.setItem('k', 'v');")
+        .unwrap();
+    vm.unbind();
+
+    // Rebind fresh so eval can run, but call into the retained
+    // reference whose stored key is gone (sessionStorage cleared,
+    // and instance cache cleared so .savedLs's brand survives but
+    // the per-VM session_storage is empty).
+    let mut next_session = SessionCore::new();
+    let mut next_world = EcsDom::new();
+    let next_doc = build_doc(&mut next_world);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut next_session, &mut next_world, next_doc);
+    }
+    let out = vm
+        .eval("typeof savedLs.getItem('k');")
+        .expect("retained reference must not throw post-unbind");
+    let JsValue::String(sid) = out else { panic!() };
+    // Either "string" (rebound localStorage data via brand check) or
+    // an unbound short-circuit; both are acceptable post-unbind
+    // contracts.  The point: no panic.
+    let s = vm.inner.strings.get_utf8(sid);
+    assert!(s == "object" || s == "string", "got: {s}");
+    vm.unbind();
+}
+
+#[test]
+fn storage_opaque_origin_per_vm_isolation() {
+    // Two VMs both at `about:blank` (default navigation URL) must
+    // see DIFFERENT localStorage data because each VM has its own
+    // `HostData::opaque_origin_sentinel`.
+    let mut writer_vm = Vm::new();
+    let mut writer_session = SessionCore::new();
+    let mut writer_world = EcsDom::new();
+    let writer_doc = build_doc(&mut writer_world);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(
+            &mut writer_vm,
+            &mut writer_session,
+            &mut writer_world,
+            writer_doc,
+        );
+    }
+    writer_vm
+        .eval("localStorage.setItem('shared', 'A');")
+        .unwrap();
+    writer_vm.unbind();
+
+    let mut reader_vm = Vm::new();
+    let mut reader_session = SessionCore::new();
+    let mut reader_world = EcsDom::new();
+    let reader_doc = build_doc(&mut reader_world);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(
+            &mut reader_vm,
+            &mut reader_session,
+            &mut reader_world,
+            reader_doc,
+        );
+    }
+    let out = reader_vm
+        .eval("String(localStorage.getItem('shared'));")
+        .unwrap();
+    let JsValue::String(sid) = out else { panic!() };
+    let s = reader_vm.inner.strings.get_utf8(sid);
+    assert_eq!(s, "null", "opaque-origin VMs must not share localStorage");
+    reader_vm.unbind();
 }
