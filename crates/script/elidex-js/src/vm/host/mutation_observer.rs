@@ -348,6 +348,11 @@ fn mutation_record_to_js(
     let wk_next = removed_guard.well_known.next_sibling;
     let wk_attr_name = removed_guard.well_known.attribute_name;
     let wk_old_value = removed_guard.well_known.old_value;
+    // WHATWG DOM §4.3.5: every `MutationRecord` member is a
+    // `readonly attribute`, so install with `WEBIDL_RO` (¬W, E, C)
+    // — silent assignment failure in non-strict, TypeError in
+    // strict.  Matches the event-object property installation
+    // pattern.
     for (key_sid, value) in [
         (wk_type, type_val),
         (wk_target, target_val),
@@ -362,7 +367,7 @@ fn mutation_record_to_js(
             record_obj,
             PropertyKey::String(key_sid),
             PropertyValue::Data(value),
-            PropertyAttrs::DATA,
+            PropertyAttrs::WEBIDL_RO,
         );
     }
 
@@ -559,11 +564,22 @@ fn parse_mutation_observer_init(
     if let Some(v) = read_dict_field(ctx, opts_id, wk_character_data_old_value)? {
         init.character_data_old_value = ctx.to_boolean(v);
     }
-    if let Some(JsValue::Object(arr_id)) = read_dict_field(ctx, opts_id, wk_attribute_filter)? {
+    // WebIDL §3.10.20 sequence conversion: a present `attributeFilter`
+    // member must be an iterable.  Phase 2 simplification — accept any
+    // Object with a numeric `length` (covers Array, NodeList,
+    // arguments-shaped objects).  Reject non-Object values with a
+    // TypeError so misconfigured observers fail loudly instead of
+    // falling through to the "at least one flag" check with a stale
+    // (empty) filter.  Full Symbol.iterator-protocol support is
+    // tracked at `#11-mutation-observer-extras`.
+    if let Some(value) = read_dict_field(ctx, opts_id, wk_attribute_filter)? {
+        let JsValue::Object(arr_id) = value else {
+            return Err(VmError::type_error(
+                "Failed to execute 'observe' on 'MutationObserver': \
+                 'attributeFilter' is not iterable",
+            ));
+        };
         let len_val = ctx.get_property_value(arr_id, PropertyKey::String(wk_length))?;
-        // WebIDL §3.10.20 sequence conversion uses ToUint32 for the
-        // `length` IDL attribute pull (matches every other native that
-        // walks an array-shaped dictionary value).
         let len_u32 = super::super::coerce::to_uint32(ctx.vm, len_val)?;
         let mut filter = Vec::with_capacity(len_u32 as usize);
         for i in 0..len_u32 {

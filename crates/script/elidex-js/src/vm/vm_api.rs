@@ -393,13 +393,16 @@ impl Vm {
     /// before this call returns — matches the `eval` /
     /// `tick_network` policy.
     ///
-    /// The trailing microtask checkpoint runs unconditionally —
-    /// even when no records are queued and no observers have
-    /// pending records on entry — to keep the embedder API uniform
-    /// across script-task boundaries (the cost of an empty drain is
-    /// negligible).  Callbacks that throw are reported via
-    /// `eprintln!` and do not propagate (matches the boa-side
-    /// behaviour and "report" semantics in HTML §8.1.5).
+    /// While bound, the trailing microtask checkpoint runs
+    /// unconditionally — even when no records are queued and no
+    /// observers have pending records on entry — to keep the
+    /// embedder API uniform across script-task boundaries (the
+    /// cost of an empty drain is negligible).  Post-unbind the
+    /// implementation early-returns before any work, including the
+    /// microtask drain, because no JS executes while the VM is
+    /// unbound.  Callbacks that throw are reported via `eprintln!`
+    /// and do not propagate (matches the boa-side behaviour and
+    /// "report" semantics in HTML §8.1.5).
     #[cfg(feature = "engine")]
     pub fn deliver_mutation_records(&mut self, records: &[elidex_script_session::MutationRecord]) {
         self.inner.deliver_mutation_records(records);

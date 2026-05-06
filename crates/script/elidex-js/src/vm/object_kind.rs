@@ -636,9 +636,14 @@ pub enum ObjectKind {
     /// `ObjectId` stored in
     /// `HostData::mutation_observer_callbacks` is rooted via
     /// `HostData::gc_root_object_ids` — it stays alive as long as
-    /// the observer is registered.  `Vm::unbind` clears the callback
-    /// map and drains the registry's per-observer target lists so a
-    /// rebind to a different `EcsDom` cannot match a stale Entity.
+    /// the observer is registered.  `Vm::unbind` drains the
+    /// registry's per-observer target lists (so a rebind to a
+    /// different `EcsDom` cannot match a stale Entity) but
+    /// intentionally retains `mutation_observer_callbacks` and
+    /// `mutation_observer_instances` (both keyed by VM-monotonic
+    /// `observer_id`, no cross-DOM aliasing risk) so a retained
+    /// `mo` reference can re-observe after a rebind with its
+    /// callback intact.
     #[cfg(feature = "engine")]
     MutationObserver { observer_id: u64 },
 }

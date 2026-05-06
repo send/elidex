@@ -212,6 +212,29 @@ fn mutation_observer_observe_character_data_implicit_via_old_value() {
 }
 
 #[test]
+fn mutation_observer_observe_attribute_filter_non_iterable_throws() {
+    // WebIDL §3.10.20 sequence conversion: a non-iterable
+    // `attributeFilter` must TypeError, not silently fall through to
+    // a stale-empty filter.
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(document, {attributeFilter: 'class'});",
+    );
+    assert!(
+        err.contains("'attributeFilter' is not iterable"),
+        "expected attributeFilter non-iterable TypeError, got: {err}"
+    );
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(document, {attributeFilter: 42});",
+    );
+    assert!(
+        err.contains("'attributeFilter' is not iterable"),
+        "expected attributeFilter non-iterable TypeError, got: {err}"
+    );
+}
+
+#[test]
 fn mutation_observer_observe_attribute_filter_implies_attributes() {
     let out = run("var mo = new MutationObserver(function(){}); \
          try { mo.observe(document, {attributeFilter: ['class']}); 'ok' } \
@@ -336,6 +359,62 @@ fn mutation_observer_delivers_attribute_record_with_old_value() {
         panic!("expected old_value string, got {old_value:?}")
     };
     assert_eq!(vm.inner.strings.get_utf8(sid), "old-class");
+    vm.unbind();
+}
+
+#[test]
+fn mutation_observer_record_properties_are_readonly() {
+    // WHATWG DOM §4.3.5: every `MutationRecord` member is a
+    // `readonly attribute` — non-strict assignment should silently
+    // fail, strict-mode assignment should TypeError.  Regression for
+    // the prior `PropertyAttrs::DATA` (writable) installation.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
+
+    vm.eval(
+        "globalThis.records = null; \
+         var mo = new MutationObserver(function(rec){ globalThis.records = rec; }); \
+         mo.observe(root, {attributes:true});",
+    )
+    .unwrap();
+
+    let record = SessionRecord {
+        kind: MutationKind::Attribute,
+        target: root,
+        added_nodes: vec![],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: Some("class".to_string()),
+        old_value: None,
+    };
+    vm.deliver_mutation_records(std::slice::from_ref(&record));
+
+    // Engine semantics: writes to a non-writable property throw
+    // TypeError ("Cannot assign to read only property") regardless
+    // of strict mode.  The test asserts the WEBIDL_RO descriptor is
+    // in effect on every MutationRecord member; the prior
+    // `PropertyAttrs::DATA` would silently allow the write to land
+    // and `record.type === 'mutated'` would read back the new value.
+    for member in [
+        "type",
+        "target",
+        "addedNodes",
+        "removedNodes",
+        "previousSibling",
+        "nextSibling",
+        "attributeName",
+        "oldValue",
+    ] {
+        let err = vm.eval(&format!("records[0].{member} = 'x';")).unwrap_err();
+        let err_text = format!("{err:?}");
+        assert!(
+            err_text.contains("read only") || err_text.contains("read-only"),
+            "expected read-only TypeError for `records[0].{member}`, got: {err_text}"
+        );
+    }
     vm.unbind();
 }
 
