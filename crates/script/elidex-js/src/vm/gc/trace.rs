@@ -364,6 +364,20 @@ pub(super) fn trace_work_list(
             // no trace pass either.
             #[cfg(feature = "engine")]
             ObjectKind::MutationObserver { .. } => {}
+            // `Storage` instances carry only the `is_local: bool`
+            // discriminator inline (not an `ObjectId`).  The cached
+            // `localStorage` / `sessionStorage` wrappers are rooted
+            // via `VmInner::storage_local_instance` /
+            // `VmInner::storage_session_instance` (mark-roots step).
+            // No trace fan-out here.
+            #[cfg(feature = "engine")]
+            ObjectKind::Storage { .. } => {}
+            // `StorageEvent` has no inline `ObjectId` payload — the
+            // 5 IDL attributes (`key` / `oldValue` / `newValue` /
+            // `url` / `storageArea`) live as own-data props on the
+            // shape, traced through the ordinary shaped-storage walk.
+            #[cfg(feature = "engine")]
+            ObjectKind::StorageEvent => {}
             // `TypedArray` / `DataView` each carry the backing
             // `ArrayBuffer`'s `ObjectId` inline — the trace step
             // keeps the buffer alive while any view is reachable.

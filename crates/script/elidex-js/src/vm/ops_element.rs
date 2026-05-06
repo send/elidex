@@ -327,6 +327,16 @@ impl VmInner {
                     return result;
                 }
             }
+            // Storage named-property exotic [[Get]] — bracket-form
+            // `localStorage["k"]` reads the stored value, falling
+            // through to the prototype chain for built-in method
+            // names.
+            #[cfg(feature = "engine")]
+            if matches!(self.get_object(id).kind, ObjectKind::Storage { .. }) {
+                if let Some(result) = super::host::storage::try_get(self, id, key) {
+                    return result;
+                }
+            }
             // Symbol key -> direct property lookup.
             if let JsValue::Symbol(sid) = key {
                 let pk = PropertyKey::Symbol(sid);
@@ -648,6 +658,15 @@ impl VmInner {
             #[cfg(feature = "engine")]
             if matches!(self.get_object(id).kind, ObjectKind::DOMStringMap { .. }) {
                 if let Some(result) = super::host::dataset::try_set(self, id, key, val) {
+                    return result;
+                }
+            }
+            // Storage named-property exotic [[Set]] — bracket-form
+            // `localStorage["k"] = v` mirrors `setItem`.  May surface
+            // a QuotaExceededError DOMException.
+            #[cfg(feature = "engine")]
+            if matches!(self.get_object(id).kind, ObjectKind::Storage { .. }) {
+                if let Some(result) = super::host::storage::try_set(self, id, key, val) {
                     return result;
                 }
             }

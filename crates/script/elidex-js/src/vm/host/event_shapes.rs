@@ -342,7 +342,7 @@ pub(super) fn dispatch_payload(
             new_value,
             url,
         } => {
-            // key, oldValue, newValue, url
+            // key, oldValue, newValue, url, storageArea
             let opt = |vm: &mut VmInner, str_: &Option<String>| match str_ {
                 Some(x) => JsValue::String(vm.strings.intern(x)),
                 None => JsValue::Null,
@@ -355,7 +355,12 @@ pub(super) fn dispatch_payload(
             push_val(slots, old_val);
             push_val(slots, new_val);
             push_str(slots, url_sid);
-            // `storageArea` populated when localStorage / sessionStorage land (PR5a).
+            // `storageArea` is `null` on UA-dispatched events:
+            // cross-VM dispatch is shell-driven and no
+            // backing Storage object is associated with the
+            // dispatched event in the receiving VM.  Same as
+            // `set_storage_payload` in the boa precedent.
+            push_val(slots, JsValue::Null);
         }
         EventPayload::Scroll | EventPayload::None => {
             // No extra slots.  Terminal shape = `core`.
@@ -544,6 +549,7 @@ impl VmInner {
                 self.well_known.old_value,
                 self.well_known.new_value,
                 self.well_known.url,
+                self.well_known.storage_area,
             ],
         );
         // CustomEvent.prototype: core + `detail`.

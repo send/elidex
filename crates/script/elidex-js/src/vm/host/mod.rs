@@ -127,6 +127,8 @@ pub(super) mod multipart;
 #[cfg(feature = "engine")]
 pub(super) mod mutation_observer;
 pub(super) mod named_node_map;
+#[cfg(feature = "engine")]
+pub(super) mod named_property_exotic;
 pub(super) mod navigation;
 pub(super) mod navigator;
 pub(super) mod node_methods_extras;
@@ -139,6 +141,10 @@ pub(super) mod performance;
 pub(crate) mod readable_stream;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;
+#[cfg(feature = "engine")]
+pub(super) mod storage;
+#[cfg(feature = "engine")]
+pub(super) mod storage_event;
 #[cfg(feature = "engine")]
 pub(super) mod structured_clone;
 #[cfg(feature = "engine")]

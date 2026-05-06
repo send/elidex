@@ -76,6 +76,7 @@ mod tests_readable_stream;
 mod tests_remove_event_listener;
 mod tests_request_response;
 mod tests_sparse_array;
+mod tests_storage;
 mod tests_string_complement;
 mod tests_structured_clone;
 mod tests_text_encoding;

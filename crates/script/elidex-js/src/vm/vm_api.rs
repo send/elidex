@@ -362,6 +362,31 @@ impl Vm {
             // previous DOM's cached Attr wrapper because the Entity
             // index slot is shared between `EcsDom::new()` worlds.
             self.inner.attr_wrapper_cache.clear();
+            // Cached `localStorage` / `sessionStorage` Storage
+            // wrappers carry no per-DOM Entity, but the area-side
+            // origin lookup goes through `VmInner::navigation` which
+            // is bound-state-independent.  Clearing the instance
+            // cache prevents a retained `localStorage` reference
+            // from continuing to serve the previous origin's data
+            // after a rebind to a document with a different origin
+            // (cross-origin data leak).  `sessionStorage` is also
+            // cleared because its data lives on `HostData::session_storage`,
+            // which is per-VM by spec — see the `session_storage.clear()`
+            // call below.
+            self.inner.clear_storage_instance_cache();
+            // sessionStorage is per-VM and per-browsing-context.  An
+            // unbind boundary expresses the browsing-context
+            // teardown — drop entries so a rebind cannot observe
+            // stale data and so memory use stays bounded across
+            // long-lived VMs that churn many sessions.
+            // `fallback_local_storage` is also cleared (it's the
+            // in-memory stand-in for localStorage when no backend
+            // is installed; treating it as session-storage-shaped
+            // matches its tests-only purpose).
+            if let Some(hd) = self.inner.host_data.as_deref_mut() {
+                hd.session_storage.clear();
+                hd.fallback_local_storage.clear();
+            }
         }
     }
 
