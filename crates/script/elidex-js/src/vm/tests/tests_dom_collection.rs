@@ -617,9 +617,9 @@ fn shared_item_method_rejects_cross_interface_receiver() {
 // --- SP2 entity-list cache regression -----------------------------
 //
 // These tests target the per-wrapper cache embedded in
-// `elidex_dom_api::LiveCollection` (post-#11-arch-hoist-e): cache
-// hits short-circuit the descendant walk to a slice borrow of the
-// previously walked entity list.
+// `elidex_dom_api::LiveCollection`: cache hits short-circuit the
+// descendant walk to a slice borrow of the previously walked entity
+// list.
 // The visible JS semantics are unchanged (every read still reflects
 // the live tree), but the tests below pin down the invalidation
 // surface so a future regression that, say, forgets to bump
@@ -707,19 +707,17 @@ fn cache_persists_across_iter_constructions() {
     assert_eq!(out, "ok");
 }
 
-// --- Slot #11-arch-hoist-e regression tests (lesson #149 pre-empt) -------
+// --- Cross-layer regressions (API/VM boundary) ---------------------------
 //
-// Cross-layer regressions that exercise the API/VM boundary post-γ
-// hoist: case-insensitive Forms/Images, cloneNode rev_version contract,
+// Case-insensitive Forms/Images, cloneNode rev_version contract,
 // querySelectorAll Snapshot semantics, post-unbind silent-read.
 
 #[test]
 fn forms_uppercase_tag_seen_via_document_forms() {
     // The HTML parser lowercases tags, but `EcsDom::create_element`
     // tolerates uppercase from non-parser paths. The Forms filter
-    // must match `<FORM>` via `eq_ignore_ascii_case` (post-γ
-    // matches_filter helper) so document.forms is parser-input
-    // independent.
+    // must match `<FORM>` via `eq_ignore_ascii_case` so document.forms
+    // is parser-input independent.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -832,8 +830,8 @@ fn query_selector_all_indexed_access_returns_captured_entity() {
 #[test]
 fn live_collection_construction_then_dom_mutation_visible() {
     // Mirror of `children_is_live` but targeting getElementsByClassName,
-    // which post-γ runs through the same engine-independent walker as
-    // the ChildNodes / ElementChildren paths.
+    // which runs through the same engine-independent walker as the
+    // ChildNodes / ElementChildren paths.
     let out = run("var p = document.createElement('div'); \
          document.body.appendChild(p); \
          var coll = p.getElementsByClassName('hot'); \
@@ -847,9 +845,9 @@ fn live_collection_construction_then_dom_mutation_visible() {
 
 #[test]
 fn live_collection_post_unbind_silent() {
-    // A wrapper retained across unbind() must read 0/null silently
-    // (post-γ `dom_and_collection_states_if_bound` returns None when
-    // unbound). Mirrors the pre-γ post-unbind contract.
+    // A wrapper retained across unbind() must read 0/null silently —
+    // `dom_and_collection_states_if_bound` returns None when unbound,
+    // short-circuiting reads to a safe default.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

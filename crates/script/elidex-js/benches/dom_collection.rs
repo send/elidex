@@ -9,9 +9,8 @@
 //! 3. `item`   — repeated `coll.item(N/2)` calls.
 //!
 //! Each access dispatches to
-//! [`elidex_dom_api::LiveCollection::snapshot`] (post-#11-arch-hoist-e),
-//! which version-checks against
-//! `EcsDom::inclusive_descendants_version` and refreshes via
+//! [`elidex_dom_api::LiveCollection::snapshot`], which version-checks
+//! against `EcsDom::inclusive_descendants_version` and refreshes via
 //! `EcsDom::traverse_descendants()` only on a subtree-version bump.
 //! The numbers here are the input to the SP2-impl decision gate:
 //!

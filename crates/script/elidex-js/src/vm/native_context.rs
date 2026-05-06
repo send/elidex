@@ -200,9 +200,8 @@ impl NativeContext<'_> {
     /// `live_collection_states` map: lets a native function pass
     /// `&EcsDom` to [`elidex_dom_api::LiveCollection::snapshot`]
     /// while keeping `&mut LiveCollection` borrowed out of the map,
-    /// without the temporary remove/re-insert dance the pre-γ
-    /// implementation needed to break the `ctx.host()` /
-    /// `ctx.vm.live_collection_states` aliasing.
+    /// avoiding the `ctx.host()` / `ctx.vm.live_collection_states`
+    /// aliasing conflict that an unsplit `&mut ctx` borrow would hit.
     ///
     /// # Safety
     ///

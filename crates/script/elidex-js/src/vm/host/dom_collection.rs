@@ -266,23 +266,33 @@ fn require_collection_receiver(
     Ok((id, kind_is_html))
 }
 
-/// Resolve the backing entity list for a live collection receiver.
-///
-/// Returns an empty `Vec` when the VM is unbound (post-`unbind()`
-/// access through a retained wrapper) or when the receiver has no
-/// entry in `live_collection_states`. Uses
-/// [`NativeContext::dom_and_collection_states_if_bound`] to take
-/// disjoint borrows of `&EcsDom` and `&mut LiveCollection` so
-/// [`LiveCollection::snapshot`] can run with the `&EcsDom` borrow
-/// the VM-side state mutation needs concurrently for cache refresh.
-fn resolve_receiver_entities(ctx: &mut NativeContext<'_>, id: ObjectId) -> Vec<Entity> {
+/// Run `f` against the receiver's `LiveCollection` and the bound DOM,
+/// returning `fallback` when the VM is unbound or the receiver has no
+/// entry in `live_collection_states`. Wraps the disjoint-borrow
+/// accessor pattern that every collection method uses.
+fn with_collection<R>(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    fallback: R,
+    f: impl FnOnce(&elidex_ecs::EcsDom, &mut LiveCollection) -> R,
+) -> R {
     let Some((dom, states)) = ctx.dom_and_collection_states_if_bound() else {
-        return Vec::new();
+        return fallback;
     };
     let Some(coll) = states.get_mut(&id) else {
-        return Vec::new();
+        return fallback;
     };
-    coll.snapshot(dom).to_vec()
+    f(dom, coll)
+}
+
+/// Resolve the backing entity list for a live collection receiver as
+/// an owned `Vec`. Used by methods that need to hand the slice to JS
+/// (`@@iterator`, `forEach`) or iterate while holding `&mut ctx.vm`
+/// (`namedItem`, which calls `create_element_wrapper`); fast-path
+/// methods like `length` / `item(i)` should use [`with_collection`]
+/// directly to avoid the per-call clone.
+fn resolve_receiver_entities(ctx: &mut NativeContext<'_>, id: ObjectId) -> Vec<Entity> {
+    with_collection(ctx, id, Vec::new(), |dom, coll| coll.snapshot(dom).to_vec())
 }
 
 // Per-interface `length` getter wrappers — shared body, per-
@@ -309,19 +319,9 @@ fn collection_length_get_impl(
     interface: &'static str,
 ) -> Result<JsValue, VmError> {
     let (id, _) = require_collection_receiver(ctx, this, "length", interface)?;
-    // `LiveCollection::length` only needs the cached snapshot's
-    // length — bypass the full `to_vec()` materialisation that
-    // `resolve_receiver_entities` performs. Saves a per-call Vec
-    // allocation + memcpy on the hot path.
-    let len = {
-        let Some((dom, states)) = ctx.dom_and_collection_states_if_bound() else {
-            return Ok(JsValue::Number(0.0));
-        };
-        let Some(coll) = states.get_mut(&id) else {
-            return Ok(JsValue::Number(0.0));
-        };
-        coll.length(dom)
-    };
+    // Direct `LiveCollection::length` call avoids the per-access Vec
+    // clone that `resolve_receiver_entities` performs.
+    let len = with_collection(ctx, id, 0, |dom, coll| coll.length(dom));
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(len as f64))
 }
@@ -373,20 +373,10 @@ fn collection_item_impl(
         }
         None => return Ok(JsValue::Null),
     };
-    // Read just the indexed entity — `LiveCollection::item` returns
-    // `Option<Entity>` directly so we avoid the per-call `to_vec()`
-    // that `resolve_receiver_entities` performs. The borrow scope
-    // is tight so `create_element_wrapper`'s `&mut ctx.vm` access
-    // can re-acquire after the entity is copied out.
-    let entity = {
-        let Some((dom, states)) = ctx.dom_and_collection_states_if_bound() else {
-            return Ok(JsValue::Null);
-        };
-        let Some(coll) = states.get_mut(&id) else {
-            return Ok(JsValue::Null);
-        };
-        coll.item(index, dom)
-    };
+    // Direct `LiveCollection::item` call avoids the per-access Vec
+    // clone; the entity is copied out before `create_element_wrapper`
+    // re-acquires `&mut ctx.vm`.
+    let entity = with_collection(ctx, id, None, |dom, coll| coll.item(index, dom));
     Ok(match entity {
         Some(e) => JsValue::Object(ctx.vm.create_element_wrapper(e)),
         None => JsValue::Null,

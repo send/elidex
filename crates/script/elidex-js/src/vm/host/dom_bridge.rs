@@ -169,12 +169,10 @@ pub(super) fn query_selector_all_snapshot(
 }
 
 // `collect_descendants_by_tag_name` / `collect_descendants_by_class_name`
-// lived here until PR5b §C3 migrated every caller (`document.getElementsBy*`
-// / `element.getElementsBy*`) onto the shared live-collection
-// infrastructure in `dom_collection.rs`.  The traversal now runs
-// inside `elidex_dom_api::LiveCollection`'s populate path on each
-// read (post-#11-arch-hoist-e), so this file no longer needs a
-// static snapshot helper.
+// lived here until the live-collection infrastructure absorbed the
+// traversal — the walker now runs inside
+// `elidex_dom_api::LiveCollection`'s populate path on each read, so
+// this file no longer needs a static snapshot helper.
 
 // ---------------------------------------------------------------------------
 // `DomApiHandler` dispatch — bridge from VM-internal `JsValue` →

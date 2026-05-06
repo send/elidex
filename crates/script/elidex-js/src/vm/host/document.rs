@@ -48,7 +48,7 @@
 //!   `ClassName` / `Name` — VM-side natives construct
 //!   [`elidex_dom_api::LiveCollection`] directly; the walker /
 //!   cache / case-insensitive matching live engine-independent in
-//!   that crate (slot `#11-arch-hoist-e`).
+//!   that crate.
 //! - `activeElement` / `hasFocus` — focus state from `HostData`,
 //!   carved out in `#11-focus-management-hoist`.
 

@@ -4,7 +4,7 @@
 //! caching results until the subtree version changes. This mirrors the
 //! WHATWG DOM specification's live collection semantics.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, NodeKind, ShadowRoot, TagType};
+use elidex_ecs::{Attributes, EcsDom, Entity, ShadowRoot, TagType};
 
 /// Sentinel version that never matches any real subtree version, ensuring the
 /// first access always triggers a refresh. Equivalent to WHATWG's "created with
@@ -179,21 +179,24 @@ impl LiveCollection {
     }
 
     fn populate(&self, dom: &EcsDom) -> Vec<Entity> {
+        // Snapshot is the only filter shape that has no `root` — every
+        // other variant needs one to walk from. Short-circuit the
+        // root-less filters first so the rest of the match can rely on
+        // a present root.
+        if let CollectionFilter::Snapshot(entities) = &self.filter {
+            return entities.clone();
+        }
+        let Some(root) = self.root else {
+            return Vec::new();
+        };
         match &self.filter {
-            CollectionFilter::Snapshot(entities) => entities.clone(),
-            // ChildNodes and ElementChildren only look at direct children.
+            CollectionFilter::Snapshot(_) => unreachable!("handled above"),
             CollectionFilter::ChildNodes => {
-                let Some(root) = self.root else {
-                    return Vec::new();
-                };
                 let mut result = Vec::new();
                 collect_direct_children(dom, root, &mut result, true);
                 result
             }
             CollectionFilter::ElementChildren => {
-                let Some(root) = self.root else {
-                    return Vec::new();
-                };
                 let mut result = Vec::new();
                 collect_direct_children(dom, root, &mut result, false);
                 result
@@ -205,9 +208,6 @@ impl LiveCollection {
             // iterators used by `traverse_descendants` skip
             // ShadowRoot entities, so shadow subtrees are unreachable.
             filter => {
-                let Some(root) = self.root else {
-                    return Vec::new();
-                };
                 let mut result = Vec::new();
                 dom.traverse_descendants(root, |entity| {
                     if matches_filter(entity, filter, dom) {
@@ -257,12 +257,11 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
             }
         }
         CollectionFilter::ByClassNames(names) => {
-            // All class names must be present on the element.
             // WHATWG §4.2.6.2 "descendant elements" — non-Element entities
-            // that happen to carry `Attributes` (parser-fixture-built
-            // Text/Comment nodes can reach a stray `class` via direct
+            // that happen to carry `Attributes` (parser fixtures can attach
+            // a stray `class` to Text/Comment via direct
             // `EcsDom::set_attribute`) must not surface here.
-            if names.is_empty() || dom.node_kind_inferred(entity) != Some(NodeKind::Element) {
+            if names.is_empty() || !dom.is_element(entity) {
                 return false;
             }
             match dom.world().get::<&Attributes>(entity) {
@@ -279,9 +278,9 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
             }
         }
         CollectionFilter::ByName(name) => {
-            // Same Element-only guard as ByClassNames — `getElementsByName`
-            // is a list-of-elements query (WHATWG HTML §3.1.5).
-            if dom.node_kind_inferred(entity) != Some(NodeKind::Element) {
+            // WHATWG HTML §3.1.5 — `getElementsByName` is a list-of-elements
+            // query, mirroring the ByClassNames Element-only guard.
+            if !dom.is_element(entity) {
                 return false;
             }
             match dom.world().get::<&Attributes>(entity) {
