@@ -295,13 +295,18 @@ fn native_class_list_toggle(
     let entity = require_dom_token_list_receiver(ctx, this, "toggle")?;
     let token = args.first().copied().unwrap_or(JsValue::Undefined);
     let token_sid = super::super::coerce::to_string(ctx.vm, token)?;
-    // Optional `force` (ToBoolean per WebIDL).  Absent / `undefined`
-    // omits the second arg entirely so the handler takes the
-    // no-force "flip current state" branch (WHATWG §7.1 step 4).
+    // Optional `force` (ToBoolean per WebIDL).  WHATWG §7.1 step 4
+    // distinguishes "force given" (apply ToBoolean) vs "force not
+    // given" (flip current state).  `args.get(1) == Some(Undefined)`
+    // is the *given-as-undefined* case → ToBoolean(undefined) = false.
+    // `JsValue::Empty` is the internal sparse-array hole sentinel and
+    // is treated as "not given" because user code can never observe
+    // it; the call frame substitutes `Undefined` for missing
+    // positional args.
     let mut vm_args: Vec<JsValue> = Vec::with_capacity(2);
     vm_args.push(JsValue::String(token_sid));
     if let Some(&force) = args.get(1) {
-        if !matches!(force, JsValue::Undefined | JsValue::Empty) {
+        if !matches!(force, JsValue::Empty) {
             let b = super::super::coerce::to_boolean(ctx.vm, force);
             vm_args.push(JsValue::Boolean(b));
         }
@@ -455,12 +460,21 @@ pub(crate) fn try_indexed_get(
     let entity = Entity::from_bits(entity_bits)?;
     let idx_u32 = match key {
         JsValue::Number(n) if n.is_finite() => {
-            let trunc = n.trunc();
-            if (trunc - n).abs() > f64::EPSILON || trunc < 0.0 || trunc > f64::from(u32::MAX - 1) {
+            // ECMA §7.1.21 canonical-numeric-index-string requires
+            // an *exact* integer round-trip; an EPSILON test admits
+            // values like `1.0000000000000002` whose `ToString` yields
+            // a non-canonical key like `"1.0000000000000002"` rather
+            // than `"1"`.  Use the same exact-integer pattern as
+            // `ops::try_as_array_index` so non-canonical numbers fall
+            // through to the regular property lookup.
+            if !(n >= 0.0 && n <= f64::from(u32::MAX - 1)) {
                 return None;
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let idx = trunc as u32;
+            let idx = n as u32;
+            if f64::from(idx) != n {
+                return None;
+            }
             idx
         }
         JsValue::String(sid) => {

@@ -206,7 +206,7 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 // 48 + 2 (PR5-typed-array §C1/C2: %TypedArray% abstract
-                // + DataView) = 48.  The 11 concrete subclass
+                // + DataView) = 50.  The 11 concrete subclass
                 // prototypes used to live here as cfg-gated slots; SP14
                 // moved them into the chained
                 // `subclass_array_proto_roots` slice below so adding a
@@ -220,7 +220,7 @@ impl VmInner {
                 self.data_view_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 48 + 2 (PR5a-fetch2: TextEncoder + TextDecoder) = 50.
+                // 50 + 2 (PR5a-fetch2: TextEncoder + TextDecoder) = 52.
                 // WHATWG Encoding §8 surface; both chain directly to
                 // Object.prototype (no shared abstract parent).
                 #[cfg(feature = "engine")]
@@ -231,7 +231,7 @@ impl VmInner {
                 self.text_decoder_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 50 + 2 (M4-12 PR-form-url: URLSearchParams + FormData) = 52.
+                // 52 + 2 (M4-12 PR-form-url: URLSearchParams + FormData) = 54.
                 // Both chain directly to Object.prototype.  Without
                 // marking these intrinsic prototypes here, user code
                 // that severs the global binding (e.g. `delete
@@ -250,9 +250,9 @@ impl VmInner {
                 self.form_data_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 52 + 5 (M4-12 PR5-streams: ReadableStream +
+                // 54 + 5 (M4-12 PR5-streams: ReadableStream +
                 // DefaultReader + DefaultController + 2 queuing
-                // strategies) = 57.  All chain to Object.prototype.
+                // strategies) = 59.  All chain to Object.prototype.
                 #[cfg(feature = "engine")]
                 self.readable_stream_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -273,7 +273,7 @@ impl VmInner {
                 self.byte_length_queuing_strategy_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 57 + 1 (M4-12 slot #9.5: URL) = 58.  Chains to
+                // 59 + 1 (M4-12 slot #9.5: URL) = 60.  Chains to
                 // `Object.prototype`.  Same invariant as
                 // `url_search_params_prototype` above — `delete
                 // globalThis.URL` must not let the prototype be
@@ -283,8 +283,8 @@ impl VmInner {
                 self.url_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 58 + 3 (M4-12 slot #11a: AnimationEvent /
-                // TransitionEvent / CloseEvent) = 61.  All three
+                // 60 + 3 (M4-12 slot #11a: AnimationEvent /
+                // TransitionEvent / CloseEvent) = 63.  All three
                 // chain to `Event.prototype` (sibling subclasses of
                 // Event, not UIEvent).  Same `delete globalThis.<X>`
                 // invariant as the non-UIEvent specialised ctors at

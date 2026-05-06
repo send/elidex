@@ -258,6 +258,59 @@ fn class_list_empty_after_remove_attribute() {
 
 // --- brand check -------------------------------------------------
 
+// --- R3 regressions ----------------------------------------------
+//
+// Copilot R3 #1 — `toggle(token, force)` with `force === undefined`
+// must apply WebIDL `boolean` coercion (→ false), behaving like
+// `force=false` (never add, always return false), NOT like the
+// 1-arg overload (flip current state).
+
+#[test]
+fn class_list_toggle_with_explicit_undefined_force_is_false() {
+    // Element starts without 'a'; toggle('a', undefined) must NOT
+    // add it (force=false → "remove if present, else no-op").
+    let out = run("var d = document.createElement('div'); \
+         var r1 = d.classList.toggle('a', undefined); \
+         var present = d.classList.contains('a'); \
+         '' + r1 + '/' + present;");
+    assert_eq!(out, "false/false");
+}
+
+#[test]
+fn class_list_toggle_no_arg_flips() {
+    // Sanity: 1-arg overload still flips (regression guard for the
+    // R3 #1 fix not breaking the no-force path).
+    let out = run("var d = document.createElement('div'); \
+         var r1 = d.classList.toggle('a'); \
+         var present = d.classList.contains('a'); \
+         '' + r1 + '/' + present;");
+    assert_eq!(out, "true/true");
+}
+
+// Copilot R3 #2 — `try_indexed_get` must use exact integer
+// round-trip rather than EPSILON tolerance.  A near-but-not-equal
+// number like `1.0000000000000002` must fall through to ordinary
+// property lookup (returns undefined for non-canonical key) instead
+// of resolving to `tokens[1]`.
+
+#[test]
+fn class_list_indexed_get_rejects_non_canonical_numeric() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('class', 'first second third'); \
+         var v = d.classList[1.0000000000000002]; \
+         '' + (v === undefined);");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn class_list_indexed_get_exact_integer_still_works() {
+    // Sanity: exact integer indexing is unchanged.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('class', 'a b c'); \
+         d.classList[1];");
+    assert_eq!(out, "b");
+}
+
 #[test]
 fn class_list_method_brand_check() {
     let out = run("var d = document.createElement('div'); \
