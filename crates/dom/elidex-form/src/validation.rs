@@ -8,8 +8,9 @@ use crate::{FormControlKind, FormControlState};
 
 /// HTML §4.10.20.3 "candidate for constraint validation" predicate
 /// — a form control is considered a candidate when it is
-/// submittable, not disabled, not `<input type=hidden>`, and not a
-/// descendant of a disabled `<fieldset>`.  Used by ValidityState
+/// submittable, not disabled, not `<input type=hidden>`, not
+/// readonly (when `readonly` applies to the control kind), and not
+/// a descendant of a disabled `<fieldset>`.  Used by ValidityState
 /// accessors and `checkValidity()` to bypass the validation
 /// algorithm for barred controls (whose stored bits stay at their
 /// initialised all-false values per the spec).
@@ -26,6 +27,14 @@ pub fn is_constraint_validation_candidate(
         return false;
     }
     if matches!(state.kind, FormControlKind::Hidden) {
+        return false;
+    }
+    // Readonly bars constraint validation only for kinds where the
+    // attribute applies (text-editable controls + number/date/
+    // datetime-local) — checkbox/radio/range/file/etc still validate
+    // even with `readonly` set, because the attribute has no effect
+    // on them.
+    if state.readonly && state.kind.readonly_applies() {
         return false;
     }
     !crate::is_fieldset_disabled(entity, dom)
@@ -985,5 +994,91 @@ mod tests {
         attrs2.set("value", "12a");
         let state2 = FormControlState::from_element("input", &attrs2).unwrap();
         assert!(validate_control(&state2).pattern_mismatch);
+    }
+
+    #[test]
+    fn candidate_text_input_default() {
+        let mut dom = elidex_ecs::EcsDom::new();
+        let entity = dom.create_element("input", Attributes::default());
+        let state = text_input("hello", false);
+        assert!(is_constraint_validation_candidate(&state, entity, &dom));
+    }
+
+    #[test]
+    fn candidate_text_input_disabled_barred() {
+        let mut dom = elidex_ecs::EcsDom::new();
+        let entity = dom.create_element("input", Attributes::default());
+        let mut state = text_input("hello", false);
+        state.disabled = true;
+        assert!(!is_constraint_validation_candidate(&state, entity, &dom));
+    }
+
+    #[test]
+    fn candidate_hidden_input_barred() {
+        let mut dom = elidex_ecs::EcsDom::new();
+        let entity = dom.create_element("input", Attributes::default());
+        let mut attrs = Attributes::default();
+        attrs.set("type", "hidden");
+        let state = FormControlState::from_element("input", &attrs).unwrap();
+        assert!(!is_constraint_validation_candidate(&state, entity, &dom));
+    }
+
+    #[test]
+    fn candidate_readonly_text_input_barred() {
+        // HTML §4.10.20.3: readonly bars constraint validation when
+        // the attribute applies to the kind (text/textarea/etc).
+        let mut dom = elidex_ecs::EcsDom::new();
+        let entity = dom.create_element("input", Attributes::default());
+        let mut state = text_input("hello", true);
+        state.readonly = true;
+        assert!(!is_constraint_validation_candidate(&state, entity, &dom));
+    }
+
+    #[test]
+    fn candidate_readonly_textarea_barred() {
+        let mut dom = elidex_ecs::EcsDom::new();
+        let entity = dom.create_element("textarea", Attributes::default());
+        let mut attrs = Attributes::default();
+        attrs.set("required", "");
+        let mut state = FormControlState::from_element("textarea", &attrs).unwrap();
+        state.readonly = true;
+        assert!(!is_constraint_validation_candidate(&state, entity, &dom));
+    }
+
+    #[test]
+    fn candidate_readonly_checkbox_still_candidate() {
+        // `readonly` does not apply to checkbox per HTML §4.10.5.1.4,
+        // so setting it must not bar the control from validation.
+        let mut dom = elidex_ecs::EcsDom::new();
+        let entity = dom.create_element("input", Attributes::default());
+        let mut attrs = Attributes::default();
+        attrs.set("type", "checkbox");
+        attrs.set("required", "");
+        let mut state = FormControlState::from_element("input", &attrs).unwrap();
+        state.readonly = true;
+        assert!(is_constraint_validation_candidate(&state, entity, &dom));
+    }
+
+    #[test]
+    fn candidate_readonly_range_still_candidate() {
+        // Same: `readonly` doesn't apply to `<input type=range>`.
+        let mut dom = elidex_ecs::EcsDom::new();
+        let entity = dom.create_element("input", Attributes::default());
+        let mut attrs = Attributes::default();
+        attrs.set("type", "range");
+        let mut state = FormControlState::from_element("input", &attrs).unwrap();
+        state.readonly = true;
+        assert!(is_constraint_validation_candidate(&state, entity, &dom));
+    }
+
+    #[test]
+    fn candidate_button_not_submittable() {
+        // Button kinds are not submittable, so they're never candidates
+        // regardless of readonly state.
+        let mut dom = elidex_ecs::EcsDom::new();
+        let entity = dom.create_element("button", Attributes::default());
+        let attrs = Attributes::default();
+        let state = FormControlState::from_element("button", &attrs).unwrap();
+        assert!(!is_constraint_validation_candidate(&state, entity, &dom));
     }
 }

@@ -140,6 +140,32 @@ impl FormControlKind {
         self.is_text_control()
     }
 
+    /// Returns `true` if the `readonly` attribute applies to this kind
+    /// (HTML §4.10.5.1.4).  `readonly` is meaningful for text-editable
+    /// controls (`text`, `password`, `textarea`, `email`, `url`,
+    /// `tel`, `search`) and the type-specific input subtypes that
+    /// accept user editing (`number`, `date`, `datetime-local`).  For
+    /// non-applicable kinds (`checkbox`, `radio`, `range`, `color`,
+    /// `file`, `hidden`, button-typed) the attribute exists but has
+    /// no effect — including for the constraint-validation barring
+    /// rule of §4.10.20.3.
+    #[must_use]
+    pub fn readonly_applies(self) -> bool {
+        matches!(
+            self,
+            Self::TextInput
+                | Self::Password
+                | Self::TextArea
+                | Self::Email
+                | Self::Url
+                | Self::Tel
+                | Self::Search
+                | Self::Number
+                | Self::Date
+                | Self::DatetimeLocal
+        )
+    }
+
     /// Returns `true` if this kind participates in form submission (HTML §4.10.15.3).
     #[must_use]
     pub fn is_submittable(self) -> bool {
