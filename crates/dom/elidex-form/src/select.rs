@@ -15,6 +15,70 @@ use crate::{FormControlState, SelectOption};
 /// `init_select_options` etc.).
 pub use elidex_dom_api::element::is_option_disabled;
 
+/// HTML §4.10.10.2 "ask for a reset" implicit-default predicate.
+///
+/// Returns `true` when a `<select>`'s implicit default selection (the
+/// first non-disabled option) is in effect: the select must not be
+/// `multiple` AND its display size must be 1.  Display size = parsed
+/// positive `size` attribute, defaulting to 1 when missing / "0" /
+/// invalid.
+///
+/// Three call sites (`selectedIndex` getter / `value` getter /
+/// `init_select_options` / `populate_selected_options`) must agree
+/// on this gate so the surfaces stay consistent.
+#[must_use]
+pub fn select_uses_implicit_default(dom: &EcsDom, select: Entity) -> bool {
+    if dom
+        .world()
+        .get::<&Attributes>(select)
+        .is_ok_and(|a| a.contains("multiple"))
+    {
+        return false;
+    }
+    let display_size = dom
+        .world()
+        .get::<&Attributes>(select)
+        .ok()
+        .and_then(|a| a.get("size").and_then(|s| s.parse::<u32>().ok()))
+        .filter(|&n| n > 0)
+        .unwrap_or(1);
+    display_size <= 1
+}
+
+/// Resolve `<select>.selectedIndex` (HTML §4.10.10.2).
+///
+/// Returns the index of the first option whose own `selected` content
+/// attribute is set.  When no option is explicitly selected and the
+/// select is in implicit-default mode (see [`select_uses_implicit_default`]),
+/// returns the index of the first non-disabled option.  Returns `-1`
+/// when the select has no usable selection.
+#[must_use]
+pub fn select_selected_index(dom: &EcsDom, select: Entity) -> i32 {
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(dom).to_vec();
+    for (idx, opt) in snap.iter().enumerate() {
+        if dom
+            .world()
+            .get::<&Attributes>(*opt)
+            .is_ok_and(|a| a.contains("selected"))
+        {
+            return i32::try_from(idx).unwrap_or(i32::MAX);
+        }
+    }
+    if select_uses_implicit_default(dom, select) {
+        for (idx, opt) in snap.iter().enumerate() {
+            if !is_option_disabled(dom, *opt) {
+                return i32::try_from(idx).unwrap_or(i32::MAX);
+            }
+        }
+    }
+    -1
+}
+
 /// Find the nearest `<select>` ancestor of `option` (HTML §4.10.10).
 ///
 /// Used by `option.form` (HTML §4.10.10 — the form owner of an
@@ -648,5 +712,120 @@ mod tests {
         let opt = dom.create_element("option", Attributes::default());
         let _ = dom.append_child(sel, opt);
         assert_eq!(find_option_select(&dom, opt), Some(sel));
+    }
+
+    // -- select_uses_implicit_default tests (D-3 hoist target) -----
+
+    #[test]
+    fn implicit_default_true_for_default_select() {
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        assert!(select_uses_implicit_default(&dom, sel));
+    }
+
+    #[test]
+    fn implicit_default_false_when_multiple() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("multiple", "");
+        let sel = dom.create_element("select", attrs);
+        assert!(!select_uses_implicit_default(&dom, sel));
+    }
+
+    #[test]
+    fn implicit_default_false_when_size_gt_one() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("size", "5");
+        let sel = dom.create_element("select", attrs);
+        assert!(!select_uses_implicit_default(&dom, sel));
+    }
+
+    #[test]
+    fn implicit_default_true_when_size_invalid() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("size", "0");
+        let sel = dom.create_element("select", attrs);
+        assert!(select_uses_implicit_default(&dom, sel));
+    }
+
+    // -- select_selected_index tests (D-3 hoist target) ------------
+
+    fn build_select_with_options(
+        attrs: Attributes,
+        options: &[(bool, bool)], // (selected, disabled)
+    ) -> (EcsDom, Entity) {
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", attrs);
+        for (selected, disabled) in options {
+            let mut opt_attrs = Attributes::default();
+            if *selected {
+                opt_attrs.set("selected", "");
+            }
+            if *disabled {
+                opt_attrs.set("disabled", "");
+            }
+            let opt = dom.create_element("option", opt_attrs);
+            assert!(dom.append_child(sel, opt));
+        }
+        (dom, sel)
+    }
+
+    #[test]
+    fn selected_index_explicit_selection_wins() {
+        let (dom, sel) =
+            build_select_with_options(Attributes::default(), &[(false, false), (true, false)]);
+        assert_eq!(select_selected_index(&dom, sel), 1);
+    }
+
+    #[test]
+    fn selected_index_implicit_default_first_non_disabled() {
+        let (dom, sel) = build_select_with_options(
+            Attributes::default(),
+            &[(false, true), (false, true), (false, false)],
+        );
+        assert_eq!(select_selected_index(&dom, sel), 2);
+    }
+
+    #[test]
+    fn selected_index_returns_neg1_when_all_disabled_and_none_selected() {
+        let (dom, sel) =
+            build_select_with_options(Attributes::default(), &[(false, true), (false, true)]);
+        assert_eq!(select_selected_index(&dom, sel), -1);
+    }
+
+    #[test]
+    fn selected_index_returns_neg1_for_listbox_with_no_selection() {
+        let mut attrs = Attributes::default();
+        attrs.set("size", "5");
+        let (dom, sel) = build_select_with_options(attrs, &[(false, false), (false, false)]);
+        assert_eq!(select_selected_index(&dom, sel), -1);
+    }
+
+    #[test]
+    fn selected_index_returns_neg1_for_multiple_with_no_selection() {
+        let mut attrs = Attributes::default();
+        attrs.set("multiple", "");
+        let (dom, sel) = build_select_with_options(attrs, &[(false, false), (false, false)]);
+        assert_eq!(select_selected_index(&dom, sel), -1);
+    }
+
+    #[test]
+    fn selected_index_explicit_overrides_disabled_and_listbox() {
+        // Even on a listbox `<select size=5>`, an explicit `selected`
+        // attr wins.
+        let mut attrs = Attributes::default();
+        attrs.set("size", "5");
+        let (dom, sel) =
+            build_select_with_options(attrs, &[(false, false), (true, false), (false, false)]);
+        assert_eq!(select_selected_index(&dom, sel), 1);
+    }
+
+    #[test]
+    fn selected_index_first_explicit_wins_over_later_explicit() {
+        let (dom, sel) =
+            build_select_with_options(Attributes::default(), &[(true, false), (true, false)]);
+        assert_eq!(select_selected_index(&dom, sel), 0);
     }
 }

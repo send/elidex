@@ -518,56 +518,11 @@ fn native_select_get_selected_index(
     let Some(entity) = require_select_receiver(ctx, this, "selectedIndex")? else {
         return Ok(JsValue::Number(-1.0));
     };
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let snap = opts.snapshot(ctx.host().dom()).to_vec();
-    for (idx, opt) in snap.iter().enumerate() {
-        if ctx.host().dom().has_attribute(*opt, "selected") {
-            return Ok(JsValue::Number(f64::from(
-                u32::try_from(idx).unwrap_or(u32::MAX),
-            )));
-        }
-    }
-    // Default selection: first non-disabled option, but ONLY for
-    // non-multiple selects with display size == 1 (HTML §4.10.10.2
-    // "ask for a reset" — listbox-style selects with `size > 1`
-    // do NOT auto-select).  An option is disabled if it has its
-    // own `disabled` attr OR is inside a disabled `<optgroup>`.
-    if select_uses_implicit_default(ctx.host().dom(), entity) {
-        for (idx, opt) in snap.iter().enumerate() {
-            if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
-                return Ok(JsValue::Number(f64::from(
-                    u32::try_from(idx).unwrap_or(u32::MAX),
-                )));
-            }
-        }
-    }
-    Ok(JsValue::Number(-1.0))
-}
-
-/// HTML §4.10.10.2 "ask for a reset" implicit-default predicate:
-/// the first non-disabled option becomes the implicit selection
-/// only when the select is **not multiple** AND its **display size
-/// is 1**.  Display size = parsed positive `size` attribute, or 1
-/// (the default for non-multiple) when missing / "0" / invalid.
-/// Mirrors the gate used by `elidex_form::init_select_options` and
-/// `elidex_dom_api::populate_selected_options` so the three
-/// surfaces (selectedIndex / value / selectedOptions) agree.
-fn select_uses_implicit_default(dom: &elidex_ecs::EcsDom, select: Entity) -> bool {
-    if dom.has_attribute(select, "multiple") {
-        return false;
-    }
-    let display_size = dom
-        .world()
-        .get::<&elidex_ecs::Attributes>(select)
-        .ok()
-        .and_then(|a| a.get("size").and_then(|s| s.parse::<u32>().ok()))
-        .filter(|&n| n > 0)
-        .unwrap_or(1);
-    display_size <= 1
+    // HTML §4.10.10.2 selectedness fallback hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-3) — vm/host/ retains only
+    // brand check + JsValue marshalling.
+    let idx = elidex_form::select_selected_index(ctx.host().dom(), entity);
+    Ok(JsValue::Number(f64::from(idx)))
 }
 
 fn native_select_set_selected_index(
@@ -627,7 +582,7 @@ fn native_select_get_value(
     // implicit default (HTML §4.10.10.2 "ask for a reset").
     // Listbox selects (`size > 1`) and `multiple` selects skip
     // implicit-default auto-selection entirely.
-    if select_uses_implicit_default(ctx.host().dom(), entity) {
+    if elidex_form::select_uses_implicit_default(ctx.host().dom(), entity) {
         for opt in &snap {
             if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
                 return option_value(ctx, *opt);
