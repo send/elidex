@@ -199,6 +199,9 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "fieldset") {
             return self.html_fieldset_prototype;
         }
+        if host.tag_matches_ascii_case(entity, "form") {
+            return self.html_form_prototype;
+        }
         None
     }
 }

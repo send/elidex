@@ -1,0 +1,162 @@
+//! Slot `#11-tags-T1-v2` Phase 4 — `HTMLFormElement.prototype`
+//! coverage.
+
+#![cfg(feature = "engine")]
+
+use elidex_ecs::EcsDom;
+use elidex_script_session::SessionCore;
+
+use super::super::test_helpers::bind_vm;
+use super::super::value::JsValue;
+use super::super::Vm;
+
+fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+    doc
+}
+
+fn run(script: &str) -> String {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm.eval(script).unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    vm.unbind();
+    out
+}
+
+#[test]
+fn form_action_round_trip() {
+    let out = run("var f = document.createElement('form'); \
+         f.action = '/submit'; \
+         f.action + '/' + f.getAttribute('action');");
+    assert_eq!(out, "/submit//submit");
+}
+
+#[test]
+fn form_method_round_trip() {
+    let out = run("var f = document.createElement('form'); \
+         f.method = 'post'; \
+         f.method;");
+    assert_eq!(out, "post");
+}
+
+#[test]
+fn form_name_round_trip() {
+    let out = run("var f = document.createElement('form'); \
+         f.name = 'my-form'; \
+         f.name;");
+    assert_eq!(out, "my-form");
+}
+
+#[test]
+fn form_enctype_round_trip() {
+    let out = run("var f = document.createElement('form'); \
+         f.enctype = 'multipart/form-data'; \
+         f.enctype;");
+    assert_eq!(out, "multipart/form-data");
+}
+
+#[test]
+fn form_encoding_aliases_enctype() {
+    let out = run("var f = document.createElement('form'); \
+         f.encoding = 'multipart/form-data'; \
+         f.enctype + '/' + f.encoding;");
+    assert_eq!(out, "multipart/form-data/multipart/form-data");
+}
+
+#[test]
+fn form_no_validate_default_false() {
+    let out = run("var f = document.createElement('form'); '' + f.noValidate;");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn form_no_validate_round_trip() {
+    let out = run("var f = document.createElement('form'); \
+         f.noValidate = true; \
+         '' + f.hasAttribute('novalidate');");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn form_target_default_empty() {
+    let out = run("var f = document.createElement('form'); f.target;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn form_accept_charset_round_trip() {
+    let out = run("var f = document.createElement('form'); \
+         f.acceptCharset = 'UTF-8'; \
+         f.acceptCharset + '/' + f.getAttribute('accept-charset');");
+    assert_eq!(out, "UTF-8/UTF-8");
+}
+
+#[test]
+fn form_rel_round_trip() {
+    let out = run("var f = document.createElement('form'); \
+         f.rel = 'noopener'; \
+         f.rel;");
+    assert_eq!(out, "noopener");
+}
+
+#[test]
+fn form_length_returns_zero_phase4_stub() {
+    let out = run("var f = document.createElement('form'); '' + f.length;");
+    assert_eq!(out, "0");
+}
+
+#[test]
+fn form_elements_returns_collection() {
+    let out = run("var f = document.createElement('form'); \
+         (f.elements != null && typeof f.elements.length === 'number') ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn form_submit_throws_not_supported_error() {
+    let out = run("var f = document.createElement('form'); \
+         try { f.submit(); 'no-throw'; } \
+         catch (e) { (e.name === 'NotSupportedError') ? 'ok' : ('other:' + e.name); }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn form_request_submit_throws_not_supported_error() {
+    let out = run("var f = document.createElement('form'); \
+         try { f.requestSubmit(); 'no-throw'; } \
+         catch (e) { (e.name === 'NotSupportedError') ? 'ok' : ('other:' + e.name); }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn form_reset_returns_undefined_no_op_when_empty() {
+    let out = run("var f = document.createElement('form'); \
+         var r = f.reset(); \
+         (r === undefined) ? 'undef' : 'other';");
+    assert_eq!(out, "undef");
+}
+
+#[test]
+fn form_brand_check_throws_on_non_form_receiver() {
+    let out = run("var d = document.createElement('div'); \
+         var f = document.createElement('form'); \
+         var getter = Object.getOwnPropertyDescriptor(\
+             Object.getPrototypeOf(f), 'action').get; \
+         try { getter.call(d); 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
+    assert_eq!(out, "type");
+}
