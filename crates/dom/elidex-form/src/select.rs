@@ -118,7 +118,7 @@ fn walk_options(
     // Cap recursion depth — JS can construct pathologically nested
     // `<optgroup>` (spec forbids, parser doesn't reject).  Bail at
     // `MAX_ANCESTOR_DEPTH` so `option.index` can't stack-overflow.
-    if depth > MAX_ANCESTOR_DEPTH {
+    if depth >= MAX_ANCESTOR_DEPTH {
         return;
     }
     let Some(mut child) = dom.get_first_child(parent) else {

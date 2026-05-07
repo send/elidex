@@ -234,7 +234,7 @@ fn walk_form_descendants(
     visitor: &mut dyn FnMut(Entity),
     depth: usize,
 ) {
-    if depth > MAX_ANCESTOR_DEPTH {
+    if depth >= MAX_ANCESTOR_DEPTH {
         return;
     }
     let mut child = dom.get_first_child(entity);

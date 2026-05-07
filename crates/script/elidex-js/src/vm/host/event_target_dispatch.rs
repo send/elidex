@@ -482,8 +482,20 @@ pub(super) fn dispatch_simple_event(
     // `dispatch_script_event` (composedPath wrappers, listener-
     // fired user code, etc.) without the borrow gymnastics needed
     // to thread a `push_temp_root` guard across the dispatch call.
-    // Sweep tail in `gc/collect.rs:556` still runs as defensive
-    // cleanup if a Rust panic skips the `.remove` sentinel.
+    //
+    // Panic safety — the workspace forbids `unsafe` (`-D
+    // unsafe-code`), so an RAII guard holding a `*mut VmInner`
+    // is not viable, and a safe guard cannot re-borrow `vm` while
+    // `dispatch_script_event` holds the active mutable borrow via
+    // `NativeContext`.  Instead, the matching `.remove` below
+    // runs on the normal-return path, and the
+    // `gc/collect.rs::sweep_dispatched_events_tail` defensive
+    // cleanup at the next collection cycle prunes any entry whose
+    // backing `ObjectKind::Event` was dropped — covering the rare
+    // case where a Rust panic between insert and remove leaks the
+    // entry.  Do NOT delete that sweep-tail without first
+    // re-architecting this insert/remove pair around `RefCell` /
+    // `catch_unwind` to give true RAII semantics.
     ctx.vm.dispatched_events.insert(event_id);
 
     let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;
