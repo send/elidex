@@ -1,5 +1,5 @@
 //! Slot `#11-tags-T1-v2` Phase 6 — `HTMLTextAreaElement.prototype`
-//! coverage (Selection API mixin deferred).
+//! coverage (incl. Selection API mixin folded in for B-1).
 
 #![cfg(feature = "engine")]
 
@@ -135,11 +135,30 @@ fn textarea_default_value_reflects_text_content() {
 }
 
 #[test]
-fn textarea_value_aliases_default_value() {
+fn textarea_value_round_trip_state_backed() {
+    // Setting `.value` writes into FormControlState and is observable
+    // independently of `defaultValue` / `textContent`.
     let out = run("var t = document.createElement('textarea'); \
          t.value = 'hi'; \
-         t.value + '/' + t.defaultValue;");
-    assert_eq!(out, "hi/hi");
+         t.value;");
+    assert_eq!(out, "hi");
+}
+
+#[test]
+fn textarea_default_value_setter_updates_value_when_not_dirty() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.defaultValue = 'init'; \
+         t.value;");
+    assert_eq!(out, "init");
+}
+
+#[test]
+fn textarea_default_value_setter_does_not_overwrite_dirty_value() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'user-typed'; \
+         t.defaultValue = 'reset-target'; \
+         t.value;");
+    assert_eq!(out, "user-typed");
 }
 
 #[test]
@@ -157,6 +176,97 @@ fn textarea_brand_check_throws_on_non_textarea_receiver() {
          var getter = Object.getOwnPropertyDescriptor(\
              Object.getPrototypeOf(t), 'rows').get; \
          try { getter.call(d); 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
+    assert_eq!(out, "type");
+}
+
+// ---------------------------------------------------------------------------
+// Selection API mixin (B-1) — same surface as HTMLInputElement
+// ---------------------------------------------------------------------------
+
+#[test]
+fn textarea_selection_default_zero() {
+    let out = run("var t = document.createElement('textarea'); \
+         '' + t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "0/0");
+}
+
+#[test]
+fn textarea_selection_direction_default_none() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.selectionDirection;");
+    assert_eq!(out, "none");
+}
+
+#[test]
+fn textarea_select_method_marks_full_range() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'hello'; \
+         t.select(); \
+         '' + t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "0/5");
+}
+
+#[test]
+fn textarea_set_selection_range_updates_state() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abcdef'; \
+         t.setSelectionRange(2, 5); \
+         '' + t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "2/5");
+}
+
+#[test]
+fn textarea_set_selection_range_with_direction() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abcdef'; \
+         t.setSelectionRange(1, 4, 'backward'); \
+         t.selectionDirection;");
+    assert_eq!(out, "backward");
+}
+
+#[test]
+fn textarea_selection_start_setter_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abcdef'; \
+         t.selectionStart = 3; \
+         '' + t.selectionStart;");
+    assert_eq!(out, "3");
+}
+
+#[test]
+fn textarea_selection_end_setter_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abcdef'; \
+         t.selectionEnd = 4; \
+         '' + t.selectionEnd;");
+    assert_eq!(out, "4");
+}
+
+#[test]
+fn textarea_set_range_text_replaces_selection() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abcdef'; \
+         t.setSelectionRange(1, 4); \
+         t.setRangeText('XYZ'); \
+         t.value;");
+    assert_eq!(out, "aXYZef");
+}
+
+#[test]
+fn textarea_set_range_text_with_explicit_bounds() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abcdef'; \
+         t.setRangeText('Q', 2, 4); \
+         t.value;");
+    assert_eq!(out, "abQef");
+}
+
+#[test]
+fn textarea_selection_brand_check_throws_on_non_textarea_receiver() {
+    let out = run("var d = document.createElement('div'); \
+         var t = document.createElement('textarea'); \
+         try { t.setSelectionRange.call(d, 0, 0); 'no-throw'; } \
          catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
     assert_eq!(out, "type");
 }
