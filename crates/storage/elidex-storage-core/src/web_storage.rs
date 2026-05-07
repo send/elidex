@@ -406,12 +406,15 @@ impl WebStorageManager {
     }
 
     /// `n`-th key in insertion order, or `None` for out-of-range.
+    /// O(1) via `IndexMap::get_index`; required to keep
+    /// `for (i = 0; i < length; i++) storage.key(i)` patterns linear
+    /// rather than quadratic.
     pub fn local_key(&self, origin: &str, index: usize) -> Option<String> {
         let store = self.store_for(origin);
         let guard = store
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard.data.keys().nth(index).cloned()
+        guard.data.get_index(index).map(|(k, _)| k.clone())
     }
 
     /// Snapshot of all keys in insertion order. Used for `for..in`
@@ -560,8 +563,10 @@ impl SessionStorageState {
         self.data.is_empty()
     }
 
+    /// O(1) via `IndexMap::get_index` — see
+    /// [`WebStorageManager::local_key`] for the rationale.
     pub fn key(&self, index: usize) -> Option<String> {
-        self.data.keys().nth(index).cloned()
+        self.data.get_index(index).map(|(k, _)| k.clone())
     }
 
     /// Snapshot of keys in insertion order, for enumeration.
@@ -644,6 +649,28 @@ mod tests {
             mgr.local_keys("https://a"),
             vec!["x".to_string(), "y".to_string()]
         );
+    }
+
+    #[test]
+    fn local_key_indexed_lookup_is_o1_correct() {
+        // Regression for the `keys().nth(index)` O(n) → `get_index`
+        // O(1) migration: confirm the new path returns the same
+        // insertion-ordered keys for a 100-key store.  Functional,
+        // not timing-based — failure mode would surface as a
+        // wrong-key return on out-of-order iteration.
+        let (_dir, mgr) = manager();
+        for i in 0..100 {
+            mgr.local_set("https://a", &format!("k{i}"), &i.to_string())
+                .unwrap();
+        }
+        for i in 0..100 {
+            assert_eq!(
+                mgr.local_key("https://a", i).as_deref(),
+                Some(format!("k{i}").as_str()),
+                "key({i}) must return insertion-ordered slot"
+            );
+        }
+        assert_eq!(mgr.local_key("https://a", 100), None);
     }
 
     #[test]

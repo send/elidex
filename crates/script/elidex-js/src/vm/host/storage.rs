@@ -53,7 +53,7 @@
 
 use std::sync::Arc;
 
-use elidex_storage_core::{StorageError, WebStorageManager};
+use elidex_storage_core::{StorageError, StorageErrorKind, WebStorageManager};
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -344,6 +344,36 @@ fn quota_exceeded(vm: &VmInner, message: impl Into<String>) -> VmError {
     VmError::dom_exception(vm.well_known.dom_exc_quota_exceeded_error, message.into())
 }
 
+/// Map a [`StorageError`] from the engine-independent backend into a
+/// `VmError` that surfaces the right DOMException name to JS.
+///
+/// Today the backend only produces [`StorageErrorKind::QuotaExceeded`]
+/// from `local_set` / `SessionStorageState::set` so the
+/// `QuotaExceededError` arm is the only one ever taken in practice;
+/// the other arms exist as forward-compatible fall-through for any
+/// future kind that may surface from a backend extension (e.g. the
+/// SQLite migration deferred to `#11-storage-sqlite-migration`),
+/// keeping the binding from masquerading an Io / Sqlite failure as
+/// `QuotaExceededError`.
+fn map_storage_error(vm: &VmInner, err: StorageError) -> VmError {
+    match err.kind {
+        StorageErrorKind::QuotaExceeded => quota_exceeded(vm, err.message),
+        // `InvalidStateError` is the spec catch-all for "the operation
+        // couldn't complete because of the implementation state" —
+        // matches Chrome / Firefox when an underlying I/O fault
+        // surfaces (e.g. private-mode storage, disk full on
+        // disk-backed engines).
+        StorageErrorKind::Io
+        | StorageErrorKind::Sqlite
+        | StorageErrorKind::Migration
+        | StorageErrorKind::NotFound
+        | StorageErrorKind::Constraint
+        | StorageErrorKind::Other => {
+            VmError::dom_exception(vm.well_known.dom_exc_invalid_state_error, err.message)
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Method natives
 // ---------------------------------------------------------------------------
@@ -447,7 +477,7 @@ fn native_storage_set_item(
     drop(backend);
     match result {
         Ok(_) => Ok(JsValue::Undefined),
-        Err(err) => Err(quota_exceeded(ctx.vm, err.message)),
+        Err(err) => Err(map_storage_error(ctx.vm, err)),
     }
 }
 
@@ -594,7 +624,7 @@ pub(crate) fn try_set(
     drop(backend);
     match result {
         Ok(_) => Some(Ok(())),
-        Err(err) => Some(Err(quota_exceeded(vm, err.message))),
+        Err(err) => Some(Err(map_storage_error(vm, err))),
     }
 }
 
