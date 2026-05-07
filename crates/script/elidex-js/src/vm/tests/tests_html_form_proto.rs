@@ -293,3 +293,78 @@ fn form_brand_check_throws_on_non_form_receiver() {
          catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
     assert_eq!(out, "type");
 }
+
+// ---------------------------------------------------------------------------
+// R23 regressions — enumerated keyword attribute reflection
+// (HTML §4.10.18.6 / §4.10.18.7).  `form.method`, `form.enctype`,
+// and `form.autocomplete` must canonicalise the content attribute
+// to lowercase, fall back to the missing-value default when no
+// attribute is present, and fall back to the invalid-value default
+// when an unrecognised keyword is set.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn form_method_default_is_get_when_attribute_missing() {
+    let out = run("var f = document.createElement('form'); f.method;");
+    assert_eq!(out, "get");
+}
+
+#[test]
+fn form_method_canonicalises_uppercase_to_lowercase() {
+    let out = run("var f = document.createElement('form'); \
+         f.setAttribute('method', 'POST'); f.method;");
+    assert_eq!(out, "post");
+}
+
+#[test]
+fn form_method_falls_back_to_get_for_invalid_value() {
+    let out = run("var f = document.createElement('form'); \
+         f.setAttribute('method', 'bogus'); f.method;");
+    assert_eq!(out, "get");
+}
+
+#[test]
+fn form_method_dialog_keyword_round_trips() {
+    let out = run("var f = document.createElement('form'); f.method = 'dialog'; f.method;");
+    assert_eq!(out, "dialog");
+}
+
+#[test]
+fn form_enctype_default_when_missing() {
+    let out = run("var f = document.createElement('form'); f.enctype;");
+    assert_eq!(out, "application/x-www-form-urlencoded");
+}
+
+#[test]
+fn form_enctype_canonicalises_multipart() {
+    let out = run("var f = document.createElement('form'); \
+         f.setAttribute('enctype', 'MULTIPART/FORM-DATA'); f.enctype;");
+    assert_eq!(out, "multipart/form-data");
+}
+
+#[test]
+fn form_enctype_invalid_falls_back_to_default() {
+    let out = run("var f = document.createElement('form'); \
+         f.setAttribute('enctype', 'application/json'); f.enctype;");
+    assert_eq!(out, "application/x-www-form-urlencoded");
+}
+
+#[test]
+fn form_autocomplete_default_is_on() {
+    let out = run("var f = document.createElement('form'); f.autocomplete;");
+    assert_eq!(out, "on");
+}
+
+#[test]
+fn form_autocomplete_off_round_trips() {
+    let out =
+        run("var f = document.createElement('form'); f.autocomplete = 'OFF'; f.autocomplete;");
+    assert_eq!(out, "off");
+}
+
+#[test]
+fn form_autocomplete_invalid_falls_back_to_on() {
+    let out = run("var f = document.createElement('form'); \
+         f.setAttribute('autocomplete', 'maybe'); f.autocomplete;");
+    assert_eq!(out, "on");
+}

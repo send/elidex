@@ -243,8 +243,6 @@ macro_rules! form_string_attr {
 }
 
 form_string_attr!(form_get_action, form_set_action, "action", "action");
-form_string_attr!(form_get_method, form_set_method, "method", "method");
-form_string_attr!(form_get_enctype, form_set_enctype, "enctype", "enctype");
 form_string_attr!(form_get_target, form_set_target, "target", "target");
 form_string_attr!(form_get_name, form_set_name, "name", "name");
 form_string_attr!(
@@ -253,13 +251,136 @@ form_string_attr!(
     "accept-charset",
     "acceptCharset"
 );
-form_string_attr!(
-    form_get_autocomplete,
-    form_set_autocomplete,
-    "autocomplete",
-    "autocomplete"
-);
 form_string_attr!(form_get_rel, form_set_rel, "rel", "rel");
+
+/// HTML §4.10.18.6 enumerated-attribute reflection helper: read
+/// `attr` from `entity`, lowercase the raw value, return the
+/// canonical match if any of `valid` matches, otherwise return
+/// `default`.  Mirrors the spec rule that
+///
+/// > `<form method="POST">.method` returns `"post"`,
+/// > `<form>.method` returns `"get"`,
+/// > `<form method="bad">.method` returns `"get"`.
+fn enumerated_attr_reflect(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    attr: &str,
+    valid: &[&'static str],
+    default: &'static str,
+) -> super::super::value::StringId {
+    let raw = ctx
+        .host()
+        .dom()
+        .get_attribute(entity, attr)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let canonical: &str = valid
+        .iter()
+        .copied()
+        .find(|v| v == &raw.as_str())
+        .unwrap_or(default);
+    ctx.vm.strings.intern(canonical)
+}
+
+// `form.method` — HTML §4.10.18.6: enumerated keyword attribute,
+// values `get` / `post` / `dialog`, missing-value default = "get",
+// invalid-value default = "get".  Setter stores the raw value
+// (which `value` returns the next time the IDL getter normalises).
+fn form_get_method(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_form_receiver(ctx, this, "method")? else {
+        return Ok(JsValue::String(ctx.vm.strings.intern("get")));
+    };
+    let sid = enumerated_attr_reflect(ctx, entity, "method", &["get", "post", "dialog"], "get");
+    Ok(JsValue::String(sid))
+}
+
+fn form_set_method(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_form_receiver(ctx, this, "method")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.host().dom().set_attribute(entity, "method", s);
+    Ok(JsValue::Undefined)
+}
+
+// `form.enctype` — HTML §4.10.18.6: enumerated keyword attribute,
+// values `application/x-www-form-urlencoded` / `multipart/form-data`
+// / `text/plain`, missing- and invalid-value default both
+// `application/x-www-form-urlencoded`.
+fn form_get_enctype(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    const DEFAULT: &str = "application/x-www-form-urlencoded";
+    let Some(entity) = require_form_receiver(ctx, this, "enctype")? else {
+        return Ok(JsValue::String(ctx.vm.strings.intern(DEFAULT)));
+    };
+    let sid = enumerated_attr_reflect(
+        ctx,
+        entity,
+        "enctype",
+        &[DEFAULT, "multipart/form-data", "text/plain"],
+        DEFAULT,
+    );
+    Ok(JsValue::String(sid))
+}
+
+fn form_set_enctype(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_form_receiver(ctx, this, "enctype")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.host().dom().set_attribute(entity, "enctype", s);
+    Ok(JsValue::Undefined)
+}
+
+// `form.autocomplete` — HTML §4.10.18.7: enumerated boolean,
+// values `on` / `off`, missing- and invalid-value default both
+// `on`.  (Distinct from `<input>.autocomplete` whose value space
+// is the autofill-detail-token grammar.)
+fn form_get_autocomplete(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_form_receiver(ctx, this, "autocomplete")? else {
+        return Ok(JsValue::String(ctx.vm.strings.intern("on")));
+    };
+    let sid = enumerated_attr_reflect(ctx, entity, "autocomplete", &["on", "off"], "on");
+    Ok(JsValue::String(sid))
+}
+
+fn form_set_autocomplete(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_form_receiver(ctx, this, "autocomplete")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.host().dom().set_attribute(entity, "autocomplete", s);
+    Ok(JsValue::Undefined)
+}
 
 // ---------------------------------------------------------------------------
 // noValidate boolean reflect
