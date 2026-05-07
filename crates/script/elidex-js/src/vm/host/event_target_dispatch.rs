@@ -484,19 +484,27 @@ pub(super) fn dispatch_simple_event(
     // to thread a `push_temp_root` guard across the dispatch call.
     //
     // Panic safety — the workspace forbids `unsafe` (`-D
-    // unsafe-code`), so an RAII guard holding a `*mut VmInner`
-    // is not viable, and a safe guard cannot re-borrow `vm` while
+    // unsafe-code`), so an RAII guard holding a `*mut VmInner` is
+    // not viable, and a safe guard cannot re-borrow `vm` while
     // `dispatch_script_event` holds the active mutable borrow via
     // `NativeContext`.  Instead, the matching `.remove` below
-    // runs on the normal-return path, and the
-    // `self.dispatched_events.retain(...)` sweep-tail block at
-    // `gc/collect.rs:558` (run on each collection cycle) prunes
-    // any entry whose backing `ObjectKind::Event` was dropped —
-    // covering the rare case where a Rust panic between insert
-    // and remove leaks the entry.  Do NOT delete that sweep-tail
-    // without first re-architecting this insert/remove pair
-    // around `RefCell` / `catch_unwind` to give true RAII
-    // semantics.
+    // runs on the normal-return path.
+    //
+    // Earlier R22/R24 comments described the
+    // `gc/collect.rs:558` sweep-tail block as defensive cleanup
+    // if a Rust panic skipped the `.remove`, but that framing was
+    // incorrect: `dispatched_events` is now itself a GC root
+    // (`gc/roots.rs:215`), so a leaked id keeps its underlying
+    // `Event` marked, the sweep-tail `retain(bit_get(...))` keeps
+    // the entry, and the leak is permanent.  In practice the leak
+    // is unreachable — listener-thrown JS exceptions go through
+    // the spec §2.10 "report the exception" path (no Rust
+    // unwind), and VM-level failures return `Err(VmError)`
+    // instead of panicking — so the insert/remove pair always
+    // pairs up.  Do not rely on the sweep-tail to recover from a
+    // missed `.remove`; if a future change introduces a real
+    // panic path here, refactor around `RefCell<HashSet>` /
+    // `catch_unwind` first.
     ctx.vm.dispatched_events.insert(event_id);
 
     let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;

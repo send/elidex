@@ -210,9 +210,24 @@ pub(super) struct GcRoots<'a> {
     /// `dispatch_script_event` cannot push the event onto the JS
     /// stack until after it has set up the dispatch plan, leaving
     /// a window where a sweep-prune-only design would collect the
-    /// event mid-setup.  Sweep tail still runs (collect.rs:556) as
-    /// defensive cleanup if `dispatched_events.remove` is skipped
-    /// (Rust panic between insert and the cleanup sentinel).
+    /// event mid-setup.
+    ///
+    /// **Panic-leak caveat** — earlier comments (R22/R24) framed the
+    /// `collect.rs` sweep tail (`dispatched_events.retain(|id|
+    /// bit_get(marks, id.0))`) as defensive cleanup if a Rust panic
+    /// skipped the matching `.remove`.  That's not actually
+    /// achievable now: rooting the entry here means the underlying
+    /// `Event` object IS marked, so its mark bit IS set, so the
+    /// `retain` call keeps the leaked id forever.  In practice the
+    /// leak is unreachable — `dispatch_script_event` reports
+    /// listener-thrown JS exceptions through the spec §2.10
+    /// "report the exception" path (no Rust unwind) and surfaces
+    /// VM-level failures via `Err(VmError)` instead of panicking,
+    /// so the insert/remove pair always pairs up.  A real
+    /// panic-safe shape would need either `unsafe` (`*mut VmInner`
+    /// in a Drop guard) or a `RefCell<HashSet>` refactor; both are
+    /// out of scope for this PR (`-D unsafe-code` workspace + the
+    /// dispatch borrow-graph make in-place RAII non-trivial).
     #[cfg(feature = "engine")]
     pub(super) dispatched_events: &'a std::collections::HashSet<ObjectId>,
     // `any_composite_map` is weak bookkeeping only — no GC roots
