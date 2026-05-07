@@ -210,11 +210,18 @@ fn native_fieldset_get_elements(
             ));
         return Ok(JsValue::Object(id));
     };
+    // `[SameObject]` per WebIDL.  Same cache as `form.elements`
+    // because both surfaces produce one HTMLFormControlsCollection
+    // per owner entity, keyed by that entity.
+    if let Some(&existing) = ctx.vm.form_controls_collection_wrappers.get(&entity) {
+        return Ok(JsValue::Object(existing));
+    }
     let coll = elidex_dom_api::LiveCollection::new(
         entity,
         elidex_dom_api::CollectionFilter::FormControls,
         elidex_dom_api::CollectionKind::HtmlCollection,
     );
     let id = ctx.vm.alloc_collection(coll);
+    ctx.vm.form_controls_collection_wrappers.insert(entity, id);
     Ok(JsValue::Object(id))
 }

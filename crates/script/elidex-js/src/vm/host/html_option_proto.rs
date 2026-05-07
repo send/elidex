@@ -403,10 +403,17 @@ fn walk_options(
                 // hundred options; far below i32::MAX.  Saturating
                 // is a safe ceiling for the unlikely overflow.
                 *found = i32::try_from(*count).unwrap_or(i32::MAX);
+                // Index is fully determined; bail out of any
+                // remaining sibling / optgroup-recursion work.
+                return;
             }
             *count += 1;
         } else if tag_is_optgroup {
             walk_options(dom, child, count, target, found);
+            if *found >= 0 {
+                // Recursive call located the target; unwind.
+                return;
+            }
         }
         let Some(next) = dom.get_next_sibling(child) else {
             return;

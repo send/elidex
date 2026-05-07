@@ -328,13 +328,7 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
         }
         CollectionFilter::Images => matches_tag_ascii_ci(entity, "img", dom),
         CollectionFilter::Forms => matches_tag_ascii_ci(entity, "form", dom),
-        CollectionFilter::FormControls => match dom.world().get::<&TagType>(entity) {
-            Ok(tt) => matches!(
-                tt.0.as_str(),
-                "button" | "fieldset" | "input" | "object" | "output" | "select" | "textarea"
-            ),
-            Err(_) => false,
-        },
+        CollectionFilter::FormControls => matches_tag_ascii_ci_listed(entity, dom),
         CollectionFilter::Options => matches_tag_ascii_ci(entity, "option", dom),
         CollectionFilter::Links => {
             let is_link_tag =
@@ -358,6 +352,23 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
 // flat-match against the listed-element tag set; both are handled
 // inside `matches_filter` directly so no special branch in
 // `populate_into` is needed.
+
+/// `FormControls` filter — tests `entity` against the HTML §4.10.2
+/// listed-elements set (`button` / `fieldset` / `input` / `object` /
+/// `output` / `select` / `textarea`) ASCII-case-insensitively.  Same
+/// rationale as [`matches_tag_ascii_ci`]: tags reach this matcher
+/// from non-parser paths that may not have lowercased them.
+fn matches_tag_ascii_ci_listed(entity: Entity, dom: &EcsDom) -> bool {
+    let Ok(tt) = dom.world().get::<&TagType>(entity) else {
+        return false;
+    };
+    let tag = tt.0.as_str();
+    [
+        "button", "fieldset", "input", "object", "output", "select", "textarea",
+    ]
+    .iter()
+    .any(|listed| tag.eq_ignore_ascii_case(listed))
+}
 
 /// Case-insensitive tag-name match (ASCII). Mirrors the WHATWG HTML
 /// canonicalisation that `Document.{forms,images,links}` perform — the

@@ -494,7 +494,10 @@ pub(super) fn dispatch_simple_event(
     let result = dispatch_script_event(ctx, event_id, target_entity);
     ctx.vm.dispatched_events.remove(&event_id);
 
-    // dispatch_script_event returns Ok(!default_prevented), so
-    // `Ok(false)` means the dispatch was cancelled.
-    Ok(matches!(result, Ok(false)))
+    // `dispatch_script_event` returns `Ok(!default_prevented)` so
+    // `Ok(false)` means the dispatch was cancelled.  Propagate the
+    // `Err` path explicitly — listener-thrown errors must surface to
+    // the caller (`form.reset()` etc.) rather than be silently
+    // re-mapped to "not cancelled".
+    result.map(|not_default_prevented| !not_default_prevented)
 }

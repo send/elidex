@@ -89,6 +89,15 @@ fn fieldset_elements_returns_collection() {
 }
 
 #[test]
+fn fieldset_elements_is_same_object() {
+    // F5 regression — WebIDL `[SameObject]`: successive reads of
+    // `fieldset.elements` return the same wrapper id.
+    let out = run("var fs = document.createElement('fieldset'); \
+         (fs.elements === fs.elements) ? 'same' : 'diff';");
+    assert_eq!(out, "same");
+}
+
+#[test]
 fn fieldset_brand_check_throws_on_non_fieldset_receiver() {
     let out = run("var d = document.createElement('div'); \
          var fs = document.createElement('fieldset'); \

@@ -316,12 +316,19 @@ fn native_form_get_elements(
             ));
         return Ok(JsValue::Object(id));
     };
+    // `[SameObject]` per WebIDL — successive `form.elements` reads
+    // return the same wrapper id (HTML §4.10.3.1).  The cache is
+    // entity-keyed and pruned weak-through-owner in `gc/collect.rs`.
+    if let Some(&existing) = ctx.vm.form_controls_collection_wrappers.get(&entity) {
+        return Ok(JsValue::Object(existing));
+    }
     let coll = elidex_dom_api::LiveCollection::new(
         entity,
         elidex_dom_api::CollectionFilter::FormControls,
         elidex_dom_api::CollectionKind::HtmlCollection,
     );
     let id = ctx.vm.alloc_collection(coll);
+    ctx.vm.form_controls_collection_wrappers.insert(entity, id);
     Ok(JsValue::Object(id))
 }
 

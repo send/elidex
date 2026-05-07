@@ -767,10 +767,14 @@ fn native_select_add(
     // Resolve `before` argument (entity / number / null).
     let before_arg = args.get(1).copied().unwrap_or(JsValue::Null);
     let before_entity: Option<Entity> = match before_arg {
-        JsValue::Number(n) => {
-            // Numeric index into options.
-            let idx = n as i64;
-            if idx < 0 {
+        // Numeric index — WebIDL `long` (HTML §4.10.7.5 `add`
+        // overload signature).  Coerce through the standard ToInt32
+        // helper so NaN / ±Infinity / wrapping match other long
+        // accessors.  Negative results clamp to "out of range" → no
+        // before reference (append).
+        JsValue::Number(_) => {
+            let coerced = super::super::coerce::to_int32(ctx.vm, before_arg)?;
+            if coerced < 0 {
                 None
             } else {
                 let mut opts = elidex_dom_api::LiveCollection::new(
@@ -778,7 +782,7 @@ fn native_select_add(
                     elidex_dom_api::CollectionFilter::Options,
                     elidex_dom_api::CollectionKind::HtmlCollection,
                 );
-                opts.item(idx as usize, ctx.host().dom())
+                opts.item(coerced as usize, ctx.host().dom())
             }
         }
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
@@ -789,7 +793,10 @@ fn native_select_add(
         _ => None,
     };
     // Insert via the underlying DOM; if before_entity is provided
-    // and not a child of select, NotFoundError per spec.
+    // and not a child of select, NotFoundError per spec.  DOM
+    // mutation calls return false on failure (cycle / destroyed
+    // entities / invalid ref) — surface these as
+    // `HierarchyRequestError` rather than silently swallowing.
     if let Some(before) = before_entity {
         let parent_of_before = ctx.host().dom().get_parent(before);
         if parent_of_before != Some(entity) {
@@ -798,9 +805,17 @@ fn native_select_add(
                 "select.add: before is not a child of this select",
             ));
         }
-        let _ = ctx.host().dom().insert_before(entity, opt_entity, before);
-    } else {
-        let _ = ctx.host().dom().append_child(entity, opt_entity);
+        if !ctx.host().dom().insert_before(entity, opt_entity, before) {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_hierarchy_request_error,
+                "select.add: insertBefore failed (cycle or detached entity)",
+            ));
+        }
+    } else if !ctx.host().dom().append_child(entity, opt_entity) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_hierarchy_request_error,
+            "select.add: appendChild failed (cycle or detached entity)",
+        ));
     }
     Ok(JsValue::Undefined)
 }

@@ -257,6 +257,23 @@ fn native_validity_valid(
 /// Button / FieldSet).  We accept any element wrapper (HostObject
 /// kind) — the validate_control path inside the helper is the
 /// authoritative gate.
+/// Tags on which the ConstraintValidation mixin is installed
+/// (Phase 9): `<input>`, `<select>`, `<textarea>`, `<button>`,
+/// `<fieldset>`.  Cross-tag receivers (e.g.
+/// `HTMLInputElement.prototype.checkValidity.call(div)`) must throw
+/// TypeError per WebIDL "Illegal invocation".
+fn is_constraint_validation_host_tag(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
+    let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(entity) else {
+        return false;
+    };
+    let s = tag.0.as_str();
+    [
+        "input", "select", "textarea", "button", "fieldset", "output",
+    ]
+    .iter()
+    .any(|t| s.eq_ignore_ascii_case(t))
+}
+
 fn require_form_control_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -267,14 +284,27 @@ fn require_form_control_receiver(
             "Failed to execute '{method}': receiver is not a form control"
         )));
     };
-    match ctx.vm.get_object(id).kind {
+    let entity = match ctx.vm.get_object(id).kind {
         ObjectKind::HostObject { entity_bits } => {
-            Entity::from_bits(entity_bits).ok_or_else(|| VmError::type_error("invalid entity"))
+            Entity::from_bits(entity_bits).ok_or_else(|| VmError::type_error("invalid entity"))?
         }
-        _ => Err(VmError::type_error(format!(
-            "Failed to execute '{method}': receiver is not a form control"
-        ))),
+        _ => {
+            return Err(VmError::type_error(format!(
+                "Failed to execute '{method}': receiver is not a form control"
+            )));
+        }
+    };
+    // Brand check — even though the wrapper is a HostObject, the
+    // entity it points at must carry one of the form-control tags
+    // the ConstraintValidation mixin is installed on.  Without this,
+    // `HTMLInputElement.prototype.checkValidity.call(div)` would
+    // succeed instead of throwing.
+    if !is_constraint_validation_host_tag(ctx.host().dom(), entity) {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}': Illegal invocation"
+        )));
     }
+    Ok(entity)
 }
 
 fn alloc_validity_wrapper(vm: &mut VmInner, entity: Entity) -> ObjectId {
@@ -331,7 +361,13 @@ fn native_get_validation_message(
                 String::new()
             }
         });
-    let sid = ctx.vm.strings.intern(&msg);
+    // Skip interning when empty — `well_known.empty` is the canonical
+    // empty StringId; otherwise re-interning pollutes the table.
+    let sid = if msg.is_empty() {
+        empty
+    } else {
+        ctx.vm.strings.intern(&msg)
+    };
     Ok(JsValue::String(if msg.is_empty() { empty } else { sid }))
 }
 
@@ -377,9 +413,18 @@ fn native_check_validity(
         .ok()
         .is_none_or(|state| {
             // Spec: a control that is not a candidate for constraint
-            // validation always returns true.  We approximate by
-            // checking willValidate-equivalent gating + validate_control.
-            if !state.kind.is_submittable() || state.disabled {
+            // validation always returns true (HTML §4.10.20.3 list of
+            // "barred from constraint validation" exclusions).  Beyond
+            // `!is_submittable()` (already excludes button-typed
+            // inputs / Output / Meter / Progress) and `disabled`, the
+            // spec also bars `<input type=hidden>` and `<output>`.
+            // `Hidden` is the only kind that is_submittable but barred,
+            // so call it out explicitly.
+            use elidex_form::FormControlKind;
+            if !state.kind.is_submittable()
+                || state.disabled
+                || matches!(state.kind, FormControlKind::Hidden)
+            {
                 return true;
             }
             elidex_form::validate_control(&state).is_valid()

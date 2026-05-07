@@ -273,3 +273,45 @@ fn validity_state_brand_check_throws_on_non_validity_receiver() {
          catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
     assert_eq!(out, "type");
 }
+
+#[test]
+fn check_validity_brand_check_rejects_non_form_control_receiver() {
+    // F8 regression — `HTMLInputElement.prototype.checkValidity.call(div)`
+    // must throw TypeError "Illegal invocation" because <div> is not
+    // one of the constraint-validation host tags.
+    let out = run("var i = document.createElement('input'); \
+         var d = document.createElement('div'); \
+         var fn = Object.getPrototypeOf(i).checkValidity; \
+         try { fn.call(d); 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other:' + e.name; }");
+    assert_eq!(out, "type");
+}
+
+#[test]
+fn validity_brand_check_rejects_cross_element_validity_getter() {
+    // F8 regression — `validity` getter on a non-form-control
+    // receiver must throw.
+    let out = run("var i = document.createElement('input'); \
+         var d = document.createElement('div'); \
+         var getter = Object.getOwnPropertyDescriptor(\
+             Object.getPrototypeOf(i), 'validity').get; \
+         try { getter.call(d); 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other:' + e.name; }");
+    assert_eq!(out, "type");
+}
+
+#[test]
+fn check_validity_returns_true_for_hidden_input_even_when_required() {
+    // F9 regression — HTML §4.10.20.3 bars `<input type=hidden>`
+    // from constraint validation regardless of `required`.
+    // checkValidity must return true (no candidate, no validation
+    // ran), and no `invalid` event must be dispatched.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'hidden'; \
+         i.required = true; \
+         var fired = false; \
+         i.addEventListener('invalid', function() { fired = true; }); \
+         var v = i.checkValidity(); \
+         '' + v + '/' + fired;");
+    assert_eq!(out, "true/false");
+}

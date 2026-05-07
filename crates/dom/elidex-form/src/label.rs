@@ -19,13 +19,21 @@ pub fn is_labelable_element(dom: &EcsDom, entity: Entity) -> bool {
         return false;
     };
     let tag_str = tag.0.as_str();
-    if !matches!(
-        tag_str,
-        "button" | "input" | "meter" | "output" | "progress" | "select" | "textarea"
-    ) {
+    // ASCII-case-insensitive: HTML parser already lowers, but
+    // `EcsDom::create_element` is reachable from non-parser callers
+    // (tests, internal builders) and `is_labelable_element` is exposed
+    // for those paths, so tolerate uppercase / mixed case.
+    let is_input = tag_str.eq_ignore_ascii_case("input");
+    if !is_input
+        && ![
+            "button", "meter", "output", "progress", "select", "textarea",
+        ]
+        .iter()
+        .any(|labelable| tag_str.eq_ignore_ascii_case(labelable))
+    {
         return false;
     }
-    if tag_str == "input" {
+    if is_input {
         // `<input type=hidden>` is explicitly NOT labelable.  Prefer
         // `FormControlState.kind` (already ASCII-lowered at attach
         // time); fall back to the raw content attribute for
@@ -47,9 +55,11 @@ pub fn is_labelable_element(dom: &EcsDom, entity: Entity) -> bool {
 }
 
 /// Resolve the `for` attribute of a `<label>` to a target form
-/// control entity.  Returns the entity with the matching `id` whose
-/// tag is a labelable element (HTML §4.10.4), preferring entities
-/// that already carry [`FormControlState`].
+/// control entity.  WHATWG HTML §4.10.4: returns the first labelable
+/// element in **tree order** within the label's owner document
+/// whose `id` matches.  Falls back to `FormControlState` membership
+/// when the labelable check rejects, so older state-only paths stay
+/// observable.
 #[must_use]
 pub fn resolve_label_for(dom: &EcsDom, label_entity: Entity) -> Option<Entity> {
     let for_id: String = {
@@ -61,19 +71,22 @@ pub fn resolve_label_for(dom: &EcsDom, label_entity: Entity) -> Option<Entity> {
         v.to_owned()
     };
 
-    // Walk every entity carrying an `id` attribute; accept the first
-    // labelable match.  Falls back to `FormControlState` membership
-    // when the labelable check rejects (defensive — older state-only
-    // pathways stay observable).
-    dom.world()
-        .query::<(Entity, &Attributes)>()
-        .iter()
-        .find(|(entity, attrs)| {
-            attrs.get("id") == Some(for_id.as_str())
-                && (is_labelable_element(dom, *entity)
-                    || dom.world().get::<&FormControlState>(*entity).is_ok())
-        })
-        .map(|(entity, _)| entity)
+    // Document-order pre-order DFS via `EcsDom::find_by_id`, anchored
+    // at the label's tree root.  Per HTML §4.10.4 the lookup is
+    // restricted to "the same tree as the label element", so we
+    // climb to the label's tree root rather than scanning every
+    // entity in the world (which would also surface detached siblings
+    // and non-document elements).  `find_tree_root` returns the label
+    // itself when detached, so detached labels also work.
+    let root = dom.find_tree_root(label_entity);
+    let candidate = dom.find_by_id(root, for_id.as_str())?;
+    if is_labelable_element(dom, candidate)
+        || dom.world().get::<&FormControlState>(candidate).is_ok()
+    {
+        Some(candidate)
+    } else {
+        None
+    }
 }
 
 /// Find the first descendant labelable element of a label element.
@@ -126,7 +139,10 @@ mod tests {
     fn resolve_label_for_attribute() {
         let mut dom = EcsDom::new();
 
-        // Create input with id="name"
+        // HTML §4.10.4 restricts `for=` lookup to the same tree as
+        // the label.  Build a tiny shared container so both nodes
+        // share a tree root.
+        let container = dom.create_element("div", Attributes::default());
         let mut input_attrs = Attributes::default();
         input_attrs.set("id", "name");
         let input = dom.create_element("input", input_attrs.clone());
@@ -134,13 +150,58 @@ mod tests {
             input,
             FormControlState::from_element("input", &input_attrs).unwrap(),
         );
+        let _ = dom.append_child(container, input);
 
-        // Create label with for="name"
+        let mut label_attrs = Attributes::default();
+        label_attrs.set("for", "name");
+        let label = dom.create_element("label", label_attrs);
+        let _ = dom.append_child(container, label);
+
+        assert_eq!(resolve_label_for(&dom, label), Some(input));
+    }
+
+    #[test]
+    fn resolve_label_for_returns_none_when_not_in_same_tree() {
+        // HTML §4.10.4 — `for=` must resolve to an entity in the
+        // same tree as the label.  Detached label + detached target
+        // share no tree, so the lookup returns None even when an `id`
+        // match exists somewhere else in the world.
+        let mut dom = EcsDom::new();
+        let mut input_attrs = Attributes::default();
+        input_attrs.set("id", "name");
+        let _input = dom.create_element("input", input_attrs);
+
         let mut label_attrs = Attributes::default();
         label_attrs.set("for", "name");
         let label = dom.create_element("label", label_attrs);
 
-        assert_eq!(resolve_label_for(&dom, label), Some(input));
+        assert_eq!(resolve_label_for(&dom, label), None);
+    }
+
+    #[test]
+    fn resolve_label_for_returns_first_in_document_order() {
+        // HTML §4.10.4 — pre-order DFS, first labelable match wins.
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+
+        let mut earlier = Attributes::default();
+        earlier.set("id", "x");
+        let first = dom.create_element("input", earlier);
+        let _ = dom.append_child(container, first);
+
+        // Sibling later in tree order also has the same id (invalid
+        // markup, but the match must pick the first one).
+        let mut later = Attributes::default();
+        later.set("id", "x");
+        let second = dom.create_element("textarea", later);
+        let _ = dom.append_child(container, second);
+
+        let mut label_attrs = Attributes::default();
+        label_attrs.set("for", "x");
+        let label = dom.create_element("label", label_attrs);
+        let _ = dom.append_child(container, label);
+
+        assert_eq!(resolve_label_for(&dom, label), Some(first));
     }
 
     #[test]
@@ -217,5 +278,18 @@ mod tests {
         let label = dom.create_element("label", Attributes::default());
         assert!(!is_labelable_element(&dom, div));
         assert!(!is_labelable_element(&dom, label));
+    }
+
+    #[test]
+    fn is_labelable_element_ascii_ci_tag_match() {
+        // Non-parser paths can store tags in mixed case; the matcher
+        // tolerates that per the function's documented contract.
+        let mut dom = EcsDom::new();
+        let upper_input = dom.create_element("INPUT", Attributes::default());
+        let mixed_button = dom.create_element("BuTToN", Attributes::default());
+        let upper_textarea = dom.create_element("TEXTAREA", Attributes::default());
+        assert!(is_labelable_element(&dom, upper_input));
+        assert!(is_labelable_element(&dom, mixed_button));
+        assert!(is_labelable_element(&dom, upper_textarea));
     }
 }

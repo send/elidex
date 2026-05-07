@@ -127,6 +127,15 @@ fn form_elements_returns_collection() {
 }
 
 #[test]
+fn form_elements_is_same_object() {
+    // F5 regression — WebIDL `[SameObject]`: successive reads of
+    // `form.elements` return the same wrapper id.
+    let out = run("var f = document.createElement('form'); \
+         (f.elements === f.elements) ? 'same' : 'diff';");
+    assert_eq!(out, "same");
+}
+
+#[test]
 fn form_submit_throws_not_supported_error() {
     let out = run("var f = document.createElement('form'); \
          try { f.submit(); 'no-throw'; } \

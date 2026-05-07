@@ -212,6 +212,48 @@ fn select_add_rejects_non_option_element() {
 }
 
 #[test]
+fn select_add_with_fractional_numeric_before_truncates_via_to_int32() {
+    // F6 regression — numeric `before` is coerced through WebIDL
+    // ToInt32 (HTML §4.10.7.5).  Fractional → trunc-toward-zero,
+    // so 1.7 → 1, meaning insert before options[1].
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         var o3 = document.createElement('option'); \
+         s.add(o1); s.add(o2); \
+         s.add(o3, 1.7); \
+         (s.item(0) === o1 && s.item(1) === o3 && s.item(2) === o2) ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn select_add_with_out_of_range_numeric_before_appends() {
+    // F6 regression — index >= options.length resolves to no
+    // `before` reference and appends.  Pre-fix this used a raw
+    // `as i64` cast which behaves consistently for in-range values
+    // but loses the ToInt32 wrap semantics for very large numbers.
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         s.add(o1); \
+         s.add(o2, 999); \
+         (s.item(0) === o1 && s.item(1) === o2) ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn select_add_with_negative_numeric_before_appends() {
+    // F6 regression — negative `before` index appends per spec.
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         s.add(o1); \
+         s.add(o2, -5); \
+         (s.item(0) === o1 && s.item(1) === o2) ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn select_remove_with_index_drops_option() {
     let out = run("var s = document.createElement('select'); \
          var o1 = document.createElement('option'); \
