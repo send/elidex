@@ -590,23 +590,41 @@ fn native_select_set_value(
     let target_sid = super::super::coerce::to_string(ctx.vm, val)?;
     let target = ctx.vm.strings.get_utf8(target_sid);
     // HTML §4.10.7.4 value setter hoisted to elidex-form
-    // (slot #11-tags-T1-v2-drift-hoist D-4).  Snapshot affected
-    // options for `attr_wrapper_cache` invalidation post-mutation
-    // (matches the partial invalidation pre-PR did via `attr_remove`,
-    // see sibling `native_select_set_selected_index` for rationale).
+    // (slot #11-tags-T1-v2-drift-hoist D-4).  Pre-PR semantics: only
+    // options whose `selected` attribute is *removed* by the setter
+    // need their `attr_wrapper_cache` entry invalidated; the matching
+    // option that retains `selected` keeps its `Attr` wrapper identity.
+    // Snapshot the options that had `selected` before the mutation,
+    // then invalidate only those that have lost it after.
     let selected_sid = ctx.vm.strings.intern("selected");
-    let affected: Vec<Entity> = {
+    let was_selected: Vec<Entity> = {
         let dom = ctx.host().dom();
         let mut opts = elidex_dom_api::LiveCollection::new(
             entity,
             elidex_dom_api::CollectionFilter::Options,
             elidex_dom_api::CollectionKind::HtmlCollection,
         );
-        opts.snapshot(dom).to_vec()
+        opts.snapshot(dom)
+            .iter()
+            .copied()
+            .filter(|opt| {
+                dom.world()
+                    .get::<&elidex_ecs::Attributes>(*opt)
+                    .is_ok_and(|a| a.contains("selected"))
+            })
+            .collect()
     };
     elidex_form::select_set_value(ctx.host().dom(), entity, &target);
-    for opt in affected {
-        ctx.vm.invalidate_attr_cache_entry(opt, selected_sid);
+    for opt in was_selected {
+        let still_selected = ctx
+            .host()
+            .dom()
+            .world()
+            .get::<&elidex_ecs::Attributes>(opt)
+            .is_ok_and(|a| a.contains("selected"));
+        if !still_selected {
+            ctx.vm.invalidate_attr_cache_entry(opt, selected_sid);
+        }
     }
     Ok(JsValue::Undefined)
 }

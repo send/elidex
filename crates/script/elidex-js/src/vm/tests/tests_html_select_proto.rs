@@ -534,6 +534,28 @@ fn select_value_setter_invalidates_attr_wrapper_cache() {
 }
 
 #[test]
+fn select_value_setter_preserves_attr_identity_when_value_unchanged() {
+    // PR #164 R2 regression — when `select.value = X` is set to a
+    // value that's already selected, the matching option's `selected`
+    // attribute is NOT touched, so the cached `Attr` wrapper identity
+    // must be preserved.  Pre-PR `attr_remove`-only invalidation
+    // skipped the matching option intentionally; the binding-layer
+    // invalidation must mirror that semantics rather than blanket-
+    // invalidate every option.
+    let out = run(
+        "var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); o1.value = 'a'; o1.setAttribute('selected', ''); \
+         var o2 = document.createElement('option'); o2.value = 'b'; \
+         s.add(o1); s.add(o2); \
+         var attrBefore = o1.getAttributeNode('selected'); \
+         s.value = 'a'; \
+         var attrAfter = o1.getAttributeNode('selected'); \
+         '' + (attrBefore !== null) + '/' + (attrBefore === attrAfter);",
+    );
+    assert_eq!(out, "true/true");
+}
+
+#[test]
 fn select_brand_check_throws_on_non_select_receiver() {
     let out = run("var d = document.createElement('div'); \
          var s = document.createElement('select'); \
