@@ -113,6 +113,13 @@ impl StorageBackend<'_> {
         }
     }
 
+    fn contains_key(&self, key: &str) -> bool {
+        match self {
+            Self::Local { manager, origin } => manager.local_contains_key(origin, key),
+            Self::InMemory { state } => state.contains_key(key),
+        }
+    }
+
     fn set(&mut self, key: &str, value: &str) -> Result<Option<String>, StorageError> {
         match self {
             Self::Local { manager, origin } => manager.local_set(origin, key, value),
@@ -493,7 +500,14 @@ fn area_from_id(vm: &VmInner, id: ObjectId) -> Option<bool> {
     }
 }
 
-/// `[[HasProperty]]` trap.
+/// `[[HasProperty]]` trap.  Returns `Some(Ok(true))` for stored keys,
+/// `Some(Ok(false))` for definitive misses (key not on prototype chain
+/// AND not in the storage backend), and `None` only when the key
+/// resolves through the prototype chain so the dispatch site walks
+/// `getItem` / `length` / etc. via the ordinary path.  Definitive-
+/// miss short-circuit avoids a second prototype walk and skips
+/// cloning the stored value (presence-only via
+/// [`StorageBackend::contains_key`]).
 pub(crate) fn try_has(
     vm: &mut VmInner,
     id: ObjectId,
@@ -508,17 +522,16 @@ pub(crate) fn try_has(
         return None;
     }
     if !is_bound(vm) {
+        // Match `super::dataset::try_has` post-unbind contract:
+        // fall through to ordinary [[HasProperty]] (which on a
+        // sealed wrapper with no own data returns `false`).
         return None;
     }
     let key_str = vm.strings.get_utf8(sid);
     let backend = backend_for(vm, is_local);
-    let present = backend.get(&key_str).is_some();
+    let present = backend.contains_key(&key_str);
     drop(backend);
-    if present {
-        Some(Ok(true))
-    } else {
-        None
-    }
+    Some(Ok(present))
 }
 
 /// `[[Get]]` trap.

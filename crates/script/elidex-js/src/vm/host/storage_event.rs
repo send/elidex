@@ -94,11 +94,14 @@ fn read_url(
     Ok(JsValue::String(sid))
 }
 
-/// Read the `storageArea` member — `null` default; non-null values
-/// must be `Storage`-branded (`null` allowed for "not associated";
-/// any other Object value is preserved verbatim per the WebIDL
-/// `Storage?` nullable type).  Phase 2: pass-through with no brand
-/// validation — Chrome accepts arbitrary Object values here too.
+/// Read the `storageArea` member — `null` default; missing /
+/// `undefined` collapse to `null`, every other value (including
+/// non-Storage Objects) is preserved verbatim.  WebIDL spells the
+/// type as `Storage?`, but Chrome / Firefox / Safari all accept
+/// arbitrary values here without brand-checking, and round-tripping
+/// the user-supplied value is a strict superset of the spec
+/// behaviour for the `Storage` / `null` cases.  No brand check is
+/// performed in this implementation either.
 fn read_storage_area(
     ctx: &mut NativeContext<'_>,
     opts_id: Option<ObjectId>,

@@ -305,6 +305,22 @@ fn storage_delete_removes_stored() {
 }
 
 #[test]
+fn storage_in_operator_absent_returns_false_definitively() {
+    // Regression: `try_has` previously cloned the stored value
+    // (`backend.get(...).is_some()`) and returned `None` on miss,
+    // forcing the dispatch site into a redundant prototype walk.
+    // After R2: presence-only `contains_key` + `Some(Ok(false))`
+    // short-circuits both costs.  Validates: an absent key is
+    // observably `false in localStorage`, regardless of how many
+    // built-in method names share the prototype.
+    let out = run(
+        "(('definitely-absent' in localStorage) ? 'yes' : 'no') + ',' + \
+         (('also-absent' in sessionStorage) ? 'yes' : 'no');",
+    );
+    assert_eq!(out, "no,no");
+}
+
+#[test]
 fn storage_in_operator_reflects_stored() {
     let out = run("localStorage.setItem('k', 'v'); \
          (('k' in localStorage) ? 'yes' : 'no') + ',' + \

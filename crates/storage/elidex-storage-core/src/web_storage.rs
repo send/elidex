@@ -298,6 +298,20 @@ impl WebStorageManager {
         dirty.insert(origin.to_string());
     }
 
+    /// Test whether `key` is present in `origin`'s localStorage
+    /// without cloning the value.  Used by the binding layer's
+    /// `[[HasProperty]]` / `hasOwnProperty` traps where only
+    /// presence matters; avoiding the clone is meaningful when
+    /// stored values are megabyte-scale (legal up to the 5 MiB
+    /// quota).
+    pub fn local_contains_key(&self, origin: &str, key: &str) -> bool {
+        let store = self.store_for(origin);
+        let guard = store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.data.contains_key(key)
+    }
+
     /// Look up `key` in `origin`'s localStorage. `None` for absent.
     pub fn local_get(&self, origin: &str, key: &str) -> Option<String> {
         let store = self.store_for(origin);
@@ -494,6 +508,12 @@ impl SessionStorageState {
 
     pub fn get(&self, key: &str) -> Option<String> {
         self.data.get(key).cloned()
+    }
+
+    /// Presence check without cloning the value — see
+    /// [`WebStorageManager::local_contains_key`] for rationale.
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.data.contains_key(key)
     }
 
     /// Mirror of [`WebStorageManager::local_set`] — returns previous
@@ -699,10 +719,11 @@ mod tests {
 
     #[test]
     fn local_load_caps_oversized_file() {
-        // A 3 MiB file (> MAX_LOCAL_STORE_FILE_BYTES would be > 10
-        // MiB; pick a size that's well under to confirm the path
-        // hasn't accidentally rejected a normal file).  Then test
-        // the actual cap via a synthetic file.
+        // First half: a 1 MiB value persists and reloads — well under
+        // the 64 MiB `MAX_LOCAL_STORE_FILE_BYTES` cap, confirms the
+        // load path hasn't accidentally rejected a normal file.
+        // Second half: synthesise a file just over the cap and confirm
+        // load() falls back to empty (not OOM).
         let dir = tempfile::tempdir().unwrap();
         let mgr = WebStorageManager::new(dir.path().to_path_buf());
         let key = "k";
