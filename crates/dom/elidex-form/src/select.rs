@@ -64,6 +64,97 @@ pub fn is_option_disabled(dom: &EcsDom, entity: Entity) -> bool {
     false
 }
 
+/// Compute `<option>.index` (HTML §4.10.10): walks up to the
+/// enclosing `<select>` / `<datalist>` (skipping any `<optgroup>` /
+/// other wrapper, bounded by `MAX_ANCESTOR_DEPTH`), then descends
+/// through the container's option / optgroup tree to count this
+/// option's position.  Returns `None` for detached options or
+/// options with no enclosing container.
+///
+/// `<optgroup>` nesting is technically forbidden by the spec but
+/// JS-driven `appendChild` can construct it; this walker tolerates
+/// arbitrary depth (capped by `MAX_ANCESTOR_DEPTH`) so the index
+/// stays meaningful for malformed-but-constructible trees.
+#[must_use]
+pub fn find_option_index_in_tree(dom: &EcsDom, option: Entity) -> Option<i32> {
+    let container = find_options_container(dom, option)?;
+    let mut count: u32 = 0;
+    let mut found: i32 = -1;
+    walk_options(dom, container, &mut count, option, &mut found, 0);
+    if found >= 0 {
+        Some(found)
+    } else {
+        None
+    }
+}
+
+/// Walk up the option's ancestor chain (bounded by
+/// `MAX_ANCESTOR_DEPTH`) until reaching the first `<select>` or
+/// `<datalist>` element.  Skips intermediate `<optgroup>` /
+/// `<div>` / etc. so JS-constructed nested-optgroup trees still
+/// resolve correctly.
+fn find_options_container(dom: &EcsDom, option: Entity) -> Option<Entity> {
+    let mut current = dom.get_parent(option)?;
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let is_container = dom.world().get::<&TagType>(current).is_ok_and(|t| {
+            t.0.eq_ignore_ascii_case("select") || t.0.eq_ignore_ascii_case("datalist")
+        });
+        if is_container {
+            return Some(current);
+        }
+        current = dom.get_parent(current)?;
+    }
+    None
+}
+
+fn walk_options(
+    dom: &EcsDom,
+    parent: Entity,
+    count: &mut u32,
+    target: Entity,
+    found: &mut i32,
+    depth: usize,
+) {
+    // Cap recursion depth — JS can construct pathologically nested
+    // `<optgroup>` (spec forbids, parser doesn't reject).  Bail at
+    // `MAX_ANCESTOR_DEPTH` so `option.index` can't stack-overflow.
+    if depth > MAX_ANCESTOR_DEPTH {
+        return;
+    }
+    let Some(mut child) = dom.get_first_child(parent) else {
+        return;
+    };
+    loop {
+        let tag_is_option = dom
+            .world()
+            .get::<&TagType>(child)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("option"));
+        let tag_is_optgroup = dom
+            .world()
+            .get::<&TagType>(child)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("optgroup"));
+        if tag_is_option {
+            if child == target {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                {
+                    *found = i32::try_from(*count).unwrap_or(i32::MAX);
+                }
+                return;
+            }
+            *count += 1;
+        } else if tag_is_optgroup {
+            walk_options(dom, child, count, target, found, depth + 1);
+            if *found >= 0 {
+                return;
+            }
+        }
+        let Some(next) = dom.get_next_sibling(child) else {
+            return;
+        };
+        child = next;
+    }
+}
+
 /// Try to mark an option index as selected, returning the i32 index.
 fn try_mark_selected(options: &[crate::SelectOption], selected_index: &mut i32) {
     if options.last().is_some_and(|opt| opt.selected) && *selected_index < 0 {

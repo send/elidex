@@ -244,6 +244,31 @@ fn textarea_selection_end_setter_round_trip() {
 }
 
 #[test]
+fn textarea_max_length_negative_removes_attribute() {
+    // R19 F1 regression — same as input.maxLength: negative
+    // values clear the `maxlength` content attribute per
+    // HTML §6.13.1 reflection rules.
+    let out = run("var t = document.createElement('textarea'); \
+         t.maxLength = 5; \
+         t.maxLength = -1; \
+         '' + t.hasAttribute('maxlength') + '/' + t.maxLength;");
+    assert_eq!(out, "false/-1");
+}
+
+#[test]
+fn textarea_set_range_text_coerces_boolean_start_end() {
+    // R19 F2 regression — WebIDL `unsigned long` coercion:
+    // boolean true → 1 / false → 0 via ToNumber → ToInt32, not
+    // the old "non-Number defaults to 0" fallback.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abcdef'; \
+         t.setRangeText('Z', true, true); \
+         t.value;");
+    // start=1 (true→1), end=1 (true→1) → insertion point at 1, no chars replaced
+    assert_eq!(out, "aZbcdef");
+}
+
+#[test]
 fn textarea_set_range_text_replaces_selection() {
     let out = run("var t = document.createElement('textarea'); \
          t.value = 'abcdef'; \

@@ -744,9 +744,17 @@ fn native_input_set_max_length(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    ctx.host()
-        .dom()
-        .set_attribute(entity, "maxlength", n.to_string());
+    // HTML §6.13.1 reflection rule for `unsigned long` length attrs:
+    // negative values clear the content attribute (the IDL getter
+    // then returns the default `-1`), instead of persisting an
+    // illegal `maxlength="-1"`.
+    if n < 0 {
+        super::element_attrs::attr_remove(ctx, entity, "maxlength");
+    } else {
+        ctx.host()
+            .dom()
+            .set_attribute(entity, "maxlength", n.to_string());
+    }
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         state.maxlength = if n < 0 { None } else { Some(n as usize) };
@@ -772,9 +780,14 @@ fn native_input_set_min_length(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    ctx.host()
-        .dom()
-        .set_attribute(entity, "minlength", n.to_string());
+    // HTML §6.13.1 reflection rule (see `set_max_length`).
+    if n < 0 {
+        super::element_attrs::attr_remove(ctx, entity, "minlength");
+    } else {
+        ctx.host()
+            .dom()
+            .set_attribute(entity, "minlength", n.to_string());
+    }
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         state.minlength = if n < 0 { None } else { Some(n as usize) };
@@ -1434,20 +1447,18 @@ fn native_input_set_range_text(
     let replacement_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, replacement_arg)?;
     let replacement = ctx.vm.strings.get_utf8(sid);
-    // Optional start / end / mode args.
+    // Optional start / end via WebIDL `unsigned long` coercion
+    // (HTML §4.10.5.2.10) — `to_int32` runs ToNumber first so
+    // strings ("2"), booleans (true → 1 / false → 0), and
+    // BigInts all coerce.  `Undefined` / missing → use the
+    // current selection bounds.  Negatives clamp to 0.
+    let coerced_start = coerce_optional_clamp(ctx, args.get(1).copied())?;
+    let coerced_end = coerce_optional_clamp(ctx, args.get(2).copied())?;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         let (cur_s, cur_e) = state.safe_selection_range();
-        let start = if let Some(v) = args.get(1).copied() {
-            (v.try_to_int_or_zero()).max(0) as usize
-        } else {
-            cur_s
-        };
-        let end = if let Some(v) = args.get(2).copied() {
-            (v.try_to_int_or_zero()).max(0) as usize
-        } else {
-            cur_e
-        };
+        let start = coerced_start.unwrap_or(cur_s);
+        let end = coerced_end.unwrap_or(cur_e);
         state.set_selection(start, end);
         // FormControlState exposes `replace_selection` directly,
         // matching `elidex_form::selection::replace_selection` but
@@ -1457,14 +1468,21 @@ fn native_input_set_range_text(
     Ok(JsValue::Undefined)
 }
 
-trait JsValueIntCoerce {
-    fn try_to_int_or_zero(self) -> i32;
-}
-impl JsValueIntCoerce for JsValue {
-    fn try_to_int_or_zero(self) -> i32 {
-        match self {
-            JsValue::Number(n) if n.is_finite() => n as i32,
-            _ => 0,
+/// Coerce an optional `start` / `end` argument from `setRangeText`
+/// / `setSelectionRange` into a non-negative usize.  `Undefined` /
+/// missing yields `None` (caller substitutes the current selection
+/// bound); other values flow through `to_int32` (full WebIDL
+/// `long` coercion: ToNumber → trunc → mod-2³²) and clamp negatives
+/// to 0 per HTML §4.10.5.2.10.
+fn coerce_optional_clamp(
+    ctx: &mut NativeContext<'_>,
+    arg: Option<JsValue>,
+) -> Result<Option<usize>, VmError> {
+    match arg {
+        None | Some(JsValue::Undefined) => Ok(None),
+        Some(v) => {
+            let n = super::super::coerce::to_int32(ctx.vm, v)?;
+            Ok(Some(n.max(0) as usize))
         }
     }
 }

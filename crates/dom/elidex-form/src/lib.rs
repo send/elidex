@@ -30,14 +30,17 @@ pub use radio::{
     find_radio_group, find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate,
     toggle_radio,
 };
-pub use select::{init_select_options, is_option_disabled, navigate_select, select_option};
+pub use select::{
+    find_option_index_in_tree, init_select_options, is_option_disabled, navigate_select,
+    select_option,
+};
 pub use selection::{collapse_selection, delete_selection, extend_selection, select_all};
 pub use sizing::form_intrinsic_size;
 pub use submit::{
     build_form_submission, collect_form_data, encode_form_urlencoded, find_form_ancestor,
     read_form_attrs, reset_form, FormAttrs, FormDataEntry, FormSubmission,
 };
-pub use validation::{validate_control, ValidityState};
+pub use validation::{is_constraint_validation_candidate, validate_control, ValidityState};
 
 use elidex_ecs::Attributes;
 use std::sync::Arc;

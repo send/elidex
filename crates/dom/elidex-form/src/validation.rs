@@ -2,7 +2,34 @@
 
 use std::sync::OnceLock;
 
+use elidex_ecs::{EcsDom, Entity};
+
 use crate::{FormControlKind, FormControlState};
+
+/// HTML §4.10.20.3 "candidate for constraint validation" predicate
+/// — a form control is considered a candidate when it is
+/// submittable, not disabled, not `<input type=hidden>`, and not a
+/// descendant of a disabled `<fieldset>`.  Used by ValidityState
+/// accessors and `checkValidity()` to bypass the validation
+/// algorithm for barred controls (whose stored bits stay at their
+/// initialised all-false values per the spec).
+#[must_use]
+pub fn is_constraint_validation_candidate(
+    state: &FormControlState,
+    entity: Entity,
+    dom: &EcsDom,
+) -> bool {
+    if !state.kind.is_submittable() {
+        return false;
+    }
+    if state.disabled {
+        return false;
+    }
+    if matches!(state.kind, FormControlKind::Hidden) {
+        return false;
+    }
+    !crate::is_fieldset_disabled(entity, dom)
+}
 
 /// WHATWG HTML §4.10.5.1.6 email validation regex, compiled once.
 fn email_regex() -> &'static regex::Regex {

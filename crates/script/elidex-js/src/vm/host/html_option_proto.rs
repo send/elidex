@@ -339,104 +339,14 @@ fn native_option_get_index(
     let Some(entity) = require_option_receiver(ctx, this, "index")? else {
         return Ok(JsValue::Number(-1.0));
     };
-    // Walk up the ancestor chain to find the enclosing
-    // `<select>` / `<datalist>` container.  Per HTML §4.10.10
-    // step 1: `option.index` = position in the list returned by
-    // the container's `.options` getter, or -1 if no enclosing
-    // container exists.  Spec disallows nested `<optgroup>`
-    // elements, but JS-driven `appendChild` can construct them
-    // anyway; rather than special-casing parent + grandparent
-    // only, walk through any number of optgroup ancestors (up to
-    // `MAX_ANCESTOR_DEPTH`) until a select / datalist is found.
-    // The recursive `walk_options` already handles arbitrarily
-    // nested optgroups inside the container.
-    let Some(container_entity) = find_options_container(ctx, entity) else {
-        return Ok(JsValue::Number(-1.0));
-    };
-    let mut count: u32 = 0;
-    let mut found: i32 = -1;
-    walk_options(
-        ctx.host().dom(),
-        container_entity,
-        &mut count,
-        entity,
-        &mut found,
-        0,
-    );
-    Ok(JsValue::Number(f64::from(found)))
-}
-
-fn walk_options(
-    dom: &elidex_ecs::EcsDom,
-    parent: Entity,
-    count: &mut u32,
-    target: Entity,
-    found: &mut i32,
-    depth: usize,
-) {
-    // Cap recursion depth — a JS-supplied tree can in principle
-    // contain pathologically nested `<optgroup>` elements (the spec
-    // forbids it, but the parser doesn't reject it).  Bail out at
-    // `MAX_ANCESTOR_DEPTH` so `option.index` can't stack-overflow
-    // the process on hostile input.
-    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
-        return;
-    }
-    let Some(mut child) = dom.get_first_child(parent) else {
-        return;
-    };
-    loop {
-        let tag_is_option = dom
-            .world()
-            .get::<&elidex_ecs::TagType>(child)
-            .is_ok_and(|t| t.0.eq_ignore_ascii_case("option"));
-        let tag_is_optgroup = dom
-            .world()
-            .get::<&elidex_ecs::TagType>(child)
-            .is_ok_and(|t| t.0.eq_ignore_ascii_case("optgroup"));
-        if tag_is_option {
-            if child == target {
-                // u32 → i32 cast: forms typically hold ≤ a few
-                // hundred options; far below i32::MAX.  Saturating
-                // is a safe ceiling for the unlikely overflow.
-                *found = i32::try_from(*count).unwrap_or(i32::MAX);
-                // Index is fully determined; bail out of any
-                // remaining sibling / optgroup-recursion work.
-                return;
-            }
-            *count += 1;
-        } else if tag_is_optgroup {
-            walk_options(dom, child, count, target, found, depth + 1);
-            if *found >= 0 {
-                // Recursive call located the target; unwind.
-                return;
-            }
-        }
-        let Some(next) = dom.get_next_sibling(child) else {
-            return;
-        };
-        child = next;
-    }
-}
-
-/// Walk up the option's ancestor chain (bounded by
-/// `MAX_ANCESTOR_DEPTH`) until reaching the first `<select>` or
-/// `<datalist>` element.  Skips intermediate `<optgroup>` /
-/// `<div>` / etc. so JS-constructed nested-optgroup trees still
-/// resolve correctly.  Returns `None` when the option is detached
-/// or has no enclosing options container.
-fn find_options_container(ctx: &mut NativeContext<'_>, entity: Entity) -> Option<Entity> {
-    let dom = ctx.host().dom();
-    let mut current = dom.get_parent(entity)?;
-    for _ in 0..elidex_ecs::MAX_ANCESTOR_DEPTH {
-        if ctx.host().tag_matches_ascii_case(current, "select")
-            || ctx.host().tag_matches_ascii_case(current, "datalist")
-        {
-            return Some(current);
-        }
-        current = ctx.host().dom().get_parent(current)?;
-    }
-    None
+    // HTML §4.10.10 `option.index` algorithm hoisted to
+    // `elidex_form::find_option_index_in_tree` per CLAUDE.md
+    // "Layering mandate" — the ancestor walk + descendant counter
+    // is engine-independent and was previously a `walk_options`
+    // recursion + `find_options_container` ancestor walk inline
+    // here.
+    let idx = elidex_form::find_option_index_in_tree(ctx.host().dom(), entity).unwrap_or(-1);
+    Ok(JsValue::Number(f64::from(idx)))
 }
 
 fn native_option_get_form(

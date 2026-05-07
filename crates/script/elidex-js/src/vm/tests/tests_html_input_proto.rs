@@ -198,6 +198,32 @@ fn input_required_round_trip() {
 }
 
 #[test]
+fn input_max_length_negative_removes_attribute() {
+    // R19 F1 regression — HTML §6.13.1 reflection rule for
+    // unsigned-long length attrs: negative values clear the
+    // content attribute (IDL getter falls back to default -1)
+    // rather than persist `maxlength="-1"`.
+    let out = run("var i = document.createElement('input'); \
+         i.maxLength = 10; \
+         i.maxLength = -1; \
+         '' + i.hasAttribute('maxlength') + '/' + i.maxLength;");
+    assert_eq!(out, "false/-1");
+}
+
+#[test]
+fn input_set_range_text_coerces_string_start_end() {
+    // R19 F2 regression — WebIDL `unsigned long` coercion: string
+    // arguments flow through ToInt32 (`"2"` → 2), not the old
+    // `try_to_int_or_zero` fallback that defaulted everything
+    // non-finite-Number to 0.
+    let out = run("var i = document.createElement('input'); \
+         i.value = 'abcdef'; \
+         i.setRangeText('XY', '1', '4'); \
+         i.value;");
+    assert_eq!(out, "aXYef");
+}
+
+#[test]
 fn input_max_length_round_trip() {
     let out = run("var i = document.createElement('input'); \
          i.maxLength = 32; \

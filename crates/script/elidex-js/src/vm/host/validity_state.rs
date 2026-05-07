@@ -168,33 +168,17 @@ fn with_validity<F: FnOnce(&elidex_form::ValidityState) -> bool>(
     let Ok(state) = dom.world().get::<&FormControlState>(entity) else {
         return Ok(JsValue::Boolean(default_when_no_state));
     };
-    if !is_constraint_validation_candidate(&state, entity, dom) {
+    if !elidex_form::is_constraint_validation_candidate(&state, entity, dom) {
         return Ok(JsValue::Boolean(default_when_no_state));
     }
     let validity = elidex_form::validate_control(&state);
     Ok(JsValue::Boolean(f(&validity)))
 }
 
-/// HTML §4.10.20.3 "candidate for constraint validation" predicate
-/// — submittable, not disabled, not `<input type=hidden>`, not in
-/// a disabled `<fieldset>`.
-fn is_constraint_validation_candidate(
-    state: &FormControlState,
-    entity: Entity,
-    dom: &elidex_ecs::EcsDom,
-) -> bool {
-    use elidex_form::FormControlKind;
-    if !state.kind.is_submittable() {
-        return false;
-    }
-    if state.disabled {
-        return false;
-    }
-    if matches!(state.kind, FormControlKind::Hidden) {
-        return false;
-    }
-    !elidex_form::is_fieldset_disabled(entity, dom)
-}
+// `is_constraint_validation_candidate` (HTML §4.10.20.3) hoisted to
+// `elidex_form::is_constraint_validation_candidate` per CLAUDE.md
+// "Layering mandate" — pure spec predicate belongs in the
+// engine-independent crate.
 
 fn native_validity_value_missing(
     ctx: &mut NativeContext<'_>,
@@ -412,7 +396,7 @@ fn native_get_validation_message(
         .world()
         .get::<&FormControlState>(entity)
         .ok()
-        .filter(|state| is_constraint_validation_candidate(state, entity, dom))
+        .filter(|state| elidex_form::is_constraint_validation_candidate(state, entity, dom))
         .map_or_else(String::new, |state| {
             // HTML §4.10.20.2: `validationMessage` is empty for
             // controls barred from constraint validation (matches

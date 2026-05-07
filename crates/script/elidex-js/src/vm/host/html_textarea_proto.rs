@@ -617,7 +617,15 @@ where
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    ctx.host().dom().set_attribute(entity, attr, n.to_string());
+    // HTML §6.13.1 reflection rule for `unsigned long` length attrs:
+    // negative values clear the content attribute (the IDL getter
+    // then returns the default `-1`), instead of persisting an
+    // illegal `maxlength="-1"` / `minlength="-1"`.
+    if n < 0 {
+        super::element_attrs::attr_remove(ctx, entity, attr);
+    } else {
+        ctx.host().dom().set_attribute(entity, attr, n.to_string());
+    }
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         apply(&mut state, if n < 0 { None } else { Some(n as usize) });
@@ -974,21 +982,35 @@ fn native_textarea_set_range_text(
     let replacement_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, replacement_arg)?;
     let replacement = ctx.vm.strings.get_utf8(sid);
+    // Optional start / end via WebIDL `unsigned long` coercion
+    // (HTML §4.10.5.2.10).  Mirrors `html_input_proto.rs` —
+    // strings / booleans / BigInts all flow through `to_int32`,
+    // negatives clamp to 0, missing / undefined uses the current
+    // selection bound.
+    let coerced_start = coerce_optional_clamp(ctx, args.get(1).copied())?;
+    let coerced_end = coerce_optional_clamp(ctx, args.get(2).copied())?;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         let (cur_s, cur_e) = state.safe_selection_range();
-        let start = match args.get(1).copied() {
-            Some(JsValue::Number(n)) if n.is_finite() => (n as i32).max(0) as usize,
-            Some(JsValue::Undefined) | None => cur_s,
-            _ => 0,
-        };
-        let end = match args.get(2).copied() {
-            Some(JsValue::Number(n)) if n.is_finite() => (n as i32).max(0) as usize,
-            Some(JsValue::Undefined) | None => cur_e,
-            _ => 0,
-        };
+        let start = coerced_start.unwrap_or(cur_s);
+        let end = coerced_end.unwrap_or(cur_e);
         state.set_selection(start, end);
         state.replace_selection(replacement.as_str());
     }
     Ok(JsValue::Undefined)
+}
+
+/// See `html_input_proto.rs::coerce_optional_clamp` for the
+/// WebIDL coercion contract.
+fn coerce_optional_clamp(
+    ctx: &mut NativeContext<'_>,
+    arg: Option<JsValue>,
+) -> Result<Option<usize>, VmError> {
+    match arg {
+        None | Some(JsValue::Undefined) => Ok(None),
+        Some(v) => {
+            let n = super::super::coerce::to_int32(ctx.vm, v)?;
+            Ok(Some(n.max(0) as usize))
+        }
+    }
 }
