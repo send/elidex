@@ -240,6 +240,20 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_html_iframe_prototype();
 
+        // T1-v2 form-control prototypes (slot #11-tags-T1-v2).  Each
+        // chains to `HTMLElement.prototype`, mirroring the iframe
+        // pattern.  Registration order: smallest IDL surface first
+        // (Label / OptGroup / Legend) so the install pattern is
+        // exercised quickly; larger surfaces (Option / FieldSet /
+        // Form / Button / TextArea / Select / Input) follow in the
+        // same #[cfg(feature = "engine")] block.
+        #[cfg(feature = "engine")]
+        {
+            self.register_html_label_prototype();
+            self.register_html_optgroup_prototype();
+            self.register_html_legend_prototype();
+        }
+
         // HTMLCollection.prototype / NodeList.prototype — shared
         // DOM collection prototypes.  Chain directly to
         // `Object.prototype` (WebIDL §3.10: legacy collection

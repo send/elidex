@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 68],
+    pub(super) proto_roots: [Option<ObjectId>; 81],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -178,6 +178,21 @@ pub(super) struct GcRoots<'a> {
     /// [`Self::class_list_wrapper_cache`].
     #[cfg(feature = "engine")]
     pub(super) dataset_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `ValidityState` `[SameObject]` identity cache.  Same
+    /// weak-through-owner semantics as
+    /// [`Self::class_list_wrapper_cache`] — entries are pinned only
+    /// while the owner element wrapper is reachable.  Sweep tail
+    /// prunes entries whose wrapper `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    pub(super) validity_state_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `HTMLOptionsCollection` `[SameObject]` identity cache.
+    /// Owner is the `<select>` entity.
+    #[cfg(feature = "engine")]
+    pub(super) options_collection_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `HTMLFormControlsCollection` `[SameObject]` identity cache.
+    /// Owner is the `<form>` or `<fieldset>` entity.
+    #[cfg(feature = "engine")]
+    pub(super) form_controls_collection_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -298,6 +313,29 @@ pub(super) fn mark_roots(
         }
         #[cfg(feature = "engine")]
         for (entity, &id) in roots.dataset_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        // (e4) T1-v2 form-control identity caches — same
+        // weak-through-owner contract as (e3) above.  Each cache is
+        // payload-free at the JS-object level (no fan-out beyond the
+        // wrapper itself), so a single mark per surviving entry
+        // suffices.
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.validity_state_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.options_collection_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.form_controls_collection_wrappers {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(id, obj_marks, work);
             }
