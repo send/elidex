@@ -15,6 +15,35 @@ use crate::{FormControlState, SelectOption};
 /// `init_select_options` etc.).
 pub use elidex_dom_api::element::is_option_disabled;
 
+/// Find the nearest `<select>` ancestor of `option` (HTML §4.10.10).
+///
+/// Used by `option.form` (HTML §4.10.10 — the form owner of an
+/// option is the form owner of its enclosing `<select>`, walking
+/// past any `<optgroup>` or other wrapper element JS DOM mutation
+/// can introduce). Bounded by `MAX_ANCESTOR_DEPTH` so a buggy
+/// `appendChild` cycle-check regression cannot wedge this accessor
+/// in an infinite loop. Returns `None` for detached options or
+/// options whose ancestor chain doesn't reach a `<select>`.
+///
+/// Tag matching is ASCII case-insensitive so JS-driven creation
+/// (`document.createElement("SELECT")`) is tolerated.
+#[must_use]
+pub fn find_option_select(dom: &EcsDom, option: Entity) -> Option<Entity> {
+    let mut current = dom.get_parent(option);
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let p = current?;
+        let is_select = dom
+            .world()
+            .get::<&TagType>(p)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("select"));
+        if is_select {
+            return Some(p);
+        }
+        current = dom.get_parent(p);
+    }
+    None
+}
+
 /// Compute `<option>.index` (HTML §4.10.10): walks up to the
 /// enclosing `<select>` / `<datalist>` (skipping any `<optgroup>` /
 /// other wrapper, bounded by `MAX_ANCESTOR_DEPTH`), then descends
@@ -554,5 +583,70 @@ mod tests {
         let opt = dom.create_element("option", Attributes::default());
         let _ = dom.append_child(sel, opt);
         assert!(!is_option_disabled(&dom, opt));
+    }
+
+    // -- find_option_select tests (D-1 hoist target) ---------------
+
+    #[test]
+    fn find_option_select_direct_parent() {
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, opt);
+        assert_eq!(find_option_select(&dom, opt), Some(sel));
+    }
+
+    #[test]
+    fn find_option_select_via_optgroup() {
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        let grp = dom.create_element("optgroup", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, grp);
+        let _ = dom.append_child(grp, opt);
+        assert_eq!(find_option_select(&dom, opt), Some(sel));
+    }
+
+    #[test]
+    fn find_option_select_through_arbitrary_wrapper() {
+        // JS-driven `<select><div><option>...` — JS DOM mutation can
+        // introduce wrappers between option and select; the walker
+        // climbs through them.
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        let wrapper = dom.create_element("div", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, wrapper);
+        let _ = dom.append_child(wrapper, opt);
+        assert_eq!(find_option_select(&dom, opt), Some(sel));
+    }
+
+    #[test]
+    fn find_option_select_returns_none_for_detached() {
+        let mut dom = EcsDom::new();
+        let opt = dom.create_element("option", Attributes::default());
+        assert_eq!(find_option_select(&dom, opt), None);
+    }
+
+    #[test]
+    fn find_option_select_returns_none_when_no_select_ancestor() {
+        // Option attached to a non-select container (e.g. a stray
+        // `<div>`) — `option.form` should return null.
+        let mut dom = EcsDom::new();
+        let div = dom.create_element("div", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(div, opt);
+        assert_eq!(find_option_select(&dom, opt), None);
+    }
+
+    #[test]
+    fn find_option_select_case_insensitive_tag() {
+        // JS-driven `document.createElement("SELECT")` keeps the
+        // mixed-case tag.  ASCII-CI match should still resolve.
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("SELECT", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, opt);
+        assert_eq!(find_option_select(&dom, opt), Some(sel));
     }
 }

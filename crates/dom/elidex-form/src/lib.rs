@@ -31,8 +31,8 @@ pub use radio::{
     toggle_radio,
 };
 pub use select::{
-    find_option_index_in_tree, init_select_options, is_option_disabled, navigate_select,
-    select_option,
+    find_option_index_in_tree, find_option_select, init_select_options, is_option_disabled,
+    navigate_select, select_option,
 };
 pub use selection::{collapse_selection, delete_selection, extend_selection, select_all};
 pub use sizing::form_intrinsic_size;
