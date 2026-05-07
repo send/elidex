@@ -245,7 +245,7 @@ impl VmInner {
     }
 }
 
-fn register_event_subclass(
+pub(super) fn register_event_subclass(
     vm: &mut VmInner,
     name: &str,
     func: NativeFn,

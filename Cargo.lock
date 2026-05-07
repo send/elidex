@@ -2006,6 +2006,7 @@ dependencies = [
  "elidex-net",
  "elidex-plugin",
  "elidex-script-session",
+ "elidex-storage-core",
  "encoding_rs",
  "hashbrown 0.15.5",
  "num-bigint",
@@ -2281,7 +2282,11 @@ dependencies = [
 name = "elidex-storage-core"
 version = "0.1.0"
 dependencies = [
+ "dirs",
+ "indexmap",
  "rusqlite",
+ "serde_json",
+ "sha2 0.11.0",
  "tempfile",
  "tracing",
  "url",

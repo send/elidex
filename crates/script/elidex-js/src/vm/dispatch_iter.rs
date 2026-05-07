@@ -106,6 +106,37 @@ impl VmInner {
         Ok(())
     }
 
+    /// WebIDL §3.10 named-property exotic for-in collection.
+    /// Returns `Some(keys)` when `obj_id` is a `DOMStringMap` or
+    /// `Storage` wrapper (sealed wrappers whose enumerable keys
+    /// come from the supported-property-names hook, not the
+    /// ordinary storage walk).  Returns `None` so the ordinary
+    /// for-in path runs for everything else.
+    ///
+    /// Errors from the underlying handler propagate (a stale
+    /// `Entity` or bridge failure on `dataset.keys` / a storage
+    /// backend error on the Storage path surfaces as a thrown
+    /// exception instead of a silent "no own keys").
+    #[cfg(feature = "engine")]
+    fn try_named_property_exotic_keys(
+        &mut self,
+        obj_id: super::value::ObjectId,
+    ) -> Result<Option<Vec<super::value::StringId>>, VmError> {
+        let kind = self.objects[obj_id.0 as usize].as_ref().map(|o| &o.kind);
+        if matches!(kind, Some(ObjectKind::DOMStringMap { .. })) {
+            if let Some(result) = super::host::dataset::collect_keys(self, obj_id) {
+                return Ok(Some(result?));
+            }
+        }
+        let kind = self.objects[obj_id.0 as usize].as_ref().map(|o| &o.kind);
+        if matches!(kind, Some(ObjectKind::Storage { .. })) {
+            if let Some(result) = super::host::storage::collect_keys(self, obj_id) {
+                return Ok(Some(result?));
+            }
+        }
+        Ok(None)
+    }
+
     /// `Op::ForInIterator` — collect enumerable string keys from the object
     /// and its prototype chain into a `ForInIterator` object.
     pub(super) fn op_for_in_iterator(&mut self) -> Result<(), VmError> {
@@ -121,25 +152,15 @@ impl VmInner {
             // skips because `Object.prototype` has no enumerable
             // properties.
             #[cfg(feature = "engine")]
-            if matches!(
-                self.objects[obj_id.0 as usize].as_ref().map(|o| &o.kind),
-                Some(ObjectKind::DOMStringMap { .. })
-            ) {
-                // Propagate handler errors instead of silently falling
-                // through to the ordinary for-in path: a stale entity
-                // or bridge error on `dataset.keys` should surface as
-                // a thrown exception, not a quiet "no own keys".
-                if let Some(result) = super::host::dataset::collect_keys(self, obj_id) {
-                    let keys = result?;
-                    let iter_obj = self.alloc_object(Object {
-                        kind: ObjectKind::ForInIterator(ForInState { keys, index: 0 }),
-                        storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                        prototype: None,
-                        extensible: true,
-                    });
-                    self.stack.push(JsValue::Object(iter_obj));
-                    return Ok(());
-                }
+            if let Some(keys) = self.try_named_property_exotic_keys(obj_id)? {
+                let iter_obj = self.alloc_object(Object {
+                    kind: ObjectKind::ForInIterator(ForInState { keys, index: 0 }),
+                    storage: PropertyStorage::shaped(super::shape::ROOT_SHAPE),
+                    prototype: None,
+                    extensible: true,
+                });
+                self.stack.push(JsValue::Object(iter_obj));
+                return Ok(());
             }
             let mut keys = Vec::new();
             let mut seen = std::collections::HashSet::new();

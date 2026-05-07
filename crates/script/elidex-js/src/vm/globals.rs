@@ -269,6 +269,15 @@ impl VmInner {
             // before the Window splice, since the constructor is a
             // top-level global and has no Window dependency.
             self.register_mutation_observer_global();
+            // Storage — chains directly to Object.prototype.
+            // Constructor is a stub (`Storage()` throws) but the
+            // `Storage` global must exist before
+            // `register_window_prototype` so the `localStorage` /
+            // `sessionStorage` accessors can reference
+            // `storage_prototype` when they allocate the cached
+            // wrappers.  See `vm/host/window.rs`
+            // `register_window_prototype`'s storage-getter install.
+            self.register_storage_global();
         }
 
         // Window.prototype — prototype for the `globalThis` `HostObject`
@@ -332,6 +341,9 @@ impl VmInner {
             self.register_animation_event_global();
             self.register_transition_event_global();
             self.register_close_event_global();
+            // StorageEvent — chains to Event.prototype, paired with
+            // the `Storage` interface above.  WHATWG HTML §11.4.2.
+            self.register_storage_event_global();
         }
 
         // `DOMException` constructor + prototype (WebIDL §3.14).

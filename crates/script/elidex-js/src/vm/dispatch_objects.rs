@@ -396,6 +396,17 @@ impl VmInner {
                 return result;
             }
         }
+        // Storage (`localStorage` / `sessionStorage`) named-property
+        // exotic [[HasProperty]] — `'k' in localStorage` checks the
+        // stored-name set.  Built-in method names (`getItem` /
+        // `length` / …) take precedence via prototype-chain
+        // shadowing per `host::storage::key_on_prototype_chain`.
+        #[cfg(feature = "engine")]
+        if matches!(self.get_object(obj_id).kind, ObjectKind::Storage { .. }) {
+            if let Some(result) = super::host::storage::try_has(self, obj_id, lhs) {
+                return result;
+            }
+        }
         let pk = self.make_property_key(lhs)?;
         let obj = self.get_object(obj_id);
         Ok(match (&obj.kind, &pk) {

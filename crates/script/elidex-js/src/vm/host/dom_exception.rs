@@ -189,6 +189,8 @@ fn legacy_code_for_name(ctx: &NativeContext<'_>, name: StringId) -> u32 {
         23
     } else if name == wk.dom_exc_data_clone_error {
         25
+    } else if name == wk.dom_exc_quota_exceeded_error {
+        22
     } else {
         0
     }
