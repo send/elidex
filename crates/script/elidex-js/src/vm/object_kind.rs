@@ -676,6 +676,19 @@ pub enum ObjectKind {
     /// reference) is traced via the ordinary shaped-storage walk.
     #[cfg(feature = "engine")]
     StorageEvent,
+    /// `ValidityState` wrapper (HTML §4.10.20.3).  Carries the
+    /// owning form-control entity so brand-checked accessor natives
+    /// can re-read [`elidex_form::FormControlState`] each time —
+    /// no flag mirroring on the JS side.
+    ///
+    /// Identity is preserved via
+    /// `VmInner::validity_state_wrappers`
+    /// (`HashMap<Entity, ObjectId>`) so `input.validity ===
+    /// input.validity` holds.  Sweep-pruned weak-through-owner;
+    /// the cache entry survives only while the owner element
+    /// wrapper is reachable via `HostData::wrapper_cache`.
+    #[cfg(feature = "engine")]
+    ValidityState { entity_bits: u64 },
 }
 
 impl ObjectKind {

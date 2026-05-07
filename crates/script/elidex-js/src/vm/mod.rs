@@ -422,6 +422,78 @@ pub(crate) struct VmInner {
     /// `register_globals()` (after `register_html_element_prototype`).
     #[cfg(feature = "engine")]
     pub(crate) html_iframe_prototype: Option<ObjectId>,
+    /// `HTMLLabelElement.prototype` (HTML §4.10.4).  Chained to
+    /// [`Self::html_element_prototype`].  `None` until
+    /// `register_html_label_prototype()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) html_label_prototype: Option<ObjectId>,
+    /// `HTMLOptGroupElement.prototype` (HTML §4.10.9).
+    #[cfg(feature = "engine")]
+    pub(crate) html_optgroup_prototype: Option<ObjectId>,
+    /// `HTMLLegendElement.prototype` (HTML §4.10.16).
+    #[cfg(feature = "engine")]
+    pub(crate) html_legend_prototype: Option<ObjectId>,
+    /// `HTMLOptionElement.prototype` (HTML §4.10.10).
+    #[cfg(feature = "engine")]
+    pub(crate) html_option_prototype: Option<ObjectId>,
+    /// `HTMLFieldSetElement.prototype` (HTML §4.10.15).
+    #[cfg(feature = "engine")]
+    pub(crate) html_fieldset_prototype: Option<ObjectId>,
+    /// `HTMLFormElement.prototype` (HTML §4.10.3).
+    #[cfg(feature = "engine")]
+    pub(crate) html_form_prototype: Option<ObjectId>,
+    /// `HTMLButtonElement.prototype` (HTML §4.10.6).
+    #[cfg(feature = "engine")]
+    pub(crate) html_button_prototype: Option<ObjectId>,
+    /// `HTMLTextAreaElement.prototype` (HTML §4.10.11).
+    #[cfg(feature = "engine")]
+    pub(crate) html_textarea_prototype: Option<ObjectId>,
+    /// `HTMLSelectElement.prototype` (HTML §4.10.7).
+    #[cfg(feature = "engine")]
+    pub(crate) html_select_prototype: Option<ObjectId>,
+    /// `HTMLInputElement.prototype` (HTML §4.10.5).
+    #[cfg(feature = "engine")]
+    pub(crate) html_input_prototype: Option<ObjectId>,
+    /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
+    /// reserved-not-yet-registered slot.  When the
+    /// `#11-tags-radionodelist` defer slot lands, this will hold a
+    /// prototype chained to `HTMLCollection.prototype` with a
+    /// `namedItem` override returning `RadioNodeList`.  Currently
+    /// `alloc_collection` always falls through to the plain
+    /// `HTMLCollection.prototype` — this `Option<ObjectId>` is a
+    /// pre-allocated slot to avoid renumbering `proto_roots[]`
+    /// when the proper register fn lands.
+    #[cfg(feature = "engine")]
+    pub(crate) html_form_controls_collection_prototype: Option<ObjectId>,
+    /// `HTMLOptionsCollection.prototype` (HTML §4.10.10.2) —
+    /// reserved-not-yet-registered slot.  Will host the mutable
+    /// surface (`length` setter / `add` / `remove` / `selectedIndex`)
+    /// when the `#11-options-collection-mutable-surface` defer slot
+    /// lands.  Same pre-allocation rationale as
+    /// [`Self::html_form_controls_collection_prototype`].
+    #[cfg(feature = "engine")]
+    pub(crate) html_options_collection_prototype: Option<ObjectId>,
+    /// `ValidityState.prototype` (HTML §4.10.20.3).  Plain Object
+    /// prototype with 11 boolean accessor methods that read from
+    /// `elidex_form::validation::validate_control` directly.
+    #[cfg(feature = "engine")]
+    pub(crate) validity_state_prototype: Option<ObjectId>,
+    /// `ValidityState` `[SameObject]` identity cache — keyed by the
+    /// owning form-control entity.  Sweep-pruned when the owner
+    /// element wrapper is no longer reachable via
+    /// `HostData::wrapper_cache`.
+    #[cfg(feature = "engine")]
+    pub(crate) validity_state_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `HTMLOptionsCollection` `[SameObject]` identity cache, keyed
+    /// by the owning `<select>` entity.  Same weak-through-owner
+    /// semantics as [`Self::validity_state_wrappers`].
+    #[cfg(feature = "engine")]
+    pub(crate) options_collection_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `HTMLFormControlsCollection` `[SameObject]` identity cache,
+    /// keyed by the owning `<form>` / `<fieldset>` entity.  Same
+    /// weak-through-owner semantics.
+    #[cfg(feature = "engine")]
+    pub(crate) form_controls_collection_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor

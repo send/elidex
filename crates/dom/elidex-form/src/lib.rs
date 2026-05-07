@@ -25,19 +25,22 @@ pub use fieldset::{
 };
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use input::{form_control_key_input, form_control_key_input_action, KeyAction};
-pub use label::{find_label_target, is_label, resolve_label_for};
+pub use label::{find_label_target, is_label, is_labelable_element, resolve_label_for};
 pub use radio::{
     find_radio_group, find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate,
     toggle_radio,
 };
-pub use select::{init_select_options, navigate_select, select_option};
+pub use select::{
+    find_option_index_in_tree, init_select_options, is_option_disabled, navigate_select,
+    select_option,
+};
 pub use selection::{collapse_selection, delete_selection, extend_selection, select_all};
 pub use sizing::form_intrinsic_size;
 pub use submit::{
     build_form_submission, collect_form_data, encode_form_urlencoded, find_form_ancestor,
     read_form_attrs, reset_form, FormAttrs, FormDataEntry, FormSubmission,
 };
-pub use validation::{validate_control, ValidityState};
+pub use validation::{is_constraint_validation_candidate, validate_control, ValidityState};
 
 use elidex_ecs::Attributes;
 use std::sync::Arc;
@@ -135,6 +138,32 @@ impl FormControlKind {
     #[must_use]
     pub fn supports_selection(self) -> bool {
         self.is_text_control()
+    }
+
+    /// Returns `true` if the `readonly` attribute applies to this kind
+    /// (HTML §4.10.5.1.4).  `readonly` is meaningful for text-editable
+    /// controls (`text`, `password`, `textarea`, `email`, `url`,
+    /// `tel`, `search`) and the type-specific input subtypes that
+    /// accept user editing (`number`, `date`, `datetime-local`).  For
+    /// non-applicable kinds (`checkbox`, `radio`, `range`, `color`,
+    /// `file`, `hidden`, button-typed) the attribute exists but has
+    /// no effect — including for the constraint-validation barring
+    /// rule of §4.10.20.3.
+    #[must_use]
+    pub fn readonly_applies(self) -> bool {
+        matches!(
+            self,
+            Self::TextInput
+                | Self::Password
+                | Self::TextArea
+                | Self::Email
+                | Self::Url
+                | Self::Tel
+                | Self::Search
+                | Self::Number
+                | Self::Date
+                | Self::DatetimeLocal
+        )
     }
 
     /// Returns `true` if this kind participates in form submission (HTML §4.10.15.3).
@@ -330,6 +359,15 @@ pub struct FormControlState {
     /// - `Some(None)` — pattern set but regex compilation failed (invalid or too long).
     /// - `Some(Some(re))` — valid compiled regex.
     pub cached_pattern_regex: Option<Option<Arc<regex::Regex>>>,
+    /// Custom validity message set via `setCustomValidity(message)`
+    /// (HTML §4.10.20.2).  `None` means no custom error;
+    /// `Some(empty)` is also "no custom error" per spec — both
+    /// trigger `customError = false`.
+    pub custom_validity_message: Option<String>,
+    /// IDL-only `indeterminate` bit for `<input type=checkbox>`
+    /// (HTML §4.10.5.1.16).  Independent of `checked`; observable
+    /// via the `:indeterminate` CSS pseudo-class once styling lands.
+    pub indeterminate: bool,
 }
 
 impl Default for FormControlState {
@@ -370,6 +408,8 @@ impl Default for FormControlState {
             max: None,
             step: None,
             cached_pattern_regex: None,
+            custom_validity_message: None,
+            indeterminate: false,
         }
     }
 }
@@ -471,7 +511,13 @@ impl FormControlState {
 
     /// Reset to default value (form reset behavior).
     ///
-    /// Restores `default_value`, clears dirty flag, resets cursor/selection/checked.
+    /// Restores `default_value`, clears dirty flag, resets cursor /
+    /// selection / checked / indeterminate.
+    ///
+    /// Per HTML §4.10.5.1.6 reset algorithm for `<input>`: set value
+    /// to the `value` content attribute (or empty), clear the dirty
+    /// flag, restore checkedness from the `checked` content attribute,
+    /// and set the indeterminate IDL attribute back to false.
     pub fn reset_value(&mut self) {
         let dv = self.default_value.clone();
         self.value = dv;
@@ -480,6 +526,7 @@ impl FormControlState {
         self.selection_end = self.value.len();
         self.dirty_value = false;
         self.checked = self.default_checked;
+        self.indeterminate = false;
         self.update_char_count();
     }
 

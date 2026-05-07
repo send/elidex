@@ -347,6 +347,68 @@ impl VmInner {
                 self.storage_session_instance,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 68 + 13 = 81 — slot `#11-tags-T1-v2` HTML form-control
+                // prototypes (HTML §4.10).  10 per-tag prototypes + 2
+                // live-collection prototypes (HTMLFormControlsCollection
+                // / HTMLOptionsCollection) + ValidityState.prototype.
+                // All chain through HTMLElement.prototype except the
+                // collection prototypes (HTMLCollection.prototype) and
+                // ValidityState (Object.prototype).  Same `delete
+                // globalThis.<X>` invariant as every other intrinsic
+                // prototype above — the matching `VmInner::<x>_prototype`
+                // slot retains a stale id otherwise.
+                #[cfg(feature = "engine")]
+                self.html_label_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_optgroup_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_legend_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_option_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_fieldset_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_form_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_button_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_textarea_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_select_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_input_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_form_controls_collection_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_options_collection_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.validity_state_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -396,7 +458,15 @@ impl VmInner {
             #[cfg(feature = "engine")]
             dataset_wrapper_cache: &self.dataset_wrapper_cache,
             #[cfg(feature = "engine")]
+            validity_state_wrappers: &self.validity_state_wrappers,
+            #[cfg(feature = "engine")]
+            options_collection_wrappers: &self.options_collection_wrappers,
+            #[cfg(feature = "engine")]
+            form_controls_collection_wrappers: &self.form_controls_collection_wrappers,
+            #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
+            #[cfg(feature = "engine")]
+            dispatched_events: &self.dispatched_events,
         };
 
         self.gc_work_list.clear();
@@ -606,6 +676,17 @@ impl VmInner {
             self.class_list_wrapper_cache
                 .retain(|_, id| bit_get(marks, id.0));
             self.dataset_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            // T1-v2 form-control identity caches — `[SameObject]`
+            // semantics for `input.validity` / `select.options` /
+            // `form.elements` (each accessor returns the same
+            // wrapper across reads).  Same prune-by-wrapper-mark
+            // contract as `class_list_wrapper_cache`.
+            self.validity_state_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
+            self.options_collection_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
+            self.form_controls_collection_wrappers
                 .retain(|_, id| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't

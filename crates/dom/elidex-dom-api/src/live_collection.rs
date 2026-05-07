@@ -38,6 +38,34 @@ pub enum CollectionFilter {
     /// [`LiveCollection::new_snapshot`] and never refreshed, so no
     /// second buffer holds them.
     Snapshot,
+    /// Match descendant *listed* form-control elements (HTML
+    /// §4.10.2): `<button>`, `<fieldset>`, `<input>`, `<object>`,
+    /// `<output>`, `<select>`, `<textarea>`.  Backs
+    /// `HTMLFormElement.elements` / `HTMLFieldSetElement.elements`.
+    /// Cross-tree `form="<id>"` association is **not** modelled here
+    /// (deferred — would require a cross-tree walk, which the live
+    /// collection's "descendants of root" model is not designed for).
+    FormControls,
+    /// Match descendant `<option>` elements.  Backs
+    /// `HTMLSelectElement.options` (HTML §4.10.10.2).  `<optgroup>`
+    /// nesting is handled implicitly by the descendant traversal.
+    Options,
+    /// Match descendant `<option>` elements that are *effectively*
+    /// selected per HTML §4.10.10.2 ("ask for a reset"): any option
+    /// with the `selected` content attribute set is included; if no
+    /// option carries `selected`, the **first non-disabled option**
+    /// is included as the implicit default — but only when the
+    /// owning `<select>` is non-multiple AND its display size is 1
+    /// (parsed from the `size` attribute, missing / "0" / invalid →
+    /// default 1).  Listbox-style selects (`size > 1`) and `multiple`
+    /// selects yield an empty collection when no option has
+    /// `selected`.  Backs `HTMLSelectElement.selectedOptions` (HTML
+    /// §4.10.7.4) — must be live so callers holding the collection
+    /// across mutations see updated state.  Implementation lives in
+    /// the private `populate_selected_options` walker (the
+    /// per-entity matcher path can't express this rule because it
+    /// requires whole-list inspection to find the implicit default).
+    SelectedOptions,
 }
 
 /// Whether the collection behaves as an `HTMLCollection` or a `NodeList`.
@@ -221,6 +249,7 @@ impl LiveCollection {
             CollectionFilter::ElementChildren => collect_direct_children(dom, root, out, false),
             // ByClassNames with empty vec always returns empty.
             CollectionFilter::ByClassNames(names) if names.is_empty() => {}
+            CollectionFilter::SelectedOptions => populate_selected_options(root, dom, out),
             // All other filters: pre-order traversal of the subtree.
             // Shadow boundaries are respected because the child
             // iterators used by `traverse_descendants` skip
@@ -235,6 +264,124 @@ impl LiveCollection {
             }
         }
     }
+}
+
+/// Populate `out` with the selected option descendants of `root`,
+/// applying HTML §4.10.10 selectedness — both the explicit
+/// `selected` attribute path AND the implicit default for
+/// `<select size=1>` / non-multiple selects.
+///
+/// `<select><option>A</option></select>` (no explicit `selected`)
+/// must report `selectedOptions[0] === optionA` to match the
+/// outcome of `select.selectedIndex` (= 0) and `select.value`
+/// (= "A"); the previous attribute-only filter returned an empty
+/// collection and broke this consistency invariant.
+fn populate_selected_options(root: Entity, dom: &EcsDom, out: &mut Vec<Entity>) {
+    let mut options: Vec<Entity> = Vec::new();
+    dom.traverse_descendants(root, |entity| {
+        if matches_tag_ascii_ci(entity, "option", dom) {
+            options.push(entity);
+        }
+        true
+    });
+    let any_explicit = options.iter().any(|opt| {
+        dom.world()
+            .get::<&Attributes>(*opt)
+            .is_ok_and(|a| a.contains("selected"))
+    });
+    if any_explicit {
+        for opt in &options {
+            if dom
+                .world()
+                .get::<&Attributes>(*opt)
+                .is_ok_and(|a| a.contains("selected"))
+            {
+                out.push(*opt);
+            }
+        }
+        return;
+    }
+    // Implicit default per HTML §4.10.10.2 ("ask for a reset"):
+    // only non-multiple selects with `display size == 1` pick the
+    // first non-disabled option.  Multi-select OR `<select
+    // size="N">` (N > 1, listbox style) yields an empty
+    // `selectedOptions`.  "Display size" is the parsed `size`
+    // attribute (positive integer) — missing / "0" / invalid →
+    // default 1 (matching `elidex_form::init_select_options`).
+    let multiple = dom
+        .world()
+        .get::<&Attributes>(root)
+        .is_ok_and(|a| a.contains("multiple"));
+    if multiple {
+        return;
+    }
+    let display_size = dom
+        .world()
+        .get::<&Attributes>(root)
+        .ok()
+        .and_then(|a| a.get("size").and_then(|s| s.parse::<u32>().ok()))
+        .filter(|&n| n > 0)
+        .unwrap_or(1);
+    if display_size > 1 {
+        return;
+    }
+    for opt in &options {
+        if !is_option_disabled_local(*opt, dom) {
+            out.push(*opt);
+            return;
+        }
+    }
+}
+
+/// `<option>` disabledness check — duplicates
+/// `elidex_form::is_option_disabled` because `elidex-dom-api` and
+/// `elidex-form` are sibling crates and a dependency on `elidex-form`
+/// here would invert the existing direction (`elidex-form` consumes
+/// `elidex-dom-api` types).  Consolidation tracked in slot
+/// `#11-tags-T1-v2-drift-hoist` (followup-cleanup handoff §B-0
+/// candidate D-6, added 2026-05-08 R26): hoist the predicate to a
+/// shared location both crates can reference.
+///
+/// Mirrors the canonical `elidex_form::is_option_disabled` walker:
+/// walks ancestors up to `MAX_ANCESTOR_DEPTH`, treats any
+/// `<optgroup disabled>` ancestor as disabling (HTML §4.10.10.2 —
+/// the spec's "closest containing optgroup" allows arbitrary
+/// wrapper-element nesting that JS DOM mutation can introduce, so
+/// only checking the direct parent would miss
+/// `<select><optgroup disabled><div><option>...` cases), and stops
+/// at the enclosing `<select>` so disabled propagation past the
+/// select boundary is left to other layers (e.g. `<fieldset>` for
+/// form submission).
+fn is_option_disabled_local(option: Entity, dom: &EcsDom) -> bool {
+    if dom
+        .world()
+        .get::<&Attributes>(option)
+        .is_ok_and(|a| a.contains("disabled"))
+    {
+        return true;
+    }
+    let mut current = dom.get_parent(option);
+    for _ in 0..elidex_ecs::MAX_ANCESTOR_DEPTH {
+        let Some(ancestor) = current else {
+            return false;
+        };
+        if matches_tag_ascii_ci(ancestor, "optgroup", dom)
+            && dom
+                .world()
+                .get::<&Attributes>(ancestor)
+                .is_ok_and(|a| a.contains("disabled"))
+        {
+            return true;
+        }
+        // Stop at the enclosing `<select>` — disabled propagation
+        // past the select is the form's `<fieldset>` concern, not
+        // the option's.
+        if matches_tag_ascii_ci(ancestor, "select", dom) {
+            return false;
+        }
+        current = dom.get_parent(ancestor);
+    }
+    false
 }
 
 /// Collect direct children of `parent`. If `include_text` is true, text nodes
@@ -316,6 +463,8 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
         }
         CollectionFilter::Images => matches_tag_ascii_ci(entity, "img", dom),
         CollectionFilter::Forms => matches_tag_ascii_ci(entity, "form", dom),
+        CollectionFilter::FormControls => matches_tag_ascii_ci_listed(entity, dom),
+        CollectionFilter::Options => matches_tag_ascii_ci(entity, "option", dom),
         CollectionFilter::Links => {
             let is_link_tag =
                 matches_tag_ascii_ci(entity, "a", dom) || matches_tag_ascii_ci(entity, "area", dom);
@@ -327,11 +476,40 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
                 Err(_) => false,
             }
         }
-        // ChildNodes / ElementChildren / Snapshot are handled in populate() directly.
+        // SelectedOptions / ChildNodes / ElementChildren / Snapshot
+        // are dispatched in `populate_into` directly — SelectedOptions
+        // because its HTML §4.10.10.2 implicit-default rule needs to
+        // see the whole option list, the rest because they walk the
+        // direct-child / cached-snapshot fast path.  The `false`
+        // return makes the per-entity matcher path a no-op for these,
+        // matching the populate-time short-circuit.
         CollectionFilter::ChildNodes
         | CollectionFilter::ElementChildren
-        | CollectionFilter::Snapshot => false,
+        | CollectionFilter::Snapshot
+        | CollectionFilter::SelectedOptions => false,
     }
+}
+
+// FormControls / Options arms above use `matches_tag_ascii_ci` and a
+// flat-match against the listed-element tag set; both are handled
+// inside `matches_filter` directly so no special branch in
+// `populate_into` is needed.
+
+/// `FormControls` filter — tests `entity` against the HTML §4.10.2
+/// listed-elements set (`button` / `fieldset` / `input` / `object` /
+/// `output` / `select` / `textarea`) ASCII-case-insensitively.  Same
+/// rationale as [`matches_tag_ascii_ci`]: tags reach this matcher
+/// from non-parser paths that may not have lowercased them.
+fn matches_tag_ascii_ci_listed(entity: Entity, dom: &EcsDom) -> bool {
+    let Ok(tt) = dom.world().get::<&TagType>(entity) else {
+        return false;
+    };
+    let tag = tt.0.as_str();
+    [
+        "button", "fieldset", "input", "object", "output", "select", "textarea",
+    ]
+    .iter()
+    .any(|listed| tag.eq_ignore_ascii_case(listed))
 }
 
 /// Case-insensitive tag-name match (ASCII). Mirrors the WHATWG HTML
@@ -1020,5 +1198,230 @@ mod tests {
         // when the refreshed result fits in the existing buffer.
         assert_eq!(coll.cached_snapshot.capacity(), cap_after_first);
         assert_eq!(coll.cached_snapshot.as_ptr(), ptr_after_first);
+    }
+
+    // -- SelectedOptions implicit-default rule (HTML §4.10.10.2) -------------
+
+    fn make_select(dom: &mut EcsDom, multiple: bool) -> Entity {
+        let mut attrs = Attributes::default();
+        if multiple {
+            attrs.set("multiple", "");
+        }
+        dom.create_element("select", attrs)
+    }
+
+    fn make_option(dom: &mut EcsDom, selected: bool, disabled: bool) -> Entity {
+        let mut attrs = Attributes::default();
+        if selected {
+            attrs.set("selected", "");
+        }
+        if disabled {
+            attrs.set("disabled", "");
+        }
+        dom.create_element("option", attrs)
+    }
+
+    #[test]
+    fn selected_options_explicit_attribute_only() {
+        let mut dom = EcsDom::new();
+        let s = make_select(&mut dom, /*multiple=*/ false);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        let o2 = make_option(&mut dom, /*selected=*/ true, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        dom.append_child(s, o2);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o2));
+    }
+
+    #[test]
+    fn selected_options_implicit_default_for_size_one_select() {
+        let mut dom = EcsDom::new();
+        let s = make_select(&mut dom, /*multiple=*/ false);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        // Implicit default: with no `selected` attribute and a
+        // non-multiple select, the first non-disabled option is the
+        // implicit selection.
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o1));
+    }
+
+    #[test]
+    fn selected_options_implicit_default_skips_disabled() {
+        let mut dom = EcsDom::new();
+        let s = make_select(&mut dom, /*multiple=*/ false);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ true);
+        let o2 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        dom.append_child(s, o2);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o2));
+    }
+
+    #[test]
+    fn selected_options_implicit_default_skips_optgroup_disabled() {
+        let mut dom = EcsDom::new();
+        let s = make_select(&mut dom, /*multiple=*/ false);
+        let mut og_attrs = Attributes::default();
+        og_attrs.set("disabled", "");
+        let og = dom.create_element("optgroup", og_attrs);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        let o2 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, og);
+        dom.append_child(og, o1);
+        dom.append_child(s, o2);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        // o1 is disabled-via-optgroup; the implicit default falls
+        // through to o2.
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o2));
+    }
+
+    #[test]
+    fn selected_options_multiple_no_implicit_default() {
+        let mut dom = EcsDom::new();
+        let s = make_select(&mut dom, /*multiple=*/ true);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        // Multi-select with no explicit selectedness yields an empty
+        // collection — there's no implicit default in this case.
+        assert_eq!(coll.length(&dom), 0);
+    }
+
+    #[test]
+    fn selected_options_explicit_overrides_implicit() {
+        let mut dom = EcsDom::new();
+        let s = make_select(&mut dom, /*multiple=*/ false);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        let o2 = make_option(&mut dom, /*selected=*/ true, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        dom.append_child(s, o2);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        // Explicit selectedness on o2 short-circuits the implicit
+        // default — only o2 is in the collection, even though o1
+        // would be the implicit default if no option had `selected`.
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o2));
+    }
+
+    #[test]
+    fn selected_options_listbox_size_gt_one_no_implicit_default() {
+        // R28 regression — `<select size="3">` is a listbox-style
+        // select (display size > 1).  HTML §4.10.10.2 "ask for a
+        // reset" only auto-selects when display size == 1, so a
+        // listbox with no explicit `selected` attr must yield an
+        // empty `selectedOptions`.
+        let mut dom = EcsDom::new();
+        let mut s_attrs = Attributes::default();
+        s_attrs.set("size", "3");
+        let s = dom.create_element("select", s_attrs);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 0);
+    }
+
+    #[test]
+    fn selected_options_size_zero_falls_to_implicit_default() {
+        // `size="0"` is invalid per HTML; display size defaults to
+        // 1 for non-multiple selects, so implicit default still
+        // applies.  Mirrors `elidex_form::init_select_options`'s
+        // `state.size <= 1` gate after the parsed value falls back
+        // to the missing-default of 1.
+        let mut dom = EcsDom::new();
+        let mut s_attrs = Attributes::default();
+        s_attrs.set("size", "0");
+        let s = dom.create_element("select", s_attrs);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o1));
+    }
+
+    #[test]
+    fn selected_options_size_one_implicit_default() {
+        // Explicit `size="1"` is the default for non-multiple
+        // selects — implicit default applies.
+        let mut dom = EcsDom::new();
+        let mut s_attrs = Attributes::default();
+        s_attrs.set("size", "1");
+        let s = dom.create_element("select", s_attrs);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o1));
+    }
+
+    #[test]
+    fn selected_options_implicit_default_skips_nested_optgroup_disabled() {
+        // R27 regression — `is_option_disabled_local` must walk the
+        // full ancestor chain, not just the direct parent, so that
+        // malformed trees with a wrapper between option and optgroup
+        // (constructible via JS `appendChild`) still observe the
+        // disabled propagation.  Tree: select > optgroup[disabled] >
+        // div > o1  /  select > o2.
+        let mut dom = EcsDom::new();
+        let s = make_select(&mut dom, /*multiple=*/ false);
+        let mut og_attrs = Attributes::default();
+        og_attrs.set("disabled", "");
+        let og = dom.create_element("optgroup", og_attrs);
+        let wrapper = dom.create_element("div", Attributes::default());
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        let o2 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, og);
+        dom.append_child(og, wrapper);
+        dom.append_child(wrapper, o1);
+        dom.append_child(s, o2);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        // o1 is disabled-via-ancestor-optgroup (with a div wrapper);
+        // implicit default falls through to o2.
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o2));
     }
 }

@@ -240,6 +240,48 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_html_iframe_prototype();
 
+        // T1-v2 form-control prototypes (slot #11-tags-T1-v2).  Each
+        // chains to `HTMLElement.prototype`, mirroring the iframe
+        // pattern.  Registration order: smallest IDL surface first
+        // (Label / OptGroup / Legend) so the install pattern is
+        // exercised quickly; larger surfaces (Option / FieldSet /
+        // Form / Button / TextArea / Select / Input) follow in the
+        // same #[cfg(feature = "engine")] block.
+        #[cfg(feature = "engine")]
+        {
+            self.register_html_label_prototype();
+            self.register_html_optgroup_prototype();
+            self.register_html_legend_prototype();
+            self.register_html_option_prototype();
+            self.register_html_fieldset_prototype();
+            self.register_html_form_prototype();
+            self.register_html_button_prototype();
+            self.register_html_textarea_prototype();
+            self.register_html_select_prototype();
+            self.register_html_input_prototype();
+            // ValidityState.prototype + ConstraintValidation mixin
+            // install on the 5 form-control prototypes that already
+            // exist above (Input / Select / TextArea / Button /
+            // FieldSet).  HTML §4.10.20.4 — must run after each
+            // host-element prototype is allocated.
+            self.register_validity_state_prototype();
+            if let Some(input_proto) = self.html_input_prototype {
+                self.install_constraint_validation_mixin(input_proto);
+            }
+            if let Some(select_proto) = self.html_select_prototype {
+                self.install_constraint_validation_mixin(select_proto);
+            }
+            if let Some(textarea_proto) = self.html_textarea_prototype {
+                self.install_constraint_validation_mixin(textarea_proto);
+            }
+            if let Some(button_proto) = self.html_button_prototype {
+                self.install_constraint_validation_mixin(button_proto);
+            }
+            if let Some(fieldset_proto) = self.html_fieldset_prototype {
+                self.install_constraint_validation_mixin(fieldset_proto);
+            }
+        }
+
         // HTMLCollection.prototype / NodeList.prototype — shared
         // DOM collection prototypes.  Chain directly to
         // `Object.prototype` (WebIDL §3.10: legacy collection

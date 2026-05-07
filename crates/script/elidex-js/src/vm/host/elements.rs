@@ -114,29 +114,15 @@ impl VmInner {
             });
         let proto = match kind {
             super::super::host_data::PrototypeKind::Element => {
-                // Tag-specific secondary lookup: <iframe> routes
-                // through `HTMLIFrameElement.prototype`.  All other
-                // HTML-namespace elements chain through the shared
+                // Tag-specific secondary lookup.  Each known tag
+                // routes through its own per-tag prototype; unknown
+                // tags fall back to the shared
                 // `HTMLElement.prototype` so `div instanceof
-                // HTMLElement === true` (WHATWG §3.2.8).  Additional
-                // per-tag prototypes (HTMLDivElement,
-                // HTMLAnchorElement, …) land in M4-12 cutover
-                // residual and plug in the same way between the
-                // wrapper and HTMLElement.prototype.
-                let is_iframe = self
-                    .host_data
-                    .as_deref()
-                    .is_some_and(|hd| hd.tag_matches_ascii_case(entity, "iframe"));
-                if is_iframe {
-                    self.html_iframe_prototype
-                        .or(self.html_element_prototype)
-                        .or(self.element_prototype)
-                        .expect("create_element_wrapper called before register_element_prototype")
-                } else {
-                    self.html_element_prototype
-                        .or(self.element_prototype)
-                        .expect("create_element_wrapper called before register_element_prototype")
-                }
+                // HTMLElement === true` (WHATWG §3.2.8).
+                self.tag_specific_html_prototype(entity)
+                    .or(self.html_element_prototype)
+                    .or(self.element_prototype)
+                    .expect("create_element_wrapper called before register_element_prototype")
             }
             super::super::host_data::PrototypeKind::Text => {
                 // Text wrappers chain `Text.prototype →
@@ -178,5 +164,56 @@ impl VmInner {
             .expect("create_element_wrapper requires installed HostData")
             .cache_wrapper(entity, obj);
         obj
+    }
+
+    /// Resolve a per-tag HTML element prototype from a tag string.
+    /// Returns `None` for any tag without a registered tag-specific
+    /// prototype, in which case `create_element_wrapper` falls back
+    /// to `HTMLElement.prototype`.  Slot `#11-tags-T1-v2` extends
+    /// the dispatch with the 10 form-control tags (Group α K-3
+    /// fold).
+    fn tag_specific_html_prototype(&self, entity: elidex_ecs::Entity) -> Option<ObjectId> {
+        let host = self.host_data.as_deref()?;
+        // Linear chain of `tag_matches_ascii_case` checks.  Each
+        // call walks the entity's `TagType` component without
+        // allocating; for the 11 tags in scope this is well below
+        // the cost of a single per-call `to_ascii_lowercase`.  When
+        // T2 carve-out adds a 12th+ tag the chain stays linear; an
+        // O(1) lookup table is a separate, benchmark-driven
+        // optimisation.
+        if host.tag_matches_ascii_case(entity, "iframe") {
+            return self.html_iframe_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "label") {
+            return self.html_label_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "optgroup") {
+            return self.html_optgroup_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "legend") {
+            return self.html_legend_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "option") {
+            return self.html_option_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "fieldset") {
+            return self.html_fieldset_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "form") {
+            return self.html_form_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "button") {
+            return self.html_button_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "textarea") {
+            return self.html_textarea_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "select") {
+            return self.html_select_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "input") {
+            return self.html_input_prototype;
+        }
+        None
     }
 }

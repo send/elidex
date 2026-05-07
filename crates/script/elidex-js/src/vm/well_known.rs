@@ -783,6 +783,152 @@ define_well_known_strings! {
         parse_url => "parse",
     }
 
+    "HTML form-control prototypes (slot #11-tags-T1-v2 / HTML §4.10)" {
+        // Constructor globals for the 10 per-tag prototypes + 2 live
+        // collection prototypes + ValidityState exposure.  See
+        // `m4-12-pr-tags-t1-v2-plan.md` §F for the prototype install
+        // ordering rationale.
+        html_label_global => "HTMLLabelElement",
+        html_optgroup_global => "HTMLOptGroupElement",
+        html_legend_global => "HTMLLegendElement",
+        html_option_global => "HTMLOptionElement",
+        html_fieldset_global => "HTMLFieldSetElement",
+        html_form_global => "HTMLFormElement",
+        html_button_global => "HTMLButtonElement",
+        html_textarea_global => "HTMLTextAreaElement",
+        html_select_global => "HTMLSelectElement",
+        html_input_global => "HTMLInputElement",
+        html_form_controls_collection_global => "HTMLFormControlsCollection",
+        html_options_collection_global => "HTMLOptionsCollection",
+        validity_state_global => "ValidityState",
+        // IDL accessor names — DOMString reflect / boolean reflect /
+        // enumerated keyword.  Some short, ambiguous names like
+        // `"type"` and `"select"` are interned more than once under
+        // different field names (`event_type` / `type_attr` for
+        // `"type"`, `select_method` for `"select"`) so that each
+        // call site gets a self-documenting `well_known.<field>`
+        // accessor — the runtime intern table deduplicates so all
+        // these field aliases resolve to the same `StringId`.  This
+        // block introduces the IDL-side aliases for names that
+        // already exist as event / DOM-API fields above; the
+        // duplication is a readability choice, not a runtime cost.
+        // (`options` is defined below in the `<select>` IDL block
+        // because it landed in this PR alongside the select/option
+        // surface — see that location for the form-control IDL
+        // members.)
+        html_for => "htmlFor",
+        for_attr => "for",
+        control => "control",
+        form_attr => "form",
+        disabled => "disabled",
+        label_attr => "label",
+        // `<option>` IDL members.
+        default_selected => "defaultSelected",
+        selected => "selected",
+        // `<fieldset>` / form-association.
+        elements_attr => "elements",
+        // `<form>` IDL members.
+        action => "action",
+        method_attr => "method",
+        enctype => "enctype",
+        accept_charset => "acceptCharset",
+        no_validate => "noValidate",
+        autocomplete => "autocomplete",
+        rel => "rel",
+        rel_list => "relList",
+        submit_method => "submit",
+        request_submit => "requestSubmit",
+        reset_method => "reset",
+        // ValidityState + ConstraintValidation members.
+        validity => "validity",
+        validation_message => "validationMessage",
+        will_validate => "willValidate",
+        check_validity => "checkValidity",
+        report_validity => "reportValidity",
+        set_custom_validity => "setCustomValidity",
+        value_missing => "valueMissing",
+        type_mismatch => "typeMismatch",
+        pattern_mismatch => "patternMismatch",
+        too_short => "tooShort",
+        too_long => "tooLong",
+        range_underflow => "rangeUnderflow",
+        range_overflow => "rangeOverflow",
+        step_mismatch => "stepMismatch",
+        bad_input => "badInput",
+        custom_error => "customError",
+        valid_attr => "valid",
+        // `<button>` / `<input>` button-type.
+        type_attr => "type",
+        // `<input>` IDL members.
+        accept => "accept",
+        alt => "alt",
+        checked_attr => "checked",
+        default_checked => "defaultChecked",
+        default_value => "defaultValue",
+        dir_name => "dirName",
+        files => "files",
+        form_action => "formAction",
+        form_enctype => "formEnctype",
+        form_method => "formMethod",
+        form_no_validate => "formNoValidate",
+        form_target => "formTarget",
+        indeterminate => "indeterminate",
+        list_attr => "list",
+        max => "max",
+        max_length => "maxLength",
+        min => "min",
+        min_length => "minLength",
+        multiple => "multiple",
+        pattern => "pattern",
+        placeholder => "placeholder",
+        read_only => "readOnly",
+        required => "required",
+        size_attr => "size",
+        step => "step",
+        value_as_date => "valueAsDate",
+        value_as_number => "valueAsNumber",
+        labels => "labels",
+        select_method => "select",
+        set_selection_range => "setSelectionRange",
+        set_range_text => "setRangeText",
+        selection_start => "selectionStart",
+        selection_end => "selectionEnd",
+        selection_direction => "selectionDirection",
+        step_up => "stepUp",
+        step_down => "stepDown",
+        show_picker => "showPicker",
+        // `<textarea>` IDL members.
+        rows => "rows",
+        cols => "cols",
+        wrap => "wrap",
+        text_length => "textLength",
+        // `<select>` IDL members.
+        selected_index => "selectedIndex",
+        selected_options => "selectedOptions",
+        options => "options",
+        named_anchor => "named", // legacy; reserved
+        // SelectionDirection enum strings.
+        selection_dir_none => "none",
+        selection_dir_forward => "forward",
+        selection_dir_backward => "backward",
+        // `<input>` type keyword (default).
+        input_type_text => "text",
+        // Form-method enum strings.
+        method_get => "get",
+        method_post => "post",
+        method_dialog => "dialog",
+        // Form-enctype enum strings.
+        enctype_urlencoded_lower => "application/x-www-form-urlencoded",
+        enctype_multipart => "multipart/form-data",
+        enctype_text_plain => "text/plain",
+        // `reset` event name (HTML §4.10.21.3).
+        reset_event => "reset",
+        // `invalid` event name (HTML §4.10.20.4).  Fired by
+        // `checkValidity()` / `reportValidity()` when constraint
+        // validation rejects a candidate control.
+        invalid_event => "invalid",
+    }
+
     "ReadableStream (WHATWG Streams §4)" {
         // Constructor globals + method / accessor names unique to
         // the streams surface.  `read` / `value` / `done` /

@@ -426,3 +426,118 @@ fn walk_phase(
     }
     Ok(())
 }
+
+/// Construct a plain `Event` with the given `type` / `bubbles` /
+/// `cancelable` flags and dispatch it on `target_entity`.  Returns
+/// `true` when the dispatch was cancelled (default-prevented).
+///
+/// Shared helper for UA-initiated synthetic Event dispatch:
+/// `form.reset()` fires `reset` (bubbles=true, cancelable=true),
+/// `checkValidity()` fires `invalid` (bubbles=false,
+/// cancelable=true).  Lifecycle bracket matches
+/// [`super::pending_tasks::deliver_post_message`]: alloc the
+/// Event, install core-9 own-data slots immediately so a GC
+/// triggered by the slot install cannot collect the freshly-
+/// returned id, register in `dispatched_events` for the dispatch
+/// window, walk via [`dispatch_script_event`], unregister.
+pub(super) fn dispatch_simple_event(
+    ctx: &mut NativeContext<'_>,
+    target_entity: elidex_ecs::Entity,
+    type_sid: super::super::value::StringId,
+    bubbles: bool,
+    cancelable: bool,
+) -> Result<bool, VmError> {
+    use super::super::value::PropertyValue;
+
+    let event_proto = ctx.vm.event_prototype;
+    let target_wrapper = ctx.vm.create_element_wrapper(target_entity);
+    let core_shape = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .core;
+
+    let event_id = ctx.vm.alloc_object(super::super::value::Object {
+        kind: ObjectKind::Event {
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_propagation_stopped: false,
+            cancelable,
+            passive: false,
+            type_sid,
+            bubbles,
+            composed: false,
+            composed_path: None,
+        },
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: event_proto,
+        extensible: true,
+    });
+
+    // GC safety — root `event_id` *immediately* after allocation
+    // by inserting into `dispatched_events`, which `gc/roots.rs`
+    // step (j.4) now treats as a real GC root.  This covers both
+    // the slot-install phase and any transitive allocation inside
+    // `dispatch_script_event` (composedPath wrappers, listener-
+    // fired user code, etc.) without the borrow gymnastics needed
+    // to thread a `push_temp_root` guard across the dispatch call.
+    //
+    // Panic safety — the workspace forbids `unsafe` (`-D
+    // unsafe-code`), so an RAII guard holding a `*mut VmInner` is
+    // not viable, and a safe guard cannot re-borrow `vm` while
+    // `dispatch_script_event` holds the active mutable borrow via
+    // `NativeContext`.  Instead, the matching `.remove` below
+    // runs on the normal-return path.
+    //
+    // Earlier R22/R24 comments described the
+    // `gc/collect.rs:558` sweep-tail block as defensive cleanup
+    // if a Rust panic skipped the `.remove`, but that framing was
+    // incorrect: `dispatched_events` is now itself a GC root
+    // (`gc/roots.rs:215`), so a leaked id keeps its underlying
+    // `Event` marked, the sweep-tail `retain(bit_get(...))` keeps
+    // the entry, and the leak is permanent.  In practice the leak
+    // is unreachable — listener-thrown JS exceptions go through
+    // the spec §2.10 "report the exception" path (no Rust
+    // unwind), and VM-level failures return `Err(VmError)`
+    // instead of panicking — so the insert/remove pair always
+    // pairs up.  Do not rely on the sweep-tail to recover from a
+    // missed `.remove`; if a future change introduces a real
+    // panic path here, refactor around `RefCell<HashSet>` /
+    // `catch_unwind` first.
+    ctx.vm.dispatched_events.insert(event_id);
+
+    let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;
+    // Core-9 slot order per `event_shapes.rs::CORE_KEY_COUNT`:
+    // type / bubbles / cancelable / eventPhase / target /
+    // currentTarget / timeStamp / composed / isTrusted.
+    // `defaultPrevented` is NOT a core-9 slot — it lives on
+    // `ObjectKind::Event.default_prevented` and is exposed via
+    // a prototype accessor, not as an own property.
+    let slots: Vec<PropertyValue> = vec![
+        PropertyValue::Data(JsValue::String(type_sid)), // type
+        PropertyValue::Data(JsValue::Boolean(bubbles)), // bubbles
+        PropertyValue::Data(JsValue::Boolean(cancelable)), // cancelable
+        PropertyValue::Data(JsValue::Number(0.0)),      // eventPhase
+        PropertyValue::Data(JsValue::Object(target_wrapper)), // target
+        PropertyValue::Data(JsValue::Object(target_wrapper)), // currentTarget
+        PropertyValue::Data(JsValue::Number(timestamp_ms)), // timeStamp
+        PropertyValue::Data(JsValue::Boolean(false)),   // composed
+        PropertyValue::Data(JsValue::Boolean(true)), // isTrusted (UA-fired synthetic events: reset / invalid)
+    ];
+    ctx.vm
+        .define_with_precomputed_shape(event_id, core_shape, slots);
+
+    let result = dispatch_script_event(ctx, event_id, target_entity);
+    ctx.vm.dispatched_events.remove(&event_id);
+
+    // `dispatch_script_event` returns `Ok(!default_prevented)` so
+    // `Ok(false)` means the dispatch was cancelled.  `Err` is only
+    // returned for VM-level failures (handler-loop infrastructure
+    // errors, not listener-thrown JS exceptions — those go through
+    // the report-an-exception path and never bubble to `Ok`/`Err`
+    // here).  Propagate the VM-level `Err` rather than collapsing
+    // it to `Ok(false)` so the caller (`form.reset()` etc.) does
+    // not proceed under a hidden failure.
+    result.map(|not_default_prevented| !not_default_prevented)
+}

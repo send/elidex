@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 68],
+    pub(super) proto_roots: [Option<ObjectId>; 81],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -178,6 +178,21 @@ pub(super) struct GcRoots<'a> {
     /// [`Self::class_list_wrapper_cache`].
     #[cfg(feature = "engine")]
     pub(super) dataset_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `ValidityState` `[SameObject]` identity cache.  Same
+    /// weak-through-owner semantics as
+    /// [`Self::class_list_wrapper_cache`] — entries are pinned only
+    /// while the owner element wrapper is reachable.  Sweep tail
+    /// prunes entries whose wrapper `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    pub(super) validity_state_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `HTMLOptionsCollection` `[SameObject]` identity cache.
+    /// Owner is the `<select>` entity.
+    #[cfg(feature = "engine")]
+    pub(super) options_collection_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `HTMLFormControlsCollection` `[SameObject]` identity cache.
+    /// Owner is the `<form>` or `<fieldset>` entity.
+    #[cfg(feature = "engine")]
+    pub(super) form_controls_collection_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -186,6 +201,35 @@ pub(super) struct GcRoots<'a> {
     /// the Promise be collected before its settlement target lands.
     #[cfg(feature = "engine")]
     pub(super) pending_fetches: &'a HashMap<elidex_net::broker::FetchId, ObjectId>,
+    /// `dispatched_events` — Event `ObjectId`s whose dispatch is
+    /// currently in flight.  Rooting these keeps freshly-allocated
+    /// synthetic events (e.g. `dispatch_simple_event` for `reset` /
+    /// `invalid`) reachable across any GC triggered by transitive
+    /// allocations inside `dispatch_script_event` (composedPath
+    /// wrapper alloc, listener-fired user-code wrappers, etc.) —
+    /// `dispatch_script_event` cannot push the event onto the JS
+    /// stack until after it has set up the dispatch plan, leaving
+    /// a window where a sweep-prune-only design would collect the
+    /// event mid-setup.
+    ///
+    /// **Panic-leak caveat** — earlier comments (R22/R24) framed the
+    /// `collect.rs` sweep tail (`dispatched_events.retain(|id|
+    /// bit_get(marks, id.0))`) as defensive cleanup if a Rust panic
+    /// skipped the matching `.remove`.  That's not actually
+    /// achievable now: rooting the entry here means the underlying
+    /// `Event` object IS marked, so its mark bit IS set, so the
+    /// `retain` call keeps the leaked id forever.  In practice the
+    /// leak is unreachable — `dispatch_script_event` reports
+    /// listener-thrown JS exceptions through the spec §2.10
+    /// "report the exception" path (no Rust unwind) and surfaces
+    /// VM-level failures via `Err(VmError)` instead of panicking,
+    /// so the insert/remove pair always pairs up.  A real
+    /// panic-safe shape would need either `unsafe` (`*mut VmInner`
+    /// in a Drop guard) or a `RefCell<HashSet>` refactor; both are
+    /// out of scope for this PR (`-D unsafe-code` workspace + the
+    /// dispatch borrow-graph make in-place RAII non-trivial).
+    #[cfg(feature = "engine")]
+    pub(super) dispatched_events: &'a std::collections::HashSet<ObjectId>,
     // `any_composite_map` is weak bookkeeping only — no GC roots
     // live there.  The sweep pass prunes dead ObjectIds post-GC
     // and `abort_signal`'s fan-out tolerates missing state — both
@@ -298,6 +342,29 @@ pub(super) fn mark_roots(
         }
         #[cfg(feature = "engine")]
         for (entity, &id) in roots.dataset_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        // (e4) T1-v2 form-control identity caches — same
+        // weak-through-owner contract as (e3) above.  Each cache is
+        // payload-free at the JS-object level (no fan-out beyond the
+        // wrapper itself), so a single mark per surviving entry
+        // suffices.
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.validity_state_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.options_collection_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.form_controls_collection_wrappers {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(id, obj_marks, work);
             }
@@ -418,6 +485,16 @@ pub(super) fn mark_roots(
     #[cfg(feature = "engine")]
     for &promise_id in roots.pending_fetches.values() {
         mark_object(promise_id, obj_marks, work);
+    }
+
+    // (j.4) In-flight dispatched events.  Any allocation triggered
+    // mid-dispatch (`composedPath` Array, target wrappers,
+    // listener-fired user code) could otherwise collect the event
+    // before its own slots are read by `dispatch_script_event`'s
+    // setup phase.
+    #[cfg(feature = "engine")]
+    for &event_id in roots.dispatched_events {
+        mark_object(event_id, obj_marks, work);
     }
 
     // (k) `AbortSignal.any` composite fan-out entries are weak

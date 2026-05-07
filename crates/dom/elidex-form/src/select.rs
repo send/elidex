@@ -1,8 +1,159 @@
 //! `<select>` element initialization and interaction.
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity, TagType, MAX_ANCESTOR_DEPTH};
 
 use crate::{FormControlState, SelectOption};
+
+/// Returns `true` if `entity` is an `<option>` whose own `disabled`
+/// attribute is set OR whose enclosing tree contains a disabled
+/// `<optgroup>` ancestor.  HTML §4.10.10.2 — an option is "disabled"
+/// when either condition holds.  In well-formed markup optgroup
+/// elements don't nest (parser flattens them), but the walker
+/// climbs up to `MAX_ANCESTOR_DEPTH` ancestors and stops at the
+/// enclosing `<select>`, so any disabled optgroup encountered
+/// before that cutoff disables the option — mirrors browsers
+/// that accept malformed nested-optgroup trees gracefully.
+///
+/// Returns `false` when `entity` is not actually an `<option>` (so
+/// callers can pass arbitrary entities defensively without
+/// mis-attributing a `disabled` attribute on, say, a `<button>`
+/// to "option-disabled" semantics).
+#[must_use]
+pub fn is_option_disabled(dom: &EcsDom, entity: Entity) -> bool {
+    let is_option = dom
+        .world()
+        .get::<&TagType>(entity)
+        .is_ok_and(|t| t.0.eq_ignore_ascii_case("option"));
+    if !is_option {
+        return false;
+    }
+    if dom
+        .world()
+        .get::<&Attributes>(entity)
+        .is_ok_and(|a| a.contains("disabled"))
+    {
+        return true;
+    }
+    let mut current = dom.get_parent(entity);
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let Some(ancestor) = current else {
+            return false;
+        };
+        let is_disabled_optgroup = dom
+            .world()
+            .get::<&TagType>(ancestor)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("optgroup"))
+            && dom
+                .world()
+                .get::<&Attributes>(ancestor)
+                .is_ok_and(|a| a.contains("disabled"));
+        if is_disabled_optgroup {
+            return true;
+        }
+        // Stop at the enclosing `<select>` — disabled propagation
+        // beyond the select is the form's `<fieldset>` problem.
+        if dom
+            .world()
+            .get::<&TagType>(ancestor)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("select"))
+        {
+            return false;
+        }
+        current = dom.get_parent(ancestor);
+    }
+    false
+}
+
+/// Compute `<option>.index` (HTML §4.10.10): walks up to the
+/// enclosing `<select>` / `<datalist>` (skipping any `<optgroup>` /
+/// other wrapper, bounded by `MAX_ANCESTOR_DEPTH`), then descends
+/// through the container's option / optgroup tree to count this
+/// option's position.  Returns `None` for detached options or
+/// options with no enclosing container.
+///
+/// `<optgroup>` nesting is technically forbidden by the spec but
+/// JS-driven `appendChild` can construct it; this walker tolerates
+/// arbitrary depth (capped by `MAX_ANCESTOR_DEPTH`) so the index
+/// stays meaningful for malformed-but-constructible trees.
+#[must_use]
+pub fn find_option_index_in_tree(dom: &EcsDom, option: Entity) -> Option<i32> {
+    let container = find_options_container(dom, option)?;
+    let mut count: u32 = 0;
+    let mut found: i32 = -1;
+    walk_options(dom, container, &mut count, option, &mut found, 0);
+    if found >= 0 {
+        Some(found)
+    } else {
+        None
+    }
+}
+
+/// Walk up the option's ancestor chain (bounded by
+/// `MAX_ANCESTOR_DEPTH`) until reaching the first `<select>` or
+/// `<datalist>` element.  Skips intermediate `<optgroup>` /
+/// `<div>` / etc. so JS-constructed nested-optgroup trees still
+/// resolve correctly.
+fn find_options_container(dom: &EcsDom, option: Entity) -> Option<Entity> {
+    let mut current = dom.get_parent(option)?;
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let is_container = dom.world().get::<&TagType>(current).is_ok_and(|t| {
+            t.0.eq_ignore_ascii_case("select") || t.0.eq_ignore_ascii_case("datalist")
+        });
+        if is_container {
+            return Some(current);
+        }
+        current = dom.get_parent(current)?;
+    }
+    None
+}
+
+fn walk_options(
+    dom: &EcsDom,
+    parent: Entity,
+    count: &mut u32,
+    target: Entity,
+    found: &mut i32,
+    depth: usize,
+) {
+    // Cap recursion depth — JS can construct pathologically nested
+    // `<optgroup>` (spec forbids, parser doesn't reject).  Bail at
+    // `MAX_ANCESTOR_DEPTH` so `option.index` can't stack-overflow.
+    if depth >= MAX_ANCESTOR_DEPTH {
+        return;
+    }
+    let Some(mut child) = dom.get_first_child(parent) else {
+        return;
+    };
+    loop {
+        let tag_is_option = dom
+            .world()
+            .get::<&TagType>(child)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("option"));
+        let tag_is_optgroup = dom
+            .world()
+            .get::<&TagType>(child)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("optgroup"));
+        if tag_is_option {
+            if child == target {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                {
+                    *found = i32::try_from(*count).unwrap_or(i32::MAX);
+                }
+                return;
+            }
+            *count += 1;
+        } else if tag_is_optgroup {
+            walk_options(dom, child, count, target, found, depth + 1);
+            if *found >= 0 {
+                return;
+            }
+        }
+        let Some(next) = dom.get_next_sibling(child) else {
+            return;
+        };
+        child = next;
+    }
+}
 
 /// Try to mark an option index as selected, returning the i32 index.
 fn try_mark_selected(options: &[crate::SelectOption], selected_index: &mut i32) {
@@ -396,5 +547,61 @@ mod tests {
         let mut state = FormControlState::from_element("select", &Attributes::default()).unwrap();
         init_select_options(&dom, sel, &mut state);
         assert!(state.options[0].disabled);
+    }
+
+    #[test]
+    fn is_option_disabled_via_own_attribute() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("disabled", "");
+        let opt = dom.create_element("option", attrs);
+        assert!(is_option_disabled(&dom, opt));
+    }
+
+    #[test]
+    fn is_option_disabled_via_optgroup_ancestor() {
+        let mut dom = EcsDom::new();
+        let mut grp_attrs = Attributes::default();
+        grp_attrs.set("disabled", "");
+        let grp = dom.create_element("optgroup", grp_attrs);
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(grp, opt);
+        assert!(is_option_disabled(&dom, opt));
+    }
+
+    #[test]
+    fn is_option_disabled_returns_false_when_neither_set() {
+        let mut dom = EcsDom::new();
+        let grp = dom.create_element("optgroup", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(grp, opt);
+        assert!(!is_option_disabled(&dom, opt));
+    }
+
+    #[test]
+    fn is_option_disabled_returns_false_for_non_option_tag() {
+        // R9 M2 regression — defensive tag gate: a `<div disabled>`
+        // (or any non-option) must not be reported as
+        // option-disabled even though the attribute matches.
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("disabled", "");
+        let div = dom.create_element("div", attrs);
+        assert!(!is_option_disabled(&dom, div));
+    }
+
+    #[test]
+    fn is_option_disabled_stops_at_select() {
+        // The select itself being disabled is a fieldset-style
+        // concern; this helper is purely about option / optgroup
+        // disable propagation, so a `disabled` attribute on the
+        // enclosing select must NOT make every option disabled.
+        let mut dom = EcsDom::new();
+        let mut sel_attrs = Attributes::default();
+        sel_attrs.set("disabled", "");
+        let sel = dom.create_element("select", sel_attrs);
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, opt);
+        assert!(!is_option_disabled(&dom, opt));
     }
 }

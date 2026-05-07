@@ -119,8 +119,29 @@ pub(super) mod globals;
 #[cfg(feature = "engine")]
 pub(crate) mod headers;
 pub(super) mod history;
+#[cfg(feature = "engine")]
+pub(super) mod html_button_proto;
 pub(super) mod html_element_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_fieldset_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_form_proto;
 pub(super) mod html_iframe_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_label_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_legend_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_optgroup_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_option_proto;
+
+#[cfg(feature = "engine")]
+pub(super) mod html_input_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_select_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_textarea_proto;
 pub(super) mod location;
 #[cfg(feature = "engine")]
 pub(super) mod multipart;
@@ -168,4 +189,6 @@ pub(super) mod typed_array_static;
 pub(crate) mod url;
 #[cfg(feature = "engine")]
 pub(crate) mod url_search_params;
+#[cfg(feature = "engine")]
+pub(super) mod validity_state;
 pub(super) mod window;

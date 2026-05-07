@@ -147,6 +147,38 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
+                html_label_prototype: None,
+                #[cfg(feature = "engine")]
+                html_optgroup_prototype: None,
+                #[cfg(feature = "engine")]
+                html_legend_prototype: None,
+                #[cfg(feature = "engine")]
+                html_option_prototype: None,
+                #[cfg(feature = "engine")]
+                html_fieldset_prototype: None,
+                #[cfg(feature = "engine")]
+                html_form_prototype: None,
+                #[cfg(feature = "engine")]
+                html_button_prototype: None,
+                #[cfg(feature = "engine")]
+                html_textarea_prototype: None,
+                #[cfg(feature = "engine")]
+                html_select_prototype: None,
+                #[cfg(feature = "engine")]
+                html_input_prototype: None,
+                #[cfg(feature = "engine")]
+                html_form_controls_collection_prototype: None,
+                #[cfg(feature = "engine")]
+                html_options_collection_prototype: None,
+                #[cfg(feature = "engine")]
+                validity_state_prototype: None,
+                #[cfg(feature = "engine")]
+                validity_state_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                options_collection_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                form_controls_collection_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
                 dom_exception_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_states: HashMap::new(),

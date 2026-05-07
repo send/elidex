@@ -1,0 +1,930 @@
+//! `HTMLSelectElement.prototype` intrinsic — per-tag prototype layer
+//! for `<select>` wrappers (HTML §4.10.7).
+//!
+//! ## Layering
+//!
+//! Per CLAUDE.md "Layering mandate".  Form association resolves
+//! through [`elidex_form::find_form_ancestor`].  The options live
+//! collection is backed by
+//! [`elidex_dom_api::CollectionFilter::Options`].
+//!
+//! ## Members installed
+//!
+//! Reflected DOMString attrs: `name`, `autocomplete`.
+//! Reflected boolean attrs: `disabled`, `multiple`, `required`,
+//! `autofocus`.
+//! Reflected long: `size` (default 0).
+//!
+//! Read-only:
+//! - `type` returns `"select-multiple"` if `multiple` else
+//!   `"select-one"` (HTML §4.10.7).
+//! - `form` resolves via `find_form_ancestor`.
+//! - `labels` empty NodeList stub (label collection algorithm
+//!   pending elidex-form `collect_labels_for` exposure).
+//! - `options` returns an `HTMLCollection` filtered by
+//!   `CollectionFilter::Options` (live across DOM mutation).
+//! - `length` mirrors `options.length`.
+//! - `selectedOptions` live `HTMLCollection` of currently-selected
+//!   `<option>`s, backed by `CollectionFilter::SelectedOptions`.
+//! - `selectedIndex` / `value` reflect the current selection.
+//!
+//! Methods:
+//! - `add(opt, before?)` — inserts an option before `before` (entity
+//!   reference or numeric index) or appends.  Hierarchy errors map
+//!   to `HierarchyRequestError` via `appendChild` semantics.
+//! - `remove(idx)` — removes the option at `idx`; out-of-range
+//!   silently no-ops (HTML §4.10.7.6).
+//! - `item(idx)` / `namedItem(name)` — proxy to the options live
+//!   collection.
+
+#![cfg(feature = "engine")]
+// Cast-sign-loss / cast-truncation: every `as usize` / `as i32` /
+// `as i64` cast in this module is preceded by an explicit
+// non-negative / fits-in-i32 guard.  Module-wide allow keeps the
+// reflected-attr setters readable.
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_truncation)]
+
+use super::super::shape;
+use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
+use super::super::{NativeFn, VmInner};
+
+use elidex_ecs::{Entity, NodeKind};
+
+impl VmInner {
+    #[allow(clippy::too_many_lines)] // Phase 7 install — 5 read-only + 4 mutable accessors + 4 methods, single-purpose.
+    pub(in crate::vm) fn register_html_select_prototype(&mut self) {
+        let parent = self
+            .html_element_prototype
+            .expect("register_html_select_prototype called before register_html_element_prototype");
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(parent),
+            extensible: true,
+        });
+        self.html_select_prototype = Some(proto_id);
+
+        let attrs = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
+
+        // String reflects.
+        for (name_sid, getter, setter) in [
+            (
+                self.well_known.name,
+                native_select_get_name as NativeFn,
+                native_select_set_name as NativeFn,
+            ),
+            (
+                self.well_known.autocomplete,
+                native_select_get_autocomplete as NativeFn,
+                native_select_set_autocomplete as NativeFn,
+            ),
+        ] {
+            self.install_accessor_pair(proto_id, name_sid, getter, Some(setter), attrs);
+        }
+        // Boolean reflects.
+        for (name_sid, getter, setter) in [
+            (
+                self.well_known.disabled,
+                native_select_get_disabled as NativeFn,
+                native_select_set_disabled as NativeFn,
+            ),
+            (
+                self.well_known.multiple,
+                native_select_get_multiple as NativeFn,
+                native_select_set_multiple as NativeFn,
+            ),
+            (
+                self.well_known.required,
+                native_select_get_required as NativeFn,
+                native_select_set_required as NativeFn,
+            ),
+            (
+                self.well_known.autofocus,
+                native_select_get_autofocus as NativeFn,
+                native_select_set_autofocus as NativeFn,
+            ),
+        ] {
+            self.install_accessor_pair(proto_id, name_sid, getter, Some(setter), attrs);
+        }
+        // Long reflect: size.
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.size_attr,
+            native_select_get_size,
+            Some(native_select_set_size),
+            attrs,
+        );
+        // Read-only.
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.type_attr,
+            native_select_get_type,
+            None,
+            attrs,
+        );
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.form_attr,
+            native_select_get_form,
+            None,
+            attrs,
+        );
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.labels,
+            native_select_get_labels,
+            None,
+            attrs,
+        );
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.options,
+            native_select_get_options,
+            None,
+            attrs,
+        );
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.length,
+            native_select_get_length,
+            None,
+            attrs,
+        );
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.selected_options,
+            native_select_get_selected_options,
+            None,
+            attrs,
+        );
+        // selectedIndex (read-write).
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.selected_index,
+            native_select_get_selected_index,
+            Some(native_select_set_selected_index),
+            attrs,
+        );
+        // value (read-write — reflects selected option's value).
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.value,
+            native_select_get_value,
+            Some(native_select_set_value),
+            attrs,
+        );
+        // Methods.
+        let m = shape::PropertyAttrs::METHOD;
+        self.install_native_method(proto_id, self.well_known.item, native_select_item, m);
+        self.install_native_method(
+            proto_id,
+            self.well_known.named_item,
+            native_select_named_item,
+            m,
+        );
+        self.install_native_method(proto_id, self.well_known.add, native_select_add, m);
+        // `select.remove(idx)` (HTML §4.10.7.6) overrides
+        // `ChildNode.remove()`.  Spec says when called with no args
+        // it falls through to ChildNode.remove (detach this element);
+        // with a numeric arg it detaches the option at that index.
+        self.install_native_method(proto_id, self.well_known.remove, native_select_remove, m);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Brand check
+// ---------------------------------------------------------------------------
+
+fn require_select_receiver(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<Option<Entity>, VmError> {
+    let Some(entity) =
+        super::event_target::require_receiver(ctx, this, "HTMLSelectElement", method, |k| {
+            k == NodeKind::Element
+        })?
+    else {
+        return Ok(None);
+    };
+    if !ctx.host().tag_matches_ascii_case(entity, "select") {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'HTMLSelectElement': Illegal invocation"
+        )));
+    }
+    Ok(Some(entity))
+}
+
+// ---------------------------------------------------------------------------
+// String / boolean reflect macros
+// ---------------------------------------------------------------------------
+
+macro_rules! sel_string_attr {
+    ($get:ident, $set:ident, $attr:expr, $label:expr) => {
+        fn $get(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            _args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let empty = ctx.vm.well_known.empty;
+            let Some(entity) = require_select_receiver(ctx, this, $label)? else {
+                return Ok(JsValue::String(empty));
+            };
+            let sid = match ctx.dom_and_strings_if_bound() {
+                Some((dom, strings)) => {
+                    dom.with_attribute(entity, $attr, |v| v.map_or(empty, |s| strings.intern(s)))
+                }
+                None => empty,
+            };
+            Ok(JsValue::String(sid))
+        }
+
+        fn $set(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let Some(entity) = require_select_receiver(ctx, this, $label)? else {
+                return Ok(JsValue::Undefined);
+            };
+            let val = args.first().copied().unwrap_or(JsValue::Undefined);
+            let sid = super::super::coerce::to_string(ctx.vm, val)?;
+            let s = ctx.vm.strings.get_utf8(sid);
+            ctx.host().dom().set_attribute(entity, $attr, s);
+            Ok(JsValue::Undefined)
+        }
+    };
+}
+
+sel_string_attr!(
+    native_select_get_name,
+    native_select_set_name,
+    "name",
+    "name"
+);
+sel_string_attr!(
+    native_select_get_autocomplete,
+    native_select_set_autocomplete,
+    "autocomplete",
+    "autocomplete"
+);
+
+macro_rules! sel_bool_attr {
+    ($get:ident, $set:ident, $attr:expr, $label:expr) => {
+        fn $get(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            _args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let Some(entity) = require_select_receiver(ctx, this, $label)? else {
+                return Ok(JsValue::Boolean(false));
+            };
+            Ok(JsValue::Boolean(
+                ctx.host().dom().has_attribute(entity, $attr),
+            ))
+        }
+
+        fn $set(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let Some(entity) = require_select_receiver(ctx, this, $label)? else {
+                return Ok(JsValue::Undefined);
+            };
+            let val = args.first().copied().unwrap_or(JsValue::Undefined);
+            let flag = super::super::coerce::to_boolean(ctx.vm, val);
+            if flag {
+                ctx.host().dom().set_attribute(entity, $attr, String::new());
+            } else {
+                super::element_attrs::attr_remove(ctx, entity, $attr);
+            }
+            Ok(JsValue::Undefined)
+        }
+    };
+}
+
+sel_bool_attr!(
+    native_select_get_disabled,
+    native_select_set_disabled,
+    "disabled",
+    "disabled"
+);
+sel_bool_attr!(
+    native_select_get_multiple,
+    native_select_set_multiple,
+    "multiple",
+    "multiple"
+);
+sel_bool_attr!(
+    native_select_get_required,
+    native_select_set_required,
+    "required",
+    "required"
+);
+sel_bool_attr!(
+    native_select_get_autofocus,
+    native_select_set_autofocus,
+    "autofocus",
+    "autofocus"
+);
+
+// size — long reflect, default 0 (HTML §4.10.7).  Default rendering
+// size is browser-dependent; the IDL value mirrors the attribute.
+fn native_select_get_size(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "size")? else {
+        return Ok(JsValue::Number(0.0));
+    };
+    let v = ctx
+        .host()
+        .dom()
+        .get_attribute(entity, "size")
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(0);
+    Ok(JsValue::Number(f64::from(v)))
+}
+
+fn native_select_set_size(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "size")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    ctx.host()
+        .dom()
+        .set_attribute(entity, "size", n.to_string());
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// type / form / labels
+// ---------------------------------------------------------------------------
+
+fn native_select_get_type(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "type")? else {
+        let sid = ctx.vm.strings.intern("select-one");
+        return Ok(JsValue::String(sid));
+    };
+    let multiple = ctx.host().dom().has_attribute(entity, "multiple");
+    let canonical = if multiple {
+        "select-multiple"
+    } else {
+        "select-one"
+    };
+    let sid = ctx.vm.strings.intern(canonical);
+    Ok(JsValue::String(sid))
+}
+
+fn native_select_get_form(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "form")? else {
+        return Ok(JsValue::Null);
+    };
+    let form = elidex_form::find_form_ancestor(ctx.host().dom(), entity);
+    Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, form))
+}
+
+fn native_select_get_labels(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = require_select_receiver(ctx, this, "labels")?;
+    let id = ctx
+        .vm
+        .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
+            Vec::new(),
+            elidex_dom_api::CollectionKind::NodeList,
+        ));
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// options / length / selectedOptions / selectedIndex / value
+// ---------------------------------------------------------------------------
+
+/// Build a fresh live `Options` collection rooted at `select_entity`.
+fn alloc_options(vm: &mut VmInner, select_entity: Entity) -> super::super::value::ObjectId {
+    vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        select_entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ))
+}
+
+fn native_select_get_options(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "options")? else {
+        // Spec type: HTMLOptionsCollection (HTMLCollection
+        // subclass).  Match the kind on the unbound fallback so the
+        // accessor's prototype shape is consistent with the bound
+        // path.
+        let id = ctx
+            .vm
+            .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
+                Vec::new(),
+                elidex_dom_api::CollectionKind::HtmlCollection,
+            ));
+        return Ok(JsValue::Object(id));
+    };
+    // [SameObject] cache — return the same collection wrapper across
+    // reads.  Sweep tail prunes when the select wrapper dies.
+    if let Some(&existing) = ctx.vm.options_collection_wrappers.get(&entity) {
+        return Ok(JsValue::Object(existing));
+    }
+    let id = alloc_options(ctx.vm, entity);
+    ctx.vm.options_collection_wrappers.insert(entity, id);
+    Ok(JsValue::Object(id))
+}
+
+fn native_select_get_length(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "length")? else {
+        return Ok(JsValue::Number(0.0));
+    };
+    let mut coll = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let len = coll.length(ctx.host().dom());
+    Ok(JsValue::Number(
+        u32::try_from(len).unwrap_or(u32::MAX).into(),
+    ))
+}
+
+fn native_select_get_selected_options(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "selectedOptions")? else {
+        let id = ctx
+            .vm
+            .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
+                Vec::new(),
+                elidex_dom_api::CollectionKind::HtmlCollection,
+            ));
+        return Ok(JsValue::Object(id));
+    };
+    // Live `HTMLCollection` of options whose effective selectedness
+    // is true per HTML §4.10.10.2 — backed by
+    // `CollectionFilter::SelectedOptions`, which expresses the full
+    // selectedness algorithm: any explicit `selected` attribute
+    // wins, otherwise (non-multiple, display size <= 1) the first
+    // non-disabled option is the implicit default.  Multi-selects
+    // and listbox selects (size > 1) only surface options with
+    // explicit `selected`.  No `[SameObject]` cache: the spec
+    // doesn't require identity preservation here, and the wrapper
+    // is cheap (filter walks only on length/item access, snapshot
+    // via the inclusive-descendants-version cache like other live
+    // collections).
+    let coll = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::SelectedOptions,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let id = ctx.vm.alloc_collection(coll);
+    Ok(JsValue::Object(id))
+}
+
+fn native_select_get_selected_index(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "selectedIndex")? else {
+        return Ok(JsValue::Number(-1.0));
+    };
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(ctx.host().dom()).to_vec();
+    for (idx, opt) in snap.iter().enumerate() {
+        if ctx.host().dom().has_attribute(*opt, "selected") {
+            return Ok(JsValue::Number(f64::from(
+                u32::try_from(idx).unwrap_or(u32::MAX),
+            )));
+        }
+    }
+    // Default selection: first non-disabled option, but ONLY for
+    // non-multiple selects with display size == 1 (HTML §4.10.10.2
+    // "ask for a reset" — listbox-style selects with `size > 1`
+    // do NOT auto-select).  An option is disabled if it has its
+    // own `disabled` attr OR is inside a disabled `<optgroup>`.
+    if select_uses_implicit_default(ctx.host().dom(), entity) {
+        for (idx, opt) in snap.iter().enumerate() {
+            if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
+                return Ok(JsValue::Number(f64::from(
+                    u32::try_from(idx).unwrap_or(u32::MAX),
+                )));
+            }
+        }
+    }
+    Ok(JsValue::Number(-1.0))
+}
+
+/// HTML §4.10.10.2 "ask for a reset" implicit-default predicate:
+/// the first non-disabled option becomes the implicit selection
+/// only when the select is **not multiple** AND its **display size
+/// is 1**.  Display size = parsed positive `size` attribute, or 1
+/// (the default for non-multiple) when missing / "0" / invalid.
+/// Mirrors the gate used by `elidex_form::init_select_options` and
+/// `elidex_dom_api::populate_selected_options` so the three
+/// surfaces (selectedIndex / value / selectedOptions) agree.
+fn select_uses_implicit_default(dom: &elidex_ecs::EcsDom, select: Entity) -> bool {
+    if dom.has_attribute(select, "multiple") {
+        return false;
+    }
+    let display_size = dom
+        .world()
+        .get::<&elidex_ecs::Attributes>(select)
+        .ok()
+        .and_then(|a| a.get("size").and_then(|s| s.parse::<u32>().ok()))
+        .filter(|&n| n > 0)
+        .unwrap_or(1);
+    display_size <= 1
+}
+
+fn native_select_set_selected_index(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "selectedIndex")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(ctx.host().dom()).to_vec();
+    // Clear all selected attrs, then set the target.
+    for opt in &snap {
+        super::element_attrs::attr_remove(ctx, *opt, "selected");
+    }
+    if let Ok(idx) = usize::try_from(n) {
+        if let Some(target) = snap.get(idx) {
+            ctx.host()
+                .dom()
+                .set_attribute(*target, "selected", String::new());
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+fn native_select_get_value(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let empty = ctx.vm.well_known.empty;
+    let Some(entity) = require_select_receiver(ctx, this, "value")? else {
+        return Ok(JsValue::String(empty));
+    };
+    // Find first selected option; return its value (= attr "value"
+    // or text fallback per HTML §4.10.10).
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(ctx.host().dom()).to_vec();
+    for opt in &snap {
+        if ctx.host().dom().has_attribute(*opt, "selected") {
+            return option_value(ctx, *opt);
+        }
+    }
+    // No explicit selection — for non-multiple selects with
+    // display size == 1, the first non-disabled option is the
+    // implicit default (HTML §4.10.10.2 "ask for a reset").
+    // Listbox selects (`size > 1`) and `multiple` selects skip
+    // implicit-default auto-selection entirely.
+    if select_uses_implicit_default(ctx.host().dom(), entity) {
+        for opt in &snap {
+            if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
+                return option_value(ctx, *opt);
+            }
+        }
+    }
+    Ok(JsValue::String(empty))
+}
+
+fn option_value(ctx: &mut NativeContext<'_>, opt: Entity) -> Result<JsValue, VmError> {
+    let empty = ctx.vm.well_known.empty;
+    if ctx.host().dom().has_attribute(opt, "value") {
+        let sid = match ctx.dom_and_strings_if_bound() {
+            Some((dom, strings)) => {
+                dom.with_attribute(opt, "value", |v| v.map_or(empty, |s| strings.intern(s)))
+            }
+            None => empty,
+        };
+        return Ok(JsValue::String(sid));
+    }
+    super::dom_bridge::invoke_dom_api(ctx, "textContent.get", opt, &[])
+}
+
+fn native_select_set_value(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "value")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let target_sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let target = ctx.vm.strings.get_utf8(target_sid);
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(ctx.host().dom()).to_vec();
+    // First option whose value matches becomes selected; others
+    // cleared.  HTML §4.10.7.4 — value setter algorithm.
+    let mut found_first = false;
+    for opt in &snap {
+        let candidate = if ctx.host().dom().has_attribute(*opt, "value") {
+            ctx.host()
+                .dom()
+                .get_attribute(*opt, "value")
+                .unwrap_or_default()
+        } else {
+            // Fallback to text content.  Build a temporary read.
+            match super::dom_bridge::invoke_dom_api(ctx, "textContent.get", *opt, &[])? {
+                JsValue::String(sid) => ctx.vm.strings.get_utf8(sid),
+                _ => String::new(),
+            }
+        };
+        if !found_first && candidate == target {
+            ctx.host()
+                .dom()
+                .set_attribute(*opt, "selected", String::new());
+            found_first = true;
+        } else {
+            super::element_attrs::attr_remove(ctx, *opt, "selected");
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// Methods — item / namedItem / add / remove
+// ---------------------------------------------------------------------------
+
+fn native_select_item(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "item")? else {
+        return Ok(JsValue::Null);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    let Ok(idx) = usize::try_from(n) else {
+        return Ok(JsValue::Null);
+    };
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let target = opts.item(idx, ctx.host().dom());
+    Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, target))
+}
+
+fn native_select_named_item(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "namedItem")? else {
+        return Ok(JsValue::Null);
+    };
+    let target_str = super::dom_bridge::coerce_first_arg_to_string(ctx, args)?;
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(ctx.host().dom()).to_vec();
+    for opt in &snap {
+        let id_match =
+            ctx.host().dom().get_attribute(*opt, "id").as_deref() == Some(target_str.as_str());
+        let name_match =
+            ctx.host().dom().get_attribute(*opt, "name").as_deref() == Some(target_str.as_str());
+        if id_match || name_match {
+            return Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, Some(*opt)));
+        }
+    }
+    Ok(JsValue::Null)
+}
+
+/// `select.add(option, before?)` — HTML §4.10.7.7.
+///
+/// `before` may be `null` / `undefined` (append), an option entity,
+/// or a numeric index.  We reject non-`<option>` first arguments
+/// with `HierarchyRequestError`.
+fn native_select_add(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "add")? else {
+        return Ok(JsValue::Undefined);
+    };
+    // First argument: must be an Option element wrapper.
+    let opt_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let opt_entity = match opt_arg {
+        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
+            ObjectKind::HostObject { entity_bits } => {
+                Entity::from_bits(entity_bits).ok_or_else(|| {
+                    VmError::dom_exception(
+                        ctx.vm.well_known.dom_exc_hierarchy_request_error,
+                        "select.add: invalid entity",
+                    )
+                })?
+            }
+            _ => {
+                return Err(VmError::dom_exception(
+                    ctx.vm.well_known.dom_exc_hierarchy_request_error,
+                    "select.add: argument is not an HTMLOptionElement",
+                ));
+            }
+        },
+        _ => {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_hierarchy_request_error,
+                "select.add: argument is not an HTMLOptionElement",
+            ));
+        }
+    };
+    if !ctx.host().tag_matches_ascii_case(opt_entity, "option") {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_hierarchy_request_error,
+            "select.add: argument must be an HTMLOptionElement",
+        ));
+    }
+    // Resolve `before` argument per WebIDL overload resolution for
+    // `(HTMLElement or long)`:
+    //   - null / undefined / not-supplied → append (no before)
+    //   - platform object implementing HTMLElement → element reference
+    //   - everything else (Number / String / Boolean / non-host
+    //     Object) → ToInt32 → long
+    let before_arg = args.get(1).copied().unwrap_or(JsValue::Null);
+    let before_entity: Option<Entity> = match before_arg {
+        JsValue::Null | JsValue::Undefined => None,
+        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
+            ObjectKind::HostObject { entity_bits } => {
+                // WebIDL `(HTMLElement or long)` overload: the
+                // HostObject only enters the HTMLElement arm when
+                // the backing entity is actually an Element node.
+                // Text / Comment / Document / etc. host wrappers
+                // fall through to the `long` branch (ToInt32 of a
+                // non-Number Object goes through ToPrimitive →
+                // typically NaN → 0).
+                let candidate = Entity::from_bits(entity_bits);
+                let is_element = candidate.is_some_and(|e| {
+                    ctx.host().dom().node_kind_inferred(e) == Some(NodeKind::Element)
+                });
+                if is_element {
+                    candidate
+                } else {
+                    resolve_options_index(ctx, entity, before_arg)?
+                }
+            }
+            // Non-HostObject (plain JS object) falls into the
+            // `long` branch.
+            _ => resolve_options_index(ctx, entity, before_arg)?,
+        },
+        // Number / String / Boolean / BigInt all coerce through
+        // `to_int32` (which calls `to_number` first per ES §7.1.4).
+        _ => resolve_options_index(ctx, entity, before_arg)?,
+    };
+    // Insert via the underlying DOM; if `before` is provided it
+    // must be a descendant of the select (HTML §4.10.7.5: "before
+    // must be a descendant of the select element"), and the new
+    // option is inserted into `before`'s actual parent so a
+    // `<option>` inside an `<optgroup>` works as a reference.
+    // DOM mutation calls return false on failure (cycle / destroyed
+    // entities / invalid ref) — surface these as
+    // `HierarchyRequestError` rather than silently swallowing.
+    if let Some(before) = before_entity {
+        let dom = ctx.host().dom();
+        let in_select = dom.is_ancestor_or_self(entity, before) && before != entity;
+        if !in_select {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_not_found_error,
+                "select.add: before is not a descendant of this select",
+            ));
+        }
+        let Some(parent_of_before) = dom.get_parent(before) else {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_not_found_error,
+                "select.add: before has no parent",
+            ));
+        };
+        if !ctx
+            .host()
+            .dom()
+            .insert_before(parent_of_before, opt_entity, before)
+        {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_hierarchy_request_error,
+                "select.add: insertBefore failed (cycle or detached entity)",
+            ));
+        }
+    } else if !ctx.host().dom().append_child(entity, opt_entity) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_hierarchy_request_error,
+            "select.add: appendChild failed (cycle or detached entity)",
+        ));
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// `select.remove(idx)` — HTML §4.10.7.6.  No-arg form delegates to
+/// `ChildNode.remove()` (detach the select itself); numeric form
+/// removes the option at the given index (silent no-op when out of
+/// range).
+fn native_select_remove(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_select_receiver(ctx, this, "remove")? else {
+        return Ok(JsValue::Undefined);
+    };
+    // No-arg: ChildNode.remove() — detach `entity` from its parent.
+    if args.is_empty() || matches!(args[0], JsValue::Undefined) {
+        if let Some(parent) = ctx.host().dom().get_parent(entity) {
+            let _ = ctx.host().dom().remove_child(parent, entity);
+        }
+        return Ok(JsValue::Undefined);
+    }
+    let n = super::super::coerce::to_int32(ctx.vm, args[0])?;
+    let Ok(idx) = usize::try_from(n) else {
+        return Ok(JsValue::Undefined);
+    };
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    if let Some(target) = opts.item(idx, ctx.host().dom()) {
+        if let Some(parent) = ctx.host().dom().get_parent(target) {
+            let _ = ctx.host().dom().remove_child(parent, target);
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// WebIDL ToInt32(`before`) → index into the select's options
+/// list; returns the option entity at that index, or `None` for
+/// negative / out-of-range indices (which spec-defines as no
+/// before reference, i.e. append).
+fn resolve_options_index(
+    ctx: &mut NativeContext<'_>,
+    select_entity: Entity,
+    before_arg: JsValue,
+) -> Result<Option<Entity>, VmError> {
+    let coerced = super::super::coerce::to_int32(ctx.vm, before_arg)?;
+    if coerced < 0 {
+        return Ok(None);
+    }
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select_entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    Ok(opts.item(coerced as usize, ctx.host().dom()))
+}
