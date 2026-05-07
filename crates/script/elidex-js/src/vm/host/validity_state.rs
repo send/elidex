@@ -412,11 +412,15 @@ fn native_get_validation_message(
         .world()
         .get::<&FormControlState>(entity)
         .ok()
+        .filter(|state| is_constraint_validation_candidate(state, entity, dom))
         .map_or_else(String::new, |state| {
+            // HTML §4.10.20.2: `validationMessage` is empty for
+            // controls barred from constraint validation (matches
+            // the with_validity / willValidate gating).  Custom
+            // error wins; otherwise produce a stub diagnostic from
+            // the failed flag.  Browser-quality localised messages
+            // are deferred to the UA shell.
             let v = elidex_form::validate_control(&state);
-            // Custom error wins; otherwise produce a stub
-            // diagnostic from the failed flag.  Browser-quality
-            // localised messages are deferred to the UA shell.
             if v.custom_error {
                 v.custom_error_message
             } else if !v.is_valid() {

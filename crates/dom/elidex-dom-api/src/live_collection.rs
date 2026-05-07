@@ -50,6 +50,12 @@ pub enum CollectionFilter {
     /// `HTMLSelectElement.options` (HTML §4.10.10.2).  `<optgroup>`
     /// nesting is handled implicitly by the descendant traversal.
     Options,
+    /// Match descendant `<option>` elements that currently have the
+    /// `selected` content attribute set.  Backs
+    /// `HTMLSelectElement.selectedOptions` (HTML §4.10.7.4) — must
+    /// be live so callers holding the collection across mutations
+    /// see updated state.
+    SelectedOptions,
 }
 
 /// Whether the collection behaves as an `HTMLCollection` or a `NodeList`.
@@ -330,6 +336,13 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
         CollectionFilter::Forms => matches_tag_ascii_ci(entity, "form", dom),
         CollectionFilter::FormControls => matches_tag_ascii_ci_listed(entity, dom),
         CollectionFilter::Options => matches_tag_ascii_ci(entity, "option", dom),
+        CollectionFilter::SelectedOptions => {
+            matches_tag_ascii_ci(entity, "option", dom)
+                && dom
+                    .world()
+                    .get::<&Attributes>(entity)
+                    .is_ok_and(|a| a.contains("selected"))
+        }
         CollectionFilter::Links => {
             let is_link_tag =
                 matches_tag_ascii_ci(entity, "a", dom) || matches_tag_ascii_ci(entity, "area", dom);

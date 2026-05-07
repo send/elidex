@@ -24,7 +24,8 @@
 //! - `options` returns an `HTMLCollection` filtered by
 //!   `CollectionFilter::Options` (live across DOM mutation).
 //! - `length` mirrors `options.length`.
-//! - `selectedOptions` snapshot of currently-selected `<option>`s.
+//! - `selectedOptions` live `HTMLCollection` of currently-selected
+//!   `<option>`s, backed by `CollectionFilter::SelectedOptions`.
 //! - `selectedIndex` / `value` reflect the current selection.
 //!
 //! Methods:
@@ -488,26 +489,21 @@ fn native_select_get_selected_options(
             ));
         return Ok(JsValue::Object(id));
     };
-    // Snapshot of currently-selected options.  WHATWG specifies a
-    // live HTMLCollection here, but the live filter would need a
-    // closure; snapshot is functionally equivalent across read
-    // accesses and the [SameObject] guarantee is not part of spec.
-    let mut opts = elidex_dom_api::LiveCollection::new(
+    // Live `HTMLCollection` of options whose `selected` content
+    // attribute is set, per HTML §4.10.7.4 — backed by
+    // `CollectionFilter::SelectedOptions` so callers holding the
+    // collection across DOM mutations see the updated set.  No
+    // `[SameObject]` cache: the spec doesn't require identity
+    // preservation here, and the wrapper is cheap (filter walks
+    // only on length/item access, snapshot via the
+    // inclusive-descendants-version cache like other live
+    // collections).
+    let coll = elidex_dom_api::LiveCollection::new(
         entity,
-        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionFilter::SelectedOptions,
         elidex_dom_api::CollectionKind::HtmlCollection,
     );
-    let opts_snap = opts.snapshot(ctx.host().dom()).to_vec();
-    let selected: Vec<Entity> = opts_snap
-        .into_iter()
-        .filter(|opt| ctx.host().dom().has_attribute(*opt, "selected"))
-        .collect();
-    let id = ctx
-        .vm
-        .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-            selected,
-            elidex_dom_api::CollectionKind::HtmlCollection,
-        ));
+    let id = ctx.vm.alloc_collection(coll);
     Ok(JsValue::Object(id))
 }
 
@@ -782,10 +778,26 @@ fn native_select_add(
     let before_entity: Option<Entity> = match before_arg {
         JsValue::Null | JsValue::Undefined => None,
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
-            ObjectKind::HostObject { entity_bits } => Entity::from_bits(entity_bits),
-            // Object that does not implement HTMLElement falls into
-            // the `long` branch; ToInt32 of a generic object goes
-            // through ToPrimitive → "[object Object]" → NaN → 0.
+            ObjectKind::HostObject { entity_bits } => {
+                // WebIDL `(HTMLElement or long)` overload: the
+                // HostObject only enters the HTMLElement arm when
+                // the backing entity is actually an Element node.
+                // Text / Comment / Document / etc. host wrappers
+                // fall through to the `long` branch (ToInt32 of a
+                // non-Number Object goes through ToPrimitive →
+                // typically NaN → 0).
+                let candidate = Entity::from_bits(entity_bits);
+                let is_element = candidate.is_some_and(|e| {
+                    ctx.host().dom().node_kind_inferred(e) == Some(NodeKind::Element)
+                });
+                if is_element {
+                    candidate
+                } else {
+                    resolve_options_index(ctx, entity, before_arg)?
+                }
+            }
+            // Non-HostObject (plain JS object) falls into the
+            // `long` branch.
             _ => resolve_options_index(ctx, entity, before_arg)?,
         },
         // Number / String / Boolean / BigInt all coerce through

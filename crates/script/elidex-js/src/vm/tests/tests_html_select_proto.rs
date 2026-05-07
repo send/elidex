@@ -242,6 +242,40 @@ fn select_add_with_out_of_range_numeric_before_appends() {
 }
 
 #[test]
+fn select_selected_options_is_live_across_mutation() {
+    // R16 F2 regression — `selectedOptions` is spec'd as a live
+    // HTMLCollection (HTML §4.10.7.4); a snapshot would surface
+    // stale data when a caller mutates `option.selected` after
+    // reading the collection.
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         o1.setAttribute('selected', ''); \
+         s.add(o1); \
+         var so = s.selectedOptions; \
+         var before = so.length; \
+         o1.removeAttribute('selected'); \
+         var after = so.length; \
+         '' + before + '/' + after;");
+    assert_eq!(out, "1/0");
+}
+
+#[test]
+fn select_add_with_text_node_before_falls_to_long_branch() {
+    // R16 F3 regression — WebIDL overload `(HTMLElement or long)`:
+    // a non-Element host wrapper (e.g. Text node) must NOT enter
+    // the HTMLElement arm; it falls through to ToInt32, which on
+    // a Text wrapper yields 0 → insert before options[0].
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         s.add(o1); \
+         var t = document.createTextNode('not-an-element'); \
+         s.add(o2, t); \
+         (s.item(0) === o2 && s.item(1) === o1) ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn select_add_with_string_before_coerces_via_to_int32() {
     // R4 F1 regression — WebIDL overload resolution: any non-null /
     // non-Element argument flows to ToInt32; string "1" → 1.

@@ -316,6 +316,18 @@ fn validity_valid_defaults_to_true_when_no_form_control_state() {
 }
 
 #[test]
+fn validation_message_empty_for_barred_controls() {
+    // R16 F1 regression — `validationMessage` is empty for any
+    // control barred from constraint validation, mirroring the
+    // `validity.*` and `willValidate` gating (HTML §4.10.20.2).
+    let out = run("var i = document.createElement('input'); \
+         i.required = true; \
+         i.disabled = true; \
+         i.validationMessage;");
+    assert_eq!(out, "");
+}
+
+#[test]
 fn validity_anchor_flags_false_for_barred_controls() {
     // R15 F1 regression — HTML §4.10.20.3: barred controls
     // (disabled / hidden / disabled-fieldset descendant) skip the
