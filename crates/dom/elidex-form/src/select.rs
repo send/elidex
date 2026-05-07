@@ -5,11 +5,14 @@ use elidex_ecs::{Attributes, EcsDom, Entity, TagType, MAX_ANCESTOR_DEPTH};
 use crate::{FormControlState, SelectOption};
 
 /// Returns `true` if `entity` is an `<option>` whose own `disabled`
-/// attribute is set OR whose nearest enclosing `<optgroup>` ancestor
-/// (within reasonable nesting depth) has `disabled` set.  HTML
-/// §4.10.10.2 — an option is "disabled" when either condition holds.
-/// Walks at most one optgroup level (per spec optgroups don't nest)
-/// but uses `MAX_ANCESTOR_DEPTH` for safety against malformed trees.
+/// attribute is set OR whose enclosing tree contains a disabled
+/// `<optgroup>` ancestor.  HTML §4.10.10.2 — an option is "disabled"
+/// when either condition holds.  In well-formed markup optgroup
+/// elements don't nest (parser flattens them), but the walker
+/// climbs up to `MAX_ANCESTOR_DEPTH` ancestors and stops at the
+/// enclosing `<select>`, so any disabled optgroup encountered
+/// before that cutoff disables the option — mirrors browsers
+/// that accept malformed nested-optgroup trees gracefully.
 ///
 /// Returns `false` when `entity` is not actually an `<option>` (so
 /// callers can pass arbitrary entities defensively without

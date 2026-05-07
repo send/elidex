@@ -382,6 +382,7 @@ fn native_option_get_index(
         &mut count,
         entity,
         &mut found,
+        0,
     );
     Ok(JsValue::Number(f64::from(found)))
 }
@@ -392,7 +393,16 @@ fn walk_options(
     count: &mut u32,
     target: Entity,
     found: &mut i32,
+    depth: usize,
 ) {
+    // Cap recursion depth — a JS-supplied tree can in principle
+    // contain pathologically nested `<optgroup>` elements (the spec
+    // forbids it, but the parser doesn't reject it).  Bail out at
+    // `MAX_ANCESTOR_DEPTH` so `option.index` can't stack-overflow
+    // the process on hostile input.
+    if depth > elidex_ecs::MAX_ANCESTOR_DEPTH {
+        return;
+    }
     let Some(mut child) = dom.get_first_child(parent) else {
         return;
     };
@@ -417,7 +427,7 @@ fn walk_options(
             }
             *count += 1;
         } else if tag_is_optgroup {
-            walk_options(dom, child, count, target, found);
+            walk_options(dom, child, count, target, found, depth + 1);
             if *found >= 0 {
                 // Recursive call located the target; unwind.
                 return;

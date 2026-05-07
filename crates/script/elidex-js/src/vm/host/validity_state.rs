@@ -144,20 +144,28 @@ fn require_validity_receiver(
         .ok_or_else(|| VmError::type_error("ValidityState: invalid entity"))
 }
 
-/// Run validate_control on the owner's FormControlState and pass
-/// the validity to `f`.  Defaults to `false` when the owner has no
-/// FormControlState.
+/// Run `validate_control` on the owner's `FormControlState` and pass
+/// the validity to `f`.  When the owner has no `FormControlState`
+/// the control is not a constraint-validation candidate, so the
+/// caller specifies which side of that biconditional to fall back
+/// to: `default_when_no_state = false` for anchor flags
+/// (`valueMissing` / `tooLong` / etc.) and `true` for the aggregate
+/// `valid` getter — matching `checkValidity()`'s "non-candidate
+/// always returns true" rule (HTML §4.10.20.4 step 1.a).
 fn with_validity<F: FnOnce(&elidex_form::ValidityState) -> bool>(
     ctx: &mut NativeContext<'_>,
     method: &str,
     this: JsValue,
+    default_when_no_state: bool,
     f: F,
 ) -> Result<JsValue, VmError> {
     let entity = require_validity_receiver(ctx, this, method)?;
     let dom = ctx.host().dom();
     let state = dom.world().get::<&FormControlState>(entity).ok();
     let validity = state.as_ref().map(|s| elidex_form::validate_control(s));
-    Ok(JsValue::Boolean(validity.as_ref().is_some_and(f)))
+    Ok(JsValue::Boolean(
+        validity.as_ref().map_or(default_when_no_state, f),
+    ))
 }
 
 fn native_validity_value_missing(
@@ -165,7 +173,7 @@ fn native_validity_value_missing(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "valueMissing", this, |v| v.value_missing)
+    with_validity(ctx, "valueMissing", this, false, |v| v.value_missing)
 }
 
 fn native_validity_type_mismatch(
@@ -173,7 +181,7 @@ fn native_validity_type_mismatch(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "typeMismatch", this, |v| v.type_mismatch)
+    with_validity(ctx, "typeMismatch", this, false, |v| v.type_mismatch)
 }
 
 fn native_validity_pattern_mismatch(
@@ -181,7 +189,7 @@ fn native_validity_pattern_mismatch(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "patternMismatch", this, |v| v.pattern_mismatch)
+    with_validity(ctx, "patternMismatch", this, false, |v| v.pattern_mismatch)
 }
 
 fn native_validity_too_short(
@@ -189,7 +197,7 @@ fn native_validity_too_short(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "tooShort", this, |v| v.too_short)
+    with_validity(ctx, "tooShort", this, false, |v| v.too_short)
 }
 
 fn native_validity_too_long(
@@ -197,7 +205,7 @@ fn native_validity_too_long(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "tooLong", this, |v| v.too_long)
+    with_validity(ctx, "tooLong", this, false, |v| v.too_long)
 }
 
 fn native_validity_range_underflow(
@@ -205,7 +213,7 @@ fn native_validity_range_underflow(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "rangeUnderflow", this, |v| v.range_underflow)
+    with_validity(ctx, "rangeUnderflow", this, false, |v| v.range_underflow)
 }
 
 fn native_validity_range_overflow(
@@ -213,7 +221,7 @@ fn native_validity_range_overflow(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "rangeOverflow", this, |v| v.range_overflow)
+    with_validity(ctx, "rangeOverflow", this, false, |v| v.range_overflow)
 }
 
 fn native_validity_step_mismatch(
@@ -221,7 +229,7 @@ fn native_validity_step_mismatch(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "stepMismatch", this, |v| v.step_mismatch)
+    with_validity(ctx, "stepMismatch", this, false, |v| v.step_mismatch)
 }
 
 fn native_validity_bad_input(
@@ -229,7 +237,7 @@ fn native_validity_bad_input(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "badInput", this, |v| v.bad_input)
+    with_validity(ctx, "badInput", this, false, |v| v.bad_input)
 }
 
 fn native_validity_custom_error(
@@ -237,7 +245,7 @@ fn native_validity_custom_error(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "customError", this, |v| v.custom_error)
+    with_validity(ctx, "customError", this, false, |v| v.custom_error)
 }
 
 fn native_validity_valid(
@@ -245,7 +253,15 @@ fn native_validity_valid(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    with_validity(ctx, "valid", this, elidex_form::ValidityState::is_valid)
+    // No FormControlState → not a candidate → spec-equivalent to
+    // `valid = true` (matches `checkValidity()`'s default).
+    with_validity(
+        ctx,
+        "valid",
+        this,
+        true,
+        elidex_form::ValidityState::is_valid,
+    )
 }
 
 // ---------------------------------------------------------------------------

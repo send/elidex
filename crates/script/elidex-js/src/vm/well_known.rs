@@ -803,9 +803,12 @@ define_well_known_strings! {
         validity_state_global => "ValidityState",
         // IDL accessor names — DOMString reflect / boolean reflect /
         // enumerated keyword.  Names that already live above (`name`,
-        // `value`, `type`, `length`, `select`, `options`, `entries`,
+        // `value`, `type`, `length`, `select`, `entries`,
         // `item`, `named_item`, `prefix`, `target`, `cancel`, etc.)
         // are reused; only new identifiers are interned here.
+        // (`options` is defined below in the `<select>` IDL block
+        // because it landed in this PR alongside the select/option
+        // surface — not a reuse.)
         html_for => "htmlFor",
         for_attr => "for",
         control => "control",

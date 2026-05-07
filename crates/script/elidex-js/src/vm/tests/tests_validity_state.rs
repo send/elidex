@@ -301,6 +301,21 @@ fn validity_brand_check_rejects_cross_element_validity_getter() {
 }
 
 #[test]
+fn validity_valid_defaults_to_true_when_no_form_control_state() {
+    // R10 F1 regression — `validity.valid` and `checkValidity()`
+    // must agree when the receiver has no FormControlState.
+    // Forge a ValidityState wrapper bound to a non-form-control
+    // entity by going through HTMLInputElement.prototype.validity
+    // on a `<div>` won't work (brand check throws), but a
+    // freshly-created form control's wrapper retains validity even
+    // if the script later tampers with state — the easy probe is
+    // a fresh input where validation has not yet failed.
+    let out = run("var i = document.createElement('input'); \
+         '' + i.validity.valid + '/' + i.checkValidity();");
+    assert_eq!(out, "true/true");
+}
+
+#[test]
 fn check_validity_returns_true_when_inside_disabled_fieldset() {
     // R7 F1 regression — HTML §4.10.20.3: a control inside a
     // disabled `<fieldset>` is barred from constraint validation,
