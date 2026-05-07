@@ -72,35 +72,39 @@ pub fn resolve_label_for(dom: &EcsDom, label_entity: Entity) -> Option<Entity> {
         v.to_owned()
     };
 
-    // Document-order pre-order DFS via `EcsDom::find_by_id`, anchored
-    // at the label's tree root.  Per HTML §4.10.4 the lookup is
-    // restricted to "the same tree as the label element", so we
-    // climb to the label's tree root rather than scanning every
-    // entity in the world (which would also surface detached siblings
-    // and non-document elements).  `find_tree_root` returns the label
-    // itself when detached, so detached labels also work.
+    // Pre-order DFS over the label's tree (root inclusive) seeking
+    // the FIRST entity that has the matching id AND is labelable.
     //
-    // `find_by_id` only searches descendants, so check the root
-    // itself first — covers e.g. a labelable element that sits at
-    // the tree root (`<button id=foo><label for=foo>...</label></button>`).
+    // The previous implementation used `EcsDom::find_by_id`, which
+    // returns the first id-match regardless of labelable status —
+    // that masked tree-order valid matches when an earlier
+    // non-labelable element shared the same id (HTML treats
+    // duplicate ids as malformed markup but browsers fall back to
+    // returning the first labelable match in tree order).
+    //
+    // `find_tree_root` returns the label itself when detached, so
+    // detached labels also work.  `traverse_descendants` skips
+    // `root` itself, so we check `root` explicitly before walking.
     let root = dom.find_tree_root(label_entity);
-    let root_matches_id = dom
-        .world()
-        .get::<&Attributes>(root)
-        .is_ok_and(|a| a.get("id") == Some(for_id.as_str()));
-    let candidate = if root_matches_id {
-        root
-    } else {
-        dom.find_by_id(root, for_id.as_str())?
-    };
-    // HTML §4.10.4 — `label.htmlFor`'s control is the first
-    // **labelable** element with the matching id.  The previous
-    // FormControlState fallback was a defensive carry-over that
-    // accepted non-labelable controls (notably
-    // `<input type=hidden>`, which has FormControlState but is
-    // explicitly not labelable per §4.10.4).  Drop the fallback so
-    // hidden inputs cannot be resolved as label targets.
-    is_labelable_element(dom, candidate).then_some(candidate)
+    if matches_id_and_labelable(dom, root, for_id.as_str()) {
+        return Some(root);
+    }
+    let mut candidate = None;
+    dom.traverse_descendants(root, |entity| {
+        if matches_id_and_labelable(dom, entity, for_id.as_str()) {
+            candidate = Some(entity);
+            return false;
+        }
+        true
+    });
+    candidate
+}
+
+fn matches_id_and_labelable(dom: &EcsDom, entity: Entity, id: &str) -> bool {
+    dom.world()
+        .get::<&Attributes>(entity)
+        .is_ok_and(|a| a.get("id") == Some(id))
+        && is_labelable_element(dom, entity)
 }
 
 /// Find the first descendant labelable element of a label element.
@@ -248,6 +252,36 @@ mod tests {
         let _ = dom.append_child(label, textarea);
 
         assert_eq!(find_label_target(&dom, label), Some(textarea));
+    }
+
+    #[test]
+    fn resolve_label_for_skips_non_labelable_when_id_collision() {
+        // R12 F1 regression — when the tree root (or any earlier
+        // entity in tree order) carries the matching id but isn't
+        // labelable, the walker must continue rather than treating
+        // the non-labelable id-match as the final candidate.
+        // Spec is "first labelable element in tree order whose id
+        // matches" (HTML §4.10.4) — even with duplicate ids
+        // (malformed markup) browsers return the first labelable.
+        let mut dom = EcsDom::new();
+        // Root <div id="foo"> — has matching id but not labelable.
+        let mut div_attrs = Attributes::default();
+        div_attrs.set("id", "foo");
+        let div_root = dom.create_element("div", div_attrs);
+        // Descendant <input id="foo"> — also has the same id and IS
+        // labelable.  Should be returned.
+        let mut input_attrs = Attributes::default();
+        input_attrs.set("id", "foo");
+        let input = dom.create_element("input", input_attrs);
+        let _ = dom.append_child(div_root, input);
+
+        // Label sits inside the same tree.
+        let mut label_attrs = Attributes::default();
+        label_attrs.set("for", "foo");
+        let label = dom.create_element("label", label_attrs);
+        let _ = dom.append_child(div_root, label);
+
+        assert_eq!(resolve_label_for(&dom, label), Some(input));
     }
 
     #[test]

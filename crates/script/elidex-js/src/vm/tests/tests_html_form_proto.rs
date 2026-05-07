@@ -114,7 +114,10 @@ fn form_rel_round_trip() {
 }
 
 #[test]
-fn form_length_returns_zero_phase4_stub() {
+fn form_length_zero_when_no_listed_descendants() {
+    // Phase 7 made `form.length` live (mirrors `form.elements.length`
+    // backed by `CollectionFilter::FormControls`); a fresh form
+    // with no listed-element descendants reports 0.
     let out = run("var f = document.createElement('form'); '' + f.length;");
     assert_eq!(out, "0");
 }
