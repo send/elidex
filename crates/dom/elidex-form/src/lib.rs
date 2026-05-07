@@ -25,7 +25,7 @@ pub use fieldset::{
 };
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use input::{form_control_key_input, form_control_key_input_action, KeyAction};
-pub use label::{find_label_target, is_label, resolve_label_for};
+pub use label::{find_label_target, is_label, is_labelable_element, resolve_label_for};
 pub use radio::{
     find_radio_group, find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate,
     toggle_radio,

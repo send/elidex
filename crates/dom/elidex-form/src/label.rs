@@ -9,16 +9,41 @@ use crate::FormControlState;
 /// `<meter>`, `<output>`, `<progress>`, `<select>`, `<textarea>`.
 /// Tag-based check rather than `FormControlState`-based so a
 /// JS-created element (`document.createElement('input')`) without
-/// the side-table component still resolves correctly.
+/// the side-table component still resolves correctly.  Falls back
+/// to the `type` content attribute (ASCII-CI) for the
+/// `<input type=hidden>` exclusion when no `FormControlState` is
+/// attached.
 #[must_use]
 pub fn is_labelable_element(dom: &EcsDom, entity: Entity) -> bool {
     let Ok(tag) = dom.world().get::<&TagType>(entity) else {
         return false;
     };
-    matches!(
-        tag.0.as_str(),
+    let tag_str = tag.0.as_str();
+    if !matches!(
+        tag_str,
         "button" | "input" | "meter" | "output" | "progress" | "select" | "textarea"
-    )
+    ) {
+        return false;
+    }
+    if tag_str == "input" {
+        // `<input type=hidden>` is explicitly NOT labelable.  Prefer
+        // `FormControlState.kind` (already ASCII-lowered at attach
+        // time); fall back to the raw content attribute for
+        // JS-created inputs without state.
+        drop(tag);
+        if let Ok(state) = dom.world().get::<&FormControlState>(entity) {
+            return state.kind != crate::FormControlKind::Hidden;
+        }
+        if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
+            if attrs
+                .get("type")
+                .is_some_and(|v| v.eq_ignore_ascii_case("hidden"))
+            {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Resolve the `for` attribute of a `<label>` to a target form
@@ -141,5 +166,56 @@ mod tests {
         let mut dom = EcsDom::new();
         let label = dom.create_element("label", Attributes::default());
         assert_eq!(find_label_target(&dom, label), None);
+    }
+
+    #[test]
+    fn is_labelable_element_excludes_hidden_input_via_state() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("type", "hidden");
+        let input = dom.create_element("input", attrs.clone());
+        let _ = dom.world_mut().insert_one(
+            input,
+            FormControlState::from_element("input", &attrs).unwrap(),
+        );
+        assert!(!is_labelable_element(&dom, input));
+    }
+
+    #[test]
+    fn is_labelable_element_excludes_hidden_input_via_attribute() {
+        // JS-created element without FormControlState — falls back
+        // to the raw `type` attribute.
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("type", "Hidden"); // ASCII-CI
+        let input = dom.create_element("input", attrs);
+        assert!(!is_labelable_element(&dom, input));
+    }
+
+    #[test]
+    fn is_labelable_element_accepts_text_input_without_state() {
+        let mut dom = EcsDom::new();
+        let input = dom.create_element("input", Attributes::default());
+        assert!(is_labelable_element(&dom, input));
+    }
+
+    #[test]
+    fn is_labelable_element_accepts_button_select_textarea() {
+        let mut dom = EcsDom::new();
+        let button = dom.create_element("button", Attributes::default());
+        let select = dom.create_element("select", Attributes::default());
+        let textarea = dom.create_element("textarea", Attributes::default());
+        assert!(is_labelable_element(&dom, button));
+        assert!(is_labelable_element(&dom, select));
+        assert!(is_labelable_element(&dom, textarea));
+    }
+
+    #[test]
+    fn is_labelable_element_rejects_non_labelable_tags() {
+        let mut dom = EcsDom::new();
+        let div = dom.create_element("div", Attributes::default());
+        let label = dom.create_element("label", Attributes::default());
+        assert!(!is_labelable_element(&dom, div));
+        assert!(!is_labelable_element(&dom, label));
     }
 }
