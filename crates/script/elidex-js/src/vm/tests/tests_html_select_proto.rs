@@ -499,8 +499,11 @@ fn select_value_setter_selects_matching_option() {
 fn select_selected_index_setter_invalidates_attr_wrapper_cache() {
     // PR #164 R1 regression — `selectedIndex = N` must invalidate the
     // `(option, "selected")` `attr_wrapper_cache` entries, otherwise
-    // `getAttributeNode("selected")` cached pre-mutation returns a
-    // stale wrapper for an attribute that has since been removed.
+    // a `getAttributeNode("selected")` cached pre-mutation returns a
+    // stale wrapper after the attribute is removed and re-added.
+    // R4 strengthening: probe wrapper IDENTITY across remove → re-add
+    // (not just `null` post-removal, which passes regardless of cache
+    // state because `getAttributeNode` checks `has_attribute` first).
     // Pre-PR behaviour partial-invalidated via `attr_remove`; the D-4
     // hoist replicates that side effect at the binding boundary.
     let out = run("var s = document.createElement('select'); \
@@ -509,17 +512,20 @@ fn select_selected_index_setter_invalidates_attr_wrapper_cache() {
          s.add(o1); s.add(o2); \
          var attrBefore = o1.getAttributeNode('selected'); \
          s.selectedIndex = 1; \
+         var attrCleared = o1.getAttributeNode('selected'); \
+         s.selectedIndex = 0; \
          var attrAfter = o1.getAttributeNode('selected'); \
-         '' + (attrBefore !== null) + '/' + (attrAfter === null);");
-    assert_eq!(out, "true/true");
+         '' + (attrBefore !== null) + '/' + (attrCleared === null) + '/' \
+              + (attrAfter !== null) + '/' + (attrAfter !== attrBefore);");
+    assert_eq!(out, "true/true/true/true");
 }
 
 #[test]
 fn select_value_setter_invalidates_attr_wrapper_cache() {
     // PR #164 R1 regression — same shape as the selectedIndex setter
-    // case but via the `value` setter path.  Ensures `getAttributeNode`
-    // returns null for the option whose `selected` attribute was
-    // cleared by `select.value = ...`, rather than a stale wrapper.
+    // case but via the `value` setter path.  R4 strengthening: probe
+    // wrapper IDENTITY across remove → re-add via `s.value = ...`,
+    // matching the selectedIndex regression test's assertion shape.
     let out = run(
         "var s = document.createElement('select'); \
          var o1 = document.createElement('option'); o1.value = 'a'; o1.setAttribute('selected', ''); \
@@ -527,10 +533,13 @@ fn select_value_setter_invalidates_attr_wrapper_cache() {
          s.add(o1); s.add(o2); \
          var attrBefore = o1.getAttributeNode('selected'); \
          s.value = 'b'; \
+         var attrCleared = o1.getAttributeNode('selected'); \
+         s.value = 'a'; \
          var attrAfter = o1.getAttributeNode('selected'); \
-         '' + (attrBefore !== null) + '/' + (attrAfter === null);",
+         '' + (attrBefore !== null) + '/' + (attrCleared === null) + '/' \
+              + (attrAfter !== null) + '/' + (attrAfter !== attrBefore);",
     );
-    assert_eq!(out, "true/true");
+    assert_eq!(out, "true/true/true/true");
 }
 
 #[test]

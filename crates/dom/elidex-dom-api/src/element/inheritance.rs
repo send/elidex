@@ -7,7 +7,7 @@
 //! brand check, marshalling). Ancestor-walk algorithms over the DOM
 //! tree are engine-independent and live here.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 
 /// Resolve the effective `isContentEditable` state for `entity`
 /// (HTML §6.7.3 — `contentEditable` IDL attribute).
@@ -34,7 +34,15 @@ use elidex_ecs::{EcsDom, Entity};
 #[must_use]
 pub fn is_content_editable(dom: &EcsDom, entity: Entity) -> bool {
     let mut cur = Some(entity);
-    while let Some(e) = cur {
+    // `MAX_ANCESTOR_DEPTH` cap mirrors the convention used by sibling
+    // walkers (`find_form_ancestor` / `find_option_select` etc.) so a
+    // hypothetical `TreeRelation` cycle / corruption (e.g. from a
+    // buggy `appendChild` cycle-check regression) cannot wedge this
+    // accessor in an infinite loop.
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let Some(e) = cur else {
+            return false;
+        };
         let matched = dom.with_attribute(e, "contenteditable", |raw| {
             raw.map(|s| {
                 s.eq_ignore_ascii_case("true")
