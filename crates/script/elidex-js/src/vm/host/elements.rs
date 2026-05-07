@@ -202,6 +202,9 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "form") {
             return self.html_form_prototype;
         }
+        if host.tag_matches_ascii_case(entity, "button") {
+            return self.html_button_prototype;
+        }
         None
     }
 }
