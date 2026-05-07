@@ -211,6 +211,9 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "select") {
             return self.html_select_prototype;
         }
+        if host.tag_matches_ascii_case(entity, "input") {
+            return self.html_input_prototype;
+        }
         None
     }
 }

@@ -135,6 +135,9 @@ pub(super) mod html_legend_proto;
 pub(super) mod html_optgroup_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_option_proto;
+
+#[cfg(feature = "engine")]
+pub(super) mod html_input_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_select_proto;
 #[cfg(feature = "engine")]
