@@ -295,3 +295,39 @@ fn textarea_selection_brand_check_throws_on_non_textarea_receiver() {
          catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
     assert_eq!(out, "type");
 }
+
+// ---------------------------------------------------------------------------
+// R25 regressions — WebIDL `unsigned long` (ToUint32) coercion for
+// the Selection API mixin on textarea, mirroring
+// `tests_html_input_proto::input_*_negative_wraps_then_clamps_*`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn textarea_set_selection_range_negative_wraps_then_clamps_to_length() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'hello'; \
+         t.setSelectionRange(-1, -1); \
+         t.selectionStart + '/' + t.selectionEnd;");
+    assert_eq!(out, "5/5");
+}
+
+#[test]
+fn textarea_selection_start_setter_negative_wraps_then_clamps() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abc'; \
+         t.setSelectionRange(0, 3); \
+         t.selectionStart = -1; \
+         '' + t.selectionStart;");
+    assert_eq!(out, "3");
+}
+
+#[test]
+fn textarea_set_range_text_negative_start_wraps_then_clamps() {
+    // -1 → ToUint32 = u32::MAX → clamps to len = 3 → empty range
+    // [3,3) replaced by "X" → "abcX".  See input_set_range_text_*.
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abc'; \
+         t.setRangeText('X', -1, -1); \
+         t.value;");
+    assert_eq!(out, "abcX");
+}

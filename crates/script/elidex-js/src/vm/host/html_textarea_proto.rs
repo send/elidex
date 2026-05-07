@@ -824,7 +824,7 @@ fn native_textarea_set_selection_start(
     };
     require_text_control(ctx, entity, "selectionStart")?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_int32(ctx.vm, val)?.max(0) as usize;
+    let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         state.set_selection_start(n);
@@ -862,7 +862,7 @@ fn native_textarea_set_selection_end(
     };
     require_text_control(ctx, entity, "selectionEnd")?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_int32(ctx.vm, val)?.max(0) as usize;
+    let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         state.set_selection_end(n);
@@ -948,8 +948,12 @@ fn native_textarea_set_selection_range(
     let start_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let end_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let dir_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-    let start = super::super::coerce::to_int32(ctx.vm, start_arg)?.max(0) as usize;
-    let end = super::super::coerce::to_int32(ctx.vm, end_arg)?.max(0) as usize;
+    // setSelectionRange start / end are WebIDL `unsigned long`
+    // (HTML §4.10.5.2.10) — coerce via ToUint32 so negative inputs
+    // wrap to 2³² + n rather than clamping to 0; the clamping to
+    // `value.len()` happens inside `set_selection`.
+    let start = super::super::coerce::to_uint32(ctx.vm, start_arg)? as usize;
+    let end = super::super::coerce::to_uint32(ctx.vm, end_arg)? as usize;
     use elidex_form::SelectionDirection;
     let dir = if matches!(dir_arg, JsValue::Undefined) {
         SelectionDirection::None
@@ -984,9 +988,10 @@ fn native_textarea_set_range_text(
     let replacement = ctx.vm.strings.get_utf8(sid);
     // Optional start / end via WebIDL `unsigned long` coercion
     // (HTML §4.10.5.2.10).  Mirrors `html_input_proto.rs` —
-    // strings / booleans / BigInts all flow through `to_int32`,
-    // negatives clamp to 0, missing / undefined uses the current
-    // selection bound.
+    // strings / booleans / BigInts all flow through `to_uint32`,
+    // negatives wrap modulo 2³² (per ToUint32) and the result is
+    // clamped to `value.len()` inside `set_selection`; missing /
+    // undefined keeps the current selection bound.
     let coerced_start = coerce_optional_clamp(ctx, args.get(1).copied())?;
     let coerced_end = coerce_optional_clamp(ctx, args.get(2).copied())?;
     let dom = ctx.host().dom();
@@ -1009,8 +1014,8 @@ fn coerce_optional_clamp(
     match arg {
         None | Some(JsValue::Undefined) => Ok(None),
         Some(v) => {
-            let n = super::super::coerce::to_int32(ctx.vm, v)?;
-            Ok(Some(n.max(0) as usize))
+            let n = super::super::coerce::to_uint32(ctx.vm, v)?;
+            Ok(Some(n as usize))
         }
     }
 }

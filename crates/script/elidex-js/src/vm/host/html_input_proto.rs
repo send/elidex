@@ -1289,7 +1289,7 @@ fn native_input_set_selection_start(
     };
     require_text_control(ctx, entity, "selectionStart")?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_int32(ctx.vm, val)?.max(0) as usize;
+    let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         state.set_selection_start(n);
@@ -1327,7 +1327,7 @@ fn native_input_set_selection_end(
     };
     require_text_control(ctx, entity, "selectionEnd")?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_int32(ctx.vm, val)?.max(0) as usize;
+    let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
         state.set_selection_end(n);
@@ -1413,8 +1413,12 @@ fn native_input_set_selection_range(
     let start_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let end_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let dir_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-    let start = super::super::coerce::to_int32(ctx.vm, start_arg)?.max(0) as usize;
-    let end = super::super::coerce::to_int32(ctx.vm, end_arg)?.max(0) as usize;
+    // setSelectionRange start / end are WebIDL `unsigned long`
+    // (HTML §4.10.5.2.10) — coerce via ToUint32 so negative inputs
+    // wrap to 2³² + n rather than clamping to 0; the clamping to
+    // `value.len()` happens inside `set_selection`.
+    let start = super::super::coerce::to_uint32(ctx.vm, start_arg)? as usize;
+    let end = super::super::coerce::to_uint32(ctx.vm, end_arg)? as usize;
     use elidex_form::SelectionDirection;
     let dir = if matches!(dir_arg, JsValue::Undefined) {
         SelectionDirection::None
@@ -1448,10 +1452,12 @@ fn native_input_set_range_text(
     let sid = super::super::coerce::to_string(ctx.vm, replacement_arg)?;
     let replacement = ctx.vm.strings.get_utf8(sid);
     // Optional start / end via WebIDL `unsigned long` coercion
-    // (HTML §4.10.5.2.10) — `to_int32` runs ToNumber first so
+    // (HTML §4.10.5.2.10) — `to_uint32` runs ToNumber first so
     // strings ("2"), booleans (true → 1 / false → 0), and
     // BigInts all coerce.  `Undefined` / missing → use the
-    // current selection bounds.  Negatives clamp to 0.
+    // current selection bounds.  Negative inputs wrap modulo
+    // 2³² (per ToUint32) and the result is clamped to
+    // `value.len()` inside `set_selection`.
     let coerced_start = coerce_optional_clamp(ctx, args.get(1).copied())?;
     let coerced_end = coerce_optional_clamp(ctx, args.get(2).copied())?;
     let dom = ctx.host().dom();
@@ -1469,11 +1475,14 @@ fn native_input_set_range_text(
 }
 
 /// Coerce an optional `start` / `end` argument from `setRangeText`
-/// / `setSelectionRange` into a non-negative usize.  `Undefined` /
-/// missing yields `None` (caller substitutes the current selection
-/// bound); other values flow through `to_int32` (full WebIDL
-/// `long` coercion: ToNumber → trunc → mod-2³²) and clamp negatives
-/// to 0 per HTML §4.10.5.2.10.
+/// (and the now-unused `setSelectionRange` companion) into a
+/// `usize`.  `Undefined` / missing yields `None` (caller
+/// substitutes the current selection bound); other values flow
+/// through `to_uint32` (full WebIDL `unsigned long` coercion:
+/// ToNumber → trunc → mod-2³² as an unsigned integer) and convert
+/// to `usize` directly — `set_selection` clamps to `value.len()`.
+/// Negative inputs wrap to large positive values per ToUint32 and
+/// then clamp, which matches HTML §4.10.5.2.10.
 fn coerce_optional_clamp(
     ctx: &mut NativeContext<'_>,
     arg: Option<JsValue>,
@@ -1481,8 +1490,8 @@ fn coerce_optional_clamp(
     match arg {
         None | Some(JsValue::Undefined) => Ok(None),
         Some(v) => {
-            let n = super::super::coerce::to_int32(ctx.vm, v)?;
-            Ok(Some(n.max(0) as usize))
+            let n = super::super::coerce::to_uint32(ctx.vm, v)?;
+            Ok(Some(n as usize))
         }
     }
 }

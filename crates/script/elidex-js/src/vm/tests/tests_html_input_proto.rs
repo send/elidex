@@ -434,3 +434,62 @@ fn input_brand_check_throws_on_non_input_receiver() {
          catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
     assert_eq!(out, "type");
 }
+
+// ---------------------------------------------------------------------------
+// R25 regressions — WebIDL `unsigned long` (ToUint32) coercion for
+// the Selection API mixin (HTML §4.10.5.2.10).  Negative inputs
+// must wrap to (2³² + n) and then clamp to value.len(), NOT clamp
+// to 0 immediately (which would change the user-visible
+// behaviour from "selection at end of value" to "selection at
+// start of value").
+// ---------------------------------------------------------------------------
+
+#[test]
+fn input_set_selection_range_negative_wraps_then_clamps_to_length() {
+    // -1 ToUint32 = 4294967295, which clamps to value.len() = 5.
+    // Spec: the resulting range is [5, 5], i.e. a collapsed
+    // caret at end of value.  Buggy `to_int32(...)?.max(0)` would
+    // produce [0, 5] = the whole-string selection.
+    let out = run("var i = document.createElement('input'); \
+         i.value = 'hello'; \
+         i.setSelectionRange(-1, -1); \
+         i.selectionStart + '/' + i.selectionEnd;");
+    assert_eq!(out, "5/5");
+}
+
+#[test]
+fn input_selection_start_setter_negative_wraps_then_clamps() {
+    // i.selectionStart = -1 → ToUint32 = u32::MAX → clamps to len.
+    let out = run("var i = document.createElement('input'); \
+         i.value = 'abc'; \
+         i.setSelectionRange(0, 3); \
+         i.selectionStart = -1; \
+         '' + i.selectionStart;");
+    assert_eq!(out, "3");
+}
+
+#[test]
+fn input_set_range_text_negative_start_wraps_then_clamps() {
+    // setRangeText('X', -1, -1) → start/end coerce to u32::MAX,
+    // both clamp to value.len() = 3, so the empty range [3,3)
+    // gets replaced by "X" — the result is "abcX" (insert at
+    // end).  Buggy `to_int32(...)?.max(0)` would clamp to [0,0)
+    // and produce "Xabc" (insert at start).
+    let out = run("var i = document.createElement('input'); \
+         i.value = 'abc'; \
+         i.setRangeText('X', -1, -1); \
+         i.value;");
+    assert_eq!(out, "abcX");
+}
+
+#[test]
+fn input_set_selection_range_large_positive_clamps_to_length() {
+    // 2^32 - 5 ToUint32 = 2^32 - 5; clamps to len=3 → [3,3].
+    // (Buggy `to_int32` would wrap to -5 then clamp to 0,
+    // yielding [0,0] = caret-at-start.)
+    let out = run("var i = document.createElement('input'); \
+         i.value = 'abc'; \
+         i.setSelectionRange(4294967291, 4294967291); \
+         i.selectionStart + '/' + i.selectionEnd;");
+    assert_eq!(out, "3/3");
+}
