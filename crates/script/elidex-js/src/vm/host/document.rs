@@ -300,12 +300,18 @@ pub(super) fn native_document_create_element(
         doc_entity,
         &[JsValue::String(tag_sid)],
     )?;
-    // Post-handler hook: attach `FormControlState` for form-control
-    // tags (`<input>`, `<button>`, `<textarea>`, `<select>`,
-    // `<output>`, `<meter>`, `<progress>`).  Marshalling-layer wiring
-    // — the algorithm itself lives in `elidex_form::create_form_control_state`.
-    // Necessary so JS-created form controls behave correctly under
-    // label association, validation, Selection API, and form reset.
+    // Post-handler hook: ask `elidex_form::create_form_control_state`
+    // to attach a `FormControlState` component if the just-created
+    // element is a form-control tag (`<input>`, `<button>`,
+    // `<textarea>`, `<select>`, `<output>`, `<meter>`, `<progress>`).
+    // The helper inspects TagType / Attributes itself and returns
+    // without inserting for non-form-control tags, so this call is
+    // O(tag-lookup) on the no-op path; we don't pre-filter here to
+    // keep the tag list canonically owned by elidex-form.
+    // Marshalling-layer wiring — the algorithm itself lives in
+    // `elidex_form::create_form_control_state`.  Necessary so
+    // JS-created form controls behave correctly under label
+    // association, validation, Selection API, and form reset.
     if let JsValue::Object(obj_id) = result {
         if let crate::vm::value::ObjectKind::HostObject { entity_bits } =
             ctx.vm.get_object(obj_id).kind

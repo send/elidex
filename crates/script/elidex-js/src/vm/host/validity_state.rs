@@ -262,16 +262,23 @@ fn native_validity_valid(
 /// `<fieldset>`.  Cross-tag receivers (e.g.
 /// `HTMLInputElement.prototype.checkValidity.call(div)`) must throw
 /// TypeError per WebIDL "Illegal invocation".
+///
+/// `<output>` is a constraint-validation candidate per
+/// HTML §4.10.10.1 but its HTMLOutputElement prototype is out of
+/// scope for T1-v2 — the brand check excludes it until a follow-up
+/// slot adds the output prototype install alongside the mixin
+/// install.  `<form>` has its own delegate-to-children
+/// checkValidity / reportValidity bodies on `HTMLFormElement.prototype`
+/// (R2) that use `require_form_receiver`, so it does not flow
+/// through this brand check either.
 fn is_constraint_validation_host_tag(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
     let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(entity) else {
         return false;
     };
     let s = tag.0.as_str();
-    [
-        "input", "select", "textarea", "button", "fieldset", "output",
-    ]
-    .iter()
-    .any(|t| s.eq_ignore_ascii_case(t))
+    ["input", "select", "textarea", "button", "fieldset"]
+        .iter()
+        .any(|t| s.eq_ignore_ascii_case(t))
 }
 
 fn require_form_control_receiver(
