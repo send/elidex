@@ -2,6 +2,7 @@
 //! getAttribute/setAttribute/removeAttribute, textContent, innerHTML.
 
 mod attrs;
+mod inheritance;
 pub(crate) mod layout_query;
 mod props;
 pub(crate) mod tree;
@@ -11,6 +12,7 @@ pub use attrs::{
     DatasetDelete, DatasetGet, DatasetKeys, DatasetSet, GetAttributeNames, GetClassName, GetId,
     HasAttribute, SetClassName, SetId, ToggleAttribute,
 };
+pub use inheritance::is_content_editable;
 pub use layout_query::{
     GetBoundingClientRect, GetClientHeight, GetClientLeft, GetClientRects, GetClientTop,
     GetClientWidth, GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth,
