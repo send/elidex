@@ -132,6 +132,44 @@ fn navigate_cursor(state: &mut FormControlState, key: &str) -> KeyAction {
     }
 }
 
+/// Error returned by [`apply_step`] when the form control's kind
+/// does not support stepping (HTML §4.10.5.4 mandates `InvalidStateError`
+/// for these inputs).  Callers convert this to the engine-bound
+/// exception type.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StepError {
+    /// `state.kind` is not `Number` or `Range`.
+    NotSupported,
+}
+
+/// Apply a `stepUp(n)` / `stepDown(n)` adjustment to a form control
+/// state (HTML §4.10.5.4).
+///
+/// `direction` is `+1.0` for `stepUp` and `-1.0` for `stepDown`. The
+/// adjustment is computed as `current + direction * n * step`, where
+/// `step` is parsed from `state.step` (default `1.0` when missing or
+/// unparseable) and `current` is parsed from `state.value()`
+/// (default `0.0` when empty or unparseable).
+///
+/// TODO(spec-compliance): full §4.10.5.4 algorithm requires
+/// round-to-base / clamp min-max / `"any"` rejection (`InvalidStateError`).
+/// The current implementation is the historical VM behaviour; spec
+/// fixes are deferred to slot `#11-input-step-spec-compliance`.
+pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Result<(), StepError> {
+    if !matches!(state.kind, FormControlKind::Number | FormControlKind::Range) {
+        return Err(StepError::NotSupported);
+    }
+    let step = state
+        .step
+        .as_deref()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
+    let cur = state.value().parse::<f64>().unwrap_or(0.0);
+    let new = cur + direction * n * step;
+    state.set_value(new.to_string());
+    Ok(())
+}
+
 /// Check if inserting a character would exceed maxlength.
 fn would_exceed_maxlength(state: &FormControlState) -> bool {
     if let Some(max) = state.maxlength {
@@ -449,5 +487,61 @@ mod tests {
         assert!(FormControlKind::TextArea.supports_selection());
         assert!(!FormControlKind::Checkbox.supports_selection());
         assert!(!FormControlKind::Select.supports_selection());
+    }
+
+    // -- apply_step tests (D-2 hoist target) -----------------------
+
+    fn make_state(kind: FormControlKind, value: &str, step: Option<&str>) -> FormControlState {
+        let mut s = FormControlState {
+            kind,
+            ..Default::default()
+        };
+        s.set_value(value.to_string());
+        s.step = step.map(String::from);
+        s
+    }
+
+    #[test]
+    fn apply_step_number_default_step_one() {
+        let mut s = make_state(FormControlKind::Number, "5", None);
+        assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+        assert_eq!(s.value(), "6");
+    }
+
+    #[test]
+    fn apply_step_range_descending() {
+        let mut s = make_state(FormControlKind::Range, "10", Some("2"));
+        assert!(apply_step(&mut s, 3.0, -1.0).is_ok());
+        assert_eq!(s.value(), "4");
+    }
+
+    #[test]
+    fn apply_step_unsupported_kind_returns_not_supported() {
+        let mut s = make_state(FormControlKind::TextInput, "abc", None);
+        assert_eq!(apply_step(&mut s, 1.0, 1.0), Err(StepError::NotSupported));
+        // Value untouched.
+        assert_eq!(s.value(), "abc");
+    }
+
+    #[test]
+    fn apply_step_invalid_step_falls_back_to_one() {
+        let mut s = make_state(FormControlKind::Number, "0", Some("not-a-number"));
+        assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+        assert_eq!(s.value(), "1");
+    }
+
+    #[test]
+    fn apply_step_empty_value_treated_as_zero() {
+        let mut s = make_state(FormControlKind::Number, "", Some("2"));
+        assert!(apply_step(&mut s, 5.0, 1.0).is_ok());
+        assert_eq!(s.value(), "10");
+    }
+
+    #[test]
+    fn apply_step_fractional_step() {
+        let mut s = make_state(FormControlKind::Number, "1", Some("0.5"));
+        assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+        // f64 1.5 prints as "1.5" via to_string.
+        assert_eq!(s.value(), "1.5");
     }
 }

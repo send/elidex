@@ -1518,29 +1518,25 @@ fn step_apply(
     } else {
         super::super::coerce::to_number(ctx.vm, args[0])?
     };
-    let invalid_state_sid = ctx.vm.well_known.dom_exc_invalid_state_error;
+    // HTML §4.10.5.4 stepUp/stepDown algorithm hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-2).  VM host/ retains brand
+    // check + arg coercion + DOMException construction; the algorithm
+    // mutating the FormControlState is engine-independent.
     let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        use elidex_form::FormControlKind;
-        let supports = matches!(state.kind, FormControlKind::Number | FormControlKind::Range);
-        if !supports {
-            drop(state);
-            return Err(VmError::dom_exception(
-                invalid_state_sid,
-                format!(
-                    "Failed to execute '{method}' on 'HTMLInputElement': \
-                     This input element does not have stepping"
-                ),
-            ));
-        }
-        let step = state
-            .step
-            .as_deref()
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(1.0);
-        let cur = state.value().parse::<f64>().unwrap_or(0.0);
-        let new = cur + direction * n * step;
-        state.set_value(new.to_string());
+    let result = if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+        elidex_form::apply_step(&mut state, n, direction)
+    } else {
+        Ok(())
+    };
+    if let Err(elidex_form::StepError::NotSupported) = result {
+        let invalid_state_sid = ctx.vm.well_known.dom_exc_invalid_state_error;
+        return Err(VmError::dom_exception(
+            invalid_state_sid,
+            format!(
+                "Failed to execute '{method}' on 'HTMLInputElement': \
+                 This input element does not have stepping"
+            ),
+        ));
     }
     Ok(JsValue::Undefined)
 }
