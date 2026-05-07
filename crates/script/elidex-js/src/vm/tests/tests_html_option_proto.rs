@@ -202,6 +202,27 @@ fn option_index_recognises_datalist_parent() {
 }
 
 #[test]
+fn option_index_walks_through_nested_optgroups() {
+    // R18 F1 regression — HTML disallows nested `<optgroup>` but
+    // JS `appendChild` can construct one.  `option.index` should
+    // walk arbitrarily-deep optgroup ancestors until finding the
+    // enclosing `<select>` / `<datalist>` container, not return
+    // -1 just because the immediate / grandparent container check
+    // fails.  `walk_options` already recurses through nested
+    // optgroups, so once the container is found the index is
+    // computed correctly.
+    let out = run("var s = document.createElement('select'); \
+         var g1 = document.createElement('optgroup'); \
+         var g2 = document.createElement('optgroup'); \
+         var o = document.createElement('option'); \
+         g2.appendChild(o); \
+         g1.appendChild(g2); \
+         s.appendChild(g1); \
+         '' + o.index;");
+    assert_eq!(out, "0");
+}
+
+#[test]
 fn option_index_recognises_optgroup_under_datalist() {
     // R8 F2 regression — optgroup nesting under datalist is also
     // valid per HTML §4.10.9 / §4.10.10.

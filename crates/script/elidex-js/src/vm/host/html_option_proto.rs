@@ -339,40 +339,19 @@ fn native_option_get_index(
     let Some(entity) = require_option_receiver(ctx, this, "index")? else {
         return Ok(JsValue::Number(-1.0));
     };
-    // Walk to ancestor select or datalist.  Per HTML §4.10.10
-    // step 1: index = position in the list returned by the
-    // select.options / datalist.options getter (or -1 if no
-    // ancestor option-list container).  Direct parents that
-    // qualify: `<select>` and `<datalist>`.  Indirect via
-    // `<optgroup>`: `<optgroup>` whose own parent is one of the
-    // two qualifies (per §4.10.10 optgroup nesting under
-    // datalist is also valid).
-    let Some(parent) = ctx.host().dom().get_parent(entity) else {
+    // Walk up the ancestor chain to find the enclosing
+    // `<select>` / `<datalist>` container.  Per HTML §4.10.10
+    // step 1: `option.index` = position in the list returned by
+    // the container's `.options` getter, or -1 if no enclosing
+    // container exists.  Spec disallows nested `<optgroup>`
+    // elements, but JS-driven `appendChild` can construct them
+    // anyway; rather than special-casing parent + grandparent
+    // only, walk through any number of optgroup ancestors (up to
+    // `MAX_ANCESTOR_DEPTH`) until a select / datalist is found.
+    // The recursive `walk_options` already handles arbitrarily
+    // nested optgroups inside the container.
+    let Some(container_entity) = find_options_container(ctx, entity) else {
         return Ok(JsValue::Number(-1.0));
-    };
-    let parent_is_select = ctx.host().tag_matches_ascii_case(parent, "select");
-    let parent_is_datalist = ctx.host().tag_matches_ascii_case(parent, "datalist");
-    let parent_is_container = parent_is_select || parent_is_datalist;
-    let parent_is_optgroup =
-        !parent_is_container && ctx.host().tag_matches_ascii_case(parent, "optgroup");
-    let grandparent = if parent_is_optgroup {
-        ctx.host().dom().get_parent(parent)
-    } else {
-        None
-    };
-    let optgroup_grand = grandparent.is_some_and(|gp| {
-        ctx.host().tag_matches_ascii_case(gp, "select")
-            || ctx.host().tag_matches_ascii_case(gp, "datalist")
-    });
-    if !parent_is_container && !optgroup_grand {
-        return Ok(JsValue::Number(-1.0));
-    }
-    let container_entity = if parent_is_container {
-        parent
-    } else {
-        // optgroup → select / datalist grandparent (`grandparent`
-        // is Some here because `optgroup_grand` was true).
-        grandparent.unwrap_or(parent)
     };
     let mut count: u32 = 0;
     let mut found: i32 = -1;
@@ -438,6 +417,26 @@ fn walk_options(
         };
         child = next;
     }
+}
+
+/// Walk up the option's ancestor chain (bounded by
+/// `MAX_ANCESTOR_DEPTH`) until reaching the first `<select>` or
+/// `<datalist>` element.  Skips intermediate `<optgroup>` /
+/// `<div>` / etc. so JS-constructed nested-optgroup trees still
+/// resolve correctly.  Returns `None` when the option is detached
+/// or has no enclosing options container.
+fn find_options_container(ctx: &mut NativeContext<'_>, entity: Entity) -> Option<Entity> {
+    let dom = ctx.host().dom();
+    let mut current = dom.get_parent(entity)?;
+    for _ in 0..elidex_ecs::MAX_ANCESTOR_DEPTH {
+        if ctx.host().tag_matches_ascii_case(current, "select")
+            || ctx.host().tag_matches_ascii_case(current, "datalist")
+        {
+            return Some(current);
+        }
+        current = ctx.host().dom().get_parent(current)?;
+    }
+    None
 }
 
 fn native_option_get_form(
