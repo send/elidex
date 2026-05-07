@@ -335,7 +335,7 @@ fn populate_selected_options(root: Entity, dom: &EcsDom, out: &mut Vec<Entity>) 
 
 /// `<option>` disabledness check — duplicates
 /// `elidex_form::is_option_disabled` because `elidex-dom-api` and
-/// `elidex-form` are sibling crates and a depend on `elidex-form`
+/// `elidex-form` are sibling crates and a dependency on `elidex-form`
 /// here would invert the existing direction (`elidex-form` consumes
 /// `elidex-dom-api` types).  Consolidation tracked in slot
 /// `#11-tags-T1-v2-drift-hoist` (followup-cleanup handoff §B-0
