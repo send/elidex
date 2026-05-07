@@ -294,12 +294,28 @@ pub(super) fn native_document_create_element(
     // ToString at call site; handler does the lowercase normalisation
     // and the "node document" anchoring (WHATWG DOM §4.5 / §4.4).
     let tag_sid = coerce_first_arg_to_string_id(ctx, args)?;
-    invoke_dom_api(
+    let result = invoke_dom_api(
         ctx,
         "createElement",
         doc_entity,
         &[JsValue::String(tag_sid)],
-    )
+    )?;
+    // Post-handler hook: attach `FormControlState` for form-control
+    // tags (`<input>`, `<button>`, `<textarea>`, `<select>`,
+    // `<output>`, `<meter>`, `<progress>`).  Marshalling-layer wiring
+    // — the algorithm itself lives in `elidex_form::create_form_control_state`.
+    // Necessary so JS-created form controls behave correctly under
+    // label association, validation, Selection API, and form reset.
+    if let JsValue::Object(obj_id) = result {
+        if let crate::vm::value::ObjectKind::HostObject { entity_bits } =
+            ctx.vm.get_object(obj_id).kind
+        {
+            if let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) {
+                let _ = elidex_form::create_form_control_state(ctx.host().dom(), entity);
+            }
+        }
+    }
+    Ok(result)
 }
 
 pub(super) fn native_document_create_text_node(
