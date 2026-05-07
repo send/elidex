@@ -359,10 +359,19 @@ fn native_option_get_form(
     };
     // HTML §4.10.10: option.form returns the form owner of the
     // option's select ancestor, walking through optgroup if needed.
+    // Bounded by `MAX_ANCESTOR_DEPTH` so a hypothetical
+    // `TreeRelation` cycle / corruption (e.g. from a buggy
+    // `appendChild` cycle-check regression) cannot wedge this
+    // accessor in an infinite loop — matches the convention used by
+    // `elidex_form::find_form_ancestor` and other ancestor walkers
+    // hoist target slot #11-tags-T1-v2-drift-hoist (D-1) inherits.
     let dom = ctx.host().dom();
     let mut current = dom.get_parent(entity);
     let mut select: Option<Entity> = None;
-    while let Some(p) = current {
+    for _ in 0..elidex_ecs::MAX_ANCESTOR_DEPTH {
+        let Some(p) = current else {
+            break;
+        };
         if ctx.host().tag_matches_ascii_case(p, "select") {
             select = Some(p);
             break;

@@ -318,6 +318,17 @@ fn populate_selected_options(root: Entity, dom: &EcsDom, out: &mut Vec<Entity>) 
 /// `#11-tags-T1-v2-drift-hoist` (followup-cleanup handoff §B-0
 /// candidate D-6, added 2026-05-08 R26): hoist the predicate to a
 /// shared location both crates can reference.
+///
+/// Mirrors the canonical `elidex_form::is_option_disabled` walker:
+/// walks ancestors up to `MAX_ANCESTOR_DEPTH`, treats any
+/// `<optgroup disabled>` ancestor as disabling (HTML §4.10.10.2 —
+/// the spec's "closest containing optgroup" allows arbitrary
+/// wrapper-element nesting that JS DOM mutation can introduce, so
+/// only checking the direct parent would miss
+/// `<select><optgroup disabled><div><option>...` cases), and stops
+/// at the enclosing `<select>` so disabled propagation past the
+/// select boundary is left to other layers (e.g. `<fieldset>` for
+/// form submission).
 fn is_option_disabled_local(option: Entity, dom: &EcsDom) -> bool {
     if dom
         .world()
@@ -326,15 +337,26 @@ fn is_option_disabled_local(option: Entity, dom: &EcsDom) -> bool {
     {
         return true;
     }
-    if let Some(parent) = dom.get_parent(option) {
-        if matches_tag_ascii_ci(parent, "optgroup", dom)
+    let mut current = dom.get_parent(option);
+    for _ in 0..elidex_ecs::MAX_ANCESTOR_DEPTH {
+        let Some(ancestor) = current else {
+            return false;
+        };
+        if matches_tag_ascii_ci(ancestor, "optgroup", dom)
             && dom
                 .world()
-                .get::<&Attributes>(parent)
+                .get::<&Attributes>(ancestor)
                 .is_ok_and(|a| a.contains("disabled"))
         {
             return true;
         }
+        // Stop at the enclosing `<select>` — disabled propagation
+        // past the select is the form's `<fieldset>` concern, not
+        // the option's.
+        if matches_tag_ascii_ci(ancestor, "select", dom) {
+            return false;
+        }
+        current = dom.get_parent(ancestor);
     }
     false
 }
@@ -1283,6 +1305,37 @@ mod tests {
         // Explicit selectedness on o2 short-circuits the implicit
         // default — only o2 is in the collection, even though o1
         // would be the implicit default if no option had `selected`.
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o2));
+    }
+
+    #[test]
+    fn selected_options_implicit_default_skips_nested_optgroup_disabled() {
+        // R27 regression — `is_option_disabled_local` must walk the
+        // full ancestor chain, not just the direct parent, so that
+        // malformed trees with a wrapper between option and optgroup
+        // (constructible via JS `appendChild`) still observe the
+        // disabled propagation.  Tree: select > optgroup[disabled] >
+        // div > o1  /  select > o2.
+        let mut dom = EcsDom::new();
+        let s = make_select(&mut dom, /*multiple=*/ false);
+        let mut og_attrs = Attributes::default();
+        og_attrs.set("disabled", "");
+        let og = dom.create_element("optgroup", og_attrs);
+        let wrapper = dom.create_element("div", Attributes::default());
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        let o2 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, og);
+        dom.append_child(og, wrapper);
+        dom.append_child(wrapper, o1);
+        dom.append_child(s, o2);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        // o1 is disabled-via-ancestor-optgroup (with a div wrapper);
+        // implicit default falls through to o2.
         assert_eq!(coll.length(&dom), 1);
         assert_eq!(coll.item(0, &dom), Some(o2));
     }
