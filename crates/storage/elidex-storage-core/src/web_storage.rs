@@ -75,14 +75,18 @@ struct LocalStore {
 
 /// Hard cap on the JSON-on-disk file size accepted by [`LocalStore::load`].
 ///
-/// Set to ~2× [`STORAGE_QUOTA_BYTES`] so JSON syntax overhead (key /
-/// value quoting, commas, braces) cannot push a quota-respecting
-/// payload over the limit while still bounding memory use against a
-/// hand-crafted oversized file at the profile path (the only attacker
-/// who can write there is the user themselves, but enforcing a cap
-/// here keeps a corrupted / accidentally-grown file from OOMing the
-/// process on next bind).
-const MAX_LOCAL_STORE_FILE_BYTES: u64 = 2 * STORAGE_QUOTA_BYTES as u64;
+/// Sized generously to accommodate worst-case JSON escape overhead
+/// (each control byte 0x00–0x1F serialises to `\uXXXX` — 6 bytes per
+/// 1-byte input, so a quota-respecting all-control-char payload can
+/// expand by ~6× plus per-pair `"k":"v",` overhead).
+///
+/// Decoupled from [`STORAGE_QUOTA_BYTES`] on purpose: tightening the
+/// quota in the future must not silently invalidate previously-
+/// persisted stores by tripping this cap on reload.  The OOM-guard
+/// role is preserved either way — 64 MiB is well within process
+/// limits but stops a hand-crafted multi-GiB file at the profile
+/// path from being deserialised on next bind.
+const MAX_LOCAL_STORE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 impl LocalStore {
     fn load(file_path: PathBuf) -> Self {
@@ -107,21 +111,43 @@ impl LocalStore {
         }
     }
 
-    fn persist(&mut self) {
+    /// Returns `true` on successful persist (or no-op when not dirty),
+    /// `false` when any I/O step fails (write, rename retries, dir
+    /// create).  The caller ([`WebStorageManager::flush_dirty`]) uses
+    /// this signal to keep the origin marked dirty so the next flush
+    /// retries.  The instance's `dirty` flag is reset only on success
+    /// for the same reason.
+    fn persist(&mut self) -> bool {
         if !self.dirty {
-            return;
+            return true;
         }
         if let Some(parent) = self.file_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         let tmp_path = self.file_path.with_extension("tmp");
-        if let Ok(json) = serde_json::to_string(&self.data) {
-            if std::fs::write(&tmp_path, json).is_ok()
-                && std::fs::rename(&tmp_path, &self.file_path).is_ok()
-            {
-                self.dirty = false;
+        let Ok(json) = serde_json::to_string(&self.data) else {
+            return false;
+        };
+        if std::fs::write(&tmp_path, json).is_err() {
+            return false;
+        }
+        // `std::fs::rename` overwrites on Windows for files (uses
+        // `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` since Rust
+        // 1.x), but the call can still fail on Windows when an
+        // antivirus / indexer has the destination open.  Defensive
+        // fallback: explicitly remove the destination then retry the
+        // rename.  Loses the atomic-replace property in that branch,
+        // but the alternative is leaving the temp file orphaned and
+        // the destination stale.
+        if std::fs::rename(&tmp_path, &self.file_path).is_err() {
+            let _ = std::fs::remove_file(&self.file_path);
+            if std::fs::rename(&tmp_path, &self.file_path).is_err() {
+                let _ = std::fs::remove_file(&tmp_path);
+                return false;
             }
         }
+        self.dirty = false;
+        true
     }
 }
 
@@ -397,7 +423,13 @@ impl WebStorageManager {
     /// than per mutation; we batch to amortise file I/O.
     ///
     /// Releases the registry lock before doing any disk I/O — only
-    /// per-origin locks are held during `persist`.
+    /// per-origin locks are held during `persist`.  Origins whose
+    /// `persist` returns `false` (I/O error, write failure, rename
+    /// failure with no recovery) are **re-inserted into
+    /// `dirty_origins`** so the next `flush_dirty` call retries them.
+    /// Without this, a transient disk-full / antivirus-lock event
+    /// would silently drop the write — by spec localStorage is
+    /// expected to surface durably, so we keep retrying.
     pub fn flush_dirty(&self) {
         let dirty: Vec<String> = {
             let mut set = self
@@ -409,21 +441,33 @@ impl WebStorageManager {
         if dirty.is_empty() {
             return;
         }
-        let stores: Vec<Arc<Mutex<LocalStore>>> = {
+        let stores: Vec<(String, Arc<Mutex<LocalStore>>)> = {
             let registry = self
                 .registry
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             dirty
-                .iter()
-                .filter_map(|origin| registry.get(origin).cloned())
+                .into_iter()
+                .filter_map(|origin| registry.get(&origin).cloned().map(|store| (origin, store)))
                 .collect()
         };
-        for store in &stores {
+        let mut failed: Vec<String> = Vec::new();
+        for (origin, store) in stores {
             let mut guard = store
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            guard.persist();
+            if !guard.persist() {
+                failed.push(origin);
+            }
+        }
+        if !failed.is_empty() {
+            let mut set = self
+                .dirty_origins
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for origin in failed {
+                set.insert(origin);
+            }
         }
     }
 }
@@ -685,6 +729,38 @@ mod tests {
             0,
             "oversized file must be rejected, not OOM-loaded"
         );
+    }
+
+    #[test]
+    fn flush_dirty_retries_on_persist_failure() {
+        // Reproduce a persist failure by making the on-disk file
+        // path point at a parent that exists as a regular file (so
+        // `create_dir_all` + `write` to a child path fails).  The
+        // failed origin must remain in `dirty_origins` so the next
+        // flush retries it.
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = WebStorageManager::new(dir.path().to_path_buf());
+        mgr.local_set("https://a", "k", "v").unwrap();
+
+        // Block the localStorage subdir by creating a regular file
+        // where the directory should be: write to it now, then the
+        // first flush's `create_dir_all` will fail.
+        let blocker = dir.path().join("localStorage");
+        std::fs::write(&blocker, b"blocking-file").unwrap();
+
+        mgr.flush_dirty();
+
+        // Origin must still be marked dirty after the failed flush.
+        // Verify by clearing the blocker and confirming the second
+        // flush actually persists data (it could only do so if the
+        // origin was retained as dirty).
+        std::fs::remove_file(&blocker).unwrap();
+        mgr.flush_dirty();
+
+        // Reload from disk: the value should be there because the
+        // retry succeeded.
+        let mgr2 = WebStorageManager::new(dir.path().to_path_buf());
+        assert_eq!(mgr2.local_get("https://a", "k").as_deref(), Some("v"));
     }
 
     #[test]
