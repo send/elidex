@@ -23,7 +23,7 @@ pub use elidex_dom_api::element::is_option_disabled;
 /// positive `size` attribute, defaulting to 1 when missing / "0" /
 /// invalid.
 ///
-/// Three call sites (`selectedIndex` getter / `value` getter /
+/// Four call sites (`selectedIndex` getter / `value` getter /
 /// `init_select_options` / `populate_selected_options`) must agree
 /// on this gate so the surfaces stay consistent.
 #[must_use]

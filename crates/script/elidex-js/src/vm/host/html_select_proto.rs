@@ -536,8 +536,27 @@ fn native_select_set_selected_index(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
     // HTML §4.10.10 selectedIndex setter hoisted to elidex-form
-    // (slot #11-tags-T1-v2-drift-hoist D-4).
+    // (slot #11-tags-T1-v2-drift-hoist D-4).  Snapshot the option
+    // list before the mutation so we can invalidate the
+    // `(option_entity, "selected")` `attr_wrapper_cache` entries
+    // afterwards — pre-PR behaviour partial-invalidated via
+    // `attr_remove`; the hoist replicates that side effect at the
+    // VM-binding boundary so `getAttributeNode("selected")` identity
+    // semantics survive `selectedIndex = N` mutations.
+    let selected_sid = ctx.vm.strings.intern("selected");
+    let affected: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut opts = elidex_dom_api::LiveCollection::new(
+            entity,
+            elidex_dom_api::CollectionFilter::Options,
+            elidex_dom_api::CollectionKind::HtmlCollection,
+        );
+        opts.snapshot(dom).to_vec()
+    };
     elidex_form::select_set_selected_index(ctx.host().dom(), entity, n);
+    for opt in affected {
+        ctx.vm.invalidate_attr_cache_entry(opt, selected_sid);
+    }
     Ok(JsValue::Undefined)
 }
 
@@ -571,8 +590,24 @@ fn native_select_set_value(
     let target_sid = super::super::coerce::to_string(ctx.vm, val)?;
     let target = ctx.vm.strings.get_utf8(target_sid);
     // HTML §4.10.7.4 value setter hoisted to elidex-form
-    // (slot #11-tags-T1-v2-drift-hoist D-4).
+    // (slot #11-tags-T1-v2-drift-hoist D-4).  Snapshot affected
+    // options for `attr_wrapper_cache` invalidation post-mutation
+    // (matches the partial invalidation pre-PR did via `attr_remove`,
+    // see sibling `native_select_set_selected_index` for rationale).
+    let selected_sid = ctx.vm.strings.intern("selected");
+    let affected: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut opts = elidex_dom_api::LiveCollection::new(
+            entity,
+            elidex_dom_api::CollectionFilter::Options,
+            elidex_dom_api::CollectionKind::HtmlCollection,
+        );
+        opts.snapshot(dom).to_vec()
+    };
     elidex_form::select_set_value(ctx.host().dom(), entity, &target);
+    for opt in affected {
+        ctx.vm.invalidate_attr_cache_entry(opt, selected_sid);
+    }
     Ok(JsValue::Undefined)
 }
 

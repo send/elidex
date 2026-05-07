@@ -12,15 +12,25 @@ use elidex_ecs::{EcsDom, Entity};
 /// Resolve the effective `isContentEditable` state for `entity`
 /// (HTML §6.7.3 — `contentEditable` IDL attribute).
 ///
-/// Walks ancestors looking for the first explicit `contenteditable`
-/// content-attribute state:
+/// Walks ancestors looking for the first **present** `contenteditable`
+/// content-attribute on the chain:
 ///
 /// - `"true"` / `"plaintext-only"` / `""` → editable (`true`)
-/// - `"false"` → non-editable (`false`)
-/// - any other / no attribute → inherit from parent
+/// - any other present value (incl. `"false"` and invalid garbage) →
+///   non-editable (`false`); short-circuits the ancestor walk
+/// - **absent attribute on this node** → continue walking the parent
+///   chain
 ///
-/// Root inherits `false` (spec default for `<html>`). Comparison is
-/// ASCII-case-insensitive per WHATWG attribute-value parsing rules.
+/// Root with no `contenteditable` along the chain inherits `false`
+/// (spec default for `<html>`).
+///
+/// **Known spec divergence (HTML §6.7.3.2)**: the spec maps invalid
+/// values to the *inherit* state, but this walker preserves the
+/// historical VM behaviour of treating any present non-matching
+/// value as explicit `false`. Pinned by the regression test
+/// `unknown_value_short_circuits_as_false_diverging_from_spec`.
+/// Comparison is ASCII-case-insensitive per WHATWG attribute-value
+/// parsing rules.
 #[must_use]
 pub fn is_content_editable(dom: &EcsDom, entity: Entity) -> bool {
     let mut cur = Some(entity);

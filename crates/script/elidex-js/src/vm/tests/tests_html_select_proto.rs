@@ -496,6 +496,44 @@ fn select_value_setter_selects_matching_option() {
 }
 
 #[test]
+fn select_selected_index_setter_invalidates_attr_wrapper_cache() {
+    // PR #164 R1 regression — `selectedIndex = N` must invalidate the
+    // `(option, "selected")` `attr_wrapper_cache` entries, otherwise
+    // `getAttributeNode("selected")` cached pre-mutation returns a
+    // stale wrapper for an attribute that has since been removed.
+    // Pre-PR behaviour partial-invalidated via `attr_remove`; the D-4
+    // hoist replicates that side effect at the binding boundary.
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); o1.setAttribute('selected', ''); \
+         var o2 = document.createElement('option'); \
+         s.add(o1); s.add(o2); \
+         var attrBefore = o1.getAttributeNode('selected'); \
+         s.selectedIndex = 1; \
+         var attrAfter = o1.getAttributeNode('selected'); \
+         '' + (attrBefore !== null) + '/' + (attrAfter === null);");
+    assert_eq!(out, "true/true");
+}
+
+#[test]
+fn select_value_setter_invalidates_attr_wrapper_cache() {
+    // PR #164 R1 regression — same shape as the selectedIndex setter
+    // case but via the `value` setter path.  Ensures `getAttributeNode`
+    // returns null for the option whose `selected` attribute was
+    // cleared by `select.value = ...`, rather than a stale wrapper.
+    let out = run(
+        "var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); o1.value = 'a'; o1.setAttribute('selected', ''); \
+         var o2 = document.createElement('option'); o2.value = 'b'; \
+         s.add(o1); s.add(o2); \
+         var attrBefore = o1.getAttributeNode('selected'); \
+         s.value = 'b'; \
+         var attrAfter = o1.getAttributeNode('selected'); \
+         '' + (attrBefore !== null) + '/' + (attrAfter === null);",
+    );
+    assert_eq!(out, "true/true");
+}
+
+#[test]
 fn select_brand_check_throws_on_non_select_receiver() {
     let out = run("var d = document.createElement('div'); \
          var s = document.createElement('select'); \
