@@ -764,33 +764,25 @@ fn native_select_add(
             "select.add: argument must be an HTMLOptionElement",
         ));
     }
-    // Resolve `before` argument (entity / number / null).
+    // Resolve `before` argument per WebIDL overload resolution for
+    // `(HTMLElement or long)`:
+    //   - null / undefined / not-supplied → append (no before)
+    //   - platform object implementing HTMLElement → element reference
+    //   - everything else (Number / String / Boolean / non-host
+    //     Object) → ToInt32 → long
     let before_arg = args.get(1).copied().unwrap_or(JsValue::Null);
     let before_entity: Option<Entity> = match before_arg {
-        // Numeric index — WebIDL `long` (HTML §4.10.7.5 `add`
-        // overload signature).  Coerce through the standard ToInt32
-        // helper so NaN / ±Infinity / wrapping match other long
-        // accessors.  Negative results clamp to "out of range" → no
-        // before reference (append).
-        JsValue::Number(_) => {
-            let coerced = super::super::coerce::to_int32(ctx.vm, before_arg)?;
-            if coerced < 0 {
-                None
-            } else {
-                let mut opts = elidex_dom_api::LiveCollection::new(
-                    entity,
-                    elidex_dom_api::CollectionFilter::Options,
-                    elidex_dom_api::CollectionKind::HtmlCollection,
-                );
-                opts.item(coerced as usize, ctx.host().dom())
-            }
-        }
+        JsValue::Null | JsValue::Undefined => None,
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
             ObjectKind::HostObject { entity_bits } => Entity::from_bits(entity_bits),
-            _ => None,
+            // Object that does not implement HTMLElement falls into
+            // the `long` branch; ToInt32 of a generic object goes
+            // through ToPrimitive → "[object Object]" → NaN → 0.
+            _ => resolve_options_index(ctx, entity, before_arg)?,
         },
-        // Null / Undefined / others fall through to "append".
-        _ => None,
+        // Number / String / Boolean / BigInt all coerce through
+        // `to_int32` (which calls `to_number` first per ES §7.1.4).
+        _ => resolve_options_index(ctx, entity, before_arg)?,
     };
     // Insert via the underlying DOM; if `before` is provided it
     // must be a descendant of the select (HTML §4.10.7.5: "before
@@ -868,4 +860,25 @@ fn native_select_remove(
         }
     }
     Ok(JsValue::Undefined)
+}
+
+/// WebIDL ToInt32(`before`) → index into the select's options
+/// list; returns the option entity at that index, or `None` for
+/// negative / out-of-range indices (which spec-defines as no
+/// before reference, i.e. append).
+fn resolve_options_index(
+    ctx: &mut NativeContext<'_>,
+    select_entity: Entity,
+    before_arg: JsValue,
+) -> Result<Option<Entity>, VmError> {
+    let coerced = super::super::coerce::to_int32(ctx.vm, before_arg)?;
+    if coerced < 0 {
+        return Ok(None);
+    }
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select_entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    Ok(opts.item(coerced as usize, ctx.host().dom()))
 }

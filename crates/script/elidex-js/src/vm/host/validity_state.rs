@@ -375,7 +375,7 @@ fn native_get_validation_message(
     } else {
         ctx.vm.strings.intern(&msg)
     };
-    Ok(JsValue::String(if msg.is_empty() { empty } else { sid }))
+    Ok(JsValue::String(sid))
 }
 
 fn native_get_will_validate(

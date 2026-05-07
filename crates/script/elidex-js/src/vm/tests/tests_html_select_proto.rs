@@ -242,6 +242,33 @@ fn select_add_with_out_of_range_numeric_before_appends() {
 }
 
 #[test]
+fn select_add_with_string_before_coerces_via_to_int32() {
+    // R4 F1 regression — WebIDL overload resolution: any non-null /
+    // non-Element argument flows to ToInt32; string "1" → 1.
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         var o3 = document.createElement('option'); \
+         s.add(o1); s.add(o2); \
+         s.add(o3, '1'); \
+         (s.item(0) === o1 && s.item(1) === o3 && s.item(2) === o2) ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn select_add_with_boolean_before_coerces_via_to_int32() {
+    // R4 F1 regression — boolean true → 1, false → 0.
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         var o3 = document.createElement('option'); \
+         s.add(o1); s.add(o2); \
+         s.add(o3, true); \
+         (s.item(0) === o1 && s.item(1) === o3 && s.item(2) === o2) ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn select_add_with_negative_numeric_before_appends() {
     // F6 regression — negative `before` index appends per spec.
     let out = run("var s = document.createElement('select'); \

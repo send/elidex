@@ -495,9 +495,12 @@ pub(super) fn dispatch_simple_event(
     ctx.vm.dispatched_events.remove(&event_id);
 
     // `dispatch_script_event` returns `Ok(!default_prevented)` so
-    // `Ok(false)` means the dispatch was cancelled.  Propagate the
-    // `Err` path explicitly — listener-thrown errors must surface to
-    // the caller (`form.reset()` etc.) rather than be silently
-    // re-mapped to "not cancelled".
+    // `Ok(false)` means the dispatch was cancelled.  `Err` is only
+    // returned for VM-level failures (handler-loop infrastructure
+    // errors, not listener-thrown JS exceptions — those go through
+    // the report-an-exception path and never bubble to `Ok`/`Err`
+    // here).  Propagate the VM-level `Err` rather than collapsing
+    // it to `Ok(false)` so the caller (`form.reset()` etc.) does
+    // not proceed under a hidden failure.
     result.map(|not_default_prevented| !not_default_prevented)
 }
