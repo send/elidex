@@ -193,6 +193,9 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "legend") {
             return self.html_legend_prototype;
         }
+        if host.tag_matches_ascii_case(entity, "option") {
+            return self.html_option_prototype;
+        }
         None
     }
 }
