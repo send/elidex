@@ -78,8 +78,20 @@ pub fn resolve_label_for(dom: &EcsDom, label_entity: Entity) -> Option<Entity> {
     // entity in the world (which would also surface detached siblings
     // and non-document elements).  `find_tree_root` returns the label
     // itself when detached, so detached labels also work.
+    //
+    // `find_by_id` only searches descendants, so check the root
+    // itself first — covers e.g. a labelable element that sits at
+    // the tree root (`<button id=foo><label for=foo>...</label></button>`).
     let root = dom.find_tree_root(label_entity);
-    let candidate = dom.find_by_id(root, for_id.as_str())?;
+    let root_matches_id = dom
+        .world()
+        .get::<&Attributes>(root)
+        .is_ok_and(|a| a.get("id") == Some(for_id.as_str()));
+    let candidate = if root_matches_id {
+        root
+    } else {
+        dom.find_by_id(root, for_id.as_str())?
+    };
     if is_labelable_element(dom, candidate)
         || dom.world().get::<&FormControlState>(candidate).is_ok()
     {
@@ -176,6 +188,26 @@ mod tests {
         let label = dom.create_element("label", label_attrs);
 
         assert_eq!(resolve_label_for(&dom, label), None);
+    }
+
+    #[test]
+    fn resolve_label_for_includes_tree_root() {
+        // R8 F1 regression — `find_by_id` only searches descendants,
+        // so when the label's `for=` target is the tree root itself
+        // (a button containing the label), the lookup must
+        // explicitly check the root before falling back to
+        // descendant DFS.
+        let mut dom = EcsDom::new();
+        let mut button_attrs = Attributes::default();
+        button_attrs.set("id", "btn");
+        let button = dom.create_element("button", button_attrs);
+
+        let mut label_attrs = Attributes::default();
+        label_attrs.set("for", "btn");
+        let label = dom.create_element("label", label_attrs);
+        let _ = dom.append_child(button, label);
+
+        assert_eq!(resolve_label_for(&dom, label), Some(button));
     }
 
     #[test]

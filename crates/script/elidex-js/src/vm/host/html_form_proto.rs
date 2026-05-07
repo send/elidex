@@ -419,11 +419,13 @@ fn native_form_reset(
 
 /// Walk every listed-element descendant of the form, calling
 /// `validate_control()` on each that is a candidate for constraint
-/// validation, and return `false` as soon as any control fails (after
-/// firing a synthetic `invalid` event at it).  This mirrors the
+/// validation.  Per HTML §4.10.20.4 step 1, `invalid` must fire on
+/// EVERY failing control before the method returns; we therefore
+/// iterate the full set, dispatch the synthetic event on each
+/// failure, and return `false` if any control failed.  Mirrors the
 /// per-control `checkValidity()` shape installed by the
 /// ConstraintValidation mixin but iterates the form's submittable
-/// element set, per HTML §4.10.20.4.
+/// element set rather than a single entity.
 fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<bool, VmError> {
     use elidex_form::FormControlKind;
 

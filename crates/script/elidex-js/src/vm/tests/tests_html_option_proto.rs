@@ -188,6 +188,32 @@ fn option_index_traverses_optgroup() {
     assert_eq!(out, "0/1");
 }
 
+#[test]
+fn option_index_recognises_datalist_parent() {
+    // R8 F2 regression — HTML §4.10.10.2: option.index counts
+    // position in the select.options / datalist.options list, so
+    // a datalist parent must also yield a valid index.
+    let out = run("var dl = document.createElement('datalist'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         dl.appendChild(o1); dl.appendChild(o2); \
+         o1.index + '/' + o2.index;");
+    assert_eq!(out, "0/1");
+}
+
+#[test]
+fn option_index_recognises_optgroup_under_datalist() {
+    // R8 F2 regression — optgroup nesting under datalist is also
+    // valid per HTML §4.10.9 / §4.10.10.
+    let out = run("var dl = document.createElement('datalist'); \
+         var g = document.createElement('optgroup'); \
+         var o = document.createElement('option'); \
+         g.appendChild(o); \
+         dl.appendChild(g); \
+         '' + o.index;");
+    assert_eq!(out, "0");
+}
+
 // ---------------------------------------------------------------------------
 // form
 // ---------------------------------------------------------------------------

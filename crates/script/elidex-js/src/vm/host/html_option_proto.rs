@@ -339,38 +339,46 @@ fn native_option_get_index(
     let Some(entity) = require_option_receiver(ctx, this, "index")? else {
         return Ok(JsValue::Number(-1.0));
     };
-    let dom = ctx.host().dom();
-    // Walk to ancestor select / datalist.  Per HTML §4.10.10
+    // Walk to ancestor select or datalist.  Per HTML §4.10.10
     // step 1: index = position in the list returned by the
-    // select.options getter (or -1 if no ancestor select).
-    let Some(parent) = dom.get_parent(entity) else {
+    // select.options / datalist.options getter (or -1 if no
+    // ancestor option-list container).  Direct parents that
+    // qualify: `<select>` and `<datalist>`.  Indirect via
+    // `<optgroup>`: `<optgroup>` whose own parent is one of the
+    // two qualifies (per §4.10.10 optgroup nesting under
+    // datalist is also valid).
+    let Some(parent) = ctx.host().dom().get_parent(entity) else {
         return Ok(JsValue::Number(-1.0));
     };
     let parent_is_select = ctx.host().tag_matches_ascii_case(parent, "select");
-    let optgroup_grand = if parent_is_select {
-        false
+    let parent_is_datalist = ctx.host().tag_matches_ascii_case(parent, "datalist");
+    let parent_is_container = parent_is_select || parent_is_datalist;
+    let parent_is_optgroup =
+        !parent_is_container && ctx.host().tag_matches_ascii_case(parent, "optgroup");
+    let grandparent = if parent_is_optgroup {
+        ctx.host().dom().get_parent(parent)
     } else {
-        ctx.host().tag_matches_ascii_case(parent, "optgroup")
-            && ctx
-                .host()
-                .dom()
-                .get_parent(parent)
-                .is_some_and(|gp| ctx.host().tag_matches_ascii_case(gp, "select"))
+        None
     };
-    if !parent_is_select && !optgroup_grand {
+    let optgroup_grand = grandparent.is_some_and(|gp| {
+        ctx.host().tag_matches_ascii_case(gp, "select")
+            || ctx.host().tag_matches_ascii_case(gp, "datalist")
+    });
+    if !parent_is_container && !optgroup_grand {
         return Ok(JsValue::Number(-1.0));
     }
-    let select_entity = if parent_is_select {
+    let container_entity = if parent_is_container {
         parent
     } else {
-        // optgroup → select grandparent.
-        ctx.host().dom().get_parent(parent).unwrap_or(parent)
+        // optgroup → select / datalist grandparent (`grandparent`
+        // is Some here because `optgroup_grand` was true).
+        grandparent.unwrap_or(parent)
     };
     let mut count: u32 = 0;
     let mut found: i32 = -1;
     walk_options(
         ctx.host().dom(),
-        select_entity,
+        container_entity,
         &mut count,
         entity,
         &mut found,
