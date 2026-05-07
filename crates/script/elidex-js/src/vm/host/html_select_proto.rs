@@ -529,10 +529,12 @@ fn native_select_get_selected_index(
         }
     }
     // Default selection: first non-disabled option for size=1, else -1.
+    // HTML §4.10.10.2 — an option is disabled if it has its own
+    // `disabled` attr OR is inside a disabled `<optgroup>`.
     let multiple = ctx.host().dom().has_attribute(entity, "multiple");
     if !multiple {
         for (idx, opt) in snap.iter().enumerate() {
-            if !ctx.host().dom().has_attribute(*opt, "disabled") {
+            if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
                 return Ok(JsValue::Number(f64::from(
                     u32::try_from(idx).unwrap_or(u32::MAX),
                 )));
@@ -595,11 +597,13 @@ fn native_select_get_value(
         }
     }
     // No explicit selection — for size=1 selects, the first
-    // non-disabled option is the implicit default.
+    // non-disabled option is the implicit default.  HTML §4.10.10.2:
+    // an option is disabled when it has its own `disabled` attr OR
+    // sits inside a disabled `<optgroup>`.
     let multiple = ctx.host().dom().has_attribute(entity, "multiple");
     if !multiple {
         for opt in &snap {
-            if !ctx.host().dom().has_attribute(*opt, "disabled") {
+            if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
                 return option_value(ctx, *opt);
             }
         }

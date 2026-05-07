@@ -440,11 +440,16 @@ fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Resul
         let Some(state) = dom.world().get::<&FormControlState>(control).ok() else {
             continue;
         };
-        // HTML §4.10.20.3 — bar non-candidates from validation.
+        // HTML §4.10.20.3 — bar non-candidates from validation
+        // (disabled, `<input type=hidden>`, descendant of disabled
+        // `<fieldset>`).
         if !state.kind.is_submittable()
             || state.disabled
             || matches!(state.kind, FormControlKind::Hidden)
         {
+            continue;
+        }
+        if elidex_form::is_fieldset_disabled(control, dom) {
             continue;
         }
         let valid = elidex_form::validate_control(&state).is_valid();

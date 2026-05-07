@@ -441,14 +441,19 @@ fn native_check_validity(
             // "barred from constraint validation" exclusions).  Beyond
             // `!is_submittable()` (already excludes button-typed
             // inputs / Output / Meter / Progress) and `disabled`, the
-            // spec also bars `<input type=hidden>` and `<output>`.
-            // `Hidden` is the only kind that is_submittable but barred,
-            // so call it out explicitly.
+            // spec also bars `<input type=hidden>` and any control
+            // with a disabled `<fieldset>` ancestor.  `Hidden` is the
+            // only kind that is_submittable but inherently barred,
+            // so call it out explicitly; the fieldset walk mirrors
+            // `willValidate`.
             use elidex_form::FormControlKind;
             if !state.kind.is_submittable()
                 || state.disabled
                 || matches!(state.kind, FormControlKind::Hidden)
             {
+                return true;
+            }
+            if elidex_form::is_fieldset_disabled(entity, dom) {
                 return true;
             }
             elidex_form::validate_control(&state).is_valid()

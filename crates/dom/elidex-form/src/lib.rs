@@ -30,7 +30,7 @@ pub use radio::{
     find_radio_group, find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate,
     toggle_radio,
 };
-pub use select::{init_select_options, navigate_select, select_option};
+pub use select::{init_select_options, is_option_disabled, navigate_select, select_option};
 pub use selection::{collapse_selection, delete_selection, extend_selection, select_all};
 pub use sizing::form_intrinsic_size;
 pub use submit::{

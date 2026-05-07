@@ -301,6 +301,24 @@ fn validity_brand_check_rejects_cross_element_validity_getter() {
 }
 
 #[test]
+fn check_validity_returns_true_when_inside_disabled_fieldset() {
+    // R7 F1 regression — HTML §4.10.20.3: a control inside a
+    // disabled `<fieldset>` is barred from constraint validation,
+    // so checkValidity returns true and no `invalid` event fires
+    // even when the control would otherwise fail (required+empty).
+    let out = run("var fs = document.createElement('fieldset'); \
+         fs.disabled = true; \
+         var i = document.createElement('input'); \
+         i.required = true; \
+         fs.appendChild(i); \
+         var fired = false; \
+         i.addEventListener('invalid', function() { fired = true; }); \
+         var v = i.checkValidity(); \
+         '' + v + '/' + fired;");
+    assert_eq!(out, "true/false");
+}
+
+#[test]
 fn check_validity_returns_true_for_hidden_input_even_when_required() {
     // F9 regression — HTML §4.10.20.3 bars `<input type=hidden>`
     // from constraint validation regardless of `required`.

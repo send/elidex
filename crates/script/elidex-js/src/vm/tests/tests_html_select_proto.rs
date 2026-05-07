@@ -354,6 +354,40 @@ fn select_selected_index_setter_marks_option_selected() {
 }
 
 #[test]
+fn select_selected_index_default_skips_options_in_disabled_optgroup() {
+    // R7 F3 regression — implicit default selection (size=1) must
+    // skip options whose `<optgroup>` ancestor is disabled (HTML
+    // §4.10.10.2 — option is disabled if it has `disabled` attr OR
+    // sits inside a disabled optgroup).
+    let out = run("var s = document.createElement('select'); \
+         var g = document.createElement('optgroup'); g.disabled = true; \
+         var inGroup = document.createElement('option'); \
+         var outside = document.createElement('option'); \
+         g.appendChild(inGroup); \
+         s.appendChild(g); \
+         s.appendChild(outside); \
+         '' + s.selectedIndex + '/' + (s.options.item(s.selectedIndex) === outside);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn select_value_default_skips_options_in_disabled_optgroup() {
+    // R7 F4 regression — the implicit-default value getter must
+    // also skip optgroup-disabled options.
+    let out = run("var s = document.createElement('select'); \
+         var g = document.createElement('optgroup'); g.disabled = true; \
+         var inGroup = document.createElement('option'); \
+         inGroup.value = 'group-val'; \
+         var outside = document.createElement('option'); \
+         outside.value = 'free-val'; \
+         g.appendChild(inGroup); \
+         s.appendChild(g); \
+         s.appendChild(outside); \
+         s.value;");
+    assert_eq!(out, "free-val");
+}
+
+#[test]
 fn select_selected_index_setter_negative_one_deselects() {
     // Per HTML §4.10.7: setting any out-of-range index clears all
     // selectedness; -1 is the canonical "deselect everything" call.

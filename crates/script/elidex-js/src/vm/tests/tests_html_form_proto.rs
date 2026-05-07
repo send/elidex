@@ -238,6 +238,23 @@ fn form_report_validity_aliases_check_validity_in_headless_mode() {
 }
 
 #[test]
+fn form_check_validity_skips_controls_in_disabled_fieldset() {
+    // R7 F2 regression — controls inside a disabled `<fieldset>`
+    // are barred from constraint validation per HTML §4.10.20.3.
+    // The form-level checkValidity must skip them: `invalid` event
+    // does not fire and the form aggregates as valid.
+    let out = run("var f = document.createElement('form'); \
+         var fs = document.createElement('fieldset'); fs.disabled = true; \
+         var i = document.createElement('input'); i.required = true; \
+         fs.appendChild(i); f.appendChild(fs); \
+         var fired = false; \
+         i.addEventListener('invalid', function() { fired = true; }); \
+         var v = f.checkValidity(); \
+         '' + v + '/' + fired;");
+    assert_eq!(out, "true/false");
+}
+
+#[test]
 fn form_check_validity_skips_disabled_controls() {
     // HTML §4.10.20.3 — disabled controls are barred from
     // constraint validation; the form's check must skip them.
