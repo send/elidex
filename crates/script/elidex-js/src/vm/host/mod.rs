@@ -135,6 +135,8 @@ pub(super) mod html_legend_proto;
 pub(super) mod html_optgroup_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_option_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_textarea_proto;
 pub(super) mod location;
 #[cfg(feature = "engine")]
 pub(super) mod multipart;

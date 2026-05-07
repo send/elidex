@@ -1,0 +1,162 @@
+//! Slot `#11-tags-T1-v2` Phase 6 — `HTMLTextAreaElement.prototype`
+//! coverage (Selection API mixin deferred).
+
+#![cfg(feature = "engine")]
+
+use elidex_ecs::EcsDom;
+use elidex_script_session::SessionCore;
+
+use super::super::test_helpers::bind_vm;
+use super::super::value::JsValue;
+use super::super::Vm;
+
+fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+    doc
+}
+
+fn run(script: &str) -> String {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm.eval(script).unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    vm.unbind();
+    out
+}
+
+#[test]
+fn textarea_type_returns_textarea() {
+    let out = run("var t = document.createElement('textarea'); t.type;");
+    assert_eq!(out, "textarea");
+}
+
+#[test]
+fn textarea_cols_default_20() {
+    let out = run("var t = document.createElement('textarea'); '' + t.cols;");
+    assert_eq!(out, "20");
+}
+
+#[test]
+fn textarea_rows_default_2() {
+    let out = run("var t = document.createElement('textarea'); '' + t.rows;");
+    assert_eq!(out, "2");
+}
+
+#[test]
+fn textarea_cols_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.cols = 80; \
+         '' + t.cols + '/' + t.getAttribute('cols');");
+    assert_eq!(out, "80/80");
+}
+
+#[test]
+fn textarea_max_length_default_minus_one() {
+    let out = run("var t = document.createElement('textarea'); '' + t.maxLength;");
+    assert_eq!(out, "-1");
+}
+
+#[test]
+fn textarea_disabled_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.disabled = true; \
+         '' + t.hasAttribute('disabled');");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn textarea_readonly_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.readOnly = true; \
+         '' + t.hasAttribute('readonly');");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn textarea_required_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.required = true; \
+         '' + t.hasAttribute('required');");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn textarea_name_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.name = 'msg'; \
+         t.name;");
+    assert_eq!(out, "msg");
+}
+
+#[test]
+fn textarea_placeholder_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.placeholder = 'enter…'; \
+         t.placeholder;");
+    assert_eq!(out, "enter…");
+}
+
+#[test]
+fn textarea_wrap_round_trip() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.wrap = 'soft'; \
+         t.wrap;");
+    assert_eq!(out, "soft");
+}
+
+#[test]
+fn textarea_form_resolves_via_form_ancestor() {
+    let out = run("var f = document.createElement('form'); \
+         var t = document.createElement('textarea'); \
+         f.appendChild(t); \
+         (t.form === f) ? 'same' : 'diff';");
+    assert_eq!(out, "same");
+}
+
+#[test]
+fn textarea_default_value_reflects_text_content() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.defaultValue = 'hello'; \
+         t.defaultValue + '/' + t.textContent;");
+    assert_eq!(out, "hello/hello");
+}
+
+#[test]
+fn textarea_value_aliases_default_value() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'hi'; \
+         t.value + '/' + t.defaultValue;");
+    assert_eq!(out, "hi/hi");
+}
+
+#[test]
+fn textarea_text_length_counts_utf16() {
+    let out = run("var t = document.createElement('textarea'); \
+         t.value = 'abcd'; \
+         '' + t.textLength;");
+    assert_eq!(out, "4");
+}
+
+#[test]
+fn textarea_brand_check_throws_on_non_textarea_receiver() {
+    let out = run("var d = document.createElement('div'); \
+         var t = document.createElement('textarea'); \
+         var getter = Object.getOwnPropertyDescriptor(\
+             Object.getPrototypeOf(t), 'rows').get; \
+         try { getter.call(d); 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
+    assert_eq!(out, "type");
+}
