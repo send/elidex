@@ -490,16 +490,22 @@ pub(super) fn dispatch_simple_event(
     {
         let mut g = ctx.vm.push_temp_root(JsValue::Object(event_id));
         let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
+        // Core-9 slot order per `event_shapes.rs::CORE_KEY_COUNT`:
+        // type / bubbles / cancelable / eventPhase / target /
+        // currentTarget / timeStamp / composed / isTrusted.
+        // `defaultPrevented` is NOT a core-9 slot — it lives on
+        // `ObjectKind::Event.default_prevented` and is exposed via
+        // a prototype accessor, not as an own property.
         let slots: Vec<PropertyValue> = vec![
-            PropertyValue::Data(JsValue::String(type_sid)),
-            PropertyValue::Data(JsValue::Boolean(bubbles)),
-            PropertyValue::Data(JsValue::Boolean(cancelable)),
-            PropertyValue::Data(JsValue::Number(0.0)), // eventPhase
+            PropertyValue::Data(JsValue::String(type_sid)), // type
+            PropertyValue::Data(JsValue::Boolean(bubbles)), // bubbles
+            PropertyValue::Data(JsValue::Boolean(cancelable)), // cancelable
+            PropertyValue::Data(JsValue::Number(0.0)),      // eventPhase
             PropertyValue::Data(JsValue::Object(target_wrapper)), // target
             PropertyValue::Data(JsValue::Object(target_wrapper)), // currentTarget
-            PropertyValue::Data(JsValue::Number(timestamp_ms)),
-            PropertyValue::Data(JsValue::Boolean(false)), // defaultPrevented
-            PropertyValue::Data(JsValue::Boolean(false)), // composed
+            PropertyValue::Data(JsValue::Number(timestamp_ms)), // timeStamp
+            PropertyValue::Data(JsValue::Boolean(false)),   // composed
+            PropertyValue::Data(JsValue::Boolean(false)),   // isTrusted (script-dispatched)
         ];
         g.define_with_precomputed_shape(event_id, core_shape, slots);
     }
