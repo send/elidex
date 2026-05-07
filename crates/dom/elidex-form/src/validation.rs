@@ -112,10 +112,13 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
         | FormControlKind::Progress => {}
     }
 
-    // Custom validity message overrides every other validity bit
-    // (HTML §4.10.20.2): when set to a non-empty string, the control
-    // suffers from `customError` and the message is reported as the
-    // validation message.
+    // Custom validity, per HTML §4.10.20.2: when
+    // `setCustomValidity()` was called with a non-empty string, the
+    // `customError` bit is set and the message becomes the
+    // `validationMessage`.  `customError` does NOT replace the other
+    // anchor bits — `valid` is the OR over all 10 flags, so any
+    // anchor (`valueMissing`, `tooLong`, …) keeps the control invalid
+    // even if the custom message is cleared.
     if let Some(msg) = state.custom_validity_message.as_deref() {
         if !msg.is_empty() {
             validity.custom_error = true;
