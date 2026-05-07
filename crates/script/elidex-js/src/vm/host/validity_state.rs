@@ -432,25 +432,13 @@ fn native_get_will_validate(
         return Ok(JsValue::Boolean(false));
     };
     let dom = ctx.host().dom();
-    // HTML §4.10.20.4 step "candidate for constraint validation":
-    // submittable, not disabled, not hidden type, not in disabled
-    // fieldset.  We use FormControlState for kind/disabled and
-    // `is_fieldset_disabled` for ancestor walk.
+    // HTML §4.10.20.3 "candidate for constraint validation"
+    // — centralised in `elidex_form::is_constraint_validation_candidate`.
     let candidate = dom
         .world()
         .get::<&FormControlState>(entity)
         .ok()
-        .is_some_and(|state| {
-            use elidex_form::FormControlKind;
-            if !state.kind.is_submittable() || state.disabled {
-                return false;
-            }
-            if matches!(state.kind, FormControlKind::Hidden) {
-                return false;
-            }
-            // Check ancestor fieldset disabled state.
-            !elidex_form::is_fieldset_disabled(entity, dom)
-        });
+        .is_some_and(|state| elidex_form::is_constraint_validation_candidate(&state, entity, dom));
     Ok(JsValue::Boolean(candidate))
 }
 
@@ -469,23 +457,10 @@ fn native_check_validity(
         .ok()
         .is_none_or(|state| {
             // Spec: a control that is not a candidate for constraint
-            // validation always returns true (HTML §4.10.20.3 list of
-            // "barred from constraint validation" exclusions).  Beyond
-            // `!is_submittable()` (already excludes button-typed
-            // inputs / Output / Meter / Progress) and `disabled`, the
-            // spec also bars `<input type=hidden>` and any control
-            // with a disabled `<fieldset>` ancestor.  `Hidden` is the
-            // only kind that is_submittable but inherently barred,
-            // so call it out explicitly; the fieldset walk mirrors
-            // `willValidate`.
-            use elidex_form::FormControlKind;
-            if !state.kind.is_submittable()
-                || state.disabled
-                || matches!(state.kind, FormControlKind::Hidden)
-            {
-                return true;
-            }
-            if elidex_form::is_fieldset_disabled(entity, dom) {
+            // validation always returns true (HTML §4.10.20.3).  The
+            // candidate predicate is centralised in
+            // `elidex_form::is_constraint_validation_candidate`.
+            if !elidex_form::is_constraint_validation_candidate(&state, entity, dom) {
                 return true;
             }
             elidex_form::validate_control(&state).is_valid()

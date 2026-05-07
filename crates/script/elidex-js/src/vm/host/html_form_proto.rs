@@ -431,8 +431,6 @@ fn native_form_reset(
 /// ConstraintValidation mixin but iterates the form's submittable
 /// element set rather than a single entity.
 fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<bool, VmError> {
-    use elidex_form::FormControlKind;
-
     let mut coll = elidex_dom_api::LiveCollection::new(
         entity,
         elidex_dom_api::CollectionFilter::FormControls,
@@ -446,16 +444,9 @@ fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Resul
         let Some(state) = dom.world().get::<&FormControlState>(control).ok() else {
             continue;
         };
-        // HTML §4.10.20.3 — bar non-candidates from validation
-        // (disabled, `<input type=hidden>`, descendant of disabled
-        // `<fieldset>`).
-        if !state.kind.is_submittable()
-            || state.disabled
-            || matches!(state.kind, FormControlKind::Hidden)
-        {
-            continue;
-        }
-        if elidex_form::is_fieldset_disabled(control, dom) {
+        // HTML §4.10.20.3 — bar non-candidates from validation,
+        // centralised in `elidex_form::is_constraint_validation_candidate`.
+        if !elidex_form::is_constraint_validation_candidate(&state, control, dom) {
             continue;
         }
         let valid = elidex_form::validate_control(&state).is_valid();
