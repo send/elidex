@@ -455,14 +455,22 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) html_input_prototype: Option<ObjectId>,
     /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
-    /// chained to `HTMLCollection.prototype`.  Holds the `namedItem`
-    /// override that returns `RadioNodeList` (currently first-match
-    /// stub per defer #11-tags-radionodelist).
+    /// reserved-not-yet-registered slot.  When the
+    /// `#11-tags-radionodelist` defer slot lands, this will hold a
+    /// prototype chained to `HTMLCollection.prototype` with a
+    /// `namedItem` override returning `RadioNodeList`.  Currently
+    /// `alloc_collection` always falls through to the plain
+    /// `HTMLCollection.prototype` — this `Option<ObjectId>` is a
+    /// pre-allocated slot to avoid renumbering `proto_roots[]`
+    /// when the proper register fn lands.
     #[cfg(feature = "engine")]
     pub(crate) html_form_controls_collection_prototype: Option<ObjectId>,
-    /// `HTMLOptionsCollection.prototype` (HTML §4.10.10.2) — chained
-    /// to `HTMLCollection.prototype`.  Adds the mutable surface
-    /// (`length` setter / `add` / `remove` / `selectedIndex`).
+    /// `HTMLOptionsCollection.prototype` (HTML §4.10.10.2) —
+    /// reserved-not-yet-registered slot.  Will host the mutable
+    /// surface (`length` setter / `add` / `remove` / `selectedIndex`)
+    /// when the `#11-options-collection-mutable-surface` defer slot
+    /// lands.  Same pre-allocation rationale as
+    /// [`Self::html_form_controls_collection_prototype`].
     #[cfg(feature = "engine")]
     pub(crate) html_options_collection_prototype: Option<ObjectId>,
     /// `ValidityState.prototype` (HTML §4.10.20.3).  Plain Object

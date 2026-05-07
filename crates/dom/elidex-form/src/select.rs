@@ -10,8 +10,20 @@ use crate::{FormControlState, SelectOption};
 /// §4.10.10.2 — an option is "disabled" when either condition holds.
 /// Walks at most one optgroup level (per spec optgroups don't nest)
 /// but uses `MAX_ANCESTOR_DEPTH` for safety against malformed trees.
+///
+/// Returns `false` when `entity` is not actually an `<option>` (so
+/// callers can pass arbitrary entities defensively without
+/// mis-attributing a `disabled` attribute on, say, a `<button>`
+/// to "option-disabled" semantics).
 #[must_use]
 pub fn is_option_disabled(dom: &EcsDom, entity: Entity) -> bool {
+    let is_option = dom
+        .world()
+        .get::<&TagType>(entity)
+        .is_ok_and(|t| t.0.eq_ignore_ascii_case("option"));
+    if !is_option {
+        return false;
+    }
     if dom
         .world()
         .get::<&Attributes>(entity)
@@ -470,6 +482,18 @@ mod tests {
         let opt = dom.create_element("option", Attributes::default());
         let _ = dom.append_child(grp, opt);
         assert!(!is_option_disabled(&dom, opt));
+    }
+
+    #[test]
+    fn is_option_disabled_returns_false_for_non_option_tag() {
+        // R9 M2 regression — defensive tag gate: a `<div disabled>`
+        // (or any non-option) must not be reported as
+        // option-disabled even though the attribute matches.
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("disabled", "");
+        let div = dom.create_element("div", attrs);
+        assert!(!is_option_disabled(&dom, div));
     }
 
     #[test]
