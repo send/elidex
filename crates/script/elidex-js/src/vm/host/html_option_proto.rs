@@ -347,15 +347,15 @@ fn native_option_get_index(
         return Ok(JsValue::Number(-1.0));
     };
     let parent_is_select = ctx.host().tag_matches_ascii_case(parent, "select");
-    let optgroup_grand = if !parent_is_select {
+    let optgroup_grand = if parent_is_select {
+        false
+    } else {
         ctx.host().tag_matches_ascii_case(parent, "optgroup")
             && ctx
                 .host()
                 .dom()
                 .get_parent(parent)
                 .is_some_and(|gp| ctx.host().tag_matches_ascii_case(gp, "select"))
-    } else {
-        false
     };
     if !parent_is_select && !optgroup_grand {
         return Ok(JsValue::Number(-1.0));
@@ -366,8 +366,8 @@ fn native_option_get_index(
         // optgroup → select grandparent.
         ctx.host().dom().get_parent(parent).unwrap_or(parent)
     };
-    let mut count = 0i64;
-    let mut found = -1i64;
+    let mut count: u32 = 0;
+    let mut found: i32 = -1;
     walk_options(
         ctx.host().dom(),
         select_entity,
@@ -375,20 +375,15 @@ fn native_option_get_index(
         entity,
         &mut found,
     );
-    if found < 0 {
-        Ok(JsValue::Number(-1.0))
-    } else {
-        Ok(JsValue::Number(found as f64))
-    }
+    Ok(JsValue::Number(f64::from(found)))
 }
 
-#[allow(clippy::cast_precision_loss)]
 fn walk_options(
     dom: &elidex_ecs::EcsDom,
     parent: Entity,
-    count: &mut i64,
+    count: &mut u32,
     target: Entity,
-    found: &mut i64,
+    found: &mut i32,
 ) {
     let Some(mut child) = dom.get_first_child(parent) else {
         return;
@@ -404,7 +399,10 @@ fn walk_options(
             .is_ok_and(|t| t.0.eq_ignore_ascii_case("optgroup"));
         if tag_is_option {
             if child == target {
-                *found = *count;
+                // u32 → i32 cast: forms typically hold ≤ a few
+                // hundred options; far below i32::MAX.  Saturating
+                // is a safe ceiling for the unlikely overflow.
+                *found = i32::try_from(*count).unwrap_or(i32::MAX);
             }
             *count += 1;
         } else if tag_is_optgroup {

@@ -41,6 +41,7 @@ use super::super::VmInner;
 use elidex_ecs::{Entity, NodeKind};
 
 impl VmInner {
+    #[allow(clippy::too_many_lines)] // Phase 6 install: 5 string + 4 bool + 4 long + 6 read-only accessors fit in one place by design.
     pub(in crate::vm) fn register_html_textarea_prototype(&mut self) {
         let parent = self.html_element_prototype.expect(
             "register_html_textarea_prototype called before register_html_element_prototype",
@@ -516,9 +517,11 @@ fn native_textarea_get_text_length(
         return Ok(JsValue::Number(0.0));
     };
     let value = super::dom_bridge::invoke_dom_api(ctx, "textContent.get", entity, &[])?;
-    let len = match value {
-        JsValue::String(sid) => ctx.vm.strings.get_utf8(sid).encode_utf16().count(),
+    let len: u32 = match value {
+        JsValue::String(sid) => {
+            u32::try_from(ctx.vm.strings.get_utf8(sid).encode_utf16().count()).unwrap_or(u32::MAX)
+        }
         _ => 0,
     };
-    Ok(JsValue::Number(len as f64))
+    Ok(JsValue::Number(f64::from(len)))
 }
