@@ -127,7 +127,7 @@ pub fn find_label_target(dom: &EcsDom, label_entity: Entity) -> Option<Entity> {
 /// `is_labelable_element` predicate (which excludes them) is the
 /// authoritative check — no FormControlState fallback.
 fn find_first_descendant_control(dom: &EcsDom, entity: Entity, depth: usize) -> Option<Entity> {
-    if depth > MAX_ANCESTOR_DEPTH {
+    if depth >= MAX_ANCESTOR_DEPTH {
         return None;
     }
     let mut child = dom.get_first_child(entity)?;

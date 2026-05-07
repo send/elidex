@@ -292,14 +292,27 @@ fn populate_selected_options(root: Entity, dom: &EcsDom, out: &mut Vec<Entity>) 
         return;
     }
     // Implicit default per HTML §4.10.10.2 ("ask for a reset"):
-    // only `<select size=1>` / non-multiple selects pick the first
-    // non-disabled option.  Multi-select with no explicit
-    // selectedness yields an empty `selectedOptions`.
+    // only non-multiple selects with `display size == 1` pick the
+    // first non-disabled option.  Multi-select OR `<select
+    // size="N">` (N > 1, listbox style) yields an empty
+    // `selectedOptions`.  "Display size" is the parsed `size`
+    // attribute (positive integer) — missing / "0" / invalid →
+    // default 1 (matching `elidex_form::init_select_options`).
     let multiple = dom
         .world()
         .get::<&Attributes>(root)
         .is_ok_and(|a| a.contains("multiple"));
     if multiple {
+        return;
+    }
+    let display_size = dom
+        .world()
+        .get::<&Attributes>(root)
+        .ok()
+        .and_then(|a| a.get("size").and_then(|s| s.parse::<u32>().ok()))
+        .filter(|&n| n > 0)
+        .unwrap_or(1);
+    if display_size > 1 {
         return;
     }
     for opt in &options {
@@ -1307,6 +1320,68 @@ mod tests {
         // would be the implicit default if no option had `selected`.
         assert_eq!(coll.length(&dom), 1);
         assert_eq!(coll.item(0, &dom), Some(o2));
+    }
+
+    #[test]
+    fn selected_options_listbox_size_gt_one_no_implicit_default() {
+        // R28 regression — `<select size="3">` is a listbox-style
+        // select (display size > 1).  HTML §4.10.10.2 "ask for a
+        // reset" only auto-selects when display size == 1, so a
+        // listbox with no explicit `selected` attr must yield an
+        // empty `selectedOptions`.
+        let mut dom = EcsDom::new();
+        let mut s_attrs = Attributes::default();
+        s_attrs.set("size", "3");
+        let s = dom.create_element("select", s_attrs);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 0);
+    }
+
+    #[test]
+    fn selected_options_size_zero_falls_to_implicit_default() {
+        // `size="0"` is invalid per HTML; display size defaults to
+        // 1 for non-multiple selects, so implicit default still
+        // applies.  Mirrors `elidex_form::init_select_options`'s
+        // `state.size <= 1` gate after the parsed value falls back
+        // to the missing-default of 1.
+        let mut dom = EcsDom::new();
+        let mut s_attrs = Attributes::default();
+        s_attrs.set("size", "0");
+        let s = dom.create_element("select", s_attrs);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o1));
+    }
+
+    #[test]
+    fn selected_options_size_one_implicit_default() {
+        // Explicit `size="1"` is the default for non-multiple
+        // selects — implicit default applies.
+        let mut dom = EcsDom::new();
+        let mut s_attrs = Attributes::default();
+        s_attrs.set("size", "1");
+        let s = dom.create_element("select", s_attrs);
+        let o1 = make_option(&mut dom, /*selected=*/ false, /*disabled=*/ false);
+        dom.append_child(s, o1);
+        let mut coll = LiveCollection::new(
+            s,
+            CollectionFilter::SelectedOptions,
+            CollectionKind::HtmlCollection,
+        );
+        assert_eq!(coll.length(&dom), 1);
+        assert_eq!(coll.item(0, &dom), Some(o1));
     }
 
     #[test]

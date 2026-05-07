@@ -607,6 +607,50 @@ fn select_selected_options_consistency_with_selected_index() {
 }
 
 #[test]
+fn select_listbox_size_gt_one_selected_index_minus_one() {
+    // R28 regression — `<select size="3">` is a listbox-style select
+    // (HTML §4.10.10.2 "display size > 1").  No explicit `selected`
+    // means selectedIndex == -1, value == "", and selectedOptions is
+    // empty.  Listbox selects do NOT pick up the implicit default
+    // that single-line selects use.
+    let out = run("var s = document.createElement('select'); \
+         s.setAttribute('size', '3'); \
+         var o1 = document.createElement('option'); \
+         o1.text = 'A'; \
+         s.appendChild(o1); \
+         '' + s.selectedIndex + '/' + s.value + '/' + s.selectedOptions.length;");
+    assert_eq!(out, "-1//0");
+}
+
+#[test]
+fn select_listbox_size_gt_one_explicit_selected_still_works() {
+    // Listbox-style select with an explicit `selected` attribute
+    // still surfaces the option through all three IDL surfaces —
+    // only the implicit default is suppressed when size > 1.
+    let out = run("var s = document.createElement('select'); \
+         s.setAttribute('size', '3'); \
+         var o1 = document.createElement('option'); \
+         o1.text = 'A'; \
+         var o2 = document.createElement('option'); \
+         o2.text = 'B'; \
+         o2.setAttribute('selected', ''); \
+         s.appendChild(o1); s.appendChild(o2); \
+         '' + s.selectedIndex + '/' + s.value + '/' + s.selectedOptions.length;");
+    assert_eq!(out, "1/B/1");
+}
+
+#[test]
+fn select_size_one_keeps_implicit_default() {
+    // Explicit `size="1"` is the default for non-multiple selects;
+    // implicit default still applies.
+    let out = run("var s = document.createElement('select'); \
+         s.setAttribute('size', '1'); \
+         s.appendChild(document.createElement('option')); \
+         '' + s.selectedIndex + '/' + s.selectedOptions.length;");
+    assert_eq!(out, "0/1");
+}
+
+#[test]
 fn select_selected_options_explicit_selected_overrides_implicit() {
     // If any option has an explicit `selected` attribute, the
     // implicit-default rule does NOT apply — only the explicitly
