@@ -246,11 +246,21 @@ fn select_selected_options_is_live_across_mutation() {
     // R16 F2 regression — `selectedOptions` is spec'd as a live
     // HTMLCollection (HTML §4.10.7.4); a snapshot would surface
     // stale data when a caller mutates `option.selected` after
-    // reading the collection.
+    // reading the collection.  R26 update — pre-R26, removing the
+    // last `selected` attribute from a single-option select made
+    // `selectedOptions.length` drop to 0; with the implicit-default
+    // rule the surviving option becomes the implicit default and
+    // length stays 1, but the *element identity* changes when a
+    // different option is mutated, which still demonstrates
+    // liveness.  Use a 2-option select with `multiple` so the
+    // implicit-default rule cannot mask a real liveness regression
+    // (multi-selects never auto-promote a non-selected option).
     let out = run("var s = document.createElement('select'); \
+         s.setAttribute('multiple', ''); \
          var o1 = document.createElement('option'); \
          o1.setAttribute('selected', ''); \
-         s.add(o1); \
+         var o2 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); \
          var so = s.selectedOptions; \
          var before = so.length; \
          o1.removeAttribute('selected'); \
@@ -538,4 +548,74 @@ fn fieldset_elements_includes_listed_descendants() {
          fs.appendChild(i); \
          '' + fs.elements.length;");
     assert_eq!(out, "1");
+}
+
+// ---------------------------------------------------------------------------
+// R26 regressions — `selectedOptions` consistency with
+// `selectedIndex` / `value` (HTML §4.10.10.2 implicit-default rule).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn select_selected_options_includes_implicit_default_for_size_one() {
+    // `<select><option>A</option></select>` — no explicit `selected`
+    // attribute.  Spec: the first non-disabled option is the
+    // implicit selected (matches `selectedIndex == 0` and
+    // `value == "A"`); `selectedOptions[0]` must be that option.
+    let out = run("var s = document.createElement('select'); \
+         var o = document.createElement('option'); \
+         o.text = 'A'; \
+         s.appendChild(o); \
+         '' + s.selectedOptions.length + '/' + (s.selectedOptions.item(0) === o);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn select_selected_options_implicit_default_skips_disabled() {
+    // First option is disabled → implicit default falls through to
+    // the second.  `selectedOptions` matches `selectedIndex`
+    // (which already does this skip per the existing implementation).
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         o1.disabled = true; \
+         var o2 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); \
+         '' + s.selectedOptions.length + '/' + (s.selectedOptions.item(0) === o2);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn select_selected_options_multiple_no_implicit_default() {
+    // For `<select multiple>`, no implicit default applies — an
+    // empty selection means `selectedOptions.length === 0`.
+    let out = run("var s = document.createElement('select'); \
+         s.setAttribute('multiple', ''); \
+         s.appendChild(document.createElement('option')); \
+         '' + s.selectedOptions.length;");
+    assert_eq!(out, "0");
+}
+
+#[test]
+fn select_selected_options_consistency_with_selected_index() {
+    // Cross-check: a `<select>` with one option and no explicit
+    // `selected` attribute reports `selectedIndex == 0` AND
+    // `selectedOptions.length == 1`.  The two surfaces must
+    // not diverge — this test pins the consistency invariant.
+    let out = run("var s = document.createElement('select'); \
+         s.appendChild(document.createElement('option')); \
+         '' + s.selectedIndex + '/' + s.selectedOptions.length;");
+    assert_eq!(out, "0/1");
+}
+
+#[test]
+fn select_selected_options_explicit_selected_overrides_implicit() {
+    // If any option has an explicit `selected` attribute, the
+    // implicit-default rule does NOT apply — only the explicitly
+    // marked options surface in `selectedOptions`.
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         o2.setAttribute('selected', ''); \
+         s.appendChild(o1); s.appendChild(o2); \
+         '' + s.selectedOptions.length + '/' + (s.selectedOptions.item(0) === o2);");
+    assert_eq!(out, "1/true");
 }
