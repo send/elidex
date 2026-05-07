@@ -50,11 +50,21 @@ pub enum CollectionFilter {
     /// `HTMLSelectElement.options` (HTML §4.10.10.2).  `<optgroup>`
     /// nesting is handled implicitly by the descendant traversal.
     Options,
-    /// Match descendant `<option>` elements that currently have the
-    /// `selected` content attribute set.  Backs
-    /// `HTMLSelectElement.selectedOptions` (HTML §4.10.7.4) — must
-    /// be live so callers holding the collection across mutations
-    /// see updated state.
+    /// Match descendant `<option>` elements that are *effectively*
+    /// selected per HTML §4.10.10.2 ("ask for a reset"): any option
+    /// with the `selected` content attribute set is included; if no
+    /// option carries `selected`, the **first non-disabled option**
+    /// is included as the implicit default — but only when the
+    /// owning `<select>` is non-multiple AND its display size is 1
+    /// (parsed from the `size` attribute, missing / "0" / invalid →
+    /// default 1).  Listbox-style selects (`size > 1`) and `multiple`
+    /// selects yield an empty collection when no option has
+    /// `selected`.  Backs `HTMLSelectElement.selectedOptions` (HTML
+    /// §4.10.7.4) — must be live so callers holding the collection
+    /// across mutations see updated state.  Implementation lives in
+    /// the private `populate_selected_options` walker (the
+    /// per-entity matcher path can't express this rule because it
+    /// requires whole-list inspection to find the implicit default).
     SelectedOptions,
 }
 

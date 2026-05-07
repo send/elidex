@@ -802,13 +802,20 @@ define_well_known_strings! {
         html_options_collection_global => "HTMLOptionsCollection",
         validity_state_global => "ValidityState",
         // IDL accessor names — DOMString reflect / boolean reflect /
-        // enumerated keyword.  Names that already live above (`name`,
-        // `value`, `type`, `length`, `select`, `entries`,
-        // `item`, `named_item`, `prefix`, `target`, `cancel`, etc.)
-        // are reused; only new identifiers are interned here.
+        // enumerated keyword.  Some short, ambiguous names like
+        // `"type"` and `"select"` are interned more than once under
+        // different field names (`event_type` / `type_attr` for
+        // `"type"`, `select_method` for `"select"`) so that each
+        // call site gets a self-documenting `well_known.<field>`
+        // accessor — the runtime intern table deduplicates so all
+        // these field aliases resolve to the same `StringId`.  This
+        // block introduces the IDL-side aliases for names that
+        // already exist as event / DOM-API fields above; the
+        // duplication is a readability choice, not a runtime cost.
         // (`options` is defined below in the `<select>` IDL block
         // because it landed in this PR alongside the select/option
-        // surface — not a reuse.)
+        // surface — see that location for the form-control IDL
+        // members.)
         html_for => "htmlFor",
         for_attr => "for",
         control => "control",
