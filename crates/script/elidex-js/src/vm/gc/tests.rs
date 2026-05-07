@@ -323,8 +323,11 @@ fn gc_heap_bounded_in_loop() {
     // 1000 loop iterations would push this well over 2500, so the
     // `< 1500` assertion remains a meaningful "GC actually ran"
     // signal while leaving headroom for future built-ins.  Bumped
-    // from 1000 with #11-tags-T1-v2 (7 new HTMLElement prototypes
-    // + ValidityState + ConstraintValidation mixin methods).
+    // from 1000 with #11-tags-T1-v2 (10 new HTMLElement prototypes —
+    // label / optgroup / legend / option / fieldset / form / button /
+    // textarea / select / input — plus the ValidityState wrapper
+    // prototype and the ConstraintValidation mixin methods installed
+    // on each form-control).
     assert!(
         live < 1500,
         "heap should be bounded by GC, got {live} live objects"
