@@ -81,6 +81,43 @@ fn input_validity_too_long_when_max_length_exceeded() {
     assert_eq!(out, "true");
 }
 
+#[test]
+fn textarea_validity_too_long_when_max_length_exceeded() {
+    // Regression test for C-2 — textarea.maxLength setter must
+    // mirror into FormControlState.maxlength so validate_control()
+    // observes the constraint without re-attach.
+    let out = run("var t = document.createElement('textarea'); \
+         t.maxLength = 3; \
+         t.value = 'abcdef'; \
+         '' + t.validity.tooLong;");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn textarea_max_length_negative_resets_constraint() {
+    // Regression test for C-2 — `maxLength = -1` must clear the
+    // constraint (state.maxlength = None), matching HTML
+    // §4.10.5.1.13 reflection rules.
+    let out = run("var t = document.createElement('textarea'); \
+         t.maxLength = 3; \
+         t.maxLength = -1; \
+         t.value = 'abcdef'; \
+         '' + t.validity.tooLong;");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn textarea_validity_value_missing_when_required_sync_works() {
+    // Regression test for I-3 — `required = true` via JS must
+    // round-trip into FormControlState.required (through
+    // bool_attr_with_state_sync) so an empty required textarea is
+    // valueMissing.
+    let out = run("var t = document.createElement('textarea'); \
+         t.required = true; \
+         '' + t.validity.valueMissing;");
+    assert_eq!(out, "true");
+}
+
 // ---------------------------------------------------------------------------
 // setCustomValidity / validationMessage / customError
 // ---------------------------------------------------------------------------

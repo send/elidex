@@ -252,6 +252,35 @@ fn input_value_as_number_setter_writes_value() {
     assert_eq!(out, "7.5");
 }
 
+#[test]
+fn input_value_as_number_setter_rejects_non_finite_infinity() {
+    // HTML §4.10.5.1.4 step 5 — non-finite values throw TypeError.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         try { i.valueAsNumber = Infinity; 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
+    assert_eq!(out, "type");
+}
+
+#[test]
+fn input_value_as_number_setter_rejects_non_finite_nan() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         try { i.valueAsNumber = NaN; 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
+    assert_eq!(out, "type");
+}
+
+#[test]
+fn input_value_as_number_setter_rejects_non_number_string() {
+    // Non-Number argument: throws TypeError before the finite check.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         try { i.valueAsNumber = '5'; 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
+    assert_eq!(out, "type");
+}
+
 // ---------------------------------------------------------------------------
 // Selection API
 // ---------------------------------------------------------------------------

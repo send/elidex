@@ -255,6 +255,48 @@ fn select_selected_index_setter_marks_option_selected() {
 }
 
 #[test]
+fn select_selected_index_setter_negative_one_deselects() {
+    // Per HTML §4.10.7: setting any out-of-range index clears all
+    // selectedness; -1 is the canonical "deselect everything" call.
+    let out = run("var s = document.createElement('select'); \
+         s.setAttribute('multiple', ''); \
+         var o1 = document.createElement('option'); \
+         o1.setAttribute('selected', ''); \
+         s.add(o1); \
+         s.selectedIndex = -1; \
+         '' + o1.hasAttribute('selected') + '/' + s.selectedIndex;");
+    assert_eq!(out, "false/-1");
+}
+
+#[test]
+fn select_selected_index_setter_out_of_range_clears() {
+    // n >= options.length must clear without panicking and leave
+    // selectedIndex at -1 (with `multiple` so the size=1 default-first
+    // fallback doesn't kick back in).
+    let out = run("var s = document.createElement('select'); \
+         s.setAttribute('multiple', ''); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         o2.setAttribute('selected', ''); \
+         s.add(o1); s.add(o2); \
+         s.selectedIndex = 999; \
+         '' + o2.hasAttribute('selected') + '/' + s.selectedIndex;");
+    assert_eq!(out, "false/-1");
+}
+
+#[test]
+fn select_selected_index_setter_large_negative_clears() {
+    let out = run("var s = document.createElement('select'); \
+         s.setAttribute('multiple', ''); \
+         var o = document.createElement('option'); \
+         o.setAttribute('selected', ''); \
+         s.add(o); \
+         s.selectedIndex = -2147483648; \
+         '' + o.hasAttribute('selected') + '/' + s.selectedIndex;");
+    assert_eq!(out, "false/-1");
+}
+
+#[test]
 fn select_value_returns_selected_option_value() {
     let out = run("var s = document.createElement('select'); \
          var o1 = document.createElement('option'); o1.value = 'a'; \
