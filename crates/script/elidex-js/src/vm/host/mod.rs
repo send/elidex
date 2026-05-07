@@ -120,6 +120,8 @@ pub(super) mod globals;
 pub(crate) mod headers;
 pub(super) mod history;
 pub(super) mod html_element_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_fieldset_proto;
 pub(super) mod html_iframe_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_label_proto;

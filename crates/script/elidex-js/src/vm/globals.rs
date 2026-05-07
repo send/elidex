@@ -253,6 +253,7 @@ impl VmInner {
             self.register_html_optgroup_prototype();
             self.register_html_legend_prototype();
             self.register_html_option_prototype();
+            self.register_html_fieldset_prototype();
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared
