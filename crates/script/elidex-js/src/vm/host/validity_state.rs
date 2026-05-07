@@ -281,25 +281,34 @@ fn is_constraint_validation_host_tag(dom: &elidex_ecs::EcsDom, entity: Entity) -
         .any(|t| s.eq_ignore_ascii_case(t))
 }
 
+/// Resolve the form-control entity the ConstraintValidation mixin
+/// methods/accessors target.  Convention follows
+/// [`super::event_target::require_receiver`]:
+///
+/// - Non-Object / non-HostObject receivers → `Ok(None)` (callers
+///   return the trivial default value); per WebIDL strict reading
+///   these would throw, but the codebase has settled on a quieter
+///   shape so detached prototype calls don't surface as JS errors.
+/// - HostObject whose entity does not carry a form-control tag →
+///   `Err(TypeError)` ("Illegal invocation" — this IS a brand
+///   mismatch on a wrapper, where throwing matches the WebIDL
+///   contract used by the rest of `validity_state.rs`).
 fn require_form_control_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,
-) -> Result<Entity, VmError> {
+) -> Result<Option<Entity>, VmError> {
     let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}': receiver is not a form control"
-        )));
+        return Ok(None);
     };
     let entity = match ctx.vm.get_object(id).kind {
         ObjectKind::HostObject { entity_bits } => {
-            Entity::from_bits(entity_bits).ok_or_else(|| VmError::type_error("invalid entity"))?
+            let Some(e) = Entity::from_bits(entity_bits) else {
+                return Ok(None);
+            };
+            e
         }
-        _ => {
-            return Err(VmError::type_error(format!(
-                "Failed to execute '{method}': receiver is not a form control"
-            )));
-        }
+        _ => return Ok(None),
     };
     // Brand check — even though the wrapper is a HostObject, the
     // entity it points at must carry one of the form-control tags
@@ -311,7 +320,7 @@ fn require_form_control_receiver(
             "Failed to execute '{method}': Illegal invocation"
         )));
     }
-    Ok(entity)
+    Ok(Some(entity))
 }
 
 fn alloc_validity_wrapper(vm: &mut VmInner, entity: Entity) -> ObjectId {
@@ -338,7 +347,9 @@ fn native_get_validity(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_form_control_receiver(ctx, this, "validity")?;
+    let Some(entity) = require_form_control_receiver(ctx, this, "validity")? else {
+        return Ok(JsValue::Null);
+    };
     let id = alloc_validity_wrapper(ctx.vm, entity);
     Ok(JsValue::Object(id))
 }
@@ -349,7 +360,9 @@ fn native_get_validation_message(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let empty = ctx.vm.well_known.empty;
-    let entity = require_form_control_receiver(ctx, this, "validationMessage")?;
+    let Some(entity) = require_form_control_receiver(ctx, this, "validationMessage")? else {
+        return Ok(JsValue::String(empty));
+    };
     let dom = ctx.host().dom();
     let msg = dom
         .world()
@@ -383,7 +396,9 @@ fn native_get_will_validate(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_form_control_receiver(ctx, this, "willValidate")?;
+    let Some(entity) = require_form_control_receiver(ctx, this, "willValidate")? else {
+        return Ok(JsValue::Boolean(false));
+    };
     let dom = ctx.host().dom();
     // HTML §4.10.20.4 step "candidate for constraint validation":
     // submittable, not disabled, not hidden type, not in disabled
@@ -412,7 +427,9 @@ fn native_check_validity(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_form_control_receiver(ctx, this, "checkValidity")?;
+    let Some(entity) = require_form_control_receiver(ctx, this, "checkValidity")? else {
+        return Ok(JsValue::Boolean(true));
+    };
     let dom = ctx.host().dom();
     let valid = dom
         .world()
@@ -469,7 +486,9 @@ fn native_set_custom_validity(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_form_control_receiver(ctx, this, "setCustomValidity")?;
+    let Some(entity) = require_form_control_receiver(ctx, this, "setCustomValidity")? else {
+        return Ok(JsValue::Undefined);
+    };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
