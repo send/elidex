@@ -913,6 +913,10 @@ define_well_known_strings! {
         enctype_text_plain => "text/plain",
         // `reset` event name (HTML §4.10.21.3).
         reset_event => "reset",
+        // `invalid` event name (HTML §4.10.20.4).  Fired by
+        // `checkValidity()` / `reportValidity()` when constraint
+        // validation rejects a candidate control.
+        invalid_event => "invalid",
     }
 
     "ReadableStream (WHATWG Streams §4)" {

@@ -384,9 +384,21 @@ fn native_check_validity(
             }
             elidex_form::validate_control(&state).is_valid()
         });
-    // `invalid` event dispatch is deferred — slot
-    // `#11-tags-T1-followup-invalid-event` (re-evaluate when
-    // the simple-event helper lands alongside F-7).
+    if !valid {
+        // HTML §4.10.20.4 step 1.b: fire a synthetic `invalid`
+        // event at the element (cancelable=true, bubbles=false).
+        // Listeners can `preventDefault()` to suppress the UA's
+        // default validation reporting; `checkValidity()` itself
+        // still returns `false` regardless.
+        let invalid_sid = ctx.vm.well_known.invalid_event;
+        let _ = super::event_target_dispatch::dispatch_simple_event(
+            ctx,
+            entity,
+            invalid_sid,
+            /*bubbles=*/ false,
+            /*cancelable=*/ true,
+        )?;
+    }
     Ok(JsValue::Boolean(valid))
 }
 

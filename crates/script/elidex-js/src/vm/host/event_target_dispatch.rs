@@ -426,3 +426,75 @@ fn walk_phase(
     }
     Ok(())
 }
+
+/// Construct a plain `Event` with the given `type` / `bubbles` /
+/// `cancelable` flags and dispatch it on `target_entity`.  Returns
+/// `true` when the dispatch was cancelled (default-prevented).
+///
+/// Shared helper for UA-initiated synthetic Event dispatch:
+/// `form.reset()` fires `reset` (bubbles=true, cancelable=true),
+/// `checkValidity()` fires `invalid` (bubbles=false,
+/// cancelable=true).  Lifecycle bracket matches
+/// [`super::pending_tasks::deliver_post_message`]: alloc the
+/// Event, install core-9 own-data slots immediately so a GC
+/// triggered by the slot install cannot collect the freshly-
+/// returned id, register in `dispatched_events` for the dispatch
+/// window, walk via [`dispatch_script_event`], unregister.
+pub(super) fn dispatch_simple_event(
+    ctx: &mut NativeContext<'_>,
+    target_entity: elidex_ecs::Entity,
+    type_sid: super::super::value::StringId,
+    bubbles: bool,
+    cancelable: bool,
+) -> Result<bool, VmError> {
+    use super::super::value::PropertyValue;
+
+    let event_proto = ctx.vm.event_prototype;
+    let target_wrapper = ctx.vm.create_element_wrapper(target_entity);
+    let core_shape = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .core;
+
+    let event_id = ctx.vm.alloc_object(super::super::value::Object {
+        kind: ObjectKind::Event {
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_propagation_stopped: false,
+            cancelable,
+            passive: false,
+            type_sid,
+            bubbles,
+            composed: false,
+            composed_path: None,
+        },
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: event_proto,
+        extensible: true,
+    });
+
+    let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;
+    let slots: Vec<PropertyValue> = vec![
+        PropertyValue::Data(JsValue::String(type_sid)),
+        PropertyValue::Data(JsValue::Boolean(bubbles)),
+        PropertyValue::Data(JsValue::Boolean(cancelable)),
+        PropertyValue::Data(JsValue::Number(0.0)), // eventPhase
+        PropertyValue::Data(JsValue::Object(target_wrapper)), // target
+        PropertyValue::Data(JsValue::Object(target_wrapper)), // currentTarget
+        PropertyValue::Data(JsValue::Number(timestamp_ms)),
+        PropertyValue::Data(JsValue::Boolean(false)), // defaultPrevented
+        PropertyValue::Data(JsValue::Boolean(false)), // composed
+    ];
+    ctx.vm
+        .define_with_precomputed_shape(event_id, core_shape, slots);
+
+    ctx.vm.dispatched_events.insert(event_id);
+    let result = dispatch_script_event(ctx, event_id, target_entity);
+    ctx.vm.dispatched_events.remove(&event_id);
+
+    // dispatch_script_event returns Ok(!default_prevented), so
+    // `Ok(false)` means the dispatch was cancelled.
+    Ok(matches!(result, Ok(false)))
+}

@@ -193,6 +193,40 @@ fn fieldset_check_validity_returns_true() {
 }
 
 #[test]
+fn check_validity_fires_invalid_event_when_control_is_invalid() {
+    let out = run("var i = document.createElement('input'); \
+         i.required = true; \
+         var fired = ''; \
+         i.addEventListener('invalid', function(e) { \
+            fired = e.type + '/' + e.bubbles + '/' + e.cancelable; \
+         }); \
+         var v = i.checkValidity(); \
+         fired + '|' + v;");
+    assert_eq!(out, "invalid/false/true|false");
+}
+
+#[test]
+fn check_validity_does_not_fire_invalid_event_when_valid() {
+    let out = run("var i = document.createElement('input'); \
+         var fired = false; \
+         i.addEventListener('invalid', function() { fired = true; }); \
+         var v = i.checkValidity(); \
+         '' + fired + '/' + v;");
+    assert_eq!(out, "false/true");
+}
+
+#[test]
+fn check_validity_returns_false_even_when_invalid_event_is_default_prevented() {
+    let out = run("var i = document.createElement('input'); \
+         i.required = true; \
+         i.addEventListener('invalid', function(e) { e.preventDefault(); }); \
+         '' + i.checkValidity();");
+    // checkValidity always returns the validity result; preventDefault
+    // only suppresses the UA's reporting, not the boolean return.
+    assert_eq!(out, "false");
+}
+
+#[test]
 fn validity_state_brand_check_throws_on_non_validity_receiver() {
     let out = run("var i = document.createElement('input'); \
          var v = i.validity; \
