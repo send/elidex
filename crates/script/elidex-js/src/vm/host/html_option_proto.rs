@@ -359,9 +359,10 @@ fn native_option_get_form(
     };
     // HTML §4.10.10: option.form returns the form owner of the
     // option's enclosing `<select>`, walking through `<optgroup>` /
-    // wrapper elements.  Both ancestor walks are hoisted to
-    // engine-independent crates per the Layering mandate (slot
-    // `#11-tags-T1-v2-drift-hoist` D-1).
+    // wrapper elements.  The select-ancestor walk is hoisted to
+    // `elidex_form::find_option_select` per the Layering mandate
+    // (slot `#11-tags-T1-v2-drift-hoist` D-1); the form-ancestor
+    // step (`find_form_ancestor`) was already in `elidex_form`.
     let dom = ctx.host().dom();
     let Some(select_entity) = elidex_form::find_option_select(dom, entity) else {
         return Ok(JsValue::Null);

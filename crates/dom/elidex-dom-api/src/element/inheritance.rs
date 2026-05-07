@@ -27,8 +27,9 @@ pub fn is_content_editable(dom: &EcsDom, entity: Entity) -> bool {
     while let Some(e) = cur {
         let matched = dom.with_attribute(e, "contenteditable", |raw| {
             raw.map(|s| {
-                let lower = s.to_ascii_lowercase();
-                matches!(lower.as_str(), "true" | "plaintext-only" | "")
+                s.eq_ignore_ascii_case("true")
+                    || s.eq_ignore_ascii_case("plaintext-only")
+                    || s.is_empty()
             })
         });
         if let Some(b) = matched {
@@ -118,14 +119,16 @@ mod tests {
     }
 
     #[test]
-    fn unknown_value_falls_through_to_parent() {
-        // Note: HTML spec maps invalid values to the inherit state per
-        // §6.7.3.2, so a child with garbage falls through to its
-        // ancestor.  However this walker currently treats any non-
-        // matching string ("bogus") as "explicit false" because the
-        // inner closure returns `Some(false)` — which then short-
-        // circuits.  Mirror VM behaviour: leaf with garbage value
-        // resolves to false.
+    fn unknown_value_short_circuits_as_false_diverging_from_spec() {
+        // KNOWN SPEC DIVERGENCE: HTML §6.7.3.2 maps invalid values to
+        // the inherit state (i.e. a child with garbage SHOULD fall
+        // through to its ancestor's resolution).  This walker
+        // currently treats any non-matching string ("bogus") as
+        // "explicit false" because the inner closure returns
+        // `Some(false)` and short-circuits the ancestor walk —
+        // mirroring the historical VM behaviour preserved by the
+        // hoist.  Spec compliance is deferred; this test pins the
+        // current behaviour so a future fix is observable.
         let (dom, entities) = dom_with_chain(&[Some("true"), Some("bogus")]);
         let leaf = *entities.last().unwrap();
         assert!(!is_content_editable(&dom, leaf));

@@ -60,6 +60,14 @@ pub fn select_selected_index(dom: &EcsDom, select: Entity) -> i32 {
         elidex_dom_api::CollectionKind::HtmlCollection,
     );
     let snap = opts.snapshot(dom).to_vec();
+    // Index range realistically capped well under `i32::MAX` (~2B
+    // options) by DOM tree size; the `debug_assert` catches a future
+    // bug that lets the option count balloon past the cap rather
+    // than silently truncate.
+    debug_assert!(
+        i32::try_from(snap.len()).is_ok(),
+        "select option count overflows i32"
+    );
     for (idx, opt) in snap.iter().enumerate() {
         if dom
             .world()
@@ -847,48 +855,89 @@ mod tests {
         assert!(select_uses_implicit_default(&dom, sel));
     }
 
-    // -- select_selected_index tests (D-3 hoist target) ------------
+    // -- shared test fixture (used across D-3 and D-4 hoist tests) -
 
-    fn build_select_with_options(
-        attrs: Attributes,
-        options: &[(bool, bool)], // (selected, disabled)
-    ) -> (EcsDom, Entity) {
+    /// Per-option spec for [`build_select`].  All fields default to
+    /// the absent / unset state; tests opt in to the aspects they
+    /// need (`marked`, `valued`, free-form struct literal).
+    #[derive(Default)]
+    struct TestOpt {
+        selected: bool,
+        disabled: bool,
+        value_attr: Option<&'static str>,
+        text: Option<&'static str>,
+    }
+
+    impl TestOpt {
+        fn marked(selected: bool, disabled: bool) -> Self {
+            Self {
+                selected,
+                disabled,
+                ..Default::default()
+            }
+        }
+        fn valued(value_attr: &'static str) -> Self {
+            Self {
+                value_attr: Some(value_attr),
+                ..Default::default()
+            }
+        }
+    }
+
+    fn build_select(sel_attrs: Attributes, opts: &[TestOpt]) -> (EcsDom, Entity) {
         let mut dom = EcsDom::new();
-        let sel = dom.create_element("select", attrs);
-        for (selected, disabled) in options {
-            let mut opt_attrs = Attributes::default();
-            if *selected {
-                opt_attrs.set("selected", "");
+        let sel = dom.create_element("select", sel_attrs);
+        for o in opts {
+            let mut attrs = Attributes::default();
+            if o.selected {
+                attrs.set("selected", "");
             }
-            if *disabled {
-                opt_attrs.set("disabled", "");
+            if o.disabled {
+                attrs.set("disabled", "");
             }
-            let opt = dom.create_element("option", opt_attrs);
+            if let Some(v) = o.value_attr {
+                attrs.set("value", v);
+            }
+            let opt = dom.create_element("option", attrs);
             assert!(dom.append_child(sel, opt));
+            if let Some(t) = o.text {
+                let tn = dom.create_text(t);
+                assert!(dom.append_child(opt, tn));
+            }
         }
         (dom, sel)
     }
 
+    // -- select_selected_index tests (D-3 hoist target) ------------
+
     #[test]
     fn selected_index_explicit_selection_wins() {
-        let (dom, sel) =
-            build_select_with_options(Attributes::default(), &[(false, false), (true, false)]);
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::marked(false, false), TestOpt::marked(true, false)],
+        );
         assert_eq!(select_selected_index(&dom, sel), 1);
     }
 
     #[test]
     fn selected_index_implicit_default_first_non_disabled() {
-        let (dom, sel) = build_select_with_options(
+        let (dom, sel) = build_select(
             Attributes::default(),
-            &[(false, true), (false, true), (false, false)],
+            &[
+                TestOpt::marked(false, true),
+                TestOpt::marked(false, true),
+                TestOpt::marked(false, false),
+            ],
         );
         assert_eq!(select_selected_index(&dom, sel), 2);
     }
 
     #[test]
     fn selected_index_returns_neg1_when_all_disabled_and_none_selected() {
-        let (dom, sel) =
-            build_select_with_options(Attributes::default(), &[(false, true), (false, true)]);
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::marked(false, true), TestOpt::marked(false, true)],
+        );
         assert_eq!(select_selected_index(&dom, sel), -1);
     }
 
@@ -896,7 +945,7 @@ mod tests {
     fn selected_index_returns_neg1_for_listbox_with_no_selection() {
         let mut attrs = Attributes::default();
         attrs.set("size", "5");
-        let (dom, sel) = build_select_with_options(attrs, &[(false, false), (false, false)]);
+        let (dom, sel) = build_select(attrs, &[TestOpt::default(), TestOpt::default()]);
         assert_eq!(select_selected_index(&dom, sel), -1);
     }
 
@@ -904,7 +953,7 @@ mod tests {
     fn selected_index_returns_neg1_for_multiple_with_no_selection() {
         let mut attrs = Attributes::default();
         attrs.set("multiple", "");
-        let (dom, sel) = build_select_with_options(attrs, &[(false, false), (false, false)]);
+        let (dom, sel) = build_select(attrs, &[TestOpt::default(), TestOpt::default()]);
         assert_eq!(select_selected_index(&dom, sel), -1);
     }
 
@@ -914,70 +963,72 @@ mod tests {
         // attr wins.
         let mut attrs = Attributes::default();
         attrs.set("size", "5");
-        let (dom, sel) =
-            build_select_with_options(attrs, &[(false, false), (true, false), (false, false)]);
+        let (dom, sel) = build_select(
+            attrs,
+            &[
+                TestOpt::default(),
+                TestOpt::marked(true, false),
+                TestOpt::default(),
+            ],
+        );
         assert_eq!(select_selected_index(&dom, sel), 1);
     }
 
     #[test]
     fn selected_index_first_explicit_wins_over_later_explicit() {
-        let (dom, sel) =
-            build_select_with_options(Attributes::default(), &[(true, false), (true, false)]);
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::marked(true, false), TestOpt::marked(true, false)],
+        );
         assert_eq!(select_selected_index(&dom, sel), 0);
     }
 
     // -- option_value_string / select_get_value tests (D-4 hoist) --
 
-    fn build_select_with_value_options(
-        values: &[(Option<&str>, Option<&str>)],
-    ) -> (EcsDom, Entity) {
-        // values[i] = (Some(value_attr), text_content) — None for either
-        // skips that aspect.  Returns (dom, select_entity).
-        let mut dom = EcsDom::new();
-        let sel = dom.create_element("select", Attributes::default());
-        for (value_attr, text) in values {
-            let mut attrs = Attributes::default();
-            if let Some(v) = value_attr {
-                attrs.set("value", *v);
-            }
-            let opt = dom.create_element("option", attrs);
-            assert!(dom.append_child(sel, opt));
-            if let Some(t) = text {
-                let tn = dom.create_text(*t);
-                assert!(dom.append_child(opt, tn));
-            }
-        }
-        (dom, sel)
-    }
-
     #[test]
     fn option_value_string_uses_value_attr_when_present() {
-        let (dom, sel) = build_select_with_value_options(&[(Some("blue"), Some("Blue"))]);
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt {
+                value_attr: Some("blue"),
+                text: Some("Blue"),
+                ..Default::default()
+            }],
+        );
         let opt = dom.children(sel)[0];
         assert_eq!(option_value_string(&dom, opt), "blue");
     }
 
     #[test]
     fn option_value_string_falls_back_to_text_content() {
-        let (dom, sel) = build_select_with_value_options(&[(None, Some("Red"))]);
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt {
+                text: Some("Red"),
+                ..Default::default()
+            }],
+        );
         let opt = dom.children(sel)[0];
         assert_eq!(option_value_string(&dom, opt), "Red");
     }
 
     #[test]
     fn option_value_string_empty_when_neither_present() {
-        let (dom, sel) = build_select_with_value_options(&[(None, None)]);
+        let (dom, sel) = build_select(Attributes::default(), &[TestOpt::default()]);
         let opt = dom.children(sel)[0];
         assert_eq!(option_value_string(&dom, opt), "");
     }
 
     #[test]
     fn select_get_value_returns_first_selected_option_value() {
-        let (mut dom, sel) = build_select_with_value_options(&[
-            (Some("a"), None),
-            (Some("b"), None),
-            (Some("c"), None),
-        ]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::valued("a"),
+                TestOpt::valued("b"),
+                TestOpt::valued("c"),
+            ],
+        );
         let opts: Vec<Entity> = dom.children(sel);
         dom.set_attribute(opts[1], "selected", String::new());
         assert_eq!(select_get_value(&dom, sel), "b");
@@ -985,11 +1036,14 @@ mod tests {
 
     #[test]
     fn select_get_value_implicit_default_first_non_disabled() {
-        let (mut dom, sel) = build_select_with_value_options(&[
-            (Some("a"), None),
-            (Some("b"), None),
-            (Some("c"), None),
-        ]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::valued("a"),
+                TestOpt::valued("b"),
+                TestOpt::valued("c"),
+            ],
+        );
         let opts: Vec<Entity> = dom.children(sel);
         dom.set_attribute(opts[0], "disabled", String::new());
         assert_eq!(select_get_value(&dom, sel), "b");
@@ -999,12 +1053,7 @@ mod tests {
     fn select_get_value_returns_empty_string_when_listbox_with_no_selection() {
         let mut attrs = Attributes::default();
         attrs.set("size", "5");
-        let mut dom = EcsDom::new();
-        let sel = dom.create_element("select", attrs);
-        let mut opt_attrs = Attributes::default();
-        opt_attrs.set("value", "a");
-        let opt = dom.create_element("option", opt_attrs);
-        assert!(dom.append_child(sel, opt));
+        let (dom, sel) = build_select(attrs, &[TestOpt::valued("a")]);
         assert_eq!(select_get_value(&dom, sel), "");
     }
 
@@ -1012,11 +1061,14 @@ mod tests {
 
     #[test]
     fn select_set_value_marks_first_matching_option() {
-        let (mut dom, sel) = build_select_with_value_options(&[
-            (Some("a"), None),
-            (Some("b"), None),
-            (Some("c"), None),
-        ]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::valued("a"),
+                TestOpt::valued("b"),
+                TestOpt::valued("c"),
+            ],
+        );
         select_set_value(&mut dom, sel, "b");
         assert_eq!(select_selected_index(&dom, sel), 1);
         assert_eq!(select_get_value(&dom, sel), "b");
@@ -1024,8 +1076,10 @@ mod tests {
 
     #[test]
     fn select_set_value_clears_other_selections() {
-        let (mut dom, sel) =
-            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
         let opts: Vec<Entity> = dom.children(sel);
         dom.set_attribute(opts[0], "selected", String::new());
         select_set_value(&mut dom, sel, "b");
@@ -1044,8 +1098,10 @@ mod tests {
 
     #[test]
     fn select_set_value_no_match_leaves_no_selection() {
-        let (mut dom, sel) =
-            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
         let opts: Vec<Entity> = dom.children(sel);
         dom.set_attribute(opts[0], "selected", String::new());
         select_set_value(&mut dom, sel, "missing");
@@ -1059,11 +1115,14 @@ mod tests {
 
     #[test]
     fn select_set_value_first_match_wins() {
-        let (mut dom, sel) = build_select_with_value_options(&[
-            (Some("dup"), None),
-            (Some("dup"), None),
-            (Some("other"), None),
-        ]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::valued("dup"),
+                TestOpt::valued("dup"),
+                TestOpt::valued("other"),
+            ],
+        );
         select_set_value(&mut dom, sel, "dup");
         assert_eq!(select_selected_index(&dom, sel), 0);
     }
@@ -1072,16 +1131,20 @@ mod tests {
 
     #[test]
     fn select_set_selected_index_in_range() {
-        let (mut dom, sel) =
-            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
         select_set_selected_index(&mut dom, sel, 1);
         assert_eq!(select_selected_index(&dom, sel), 1);
     }
 
     #[test]
     fn select_set_selected_index_clears_existing_then_sets() {
-        let (mut dom, sel) =
-            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
         let opts: Vec<Entity> = dom.children(sel);
         dom.set_attribute(opts[0], "selected", String::new());
         select_set_selected_index(&mut dom, sel, 1);
@@ -1099,8 +1162,10 @@ mod tests {
 
     #[test]
     fn select_set_selected_index_negative_clears_all() {
-        let (mut dom, sel) =
-            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
         let opts: Vec<Entity> = dom.children(sel);
         dom.set_attribute(opts[0], "selected", String::new());
         select_set_selected_index(&mut dom, sel, -1);
@@ -1115,8 +1180,10 @@ mod tests {
 
     #[test]
     fn select_set_selected_index_out_of_range_clears_all() {
-        let (mut dom, sel) =
-            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
         let opts: Vec<Entity> = dom.children(sel);
         dom.set_attribute(opts[0], "selected", String::new());
         select_set_selected_index(&mut dom, sel, 99);

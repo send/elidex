@@ -546,17 +546,15 @@ fn native_select_get_value(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let empty = ctx.vm.well_known.empty;
     let Some(entity) = require_select_receiver(ctx, this, "value")? else {
-        return Ok(JsValue::String(empty));
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
     // HTML §4.10.10 select.value resolution hoisted to elidex-form
-    // (slot #11-tags-T1-v2-drift-hoist D-4).  Empty result intern-
-    // skips into the cached well-known empty string.
+    // (slot #11-tags-T1-v2-drift-hoist D-4).  `intern("")` lands on
+    // the same `StringId` as `well_known.empty` per the invariant in
+    // `WellKnownStrings::intern_all`, so we always intern unconditionally
+    // rather than re-encoding the empty short-circuit at every call site.
     let value = elidex_form::select_get_value(ctx.host().dom(), entity);
-    if value.is_empty() {
-        return Ok(JsValue::String(empty));
-    }
     let sid = ctx.vm.strings.intern(&value);
     Ok(JsValue::String(sid))
 }
