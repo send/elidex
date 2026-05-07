@@ -55,11 +55,12 @@ pub fn is_labelable_element(dom: &EcsDom, entity: Entity) -> bool {
 }
 
 /// Resolve the `for` attribute of a `<label>` to a target form
-/// control entity.  WHATWG HTML §4.10.4: returns the first labelable
-/// element in **tree order** within the label's owner document
-/// whose `id` matches.  Falls back to `FormControlState` membership
-/// when the labelable check rejects, so older state-only paths stay
-/// observable.
+/// control entity.  WHATWG HTML §4.10.4: returns the first
+/// **labelable** element in tree order within the label's tree
+/// whose `id` matches.  Hidden inputs are explicitly not labelable
+/// (`is_labelable_element` excludes them), so a hidden input with
+/// the matching id is rejected even though it carries
+/// `FormControlState`.
 #[must_use]
 pub fn resolve_label_for(dom: &EcsDom, label_entity: Entity) -> Option<Entity> {
     let for_id: String = {
@@ -92,13 +93,14 @@ pub fn resolve_label_for(dom: &EcsDom, label_entity: Entity) -> Option<Entity> {
     } else {
         dom.find_by_id(root, for_id.as_str())?
     };
-    if is_labelable_element(dom, candidate)
-        || dom.world().get::<&FormControlState>(candidate).is_ok()
-    {
-        Some(candidate)
-    } else {
-        None
-    }
+    // HTML §4.10.4 — `label.htmlFor`'s control is the first
+    // **labelable** element with the matching id.  The previous
+    // FormControlState fallback was a defensive carry-over that
+    // accepted non-labelable controls (notably
+    // `<input type=hidden>`, which has FormControlState but is
+    // explicitly not labelable per §4.10.4).  Drop the fallback so
+    // hidden inputs cannot be resolved as label targets.
+    is_labelable_element(dom, candidate).then_some(candidate)
 }
 
 /// Find the first descendant labelable element of a label element.
@@ -116,14 +118,17 @@ pub fn find_label_target(dom: &EcsDom, label_entity: Entity) -> Option<Entity> {
 }
 
 /// Recursively find the first descendant that is a labelable element
-/// (HTML §4.10.4) or already carries a [`FormControlState`].
+/// per HTML §4.10.4.  Hidden inputs (`<input type=hidden>`) are NOT
+/// labelable even though they carry `FormControlState`, so the
+/// `is_labelable_element` predicate (which excludes them) is the
+/// authoritative check — no FormControlState fallback.
 fn find_first_descendant_control(dom: &EcsDom, entity: Entity, depth: usize) -> Option<Entity> {
     if depth > MAX_ANCESTOR_DEPTH {
         return None;
     }
     let mut child = dom.get_first_child(entity)?;
     loop {
-        if is_labelable_element(dom, child) || dom.world().get::<&FormControlState>(child).is_ok() {
+        if is_labelable_element(dom, child) {
             return Some(child);
         }
         // Recurse into subtree.
@@ -188,6 +193,61 @@ mod tests {
         let label = dom.create_element("label", label_attrs);
 
         assert_eq!(resolve_label_for(&dom, label), None);
+    }
+
+    #[test]
+    fn resolve_label_for_rejects_hidden_input_target() {
+        // R11 F1 regression — `<input type=hidden>` carries
+        // `FormControlState` but is explicitly NOT labelable per
+        // HTML §4.10.4.  The pre-fix FormControlState fallback
+        // would resolve `<label for="hidden">` to the hidden
+        // input; the new strict-labelable predicate must reject.
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+
+        let mut input_attrs = Attributes::default();
+        input_attrs.set("id", "hidden");
+        input_attrs.set("type", "hidden");
+        let input = dom.create_element("input", input_attrs.clone());
+        let _ = dom.world_mut().insert_one(
+            input,
+            FormControlState::from_element("input", &input_attrs).unwrap(),
+        );
+        let _ = dom.append_child(container, input);
+
+        let mut label_attrs = Attributes::default();
+        label_attrs.set("for", "hidden");
+        let label = dom.create_element("label", label_attrs);
+        let _ = dom.append_child(container, label);
+
+        assert_eq!(resolve_label_for(&dom, label), None);
+    }
+
+    #[test]
+    fn find_label_target_descendant_skips_hidden_input() {
+        // R11 F2 regression — `find_first_descendant_control` must
+        // also use the labelable predicate exclusively (no
+        // FormControlState fallback) so a wrapping label with a
+        // hidden input as descendant doesn't pick it up.
+        let mut dom = EcsDom::new();
+        let label = dom.create_element("label", Attributes::default());
+
+        let mut input_attrs = Attributes::default();
+        input_attrs.set("type", "hidden");
+        let hidden = dom.create_element("input", input_attrs.clone());
+        let _ = dom.world_mut().insert_one(
+            hidden,
+            FormControlState::from_element("input", &input_attrs).unwrap(),
+        );
+        let _ = dom.append_child(label, hidden);
+
+        // Append a real labelable later so we can verify the
+        // hidden input is skipped, not just absent.
+        let textarea_attrs = Attributes::default();
+        let textarea = dom.create_element("textarea", textarea_attrs);
+        let _ = dom.append_child(label, textarea);
+
+        assert_eq!(find_label_target(&dom, label), Some(textarea));
     }
 
     #[test]
