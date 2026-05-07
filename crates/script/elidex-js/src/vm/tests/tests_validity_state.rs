@@ -316,6 +316,24 @@ fn validity_valid_defaults_to_true_when_no_form_control_state() {
 }
 
 #[test]
+fn validity_anchor_flags_false_for_barred_controls() {
+    // R15 F1 regression — HTML §4.10.20.3: barred controls
+    // (disabled / hidden / disabled-fieldset descendant) skip the
+    // constraint-validation algorithm, so the stored ValidityState
+    // bits stay at their initial all-false values.  Browsers
+    // behave the same way: `disabled-required-input.validity.valueMissing
+    // === false`.  Without the gate, `validate_control(state)` was
+    // run on the raw FormControlState and returned `valueMissing=true`,
+    // contradicting `i.checkValidity() === true` and `i.willValidate
+    // === false`.
+    let out = run("var i = document.createElement('input'); \
+         i.required = true; \
+         i.disabled = true; \
+         '' + i.validity.valueMissing + '/' + i.validity.valid + '/' + i.checkValidity() + '/' + i.willValidate;");
+    assert_eq!(out, "false/true/true/false");
+}
+
+#[test]
 fn check_validity_returns_true_when_inside_disabled_fieldset() {
     // R7 F1 regression — HTML §4.10.20.3: a control inside a
     // disabled `<fieldset>` is barred from constraint validation,

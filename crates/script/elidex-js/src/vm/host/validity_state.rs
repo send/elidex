@@ -145,13 +145,17 @@ fn require_validity_receiver(
 }
 
 /// Run `validate_control` on the owner's `FormControlState` and pass
-/// the validity to `f`.  When the owner has no `FormControlState`
-/// the control is not a constraint-validation candidate, so the
-/// caller specifies which side of that biconditional to fall back
-/// to: `default_when_no_state = false` for anchor flags
-/// (`valueMissing` / `tooLong` / etc.) and `true` for the aggregate
-/// `valid` getter — matching `checkValidity()`'s "non-candidate
-/// always returns true" rule (HTML §4.10.20.4 step 1.a).
+/// the validity to `f`.  Per HTML §4.10.20.3 the constraint-
+/// validation algorithm is skipped on controls that are barred from
+/// validation (no FormControlState, `!is_submittable()`, `disabled`,
+/// `<input type=hidden>`, descendant of disabled `<fieldset>`).
+/// For barred controls the spec leaves the stored ValidityState
+/// bits at their initialised values (all false), so this getter
+/// returns `default_when_no_state` — `false` for the anchor flags
+/// (`valueMissing` / `tooLong` / …) and `true` for the aggregate
+/// `valid` getter — without running `validate_control`.  Browsers
+/// behave the same way: `disabled.validity.valueMissing` is `false`
+/// even when `required=true`.
 fn with_validity<F: FnOnce(&elidex_form::ValidityState) -> bool>(
     ctx: &mut NativeContext<'_>,
     method: &str,
@@ -161,11 +165,35 @@ fn with_validity<F: FnOnce(&elidex_form::ValidityState) -> bool>(
 ) -> Result<JsValue, VmError> {
     let entity = require_validity_receiver(ctx, this, method)?;
     let dom = ctx.host().dom();
-    let state = dom.world().get::<&FormControlState>(entity).ok();
-    let validity = state.as_ref().map(|s| elidex_form::validate_control(s));
-    Ok(JsValue::Boolean(
-        validity.as_ref().map_or(default_when_no_state, f),
-    ))
+    let Ok(state) = dom.world().get::<&FormControlState>(entity) else {
+        return Ok(JsValue::Boolean(default_when_no_state));
+    };
+    if !is_constraint_validation_candidate(&state, entity, dom) {
+        return Ok(JsValue::Boolean(default_when_no_state));
+    }
+    let validity = elidex_form::validate_control(&state);
+    Ok(JsValue::Boolean(f(&validity)))
+}
+
+/// HTML §4.10.20.3 "candidate for constraint validation" predicate
+/// — submittable, not disabled, not `<input type=hidden>`, not in
+/// a disabled `<fieldset>`.
+fn is_constraint_validation_candidate(
+    state: &FormControlState,
+    entity: Entity,
+    dom: &elidex_ecs::EcsDom,
+) -> bool {
+    use elidex_form::FormControlKind;
+    if !state.kind.is_submittable() {
+        return false;
+    }
+    if state.disabled {
+        return false;
+    }
+    if matches!(state.kind, FormControlKind::Hidden) {
+        return false;
+    }
+    !elidex_form::is_fieldset_disabled(entity, dom)
 }
 
 fn native_validity_value_missing(
