@@ -27,8 +27,11 @@
 //!   dirty per HTML §4.10.5.1.6).
 //! - `defaultValue` reflects content attribute `value` (mirrors
 //!   `default_value` in FormControlState).
-//! - `checked` / `defaultChecked` / `indeterminate` for
-//!   checkbox/radio.
+//! - `checked` / `defaultChecked` for checkbox/radio.
+//! - `indeterminate` round-trips through
+//!   `FormControlState.indeterminate` (HTML §4.10.5.1.16); a
+//!   JS-only IDL bit independent of `checked`, observable via the
+//!   `:indeterminate` CSS pseudo-class once styling lands.
 //!
 //! Read-only:
 //! - `type`, `form`, `files` (null stub), `labels` (snapshot),
@@ -1042,25 +1045,35 @@ fn native_input_set_default_checked(
 
 fn native_input_get_indeterminate(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `indeterminate` is a JS-only IDL bit not stored in
-    // FormControlState; tracked separately would inflate the side
-    // table.  Phase 8 returns false; observable via UI when the
-    // shell layer integrates.
-    let _ = ctx;
-    Ok(JsValue::Boolean(false))
+    let Some(entity) = require_input_receiver(ctx, this, "indeterminate")? else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let dom = ctx.host().dom();
+    let flag = dom
+        .world()
+        .get::<&FormControlState>(entity)
+        .map(|s| s.indeterminate)
+        .unwrap_or(false);
+    Ok(JsValue::Boolean(flag))
 }
 
 fn native_input_set_indeterminate(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = require_input_receiver(ctx, this, "indeterminate")?;
-    // Accept any value, no-op.  Spec behaviour is observable only
-    // through the rendered UI which hasn't landed.
+    let Some(entity) = require_input_receiver(ctx, this, "indeterminate")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let flag = super::super::coerce::to_boolean(ctx.vm, val);
+    let dom = ctx.host().dom();
+    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+        state.indeterminate = flag;
+    }
     Ok(JsValue::Undefined)
 }
 

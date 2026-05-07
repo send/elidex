@@ -136,6 +136,48 @@ fn input_default_checked_reflects_checked_attribute() {
 }
 
 // ---------------------------------------------------------------------------
+// indeterminate (HTML §4.10.5.1.16) — IDL-only, independent of `checked`
+// ---------------------------------------------------------------------------
+
+#[test]
+fn input_indeterminate_default_false() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'checkbox'; \
+         '' + i.indeterminate;");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn input_indeterminate_round_trip() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'checkbox'; \
+         i.indeterminate = true; \
+         '' + i.indeterminate;");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn input_indeterminate_independent_of_checked() {
+    // Setting indeterminate must not toggle `checked`, and vice versa.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'checkbox'; \
+         i.checked = true; \
+         i.indeterminate = true; \
+         '' + i.checked + '/' + i.indeterminate;");
+    assert_eq!(out, "true/true");
+}
+
+#[test]
+fn input_indeterminate_does_not_reflect_to_attribute() {
+    // Pure IDL bit — no content attribute mirror.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'checkbox'; \
+         i.indeterminate = true; \
+         '' + i.hasAttribute('indeterminate');");
+    assert_eq!(out, "false");
+}
+
+// ---------------------------------------------------------------------------
 // Reflected primitives
 // ---------------------------------------------------------------------------
 
