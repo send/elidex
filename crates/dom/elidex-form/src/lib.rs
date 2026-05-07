@@ -330,6 +330,11 @@ pub struct FormControlState {
     /// - `Some(None)` — pattern set but regex compilation failed (invalid or too long).
     /// - `Some(Some(re))` — valid compiled regex.
     pub cached_pattern_regex: Option<Option<Arc<regex::Regex>>>,
+    /// Custom validity message set via `setCustomValidity(message)`
+    /// (HTML §4.10.20.2).  `None` means no custom error;
+    /// `Some(empty)` is also "no custom error" per spec — both
+    /// trigger `customError = false`.
+    pub custom_validity_message: Option<String>,
 }
 
 impl Default for FormControlState {
@@ -370,6 +375,7 @@ impl Default for FormControlState {
             max: None,
             step: None,
             cached_pattern_regex: None,
+            custom_validity_message: None,
         }
     }
 }

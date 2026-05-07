@@ -320,11 +320,13 @@ fn gc_heap_bounded_in_loop() {
     // and their installed methods.  The count grows each time we
     // ship a new built-in interface (every `register_*_global`
     // adds one ctor + one prototype + its methods).  Without GC,
-    // 1000 loop iterations would push this well over 1500, so the
-    // `< 1000` assertion remains a meaningful "GC actually ran"
-    // signal while leaving headroom for future built-ins.
+    // 1000 loop iterations would push this well over 2500, so the
+    // `< 1500` assertion remains a meaningful "GC actually ran"
+    // signal while leaving headroom for future built-ins.  Bumped
+    // from 1000 with #11-tags-T1-v2 (7 new HTMLElement prototypes
+    // + ValidityState + ConstraintValidation mixin methods).
     assert!(
-        live < 1000,
+        live < 1500,
         "heap should be bounded by GC, got {live} live objects"
     );
 }

@@ -378,6 +378,13 @@ pub(super) fn trace_work_list(
             // shape, traced through the ordinary shaped-storage walk.
             #[cfg(feature = "engine")]
             ObjectKind::StorageEvent => {}
+            // `ValidityState` carries only an `entity_bits: u64` —
+            // no inline `ObjectId` payload to trace.  The
+            // `validity_state_wrappers` cache is pruned in the
+            // sweep tail so a recycled entity never inherits a
+            // stale wrapper.
+            #[cfg(feature = "engine")]
+            ObjectKind::ValidityState { .. } => {}
             // `TypedArray` / `DataView` each carry the backing
             // `ArrayBuffer`'s `ObjectId` inline — the trace step
             // keeps the buffer alive while any view is reachable.

@@ -355,15 +355,16 @@ fn native_form_request_submit(
 
 /// `form.reset()` — HTML §4.10.21.5.
 ///
-/// Phase 4 ships only the F-8 fold (reset form controls).  F-7
-/// (cancelable `reset` event dispatch) is deferred to a follow-up
-/// slot once a thin event-dispatch helper covers the
-/// "construct + dispatch a simple Event by type StringId" pattern
-/// at parity with the existing UA-initiated path; reusing
-/// `dispatch_script_event` directly is possible but inflates the
-/// Phase 4 surface significantly with event-shape plumbing
-/// orthogonal to T1-v2's prototype-install scope.  Deferred slot:
-/// `#11-tags-T1-followup-reset-event` — re-evaluate 2026-Q3.
+/// Group β F-7 + F-8 fold:
+///
+/// 1. Construct a cancelable `reset` event (bubbles=true,
+///    cancelable=true) at the precomputed core-9 shape.
+/// 2. Dispatch through the script-event walk; if a listener calls
+///    `preventDefault()` the reset is cancelled per spec.
+/// 3. On non-cancelled dispatch call
+///    [`elidex_form::reset_form`] to roll each descendant
+///    form-control's `FormControlState` back to its
+///    `default_value` / `default_checked`.
 fn native_form_reset(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -372,10 +373,83 @@ fn native_form_reset(
     let Some(entity) = require_form_receiver(ctx, this, "reset")? else {
         return Ok(JsValue::Undefined);
     };
-    // F-8 fold: roll back form-control state.  `reset_form` is a
-    // no-op on descendants without a `FormControlState` component,
-    // so this is safe even before Phase 8/9 attach state to
-    // JS-created inputs.
+    let cancelled = dispatch_reset_event(ctx, entity)?;
+    if cancelled {
+        return Ok(JsValue::Undefined);
+    }
     elidex_form::reset_form(ctx.host().dom(), entity);
     Ok(JsValue::Undefined)
+}
+
+/// Construct a `reset` Event and dispatch it on `target_entity`.
+/// Returns `true` when the dispatch was cancelled
+/// (default-prevented).
+fn dispatch_reset_event(
+    ctx: &mut NativeContext<'_>,
+    target_entity: elidex_ecs::Entity,
+) -> Result<bool, VmError> {
+    use super::super::value::{ObjectKind, PropertyValue};
+
+    let type_sid = ctx.vm.well_known.reset_event;
+    let event_proto = ctx.vm.event_prototype;
+    let target_wrapper = ctx.vm.create_element_wrapper(target_entity);
+    let core_shape = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .core;
+
+    // Allocate Event with cancelable=true, bubbles=true.  The
+    // freshly-returned event_id is rooted via the
+    // `dispatched_events` insert immediately below — the trace
+    // step doesn't visit the membership directly, but the Event's
+    // shape-resident slots (`target` / `currentTarget`) install
+    // before any subsequent allocation can trigger GC, and the
+    // dispatched_events sweep tail prevents stale-id retention if
+    // dispatch panics.  Same lifetime contract as
+    // `super::pending_tasks::deliver_post_message` — the scope
+    // between `alloc_object` and the slot install is narrow enough
+    // that GC cannot run within it.
+    let event_id = ctx.vm.alloc_object(super::super::value::Object {
+        kind: ObjectKind::Event {
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_propagation_stopped: false,
+            cancelable: true,
+            passive: false,
+            type_sid,
+            bubbles: true,
+            composed: false,
+            composed_path: None,
+        },
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: event_proto,
+        extensible: true,
+    });
+
+    let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;
+    let slots: Vec<PropertyValue> = vec![
+        PropertyValue::Data(JsValue::String(type_sid)),
+        PropertyValue::Data(JsValue::Boolean(true)), // bubbles
+        PropertyValue::Data(JsValue::Boolean(true)), // cancelable
+        PropertyValue::Data(JsValue::Number(0.0)),   // eventPhase
+        PropertyValue::Data(JsValue::Object(target_wrapper)), // target
+        PropertyValue::Data(JsValue::Object(target_wrapper)), // currentTarget
+        PropertyValue::Data(JsValue::Number(timestamp_ms)),
+        PropertyValue::Data(JsValue::Boolean(false)), // defaultPrevented
+        PropertyValue::Data(JsValue::Boolean(false)), // composed
+    ];
+    ctx.vm
+        .define_with_precomputed_shape(event_id, core_shape, slots);
+
+    // Bracket dispatched_events around the walk per the
+    // `dispatch_script_event` contract.
+    ctx.vm.dispatched_events.insert(event_id);
+    let result = super::event_target_dispatch::dispatch_script_event(ctx, event_id, target_entity);
+    ctx.vm.dispatched_events.remove(&event_id);
+
+    // dispatch_script_event returns Ok(!default_prevented), so
+    // `Ok(false)` means the dispatch was cancelled.
+    Ok(matches!(result, Ok(false)))
 }

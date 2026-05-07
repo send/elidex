@@ -151,6 +151,35 @@ fn form_reset_returns_undefined_no_op_when_empty() {
 }
 
 #[test]
+fn form_reset_dispatches_reset_event_and_resets_state() {
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         f.appendChild(i); \
+         i.defaultValue = 'init'; \
+         i.value = 'typed'; \
+         var fired = ''; \
+         f.addEventListener('reset', function(e) { \
+            fired = e.type + '/' + e.bubbles + '/' + e.cancelable; \
+         }); \
+         f.reset(); \
+         fired + '|' + i.value;");
+    assert_eq!(out, "reset/true/true|init");
+}
+
+#[test]
+fn form_reset_event_cancellable_via_prevent_default() {
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         f.appendChild(i); \
+         i.defaultValue = 'init'; \
+         i.value = 'typed'; \
+         f.addEventListener('reset', function(e) { e.preventDefault(); }); \
+         f.reset(); \
+         i.value;");
+    assert_eq!(out, "typed");
+}
+
+#[test]
 fn form_brand_check_throws_on_non_form_receiver() {
     let out = run("var d = document.createElement('div'); \
          var f = document.createElement('form'); \

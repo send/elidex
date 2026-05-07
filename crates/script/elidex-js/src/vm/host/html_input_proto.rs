@@ -48,6 +48,28 @@
 //! HTML §4.10.5.1.4 step 1 fallback.
 
 #![cfg(feature = "engine")]
+// Cast-sign-loss: every `as usize` conversion in this module is
+// gated by an explicit `n < 0` guard or a `n.max(0)` clamp, so
+// the cast is value-preserving.  Module-wide allow keeps the
+// reflected-attr setters readable rather than scattering
+// `usize::try_from(...).unwrap_or(0)` boilerplate.
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_truncation)]
+// `map(...).unwrap_or(default)` on `Result<&FormControlState>` /
+// `Result<&mut FormControlState>` reads the entity component
+// straightforwardly; the canonical `is_ok_and` / `map_or` rewrites
+// require closure arguments by value rather than by reference,
+// which doesn't compose with the borrow checker for the
+// shared-borrow patterns used here.  Module-wide allow.
+#![allow(clippy::map_unwrap_or)]
+// Trait + impl pairs that exist only to extend a foreign type
+// (JsValueIntCoerce) live next to their use site for readability —
+// moving them above the function body separates the helper from
+// its single consumer for no observable benefit.
+#![allow(clippy::items_after_statements)]
+// Defensive unused-but-kept underscore bindings in dispatch
+// fall-through paths (e.g. `report_validity → check_validity` proxy).
+#![allow(clippy::used_underscore_binding)]
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
@@ -526,28 +548,10 @@ macro_rules! input_bool_attr {
 }
 
 input_bool_attr!(
-    native_input_get_disabled,
-    native_input_set_disabled,
-    "disabled",
-    "disabled"
-);
-input_bool_attr!(
     native_input_get_multiple,
     native_input_set_multiple,
     "multiple",
     "multiple"
-);
-input_bool_attr!(
-    native_input_get_read_only,
-    native_input_set_read_only,
-    "readonly",
-    "readOnly"
-);
-input_bool_attr!(
-    native_input_get_required,
-    native_input_set_required,
-    "required",
-    "required"
 );
 input_bool_attr!(
     native_input_get_autofocus,
@@ -561,6 +565,108 @@ input_bool_attr!(
     "formnovalidate",
     "formNoValidate"
 );
+
+/// Boolean reflect setter that ALSO mirrors into the matching
+/// `FormControlState` field via `apply`.  Used for
+/// constraint-bearing attributes (`disabled` / `required` /
+/// `readOnly`) so a JS-side `input.required = true` reflects in
+/// `validate_control()` without requiring re-attach.
+fn bool_attr_with_state_sync<F>(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    method: &str,
+    attr: &str,
+    apply: F,
+) -> Result<JsValue, VmError>
+where
+    F: FnOnce(&mut FormControlState, bool),
+{
+    let Some(entity) = require_input_receiver(ctx, this, method)? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let flag = super::super::coerce::to_boolean(ctx.vm, val);
+    if flag {
+        ctx.host().dom().set_attribute(entity, attr, String::new());
+    } else {
+        super::element_attrs::attr_remove(ctx, entity, attr);
+    }
+    let dom = ctx.host().dom();
+    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+        apply(&mut state, flag);
+    }
+    Ok(JsValue::Undefined)
+}
+
+fn native_input_get_disabled(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_input_receiver(ctx, this, "disabled")? else {
+        return Ok(JsValue::Boolean(false));
+    };
+    Ok(JsValue::Boolean(
+        ctx.host().dom().has_attribute(entity, "disabled"),
+    ))
+}
+
+fn native_input_set_disabled(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    bool_attr_with_state_sync(ctx, this, args, "disabled", "disabled", |s, flag| {
+        s.disabled = flag;
+    })
+}
+
+fn native_input_get_required(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_input_receiver(ctx, this, "required")? else {
+        return Ok(JsValue::Boolean(false));
+    };
+    Ok(JsValue::Boolean(
+        ctx.host().dom().has_attribute(entity, "required"),
+    ))
+}
+
+fn native_input_set_required(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    bool_attr_with_state_sync(ctx, this, args, "required", "required", |s, flag| {
+        s.required = flag;
+    })
+}
+
+fn native_input_get_read_only(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_input_receiver(ctx, this, "readOnly")? else {
+        return Ok(JsValue::Boolean(false));
+    };
+    Ok(JsValue::Boolean(
+        ctx.host().dom().has_attribute(entity, "readonly"),
+    ))
+}
+
+fn native_input_set_read_only(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    bool_attr_with_state_sync(ctx, this, args, "readOnly", "readonly", |s, flag| {
+        s.readonly = flag;
+    })
+}
 
 fn long_get_with_default(
     ctx: &mut NativeContext<'_>,
@@ -617,20 +723,62 @@ macro_rules! input_long_attr {
     };
 }
 
-input_long_attr!(
-    native_input_get_max_length,
-    native_input_set_max_length,
-    "maxlength",
-    "maxLength",
-    -1
-);
-input_long_attr!(
-    native_input_get_min_length,
-    native_input_set_min_length,
-    "minlength",
-    "minLength",
-    -1
-);
+fn native_input_get_max_length(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    long_get_with_default(ctx, this, "maxLength", "maxlength", -1)
+}
+
+fn native_input_set_max_length(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_input_receiver(ctx, this, "maxLength")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    ctx.host()
+        .dom()
+        .set_attribute(entity, "maxlength", n.to_string());
+    let dom = ctx.host().dom();
+    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+        state.maxlength = if n < 0 { None } else { Some(n as usize) };
+    }
+    Ok(JsValue::Undefined)
+}
+
+fn native_input_get_min_length(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    long_get_with_default(ctx, this, "minLength", "minlength", -1)
+}
+
+fn native_input_set_min_length(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_input_receiver(ctx, this, "minLength")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let n = super::super::coerce::to_int32(ctx.vm, val)?;
+    ctx.host()
+        .dom()
+        .set_attribute(entity, "minlength", n.to_string());
+    let dom = ctx.host().dom();
+    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
+        state.minlength = if n < 0 { None } else { Some(n as usize) };
+    }
+    Ok(JsValue::Undefined)
+}
+
 input_long_attr!(
     native_input_get_size,
     native_input_set_size,
@@ -813,7 +961,7 @@ fn native_input_set_default_value(
     // matches HTML §4.10.5.1.7 step "default value mode".
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.default_value = s.clone();
+        state.default_value.clone_from(&s);
         if !state.is_dirty() {
             state.set_value_initial(s);
         }

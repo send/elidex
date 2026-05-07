@@ -37,6 +37,12 @@
 //!   collection.
 
 #![cfg(feature = "engine")]
+// Cast-sign-loss / cast-truncation: every `as usize` / `as i32` /
+// `as i64` cast in this module is preceded by an explicit
+// non-negative / fits-in-i32 guard.  Module-wide allow keeps the
+// reflected-attr setters readable.
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_truncation)]
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
@@ -45,6 +51,7 @@ use super::super::{NativeFn, VmInner};
 use elidex_ecs::{Entity, NodeKind};
 
 impl VmInner {
+    #[allow(clippy::too_many_lines)] // Phase 7 install — 5 read-only + 4 mutable accessors + 4 methods, single-purpose.
     pub(in crate::vm) fn register_html_select_prototype(&mut self) {
         let parent = self
             .html_element_prototype
@@ -760,7 +767,6 @@ fn native_select_add(
     // Resolve `before` argument (entity / number / null).
     let before_arg = args.get(1).copied().unwrap_or(JsValue::Null);
     let before_entity: Option<Entity> = match before_arg {
-        JsValue::Null | JsValue::Undefined => None,
         JsValue::Number(n) => {
             // Numeric index into options.
             let idx = n as i64;
@@ -779,6 +785,7 @@ fn native_select_add(
             ObjectKind::HostObject { entity_bits } => Entity::from_bits(entity_bits),
             _ => None,
         },
+        // Null / Undefined / others fall through to "append".
         _ => None,
     };
     // Insert via the underlying DOM; if before_entity is provided

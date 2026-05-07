@@ -259,6 +259,27 @@ impl VmInner {
             self.register_html_textarea_prototype();
             self.register_html_select_prototype();
             self.register_html_input_prototype();
+            // ValidityState.prototype + ConstraintValidation mixin
+            // install on the 5 form-control prototypes that already
+            // exist above (Input / Select / TextArea / Button /
+            // FieldSet).  HTML §4.10.20.4 — must run after each
+            // host-element prototype is allocated.
+            self.register_validity_state_prototype();
+            if let Some(input_proto) = self.html_input_prototype {
+                self.install_constraint_validation_mixin(input_proto);
+            }
+            if let Some(select_proto) = self.html_select_prototype {
+                self.install_constraint_validation_mixin(select_proto);
+            }
+            if let Some(textarea_proto) = self.html_textarea_prototype {
+                self.install_constraint_validation_mixin(textarea_proto);
+            }
+            if let Some(button_proto) = self.html_button_prototype {
+                self.install_constraint_validation_mixin(button_proto);
+            }
+            if let Some(fieldset_proto) = self.html_fieldset_prototype {
+                self.install_constraint_validation_mixin(fieldset_proto);
+            }
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared

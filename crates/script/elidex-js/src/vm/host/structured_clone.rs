@@ -270,6 +270,8 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::MutationObserver { .. } => CloneKind::Unclonable("MutationObserver"),
         ObjectKind::Storage { .. } => CloneKind::Unclonable("Storage"),
         ObjectKind::StorageEvent => CloneKind::Unclonable("StorageEvent"),
+        #[cfg(feature = "engine")]
+        ObjectKind::ValidityState { .. } => CloneKind::Unclonable("ValidityState"),
         ObjectKind::URLSearchParams => CloneKind::Unclonable("URLSearchParams"),
         ObjectKind::URL => CloneKind::Unclonable("URL"),
         ObjectKind::FormData => CloneKind::Unclonable("FormData"),
