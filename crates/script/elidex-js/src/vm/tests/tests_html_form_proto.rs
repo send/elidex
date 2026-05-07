@@ -179,6 +179,20 @@ fn form_reset_dispatches_reset_event_and_resets_state() {
 }
 
 #[test]
+fn form_reset_event_is_trusted() {
+    // R13 F1 regression — UA-fired synthetic events from
+    // form.reset() must have `isTrusted=true` per HTML §10
+    // (events created by the user agent are trusted; only
+    // `new Event()` constructions yield isTrusted=false).
+    let out = run("var f = document.createElement('form'); \
+         var trusted = null; \
+         f.addEventListener('reset', function(e) { trusted = e.isTrusted; }); \
+         f.reset(); \
+         '' + trusted;");
+    assert_eq!(out, "true");
+}
+
+#[test]
 fn form_reset_event_cancellable_via_prevent_default() {
     let out = run("var f = document.createElement('form'); \
          var i = document.createElement('input'); \

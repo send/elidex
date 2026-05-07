@@ -505,7 +505,7 @@ pub(super) fn dispatch_simple_event(
             PropertyValue::Data(JsValue::Object(target_wrapper)), // currentTarget
             PropertyValue::Data(JsValue::Number(timestamp_ms)), // timeStamp
             PropertyValue::Data(JsValue::Boolean(false)),   // composed
-            PropertyValue::Data(JsValue::Boolean(false)),   // isTrusted (script-dispatched)
+            PropertyValue::Data(JsValue::Boolean(true)), // isTrusted (UA-fired synthetic events: reset / invalid)
         ];
         g.define_with_precomputed_shape(event_id, core_shape, slots);
     }

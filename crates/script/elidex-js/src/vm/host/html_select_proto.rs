@@ -433,11 +433,15 @@ fn native_select_get_options(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let Some(entity) = require_select_receiver(ctx, this, "options")? else {
+        // Spec type: HTMLOptionsCollection (HTMLCollection
+        // subclass).  Match the kind on the unbound fallback so the
+        // accessor's prototype shape is consistent with the bound
+        // path.
         let id = ctx
             .vm
             .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
                 Vec::new(),
-                elidex_dom_api::CollectionKind::NodeList,
+                elidex_dom_api::CollectionKind::HtmlCollection,
             ));
         return Ok(JsValue::Object(id));
     };

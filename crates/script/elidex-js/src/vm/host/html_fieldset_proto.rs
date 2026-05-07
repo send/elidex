@@ -206,11 +206,15 @@ fn native_fieldset_get_elements(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let Some(entity) = require_fieldset_receiver(ctx, this, "elements")? else {
+        // Spec type: HTMLFormControlsCollection (HTMLCollection
+        // subclass).  Match the kind on the unbound fallback path
+        // so `instanceof HTMLCollection` doesn't depend on whether
+        // the receiver was bound.
         let id = ctx
             .vm
             .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
                 Vec::new(),
-                elidex_dom_api::CollectionKind::NodeList,
+                elidex_dom_api::CollectionKind::HtmlCollection,
             ));
         return Ok(JsValue::Object(id));
     };

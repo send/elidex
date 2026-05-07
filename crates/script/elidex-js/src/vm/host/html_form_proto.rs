@@ -330,11 +330,15 @@ fn native_form_get_elements(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let Some(entity) = require_form_receiver(ctx, this, "elements")? else {
+        // Spec type: HTMLFormControlsCollection (an HTMLCollection
+        // subclass).  Fallback for non-bound receivers must keep
+        // the `HtmlCollection` kind so callers don't observe a
+        // type-mismatch via `instanceof`.
         let id = ctx
             .vm
             .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
                 Vec::new(),
-                elidex_dom_api::CollectionKind::NodeList,
+                elidex_dom_api::CollectionKind::HtmlCollection,
             ));
         return Ok(JsValue::Object(id));
     };
