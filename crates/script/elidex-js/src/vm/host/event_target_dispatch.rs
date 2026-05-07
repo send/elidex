@@ -475,42 +475,38 @@ pub(super) fn dispatch_simple_event(
         extensible: true,
     });
 
-    // GC safety — the freshly-allocated `event_id` is reachable
-    // only through the Rust stack until `define_with_precomputed_shape`
-    // installs the slots that wire up `target` / `currentTarget`
-    // and `dispatch_script_event` pushes the event onto the JS
-    // listener stack.  `dispatched_events` is a sweep-tail prune
-    // set (`gc/collect.rs:556`), NOT a GC root.  Bracket the slot
-    // install inside a `push_temp_root` guard — that's the only
-    // window where a transitive allocation could trigger GC before
-    // the event has any other reachability.  After
-    // `dispatched_events.insert` the JS dispatch stack roots it,
-    // matching the design comment in `gc/collect.rs:548-552`.
-    // Mirrors `natives_event::composed_path_lazy_alloc` (line 165).
-    {
-        let mut g = ctx.vm.push_temp_root(JsValue::Object(event_id));
-        let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
-        // Core-9 slot order per `event_shapes.rs::CORE_KEY_COUNT`:
-        // type / bubbles / cancelable / eventPhase / target /
-        // currentTarget / timeStamp / composed / isTrusted.
-        // `defaultPrevented` is NOT a core-9 slot — it lives on
-        // `ObjectKind::Event.default_prevented` and is exposed via
-        // a prototype accessor, not as an own property.
-        let slots: Vec<PropertyValue> = vec![
-            PropertyValue::Data(JsValue::String(type_sid)), // type
-            PropertyValue::Data(JsValue::Boolean(bubbles)), // bubbles
-            PropertyValue::Data(JsValue::Boolean(cancelable)), // cancelable
-            PropertyValue::Data(JsValue::Number(0.0)),      // eventPhase
-            PropertyValue::Data(JsValue::Object(target_wrapper)), // target
-            PropertyValue::Data(JsValue::Object(target_wrapper)), // currentTarget
-            PropertyValue::Data(JsValue::Number(timestamp_ms)), // timeStamp
-            PropertyValue::Data(JsValue::Boolean(false)),   // composed
-            PropertyValue::Data(JsValue::Boolean(true)), // isTrusted (UA-fired synthetic events: reset / invalid)
-        ];
-        g.define_with_precomputed_shape(event_id, core_shape, slots);
-    }
-
+    // GC safety — root `event_id` *immediately* after allocation
+    // by inserting into `dispatched_events`, which `gc/roots.rs`
+    // step (j.4) now treats as a real GC root.  This covers both
+    // the slot-install phase and any transitive allocation inside
+    // `dispatch_script_event` (composedPath wrappers, listener-
+    // fired user code, etc.) without the borrow gymnastics needed
+    // to thread a `push_temp_root` guard across the dispatch call.
+    // Sweep tail in `gc/collect.rs:556` still runs as defensive
+    // cleanup if a Rust panic skips the `.remove` sentinel.
     ctx.vm.dispatched_events.insert(event_id);
+
+    let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;
+    // Core-9 slot order per `event_shapes.rs::CORE_KEY_COUNT`:
+    // type / bubbles / cancelable / eventPhase / target /
+    // currentTarget / timeStamp / composed / isTrusted.
+    // `defaultPrevented` is NOT a core-9 slot — it lives on
+    // `ObjectKind::Event.default_prevented` and is exposed via
+    // a prototype accessor, not as an own property.
+    let slots: Vec<PropertyValue> = vec![
+        PropertyValue::Data(JsValue::String(type_sid)), // type
+        PropertyValue::Data(JsValue::Boolean(bubbles)), // bubbles
+        PropertyValue::Data(JsValue::Boolean(cancelable)), // cancelable
+        PropertyValue::Data(JsValue::Number(0.0)),      // eventPhase
+        PropertyValue::Data(JsValue::Object(target_wrapper)), // target
+        PropertyValue::Data(JsValue::Object(target_wrapper)), // currentTarget
+        PropertyValue::Data(JsValue::Number(timestamp_ms)), // timeStamp
+        PropertyValue::Data(JsValue::Boolean(false)),   // composed
+        PropertyValue::Data(JsValue::Boolean(true)), // isTrusted (UA-fired synthetic events: reset / invalid)
+    ];
+    ctx.vm
+        .define_with_precomputed_shape(event_id, core_shape, slots);
+
     let result = dispatch_script_event(ctx, event_id, target_entity);
     ctx.vm.dispatched_events.remove(&event_id);
 

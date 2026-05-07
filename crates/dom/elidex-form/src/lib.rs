@@ -482,7 +482,13 @@ impl FormControlState {
 
     /// Reset to default value (form reset behavior).
     ///
-    /// Restores `default_value`, clears dirty flag, resets cursor/selection/checked.
+    /// Restores `default_value`, clears dirty flag, resets cursor /
+    /// selection / checked / indeterminate.
+    ///
+    /// Per HTML §4.10.5.1.6 reset algorithm for `<input>`: set value
+    /// to the `value` content attribute (or empty), clear the dirty
+    /// flag, restore checkedness from the `checked` content attribute,
+    /// and set the indeterminate IDL attribute back to false.
     pub fn reset_value(&mut self) {
         let dv = self.default_value.clone();
         self.value = dv;
@@ -491,6 +497,7 @@ impl FormControlState {
         self.selection_end = self.value.len();
         self.dirty_value = false;
         self.checked = self.default_checked;
+        self.indeterminate = false;
         self.update_char_count();
     }
 

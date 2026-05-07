@@ -465,6 +465,8 @@ impl VmInner {
             form_controls_collection_wrappers: &self.form_controls_collection_wrappers,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
+            #[cfg(feature = "engine")]
+            dispatched_events: &self.dispatched_events,
         };
 
         self.gc_work_list.clear();

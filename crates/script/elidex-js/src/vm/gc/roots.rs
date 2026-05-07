@@ -201,6 +201,20 @@ pub(super) struct GcRoots<'a> {
     /// the Promise be collected before its settlement target lands.
     #[cfg(feature = "engine")]
     pub(super) pending_fetches: &'a HashMap<elidex_net::broker::FetchId, ObjectId>,
+    /// `dispatched_events` — Event `ObjectId`s whose dispatch is
+    /// currently in flight.  Rooting these keeps freshly-allocated
+    /// synthetic events (e.g. `dispatch_simple_event` for `reset` /
+    /// `invalid`) reachable across any GC triggered by transitive
+    /// allocations inside `dispatch_script_event` (composedPath
+    /// wrapper alloc, listener-fired user-code wrappers, etc.) —
+    /// `dispatch_script_event` cannot push the event onto the JS
+    /// stack until after it has set up the dispatch plan, leaving
+    /// a window where a sweep-prune-only design would collect the
+    /// event mid-setup.  Sweep tail still runs (collect.rs:556) as
+    /// defensive cleanup if `dispatched_events.remove` is skipped
+    /// (Rust panic between insert and the cleanup sentinel).
+    #[cfg(feature = "engine")]
+    pub(super) dispatched_events: &'a std::collections::HashSet<ObjectId>,
     // `any_composite_map` is weak bookkeeping only — no GC roots
     // live there.  The sweep pass prunes dead ObjectIds post-GC
     // and `abort_signal`'s fan-out tolerates missing state — both
@@ -456,6 +470,16 @@ pub(super) fn mark_roots(
     #[cfg(feature = "engine")]
     for &promise_id in roots.pending_fetches.values() {
         mark_object(promise_id, obj_marks, work);
+    }
+
+    // (j.4) In-flight dispatched events.  Any allocation triggered
+    // mid-dispatch (`composedPath` Array, target wrappers,
+    // listener-fired user code) could otherwise collect the event
+    // before its own slots are read by `dispatch_script_event`'s
+    // setup phase.
+    #[cfg(feature = "engine")]
+    for &event_id in roots.dispatched_events {
+        mark_object(event_id, obj_marks, work);
     }
 
     // (k) `AbortSignal.any` composite fan-out entries are weak
