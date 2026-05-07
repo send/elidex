@@ -32,7 +32,8 @@ pub use radio::{
 };
 pub use select::{
     find_option_index_in_tree, find_option_select, init_select_options, is_option_disabled,
-    navigate_select, select_option, select_selected_index, select_uses_implicit_default,
+    navigate_select, option_value_string, select_get_value, select_option, select_selected_index,
+    select_set_selected_index, select_set_value, select_uses_implicit_default,
 };
 pub use selection::{collapse_selection, delete_selection, extend_selection, select_all};
 pub use sizing::form_intrinsic_size;

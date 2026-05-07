@@ -79,6 +79,103 @@ pub fn select_selected_index(dom: &EcsDom, select: Entity) -> i32 {
     -1
 }
 
+/// Compute a single `<option>`'s value (HTML §4.10.10).
+///
+/// Returns the `value` content attribute when present; otherwise
+/// falls back to the descendant text content (concatenation of all
+/// text-node descendants).
+#[must_use]
+pub fn option_value_string(dom: &EcsDom, option: Entity) -> String {
+    if let Ok(attrs) = dom.world().get::<&Attributes>(option) {
+        if let Some(v) = attrs.get("value") {
+            return v.to_string();
+        }
+    }
+    elidex_dom_api::element::collect_text_content(option, dom)
+}
+
+/// Resolve `<select>.value` (HTML §4.10.10).
+///
+/// Returns the first selected option's value; if no option carries
+/// the `selected` attribute and the select is in implicit-default
+/// mode (see [`select_uses_implicit_default`]), returns the value of
+/// the first non-disabled option.  Returns an empty string when no
+/// usable option is found.
+#[must_use]
+pub fn select_get_value(dom: &EcsDom, select: Entity) -> String {
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(dom).to_vec();
+    for opt in &snap {
+        if dom
+            .world()
+            .get::<&Attributes>(*opt)
+            .is_ok_and(|a| a.contains("selected"))
+        {
+            return option_value_string(dom, *opt);
+        }
+    }
+    if select_uses_implicit_default(dom, select) {
+        for opt in &snap {
+            if !is_option_disabled(dom, *opt) {
+                return option_value_string(dom, *opt);
+            }
+        }
+    }
+    String::new()
+}
+
+/// Set `<select>.value` (HTML §4.10.7.4 value setter).
+///
+/// The first option whose value (per [`option_value_string`]) equals
+/// `target` becomes selected; all other options have their `selected`
+/// attribute cleared.  When no option matches, every option ends up
+/// without a `selected` attribute.
+pub fn select_set_value(dom: &mut EcsDom, select: Entity, target: &str) {
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(dom).to_vec();
+    let mut found_first = false;
+    for opt in &snap {
+        let candidate = option_value_string(dom, *opt);
+        if !found_first && candidate == target {
+            dom.set_attribute(*opt, "selected", String::new());
+            found_first = true;
+        } else {
+            dom.remove_attribute(*opt, "selected");
+        }
+    }
+}
+
+/// Set `<select>.selectedIndex` (HTML §4.10.10 selectedIndex setter).
+///
+/// All `selected` attributes are cleared from the option list.  If
+/// `n` is a valid in-range non-negative index, the option at that
+/// index gets `selected` set; out-of-range / negative indices result
+/// in no option being selected.
+pub fn select_set_selected_index(dom: &mut EcsDom, select: Entity, n: i32) {
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(dom).to_vec();
+    for opt in &snap {
+        dom.remove_attribute(*opt, "selected");
+    }
+    if let Ok(idx) = usize::try_from(n) {
+        if let Some(target) = snap.get(idx) {
+            dom.set_attribute(*target, "selected", String::new());
+        }
+    }
+}
+
 /// Find the nearest `<select>` ancestor of `option` (HTML §4.10.10).
 ///
 /// Used by `option.form` (HTML §4.10.10 — the form owner of an
@@ -827,5 +924,208 @@ mod tests {
         let (dom, sel) =
             build_select_with_options(Attributes::default(), &[(true, false), (true, false)]);
         assert_eq!(select_selected_index(&dom, sel), 0);
+    }
+
+    // -- option_value_string / select_get_value tests (D-4 hoist) --
+
+    fn build_select_with_value_options(
+        values: &[(Option<&str>, Option<&str>)],
+    ) -> (EcsDom, Entity) {
+        // values[i] = (Some(value_attr), text_content) — None for either
+        // skips that aspect.  Returns (dom, select_entity).
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        for (value_attr, text) in values {
+            let mut attrs = Attributes::default();
+            if let Some(v) = value_attr {
+                attrs.set("value", *v);
+            }
+            let opt = dom.create_element("option", attrs);
+            assert!(dom.append_child(sel, opt));
+            if let Some(t) = text {
+                let tn = dom.create_text(*t);
+                assert!(dom.append_child(opt, tn));
+            }
+        }
+        (dom, sel)
+    }
+
+    #[test]
+    fn option_value_string_uses_value_attr_when_present() {
+        let (dom, sel) = build_select_with_value_options(&[(Some("blue"), Some("Blue"))]);
+        let opt = dom.children(sel)[0];
+        assert_eq!(option_value_string(&dom, opt), "blue");
+    }
+
+    #[test]
+    fn option_value_string_falls_back_to_text_content() {
+        let (dom, sel) = build_select_with_value_options(&[(None, Some("Red"))]);
+        let opt = dom.children(sel)[0];
+        assert_eq!(option_value_string(&dom, opt), "Red");
+    }
+
+    #[test]
+    fn option_value_string_empty_when_neither_present() {
+        let (dom, sel) = build_select_with_value_options(&[(None, None)]);
+        let opt = dom.children(sel)[0];
+        assert_eq!(option_value_string(&dom, opt), "");
+    }
+
+    #[test]
+    fn select_get_value_returns_first_selected_option_value() {
+        let (mut dom, sel) = build_select_with_value_options(&[
+            (Some("a"), None),
+            (Some("b"), None),
+            (Some("c"), None),
+        ]);
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[1], "selected", String::new());
+        assert_eq!(select_get_value(&dom, sel), "b");
+    }
+
+    #[test]
+    fn select_get_value_implicit_default_first_non_disabled() {
+        let (mut dom, sel) = build_select_with_value_options(&[
+            (Some("a"), None),
+            (Some("b"), None),
+            (Some("c"), None),
+        ]);
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "disabled", String::new());
+        assert_eq!(select_get_value(&dom, sel), "b");
+    }
+
+    #[test]
+    fn select_get_value_returns_empty_string_when_listbox_with_no_selection() {
+        let mut attrs = Attributes::default();
+        attrs.set("size", "5");
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", attrs);
+        let mut opt_attrs = Attributes::default();
+        opt_attrs.set("value", "a");
+        let opt = dom.create_element("option", opt_attrs);
+        assert!(dom.append_child(sel, opt));
+        assert_eq!(select_get_value(&dom, sel), "");
+    }
+
+    // -- select_set_value tests (D-4 hoist) ------------------------
+
+    #[test]
+    fn select_set_value_marks_first_matching_option() {
+        let (mut dom, sel) = build_select_with_value_options(&[
+            (Some("a"), None),
+            (Some("b"), None),
+            (Some("c"), None),
+        ]);
+        select_set_value(&mut dom, sel, "b");
+        assert_eq!(select_selected_index(&dom, sel), 1);
+        assert_eq!(select_get_value(&dom, sel), "b");
+    }
+
+    #[test]
+    fn select_set_value_clears_other_selections() {
+        let (mut dom, sel) =
+            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_value(&mut dom, sel, "b");
+        // First option's `selected` attribute was cleared.
+        assert!(!dom
+            .world()
+            .get::<&Attributes>(opts[0])
+            .unwrap()
+            .contains("selected"));
+        assert!(dom
+            .world()
+            .get::<&Attributes>(opts[1])
+            .unwrap()
+            .contains("selected"));
+    }
+
+    #[test]
+    fn select_set_value_no_match_leaves_no_selection() {
+        let (mut dom, sel) =
+            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_value(&mut dom, sel, "missing");
+        // All options' `selected` attribute is cleared.
+        assert!(!dom
+            .world()
+            .get::<&Attributes>(opts[0])
+            .unwrap()
+            .contains("selected"));
+    }
+
+    #[test]
+    fn select_set_value_first_match_wins() {
+        let (mut dom, sel) = build_select_with_value_options(&[
+            (Some("dup"), None),
+            (Some("dup"), None),
+            (Some("other"), None),
+        ]);
+        select_set_value(&mut dom, sel, "dup");
+        assert_eq!(select_selected_index(&dom, sel), 0);
+    }
+
+    // -- select_set_selected_index tests (D-4 hoist) ---------------
+
+    #[test]
+    fn select_set_selected_index_in_range() {
+        let (mut dom, sel) =
+            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        select_set_selected_index(&mut dom, sel, 1);
+        assert_eq!(select_selected_index(&dom, sel), 1);
+    }
+
+    #[test]
+    fn select_set_selected_index_clears_existing_then_sets() {
+        let (mut dom, sel) =
+            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_selected_index(&mut dom, sel, 1);
+        assert!(!dom
+            .world()
+            .get::<&Attributes>(opts[0])
+            .unwrap()
+            .contains("selected"));
+        assert!(dom
+            .world()
+            .get::<&Attributes>(opts[1])
+            .unwrap()
+            .contains("selected"));
+    }
+
+    #[test]
+    fn select_set_selected_index_negative_clears_all() {
+        let (mut dom, sel) =
+            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_selected_index(&mut dom, sel, -1);
+        for opt in &opts {
+            assert!(!dom
+                .world()
+                .get::<&Attributes>(*opt)
+                .unwrap()
+                .contains("selected"));
+        }
+    }
+
+    #[test]
+    fn select_set_selected_index_out_of_range_clears_all() {
+        let (mut dom, sel) =
+            build_select_with_value_options(&[(Some("a"), None), (Some("b"), None)]);
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_selected_index(&mut dom, sel, 99);
+        for opt in &opts {
+            assert!(!dom
+                .world()
+                .get::<&Attributes>(*opt)
+                .unwrap()
+                .contains("selected"));
+        }
     }
 }

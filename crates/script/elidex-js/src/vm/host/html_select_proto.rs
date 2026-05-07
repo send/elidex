@@ -535,23 +535,9 @@ fn native_select_set_selected_index(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let snap = opts.snapshot(ctx.host().dom()).to_vec();
-    // Clear all selected attrs, then set the target.
-    for opt in &snap {
-        super::element_attrs::attr_remove(ctx, *opt, "selected");
-    }
-    if let Ok(idx) = usize::try_from(n) {
-        if let Some(target) = snap.get(idx) {
-            ctx.host()
-                .dom()
-                .set_attribute(*target, "selected", String::new());
-        }
-    }
+    // HTML §4.10.10 selectedIndex setter hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-4).
+    elidex_form::select_set_selected_index(ctx.host().dom(), entity, n);
     Ok(JsValue::Undefined)
 }
 
@@ -564,46 +550,15 @@ fn native_select_get_value(
     let Some(entity) = require_select_receiver(ctx, this, "value")? else {
         return Ok(JsValue::String(empty));
     };
-    // Find first selected option; return its value (= attr "value"
-    // or text fallback per HTML §4.10.10).
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let snap = opts.snapshot(ctx.host().dom()).to_vec();
-    for opt in &snap {
-        if ctx.host().dom().has_attribute(*opt, "selected") {
-            return option_value(ctx, *opt);
-        }
+    // HTML §4.10.10 select.value resolution hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-4).  Empty result intern-
+    // skips into the cached well-known empty string.
+    let value = elidex_form::select_get_value(ctx.host().dom(), entity);
+    if value.is_empty() {
+        return Ok(JsValue::String(empty));
     }
-    // No explicit selection — for non-multiple selects with
-    // display size == 1, the first non-disabled option is the
-    // implicit default (HTML §4.10.10.2 "ask for a reset").
-    // Listbox selects (`size > 1`) and `multiple` selects skip
-    // implicit-default auto-selection entirely.
-    if elidex_form::select_uses_implicit_default(ctx.host().dom(), entity) {
-        for opt in &snap {
-            if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
-                return option_value(ctx, *opt);
-            }
-        }
-    }
-    Ok(JsValue::String(empty))
-}
-
-fn option_value(ctx: &mut NativeContext<'_>, opt: Entity) -> Result<JsValue, VmError> {
-    let empty = ctx.vm.well_known.empty;
-    if ctx.host().dom().has_attribute(opt, "value") {
-        let sid = match ctx.dom_and_strings_if_bound() {
-            Some((dom, strings)) => {
-                dom.with_attribute(opt, "value", |v| v.map_or(empty, |s| strings.intern(s)))
-            }
-            None => empty,
-        };
-        return Ok(JsValue::String(sid));
-    }
-    super::dom_bridge::invoke_dom_api(ctx, "textContent.get", opt, &[])
+    let sid = ctx.vm.strings.intern(&value);
+    Ok(JsValue::String(sid))
 }
 
 fn native_select_set_value(
@@ -617,37 +572,9 @@ fn native_select_set_value(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let target_sid = super::super::coerce::to_string(ctx.vm, val)?;
     let target = ctx.vm.strings.get_utf8(target_sid);
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let snap = opts.snapshot(ctx.host().dom()).to_vec();
-    // First option whose value matches becomes selected; others
-    // cleared.  HTML §4.10.7.4 — value setter algorithm.
-    let mut found_first = false;
-    for opt in &snap {
-        let candidate = if ctx.host().dom().has_attribute(*opt, "value") {
-            ctx.host()
-                .dom()
-                .get_attribute(*opt, "value")
-                .unwrap_or_default()
-        } else {
-            // Fallback to text content.  Build a temporary read.
-            match super::dom_bridge::invoke_dom_api(ctx, "textContent.get", *opt, &[])? {
-                JsValue::String(sid) => ctx.vm.strings.get_utf8(sid),
-                _ => String::new(),
-            }
-        };
-        if !found_first && candidate == target {
-            ctx.host()
-                .dom()
-                .set_attribute(*opt, "selected", String::new());
-            found_first = true;
-        } else {
-            super::element_attrs::attr_remove(ctx, *opt, "selected");
-        }
-    }
+    // HTML §4.10.7.4 value setter hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-4).
+    elidex_form::select_set_value(ctx.host().dom(), entity, &target);
     Ok(JsValue::Undefined)
 }
 
