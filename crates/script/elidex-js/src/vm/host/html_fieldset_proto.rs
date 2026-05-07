@@ -192,22 +192,29 @@ fn native_fieldset_get_form(
     Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, form))
 }
 
-/// Phase 3 stub: returns an empty `NodeList` snapshot.  The full
-/// `HTMLFormControlsCollection` install with mutation tracking
-/// lands in Phase 7 alongside the `Options` variant on `<select>`.
+/// `fieldset.elements` — HTML §4.10.15.  Returns an
+/// `HTMLFormControlsCollection` over the listed-element descendants
+/// of the fieldset.  Backed by
+/// [`elidex_dom_api::CollectionFilter::FormControls`].
 fn native_fieldset_get_elements(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(_entity) = require_fieldset_receiver(ctx, this, "elements")? else {
-        return Ok(JsValue::Null);
+    let Some(entity) = require_fieldset_receiver(ctx, this, "elements")? else {
+        let id = ctx
+            .vm
+            .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
+                Vec::new(),
+                elidex_dom_api::CollectionKind::NodeList,
+            ));
+        return Ok(JsValue::Object(id));
     };
-    let id = ctx
-        .vm
-        .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-            Vec::new(),
-            elidex_dom_api::CollectionKind::NodeList,
-        ));
+    let coll = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::FormControls,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let id = ctx.vm.alloc_collection(coll);
     Ok(JsValue::Object(id))
 }

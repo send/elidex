@@ -285,8 +285,21 @@ fn native_form_get_length(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = require_form_receiver(ctx, this, "length")?;
-    Ok(JsValue::Number(0.0))
+    let Some(entity) = require_form_receiver(ctx, this, "length")? else {
+        return Ok(JsValue::Number(0.0));
+    };
+    // HTML §4.10.3: form.length returns the number of listed elements
+    // in form.elements.  Build a transient FormControls collection,
+    // count, and discard.
+    let mut coll = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::FormControls,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let len = coll.length(ctx.host().dom());
+    Ok(JsValue::Number(
+        u32::try_from(len).unwrap_or(u32::MAX).into(),
+    ))
 }
 
 fn native_form_get_elements(
@@ -294,13 +307,21 @@ fn native_form_get_elements(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = require_form_receiver(ctx, this, "elements")?;
-    let id = ctx
-        .vm
-        .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-            Vec::new(),
-            elidex_dom_api::CollectionKind::NodeList,
-        ));
+    let Some(entity) = require_form_receiver(ctx, this, "elements")? else {
+        let id = ctx
+            .vm
+            .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
+                Vec::new(),
+                elidex_dom_api::CollectionKind::NodeList,
+            ));
+        return Ok(JsValue::Object(id));
+    };
+    let coll = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::FormControls,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let id = ctx.vm.alloc_collection(coll);
     Ok(JsValue::Object(id))
 }
 

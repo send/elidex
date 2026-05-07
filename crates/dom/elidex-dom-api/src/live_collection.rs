@@ -38,6 +38,18 @@ pub enum CollectionFilter {
     /// [`LiveCollection::new_snapshot`] and never refreshed, so no
     /// second buffer holds them.
     Snapshot,
+    /// Match descendant *listed* form-control elements (HTML
+    /// §4.10.2): `<button>`, `<fieldset>`, `<input>`, `<object>`,
+    /// `<output>`, `<select>`, `<textarea>`.  Backs
+    /// `HTMLFormElement.elements` / `HTMLFieldSetElement.elements`.
+    /// Cross-tree `form="<id>"` association is **not** modelled here
+    /// (deferred — would require a cross-tree walk, which the live
+    /// collection's "descendants of root" model is not designed for).
+    FormControls,
+    /// Match descendant `<option>` elements.  Backs
+    /// `HTMLSelectElement.options` (HTML §4.10.10.2).  `<optgroup>`
+    /// nesting is handled implicitly by the descendant traversal.
+    Options,
 }
 
 /// Whether the collection behaves as an `HTMLCollection` or a `NodeList`.
@@ -316,6 +328,14 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
         }
         CollectionFilter::Images => matches_tag_ascii_ci(entity, "img", dom),
         CollectionFilter::Forms => matches_tag_ascii_ci(entity, "form", dom),
+        CollectionFilter::FormControls => match dom.world().get::<&TagType>(entity) {
+            Ok(tt) => matches!(
+                tt.0.as_str(),
+                "button" | "fieldset" | "input" | "object" | "output" | "select" | "textarea"
+            ),
+            Err(_) => false,
+        },
+        CollectionFilter::Options => matches_tag_ascii_ci(entity, "option", dom),
         CollectionFilter::Links => {
             let is_link_tag =
                 matches_tag_ascii_ci(entity, "a", dom) || matches_tag_ascii_ci(entity, "area", dom);
@@ -333,6 +353,11 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
         | CollectionFilter::Snapshot => false,
     }
 }
+
+// FormControls / Options arms above use `matches_tag_ascii_ci` and a
+// flat-match against the listed-element tag set; both are handled
+// inside `matches_filter` directly so no special branch in
+// `populate_into` is needed.
 
 /// Case-insensitive tag-name match (ASCII). Mirrors the WHATWG HTML
 /// canonicalisation that `Document.{forms,images,links}` perform — the

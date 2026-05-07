@@ -208,6 +208,9 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "textarea") {
             return self.html_textarea_prototype;
         }
+        if host.tag_matches_ascii_case(entity, "select") {
+            return self.html_select_prototype;
+        }
         None
     }
 }

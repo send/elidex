@@ -895,6 +895,7 @@ define_well_known_strings! {
         // `<select>` IDL members.
         selected_index => "selectedIndex",
         selected_options => "selectedOptions",
+        options => "options",
         named_anchor => "named", // legacy; reserved
         // SelectionDirection enum strings.
         selection_dir_none => "none",
