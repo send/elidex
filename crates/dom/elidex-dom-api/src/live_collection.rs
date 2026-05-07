@@ -326,62 +326,11 @@ fn populate_selected_options(root: Entity, dom: &EcsDom, out: &mut Vec<Entity>) 
         return;
     }
     for opt in &options {
-        if !is_option_disabled_local(*opt, dom) {
+        if !crate::element::is_option_disabled(dom, *opt) {
             out.push(*opt);
             return;
         }
     }
-}
-
-/// `<option>` disabledness check — duplicates
-/// `elidex_form::is_option_disabled` because `elidex-dom-api` and
-/// `elidex-form` are sibling crates and a dependency on `elidex-form`
-/// here would invert the existing direction (`elidex-form` consumes
-/// `elidex-dom-api` types).  Consolidation tracked in slot
-/// `#11-tags-T1-v2-drift-hoist` (followup-cleanup handoff §B-0
-/// candidate D-6, added 2026-05-08 R26): hoist the predicate to a
-/// shared location both crates can reference.
-///
-/// Mirrors the canonical `elidex_form::is_option_disabled` walker:
-/// walks ancestors up to `MAX_ANCESTOR_DEPTH`, treats any
-/// `<optgroup disabled>` ancestor as disabling (HTML §4.10.10.2 —
-/// the spec's "closest containing optgroup" allows arbitrary
-/// wrapper-element nesting that JS DOM mutation can introduce, so
-/// only checking the direct parent would miss
-/// `<select><optgroup disabled><div><option>...` cases), and stops
-/// at the enclosing `<select>` so disabled propagation past the
-/// select boundary is left to other layers (e.g. `<fieldset>` for
-/// form submission).
-fn is_option_disabled_local(option: Entity, dom: &EcsDom) -> bool {
-    if dom
-        .world()
-        .get::<&Attributes>(option)
-        .is_ok_and(|a| a.contains("disabled"))
-    {
-        return true;
-    }
-    let mut current = dom.get_parent(option);
-    for _ in 0..elidex_ecs::MAX_ANCESTOR_DEPTH {
-        let Some(ancestor) = current else {
-            return false;
-        };
-        if matches_tag_ascii_ci(ancestor, "optgroup", dom)
-            && dom
-                .world()
-                .get::<&Attributes>(ancestor)
-                .is_ok_and(|a| a.contains("disabled"))
-        {
-            return true;
-        }
-        // Stop at the enclosing `<select>` — disabled propagation
-        // past the select is the form's `<fieldset>` concern, not
-        // the option's.
-        if matches_tag_ascii_ci(ancestor, "select", dom) {
-            return false;
-        }
-        current = dom.get_parent(ancestor);
-    }
-    false
 }
 
 /// Collect direct children of `parent`. If `include_text` is true, text nodes

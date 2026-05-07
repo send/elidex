@@ -4,6 +4,7 @@
 mod attrs;
 mod inheritance;
 pub(crate) mod layout_query;
+mod option_disabled;
 mod props;
 pub(crate) mod tree;
 
@@ -18,6 +19,7 @@ pub use layout_query::{
     GetClientWidth, GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth,
     GetScrollHeight, GetScrollLeft, GetScrollTop, GetScrollWidth, ScrollIntoView,
 };
+pub use option_disabled::is_option_disabled;
 pub use props::{GetAttribute, RemoveAttribute, SetAttribute};
 pub use tree::{
     collect_text_content, serialize_inner_html, validate_attribute_name, AppendChild, GetInnerHtml,

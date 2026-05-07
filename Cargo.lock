@@ -1963,6 +1963,7 @@ dependencies = [
 name = "elidex-form"
 version = "0.1.0"
 dependencies = [
+ "elidex-dom-api",
  "elidex-ecs",
  "elidex-plugin",
  "regex",

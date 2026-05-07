@@ -4,65 +4,16 @@ use elidex_ecs::{Attributes, EcsDom, Entity, TagType, MAX_ANCESTOR_DEPTH};
 
 use crate::{FormControlState, SelectOption};
 
-/// Returns `true` if `entity` is an `<option>` whose own `disabled`
-/// attribute is set OR whose enclosing tree contains a disabled
-/// `<optgroup>` ancestor.  HTML §4.10.10.2 — an option is "disabled"
-/// when either condition holds.  In well-formed markup optgroup
-/// elements don't nest (parser flattens them), but the walker
-/// climbs up to `MAX_ANCESTOR_DEPTH` ancestors and stops at the
-/// enclosing `<select>`, so any disabled optgroup encountered
-/// before that cutoff disables the option — mirrors browsers
-/// that accept malformed nested-optgroup trees gracefully.
+/// `<option>` disabledness predicate (HTML §4.10.10.2).
 ///
-/// Returns `false` when `entity` is not actually an `<option>` (so
-/// callers can pass arbitrary entities defensively without
-/// mis-attributing a `disabled` attribute on, say, a `<button>`
-/// to "option-disabled" semantics).
-#[must_use]
-pub fn is_option_disabled(dom: &EcsDom, entity: Entity) -> bool {
-    let is_option = dom
-        .world()
-        .get::<&TagType>(entity)
-        .is_ok_and(|t| t.0.eq_ignore_ascii_case("option"));
-    if !is_option {
-        return false;
-    }
-    if dom
-        .world()
-        .get::<&Attributes>(entity)
-        .is_ok_and(|a| a.contains("disabled"))
-    {
-        return true;
-    }
-    let mut current = dom.get_parent(entity);
-    for _ in 0..MAX_ANCESTOR_DEPTH {
-        let Some(ancestor) = current else {
-            return false;
-        };
-        let is_disabled_optgroup = dom
-            .world()
-            .get::<&TagType>(ancestor)
-            .is_ok_and(|t| t.0.eq_ignore_ascii_case("optgroup"))
-            && dom
-                .world()
-                .get::<&Attributes>(ancestor)
-                .is_ok_and(|a| a.contains("disabled"));
-        if is_disabled_optgroup {
-            return true;
-        }
-        // Stop at the enclosing `<select>` — disabled propagation
-        // beyond the select is the form's `<fieldset>` problem.
-        if dom
-            .world()
-            .get::<&TagType>(ancestor)
-            .is_ok_and(|t| t.0.eq_ignore_ascii_case("select"))
-        {
-            return false;
-        }
-        current = dom.get_parent(ancestor);
-    }
-    false
-}
+/// Re-exported from `elidex-dom-api` (canonical home) per slot
+/// `#11-tags-T1-v2-drift-hoist` (D-6) — the algorithm walks the DOM
+/// ancestor chain over content attributes, which is engine-independent
+/// DOM API territory rather than form-specific.  `elidex-form`
+/// continues to surface the predicate for back-compat with the
+/// historical caller surface (`vm/host/html_select_proto.rs` /
+/// `init_select_options` etc.).
+pub use elidex_dom_api::element::is_option_disabled;
 
 /// Compute `<option>.index` (HTML §4.10.10): walks up to the
 /// enclosing `<select>` / `<datalist>` (skipping any `<optgroup>` /
