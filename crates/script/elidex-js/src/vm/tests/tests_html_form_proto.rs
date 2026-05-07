@@ -189,6 +189,67 @@ fn form_reset_event_cancellable_via_prevent_default() {
 }
 
 #[test]
+fn form_check_validity_returns_true_when_all_controls_valid() {
+    // R2 F2 regression — HTML §4.10.20.4 form.checkValidity()
+    // returns true when every listed element is a valid candidate.
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         f.appendChild(i); \
+         '' + f.checkValidity();");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn form_check_validity_returns_false_when_a_control_is_invalid() {
+    // R2 F2 regression — any failing constraint flips the form's
+    // checkValidity to false.
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         i.required = true; \
+         f.appendChild(i); \
+         '' + f.checkValidity();");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn form_check_validity_fires_invalid_on_each_invalid_control() {
+    // R2 F2 regression — per-control `invalid` event fires for
+    // every invalid candidate, even after the first failure
+    // (HTML §4.10.20.4 step 2).
+    let out = run("var f = document.createElement('form'); \
+         var i1 = document.createElement('input'); i1.required = true; \
+         var i2 = document.createElement('input'); i2.required = true; \
+         f.appendChild(i1); f.appendChild(i2); \
+         var fired = 0; \
+         i1.addEventListener('invalid', function() { fired++; }); \
+         i2.addEventListener('invalid', function() { fired++; }); \
+         var v = f.checkValidity(); \
+         '' + v + '/' + fired;");
+    assert_eq!(out, "false/2");
+}
+
+#[test]
+fn form_report_validity_aliases_check_validity_in_headless_mode() {
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); i.required = true; \
+         f.appendChild(i); \
+         '' + f.reportValidity() + '/' + f.checkValidity();");
+    assert_eq!(out, "false/false");
+}
+
+#[test]
+fn form_check_validity_skips_disabled_controls() {
+    // HTML §4.10.20.3 — disabled controls are barred from
+    // constraint validation; the form's check must skip them.
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         i.required = true; i.disabled = true; \
+         f.appendChild(i); \
+         '' + f.checkValidity();");
+    assert_eq!(out, "true");
+}
+
+#[test]
 fn form_brand_check_throws_on_non_form_receiver() {
     let out = run("var d = document.createElement('div'); \
          var f = document.createElement('form'); \

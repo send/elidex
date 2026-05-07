@@ -15,13 +15,17 @@
 //! - `name` — DOMString reflect.
 //! - `type` — read-only constant `"fieldset"` per HTML §4.10.15.
 //! - `form` — read-only via `elidex_form::find_form_ancestor`.
-//! - `elements` — read-only.  **Phase 3 stub**: returns an empty
-//!   `NodeList` snapshot.  Full `HTMLFormControlsCollection`
-//!   integration lands with the `LiveCollectionKind::FormControls`
-//!   variant in Phase 7 (paired with `Options` variant).
-//! - `checkValidity` / `reportValidity` — Phase 9 mixin install.
-//!   Until Phase 9 ships these are not present here; the Phase 9
-//!   commit will re-enter and call `install_constraint_validation_methods`.
+//! - `elements` — read-only.  `[SameObject]`-cached
+//!   `HTMLFormControlsCollection` over listed-element descendants,
+//!   backed by `CollectionFilter::FormControls` (Phase 7 + the cache
+//!   wiring added in this PR).
+//! - ConstraintValidation mixin (`validity` / `validationMessage` /
+//!   `willValidate` / `checkValidity()` / `reportValidity()` /
+//!   `setCustomValidity()`) is installed by
+//!   `VmInner::install_constraint_validation_mixin` from Phase 9.
+//!   `<fieldset>` is a candidate for the mixin even though it is
+//!   not itself "submittable" — `willValidate` returns `false` and
+//!   the methods short-circuit per HTML §4.10.20.3.
 
 #![cfg(feature = "engine")]
 

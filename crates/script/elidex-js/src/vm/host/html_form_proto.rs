@@ -17,10 +17,12 @@
 //!
 //! Reflected boolean: `noValidate`.
 //!
-//! Read-only stubs:
-//! - `elements` — empty NodeList snapshot (Phase 4 stub; full
-//!   `HTMLFormControlsCollection` lands in Phase 7).
-//! - `length` — 0 (matches the empty stub above).
+//! Read-only:
+//! - `elements` — `[SameObject]`-cached `HTMLFormControlsCollection`
+//!   over listed-element descendants (`CollectionFilter::FormControls`,
+//!   added in Phase 7).
+//! - `length` — number of listed-element descendants (mirrors
+//!   `elements.length`).
 //!
 //! Methods:
 //! - `submit()` / `requestSubmit()` — `NotSupportedError` stub
@@ -29,7 +31,14 @@
 //!   default-prevented, calls `elidex_form::reset_form` to roll
 //!   each form control back to its `default_value` /
 //!   `default_checked` (Group β F-7 + F-8 fold).
-//! - `checkValidity()` / `reportValidity()` — Phase 9 mixin.
+//! - `checkValidity()` / `reportValidity()` — iterate the listed
+//!   elements, run `validate_control` on each candidate (skipping
+//!   disabled / `<input type=hidden>` per HTML §4.10.20.3), fire
+//!   the synthetic `invalid` event on every failing control, and
+//!   return `false` if any control failed.  Form-level methods are
+//!   NOT installed via the `install_constraint_validation_mixin`
+//!   helper because the form's behaviour is delegate-to-children
+//!   rather than the per-control single-state shape.
 
 #![cfg(feature = "engine")]
 
@@ -38,6 +47,7 @@ use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertySt
 use super::super::{NativeFn, VmInner};
 
 use elidex_ecs::{Entity, NodeKind};
+use elidex_form::FormControlState;
 
 impl VmInner {
     pub(in crate::vm) fn register_html_form_prototype(&mut self) {
@@ -88,7 +98,7 @@ impl VmInner {
             attrs,
         );
 
-        // length / elements — Phase 4 stubs.
+        // length / elements — live, backed by FormControls collection.
         self.install_accessor_pair(
             proto_id,
             self.well_known.length,
@@ -122,6 +132,18 @@ impl VmInner {
             proto_id,
             self.well_known.reset_method,
             native_form_reset,
+            method_attrs,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.check_validity,
+            native_form_check_validity,
+            method_attrs,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.report_validity,
+            native_form_report_validity,
             method_attrs,
         );
     }
@@ -277,7 +299,7 @@ fn native_form_set_no_validate(
 }
 
 // ---------------------------------------------------------------------------
-// length / elements stubs
+// length / elements (live FormControls collection)
 // ---------------------------------------------------------------------------
 
 fn native_form_get_length(
@@ -389,4 +411,81 @@ fn native_form_reset(
     }
     elidex_form::reset_form(ctx.host().dom(), entity);
     Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// checkValidity / reportValidity (HTML §4.10.20.4)
+// ---------------------------------------------------------------------------
+
+/// Walk every listed-element descendant of the form, calling
+/// `validate_control()` on each that is a candidate for constraint
+/// validation, and return `false` as soon as any control fails (after
+/// firing a synthetic `invalid` event at it).  This mirrors the
+/// per-control `checkValidity()` shape installed by the
+/// ConstraintValidation mixin but iterates the form's submittable
+/// element set, per HTML §4.10.20.4.
+fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<bool, VmError> {
+    use elidex_form::FormControlKind;
+
+    let mut coll = elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::FormControls,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap: Vec<Entity> = coll.snapshot(ctx.host().dom()).to_vec();
+
+    let mut all_valid = true;
+    for control in snap {
+        let dom = ctx.host().dom();
+        let Some(state) = dom.world().get::<&FormControlState>(control).ok() else {
+            continue;
+        };
+        // HTML §4.10.20.3 — bar non-candidates from validation.
+        if !state.kind.is_submittable()
+            || state.disabled
+            || matches!(state.kind, FormControlKind::Hidden)
+        {
+            continue;
+        }
+        let valid = elidex_form::validate_control(&state).is_valid();
+        drop(state);
+        if !valid {
+            all_valid = false;
+            let invalid_sid = ctx.vm.well_known.invalid_event;
+            let _ = super::event_target_dispatch::dispatch_simple_event(
+                ctx,
+                control,
+                invalid_sid,
+                /*bubbles=*/ false,
+                /*cancelable=*/ true,
+            )?;
+        }
+    }
+    Ok(all_valid)
+}
+
+fn native_form_check_validity(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_form_receiver(ctx, this, "checkValidity")? else {
+        return Ok(JsValue::Boolean(true));
+    };
+    let valid = run_form_check_validity(ctx, entity)?;
+    Ok(JsValue::Boolean(valid))
+}
+
+fn native_form_report_validity(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Headless mode — same behaviour as `checkValidity()`.  The UA
+    // validation popup is deferred to the shell layer.
+    let Some(entity) = require_form_receiver(ctx, this, "reportValidity")? else {
+        return Ok(JsValue::Boolean(true));
+    };
+    let valid = run_form_check_validity(ctx, entity)?;
+    Ok(JsValue::Boolean(valid))
 }

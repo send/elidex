@@ -254,6 +254,36 @@ fn select_add_with_negative_numeric_before_appends() {
 }
 
 #[test]
+fn select_add_before_option_in_optgroup_inserts_into_optgroup() {
+    // R2 F1 regression — HTML §4.10.7.5 only requires `before` to
+    // be a descendant of the select; `before`'s immediate parent
+    // (the optgroup) is the actual insertion target.  Pre-fix this
+    // threw NotFoundError because the check insisted on a direct
+    // child of the select.
+    let out = run("var s = document.createElement('select'); \
+         var g = document.createElement('optgroup'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         g.appendChild(o1); \
+         s.appendChild(g); \
+         s.add(o2, o1); \
+         var optgroup_first = g.firstChild; \
+         (optgroup_first === o2 && o2.parentNode === g) ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn select_add_before_not_descendant_throws_not_found() {
+    // R2 F1 regression — `before` outside the select's subtree
+    // must still throw NotFoundError per spec.
+    let out = run("var s = document.createElement('select'); \
+         var stray = document.createElement('option'); \
+         try { s.add(document.createElement('option'), stray); 'no-throw'; } \
+         catch (e) { (e.name === 'NotFoundError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn select_remove_with_index_drops_option() {
     let out = run("var s = document.createElement('select'); \
          var o1 = document.createElement('option'); \

@@ -792,20 +792,34 @@ fn native_select_add(
         // Null / Undefined / others fall through to "append".
         _ => None,
     };
-    // Insert via the underlying DOM; if before_entity is provided
-    // and not a child of select, NotFoundError per spec.  DOM
-    // mutation calls return false on failure (cycle / destroyed
+    // Insert via the underlying DOM; if `before` is provided it
+    // must be a descendant of the select (HTML §4.10.7.5: "before
+    // must be a descendant of the select element"), and the new
+    // option is inserted into `before`'s actual parent so a
+    // `<option>` inside an `<optgroup>` works as a reference.
+    // DOM mutation calls return false on failure (cycle / destroyed
     // entities / invalid ref) — surface these as
     // `HierarchyRequestError` rather than silently swallowing.
     if let Some(before) = before_entity {
-        let parent_of_before = ctx.host().dom().get_parent(before);
-        if parent_of_before != Some(entity) {
+        let dom = ctx.host().dom();
+        let in_select = dom.is_ancestor_or_self(entity, before) && before != entity;
+        if !in_select {
             return Err(VmError::dom_exception(
                 ctx.vm.well_known.dom_exc_not_found_error,
-                "select.add: before is not a child of this select",
+                "select.add: before is not a descendant of this select",
             ));
         }
-        if !ctx.host().dom().insert_before(entity, opt_entity, before) {
+        let Some(parent_of_before) = dom.get_parent(before) else {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_not_found_error,
+                "select.add: before has no parent",
+            ));
+        };
+        if !ctx
+            .host()
+            .dom()
+            .insert_before(parent_of_before, opt_entity, before)
+        {
             return Err(VmError::dom_exception(
                 ctx.vm.well_known.dom_exc_hierarchy_request_error,
                 "select.add: insertBefore failed (cycle or detached entity)",
