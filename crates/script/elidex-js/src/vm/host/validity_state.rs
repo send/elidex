@@ -132,12 +132,12 @@ fn require_validity_receiver(
 ) -> Result<Entity, VmError> {
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
-            "Failed to read '{method}' from 'ValidityState': Illegal invocation"
+            "Failed to execute '{method}' on 'ValidityState': Illegal invocation"
         )));
     };
     let ObjectKind::ValidityState { entity_bits } = ctx.vm.get_object(id).kind else {
         return Err(VmError::type_error(format!(
-            "Failed to read '{method}' from 'ValidityState': Illegal invocation"
+            "Failed to execute '{method}' on 'ValidityState': Illegal invocation"
         )));
     };
     Entity::from_bits(entity_bits)
@@ -333,7 +333,7 @@ fn require_form_control_receiver(
     // succeed instead of throwing.
     if !is_constraint_validation_host_tag(ctx.host().dom(), entity) {
         return Err(VmError::type_error(format!(
-            "Failed to execute '{method}': Illegal invocation"
+            "Failed to execute '{method}' on 'ConstraintValidation': Illegal invocation"
         )));
     }
     Ok(Some(entity))
