@@ -489,13 +489,14 @@ pub(super) fn dispatch_simple_event(
     // `dispatch_script_event` holds the active mutable borrow via
     // `NativeContext`.  Instead, the matching `.remove` below
     // runs on the normal-return path, and the
-    // `gc/collect.rs::sweep_dispatched_events_tail` defensive
-    // cleanup at the next collection cycle prunes any entry whose
-    // backing `ObjectKind::Event` was dropped — covering the rare
-    // case where a Rust panic between insert and remove leaks the
-    // entry.  Do NOT delete that sweep-tail without first
-    // re-architecting this insert/remove pair around `RefCell` /
-    // `catch_unwind` to give true RAII semantics.
+    // `self.dispatched_events.retain(...)` sweep-tail block at
+    // `gc/collect.rs:558` (run on each collection cycle) prunes
+    // any entry whose backing `ObjectKind::Event` was dropped —
+    // covering the rare case where a Rust panic between insert
+    // and remove leaks the entry.  Do NOT delete that sweep-tail
+    // without first re-architecting this insert/remove pair
+    // around `RefCell` / `catch_unwind` to give true RAII
+    // semantics.
     ctx.vm.dispatched_events.insert(event_id);
 
     let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;
