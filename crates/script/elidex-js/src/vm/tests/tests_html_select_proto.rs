@@ -824,6 +824,28 @@ fn options_collection_subclass_of_html_collection() {
 }
 
 #[test]
+fn options_collection_unbound_fallback_methods_no_op() {
+    // Regression: after R2, `cached_form_collection`'s unbound
+    // fallback wrapper carries the OptionsCollection prototype, so
+    // `unbound.add` / `unbound.remove` / etc. are reachable.  But
+    // the backing `LiveCollection` has `CollectionFilter::Snapshot`
+    // (no `<select>` root), so the brand check must accept Snapshot
+    // as inert and the method bodies must no-op rather than throw.
+    let out = run("var s = document.createElement('select'); \
+         var optionsGetter = Object.getOwnPropertyDescriptor(\
+             Object.getPrototypeOf(s), 'options').get; \
+         var unbound = optionsGetter.call({}); \
+         try { \
+           unbound.add(document.createElement('option')); \
+           unbound.remove(0); \
+           unbound.length = 5; \
+           unbound.selectedIndex = 0; \
+           'no-throw'; \
+         } catch (e) { 'threw:' + e.message; }");
+    assert_eq!(out, "no-throw");
+}
+
+#[test]
 fn options_collection_unbound_fallback_uses_options_prototype() {
     // Regression: `cached_form_collection`'s unbound fallback (when
     // `require_select_receiver` returns `None`) must allocate the

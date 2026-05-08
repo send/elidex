@@ -51,26 +51,33 @@ use super::html_select_proto::{
 const OPTIONS_INTERFACE: &str = "HTMLOptionsCollection";
 
 /// Brand-check: the receiver must be an HTMLCollection whose backing
-/// `LiveCollection` carries `CollectionFilter::Options`.  Returns
-/// the underlying `<select>` entity (the collection root) for the
-/// caller to forward to a select-side algorithm.
+/// `LiveCollection` carries `CollectionFilter::Options` *or*
+/// `CollectionFilter::Snapshot` (the unbound-fallback shape).
+/// Returns the underlying `<select>` entity (the collection root)
+/// for the caller to forward to a select-side algorithm, or `None`
+/// when the wrapper is inert.
 ///
-/// Three branches:
+/// Branches:
 ///
-/// 1. **Non-Object / non-HtmlCollection / filter-mismatch** → throw
-///    `TypeError("Illegal invocation")` so `.call(other_kind)`
-///    rejection matches WebIDL brand semantics (and so a non-Options
-///    HTMLCollection like the `getElementsByTagName` result can't
-///    sneak past).
+/// 1. **Non-Object / non-HtmlCollection / non-Options-or-Snapshot
+///    filter** → throw `TypeError("Illegal invocation")` so
+///    `.call(other_kind)` rejection matches WebIDL brand semantics
+///    (and so a non-Options HTMLCollection like the
+///    `getElementsByTagName` result can't sneak past).
 /// 2. **HtmlCollection wrapper, no `live_collection_states` entry**
 ///    (Options-prototype wrapper retained across `Vm::unbind()` —
 ///    `unbind` clears the state map so retained wrappers go inert)
 ///    → return `Ok(None)` so the caller no-ops via its default
-///    return path.  Mirrors the post-unbind convention used by
-///    `with_collection` for HTMLCollection / NodeList methods on
-///    `dom_collection.rs`, which return their fallback rather than
-///    throw.
-/// 3. **Bound + Options-filter** → return `Ok(coll.root())`.
+///    return path.
+/// 3. **Bound + `Options` filter** → return `Ok(coll.root())`.
+/// 4. **`Snapshot` filter** → return `Ok(None)`.  This is the
+///    unbound-fallback shape from
+///    [`super::dom_collection::cached_form_collection`] — the
+///    wrapper carries the OptionsCollection prototype so
+///    `instanceof` works, but there's no `<select>` to mutate.
+///    Treat as inert (no-op) instead of throwing, mirroring the
+///    convention used by `with_collection` for inert HTMLCollection
+///    / NodeList methods.
 fn require_options_collection_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -88,14 +95,17 @@ fn require_options_collection_receiver(
         return Err(illegal());
     }
     let Some(coll) = ctx.vm.live_collection_states.get(&id) else {
-        // Inert post-`unbind` wrapper — caller falls through to its
-        // default return.  Not a brand violation.
+        // Inert post-`unbind` wrapper.
         return Ok(None);
     };
-    if !matches!(coll.filter(), CollectionFilter::Options) {
-        return Err(illegal());
+    match coll.filter() {
+        CollectionFilter::Options => Ok(coll.root()),
+        // Inert unbound-fallback wrapper (the wrapper carries the
+        // OptionsCollection prototype but has no `<select>` root —
+        // see `cached_form_collection`'s `entity = None` branch).
+        CollectionFilter::Snapshot => Ok(None),
+        _ => Err(illegal()),
     }
-    Ok(coll.root())
 }
 
 pub(super) fn native_options_add(
