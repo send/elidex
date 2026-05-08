@@ -349,11 +349,18 @@ pub(super) fn empty_labels_collection(vm: &mut VmInner) -> ObjectId {
 /// `form.elements`, `fieldset.elements`, and `select.options`:
 ///
 /// 1. unbound fallback (`entity = None`) → fresh empty
-///    `HtmlCollection` snapshot, kind matched so the wrapper passes
-///    `instanceof HTMLCollection` regardless of binding state.
+///    `HtmlCollection` snapshot.  The wrapper's prototype is chosen
+///    by [`FormCollectionCache`] so it matches the bound-case
+///    prototype: `Options` → `HTMLOptionsCollection.prototype`,
+///    `FormControls` → `HTMLCollection.prototype` (no subclass
+///    shipped yet).  Consistent prototype shape means
+///    `Object.getPrototypeOf(select.options).add` is defined
+///    regardless of binding state.
 /// 2. cache hit → returned without re-allocating.
 /// 3. otherwise allocate a live `HtmlCollection` over `filter`, insert
-///    into the cache, return.
+///    into the cache, return.  `alloc_collection` already routes
+///    `CollectionFilter::Options` to the OptionsCollection
+///    prototype, so the cache's bound and unbound paths agree.
 ///
 /// The sweep tail in `gc/collect.rs` prunes cache entries whose
 /// `ObjectId` was collected, so callers do not manage cache eviction.
@@ -364,17 +371,44 @@ pub(super) fn cached_form_collection(
     cache: FormCollectionCache,
 ) -> ObjectId {
     let Some(entity) = entity else {
-        return vm.alloc_collection(LiveCollection::new_snapshot(
-            Vec::new(),
-            CollectionKind::HtmlCollection,
-        ));
+        let snapshot = LiveCollection::new_snapshot(Vec::new(), CollectionKind::HtmlCollection);
+        return alloc_form_collection_wrapper(vm, snapshot, cache);
     };
     if let Some(id) = cache.get(vm, entity) {
         return id;
     }
     let coll = LiveCollection::new(entity, filter, CollectionKind::HtmlCollection);
-    let id = vm.alloc_collection(coll);
+    let id = alloc_form_collection_wrapper(vm, coll, cache);
     cache.insert(vm, entity, id);
+    id
+}
+
+/// Allocate a collection wrapper whose prototype matches `cache`'s
+/// subclass (rather than [`VmInner::alloc_collection`]'s
+/// filter-derived choice).  Needed for the unbound-fallback path
+/// where `LiveCollection::new_snapshot` carries
+/// `CollectionFilter::Snapshot` instead of the actual filter, so
+/// `alloc_collection` can't infer the subclass on its own.
+fn alloc_form_collection_wrapper(
+    vm: &mut VmInner,
+    coll: LiveCollection,
+    cache: FormCollectionCache,
+) -> ObjectId {
+    let proto = match cache {
+        FormCollectionCache::Options => vm.html_options_collection_prototype.expect(
+            "alloc_form_collection_wrapper(Options) before register_html_options_collection_prototype",
+        ),
+        FormCollectionCache::FormControls => vm
+            .html_collection_prototype
+            .expect("alloc_form_collection_wrapper before register_html_collection_prototype"),
+    };
+    let id = vm.alloc_object(Object {
+        kind: ObjectKind::HtmlCollection,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: Some(proto),
+        extensible: false,
+    });
+    vm.live_collection_states.insert(id, coll);
     id
 }
 

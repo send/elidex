@@ -824,6 +824,23 @@ fn options_collection_subclass_of_html_collection() {
 }
 
 #[test]
+fn options_collection_unbound_fallback_uses_options_prototype() {
+    // Regression: `cached_form_collection`'s unbound fallback (when
+    // `require_select_receiver` returns `None`) must allocate the
+    // OptionsCollection prototype, not the bare HTMLCollection
+    // prototype, so `Object.getPrototypeOf(unbound_options).add`
+    // remains defined.  Exercise via the `options` getter `.call()`
+    // on a non-select element, which lands in the unbound branch.
+    let out = run("var s = document.createElement('select'); \
+         var optionsGetter = Object.getOwnPropertyDescriptor(\
+             Object.getPrototypeOf(s), 'options').get; \
+         var unbound = optionsGetter.call({}); \
+         (typeof Object.getPrototypeOf(unbound).add === 'function') \
+             ? 'options-proto' : 'bare-html-proto';");
+    assert_eq!(out, "options-proto");
+}
+
+#[test]
 fn options_collection_methods_no_op_when_state_cleared() {
     // Regression: `Vm::unbind` clears `live_collection_states`, so
     // any HTMLOptionsCollection wrapper retained across the unbind
