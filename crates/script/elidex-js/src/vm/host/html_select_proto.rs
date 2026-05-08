@@ -420,39 +420,20 @@ fn native_select_get_labels(
 // ---------------------------------------------------------------------------
 
 /// Build a fresh live `Options` collection rooted at `select_entity`.
-fn alloc_options(vm: &mut VmInner, select_entity: Entity) -> super::super::value::ObjectId {
-    vm.alloc_collection(elidex_dom_api::LiveCollection::new(
-        select_entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    ))
-}
-
 fn native_select_get_options(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_select_receiver(ctx, this, "options")? else {
-        // Spec type: HTMLOptionsCollection (HTMLCollection
-        // subclass).  Match the kind on the unbound fallback so the
-        // accessor's prototype shape is consistent with the bound
-        // path.
-        let id = ctx
-            .vm
-            .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-                Vec::new(),
-                elidex_dom_api::CollectionKind::HtmlCollection,
-            ));
-        return Ok(JsValue::Object(id));
-    };
-    // [SameObject] cache — return the same collection wrapper across
-    // reads.  Sweep tail prunes when the select wrapper dies.
-    if let Some(&existing) = ctx.vm.options_collection_wrappers.get(&entity) {
-        return Ok(JsValue::Object(existing));
-    }
-    let id = alloc_options(ctx.vm, entity);
-    ctx.vm.options_collection_wrappers.insert(entity, id);
+    let entity = require_select_receiver(ctx, this, "options")?;
+    // `[SameObject]` cache — return the same collection wrapper
+    // across reads.  Sweep tail prunes when the select wrapper dies.
+    let id = super::dom_collection::cached_form_collection(
+        ctx.vm,
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        super::dom_collection::FormCollectionCache::Options,
+    );
     Ok(JsValue::Object(id))
 }
 

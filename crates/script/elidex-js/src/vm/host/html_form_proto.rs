@@ -450,32 +450,16 @@ fn native_form_get_elements(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_form_receiver(ctx, this, "elements")? else {
-        // Spec type: HTMLFormControlsCollection (an HTMLCollection
-        // subclass).  Fallback for non-bound receivers must keep
-        // the `HtmlCollection` kind so callers don't observe a
-        // type-mismatch via `instanceof`.
-        let id = ctx
-            .vm
-            .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-                Vec::new(),
-                elidex_dom_api::CollectionKind::HtmlCollection,
-            ));
-        return Ok(JsValue::Object(id));
-    };
+    let entity = require_form_receiver(ctx, this, "elements")?;
     // `[SameObject]` per WebIDL — successive `form.elements` reads
     // return the same wrapper id (HTML §4.10.3.1).  The cache is
     // entity-keyed and pruned weak-through-owner in `gc/collect.rs`.
-    if let Some(&existing) = ctx.vm.form_controls_collection_wrappers.get(&entity) {
-        return Ok(JsValue::Object(existing));
-    }
-    let coll = elidex_dom_api::LiveCollection::new(
+    let id = super::dom_collection::cached_form_collection(
+        ctx.vm,
         entity,
         elidex_dom_api::CollectionFilter::FormControls,
-        elidex_dom_api::CollectionKind::HtmlCollection,
+        super::dom_collection::FormCollectionCache::FormControls,
     );
-    let id = ctx.vm.alloc_collection(coll);
-    ctx.vm.form_controls_collection_wrappers.insert(entity, id);
     Ok(JsValue::Object(id))
 }
 

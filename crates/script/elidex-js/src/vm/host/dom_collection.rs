@@ -55,7 +55,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_dom_api::{CollectionKind, LiveCollection};
+use elidex_dom_api::{CollectionFilter, CollectionKind, LiveCollection};
 use elidex_ecs::Entity;
 
 use super::super::shape;
@@ -214,6 +214,76 @@ impl VmInner {
         self.live_collection_states.insert(id, coll);
         id
     }
+}
+
+// -------------------------------------------------------------------------
+// `[SameObject]`-cached form collection helper
+// -------------------------------------------------------------------------
+
+/// Identifies which `[SameObject]` cache field on [`VmInner`] backs a
+/// form-related HTMLCollection accessor.  Used by
+/// [`cached_form_collection`] to dispatch reads / writes against the
+/// correct cache without exposing the field-level HashMap details to
+/// every prototype call site.
+#[derive(Clone, Copy)]
+pub(super) enum FormCollectionCache {
+    /// `form.elements` / `fieldset.elements` →
+    /// [`VmInner::form_controls_collection_wrappers`], keyed by the
+    /// owner `<form>` / `<fieldset>` entity.
+    FormControls,
+    /// `select.options` → [`VmInner::options_collection_wrappers`],
+    /// keyed by the owner `<select>` entity.
+    Options,
+}
+
+impl FormCollectionCache {
+    fn get(self, vm: &VmInner, entity: Entity) -> Option<ObjectId> {
+        match self {
+            Self::FormControls => vm.form_controls_collection_wrappers.get(&entity).copied(),
+            Self::Options => vm.options_collection_wrappers.get(&entity).copied(),
+        }
+    }
+
+    fn insert(self, vm: &mut VmInner, entity: Entity, id: ObjectId) {
+        match self {
+            Self::FormControls => vm.form_controls_collection_wrappers.insert(entity, id),
+            Self::Options => vm.options_collection_wrappers.insert(entity, id),
+        };
+    }
+}
+
+/// `[SameObject]`-cached HTMLCollection accessor for form-related
+/// surfaces.  Encapsulates the 3-step pattern shared by
+/// `form.elements`, `fieldset.elements`, and `select.options`:
+///
+/// 1. unbound fallback (`entity = None`) → fresh empty
+///    `HtmlCollection` snapshot, kind matched so the wrapper passes
+///    `instanceof HTMLCollection` regardless of binding state.
+/// 2. cache hit → returned without re-allocating.
+/// 3. otherwise allocate a live `HtmlCollection` over `filter`, insert
+///    into the cache, return.
+///
+/// The sweep tail in `gc/collect.rs` prunes cache entries whose
+/// `ObjectId` was collected, so callers do not manage cache eviction.
+pub(super) fn cached_form_collection(
+    vm: &mut VmInner,
+    entity: Option<Entity>,
+    filter: CollectionFilter,
+    cache: FormCollectionCache,
+) -> ObjectId {
+    let Some(entity) = entity else {
+        return vm.alloc_collection(LiveCollection::new_snapshot(
+            Vec::new(),
+            CollectionKind::HtmlCollection,
+        ));
+    };
+    if let Some(id) = cache.get(vm, entity) {
+        return id;
+    }
+    let coll = LiveCollection::new(entity, filter, CollectionKind::HtmlCollection);
+    let id = vm.alloc_collection(coll);
+    cache.insert(vm, entity, id);
+    id
 }
 
 // -------------------------------------------------------------------------
