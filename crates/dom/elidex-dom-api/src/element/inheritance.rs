@@ -7,7 +7,7 @@
 //! brand check, marshalling). Ancestor-walk algorithms over the DOM
 //! tree are engine-independent and live here.
 
-use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
+use elidex_ecs::{EcsDom, Entity};
 
 /// Resolve the effective `isContentEditable` state for `entity`
 /// (HTML §6.7.3 — `contentEditable` IDL attribute).
@@ -33,16 +33,17 @@ use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 /// parsing rules.
 #[must_use]
 pub fn is_content_editable(dom: &EcsDom, entity: Entity) -> bool {
+    // Unbounded ancestor walk preserves pre-PR VM-host behaviour
+    // exactly (the user mandate for slot `#11-tags-T1-v2-drift-hoist`
+    // is "pure hoist / no behavior change").  Adding a
+    // `MAX_ANCESTOR_DEPTH` cap to mirror sibling walkers would change
+    // `isContentEditable` results for trees deeper than the cap; the
+    // safety hardening is deferred to a separate slot
+    // `#11-content-editable-depth-cap` where it can be introduced as
+    // an intentional behaviour change with a regression test that
+    // covers the depth cutoff.
     let mut cur = Some(entity);
-    // `MAX_ANCESTOR_DEPTH` cap mirrors the convention used by sibling
-    // walkers (`find_form_ancestor` / `find_option_select` etc.) so a
-    // hypothetical `TreeRelation` cycle / corruption (e.g. from a
-    // buggy `appendChild` cycle-check regression) cannot wedge this
-    // accessor in an infinite loop.
-    for _ in 0..MAX_ANCESTOR_DEPTH {
-        let Some(e) = cur else {
-            return false;
-        };
+    while let Some(e) = cur {
         let matched = dom.with_attribute(e, "contenteditable", |raw| {
             raw.map(|s| {
                 s.eq_ignore_ascii_case("true")
