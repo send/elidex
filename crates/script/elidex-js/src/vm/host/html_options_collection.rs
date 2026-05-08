@@ -54,6 +54,23 @@ const OPTIONS_INTERFACE: &str = "HTMLOptionsCollection";
 /// `LiveCollection` carries `CollectionFilter::Options`.  Returns
 /// the underlying `<select>` entity (the collection root) for the
 /// caller to forward to a select-side algorithm.
+///
+/// Three branches:
+///
+/// 1. **Non-Object / non-HtmlCollection / filter-mismatch** → throw
+///    `TypeError("Illegal invocation")` so `.call(other_kind)`
+///    rejection matches WebIDL brand semantics (and so a non-Options
+///    HTMLCollection like the `getElementsByTagName` result can't
+///    sneak past).
+/// 2. **HtmlCollection wrapper, no `live_collection_states` entry**
+///    (Options-prototype wrapper retained across `Vm::unbind()` —
+///    `unbind` clears the state map so retained wrappers go inert)
+///    → return `Ok(None)` so the caller no-ops via its default
+///    return path.  Mirrors the post-unbind convention used by
+///    `with_collection` for HTMLCollection / NodeList methods on
+///    `dom_collection.rs`, which return their fallback rather than
+///    throw.
+/// 3. **Bound + Options-filter** → return `Ok(coll.root())`.
 fn require_options_collection_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -70,7 +87,11 @@ fn require_options_collection_receiver(
     if !matches!(ctx.vm.get_object(id).kind, ObjectKind::HtmlCollection) {
         return Err(illegal());
     }
-    let coll = ctx.vm.live_collection_states.get(&id).ok_or_else(illegal)?;
+    let Some(coll) = ctx.vm.live_collection_states.get(&id) else {
+        // Inert post-`unbind` wrapper — caller falls through to its
+        // default return.  Not a brand violation.
+        return Ok(None);
+    };
     if !matches!(coll.filter(), CollectionFilter::Options) {
         return Err(illegal());
     }

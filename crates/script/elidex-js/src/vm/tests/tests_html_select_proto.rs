@@ -824,6 +824,54 @@ fn options_collection_subclass_of_html_collection() {
 }
 
 #[test]
+fn options_collection_methods_no_op_when_state_cleared() {
+    // Regression: `Vm::unbind` clears `live_collection_states`, so
+    // any HTMLOptionsCollection wrapper retained across the unbind
+    // boundary must behave like other inert post-unbind collection
+    // wrappers (return defaults / no-op) rather than throw "Illegal
+    // invocation".  Simulate by clearing `live_collection_states`
+    // between two evals — `add` / `remove` / `length=` /
+    // `selectedIndex=` should all pass through without throwing.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Allocate the options wrapper into a global, then clear the
+    // backing state so the wrapper goes inert.
+    vm.eval(
+        "globalThis.s = document.createElement('option'); \
+         globalThis.sel = document.createElement('select'); \
+         globalThis.opts = sel.options;",
+    )
+    .unwrap();
+    vm.inner.live_collection_states.clear();
+    // Each method should land in the inert branch and return its
+    // default (Undefined) without throwing.  Test all four mutable
+    // members (add / remove / length= / selectedIndex=).
+    let result = vm
+        .eval(
+            "try { \
+               opts.add(s); \
+               opts.remove(0); \
+               opts.length = 5; \
+               opts.selectedIndex = 0; \
+               'no-throw'; \
+             } catch (e) { 'threw:' + e.message; }",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}");
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    assert_eq!(out, "no-throw");
+    vm.unbind();
+}
+
+#[test]
 fn options_collection_add_brand_check_rejects_non_options_collection() {
     // `HTMLOptionsCollection.prototype.add.call(otherHtmlCollection, ...)`
     // throws TypeError because the receiver isn't an Options-filter
