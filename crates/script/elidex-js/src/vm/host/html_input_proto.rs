@@ -250,56 +250,58 @@ impl VmInner {
             Some(native_input_set_type),
             attrs,
         );
-        // value / defaultValue / checked / defaultChecked / indeterminate.
+        // value / defaultValue / checked / defaultChecked / indeterminate
+        // (bodies in `super::html_input_value`).
+        use super::html_input_value as iv;
         self.install_accessor_pair(
             proto_id,
             self.well_known.value,
-            native_input_get_value,
-            Some(native_input_set_value),
+            iv::native_input_get_value,
+            Some(iv::native_input_set_value),
             attrs,
         );
         self.install_accessor_pair(
             proto_id,
             self.well_known.default_value,
-            native_input_get_default_value,
-            Some(native_input_set_default_value),
+            iv::native_input_get_default_value,
+            Some(iv::native_input_set_default_value),
             attrs,
         );
         self.install_accessor_pair(
             proto_id,
             self.well_known.checked_attr,
-            native_input_get_checked,
-            Some(native_input_set_checked),
+            iv::native_input_get_checked,
+            Some(iv::native_input_set_checked),
             attrs,
         );
         self.install_accessor_pair(
             proto_id,
             self.well_known.default_checked,
-            native_input_get_default_checked,
-            Some(native_input_set_default_checked),
+            iv::native_input_get_default_checked,
+            Some(iv::native_input_set_default_checked),
             attrs,
         );
         self.install_accessor_pair(
             proto_id,
             self.well_known.indeterminate,
-            native_input_get_indeterminate,
-            Some(native_input_set_indeterminate),
+            iv::native_input_get_indeterminate,
+            Some(iv::native_input_set_indeterminate),
             attrs,
         );
         // valueAsNumber.
         self.install_accessor_pair(
             proto_id,
             self.well_known.value_as_number,
-            native_input_get_value_as_number,
-            Some(native_input_set_value_as_number),
+            iv::native_input_get_value_as_number,
+            Some(iv::native_input_set_value_as_number),
             attrs,
         );
         // valueAsDate (stub: getter returns null, setter accepts only null).
         self.install_accessor_pair(
             proto_id,
             self.well_known.value_as_date,
-            native_input_get_value_as_date,
-            Some(native_input_set_value_as_date),
+            iv::native_input_get_value_as_date,
+            Some(iv::native_input_set_value_as_date),
             attrs,
         );
         // form / labels / files / list.
@@ -331,26 +333,28 @@ impl VmInner {
             None,
             attrs,
         );
-        // Selection API state accessors.
+        // Selection API state accessors (bodies in
+        // `super::html_input_selection`).
+        use super::html_input_selection as is_;
         self.install_accessor_pair(
             proto_id,
             self.well_known.selection_start,
-            native_input_get_selection_start,
-            Some(native_input_set_selection_start),
+            is_::native_input_get_selection_start,
+            Some(is_::native_input_set_selection_start),
             attrs,
         );
         self.install_accessor_pair(
             proto_id,
             self.well_known.selection_end,
-            native_input_get_selection_end,
-            Some(native_input_set_selection_end),
+            is_::native_input_get_selection_end,
+            Some(is_::native_input_set_selection_end),
             attrs,
         );
         self.install_accessor_pair(
             proto_id,
             self.well_known.selection_direction,
-            native_input_get_selection_direction,
-            Some(native_input_set_selection_direction),
+            is_::native_input_get_selection_direction,
+            Some(is_::native_input_set_selection_direction),
             attrs,
         );
         // Methods.
@@ -358,26 +362,31 @@ impl VmInner {
         self.install_native_method(
             proto_id,
             self.well_known.select_method,
-            native_input_select_method,
+            is_::native_input_select_method,
             m,
         );
         self.install_native_method(
             proto_id,
             self.well_known.set_selection_range,
-            native_input_set_selection_range,
+            is_::native_input_set_selection_range,
             m,
         );
         self.install_native_method(
             proto_id,
             self.well_known.set_range_text,
-            native_input_set_range_text,
+            is_::native_input_set_range_text,
             m,
         );
-        self.install_native_method(proto_id, self.well_known.step_up, native_input_step_up, m);
+        self.install_native_method(
+            proto_id,
+            self.well_known.step_up,
+            iv::native_input_step_up,
+            m,
+        );
         self.install_native_method(
             proto_id,
             self.well_known.step_down,
-            native_input_step_down,
+            iv::native_input_step_down,
             m,
         );
         self.install_native_method(
@@ -393,7 +402,7 @@ impl VmInner {
 // Brand check
 // ---------------------------------------------------------------------------
 
-fn require_input_receiver(
+pub(super) fn require_input_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,
@@ -897,288 +906,11 @@ fn native_input_set_type(
 }
 
 // ---------------------------------------------------------------------------
-// value / defaultValue / checked / defaultChecked / indeterminate
+// value / defaultValue / checked / defaultChecked / indeterminate /
+// valueAsNumber / valueAsDate / stepUp / stepDown
+//
+// Bodies live in `vm/host/html_input_value.rs` (B-5 split).
 // ---------------------------------------------------------------------------
-
-/// Read `FormControlState.value` for the input entity.  Returns
-/// `""` if the state is missing (not a recognised form control).
-fn read_state_value(ctx: &mut NativeContext<'_>, entity: Entity) -> JsValue {
-    let empty = ctx.vm.well_known.empty;
-    let dom = ctx.host().dom();
-    let Some(state) = dom.world().get::<&FormControlState>(entity).ok() else {
-        return JsValue::String(empty);
-    };
-    let v = state.value().to_owned();
-    drop(state);
-    let sid = ctx.vm.strings.intern(&v);
-    JsValue::String(sid)
-}
-
-fn native_input_get_value(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "value")? else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
-    Ok(read_state_value(ctx, entity))
-}
-
-fn native_input_set_value(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "value")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_value(s);
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_get_default_value(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let empty = ctx.vm.well_known.empty;
-    let Some(entity) = require_input_receiver(ctx, this, "defaultValue")? else {
-        return Ok(JsValue::String(empty));
-    };
-    let sid = match ctx.dom_and_strings_if_bound() {
-        Some((dom, strings)) => {
-            dom.with_attribute(entity, "value", |v| v.map_or(empty, |s| strings.intern(s)))
-        }
-        None => empty,
-    };
-    Ok(JsValue::String(sid))
-}
-
-fn native_input_set_default_value(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "defaultValue")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "value", s.clone());
-    // Mirror into FormControlState.default_value if not dirty —
-    // matches HTML §4.10.5.1.7 step "default value mode".
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.default_value.clone_from(&s);
-        if !state.is_dirty() {
-            state.set_value_initial(s);
-        }
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_get_checked(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "checked")? else {
-        return Ok(JsValue::Boolean(false));
-    };
-    let dom = ctx.host().dom();
-    let checked = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.checked)
-        .unwrap_or(false);
-    Ok(JsValue::Boolean(checked))
-}
-
-fn native_input_set_checked(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "checked")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let flag = super::super::coerce::to_boolean(ctx.vm, val);
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.checked = flag;
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_get_default_checked(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "defaultChecked")? else {
-        return Ok(JsValue::Boolean(false));
-    };
-    Ok(JsValue::Boolean(
-        ctx.host().dom().has_attribute(entity, "checked"),
-    ))
-}
-
-fn native_input_set_default_checked(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "defaultChecked")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let flag = super::super::coerce::to_boolean(ctx.vm, val);
-    if flag {
-        ctx.host()
-            .dom()
-            .set_attribute(entity, "checked", String::new());
-    } else {
-        super::element_attrs::attr_remove(ctx, entity, "checked");
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.default_checked = flag;
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_get_indeterminate(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "indeterminate")? else {
-        return Ok(JsValue::Boolean(false));
-    };
-    let dom = ctx.host().dom();
-    let flag = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.indeterminate)
-        .unwrap_or(false);
-    Ok(JsValue::Boolean(flag))
-}
-
-fn native_input_set_indeterminate(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "indeterminate")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let flag = super::super::coerce::to_boolean(ctx.vm, val);
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.indeterminate = flag;
-    }
-    Ok(JsValue::Undefined)
-}
-
-// ---------------------------------------------------------------------------
-// valueAsNumber / valueAsDate
-// ---------------------------------------------------------------------------
-
-fn native_input_get_value_as_number(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "valueAsNumber")? else {
-        return Ok(JsValue::Number(f64::NAN));
-    };
-    let dom = ctx.host().dom();
-    let Some(state) = dom.world().get::<&FormControlState>(entity).ok() else {
-        return Ok(JsValue::Number(f64::NAN));
-    };
-    use elidex_form::FormControlKind;
-    let parsed = match state.kind {
-        FormControlKind::Number | FormControlKind::Range => state.value().parse::<f64>().ok(),
-        _ => None,
-    };
-    Ok(JsValue::Number(parsed.unwrap_or(f64::NAN)))
-}
-
-fn native_input_set_value_as_number(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "valueAsNumber")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Number(n) = val else {
-        return Err(VmError::type_error(
-            "valueAsNumber: argument is not a number".to_string(),
-        ));
-    };
-    if !n.is_finite() {
-        return Err(VmError::type_error(
-            "valueAsNumber: non-finite values are not allowed".to_string(),
-        ));
-    }
-    let invalid_state_sid = ctx.vm.well_known.dom_exc_invalid_state_error;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        use elidex_form::FormControlKind;
-        match state.kind {
-            FormControlKind::Number | FormControlKind::Range => {
-                state.set_value(n.to_string());
-            }
-            _ => {
-                drop(state);
-                return Err(VmError::dom_exception(
-                    invalid_state_sid,
-                    "valueAsNumber: input type does not support number conversion",
-                ));
-            }
-        }
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_get_value_as_date(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // Stub — Date IDL integration deferred to
-    // `#11-input-value-as-date`.
-    let _ = require_input_receiver(ctx, this, "valueAsDate")?;
-    Ok(JsValue::Null)
-}
-
-fn native_input_set_value_as_date(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let _ = require_input_receiver(ctx, this, "valueAsDate")?;
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    if matches!(val, JsValue::Null) {
-        return Ok(JsValue::Undefined);
-    }
-    Err(VmError::dom_exception(
-        ctx.vm.well_known.dom_exc_invalid_state_error,
-        "valueAsDate: only null is accepted (Date integration not yet supported)",
-    ))
-}
 
 // ---------------------------------------------------------------------------
 // form / labels / files / list
@@ -1232,330 +964,13 @@ fn native_input_get_list(
 }
 
 // ---------------------------------------------------------------------------
-// Selection API — selectionStart / selectionEnd / selectionDirection /
-// setSelectionRange / setRangeText / select
+// Selection API thin wrappers live in `vm/host/html_input_selection.rs`,
+// stepUp / stepDown bodies live in `vm/host/html_input_value.rs`.
 // ---------------------------------------------------------------------------
 
-fn require_text_control(
-    ctx: &mut NativeContext<'_>,
-    entity: Entity,
-    method: &str,
-) -> Result<(), VmError> {
-    let dom = ctx.host().dom();
-    let supports = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.kind.supports_selection())
-        .unwrap_or(false);
-    if !supports {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
-            format!(
-                "Failed to execute '{method}' on 'HTMLInputElement': \
-                 The input element's type does not support selection"
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn native_input_get_selection_start(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "selectionStart")? else {
-        return Ok(JsValue::Null);
-    };
-    require_text_control(ctx, entity, "selectionStart")?;
-    let dom = ctx.host().dom();
-    let pos = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.selection_start())
-        .unwrap_or(0);
-    Ok(JsValue::Number(f64::from(
-        u32::try_from(pos).unwrap_or(u32::MAX),
-    )))
-}
-
-fn native_input_set_selection_start(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "selectionStart")? else {
-        return Ok(JsValue::Undefined);
-    };
-    require_text_control(ctx, entity, "selectionStart")?;
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection_start(n);
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_get_selection_end(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "selectionEnd")? else {
-        return Ok(JsValue::Null);
-    };
-    require_text_control(ctx, entity, "selectionEnd")?;
-    let dom = ctx.host().dom();
-    let pos = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.selection_end())
-        .unwrap_or(0);
-    Ok(JsValue::Number(f64::from(
-        u32::try_from(pos).unwrap_or(u32::MAX),
-    )))
-}
-
-fn native_input_set_selection_end(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "selectionEnd")? else {
-        return Ok(JsValue::Undefined);
-    };
-    require_text_control(ctx, entity, "selectionEnd")?;
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection_end(n);
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_get_selection_direction(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "selectionDirection")? else {
-        return Ok(JsValue::Null);
-    };
-    require_text_control(ctx, entity, "selectionDirection")?;
-    let dom = ctx.host().dom();
-    use elidex_form::SelectionDirection;
-    let dir = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.selection_direction)
-        .unwrap_or(SelectionDirection::None);
-    let s = match dir {
-        SelectionDirection::Forward => "forward",
-        SelectionDirection::Backward => "backward",
-        SelectionDirection::None => "none",
-    };
-    let sid = ctx.vm.strings.intern(s);
-    Ok(JsValue::String(sid))
-}
-
-fn native_input_set_selection_direction(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "selectionDirection")? else {
-        return Ok(JsValue::Undefined);
-    };
-    require_text_control(ctx, entity, "selectionDirection")?;
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    use elidex_form::SelectionDirection;
-    let dir = match s.as_str() {
-        "forward" => SelectionDirection::Forward,
-        "backward" => SelectionDirection::Backward,
-        _ => SelectionDirection::None,
-    };
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.selection_direction = dir;
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_select_method(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "select")? else {
-        return Ok(JsValue::Undefined);
-    };
-    require_text_control(ctx, entity, "select")?;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        elidex_form::select_all(&mut state);
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_set_selection_range(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "setSelectionRange")? else {
-        return Ok(JsValue::Undefined);
-    };
-    require_text_control(ctx, entity, "setSelectionRange")?;
-    let start_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let end_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let dir_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-    // setSelectionRange start / end are WebIDL `unsigned long`
-    // (HTML §4.10.5.2.10) — coerce via ToUint32 so negative inputs
-    // wrap to 2³² + n rather than clamping to 0; the clamping to
-    // `value.len()` happens inside `set_selection`.
-    let start = super::super::coerce::to_uint32(ctx.vm, start_arg)? as usize;
-    let end = super::super::coerce::to_uint32(ctx.vm, end_arg)? as usize;
-    use elidex_form::SelectionDirection;
-    let dir = if matches!(dir_arg, JsValue::Undefined) {
-        SelectionDirection::None
-    } else {
-        let sid = super::super::coerce::to_string(ctx.vm, dir_arg)?;
-        let s = ctx.vm.strings.get_utf8(sid);
-        match s.as_str() {
-            "forward" => SelectionDirection::Forward,
-            "backward" => SelectionDirection::Backward,
-            _ => SelectionDirection::None,
-        }
-    };
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection(start, end);
-        state.selection_direction = dir;
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_set_range_text(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "setRangeText")? else {
-        return Ok(JsValue::Undefined);
-    };
-    require_text_control(ctx, entity, "setRangeText")?;
-    let replacement_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, replacement_arg)?;
-    let replacement = ctx.vm.strings.get_utf8(sid);
-    // Optional start / end via WebIDL `unsigned long` coercion
-    // (HTML §4.10.5.2.10) — `to_uint32` runs ToNumber first so
-    // strings ("2"), booleans (true → 1 / false → 0), and
-    // BigInts all coerce.  `Undefined` / missing → use the
-    // current selection bounds.  Negative inputs wrap modulo
-    // 2³² (per ToUint32) and the result is clamped to
-    // `value.len()` inside `set_selection`.
-    let coerced_start = coerce_optional_clamp(ctx, args.get(1).copied())?;
-    let coerced_end = coerce_optional_clamp(ctx, args.get(2).copied())?;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        let (cur_s, cur_e) = state.safe_selection_range();
-        let start = coerced_start.unwrap_or(cur_s);
-        let end = coerced_end.unwrap_or(cur_e);
-        state.set_selection(start, end);
-        // FormControlState exposes `replace_selection` directly,
-        // matching `elidex_form::selection::replace_selection` but
-        // accessible without the private-module re-export.
-        state.replace_selection(replacement.as_str());
-    }
-    Ok(JsValue::Undefined)
-}
-
-/// Coerce an optional `start` / `end` argument from `setRangeText`
-/// (and the now-unused `setSelectionRange` companion) into a
-/// `usize`.  `Undefined` / missing yields `None` (caller
-/// substitutes the current selection bound); other values flow
-/// through `to_uint32` (full WebIDL `unsigned long` coercion:
-/// ToNumber → trunc → mod-2³² as an unsigned integer) and convert
-/// to `usize` directly — `set_selection` clamps to `value.len()`.
-/// Negative inputs wrap to large positive values per ToUint32 and
-/// then clamp, which matches HTML §4.10.5.2.10.
-fn coerce_optional_clamp(
-    ctx: &mut NativeContext<'_>,
-    arg: Option<JsValue>,
-) -> Result<Option<usize>, VmError> {
-    match arg {
-        None | Some(JsValue::Undefined) => Ok(None),
-        Some(v) => {
-            let n = super::super::coerce::to_uint32(ctx.vm, v)?;
-            Ok(Some(n as usize))
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
-// stepUp / stepDown / showPicker
+// showPicker
 // ---------------------------------------------------------------------------
-
-fn step_apply(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-    method: &str,
-    direction: f64,
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, method)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let n = if matches!(
-        args.first().copied().unwrap_or(JsValue::Undefined),
-        JsValue::Undefined
-    ) {
-        1.0
-    } else {
-        super::super::coerce::to_number(ctx.vm, args[0])?
-    };
-    // HTML §4.10.5.4 stepUp/stepDown algorithm hoisted to elidex-form
-    // (slot #11-tags-T1-v2-drift-hoist D-2).  VM host/ retains brand
-    // check + arg coercion + DOMException construction; the algorithm
-    // mutating the FormControlState is engine-independent.
-    let dom = ctx.host().dom();
-    let result = if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        elidex_form::apply_step(&mut state, n, direction)
-    } else {
-        Ok(())
-    };
-    if let Err(elidex_form::StepError::NotSupported) = result {
-        let invalid_state_sid = ctx.vm.well_known.dom_exc_invalid_state_error;
-        return Err(VmError::dom_exception(
-            invalid_state_sid,
-            format!(
-                "Failed to execute '{method}' on 'HTMLInputElement': \
-                 This input element does not have stepping"
-            ),
-        ));
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_input_step_up(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    step_apply(ctx, this, args, "stepUp", 1.0)
-}
-
-fn native_input_step_down(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    step_apply(ctx, this, args, "stepDown", -1.0)
-}
 
 fn native_input_show_picker(
     ctx: &mut NativeContext<'_>,

@@ -139,6 +139,10 @@ pub(super) mod html_option_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_input_proto;
 #[cfg(feature = "engine")]
+pub(super) mod html_input_selection;
+#[cfg(feature = "engine")]
+pub(super) mod html_input_value;
+#[cfg(feature = "engine")]
 pub(super) mod html_select_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_textarea_proto;
@@ -162,6 +166,8 @@ pub(super) mod performance;
 pub(crate) mod readable_stream;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;
+#[cfg(feature = "engine")]
+pub(super) mod selection_api;
 #[cfg(feature = "engine")]
 pub(super) mod storage;
 #[cfg(feature = "engine")]
