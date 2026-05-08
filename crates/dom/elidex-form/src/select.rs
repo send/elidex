@@ -50,41 +50,42 @@ pub fn select_uses_implicit_default(dom: &EcsDom, select: Entity) -> bool {
 /// Returns the index of the first option whose own `selected` content
 /// attribute is set.  When no option is explicitly selected and the
 /// select is in implicit-default mode (see [`select_uses_implicit_default`]),
-/// returns the index of the first non-disabled option.  Returns `-1`
-/// when the select has no usable selection.
+/// returns the index of the first non-disabled option.  Returns
+/// `-1.0` when the select has no usable selection.
+///
+/// Returns `f64` (matching the JS-observable `JsValue::Number(...)`
+/// shape) rather than WebIDL-spec `long` / `i32`, so the pre-PR
+/// VM-host saturation cap (`u32::MAX` → `f64::from`) is preserved
+/// exactly.  The "pure hoist / no behavior change" invariant for
+/// slot `#11-tags-T1-v2-drift-hoist` requires preserving the prior
+/// saturation; tightening to a true WebIDL `long` (i32-clamped) is
+/// a separate (intentional) behaviour change tracked alongside
+/// `#11-content-editable-depth-cap`.
 #[must_use]
-pub fn select_selected_index(dom: &EcsDom, select: Entity) -> i32 {
+pub fn select_selected_index(dom: &EcsDom, select: Entity) -> f64 {
     let mut opts = elidex_dom_api::LiveCollection::new(
         select,
         elidex_dom_api::CollectionFilter::Options,
         elidex_dom_api::CollectionKind::HtmlCollection,
     );
     let snap = opts.snapshot(dom).to_vec();
-    // Index range realistically capped well under `i32::MAX` (~2B
-    // options) by DOM tree size; the `debug_assert` catches a future
-    // bug that lets the option count balloon past the cap rather
-    // than silently truncate.
-    debug_assert!(
-        i32::try_from(snap.len()).is_ok(),
-        "select option count overflows i32"
-    );
     for (idx, opt) in snap.iter().enumerate() {
         if dom
             .world()
             .get::<&Attributes>(*opt)
             .is_ok_and(|a| a.contains("selected"))
         {
-            return i32::try_from(idx).unwrap_or(i32::MAX);
+            return f64::from(u32::try_from(idx).unwrap_or(u32::MAX));
         }
     }
     if select_uses_implicit_default(dom, select) {
         for (idx, opt) in snap.iter().enumerate() {
             if !is_option_disabled(dom, *opt) {
-                return i32::try_from(idx).unwrap_or(i32::MAX);
+                return f64::from(u32::try_from(idx).unwrap_or(u32::MAX));
             }
         }
     }
-    -1
+    -1.0
 }
 
 /// Compute a single `<option>`'s value (HTML §4.10.10).
@@ -916,7 +917,7 @@ mod tests {
             Attributes::default(),
             &[TestOpt::marked(false, false), TestOpt::marked(true, false)],
         );
-        assert_eq!(select_selected_index(&dom, sel), 1);
+        assert_eq!(select_selected_index(&dom, sel), 1.0);
     }
 
     #[test]
@@ -929,7 +930,7 @@ mod tests {
                 TestOpt::marked(false, false),
             ],
         );
-        assert_eq!(select_selected_index(&dom, sel), 2);
+        assert_eq!(select_selected_index(&dom, sel), 2.0);
     }
 
     #[test]
@@ -938,7 +939,7 @@ mod tests {
             Attributes::default(),
             &[TestOpt::marked(false, true), TestOpt::marked(false, true)],
         );
-        assert_eq!(select_selected_index(&dom, sel), -1);
+        assert_eq!(select_selected_index(&dom, sel), -1.0);
     }
 
     #[test]
@@ -946,7 +947,7 @@ mod tests {
         let mut attrs = Attributes::default();
         attrs.set("size", "5");
         let (dom, sel) = build_select(attrs, &[TestOpt::default(), TestOpt::default()]);
-        assert_eq!(select_selected_index(&dom, sel), -1);
+        assert_eq!(select_selected_index(&dom, sel), -1.0);
     }
 
     #[test]
@@ -954,7 +955,7 @@ mod tests {
         let mut attrs = Attributes::default();
         attrs.set("multiple", "");
         let (dom, sel) = build_select(attrs, &[TestOpt::default(), TestOpt::default()]);
-        assert_eq!(select_selected_index(&dom, sel), -1);
+        assert_eq!(select_selected_index(&dom, sel), -1.0);
     }
 
     #[test]
@@ -971,7 +972,7 @@ mod tests {
                 TestOpt::default(),
             ],
         );
-        assert_eq!(select_selected_index(&dom, sel), 1);
+        assert_eq!(select_selected_index(&dom, sel), 1.0);
     }
 
     #[test]
@@ -980,7 +981,7 @@ mod tests {
             Attributes::default(),
             &[TestOpt::marked(true, false), TestOpt::marked(true, false)],
         );
-        assert_eq!(select_selected_index(&dom, sel), 0);
+        assert_eq!(select_selected_index(&dom, sel), 0.0);
     }
 
     // -- option_value_string / select_get_value tests (D-4 hoist) --
@@ -1070,7 +1071,7 @@ mod tests {
             ],
         );
         select_set_value(&mut dom, sel, "b");
-        assert_eq!(select_selected_index(&dom, sel), 1);
+        assert_eq!(select_selected_index(&dom, sel), 1.0);
         assert_eq!(select_get_value(&dom, sel), "b");
     }
 
@@ -1124,7 +1125,7 @@ mod tests {
             ],
         );
         select_set_value(&mut dom, sel, "dup");
-        assert_eq!(select_selected_index(&dom, sel), 0);
+        assert_eq!(select_selected_index(&dom, sel), 0.0);
     }
 
     // -- select_set_selected_index tests (D-4 hoist) ---------------
@@ -1136,7 +1137,7 @@ mod tests {
             &[TestOpt::valued("a"), TestOpt::valued("b")],
         );
         select_set_selected_index(&mut dom, sel, 1);
-        assert_eq!(select_selected_index(&dom, sel), 1);
+        assert_eq!(select_selected_index(&dom, sel), 1.0);
     }
 
     #[test]

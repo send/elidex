@@ -521,8 +521,8 @@ fn native_select_get_selected_index(
     // HTML §4.10.10.2 selectedness fallback hoisted to elidex-form
     // (slot #11-tags-T1-v2-drift-hoist D-3) — vm/host/ retains only
     // brand check + JsValue marshalling.
-    let idx = elidex_form::select_selected_index(ctx.host().dom(), entity);
-    Ok(JsValue::Number(f64::from(idx)))
+    let value = elidex_form::select_selected_index(ctx.host().dom(), entity);
+    Ok(JsValue::Number(value))
 }
 
 fn native_select_set_selected_index(
