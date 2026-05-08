@@ -135,6 +135,8 @@ pub(super) mod html_legend_proto;
 pub(super) mod html_optgroup_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_option_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_options_collection;
 
 #[cfg(feature = "engine")]
 pub(super) mod form_state_sync;

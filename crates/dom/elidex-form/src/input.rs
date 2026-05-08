@@ -204,12 +204,7 @@ pub fn sanitize_for_type_change(state: &mut FormControlState, old_kind: FormCont
         state.indeterminate = false;
     }
     if state.kind == FormControlKind::Number {
-        let value_is_valid_number = state
-            .value()
-            .parse::<f64>()
-            .ok()
-            .filter(|n| n.is_finite())
-            .is_some();
+        let value_is_valid_number = state.value().parse::<f64>().is_ok_and(f64::is_finite);
         if !value_is_valid_number && !state.value().is_empty() {
             state.set_value(String::new());
         }

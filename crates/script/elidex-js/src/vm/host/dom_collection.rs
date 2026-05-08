@@ -180,10 +180,77 @@ impl VmInner {
         );
     }
 
+    /// Allocate `HTMLOptionsCollection.prototype` chained to
+    /// [`Self::html_collection_prototype`] (HTML §4.10.10.2).
+    /// Inherits `length` / `item` / `namedItem` / `[Symbol.iterator]`
+    /// from the parent prototype and adds the four Options-only
+    /// members:
+    ///
+    /// - `add(opt, before?)` — same algorithm as
+    ///   `HTMLSelectElement.prototype.add` (HTML §4.10.7.5).
+    /// - `remove(idx)` — option-at-index detach.
+    /// - `length` setter — extends with bare `<option>` elements or
+    ///   truncates from the end.
+    /// - `selectedIndex` (R/W) — alias for
+    ///   `HTMLSelectElement.prototype.selectedIndex`.
+    pub(in crate::vm) fn register_html_options_collection_prototype(&mut self) {
+        let parent = self
+            .html_collection_prototype
+            .expect("register_html_options_collection_prototype before HTMLCollection.prototype");
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(parent),
+            extensible: true,
+        });
+        self.html_options_collection_prototype = Some(proto_id);
+
+        let m = shape::PropertyAttrs::METHOD;
+        self.install_native_method(
+            proto_id,
+            self.well_known.add,
+            super::html_options_collection::native_options_add,
+            m,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.remove,
+            super::html_options_collection::native_options_remove,
+            m,
+        );
+
+        let attrs = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
+        // `length` getter is inherited from HTMLCollection.prototype;
+        // we install an OWN accessor pair so the setter can write
+        // through to the option list.  The getter delegates to the
+        // shared `native_hc_length_get` body used by HTMLCollection.
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.length,
+            native_hc_length_get,
+            Some(super::html_options_collection::native_options_set_length),
+            attrs,
+        );
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.selected_index,
+            super::html_options_collection::native_options_get_selected_index,
+            Some(super::html_options_collection::native_options_set_selected_index),
+            attrs,
+        );
+    }
+
     /// Allocate a new collection wrapper backed by `coll`. The
     /// returned `ObjectId` carries `ObjectKind::HtmlCollection` or
     /// `ObjectKind::NodeList` (chosen by the collection's
     /// [`CollectionKind`]) and points at the matching prototype.
+    ///
+    /// `HtmlCollection`-kinded collections whose filter is
+    /// [`CollectionFilter::Options`] route to
+    /// [`Self::html_options_collection_prototype`] (a subclass of
+    /// `HTMLCollection.prototype`) so `select.options.add` / `remove`
+    /// / `length =` / `selectedIndex` reach the Options-only
+    /// members.
     ///
     /// Convention: do **not** add new collection variants by
     /// extending [`ObjectKind`]; extend
@@ -194,11 +261,17 @@ impl VmInner {
     /// engine-independent crate.
     pub(crate) fn alloc_collection(&mut self, coll: LiveCollection) -> ObjectId {
         let (object_kind, proto) = match coll.kind() {
-            CollectionKind::HtmlCollection => (
-                ObjectKind::HtmlCollection,
-                self.html_collection_prototype
-                    .expect("alloc_collection before register_html_collection_prototype"),
-            ),
+            CollectionKind::HtmlCollection => {
+                let proto = if matches!(coll.filter(), CollectionFilter::Options) {
+                    self.html_options_collection_prototype.expect(
+                        "alloc_collection(Options) before register_html_options_collection_prototype",
+                    )
+                } else {
+                    self.html_collection_prototype
+                        .expect("alloc_collection before register_html_collection_prototype")
+                };
+                (ObjectKind::HtmlCollection, proto)
+            }
             CollectionKind::NodeList => (
                 ObjectKind::NodeList,
                 self.node_list_prototype

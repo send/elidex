@@ -27,6 +27,10 @@
 // Reads through `Result<&FormControlState>` follow the same shared-
 // borrow pattern as the parent file.
 #![allow(clippy::map_unwrap_or)]
+// `use elidex_form::FormControlKind;` lives inside the `valueAsNumber`
+// accessor bodies — local imports within statements, mirroring the
+// parent `html_input_proto.rs`.
+#![allow(clippy::items_after_statements)]
 
 use elidex_ecs::Entity;
 use elidex_form::FormControlState;

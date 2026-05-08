@@ -732,3 +732,83 @@ fn select_selected_options_explicit_selected_overrides_implicit() {
          '' + s.selectedOptions.length + '/' + (s.selectedOptions.item(0) === o2);");
     assert_eq!(out, "1/true");
 }
+
+// -------------------------------------------------------------------
+// HTMLOptionsCollection mutable surface (HTML §4.10.10.2 — B-2).
+// -------------------------------------------------------------------
+
+#[test]
+fn options_collection_add_appends_when_no_before() {
+    let out = run("var s = document.createElement('select'); \
+         var o = document.createElement('option'); \
+         s.options.add(o); \
+         '' + s.options.length + '/' + (s.options.item(0) === o);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn options_collection_remove_at_index() {
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); \
+         s.options.remove(0); \
+         '' + s.options.length + '/' + (s.options.item(0) === o2);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn options_collection_length_setter_extends_with_bare_options() {
+    let out = run("var s = document.createElement('select'); \
+         s.options.length = 3; \
+         '' + s.options.length;");
+    assert_eq!(out, "3");
+}
+
+#[test]
+fn options_collection_length_setter_truncates_from_end() {
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         var o3 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); s.appendChild(o3); \
+         s.options.length = 1; \
+         '' + s.options.length + '/' + (s.options.item(0) === o1);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn options_collection_selected_index_round_trips() {
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); \
+         s.options.selectedIndex = 1; \
+         '' + s.selectedIndex;");
+    assert_eq!(out, "1");
+}
+
+#[test]
+fn options_collection_subclass_of_html_collection() {
+    // HTMLOptionsCollection.prototype chains to HTMLCollection.prototype.
+    // The wrapper exposes the inherited `length` (read) / `item` /
+    // `namedItem` getters via the prototype chain.
+    let out = run("var s = document.createElement('select'); \
+         var p = Object.getPrototypeOf(s.options); \
+         var hcp = Object.getPrototypeOf(p); \
+         (typeof p.add === 'function' && typeof hcp.item === 'function') ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn options_collection_add_brand_check_rejects_non_options_collection() {
+    // `HTMLOptionsCollection.prototype.add.call(otherHtmlCollection, ...)`
+    // throws TypeError because the receiver isn't an Options-filter
+    // collection.
+    let out = run("var s = document.createElement('select'); \
+         var addFn = Object.getPrototypeOf(s.options).add; \
+         var generic = document.getElementsByTagName('div'); \
+         try { addFn.call(generic, document.createElement('option')); 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
+    assert_eq!(out, "type");
+}

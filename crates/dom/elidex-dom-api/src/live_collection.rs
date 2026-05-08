@@ -187,6 +187,14 @@ impl LiveCollection {
         &self.filter
     }
 
+    /// The root entity that bounds this collection's walk, or `None`
+    /// for `Snapshot` collections (whose entity list is frozen and
+    /// has no live root).
+    #[must_use]
+    pub fn root(&self) -> Option<Entity> {
+        self.root
+    }
+
     /// The kind of this collection.
     #[must_use]
     pub fn kind(&self) -> CollectionKind {
