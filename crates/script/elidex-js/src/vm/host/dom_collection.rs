@@ -252,6 +252,22 @@ impl FormCollectionCache {
     }
 }
 
+/// Allocate an empty `NodeList` snapshot for `.labels` stub accessors
+/// shared by `<input>` / `<textarea>` / `<select>` / `<button>`.
+///
+/// The live `LabelList` walk lives in `elidex_form` (entry `collect_labels_for`,
+/// not yet exposed); until that walker lands every `.labels` reflect
+/// returns this empty snapshot so `instanceof NodeList` holds and
+/// `.length` is `0`.  Centralising the allocation keeps the four
+/// per-tag stubs consistent and makes the future swap to a live
+/// walker a single-line change in each accessor.
+pub(super) fn empty_labels_collection(vm: &mut VmInner) -> ObjectId {
+    vm.alloc_collection(LiveCollection::new_snapshot(
+        Vec::new(),
+        CollectionKind::NodeList,
+    ))
+}
+
 /// `[SameObject]`-cached HTMLCollection accessor for form-related
 /// surfaces.  Encapsulates the 3-step pattern shared by
 /// `form.elements`, `fieldset.elements`, and `select.options`:

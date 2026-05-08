@@ -898,13 +898,9 @@ fn native_input_get_labels(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let _ = require_input_receiver(ctx, this, "labels")?;
-    let id = ctx
-        .vm
-        .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-            Vec::new(),
-            elidex_dom_api::CollectionKind::NodeList,
-        ));
-    Ok(JsValue::Object(id))
+    Ok(JsValue::Object(
+        super::dom_collection::empty_labels_collection(ctx.vm),
+    ))
 }
 
 fn native_input_get_files(
