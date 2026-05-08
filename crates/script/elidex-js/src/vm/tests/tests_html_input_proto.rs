@@ -537,3 +537,59 @@ fn input_form_enctype_invalid_falls_back_to_empty_string() {
          i.setAttribute('formenctype', 'application/json'); i.formEnctype;");
     assert_eq!(out, "");
 }
+
+// HTML §4.10.5.6 type-change sanitize step (B-7).  Concrete failures
+// reported in the followup-cleanup handoff that justify the slot.
+#[test]
+fn input_type_change_from_checkbox_to_text_clears_checked() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='checkbox'; i.checked=true; \
+         i.type='text'; \
+         i.checked ? 'true' : 'false';");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn input_type_change_from_checkbox_to_text_clears_indeterminate() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='checkbox'; i.indeterminate=true; \
+         i.type='text'; \
+         i.indeterminate ? 'true' : 'false';");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn input_type_change_from_radio_to_text_clears_checked() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='radio'; i.checked=true; \
+         i.type='text'; \
+         i.checked ? 'true' : 'false';");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn input_type_change_from_text_to_number_clears_non_numeric_value() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='text'; i.value='abc'; \
+         i.type='number'; \
+         i.value;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn input_type_change_from_text_to_number_keeps_numeric_value() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='text'; i.value='3.14'; \
+         i.type='number'; \
+         i.value;");
+    assert_eq!(out, "3.14");
+}
+
+#[test]
+fn input_type_change_between_checkable_kinds_keeps_checked() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='checkbox'; i.checked=true; \
+         i.type='radio'; \
+         i.checked ? 'true' : 'false';");
+    assert_eq!(out, "true");
+}

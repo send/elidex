@@ -170,6 +170,52 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
     Ok(())
 }
 
+/// HTML §4.10.5.6 type-change sanitize step.
+///
+/// Run after `state.kind` has been updated from `old_kind` to the
+/// new value, to bring `FormControlState` back into a consistent
+/// shape per the new type's invariants:
+///
+/// 1. **Checkable-state cleanup**: if the old kind was `Checkbox`
+///    or `Radio` and the new kind is neither, clear `checked` and
+///    `indeterminate` (HTML §4.10.5.6 step 3.1).  These bits are
+///    semantically meaningless on non-checkable types.
+/// 2. **Number value sanitization**: if the new kind is `Number`
+///    and the current value isn't a finite floating-point literal,
+///    clear it (per HTML §4.10.5.4 number value-sanitization
+///    algorithm — non-numeric values are rejected to `""`).
+///
+/// Other per-type sanitize algorithms (Color, URL, Email, Date,
+/// Range clamp) are deferred to the next implementation pass — the
+/// value-clearing rule for number is the most-frequently-tripping
+/// branch in the wild and the only one with a JS-observable
+/// regression today.
+pub fn sanitize_for_type_change(state: &mut FormControlState, old_kind: FormControlKind) {
+    if state.kind == old_kind {
+        return;
+    }
+    let was_checkable = matches!(old_kind, FormControlKind::Checkbox | FormControlKind::Radio);
+    let is_checkable = matches!(
+        state.kind,
+        FormControlKind::Checkbox | FormControlKind::Radio
+    );
+    if was_checkable && !is_checkable {
+        state.checked = false;
+        state.indeterminate = false;
+    }
+    if state.kind == FormControlKind::Number {
+        let value_is_valid_number = state
+            .value()
+            .parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite())
+            .is_some();
+        if !value_is_valid_number && !state.value().is_empty() {
+            state.set_value(String::new());
+        }
+    }
+}
+
 /// Check if inserting a character would exceed maxlength.
 fn would_exceed_maxlength(state: &FormControlState) -> bool {
     if let Some(max) = state.maxlength {
@@ -543,5 +589,88 @@ mod tests {
         assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
         // f64 1.5 prints as "1.5" via to_string.
         assert_eq!(s.value(), "1.5");
+    }
+
+    // -------------------------------------------------------------------
+    // sanitize_for_type_change (HTML §4.10.5.6)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn sanitize_clears_checked_when_leaving_checkbox() {
+        let mut s = FormControlState {
+            kind: FormControlKind::TextInput,
+            checked: true,
+            ..FormControlState::default()
+        };
+        sanitize_for_type_change(&mut s, FormControlKind::Checkbox);
+        assert!(!s.checked);
+    }
+
+    #[test]
+    fn sanitize_clears_indeterminate_when_leaving_checkbox() {
+        let mut s = FormControlState {
+            kind: FormControlKind::TextInput,
+            indeterminate: true,
+            ..FormControlState::default()
+        };
+        sanitize_for_type_change(&mut s, FormControlKind::Checkbox);
+        assert!(!s.indeterminate);
+    }
+
+    #[test]
+    fn sanitize_clears_checked_when_leaving_radio() {
+        let mut s = FormControlState {
+            kind: FormControlKind::TextInput,
+            checked: true,
+            ..FormControlState::default()
+        };
+        sanitize_for_type_change(&mut s, FormControlKind::Radio);
+        assert!(!s.checked);
+    }
+
+    #[test]
+    fn sanitize_keeps_checked_when_staying_checkable() {
+        let mut s = FormControlState {
+            kind: FormControlKind::Radio,
+            checked: true,
+            ..FormControlState::default()
+        };
+        sanitize_for_type_change(&mut s, FormControlKind::Checkbox);
+        assert!(s.checked);
+    }
+
+    #[test]
+    fn sanitize_clears_value_when_entering_number_with_non_numeric() {
+        let mut s = FormControlState {
+            kind: FormControlKind::Number,
+            ..FormControlState::default()
+        };
+        s.set_value("abc".to_string());
+        sanitize_for_type_change(&mut s, FormControlKind::TextInput);
+        assert_eq!(s.value(), "");
+    }
+
+    #[test]
+    fn sanitize_keeps_value_when_entering_number_with_numeric() {
+        let mut s = FormControlState {
+            kind: FormControlKind::Number,
+            ..FormControlState::default()
+        };
+        s.set_value("3.14".to_string());
+        sanitize_for_type_change(&mut s, FormControlKind::TextInput);
+        assert_eq!(s.value(), "3.14");
+    }
+
+    #[test]
+    fn sanitize_no_op_when_kind_unchanged() {
+        let mut s = FormControlState {
+            kind: FormControlKind::Number,
+            ..FormControlState::default()
+        };
+        s.set_value("not-a-number".to_string());
+        sanitize_for_type_change(&mut s, FormControlKind::Number);
+        // Same-kind transition: no sanitize runs (caller already had
+        // this value, and same-kind means content didn't change).
+        assert_eq!(s.value(), "not-a-number");
     }
 }
