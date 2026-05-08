@@ -222,10 +222,12 @@ pub(super) fn set_range_text(
     let replacement = ctx.vm.strings.get_utf8(sid);
     // Optional start / end via WebIDL `unsigned long` coercion
     // (HTML §4.10.5.2.10) — `to_uint32` runs ToNumber first so
-    // strings ("2"), booleans (true → 1 / false → 0), and BigInts
-    // all coerce.  `Undefined` / missing → use the current selection
-    // bounds.  Negative inputs wrap modulo 2³² (per ToUint32) and
-    // the result is clamped to `value.len()` inside `set_selection`.
+    // strings ("2") and booleans (true → 1 / false → 0) coerce.
+    // BigInt inputs throw TypeError (ES `ToNumber` on BigInt is a
+    // hard error — see `coerce::to_number`).  `Undefined` / missing
+    // → use the current selection bounds.  Negative inputs wrap
+    // modulo 2³² (per ToUint32) and the result is clamped to
+    // `value.len()` inside `set_selection`.
     let coerced_start = coerce_optional_clamp(ctx, args.get(1).copied())?;
     let coerced_end = coerce_optional_clamp(ctx, args.get(2).copied())?;
     let dom = ctx.host().dom();
