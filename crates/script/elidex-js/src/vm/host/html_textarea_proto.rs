@@ -248,7 +248,7 @@ impl VmInner {
     }
 }
 
-fn require_textarea_receiver(
+pub(super) fn require_textarea_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,
@@ -387,39 +387,6 @@ ta_bool_attr!(
 );
 
 /// Boolean reflect setter that ALSO mirrors into the matching
-/// `FormControlState` field via `apply`.  Used for
-/// constraint-bearing attributes (`disabled` / `required` /
-/// `readOnly`) so a JS-side `textarea.required = true` reflects in
-/// `validate_control()` without requiring re-attach.  Mirrors
-/// `html_input_proto.rs::bool_attr_with_state_sync`.
-fn bool_attr_with_state_sync<F>(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-    method: &str,
-    attr: &str,
-    apply: F,
-) -> Result<JsValue, VmError>
-where
-    F: FnOnce(&mut FormControlState, bool),
-{
-    let Some(entity) = require_textarea_receiver(ctx, this, method)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let flag = super::super::coerce::to_boolean(ctx.vm, val);
-    if flag {
-        ctx.host().dom().set_attribute(entity, attr, String::new());
-    } else {
-        super::element_attrs::attr_remove(ctx, entity, attr);
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        apply(&mut state, flag);
-    }
-    Ok(JsValue::Undefined)
-}
-
 fn native_textarea_get_disabled(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -438,9 +405,15 @@ fn native_textarea_set_disabled(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "disabled", "disabled", |s, flag| {
-        s.disabled = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "disabled",
+        "disabled",
+        require_textarea_receiver,
+        |s, flag| s.disabled = flag,
+    )
 }
 
 fn native_textarea_get_required(
@@ -461,9 +434,15 @@ fn native_textarea_set_required(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "required", "required", |s, flag| {
-        s.required = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "required",
+        "required",
+        require_textarea_receiver,
+        |s, flag| s.required = flag,
+    )
 }
 
 fn native_textarea_get_readonly(
@@ -484,9 +463,15 @@ fn native_textarea_set_readonly(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "readOnly", "readonly", |s, flag| {
-        s.readonly = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "readOnly",
+        "readonly",
+        require_textarea_receiver,
+        |s, flag| s.readonly = flag,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -573,9 +558,15 @@ fn native_textarea_set_max_length(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    length_set_with_state_sync(ctx, this, args, "maxLength", "maxlength", |s, n| {
-        s.maxlength = n;
-    })
+    super::form_state_sync::length_set_with_state_sync(
+        ctx,
+        this,
+        args,
+        "maxLength",
+        "maxlength",
+        require_textarea_receiver,
+        |s, n| s.maxlength = n,
+    )
 }
 
 fn native_textarea_get_min_length(
@@ -591,46 +582,15 @@ fn native_textarea_set_min_length(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    length_set_with_state_sync(ctx, this, args, "minLength", "minlength", |s, n| {
-        s.minlength = n;
-    })
-}
-
-/// Length-attribute setter that mirrors the parsed value into the
-/// matching `FormControlState` field so subsequent `validate_control()`
-/// observes the constraint without a re-attach (HTML §4.10.20.3).
-/// Negative values map to `None` (no constraint) per HTML
-/// §4.10.5.1.13 reflection rules.
-fn length_set_with_state_sync<F>(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-    method: &str,
-    attr: &str,
-    apply: F,
-) -> Result<JsValue, VmError>
-where
-    F: FnOnce(&mut FormControlState, Option<usize>),
-{
-    let Some(entity) = require_textarea_receiver(ctx, this, method)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    // HTML §6.13.1 reflection rule for `unsigned long` length attrs:
-    // negative values clear the content attribute (the IDL getter
-    // then returns the default `-1`), instead of persisting an
-    // illegal `maxlength="-1"` / `minlength="-1"`.
-    if n < 0 {
-        super::element_attrs::attr_remove(ctx, entity, attr);
-    } else {
-        ctx.host().dom().set_attribute(entity, attr, n.to_string());
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        apply(&mut state, if n < 0 { None } else { Some(n as usize) });
-    }
-    Ok(JsValue::Undefined)
+    super::form_state_sync::length_set_with_state_sync(
+        ctx,
+        this,
+        args,
+        "minLength",
+        "minlength",
+        require_textarea_receiver,
+        |s, n| s.minlength = n,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -665,13 +625,9 @@ fn native_textarea_get_labels(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let _ = require_textarea_receiver(ctx, this, "labels")?;
-    let id = ctx
-        .vm
-        .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-            Vec::new(),
-            elidex_dom_api::CollectionKind::NodeList,
-        ));
-    Ok(JsValue::Object(id))
+    Ok(JsValue::Object(
+        super::dom_collection::empty_labels_collection(ctx.vm),
+    ))
 }
 
 fn native_textarea_get_default_value(
@@ -767,31 +723,31 @@ fn native_textarea_get_text_length(
 
 // ---------------------------------------------------------------------------
 // Selection API — selectionStart / selectionEnd / selectionDirection /
-// setSelectionRange / setRangeText / select.  Mirrors `<input>` exactly,
-// brand-checked for textarea.
+// setSelectionRange / setRangeText / select.
+//
+// Bodies live in `vm/host/selection_api.rs` and are shared with
+// `<input>`; this section is brand-check + interface-name plumbing.
 // ---------------------------------------------------------------------------
 
-fn require_text_control(
+const TEXTAREA_INTERFACE: &str = "HTMLTextAreaElement";
+const TEXTAREA_ELEM_LABEL: &str = "element";
+
+fn textarea_check(
     ctx: &mut NativeContext<'_>,
-    entity: Entity,
+    this: JsValue,
     method: &str,
-) -> Result<(), VmError> {
-    let dom = ctx.host().dom();
-    let supports = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.kind.supports_selection())
-        .unwrap_or(false);
-    if !supports {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
-            format!(
-                "Failed to execute '{method}' on 'HTMLTextAreaElement': \
-                 The element's type does not support selection"
-            ),
-        ));
-    }
-    Ok(())
+) -> Result<Option<Entity>, VmError> {
+    let Some(entity) = require_textarea_receiver(ctx, this, method)? else {
+        return Ok(None);
+    };
+    super::selection_api::require_text_control(
+        ctx,
+        entity,
+        method,
+        TEXTAREA_INTERFACE,
+        TEXTAREA_ELEM_LABEL,
+    )?;
+    Ok(Some(entity))
 }
 
 fn native_textarea_get_selection_start(
@@ -799,19 +755,10 @@ fn native_textarea_get_selection_start(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "selectionStart")? else {
+    let Some(entity) = textarea_check(ctx, this, "selectionStart")? else {
         return Ok(JsValue::Null);
     };
-    require_text_control(ctx, entity, "selectionStart")?;
-    let dom = ctx.host().dom();
-    let pos = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.selection_start())
-        .unwrap_or(0);
-    Ok(JsValue::Number(f64::from(
-        u32::try_from(pos).unwrap_or(u32::MAX),
-    )))
+    Ok(super::selection_api::get_selection_start(ctx, entity))
 }
 
 fn native_textarea_set_selection_start(
@@ -819,16 +766,10 @@ fn native_textarea_set_selection_start(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "selectionStart")? else {
+    let Some(entity) = textarea_check(ctx, this, "selectionStart")? else {
         return Ok(JsValue::Undefined);
     };
-    require_text_control(ctx, entity, "selectionStart")?;
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection_start(n);
-    }
+    super::selection_api::set_selection_start(ctx, entity, args)?;
     Ok(JsValue::Undefined)
 }
 
@@ -837,19 +778,10 @@ fn native_textarea_get_selection_end(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "selectionEnd")? else {
+    let Some(entity) = textarea_check(ctx, this, "selectionEnd")? else {
         return Ok(JsValue::Null);
     };
-    require_text_control(ctx, entity, "selectionEnd")?;
-    let dom = ctx.host().dom();
-    let pos = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.selection_end())
-        .unwrap_or(0);
-    Ok(JsValue::Number(f64::from(
-        u32::try_from(pos).unwrap_or(u32::MAX),
-    )))
+    Ok(super::selection_api::get_selection_end(ctx, entity))
 }
 
 fn native_textarea_set_selection_end(
@@ -857,16 +789,10 @@ fn native_textarea_set_selection_end(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "selectionEnd")? else {
+    let Some(entity) = textarea_check(ctx, this, "selectionEnd")? else {
         return Ok(JsValue::Undefined);
     };
-    require_text_control(ctx, entity, "selectionEnd")?;
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection_end(n);
-    }
+    super::selection_api::set_selection_end(ctx, entity, args)?;
     Ok(JsValue::Undefined)
 }
 
@@ -875,24 +801,10 @@ fn native_textarea_get_selection_direction(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "selectionDirection")? else {
+    let Some(entity) = textarea_check(ctx, this, "selectionDirection")? else {
         return Ok(JsValue::Null);
     };
-    require_text_control(ctx, entity, "selectionDirection")?;
-    let dom = ctx.host().dom();
-    use elidex_form::SelectionDirection;
-    let dir = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|s| s.selection_direction)
-        .unwrap_or(SelectionDirection::None);
-    let s = match dir {
-        SelectionDirection::Forward => "forward",
-        SelectionDirection::Backward => "backward",
-        SelectionDirection::None => "none",
-    };
-    let sid = ctx.vm.strings.intern(s);
-    Ok(JsValue::String(sid))
+    Ok(super::selection_api::get_selection_direction(ctx, entity))
 }
 
 fn native_textarea_set_selection_direction(
@@ -900,23 +812,10 @@ fn native_textarea_set_selection_direction(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "selectionDirection")? else {
+    let Some(entity) = textarea_check(ctx, this, "selectionDirection")? else {
         return Ok(JsValue::Undefined);
     };
-    require_text_control(ctx, entity, "selectionDirection")?;
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    use elidex_form::SelectionDirection;
-    let dir = match s.as_str() {
-        "forward" => SelectionDirection::Forward,
-        "backward" => SelectionDirection::Backward,
-        _ => SelectionDirection::None,
-    };
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.selection_direction = dir;
-    }
+    super::selection_api::set_selection_direction(ctx, entity, args)?;
     Ok(JsValue::Undefined)
 }
 
@@ -925,14 +824,10 @@ fn native_textarea_select_method(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "select")? else {
+    let Some(entity) = textarea_check(ctx, this, "select")? else {
         return Ok(JsValue::Undefined);
     };
-    require_text_control(ctx, entity, "select")?;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        elidex_form::select_all(&mut state);
-    }
+    super::selection_api::select_all(ctx, entity);
     Ok(JsValue::Undefined)
 }
 
@@ -941,36 +836,10 @@ fn native_textarea_set_selection_range(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "setSelectionRange")? else {
+    let Some(entity) = textarea_check(ctx, this, "setSelectionRange")? else {
         return Ok(JsValue::Undefined);
     };
-    require_text_control(ctx, entity, "setSelectionRange")?;
-    let start_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let end_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let dir_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-    // setSelectionRange start / end are WebIDL `unsigned long`
-    // (HTML §4.10.5.2.10) — coerce via ToUint32 so negative inputs
-    // wrap to 2³² + n rather than clamping to 0; the clamping to
-    // `value.len()` happens inside `set_selection`.
-    let start = super::super::coerce::to_uint32(ctx.vm, start_arg)? as usize;
-    let end = super::super::coerce::to_uint32(ctx.vm, end_arg)? as usize;
-    use elidex_form::SelectionDirection;
-    let dir = if matches!(dir_arg, JsValue::Undefined) {
-        SelectionDirection::None
-    } else {
-        let sid = super::super::coerce::to_string(ctx.vm, dir_arg)?;
-        let s = ctx.vm.strings.get_utf8(sid);
-        match s.as_str() {
-            "forward" => SelectionDirection::Forward,
-            "backward" => SelectionDirection::Backward,
-            _ => SelectionDirection::None,
-        }
-    };
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.set_selection(start, end);
-        state.selection_direction = dir;
-    }
+    super::selection_api::set_selection_range(ctx, entity, args)?;
     Ok(JsValue::Undefined)
 }
 
@@ -979,43 +848,9 @@ fn native_textarea_set_range_text(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_textarea_receiver(ctx, this, "setRangeText")? else {
+    let Some(entity) = textarea_check(ctx, this, "setRangeText")? else {
         return Ok(JsValue::Undefined);
     };
-    require_text_control(ctx, entity, "setRangeText")?;
-    let replacement_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, replacement_arg)?;
-    let replacement = ctx.vm.strings.get_utf8(sid);
-    // Optional start / end via WebIDL `unsigned long` coercion
-    // (HTML §4.10.5.2.10).  Mirrors `html_input_proto.rs` —
-    // strings / booleans / BigInts all flow through `to_uint32`,
-    // negatives wrap modulo 2³² (per ToUint32) and the result is
-    // clamped to `value.len()` inside `set_selection`; missing /
-    // undefined keeps the current selection bound.
-    let coerced_start = coerce_optional_clamp(ctx, args.get(1).copied())?;
-    let coerced_end = coerce_optional_clamp(ctx, args.get(2).copied())?;
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        let (cur_s, cur_e) = state.safe_selection_range();
-        let start = coerced_start.unwrap_or(cur_s);
-        let end = coerced_end.unwrap_or(cur_e);
-        state.set_selection(start, end);
-        state.replace_selection(replacement.as_str());
-    }
+    super::selection_api::set_range_text(ctx, entity, args)?;
     Ok(JsValue::Undefined)
-}
-
-/// See `html_input_proto.rs::coerce_optional_clamp` for the
-/// WebIDL coercion contract.
-fn coerce_optional_clamp(
-    ctx: &mut NativeContext<'_>,
-    arg: Option<JsValue>,
-) -> Result<Option<usize>, VmError> {
-    match arg {
-        None | Some(JsValue::Undefined) => Ok(None),
-        Some(v) => {
-            let n = super::super::coerce::to_uint32(ctx.vm, v)?;
-            Ok(Some(n as usize))
-        }
-    }
 }

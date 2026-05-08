@@ -148,3 +148,46 @@ fn button_brand_check_throws_on_non_button_receiver() {
          catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
     assert_eq!(out, "type");
 }
+
+// `<button>.formMethod` enumerated reflection (HTML §4.10.5.4) —
+// missing- and invalid-value defaults are both `""` (the no-override
+// sentinel), distinct from `<form>.method` whose default is `"get"`.
+#[test]
+fn button_form_method_default_when_missing_is_empty_string() {
+    let out = run("var b = document.createElement('button'); b.formMethod;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn button_form_method_canonicalises_uppercase_to_lowercase() {
+    let out = run("var b = document.createElement('button'); \
+         b.setAttribute('formmethod', 'POST'); b.formMethod;");
+    assert_eq!(out, "post");
+}
+
+#[test]
+fn button_form_method_invalid_falls_back_to_empty_string() {
+    let out = run("var b = document.createElement('button'); \
+         b.setAttribute('formmethod', 'bogus'); b.formMethod;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn button_form_enctype_default_when_missing_is_empty_string() {
+    let out = run("var b = document.createElement('button'); b.formEnctype;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn button_form_enctype_canonicalises_multipart() {
+    let out = run("var b = document.createElement('button'); \
+         b.setAttribute('formenctype', 'MULTIPART/FORM-DATA'); b.formEnctype;");
+    assert_eq!(out, "multipart/form-data");
+}
+
+#[test]
+fn button_form_enctype_invalid_falls_back_to_empty_string() {
+    let out = run("var b = document.createElement('button'); \
+         b.setAttribute('formenctype', 'application/json'); b.formEnctype;");
+    assert_eq!(out, "");
+}

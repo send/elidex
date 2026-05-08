@@ -205,31 +205,16 @@ fn native_fieldset_get_elements(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_fieldset_receiver(ctx, this, "elements")? else {
-        // Spec type: HTMLFormControlsCollection (HTMLCollection
-        // subclass).  Match the kind on the unbound fallback path
-        // so `instanceof HTMLCollection` doesn't depend on whether
-        // the receiver was bound.
-        let id = ctx
-            .vm
-            .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-                Vec::new(),
-                elidex_dom_api::CollectionKind::HtmlCollection,
-            ));
-        return Ok(JsValue::Object(id));
-    };
-    // `[SameObject]` per WebIDL.  Same cache as `form.elements`
-    // because both surfaces produce one HTMLFormControlsCollection
-    // per owner entity, keyed by that entity.
-    if let Some(&existing) = ctx.vm.form_controls_collection_wrappers.get(&entity) {
-        return Ok(JsValue::Object(existing));
-    }
-    let coll = elidex_dom_api::LiveCollection::new(
+    let entity = require_fieldset_receiver(ctx, this, "elements")?;
+    // `[SameObject]` per WebIDL.  Shares
+    // `form_controls_collection_wrappers` with `form.elements` because
+    // both surfaces produce one HTMLFormControlsCollection per owner
+    // entity, keyed by that entity.
+    let id = super::dom_collection::cached_form_collection(
+        ctx.vm,
         entity,
         elidex_dom_api::CollectionFilter::FormControls,
-        elidex_dom_api::CollectionKind::HtmlCollection,
+        super::dom_collection::FormCollectionCache::FormControls,
     );
-    let id = ctx.vm.alloc_collection(coll);
-    ctx.vm.form_controls_collection_wrappers.insert(entity, id);
     Ok(JsValue::Object(id))
 }

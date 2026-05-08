@@ -493,3 +493,103 @@ fn input_set_selection_range_large_positive_clamps_to_length() {
          i.selectionStart + '/' + i.selectionEnd;");
     assert_eq!(out, "3/3");
 }
+
+// `<input>.formMethod` / `<input>.formEnctype` enumerated reflection
+// (HTML §4.10.5.4) — missing- and invalid-value defaults are both
+// `""` (the no-override sentinel), distinct from `<form>.method` /
+// `<form>.enctype` whose defaults are keywords.
+#[test]
+fn input_form_method_default_when_missing_is_empty_string() {
+    let out = run("var i = document.createElement('input'); i.formMethod;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn input_form_method_canonicalises_uppercase_to_lowercase() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('formmethod', 'POST'); i.formMethod;");
+    assert_eq!(out, "post");
+}
+
+#[test]
+fn input_form_method_invalid_falls_back_to_empty_string() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('formmethod', 'bogus'); i.formMethod;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn input_form_enctype_default_when_missing_is_empty_string() {
+    let out = run("var i = document.createElement('input'); i.formEnctype;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn input_form_enctype_canonicalises_multipart() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('formenctype', 'MULTIPART/FORM-DATA'); i.formEnctype;");
+    assert_eq!(out, "multipart/form-data");
+}
+
+#[test]
+fn input_form_enctype_invalid_falls_back_to_empty_string() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('formenctype', 'application/json'); i.formEnctype;");
+    assert_eq!(out, "");
+}
+
+// HTML §4.10.5.6 type-change sanitize step (B-7).  Concrete failures
+// reported in the followup-cleanup handoff that justify the slot.
+#[test]
+fn input_type_change_from_checkbox_to_text_clears_checked() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='checkbox'; i.checked=true; \
+         i.type='text'; \
+         i.checked ? 'true' : 'false';");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn input_type_change_from_checkbox_to_text_clears_indeterminate() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='checkbox'; i.indeterminate=true; \
+         i.type='text'; \
+         i.indeterminate ? 'true' : 'false';");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn input_type_change_from_radio_to_text_clears_checked() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='radio'; i.checked=true; \
+         i.type='text'; \
+         i.checked ? 'true' : 'false';");
+    assert_eq!(out, "false");
+}
+
+#[test]
+fn input_type_change_from_text_to_number_clears_non_numeric_value() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='text'; i.value='abc'; \
+         i.type='number'; \
+         i.value;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn input_type_change_from_text_to_number_keeps_numeric_value() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='text'; i.value='3.14'; \
+         i.type='number'; \
+         i.value;");
+    assert_eq!(out, "3.14");
+}
+
+#[test]
+fn input_type_change_between_checkable_kinds_keeps_checked() {
+    let out = run("var i = document.createElement('input'); \
+         i.type='checkbox'; i.checked=true; \
+         i.type='radio'; \
+         i.checked ? 'true' : 'false';");
+    assert_eq!(out, "true");
+}

@@ -732,3 +732,193 @@ fn select_selected_options_explicit_selected_overrides_implicit() {
          '' + s.selectedOptions.length + '/' + (s.selectedOptions.item(0) === o2);");
     assert_eq!(out, "1/true");
 }
+
+// -------------------------------------------------------------------
+// HTMLOptionsCollection mutable surface (HTML §4.10.10.2 — B-2).
+// -------------------------------------------------------------------
+
+#[test]
+fn options_collection_add_appends_when_no_before() {
+    let out = run("var s = document.createElement('select'); \
+         var o = document.createElement('option'); \
+         s.options.add(o); \
+         '' + s.options.length + '/' + (s.options.item(0) === o);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn options_collection_remove_at_index() {
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); \
+         s.options.remove(0); \
+         '' + s.options.length + '/' + (s.options.item(0) === o2);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn options_collection_length_setter_extends_with_bare_options() {
+    let out = run("var s = document.createElement('select'); \
+         s.options.length = 3; \
+         '' + s.options.length;");
+    assert_eq!(out, "3");
+}
+
+#[test]
+fn options_collection_length_setter_truncates_from_end() {
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         var o3 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); s.appendChild(o3); \
+         s.options.length = 1; \
+         '' + s.options.length + '/' + (s.options.item(0) === o1);");
+    assert_eq!(out, "1/true");
+}
+
+#[test]
+fn options_collection_length_setter_caps_at_implementation_limit() {
+    // Spec allows an implementation-defined upper bound (HTML §4.10.10.2);
+    // we cap at `elidex_ecs::MAX_ANCESTOR_DEPTH` (10 000), which also
+    // bounds `children_iter_rev` engine-wide.  Verify the cap engages:
+    // a request for `2³² - 1` clamps via ToUint32 then via the cap.
+    let out = run("var s = document.createElement('select'); \
+         s.options.length = 4294967295; \
+         '' + s.options.length;");
+    assert_eq!(out, "10000");
+}
+
+#[test]
+fn options_collection_length_setter_extended_options_inherit_owner_document() {
+    // New options created via `options.length = N` inherit the
+    // `<select>`'s owner document so `optionsCollection.item(0).ownerDocument`
+    // matches `document` (WHATWG DOM §4.4 "node document").
+    let out = run("var s = document.createElement('select'); \
+         s.options.length = 1; \
+         (s.options.item(0).ownerDocument === document) ? 'same' : 'diff';");
+    assert_eq!(out, "same");
+}
+
+#[test]
+fn options_collection_selected_index_round_trips() {
+    let out = run("var s = document.createElement('select'); \
+         var o1 = document.createElement('option'); \
+         var o2 = document.createElement('option'); \
+         s.appendChild(o1); s.appendChild(o2); \
+         s.options.selectedIndex = 1; \
+         '' + s.selectedIndex;");
+    assert_eq!(out, "1");
+}
+
+#[test]
+fn options_collection_subclass_of_html_collection() {
+    // HTMLOptionsCollection.prototype chains to HTMLCollection.prototype.
+    // The wrapper exposes the inherited `length` (read) / `item` /
+    // `namedItem` getters via the prototype chain.
+    let out = run("var s = document.createElement('select'); \
+         var p = Object.getPrototypeOf(s.options); \
+         var hcp = Object.getPrototypeOf(p); \
+         (typeof p.add === 'function' && typeof hcp.item === 'function') ? 'ok' : 'bad';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn options_collection_unbound_fallback_methods_no_op() {
+    // Regression: after R2, `cached_form_collection`'s unbound
+    // fallback wrapper carries the OptionsCollection prototype, so
+    // `unbound.add` / `unbound.remove` / etc. are reachable.  But
+    // the backing `LiveCollection` has `CollectionFilter::Snapshot`
+    // (no `<select>` root), so the brand check must accept Snapshot
+    // as inert and the method bodies must no-op rather than throw.
+    let out = run("var s = document.createElement('select'); \
+         var optionsGetter = Object.getOwnPropertyDescriptor(\
+             Object.getPrototypeOf(s), 'options').get; \
+         var unbound = optionsGetter.call({}); \
+         try { \
+           unbound.add(document.createElement('option')); \
+           unbound.remove(0); \
+           unbound.length = 5; \
+           unbound.selectedIndex = 0; \
+           'no-throw'; \
+         } catch (e) { 'threw:' + e.message; }");
+    assert_eq!(out, "no-throw");
+}
+
+#[test]
+fn options_collection_unbound_fallback_uses_options_prototype() {
+    // Regression: `cached_form_collection`'s unbound fallback (when
+    // `require_select_receiver` returns `None`) must allocate the
+    // OptionsCollection prototype, not the bare HTMLCollection
+    // prototype, so `Object.getPrototypeOf(unbound_options).add`
+    // remains defined.  Exercise via the `options` getter `.call()`
+    // on a non-select element, which lands in the unbound branch.
+    let out = run("var s = document.createElement('select'); \
+         var optionsGetter = Object.getOwnPropertyDescriptor(\
+             Object.getPrototypeOf(s), 'options').get; \
+         var unbound = optionsGetter.call({}); \
+         (typeof Object.getPrototypeOf(unbound).add === 'function') \
+             ? 'options-proto' : 'bare-html-proto';");
+    assert_eq!(out, "options-proto");
+}
+
+#[test]
+fn options_collection_methods_no_op_when_state_cleared() {
+    // Regression: `Vm::unbind` clears `live_collection_states`, so
+    // any HTMLOptionsCollection wrapper retained across the unbind
+    // boundary must behave like other inert post-unbind collection
+    // wrappers (return defaults / no-op) rather than throw "Illegal
+    // invocation".  Simulate by clearing `live_collection_states`
+    // between two evals — `add` / `remove` / `length=` /
+    // `selectedIndex=` should all pass through without throwing.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Allocate the options wrapper into a global, then clear the
+    // backing state so the wrapper goes inert.
+    vm.eval(
+        "globalThis.s = document.createElement('option'); \
+         globalThis.sel = document.createElement('select'); \
+         globalThis.opts = sel.options;",
+    )
+    .unwrap();
+    vm.inner.live_collection_states.clear();
+    // Each method should land in the inert branch and return its
+    // default (Undefined) without throwing.  Test all four mutable
+    // members (add / remove / length= / selectedIndex=).
+    let result = vm
+        .eval(
+            "try { \
+               opts.add(s); \
+               opts.remove(0); \
+               opts.length = 5; \
+               opts.selectedIndex = 0; \
+               'no-throw'; \
+             } catch (e) { 'threw:' + e.message; }",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}");
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    assert_eq!(out, "no-throw");
+    vm.unbind();
+}
+
+#[test]
+fn options_collection_add_brand_check_rejects_non_options_collection() {
+    // `HTMLOptionsCollection.prototype.add.call(otherHtmlCollection, ...)`
+    // throws TypeError because the receiver isn't an Options-filter
+    // collection.
+    let out = run("var s = document.createElement('select'); \
+         var addFn = Object.getPrototypeOf(s.options).add; \
+         var generic = document.getElementsByTagName('div'); \
+         try { addFn.call(generic, document.createElement('option')); 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'type' : 'other'; }");
+    assert_eq!(out, "type");
+}

@@ -293,6 +293,10 @@ impl VmInner {
         {
             self.register_html_collection_prototype();
             self.register_node_list_prototype();
+            // HTMLOptionsCollection.prototype subclass — must land
+            // AFTER `register_html_collection_prototype` since it
+            // chains to that prototype.
+            self.register_html_options_collection_prototype();
             // Attr.prototype must land BEFORE NamedNodeMap.prototype —
             // NamedNodeMap methods allocate Attr wrappers via
             // `alloc_attr`, which panics if `attr_prototype` is

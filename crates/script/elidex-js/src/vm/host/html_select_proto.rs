@@ -406,13 +406,9 @@ fn native_select_get_labels(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let _ = require_select_receiver(ctx, this, "labels")?;
-    let id = ctx
-        .vm
-        .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-            Vec::new(),
-            elidex_dom_api::CollectionKind::NodeList,
-        ));
-    Ok(JsValue::Object(id))
+    Ok(JsValue::Object(
+        super::dom_collection::empty_labels_collection(ctx.vm),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -420,39 +416,20 @@ fn native_select_get_labels(
 // ---------------------------------------------------------------------------
 
 /// Build a fresh live `Options` collection rooted at `select_entity`.
-fn alloc_options(vm: &mut VmInner, select_entity: Entity) -> super::super::value::ObjectId {
-    vm.alloc_collection(elidex_dom_api::LiveCollection::new(
-        select_entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    ))
-}
-
 fn native_select_get_options(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_select_receiver(ctx, this, "options")? else {
-        // Spec type: HTMLOptionsCollection (HTMLCollection
-        // subclass).  Match the kind on the unbound fallback so the
-        // accessor's prototype shape is consistent with the bound
-        // path.
-        let id = ctx
-            .vm
-            .alloc_collection(elidex_dom_api::LiveCollection::new_snapshot(
-                Vec::new(),
-                elidex_dom_api::CollectionKind::HtmlCollection,
-            ));
-        return Ok(JsValue::Object(id));
-    };
-    // [SameObject] cache — return the same collection wrapper across
-    // reads.  Sweep tail prunes when the select wrapper dies.
-    if let Some(&existing) = ctx.vm.options_collection_wrappers.get(&entity) {
-        return Ok(JsValue::Object(existing));
-    }
-    let id = alloc_options(ctx.vm, entity);
-    ctx.vm.options_collection_wrappers.insert(entity, id);
+    let entity = require_select_receiver(ctx, this, "options")?;
+    // `[SameObject]` cache — return the same collection wrapper
+    // across reads.  Sweep tail prunes when the select wrapper dies.
+    let id = super::dom_collection::cached_form_collection(
+        ctx.vm,
+        entity,
+        elidex_dom_api::CollectionFilter::Options,
+        super::dom_collection::FormCollectionCache::Options,
+    );
     Ok(JsValue::Object(id))
 }
 
@@ -533,16 +510,25 @@ fn native_select_set_selected_index(
     let Some(entity) = require_select_receiver(ctx, this, "selectedIndex")? else {
         return Ok(JsValue::Undefined);
     };
+    select_set_selected_index_impl(ctx, entity, args)
+}
+
+/// HTML §4.10.10 `selectedIndex` setter algorithm shared by
+/// `HTMLSelectElement.prototype.selectedIndex` and
+/// `HTMLOptionsCollection.prototype.selectedIndex`.  The setter
+/// itself is hoisted to elidex-form (drift-hoist D-4); this wrapper
+/// adds the `attr_wrapper_cache` invalidation step that elidex-form
+/// can't perform (it's a VM-bound concern — `getAttributeNode("selected")`
+/// identity semantics survive `selectedIndex = N` mutations).
+pub(super) fn select_set_selected_index_impl(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    // HTML §4.10.10 selectedIndex setter hoisted to elidex-form
-    // (slot #11-tags-T1-v2-drift-hoist D-4).  Snapshot the option
-    // list before the mutation so we can invalidate the
-    // `(option_entity, "selected")` `attr_wrapper_cache` entries
-    // afterwards — pre-PR behaviour partial-invalidated via
-    // `attr_remove`; the hoist replicates that side effect at the
-    // VM-binding boundary so `getAttributeNode("selected")` identity
-    // semantics survive `selectedIndex = N` mutations.
+    // Snapshot the option list before the mutation so we can
+    // invalidate every `(option, "selected")` cache entry afterwards.
     let selected_sid = ctx.vm.strings.intern("selected");
     let affected: Vec<Entity> = {
         let dom = ctx.host().dom();
@@ -695,6 +681,18 @@ fn native_select_add(
     let Some(entity) = require_select_receiver(ctx, this, "add")? else {
         return Ok(JsValue::Undefined);
     };
+    select_add_impl(ctx, entity, args)
+}
+
+/// HTML §4.10.7.5 `add(opt, before?)` algorithm shared by
+/// `HTMLSelectElement.prototype.add` and
+/// `HTMLOptionsCollection.prototype.add`.  `select_entity` is the
+/// `<select>` element to insert the option into.
+pub(super) fn select_add_impl(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
     // First argument: must be an Option element wrapper.
     let opt_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let opt_entity = match opt_arg {
@@ -824,7 +822,20 @@ fn native_select_remove(
         }
         return Ok(JsValue::Undefined);
     }
-    let n = super::super::coerce::to_int32(ctx.vm, args[0])?;
+    select_remove_option_at_impl(ctx, entity, &args[0])
+}
+
+/// HTML §4.10.7.6 / §4.10.10.2 `remove(idx)` algorithm shared by
+/// `HTMLSelectElement.prototype.remove` (numeric overload) and
+/// `HTMLOptionsCollection.prototype.remove`.  Walks the select's
+/// `Options` filter and detaches the option at `idx_arg` (after
+/// ToInt32 coercion); silent no-op when out of range.
+pub(super) fn select_remove_option_at_impl(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    idx_arg: &JsValue,
+) -> Result<JsValue, VmError> {
+    let n = super::super::coerce::to_int32(ctx.vm, *idx_arg)?;
     let Ok(idx) = usize::try_from(n) else {
         return Ok(JsValue::Undefined);
     };
@@ -836,6 +847,65 @@ fn native_select_remove(
     if let Some(target) = opts.item(idx, ctx.host().dom()) {
         if let Some(parent) = ctx.host().dom().get_parent(target) {
             let _ = ctx.host().dom().remove_child(parent, target);
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// HTML §4.10.10.2 `HTMLOptionsCollection.length` setter.
+///
+/// `select_entity` is the `<select>` element backing the
+/// HTMLOptionsCollection.  When the new length exceeds the current
+/// option count, append (`new_len` - `current_len`) bare `<option>`
+/// elements (no attributes, no children — per spec).  When the new
+/// length is smaller, detach options from the end until the count
+/// matches.
+///
+/// Per HTML §4.10.10.2 step 1, negative `unsigned long` values wrap
+/// modulo 2³² (handled here via `to_uint32`) and the resulting count
+/// is bounded by an implementation-defined limit.  We cap at
+/// [`elidex_ecs::MAX_ANCESTOR_DEPTH`] (10 000) because that's also
+/// the engine-wide ceiling on `children_iter_rev` traversal, so any
+/// options created past that point would be invisible to subsequent
+/// `select.options` walks anyway.
+pub(super) fn select_set_options_length_impl(
+    ctx: &mut NativeContext<'_>,
+    select_entity: Entity,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    const MAX_OPTIONS: usize = elidex_ecs::MAX_ANCESTOR_DEPTH;
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let new_len = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
+    let new_len = new_len.min(MAX_OPTIONS);
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select_entity,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let current: Vec<Entity> = opts.snapshot(ctx.host().dom()).to_vec();
+    let cur_len = current.len();
+    if new_len > cur_len {
+        // Inherit ownerDocument from the select so the new options
+        // satisfy WHATWG DOM §4.4 "node document" before insertion
+        // (matches `document.createElement("option")` semantics).
+        let owner = ctx.host().dom().get_associated_document(select_entity);
+        // Snapshot is taken before the loop; growth appends past
+        // `cur_len`, so we never observe the newly-created entities
+        // in `current`.
+        for _ in 0..(new_len - cur_len) {
+            let opt_entity = ctx.host().dom().create_element_with_owner(
+                "option",
+                elidex_ecs::Attributes::default(),
+                owner,
+            );
+            let _ = ctx.host().dom().append_child(select_entity, opt_entity);
+        }
+    } else if new_len < cur_len {
+        // Detach from the end so earlier indices remain stable.
+        for &target in current[new_len..].iter().rev() {
+            if let Some(parent) = ctx.host().dom().get_parent(target) {
+                let _ = ctx.host().dom().remove_child(parent, target);
+            }
         }
     }
     Ok(JsValue::Undefined)
