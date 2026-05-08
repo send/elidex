@@ -493,3 +493,47 @@ fn input_set_selection_range_large_positive_clamps_to_length() {
          i.selectionStart + '/' + i.selectionEnd;");
     assert_eq!(out, "3/3");
 }
+
+// `<input>.formMethod` / `<input>.formEnctype` enumerated reflection
+// (HTML §4.10.5.4) — missing- and invalid-value defaults are both
+// `""` (the no-override sentinel), distinct from `<form>.method` /
+// `<form>.enctype` whose defaults are keywords.
+#[test]
+fn input_form_method_default_when_missing_is_empty_string() {
+    let out = run("var i = document.createElement('input'); i.formMethod;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn input_form_method_canonicalises_uppercase_to_lowercase() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('formmethod', 'POST'); i.formMethod;");
+    assert_eq!(out, "post");
+}
+
+#[test]
+fn input_form_method_invalid_falls_back_to_empty_string() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('formmethod', 'bogus'); i.formMethod;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn input_form_enctype_default_when_missing_is_empty_string() {
+    let out = run("var i = document.createElement('input'); i.formEnctype;");
+    assert_eq!(out, "");
+}
+
+#[test]
+fn input_form_enctype_canonicalises_multipart() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('formenctype', 'MULTIPART/FORM-DATA'); i.formEnctype;");
+    assert_eq!(out, "multipart/form-data");
+}
+
+#[test]
+fn input_form_enctype_invalid_falls_back_to_empty_string() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('formenctype', 'application/json'); i.formEnctype;");
+    assert_eq!(out, "");
+}

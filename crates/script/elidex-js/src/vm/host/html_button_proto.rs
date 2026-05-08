@@ -204,18 +204,85 @@ button_string_attr!(
     "formaction",
     "formAction"
 );
-button_string_attr!(
-    native_button_get_form_enctype,
-    native_button_set_form_enctype,
-    "formenctype",
-    "formEnctype"
-);
-button_string_attr!(
-    native_button_get_form_method,
-    native_button_set_form_method,
-    "formmethod",
-    "formMethod"
-);
+// `<button>.formEnctype` — HTML §4.10.5.4 enumerated-attribute
+// override.  Same keyword set as `<form>.enctype`, but missing-value
+// AND invalid-value defaults are both `""` (the empty string is the
+// "no override" sentinel — the form-level enctype wins when the
+// content attribute is absent or invalid).
+fn native_button_get_form_enctype(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let empty = ctx.vm.well_known.empty;
+    let Some(entity) = require_button_receiver(ctx, this, "formEnctype")? else {
+        return Ok(JsValue::String(empty));
+    };
+    let sid = super::element_attrs::enumerated_attr_reflect(
+        ctx,
+        entity,
+        "formenctype",
+        &[
+            "application/x-www-form-urlencoded",
+            "multipart/form-data",
+            "text/plain",
+        ],
+        "",
+    );
+    Ok(JsValue::String(sid))
+}
+
+fn native_button_set_form_enctype(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_button_receiver(ctx, this, "formEnctype")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.host().dom().set_attribute(entity, "formenctype", s);
+    Ok(JsValue::Undefined)
+}
+
+// `<button>.formMethod` — HTML §4.10.5.4 enumerated-attribute
+// override.  Same keyword set as `<form>.method`, but missing- and
+// invalid-value defaults are both `""` (see `formEnctype` above).
+fn native_button_get_form_method(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let empty = ctx.vm.well_known.empty;
+    let Some(entity) = require_button_receiver(ctx, this, "formMethod")? else {
+        return Ok(JsValue::String(empty));
+    };
+    let sid = super::element_attrs::enumerated_attr_reflect(
+        ctx,
+        entity,
+        "formmethod",
+        &["get", "post", "dialog"],
+        "",
+    );
+    Ok(JsValue::String(sid))
+}
+
+fn native_button_set_form_method(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_button_receiver(ctx, this, "formMethod")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.host().dom().set_attribute(entity, "formmethod", s);
+    Ok(JsValue::Undefined)
+}
 button_string_attr!(
     native_button_get_form_target,
     native_button_set_form_target,
@@ -233,19 +300,13 @@ fn native_button_get_type(
         let sid = ctx.vm.strings.intern("submit");
         return Ok(JsValue::String(sid));
     };
-    let raw = ctx
-        .host()
-        .dom()
-        .get_attribute(entity, "type")
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let canonical = match raw.as_str() {
-        "reset" => "reset",
-        "button" => "button",
-        // Missing / invalid value default = "submit".
-        _ => "submit",
-    };
-    let sid = ctx.vm.strings.intern(canonical);
+    let sid = super::element_attrs::enumerated_attr_reflect(
+        ctx,
+        entity,
+        "type",
+        &["submit", "reset", "button"],
+        "submit",
+    );
     Ok(JsValue::String(sid))
 }
 

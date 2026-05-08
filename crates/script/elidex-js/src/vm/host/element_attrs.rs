@@ -61,6 +61,44 @@ pub(super) fn attr_get(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) 
     ctx.host().dom().get_attribute(entity, name)
 }
 
+/// HTML enumerated-attribute reflection helper (WebIDL `attribute
+/// DOMString`, content-attribute is enumerated): read `attr` from
+/// `entity`, lowercase the raw value, and return the canonical
+/// keyword if any of `valid` matches.  Otherwise return `default`.
+///
+/// `default` is the *missing- and invalid-value default*, which the
+/// spec defines per attribute:
+///
+/// - `<form>.method`: default `"get"`,
+/// - `<form>.enctype`: default `"application/x-www-form-urlencoded"`,
+/// - `<form>.autocomplete`: default `"on"`,
+/// - `<button>.type`: default `"submit"`,
+/// - submit-button overrides (`<button>.formMethod` /
+///   `<input>.formMethod` / `<button>.formEnctype` /
+///   `<input>.formEnctype`, HTML §4.10.5.4): default `""` —
+///   distinct from the form-level case, where these surfaces are
+///   "no override" sentinels rather than form defaults.
+pub(super) fn enumerated_attr_reflect(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    attr: &str,
+    valid: &[&'static str],
+    default: &'static str,
+) -> super::super::value::StringId {
+    let raw = ctx
+        .host()
+        .dom()
+        .get_attribute(entity, attr)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let canonical: &str = valid
+        .iter()
+        .copied()
+        .find(|v| v == &raw.as_str())
+        .unwrap_or(default);
+    ctx.vm.strings.intern(canonical)
+}
+
 /// Set attribute `name` = `value` on `entity`.  Shim around
 /// [`elidex_ecs::EcsDom::set_attribute`].  Returns `false` when the
 /// entity has been destroyed.

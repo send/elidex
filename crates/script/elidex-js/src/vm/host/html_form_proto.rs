@@ -253,35 +253,6 @@ form_string_attr!(
 );
 form_string_attr!(form_get_rel, form_set_rel, "rel", "rel");
 
-/// HTML §4.10.18.6 enumerated-attribute reflection helper: read
-/// `attr` from `entity`, lowercase the raw value, return the
-/// canonical match if any of `valid` matches, otherwise return
-/// `default`.  Mirrors the spec rule that
-///
-/// > `<form method="POST">.method` returns `"post"`,
-/// > `<form>.method` returns `"get"`,
-/// > `<form method="bad">.method` returns `"get"`.
-fn enumerated_attr_reflect(
-    ctx: &mut NativeContext<'_>,
-    entity: Entity,
-    attr: &str,
-    valid: &[&'static str],
-    default: &'static str,
-) -> super::super::value::StringId {
-    let raw = ctx
-        .host()
-        .dom()
-        .get_attribute(entity, attr)
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let canonical: &str = valid
-        .iter()
-        .copied()
-        .find(|v| v == &raw.as_str())
-        .unwrap_or(default);
-    ctx.vm.strings.intern(canonical)
-}
-
 // `form.method` — HTML §4.10.18.6: enumerated keyword attribute,
 // values `get` / `post` / `dialog`, missing-value default = "get",
 // invalid-value default = "get".  Setter stores the raw value
@@ -294,7 +265,13 @@ fn form_get_method(
     let Some(entity) = require_form_receiver(ctx, this, "method")? else {
         return Ok(JsValue::String(ctx.vm.strings.intern("get")));
     };
-    let sid = enumerated_attr_reflect(ctx, entity, "method", &["get", "post", "dialog"], "get");
+    let sid = super::element_attrs::enumerated_attr_reflect(
+        ctx,
+        entity,
+        "method",
+        &["get", "post", "dialog"],
+        "get",
+    );
     Ok(JsValue::String(sid))
 }
 
@@ -326,7 +303,7 @@ fn form_get_enctype(
     let Some(entity) = require_form_receiver(ctx, this, "enctype")? else {
         return Ok(JsValue::String(ctx.vm.strings.intern(DEFAULT)));
     };
-    let sid = enumerated_attr_reflect(
+    let sid = super::element_attrs::enumerated_attr_reflect(
         ctx,
         entity,
         "enctype",
@@ -363,7 +340,13 @@ fn form_get_autocomplete(
     let Some(entity) = require_form_receiver(ctx, this, "autocomplete")? else {
         return Ok(JsValue::String(ctx.vm.strings.intern("on")));
     };
-    let sid = enumerated_attr_reflect(ctx, entity, "autocomplete", &["on", "off"], "on");
+    let sid = super::element_attrs::enumerated_attr_reflect(
+        ctx,
+        entity,
+        "autocomplete",
+        &["on", "off"],
+        "on",
+    );
     Ok(JsValue::String(sid))
 }
 
