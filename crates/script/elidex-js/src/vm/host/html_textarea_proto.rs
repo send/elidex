@@ -248,7 +248,7 @@ impl VmInner {
     }
 }
 
-fn require_textarea_receiver(
+pub(super) fn require_textarea_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,
@@ -387,39 +387,6 @@ ta_bool_attr!(
 );
 
 /// Boolean reflect setter that ALSO mirrors into the matching
-/// `FormControlState` field via `apply`.  Used for
-/// constraint-bearing attributes (`disabled` / `required` /
-/// `readOnly`) so a JS-side `textarea.required = true` reflects in
-/// `validate_control()` without requiring re-attach.  Mirrors
-/// `html_input_proto.rs::bool_attr_with_state_sync`.
-fn bool_attr_with_state_sync<F>(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-    method: &str,
-    attr: &str,
-    apply: F,
-) -> Result<JsValue, VmError>
-where
-    F: FnOnce(&mut FormControlState, bool),
-{
-    let Some(entity) = require_textarea_receiver(ctx, this, method)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let flag = super::super::coerce::to_boolean(ctx.vm, val);
-    if flag {
-        ctx.host().dom().set_attribute(entity, attr, String::new());
-    } else {
-        super::element_attrs::attr_remove(ctx, entity, attr);
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        apply(&mut state, flag);
-    }
-    Ok(JsValue::Undefined)
-}
-
 fn native_textarea_get_disabled(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -438,9 +405,15 @@ fn native_textarea_set_disabled(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "disabled", "disabled", |s, flag| {
-        s.disabled = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "disabled",
+        "disabled",
+        require_textarea_receiver,
+        |s, flag| s.disabled = flag,
+    )
 }
 
 fn native_textarea_get_required(
@@ -461,9 +434,15 @@ fn native_textarea_set_required(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "required", "required", |s, flag| {
-        s.required = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "required",
+        "required",
+        require_textarea_receiver,
+        |s, flag| s.required = flag,
+    )
 }
 
 fn native_textarea_get_readonly(
@@ -484,9 +463,15 @@ fn native_textarea_set_readonly(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "readOnly", "readonly", |s, flag| {
-        s.readonly = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "readOnly",
+        "readonly",
+        require_textarea_receiver,
+        |s, flag| s.readonly = flag,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -573,9 +558,15 @@ fn native_textarea_set_max_length(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    length_set_with_state_sync(ctx, this, args, "maxLength", "maxlength", |s, n| {
-        s.maxlength = n;
-    })
+    super::form_state_sync::length_set_with_state_sync(
+        ctx,
+        this,
+        args,
+        "maxLength",
+        "maxlength",
+        require_textarea_receiver,
+        |s, n| s.maxlength = n,
+    )
 }
 
 fn native_textarea_get_min_length(
@@ -591,46 +582,15 @@ fn native_textarea_set_min_length(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    length_set_with_state_sync(ctx, this, args, "minLength", "minlength", |s, n| {
-        s.minlength = n;
-    })
-}
-
-/// Length-attribute setter that mirrors the parsed value into the
-/// matching `FormControlState` field so subsequent `validate_control()`
-/// observes the constraint without a re-attach (HTML §4.10.20.3).
-/// Negative values map to `None` (no constraint) per HTML
-/// §4.10.5.1.13 reflection rules.
-fn length_set_with_state_sync<F>(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-    method: &str,
-    attr: &str,
-    apply: F,
-) -> Result<JsValue, VmError>
-where
-    F: FnOnce(&mut FormControlState, Option<usize>),
-{
-    let Some(entity) = require_textarea_receiver(ctx, this, method)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    // HTML §6.13.1 reflection rule for `unsigned long` length attrs:
-    // negative values clear the content attribute (the IDL getter
-    // then returns the default `-1`), instead of persisting an
-    // illegal `maxlength="-1"` / `minlength="-1"`.
-    if n < 0 {
-        super::element_attrs::attr_remove(ctx, entity, attr);
-    } else {
-        ctx.host().dom().set_attribute(entity, attr, n.to_string());
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        apply(&mut state, if n < 0 { None } else { Some(n as usize) });
-    }
-    Ok(JsValue::Undefined)
+    super::form_state_sync::length_set_with_state_sync(
+        ctx,
+        this,
+        args,
+        "minLength",
+        "minlength",
+        require_textarea_receiver,
+        |s, n| s.minlength = n,
+    )
 }
 
 // ---------------------------------------------------------------------------

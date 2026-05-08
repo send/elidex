@@ -137,6 +137,8 @@ pub(super) mod html_optgroup_proto;
 pub(super) mod html_option_proto;
 
 #[cfg(feature = "engine")]
+pub(super) mod form_state_sync;
+#[cfg(feature = "engine")]
 pub(super) mod html_input_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_input_selection;

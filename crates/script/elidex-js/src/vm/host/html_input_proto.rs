@@ -578,39 +578,6 @@ input_bool_attr!(
     "formNoValidate"
 );
 
-/// Boolean reflect setter that ALSO mirrors into the matching
-/// `FormControlState` field via `apply`.  Used for
-/// constraint-bearing attributes (`disabled` / `required` /
-/// `readOnly`) so a JS-side `input.required = true` reflects in
-/// `validate_control()` without requiring re-attach.
-fn bool_attr_with_state_sync<F>(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-    method: &str,
-    attr: &str,
-    apply: F,
-) -> Result<JsValue, VmError>
-where
-    F: FnOnce(&mut FormControlState, bool),
-{
-    let Some(entity) = require_input_receiver(ctx, this, method)? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let flag = super::super::coerce::to_boolean(ctx.vm, val);
-    if flag {
-        ctx.host().dom().set_attribute(entity, attr, String::new());
-    } else {
-        super::element_attrs::attr_remove(ctx, entity, attr);
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        apply(&mut state, flag);
-    }
-    Ok(JsValue::Undefined)
-}
-
 fn native_input_get_disabled(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -629,9 +596,15 @@ fn native_input_set_disabled(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "disabled", "disabled", |s, flag| {
-        s.disabled = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "disabled",
+        "disabled",
+        require_input_receiver,
+        |s, flag| s.disabled = flag,
+    )
 }
 
 fn native_input_get_required(
@@ -652,9 +625,15 @@ fn native_input_set_required(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "required", "required", |s, flag| {
-        s.required = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "required",
+        "required",
+        require_input_receiver,
+        |s, flag| s.required = flag,
+    )
 }
 
 fn native_input_get_read_only(
@@ -675,9 +654,15 @@ fn native_input_set_read_only(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    bool_attr_with_state_sync(ctx, this, args, "readOnly", "readonly", |s, flag| {
-        s.readonly = flag;
-    })
+    super::form_state_sync::bool_attr_with_state_sync(
+        ctx,
+        this,
+        args,
+        "readOnly",
+        "readonly",
+        require_input_receiver,
+        |s, flag| s.readonly = flag,
+    )
 }
 
 fn long_get_with_default(
@@ -748,27 +733,15 @@ fn native_input_set_max_length(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "maxLength")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    // HTML §6.13.1 reflection rule for `unsigned long` length attrs:
-    // negative values clear the content attribute (the IDL getter
-    // then returns the default `-1`), instead of persisting an
-    // illegal `maxlength="-1"`.
-    if n < 0 {
-        super::element_attrs::attr_remove(ctx, entity, "maxlength");
-    } else {
-        ctx.host()
-            .dom()
-            .set_attribute(entity, "maxlength", n.to_string());
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.maxlength = if n < 0 { None } else { Some(n as usize) };
-    }
-    Ok(JsValue::Undefined)
+    super::form_state_sync::length_set_with_state_sync(
+        ctx,
+        this,
+        args,
+        "maxLength",
+        "maxlength",
+        require_input_receiver,
+        |s, n| s.maxlength = n,
+    )
 }
 
 fn native_input_get_min_length(
@@ -784,24 +757,15 @@ fn native_input_set_min_length(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "minLength")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    // HTML §6.13.1 reflection rule (see `set_max_length`).
-    if n < 0 {
-        super::element_attrs::attr_remove(ctx, entity, "minlength");
-    } else {
-        ctx.host()
-            .dom()
-            .set_attribute(entity, "minlength", n.to_string());
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        state.minlength = if n < 0 { None } else { Some(n as usize) };
-    }
-    Ok(JsValue::Undefined)
+    super::form_state_sync::length_set_with_state_sync(
+        ctx,
+        this,
+        args,
+        "minLength",
+        "minlength",
+        require_input_receiver,
+        |s, n| s.minlength = n,
+    )
 }
 
 input_long_attr!(
