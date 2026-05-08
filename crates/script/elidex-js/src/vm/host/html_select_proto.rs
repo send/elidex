@@ -518,56 +518,11 @@ fn native_select_get_selected_index(
     let Some(entity) = require_select_receiver(ctx, this, "selectedIndex")? else {
         return Ok(JsValue::Number(-1.0));
     };
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let snap = opts.snapshot(ctx.host().dom()).to_vec();
-    for (idx, opt) in snap.iter().enumerate() {
-        if ctx.host().dom().has_attribute(*opt, "selected") {
-            return Ok(JsValue::Number(f64::from(
-                u32::try_from(idx).unwrap_or(u32::MAX),
-            )));
-        }
-    }
-    // Default selection: first non-disabled option, but ONLY for
-    // non-multiple selects with display size == 1 (HTML §4.10.10.2
-    // "ask for a reset" — listbox-style selects with `size > 1`
-    // do NOT auto-select).  An option is disabled if it has its
-    // own `disabled` attr OR is inside a disabled `<optgroup>`.
-    if select_uses_implicit_default(ctx.host().dom(), entity) {
-        for (idx, opt) in snap.iter().enumerate() {
-            if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
-                return Ok(JsValue::Number(f64::from(
-                    u32::try_from(idx).unwrap_or(u32::MAX),
-                )));
-            }
-        }
-    }
-    Ok(JsValue::Number(-1.0))
-}
-
-/// HTML §4.10.10.2 "ask for a reset" implicit-default predicate:
-/// the first non-disabled option becomes the implicit selection
-/// only when the select is **not multiple** AND its **display size
-/// is 1**.  Display size = parsed positive `size` attribute, or 1
-/// (the default for non-multiple) when missing / "0" / invalid.
-/// Mirrors the gate used by `elidex_form::init_select_options` and
-/// `elidex_dom_api::populate_selected_options` so the three
-/// surfaces (selectedIndex / value / selectedOptions) agree.
-fn select_uses_implicit_default(dom: &elidex_ecs::EcsDom, select: Entity) -> bool {
-    if dom.has_attribute(select, "multiple") {
-        return false;
-    }
-    let display_size = dom
-        .world()
-        .get::<&elidex_ecs::Attributes>(select)
-        .ok()
-        .and_then(|a| a.get("size").and_then(|s| s.parse::<u32>().ok()))
-        .filter(|&n| n > 0)
-        .unwrap_or(1);
-    display_size <= 1
+    // HTML §4.10.10.2 selectedness fallback hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-3) — vm/host/ retains only
+    // brand check + JsValue marshalling.
+    let value = elidex_form::select_selected_index(ctx.host().dom(), entity);
+    Ok(JsValue::Number(value))
 }
 
 fn native_select_set_selected_index(
@@ -580,22 +535,27 @@ fn native_select_set_selected_index(
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let snap = opts.snapshot(ctx.host().dom()).to_vec();
-    // Clear all selected attrs, then set the target.
-    for opt in &snap {
-        super::element_attrs::attr_remove(ctx, *opt, "selected");
-    }
-    if let Ok(idx) = usize::try_from(n) {
-        if let Some(target) = snap.get(idx) {
-            ctx.host()
-                .dom()
-                .set_attribute(*target, "selected", String::new());
-        }
+    // HTML §4.10.10 selectedIndex setter hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-4).  Snapshot the option
+    // list before the mutation so we can invalidate the
+    // `(option_entity, "selected")` `attr_wrapper_cache` entries
+    // afterwards — pre-PR behaviour partial-invalidated via
+    // `attr_remove`; the hoist replicates that side effect at the
+    // VM-binding boundary so `getAttributeNode("selected")` identity
+    // semantics survive `selectedIndex = N` mutations.
+    let selected_sid = ctx.vm.strings.intern("selected");
+    let affected: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut opts = elidex_dom_api::LiveCollection::new(
+            entity,
+            elidex_dom_api::CollectionFilter::Options,
+            elidex_dom_api::CollectionKind::HtmlCollection,
+        );
+        opts.snapshot(dom).to_vec()
+    };
+    elidex_form::select_set_selected_index(ctx.host().dom(), entity, n);
+    for opt in affected {
+        ctx.vm.invalidate_attr_cache_entry(opt, selected_sid);
     }
     Ok(JsValue::Undefined)
 }
@@ -605,50 +565,17 @@ fn native_select_get_value(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let empty = ctx.vm.well_known.empty;
     let Some(entity) = require_select_receiver(ctx, this, "value")? else {
-        return Ok(JsValue::String(empty));
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
     };
-    // Find first selected option; return its value (= attr "value"
-    // or text fallback per HTML §4.10.10).
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let snap = opts.snapshot(ctx.host().dom()).to_vec();
-    for opt in &snap {
-        if ctx.host().dom().has_attribute(*opt, "selected") {
-            return option_value(ctx, *opt);
-        }
-    }
-    // No explicit selection — for non-multiple selects with
-    // display size == 1, the first non-disabled option is the
-    // implicit default (HTML §4.10.10.2 "ask for a reset").
-    // Listbox selects (`size > 1`) and `multiple` selects skip
-    // implicit-default auto-selection entirely.
-    if select_uses_implicit_default(ctx.host().dom(), entity) {
-        for opt in &snap {
-            if !elidex_form::is_option_disabled(ctx.host().dom(), *opt) {
-                return option_value(ctx, *opt);
-            }
-        }
-    }
-    Ok(JsValue::String(empty))
-}
-
-fn option_value(ctx: &mut NativeContext<'_>, opt: Entity) -> Result<JsValue, VmError> {
-    let empty = ctx.vm.well_known.empty;
-    if ctx.host().dom().has_attribute(opt, "value") {
-        let sid = match ctx.dom_and_strings_if_bound() {
-            Some((dom, strings)) => {
-                dom.with_attribute(opt, "value", |v| v.map_or(empty, |s| strings.intern(s)))
-            }
-            None => empty,
-        };
-        return Ok(JsValue::String(sid));
-    }
-    super::dom_bridge::invoke_dom_api(ctx, "textContent.get", opt, &[])
+    // HTML §4.10.10 select.value resolution hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-4).  `intern("")` lands on
+    // the same `StringId` as `well_known.empty` per the invariant in
+    // `WellKnownStrings::intern_all`, so we always intern unconditionally
+    // rather than re-encoding the empty short-circuit at every call site.
+    let value = elidex_form::select_get_value(ctx.host().dom(), entity);
+    let sid = ctx.vm.strings.intern(&value);
+    Ok(JsValue::String(sid))
 }
 
 fn native_select_set_value(
@@ -662,35 +589,41 @@ fn native_select_set_value(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let target_sid = super::super::coerce::to_string(ctx.vm, val)?;
     let target = ctx.vm.strings.get_utf8(target_sid);
-    let mut opts = elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::Options,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    );
-    let snap = opts.snapshot(ctx.host().dom()).to_vec();
-    // First option whose value matches becomes selected; others
-    // cleared.  HTML §4.10.7.4 — value setter algorithm.
-    let mut found_first = false;
-    for opt in &snap {
-        let candidate = if ctx.host().dom().has_attribute(*opt, "value") {
-            ctx.host()
-                .dom()
-                .get_attribute(*opt, "value")
-                .unwrap_or_default()
-        } else {
-            // Fallback to text content.  Build a temporary read.
-            match super::dom_bridge::invoke_dom_api(ctx, "textContent.get", *opt, &[])? {
-                JsValue::String(sid) => ctx.vm.strings.get_utf8(sid),
-                _ => String::new(),
-            }
-        };
-        if !found_first && candidate == target {
-            ctx.host()
-                .dom()
-                .set_attribute(*opt, "selected", String::new());
-            found_first = true;
-        } else {
-            super::element_attrs::attr_remove(ctx, *opt, "selected");
+    // HTML §4.10.7.4 value setter hoisted to elidex-form
+    // (slot #11-tags-T1-v2-drift-hoist D-4).  Pre-PR semantics: only
+    // options whose `selected` attribute is *removed* by the setter
+    // need their `attr_wrapper_cache` entry invalidated; the matching
+    // option that retains `selected` keeps its `Attr` wrapper identity.
+    // Snapshot the options that had `selected` before the mutation,
+    // then invalidate only those that have lost it after.
+    let selected_sid = ctx.vm.strings.intern("selected");
+    let was_selected: Vec<Entity> = {
+        let dom = ctx.host().dom();
+        let mut opts = elidex_dom_api::LiveCollection::new(
+            entity,
+            elidex_dom_api::CollectionFilter::Options,
+            elidex_dom_api::CollectionKind::HtmlCollection,
+        );
+        opts.snapshot(dom)
+            .iter()
+            .copied()
+            .filter(|opt| {
+                dom.world()
+                    .get::<&elidex_ecs::Attributes>(*opt)
+                    .is_ok_and(|a| a.contains("selected"))
+            })
+            .collect()
+    };
+    elidex_form::select_set_value(ctx.host().dom(), entity, &target);
+    for opt in was_selected {
+        let still_selected = ctx
+            .host()
+            .dom()
+            .world()
+            .get::<&elidex_ecs::Attributes>(opt)
+            .is_ok_and(|a| a.contains("selected"));
+        if !still_selected {
+            ctx.vm.invalidate_attr_cache_entry(opt, selected_sid);
         }
     }
     Ok(JsValue::Undefined)

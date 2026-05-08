@@ -358,29 +358,15 @@ fn native_option_get_form(
         return Ok(JsValue::Null);
     };
     // HTML §4.10.10: option.form returns the form owner of the
-    // option's select ancestor, walking through optgroup if needed.
-    // Bounded by `MAX_ANCESTOR_DEPTH` so a hypothetical
-    // `TreeRelation` cycle / corruption (e.g. from a buggy
-    // `appendChild` cycle-check regression) cannot wedge this
-    // accessor in an infinite loop — matches the convention used by
-    // `elidex_form::find_form_ancestor` and other ancestor walkers
-    // hoist target slot #11-tags-T1-v2-drift-hoist (D-1) inherits.
+    // option's enclosing `<select>`, walking through `<optgroup>` /
+    // wrapper elements.  The select-ancestor walk is hoisted to
+    // `elidex_form::find_option_select` per the Layering mandate
+    // (slot `#11-tags-T1-v2-drift-hoist` D-1); the form-ancestor
+    // step (`find_form_ancestor`) was already in `elidex_form`.
     let dom = ctx.host().dom();
-    let mut current = dom.get_parent(entity);
-    let mut select: Option<Entity> = None;
-    for _ in 0..elidex_ecs::MAX_ANCESTOR_DEPTH {
-        let Some(p) = current else {
-            break;
-        };
-        if ctx.host().tag_matches_ascii_case(p, "select") {
-            select = Some(p);
-            break;
-        }
-        current = ctx.host().dom().get_parent(p);
-    }
-    let Some(select_entity) = select else {
+    let Some(select_entity) = elidex_form::find_option_select(dom, entity) else {
         return Ok(JsValue::Null);
     };
-    let form = elidex_form::find_form_ancestor(ctx.host().dom(), select_entity);
+    let form = elidex_form::find_form_ancestor(dom, select_entity);
     Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, form))
 }

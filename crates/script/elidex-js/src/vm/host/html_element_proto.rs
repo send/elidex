@@ -588,25 +588,11 @@ fn native_is_content_editable_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "isContentEditable")?;
-    // Walk ancestors looking for the first explicit contenteditable
-    // state: `true` or `plaintext-only` → true; `false` → false;
-    // anything else or no attribute → inherit from parent.  Root
-    // inherits `false` (spec §6.7.3 default).
-    let dom = ctx.host().dom();
-    let mut cur = Some(entity);
-    while let Some(e) = cur {
-        let matched = dom.with_attribute(e, "contenteditable", |raw| {
-            raw.map(|s| {
-                let lower = s.to_ascii_lowercase();
-                matches!(lower.as_str(), "true" | "plaintext-only" | "")
-            })
-        });
-        if let Some(b) = matched {
-            return Ok(JsValue::Boolean(b));
-        }
-        cur = dom.get_parent(e);
-    }
-    Ok(JsValue::Boolean(false))
+    // HTML §6.7.3 ancestor-walk algorithm hoisted to elidex-dom-api
+    // per the architectural Layering mandate (slot
+    // `#11-tags-T1-v2-drift-hoist` D-5).
+    let value = elidex_dom_api::element::is_content_editable(ctx.host().dom(), entity);
+    Ok(JsValue::Boolean(value))
 }
 
 // ---- hidden (tri-state) ----

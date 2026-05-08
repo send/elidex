@@ -24,15 +24,18 @@ pub use fieldset::{
     first_legend_child, is_fieldset_disabled, is_in_first_legend, propagate_fieldset_disabled,
 };
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
-pub use input::{form_control_key_input, form_control_key_input_action, KeyAction};
+pub use input::{
+    apply_step, form_control_key_input, form_control_key_input_action, KeyAction, StepError,
+};
 pub use label::{find_label_target, is_label, is_labelable_element, resolve_label_for};
 pub use radio::{
     find_radio_group, find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate,
     toggle_radio,
 };
 pub use select::{
-    find_option_index_in_tree, init_select_options, is_option_disabled, navigate_select,
-    select_option,
+    find_option_index_in_tree, find_option_select, init_select_options, is_option_disabled,
+    navigate_select, option_value_string, select_get_value, select_option, select_selected_index,
+    select_set_selected_index, select_set_value, select_uses_implicit_default,
 };
 pub use selection::{collapse_selection, delete_selection, extend_selection, select_all};
 pub use sizing::form_intrinsic_size;

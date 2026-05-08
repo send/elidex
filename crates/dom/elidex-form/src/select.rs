@@ -4,64 +4,214 @@ use elidex_ecs::{Attributes, EcsDom, Entity, TagType, MAX_ANCESTOR_DEPTH};
 
 use crate::{FormControlState, SelectOption};
 
-/// Returns `true` if `entity` is an `<option>` whose own `disabled`
-/// attribute is set OR whose enclosing tree contains a disabled
-/// `<optgroup>` ancestor.  HTML §4.10.10.2 — an option is "disabled"
-/// when either condition holds.  In well-formed markup optgroup
-/// elements don't nest (parser flattens them), but the walker
-/// climbs up to `MAX_ANCESTOR_DEPTH` ancestors and stops at the
-/// enclosing `<select>`, so any disabled optgroup encountered
-/// before that cutoff disables the option — mirrors browsers
-/// that accept malformed nested-optgroup trees gracefully.
+/// `<option>` disabledness predicate (HTML §4.10.10.2).
 ///
-/// Returns `false` when `entity` is not actually an `<option>` (so
-/// callers can pass arbitrary entities defensively without
-/// mis-attributing a `disabled` attribute on, say, a `<button>`
-/// to "option-disabled" semantics).
+/// Re-exported from `elidex-dom-api` (canonical home) per slot
+/// `#11-tags-T1-v2-drift-hoist` (D-6) — the algorithm walks the DOM
+/// ancestor chain over content attributes, which is engine-independent
+/// DOM API territory rather than form-specific.  `elidex-form`
+/// continues to surface the predicate for back-compat with the
+/// historical caller surface (`vm/host/html_select_proto.rs` /
+/// `init_select_options` etc.).
+pub use elidex_dom_api::element::is_option_disabled;
+
+/// HTML §4.10.10.2 "ask for a reset" implicit-default predicate.
+///
+/// Returns `true` when a `<select>`'s implicit default selection (the
+/// first non-disabled option) is in effect: the select must not be
+/// `multiple` AND its display size must be 1.  Display size = parsed
+/// positive `size` attribute, defaulting to 1 when missing / "0" /
+/// invalid.
+///
+/// Four call sites (`selectedIndex` getter / `value` getter /
+/// `init_select_options` / `populate_selected_options`) must agree
+/// on this gate so the surfaces stay consistent.
 #[must_use]
-pub fn is_option_disabled(dom: &EcsDom, entity: Entity) -> bool {
-    let is_option = dom
-        .world()
-        .get::<&TagType>(entity)
-        .is_ok_and(|t| t.0.eq_ignore_ascii_case("option"));
-    if !is_option {
-        return false;
-    }
+pub fn select_uses_implicit_default(dom: &EcsDom, select: Entity) -> bool {
     if dom
         .world()
-        .get::<&Attributes>(entity)
-        .is_ok_and(|a| a.contains("disabled"))
+        .get::<&Attributes>(select)
+        .is_ok_and(|a| a.contains("multiple"))
     {
-        return true;
+        return false;
     }
-    let mut current = dom.get_parent(entity);
-    for _ in 0..MAX_ANCESTOR_DEPTH {
-        let Some(ancestor) = current else {
-            return false;
-        };
-        let is_disabled_optgroup = dom
-            .world()
-            .get::<&TagType>(ancestor)
-            .is_ok_and(|t| t.0.eq_ignore_ascii_case("optgroup"))
-            && dom
-                .world()
-                .get::<&Attributes>(ancestor)
-                .is_ok_and(|a| a.contains("disabled"));
-        if is_disabled_optgroup {
-            return true;
-        }
-        // Stop at the enclosing `<select>` — disabled propagation
-        // beyond the select is the form's `<fieldset>` problem.
+    let display_size = dom
+        .world()
+        .get::<&Attributes>(select)
+        .ok()
+        .and_then(|a| a.get("size").and_then(|s| s.parse::<u32>().ok()))
+        .filter(|&n| n > 0)
+        .unwrap_or(1);
+    display_size <= 1
+}
+
+/// Resolve `<select>.selectedIndex` (HTML §4.10.10.2).
+///
+/// Returns the index of the first option whose own `selected` content
+/// attribute is set.  When no option is explicitly selected and the
+/// select is in implicit-default mode (see [`select_uses_implicit_default`]),
+/// returns the index of the first non-disabled option.  Returns
+/// `-1.0` when the select has no usable selection.
+///
+/// Returns `f64` (matching the JS-observable `JsValue::Number(...)`
+/// shape) rather than WebIDL-spec `long` / `i32`, so the pre-PR
+/// VM-host saturation cap (`u32::MAX` → `f64::from`) is preserved
+/// exactly.  The "pure hoist / no behavior change" invariant for
+/// slot `#11-tags-T1-v2-drift-hoist` requires preserving the prior
+/// saturation; tightening to a true WebIDL `long` (i32-clamped) is
+/// a separate (intentional) behaviour change tracked alongside
+/// `#11-content-editable-depth-cap`.
+#[must_use]
+pub fn select_selected_index(dom: &EcsDom, select: Entity) -> f64 {
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(dom).to_vec();
+    for (idx, opt) in snap.iter().enumerate() {
         if dom
             .world()
-            .get::<&TagType>(ancestor)
-            .is_ok_and(|t| t.0.eq_ignore_ascii_case("select"))
+            .get::<&Attributes>(*opt)
+            .is_ok_and(|a| a.contains("selected"))
         {
-            return false;
+            return f64::from(u32::try_from(idx).unwrap_or(u32::MAX));
         }
-        current = dom.get_parent(ancestor);
     }
-    false
+    if select_uses_implicit_default(dom, select) {
+        for (idx, opt) in snap.iter().enumerate() {
+            if !is_option_disabled(dom, *opt) {
+                return f64::from(u32::try_from(idx).unwrap_or(u32::MAX));
+            }
+        }
+    }
+    -1.0
+}
+
+/// Compute a single `<option>`'s value (HTML §4.10.10).
+///
+/// Returns the `value` content attribute when present; otherwise
+/// falls back to the descendant text content (concatenation of all
+/// text-node descendants).
+#[must_use]
+pub fn option_value_string(dom: &EcsDom, option: Entity) -> String {
+    if let Ok(attrs) = dom.world().get::<&Attributes>(option) {
+        if let Some(v) = attrs.get("value") {
+            return v.to_string();
+        }
+    }
+    elidex_dom_api::element::collect_text_content(option, dom)
+}
+
+/// Resolve `<select>.value` (HTML §4.10.10).
+///
+/// Returns the first selected option's value; if no option carries
+/// the `selected` attribute and the select is in implicit-default
+/// mode (see [`select_uses_implicit_default`]), returns the value of
+/// the first non-disabled option.  Returns an empty string when no
+/// usable option is found.
+#[must_use]
+pub fn select_get_value(dom: &EcsDom, select: Entity) -> String {
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(dom).to_vec();
+    for opt in &snap {
+        if dom
+            .world()
+            .get::<&Attributes>(*opt)
+            .is_ok_and(|a| a.contains("selected"))
+        {
+            return option_value_string(dom, *opt);
+        }
+    }
+    if select_uses_implicit_default(dom, select) {
+        for opt in &snap {
+            if !is_option_disabled(dom, *opt) {
+                return option_value_string(dom, *opt);
+            }
+        }
+    }
+    String::new()
+}
+
+/// Set `<select>.value` (HTML §4.10.7.4 value setter).
+///
+/// The first option whose value (per [`option_value_string`]) equals
+/// `target` becomes selected; all other options have their `selected`
+/// attribute cleared.  When no option matches, every option ends up
+/// without a `selected` attribute.
+pub fn select_set_value(dom: &mut EcsDom, select: Entity, target: &str) {
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(dom).to_vec();
+    let mut found_first = false;
+    for opt in &snap {
+        let candidate = option_value_string(dom, *opt);
+        if !found_first && candidate == target {
+            dom.set_attribute(*opt, "selected", String::new());
+            found_first = true;
+        } else {
+            dom.remove_attribute(*opt, "selected");
+        }
+    }
+}
+
+/// Set `<select>.selectedIndex` (HTML §4.10.10 selectedIndex setter).
+///
+/// All `selected` attributes are cleared from the option list.  If
+/// `n` is a valid in-range non-negative index, the option at that
+/// index gets `selected` set; out-of-range / negative indices result
+/// in no option being selected.
+pub fn select_set_selected_index(dom: &mut EcsDom, select: Entity, n: i32) {
+    let mut opts = elidex_dom_api::LiveCollection::new(
+        select,
+        elidex_dom_api::CollectionFilter::Options,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    );
+    let snap = opts.snapshot(dom).to_vec();
+    for opt in &snap {
+        dom.remove_attribute(*opt, "selected");
+    }
+    if let Ok(idx) = usize::try_from(n) {
+        if let Some(target) = snap.get(idx) {
+            dom.set_attribute(*target, "selected", String::new());
+        }
+    }
+}
+
+/// Find the nearest `<select>` ancestor of `option` (HTML §4.10.10).
+///
+/// Used by `option.form` (HTML §4.10.10 — the form owner of an
+/// option is the form owner of its enclosing `<select>`, walking
+/// past any `<optgroup>` or other wrapper element JS DOM mutation
+/// can introduce). Bounded by `MAX_ANCESTOR_DEPTH` so a buggy
+/// `appendChild` cycle-check regression cannot wedge this accessor
+/// in an infinite loop. Returns `None` for detached options or
+/// options whose ancestor chain doesn't reach a `<select>`.
+///
+/// Tag matching is ASCII case-insensitive so JS-driven creation
+/// (`document.createElement("SELECT")`) is tolerated.
+#[must_use]
+pub fn find_option_select(dom: &EcsDom, option: Entity) -> Option<Entity> {
+    let mut current = dom.get_parent(option);
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let p = current?;
+        let is_select = dom
+            .world()
+            .get::<&TagType>(p)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("select"));
+        if is_select {
+            return Some(p);
+        }
+        current = dom.get_parent(p);
+    }
+    None
 }
 
 /// Compute `<option>.index` (HTML §4.10.10): walks up to the
@@ -603,5 +753,447 @@ mod tests {
         let opt = dom.create_element("option", Attributes::default());
         let _ = dom.append_child(sel, opt);
         assert!(!is_option_disabled(&dom, opt));
+    }
+
+    // -- find_option_select tests (D-1 hoist target) ---------------
+
+    #[test]
+    fn find_option_select_direct_parent() {
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, opt);
+        assert_eq!(find_option_select(&dom, opt), Some(sel));
+    }
+
+    #[test]
+    fn find_option_select_via_optgroup() {
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        let grp = dom.create_element("optgroup", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, grp);
+        let _ = dom.append_child(grp, opt);
+        assert_eq!(find_option_select(&dom, opt), Some(sel));
+    }
+
+    #[test]
+    fn find_option_select_through_arbitrary_wrapper() {
+        // JS-driven `<select><div><option>...` — JS DOM mutation can
+        // introduce wrappers between option and select; the walker
+        // climbs through them.
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        let wrapper = dom.create_element("div", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, wrapper);
+        let _ = dom.append_child(wrapper, opt);
+        assert_eq!(find_option_select(&dom, opt), Some(sel));
+    }
+
+    #[test]
+    fn find_option_select_returns_none_for_detached() {
+        let mut dom = EcsDom::new();
+        let opt = dom.create_element("option", Attributes::default());
+        assert_eq!(find_option_select(&dom, opt), None);
+    }
+
+    #[test]
+    fn find_option_select_returns_none_when_no_select_ancestor() {
+        // Option attached to a non-select container (e.g. a stray
+        // `<div>`) — `option.form` should return null.
+        let mut dom = EcsDom::new();
+        let div = dom.create_element("div", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(div, opt);
+        assert_eq!(find_option_select(&dom, opt), None);
+    }
+
+    #[test]
+    fn find_option_select_case_insensitive_tag() {
+        // JS-driven `document.createElement("SELECT")` keeps the
+        // mixed-case tag.  ASCII-CI match should still resolve.
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("SELECT", Attributes::default());
+        let opt = dom.create_element("option", Attributes::default());
+        let _ = dom.append_child(sel, opt);
+        assert_eq!(find_option_select(&dom, opt), Some(sel));
+    }
+
+    // -- select_uses_implicit_default tests (D-3 hoist target) -----
+
+    #[test]
+    fn implicit_default_true_for_default_select() {
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", Attributes::default());
+        assert!(select_uses_implicit_default(&dom, sel));
+    }
+
+    #[test]
+    fn implicit_default_false_when_multiple() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("multiple", "");
+        let sel = dom.create_element("select", attrs);
+        assert!(!select_uses_implicit_default(&dom, sel));
+    }
+
+    #[test]
+    fn implicit_default_false_when_size_gt_one() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("size", "5");
+        let sel = dom.create_element("select", attrs);
+        assert!(!select_uses_implicit_default(&dom, sel));
+    }
+
+    #[test]
+    fn implicit_default_true_when_size_invalid() {
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("size", "0");
+        let sel = dom.create_element("select", attrs);
+        assert!(select_uses_implicit_default(&dom, sel));
+    }
+
+    // -- shared test fixture (used across D-3 and D-4 hoist tests) -
+
+    /// Per-option spec for [`build_select`].  All fields default to
+    /// the absent / unset state; tests opt in to the aspects they
+    /// need (`marked`, `valued`, free-form struct literal).
+    #[derive(Default)]
+    struct TestOpt {
+        selected: bool,
+        disabled: bool,
+        value_attr: Option<&'static str>,
+        text: Option<&'static str>,
+    }
+
+    impl TestOpt {
+        fn marked(selected: bool, disabled: bool) -> Self {
+            Self {
+                selected,
+                disabled,
+                ..Default::default()
+            }
+        }
+        fn valued(value_attr: &'static str) -> Self {
+            Self {
+                value_attr: Some(value_attr),
+                ..Default::default()
+            }
+        }
+    }
+
+    fn build_select(sel_attrs: Attributes, opts: &[TestOpt]) -> (EcsDom, Entity) {
+        let mut dom = EcsDom::new();
+        let sel = dom.create_element("select", sel_attrs);
+        for o in opts {
+            let mut attrs = Attributes::default();
+            if o.selected {
+                attrs.set("selected", "");
+            }
+            if o.disabled {
+                attrs.set("disabled", "");
+            }
+            if let Some(v) = o.value_attr {
+                attrs.set("value", v);
+            }
+            let opt = dom.create_element("option", attrs);
+            assert!(dom.append_child(sel, opt));
+            if let Some(t) = o.text {
+                let tn = dom.create_text(t);
+                assert!(dom.append_child(opt, tn));
+            }
+        }
+        (dom, sel)
+    }
+
+    // -- select_selected_index tests (D-3 hoist target) ------------
+
+    #[test]
+    fn selected_index_explicit_selection_wins() {
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::marked(false, false), TestOpt::marked(true, false)],
+        );
+        assert_eq!(select_selected_index(&dom, sel), 1.0);
+    }
+
+    #[test]
+    fn selected_index_implicit_default_first_non_disabled() {
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::marked(false, true),
+                TestOpt::marked(false, true),
+                TestOpt::marked(false, false),
+            ],
+        );
+        assert_eq!(select_selected_index(&dom, sel), 2.0);
+    }
+
+    #[test]
+    fn selected_index_returns_neg1_when_all_disabled_and_none_selected() {
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::marked(false, true), TestOpt::marked(false, true)],
+        );
+        assert_eq!(select_selected_index(&dom, sel), -1.0);
+    }
+
+    #[test]
+    fn selected_index_returns_neg1_for_listbox_with_no_selection() {
+        let mut attrs = Attributes::default();
+        attrs.set("size", "5");
+        let (dom, sel) = build_select(attrs, &[TestOpt::default(), TestOpt::default()]);
+        assert_eq!(select_selected_index(&dom, sel), -1.0);
+    }
+
+    #[test]
+    fn selected_index_returns_neg1_for_multiple_with_no_selection() {
+        let mut attrs = Attributes::default();
+        attrs.set("multiple", "");
+        let (dom, sel) = build_select(attrs, &[TestOpt::default(), TestOpt::default()]);
+        assert_eq!(select_selected_index(&dom, sel), -1.0);
+    }
+
+    #[test]
+    fn selected_index_explicit_overrides_disabled_and_listbox() {
+        // Even on a listbox `<select size=5>`, an explicit `selected`
+        // attr wins.
+        let mut attrs = Attributes::default();
+        attrs.set("size", "5");
+        let (dom, sel) = build_select(
+            attrs,
+            &[
+                TestOpt::default(),
+                TestOpt::marked(true, false),
+                TestOpt::default(),
+            ],
+        );
+        assert_eq!(select_selected_index(&dom, sel), 1.0);
+    }
+
+    #[test]
+    fn selected_index_first_explicit_wins_over_later_explicit() {
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::marked(true, false), TestOpt::marked(true, false)],
+        );
+        assert_eq!(select_selected_index(&dom, sel), 0.0);
+    }
+
+    // -- option_value_string / select_get_value tests (D-4 hoist) --
+
+    #[test]
+    fn option_value_string_uses_value_attr_when_present() {
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt {
+                value_attr: Some("blue"),
+                text: Some("Blue"),
+                ..Default::default()
+            }],
+        );
+        let opt = dom.children(sel)[0];
+        assert_eq!(option_value_string(&dom, opt), "blue");
+    }
+
+    #[test]
+    fn option_value_string_falls_back_to_text_content() {
+        let (dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt {
+                text: Some("Red"),
+                ..Default::default()
+            }],
+        );
+        let opt = dom.children(sel)[0];
+        assert_eq!(option_value_string(&dom, opt), "Red");
+    }
+
+    #[test]
+    fn option_value_string_empty_when_neither_present() {
+        let (dom, sel) = build_select(Attributes::default(), &[TestOpt::default()]);
+        let opt = dom.children(sel)[0];
+        assert_eq!(option_value_string(&dom, opt), "");
+    }
+
+    #[test]
+    fn select_get_value_returns_first_selected_option_value() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::valued("a"),
+                TestOpt::valued("b"),
+                TestOpt::valued("c"),
+            ],
+        );
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[1], "selected", String::new());
+        assert_eq!(select_get_value(&dom, sel), "b");
+    }
+
+    #[test]
+    fn select_get_value_implicit_default_first_non_disabled() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::valued("a"),
+                TestOpt::valued("b"),
+                TestOpt::valued("c"),
+            ],
+        );
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "disabled", String::new());
+        assert_eq!(select_get_value(&dom, sel), "b");
+    }
+
+    #[test]
+    fn select_get_value_returns_empty_string_when_listbox_with_no_selection() {
+        let mut attrs = Attributes::default();
+        attrs.set("size", "5");
+        let (dom, sel) = build_select(attrs, &[TestOpt::valued("a")]);
+        assert_eq!(select_get_value(&dom, sel), "");
+    }
+
+    // -- select_set_value tests (D-4 hoist) ------------------------
+
+    #[test]
+    fn select_set_value_marks_first_matching_option() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::valued("a"),
+                TestOpt::valued("b"),
+                TestOpt::valued("c"),
+            ],
+        );
+        select_set_value(&mut dom, sel, "b");
+        assert_eq!(select_selected_index(&dom, sel), 1.0);
+        assert_eq!(select_get_value(&dom, sel), "b");
+    }
+
+    #[test]
+    fn select_set_value_clears_other_selections() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_value(&mut dom, sel, "b");
+        // First option's `selected` attribute was cleared.
+        assert!(!dom
+            .world()
+            .get::<&Attributes>(opts[0])
+            .unwrap()
+            .contains("selected"));
+        assert!(dom
+            .world()
+            .get::<&Attributes>(opts[1])
+            .unwrap()
+            .contains("selected"));
+    }
+
+    #[test]
+    fn select_set_value_no_match_leaves_no_selection() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_value(&mut dom, sel, "missing");
+        // All options' `selected` attribute is cleared.
+        assert!(!dom
+            .world()
+            .get::<&Attributes>(opts[0])
+            .unwrap()
+            .contains("selected"));
+    }
+
+    #[test]
+    fn select_set_value_first_match_wins() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[
+                TestOpt::valued("dup"),
+                TestOpt::valued("dup"),
+                TestOpt::valued("other"),
+            ],
+        );
+        select_set_value(&mut dom, sel, "dup");
+        assert_eq!(select_selected_index(&dom, sel), 0.0);
+    }
+
+    // -- select_set_selected_index tests (D-4 hoist) ---------------
+
+    #[test]
+    fn select_set_selected_index_in_range() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
+        select_set_selected_index(&mut dom, sel, 1);
+        assert_eq!(select_selected_index(&dom, sel), 1.0);
+    }
+
+    #[test]
+    fn select_set_selected_index_clears_existing_then_sets() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_selected_index(&mut dom, sel, 1);
+        assert!(!dom
+            .world()
+            .get::<&Attributes>(opts[0])
+            .unwrap()
+            .contains("selected"));
+        assert!(dom
+            .world()
+            .get::<&Attributes>(opts[1])
+            .unwrap()
+            .contains("selected"));
+    }
+
+    #[test]
+    fn select_set_selected_index_negative_clears_all() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_selected_index(&mut dom, sel, -1);
+        for opt in &opts {
+            assert!(!dom
+                .world()
+                .get::<&Attributes>(*opt)
+                .unwrap()
+                .contains("selected"));
+        }
+    }
+
+    #[test]
+    fn select_set_selected_index_out_of_range_clears_all() {
+        let (mut dom, sel) = build_select(
+            Attributes::default(),
+            &[TestOpt::valued("a"), TestOpt::valued("b")],
+        );
+        let opts: Vec<Entity> = dom.children(sel);
+        dom.set_attribute(opts[0], "selected", String::new());
+        select_set_selected_index(&mut dom, sel, 99);
+        for opt in &opts {
+            assert!(!dom
+                .world()
+                .get::<&Attributes>(*opt)
+                .unwrap()
+                .contains("selected"));
+        }
     }
 }
