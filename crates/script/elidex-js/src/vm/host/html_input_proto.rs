@@ -131,13 +131,13 @@ impl VmInner {
             ),
             (
                 self.well_known.form_enctype,
-                native_input_get_form_enctype,
-                native_input_set_form_enctype,
+                super::html_input_value::native_input_get_form_enctype,
+                super::html_input_value::native_input_set_form_enctype,
             ),
             (
                 self.well_known.form_method,
-                native_input_get_form_method,
-                native_input_set_form_method,
+                super::html_input_value::native_input_get_form_method,
+                super::html_input_value::native_input_set_form_method,
             ),
             (
                 self.well_known.form_target,
@@ -489,83 +489,9 @@ input_string_attr!(
     "formaction",
     "formAction"
 );
-// `<input>.formEnctype` — HTML §4.10.5.4 enumerated-attribute
-// override.  Same keyword set + empty-string default as
-// `<button>.formEnctype`.
-fn native_input_get_form_enctype(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let empty = ctx.vm.well_known.empty;
-    let Some(entity) = require_input_receiver(ctx, this, "formEnctype")? else {
-        return Ok(JsValue::String(empty));
-    };
-    let sid = super::element_attrs::enumerated_attr_reflect(
-        ctx,
-        entity,
-        "formenctype",
-        &[
-            "application/x-www-form-urlencoded",
-            "multipart/form-data",
-            "text/plain",
-        ],
-        "",
-    );
-    Ok(JsValue::String(sid))
-}
-
-fn native_input_set_form_enctype(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "formEnctype")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "formenctype", s);
-    Ok(JsValue::Undefined)
-}
-
-// `<input>.formMethod` — HTML §4.10.5.4 enumerated-attribute
-// override.  Same keyword set + empty-string default as
-// `<button>.formMethod`.
-fn native_input_get_form_method(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let empty = ctx.vm.well_known.empty;
-    let Some(entity) = require_input_receiver(ctx, this, "formMethod")? else {
-        return Ok(JsValue::String(empty));
-    };
-    let sid = super::element_attrs::enumerated_attr_reflect(
-        ctx,
-        entity,
-        "formmethod",
-        &["get", "post", "dialog"],
-        "",
-    );
-    Ok(JsValue::String(sid))
-}
-
-fn native_input_set_form_method(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = require_input_receiver(ctx, this, "formMethod")? else {
-        return Ok(JsValue::Undefined);
-    };
-    let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let sid = super::super::coerce::to_string(ctx.vm, val)?;
-    let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "formmethod", s);
-    Ok(JsValue::Undefined)
-}
+// `formEnctype` / `formMethod` enumerated overrides live in
+// `html_input_value.rs` (B-12 — `enumerated_attr_reflect` based,
+// distinct from the raw-string `input_string_attr!` reflects).
 input_string_attr!(
     native_input_get_form_target,
     native_input_set_form_target,

@@ -382,3 +382,84 @@ pub(super) fn native_input_step_down(
 ) -> Result<JsValue, VmError> {
     step_apply(ctx, this, args, "stepDown", -1.0)
 }
+
+// -------------------------------------------------------------------------
+// formMethod / formEnctype — HTML §4.10.5.4 enumerated-attribute
+// submit-button overrides.  Same keyword sets as `<form>.method` /
+// `<form>.enctype`, but missing- and invalid-value defaults are both
+// `""` (the no-override sentinel — the form-level value wins when
+// the override is absent / invalid).  Distinct from the raw-string
+// reflects in `html_input_proto.rs::input_string_attr!`.
+// -------------------------------------------------------------------------
+
+pub(super) fn native_input_get_form_enctype(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let empty = ctx.vm.well_known.empty;
+    let Some(entity) = require_input_receiver(ctx, this, "formEnctype")? else {
+        return Ok(JsValue::String(empty));
+    };
+    let sid = super::element_attrs::enumerated_attr_reflect(
+        ctx,
+        entity,
+        "formenctype",
+        &[
+            "application/x-www-form-urlencoded",
+            "multipart/form-data",
+            "text/plain",
+        ],
+        "",
+    );
+    Ok(JsValue::String(sid))
+}
+
+pub(super) fn native_input_set_form_enctype(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_input_receiver(ctx, this, "formEnctype")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.host().dom().set_attribute(entity, "formenctype", s);
+    Ok(JsValue::Undefined)
+}
+
+pub(super) fn native_input_get_form_method(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let empty = ctx.vm.well_known.empty;
+    let Some(entity) = require_input_receiver(ctx, this, "formMethod")? else {
+        return Ok(JsValue::String(empty));
+    };
+    let sid = super::element_attrs::enumerated_attr_reflect(
+        ctx,
+        entity,
+        "formmethod",
+        &["get", "post", "dialog"],
+        "",
+    );
+    Ok(JsValue::String(sid))
+}
+
+pub(super) fn native_input_set_form_method(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = require_input_receiver(ctx, this, "formMethod")? else {
+        return Ok(JsValue::Undefined);
+    };
+    let val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let sid = super::super::coerce::to_string(ctx.vm, val)?;
+    let s = ctx.vm.strings.get_utf8(sid);
+    ctx.host().dom().set_attribute(entity, "formmethod", s);
+    Ok(JsValue::Undefined)
+}

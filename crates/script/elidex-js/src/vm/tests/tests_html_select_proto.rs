@@ -778,6 +778,29 @@ fn options_collection_length_setter_truncates_from_end() {
 }
 
 #[test]
+fn options_collection_length_setter_caps_at_implementation_limit() {
+    // Spec allows an implementation-defined upper bound (HTML §4.10.10.2);
+    // we cap at `elidex_ecs::MAX_ANCESTOR_DEPTH` (10 000), which also
+    // bounds `children_iter_rev` engine-wide.  Verify the cap engages:
+    // a request for `2³² - 1` clamps via ToUint32 then via the cap.
+    let out = run("var s = document.createElement('select'); \
+         s.options.length = 4294967295; \
+         '' + s.options.length;");
+    assert_eq!(out, "10000");
+}
+
+#[test]
+fn options_collection_length_setter_extended_options_inherit_owner_document() {
+    // New options created via `options.length = N` inherit the
+    // `<select>`'s owner document so `optionsCollection.item(0).ownerDocument`
+    // matches `document` (WHATWG DOM §4.4 "node document").
+    let out = run("var s = document.createElement('select'); \
+         s.options.length = 1; \
+         (s.options.item(0).ownerDocument === document) ? 'same' : 'diff';");
+    assert_eq!(out, "same");
+}
+
+#[test]
 fn options_collection_selected_index_round_trips() {
     let out = run("var s = document.createElement('select'); \
          var o1 = document.createElement('option'); \

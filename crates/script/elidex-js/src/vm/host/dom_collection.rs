@@ -318,7 +318,10 @@ impl FormCollectionCache {
     }
 
     fn insert(self, vm: &mut VmInner, entity: Entity, id: ObjectId) {
-        match self {
+        // `HashMap::insert` returns the previous value, which we
+        // intentionally discard — the caller has already verified
+        // the key wasn't present via `cache.get` above.
+        let _ = match self {
             Self::FormControls => vm.form_controls_collection_wrappers.insert(entity, id),
             Self::Options => vm.options_collection_wrappers.insert(entity, id),
         };

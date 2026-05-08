@@ -53,6 +53,8 @@ use super::super::value::{JsValue, NativeContext, VmError};
 /// message otherwise (matches HTML §4.10.5.2.10's "throw an
 /// InvalidStateError" branches).
 ///
+/// Used by both [`html_input_selection`](super::html_input_selection)
+/// and [`html_textarea_proto`](super::html_textarea_proto) wrappers.
 /// `interface` is the WebIDL interface name in the error message
 /// (`"HTMLInputElement"` / `"HTMLTextAreaElement"`); `elem_label` is
 /// the descriptor used in the message body (`"input element"` for

@@ -59,25 +59,20 @@ fn require_options_collection_receiver(
     this: JsValue,
     method: &'static str,
 ) -> Result<Option<Entity>, VmError> {
-    let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on '{OPTIONS_INTERFACE}': Illegal invocation"
-        )));
-    };
-    if !matches!(ctx.vm.get_object(id).kind, ObjectKind::HtmlCollection) {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on '{OPTIONS_INTERFACE}': Illegal invocation"
-        )));
-    }
-    let coll = ctx.vm.live_collection_states.get(&id).ok_or_else(|| {
+    let illegal = || {
         VmError::type_error(format!(
             "Failed to execute '{method}' on '{OPTIONS_INTERFACE}': Illegal invocation"
         ))
-    })?;
+    };
+    let JsValue::Object(id) = this else {
+        return Err(illegal());
+    };
+    if !matches!(ctx.vm.get_object(id).kind, ObjectKind::HtmlCollection) {
+        return Err(illegal());
+    }
+    let coll = ctx.vm.live_collection_states.get(&id).ok_or_else(illegal)?;
     if !matches!(coll.filter(), CollectionFilter::Options) {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on '{OPTIONS_INTERFACE}': Illegal invocation"
-        )));
+        return Err(illegal());
     }
     Ok(coll.root())
 }

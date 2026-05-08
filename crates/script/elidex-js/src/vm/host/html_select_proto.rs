@@ -863,14 +863,17 @@ pub(super) fn select_remove_option_at_impl(
 ///
 /// Per HTML §4.10.10.2 step 1, negative `unsigned long` values wrap
 /// modulo 2³² (handled here via `to_uint32`) and the resulting count
-/// is bounded by an implementation-defined limit; we cap at 100k to
-/// match Blink and avoid pathological large allocations in tests.
+/// is bounded by an implementation-defined limit.  We cap at
+/// [`elidex_ecs::MAX_ANCESTOR_DEPTH`] (10 000) because that's also
+/// the engine-wide ceiling on `children_iter_rev` traversal, so any
+/// options created past that point would be invisible to subsequent
+/// `select.options` walks anyway.
 pub(super) fn select_set_options_length_impl(
     ctx: &mut NativeContext<'_>,
     select_entity: Entity,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    const MAX_OPTIONS: usize = 100_000;
+    const MAX_OPTIONS: usize = elidex_ecs::MAX_ANCESTOR_DEPTH;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let new_len = super::super::coerce::to_uint32(ctx.vm, val)? as usize;
     let new_len = new_len.min(MAX_OPTIONS);
@@ -882,11 +885,19 @@ pub(super) fn select_set_options_length_impl(
     let current: Vec<Entity> = opts.snapshot(ctx.host().dom()).to_vec();
     let cur_len = current.len();
     if new_len > cur_len {
+        // Inherit ownerDocument from the select so the new options
+        // satisfy WHATWG DOM §4.4 "node document" before insertion
+        // (matches `document.createElement("option")` semantics).
+        let owner = ctx.host().dom().get_associated_document(select_entity);
+        // Snapshot is taken before the loop; growth appends past
+        // `cur_len`, so we never observe the newly-created entities
+        // in `current`.
         for _ in 0..(new_len - cur_len) {
-            let opt_entity = ctx
-                .host()
-                .dom()
-                .create_element("option", elidex_ecs::Attributes::default());
+            let opt_entity = ctx.host().dom().create_element_with_owner(
+                "option",
+                elidex_ecs::Attributes::default(),
+                owner,
+            );
             let _ = ctx.host().dom().append_child(select_entity, opt_entity);
         }
     } else if new_len < cur_len {
