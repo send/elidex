@@ -1,5 +1,7 @@
 //! Tests for the bytecode VM: interpreter, string pool, object heap, and globals.
 
+mod helpers;
+
 mod tests_abort;
 mod tests_abort_signal_option;
 mod tests_abort_statics;
@@ -20,6 +22,7 @@ mod tests_clone_node;
 mod tests_coerce;
 mod tests_console;
 mod tests_cookie_referrer;
+mod tests_core_eval;
 mod tests_create_event_object;
 mod tests_data_view;
 mod tests_dataset;
@@ -85,8 +88,10 @@ mod tests_remove_event_listener;
 mod tests_request_response;
 mod tests_sparse_array;
 mod tests_storage;
+mod tests_string;
 mod tests_string_complement;
 mod tests_structured_clone;
+mod tests_symbol_iter;
 mod tests_text_encoding;
 mod tests_timer;
 mod tests_to_primitive_fallback;
@@ -105,9 +110,6 @@ mod tests_value_types;
 mod tests_window_global;
 mod tests_window_iframe_props;
 
-mod helpers;
-mod tests_core_eval;
-
 // Re-export helpers (eval, eval_bool, drain_fetch_replies, etc.)
 // so the sibling `tests_*.rs` files can keep referring to them as
 // `super::eval` / `super::eval_bool` / `super::drain_fetch_replies`
@@ -116,6 +118,3 @@ pub(crate) use helpers::*;
 // `tests_timer.rs` references `super::Vm` directly; preserve that
 // path through a single-name re-export.
 pub(crate) use super::Vm;
-
-mod tests_string;
-mod tests_symbol_iter;
