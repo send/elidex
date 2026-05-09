@@ -9,7 +9,7 @@ use super::super::value::{
 use super::{to_object_arg, to_property_key};
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn native_object_define_property(
+pub(in super::super) fn native_object_define_property(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -276,7 +276,7 @@ pub(crate) fn native_object_define_property(
     Ok(obj_val)
 }
 
-pub(crate) fn native_object_get_own_property_symbols(
+pub(in super::super) fn native_object_get_own_property_symbols(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -349,7 +349,7 @@ fn build_data_descriptor(
 }
 
 /// `Object.getOwnPropertyDescriptor(obj, prop)` — ES2020 §19.1.2.6
-pub(crate) fn native_object_get_own_property_descriptor(
+pub(in super::super) fn native_object_get_own_property_descriptor(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -453,7 +453,7 @@ pub(crate) fn native_object_get_own_property_descriptor(
 }
 
 /// `Object.getOwnPropertyNames(obj)` — ES2020 §19.1.2.8
-pub(crate) fn native_object_get_own_property_names(
+pub(in super::super) fn native_object_get_own_property_names(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],

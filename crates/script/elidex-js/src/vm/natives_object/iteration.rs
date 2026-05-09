@@ -8,7 +8,7 @@ use super::super::value::{
 };
 use super::{to_object_arg, to_property_key};
 
-pub(crate) fn native_object_keys(
+pub(in super::super) fn native_object_keys(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -21,7 +21,7 @@ pub(crate) fn native_object_keys(
     Ok(create_array(ctx, keys))
 }
 
-pub(crate) fn native_object_values(
+pub(in super::super) fn native_object_values(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -36,7 +36,7 @@ pub(crate) fn native_object_values(
     Ok(create_array(ctx, values))
 }
 
-pub(crate) fn native_object_assign(
+pub(in super::super) fn native_object_assign(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -137,7 +137,7 @@ pub(crate) fn native_object_assign(
 }
 
 /// `Object.entries(obj)` — ES2020 §19.1.2.5
-pub(crate) fn native_object_entries(
+pub(in super::super) fn native_object_entries(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -154,7 +154,7 @@ pub(crate) fn native_object_entries(
 }
 
 /// `Object.fromEntries(iterable)` — ES2019 §22.1.2.1
-pub(crate) fn native_object_from_entries(
+pub(in super::super) fn native_object_from_entries(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],

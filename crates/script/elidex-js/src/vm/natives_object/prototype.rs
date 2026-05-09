@@ -9,7 +9,7 @@ use super::super::value::{
 };
 use super::{to_object_arg, to_property_key};
 
-pub(crate) fn native_object_create(
+pub(in super::super) fn native_object_create(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -34,7 +34,7 @@ pub(crate) fn native_object_create(
 }
 
 /// `Object.is(a, b)` — ES2020 §19.1.2.10
-pub(crate) fn native_object_is(
+pub(in super::super) fn native_object_is(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -45,7 +45,7 @@ pub(crate) fn native_object_is(
 }
 
 /// `Object.getPrototypeOf(obj)` — ES2020 §19.1.2.9
-pub(crate) fn native_object_get_prototype_of(
+pub(in super::super) fn native_object_get_prototype_of(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -58,7 +58,7 @@ pub(crate) fn native_object_get_prototype_of(
 }
 
 /// `Object.setPrototypeOf(obj, proto)` — ES2020 §19.1.2.21
-pub(crate) fn native_object_set_prototype_of(
+pub(in super::super) fn native_object_set_prototype_of(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
@@ -116,7 +116,7 @@ pub(crate) fn native_object_set_prototype_of(
 }
 
 /// `Object.prototype.hasOwnProperty(prop)` — ES2020 §19.1.3.2
-pub(crate) fn native_object_has_own_property(
+pub(in super::super) fn native_object_has_own_property(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
@@ -167,7 +167,7 @@ pub(crate) fn native_object_has_own_property(
 }
 
 /// `Object.prototype.valueOf()` — ES2020 §19.1.3.7: return ToObject(this).
-pub(crate) fn native_object_value_of(
+pub(in super::super) fn native_object_value_of(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
@@ -177,7 +177,7 @@ pub(crate) fn native_object_value_of(
 }
 
 /// `Object.prototype.isPrototypeOf(obj)` — ES2020 §19.1.3.4
-pub(crate) fn native_object_is_prototype_of(
+pub(in super::super) fn native_object_is_prototype_of(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
@@ -207,7 +207,7 @@ pub(crate) fn native_object_is_prototype_of(
 }
 
 /// `Object.prototype.propertyIsEnumerable(prop)` — ES2020 §19.1.3.5
-pub(crate) fn native_object_property_is_enumerable(
+pub(in super::super) fn native_object_property_is_enumerable(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
