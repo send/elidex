@@ -145,11 +145,12 @@ fn fetch_init_overrides_request_state_for_redirect_credentials() {
 #[test]
 fn fetch_same_origin_mode_rejects_cross_origin_url_with_typeerror() {
     // mode='same-origin' + cross-origin URL → synchronous rejection
-    // before the broker is even contacted.  The mock has no entry
-    // for the target, so a successful broker dispatch would return
-    // a "no response for ..." error — different from the
-    // TypeError we expect.
-    let (mut vm, _handle) = vm_with_origin_and_mock(
+    // before the broker is even contacted.  The mock IS registered
+    // (the body literal is `should-not-reach`) so we can assert the
+    // broker was never asked for it: `drain_recorded_requests()`
+    // must return an empty Vec, proving the same-origin gate fires
+    // BEFORE dispatch rather than after.
+    let (mut vm, handle) = vm_with_origin_and_mock(
         "http://example.com/page",
         "http://other.com/api",
         Ok(ok_response("http://other.com/api", "should-not-reach")),
@@ -171,6 +172,11 @@ fn fetch_same_origin_mode_rejects_cross_origin_url_with_typeerror() {
         }
         other => panic!("expected rejection, got {other:?}"),
     }
+    assert!(
+        handle.drain_recorded_requests().is_empty(),
+        "same-origin rejection must fire before broker dispatch — \
+         no Request should have been logged for the cross-origin target"
+    );
 }
 
 #[test]
