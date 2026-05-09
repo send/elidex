@@ -421,6 +421,29 @@ pub enum ObjectKind {
     /// collected.
     #[cfg(feature = "engine")]
     DOMStringMap { entity_bits: u64 },
+    /// `CSSStyleDeclaration` instance (CSSOM §6.6.1) — backs both
+    /// `Element.style` (mutable inline-style) and the read-only
+    /// declaration returned by `window.getComputedStyle(el)`.
+    ///
+    /// `source` discriminates the backing store:
+    /// - `0` (Inline): `key_bits` = owner `Entity::to_bits().get()`.
+    ///   Mutable; identity-cached per Entity via
+    ///   `VmInner::style_wrapper_cache` so `el.style === el.style`.
+    /// - `1` (Computed): `key_bits` = owner `Entity::to_bits().get()`.
+    ///   Read-only; allocated fresh on each `getComputedStyle` call
+    ///   (matches WPT — identity is NOT preserved across reads).
+    ///
+    /// PR-B will extend with `source = 2` (Rule) keyed by
+    /// `(sheet_entity_bits << 32) | rule_id_low_32_bits`.  Keeping
+    /// the variant unified with a tagged source saves ~600 LoC of
+    /// dispatch boilerplate vs. three separate ObjectKinds.
+    ///
+    /// GC contract: payload-free in trace terms (`source` / `key_bits`
+    /// carry no `ObjectId` references).  Sweep tail prunes the Inline
+    /// `style_wrapper_cache` entries whose value `ObjectId` was
+    /// collected; Computed wrappers are not cached so no prune needed.
+    #[cfg(feature = "engine")]
+    CSSStyleDeclaration { source: u8, key_bits: u64 },
     /// `Attr` instance (WHATWG DOM §4.9.2) — the wrapper returned by
     /// `getAttributeNode` / `setAttributeNode` / NamedNodeMap
     /// indexed + named access.  Payload-free; the backing

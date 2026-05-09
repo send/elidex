@@ -383,6 +383,24 @@ pub(crate) struct VmInner {
     /// pruned in the GC sweep tail.
     #[cfg(feature = "engine")]
     pub(crate) dataset_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `CSSStyleDeclaration.prototype` — shared prototype for every
+    /// `ObjectKind::CSSStyleDeclaration` wrapper backing both
+    /// `Element.style` (Inline source) and `getComputedStyle`
+    /// (Computed source).  Chains to `Object.prototype`; carries
+    /// `length` / `cssText` accessors and the
+    /// `getPropertyValue` / `getPropertyPriority` / `setProperty` /
+    /// `removeProperty` / `item` methods.
+    #[cfg(feature = "engine")]
+    pub(crate) css_style_declaration_prototype: Option<ObjectId>,
+    /// Identity cache for Inline `CSSStyleDeclaration` wrappers
+    /// backing `Element.style` (CSSOM §6.6).  Keyed by owner
+    /// `Entity`; a hit returns the same `ObjectId` so
+    /// `el.style === el.style`.  Computed-source wrappers (returned
+    /// by `getComputedStyle`) are NOT cached — fresh allocation per
+    /// call matches WPT identity rules.  Pruned in the GC sweep tail
+    /// like `class_list_wrapper_cache`.
+    #[cfg(feature = "engine")]
+    pub(crate) style_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `MutationObserver.prototype` (WHATWG DOM §4.3).  Chains to
     /// `Object.prototype` and carries the `observe` / `disconnect` /
     /// `takeRecords` methods.  `None` until

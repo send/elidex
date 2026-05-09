@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 81],
+    pub(super) proto_roots: [Option<ObjectId>; 82],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -178,6 +178,13 @@ pub(super) struct GcRoots<'a> {
     /// [`Self::class_list_wrapper_cache`].
     #[cfg(feature = "engine")]
     pub(super) dataset_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// Inline `CSSStyleDeclaration` (`Element.style`) wrapper identity
+    /// cache.  Same weak-through-owner semantics as
+    /// [`Self::class_list_wrapper_cache`].  Computed-source wrappers
+    /// (from `getComputedStyle`) are not cached so they don't appear
+    /// here.
+    #[cfg(feature = "engine")]
+    pub(super) style_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// `ValidityState` `[SameObject]` identity cache.  Same
     /// weak-through-owner semantics as
     /// [`Self::class_list_wrapper_cache`] — entries are pinned only
@@ -342,6 +349,12 @@ pub(super) fn mark_roots(
         }
         #[cfg(feature = "engine")]
         for (entity, &id) in roots.dataset_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.style_wrapper_cache {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(id, obj_marks, work);
             }

@@ -86,6 +86,23 @@ impl VmInner {
                         return result;
                     }
                 }
+                // CSSStyleDeclaration named-property exotic [[Get]] —
+                // `style.color` reads via `style.getPropertyValue`
+                // (Inline) or `getComputedStyle` (Computed) (CSSOM
+                // §6.6.1).  Falls through on prototype-chain hits so
+                // `style.length` / `style.cssText` / `style.setProperty`
+                // resolve via the accessor / method chain.
+                #[cfg(feature = "engine")]
+                if matches!(
+                    self.get_object(id).kind,
+                    ObjectKind::CSSStyleDeclaration { .. }
+                ) {
+                    if let Some(result) =
+                        super::host::css_style_declaration::try_get(self, id, JsValue::String(key))
+                    {
+                        return result;
+                    }
+                }
                 // Storage (localStorage / sessionStorage) named-
                 // property exotic [[Get]] — `localStorage.k` reads
                 // the stored value, falling through to prototype
@@ -305,6 +322,22 @@ impl VmInner {
                 }
             }
         }
+        // CSSStyleDeclaration named-property exotic [[Delete]] —
+        // `delete style.color` routes to `style.removeProperty`.
+        // Computed-source receivers silently no-op (read-only).
+        #[cfg(feature = "engine")]
+        if matches!(
+            self.get_object(id).kind,
+            super::value::ObjectKind::CSSStyleDeclaration { .. }
+        ) {
+            if let PropertyKey::String(sid) = pk {
+                let result =
+                    super::host::css_style_declaration::try_delete(self, id, JsValue::String(sid));
+                if let Some(r) = result {
+                    return r;
+                }
+            }
+        }
         // Storage named-property exotic [[Delete]] — `delete
         // localStorage.k` removes the stored entry.  Built-in method
         // names fall through to the ordinary delete path (WebIDL §3.10
@@ -491,6 +524,23 @@ impl VmInner {
             if let Some(result) =
                 super::host::dataset::try_set(self, target_id, JsValue::String(key), val)
             {
+                return result;
+            }
+        }
+        // CSSStyleDeclaration named-property exotic [[Set]] —
+        // `style.color = x` routes to `style.setProperty`.  Same
+        // sealed-wrapper rationale as DOMStringMap above.
+        #[cfg(feature = "engine")]
+        if matches!(
+            self.get_object(target_id).kind,
+            ObjectKind::CSSStyleDeclaration { .. }
+        ) {
+            if let Some(result) = super::host::css_style_declaration::try_set(
+                self,
+                target_id,
+                JsValue::String(key),
+                val,
+            ) {
                 return result;
             }
         }

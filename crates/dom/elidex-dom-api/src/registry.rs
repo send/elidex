@@ -123,13 +123,32 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("dataset.delete", Box::new(super::DatasetDelete));
     r.register_static("dataset.keys", Box::new(super::DatasetKeys));
 
-    // --- Style ---
+    // --- Style (CSSStyleDeclaration §6.6) ---
     r.register_static("style.setProperty", Box::new(super::StyleSetProperty));
     r.register_static(
         "style.getPropertyValue",
         Box::new(super::StyleGetPropertyValue),
     );
     r.register_static("style.removeProperty", Box::new(super::StyleRemoveProperty));
+    r.register_static("style.length", Box::new(super::style::StyleLength));
+    r.register_static("style.item", Box::new(super::style::StyleItem));
+    r.register_static("style.cssText.get", Box::new(super::style::StyleCssTextGet));
+    r.register_static("style.cssText.set", Box::new(super::style::StyleCssTextSet));
+
+    // --- CSSOM (formerly via CssomApiHandler — see §M4-12 design review CRIT-2) ---
+    r.register_static("getComputedStyle", Box::new(super::GetComputedStyle));
+
+    // --- CSS namespace (CSSOM §6.7) ---
+    //
+    // `CSS.escape` and `CSS.supports` are pure functions — they consult
+    // neither `this` nor `dom`.  The custom-VM host file
+    // (`vm/host/css_style_declaration.rs`) calls
+    // `elidex_css::escape_ident` / `elidex_css::parse_declaration_block`
+    // directly to skip the registry round-trip and the resulting
+    // sentinel-entity dance.  The handlers (`CssEscape` / `CssSupports`)
+    // remain in the dom-api crate as engine-independent reference
+    // implementations and for any future engine that prefers the unified
+    // dispatch path; they are intentionally NOT registered here.
 
     // --- ClassList ---
     r.register_static("classList.add", Box::new(super::ClassListAdd));
@@ -220,11 +239,18 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
 }
 
 /// Create a registry pre-populated with all standard CSSOM handlers.
+///
+/// Empty in PR-A: `GetComputedStyle` was migrated to the DOM registry
+/// alongside the rest of the `CSSStyleDeclaration` surface
+/// (`#11-style-declaration` design review CRIT-2 — there is no
+/// `invoke_cssom_api` bridge in the custom VM, only `invoke_dom_api`,
+/// so a parallel registry adds dispatch divergence without engine
+/// benefit).  Kept as an empty constructor so existing call sites
+/// (boa bridge, wasm-runtime) continue to compile while the cssom
+/// registry plumbing is dismantled crate-by-crate.
 #[must_use]
 pub fn create_cssom_registry() -> CssomHandlerRegistry {
-    let mut r: CssomHandlerRegistry = PluginRegistry::new();
-    r.register_static("getComputedStyle", Box::new(super::GetComputedStyle));
-    r
+    PluginRegistry::new()
 }
 
 #[cfg(test)]
@@ -357,11 +383,45 @@ mod tests {
     }
 
     #[test]
-    fn cssom_registry_has_get_computed_style() {
-        let registry = create_cssom_registry();
-        assert_eq!(registry.len(), 1);
+    fn dom_registry_has_get_computed_style() {
+        // §M4-12 #11-style-declaration CRIT-2: `getComputedStyle` was
+        // migrated to the DOM registry; the cssom registry is empty.
+        let registry = create_dom_registry();
         let handler = registry.resolve("getComputedStyle").unwrap();
         assert_eq!(handler.method_name(), "getComputedStyle");
+    }
+
+    #[test]
+    fn cssom_registry_is_empty() {
+        let registry = create_cssom_registry();
+        assert_eq!(registry.len(), 0);
+    }
+
+    #[test]
+    fn dom_registry_has_style_surface() {
+        let registry = create_dom_registry();
+        for name in [
+            "style.length",
+            "style.item",
+            "style.cssText.get",
+            "style.cssText.set",
+        ] {
+            assert!(
+                registry.resolve(name).is_some(),
+                "handler '{name}' missing from DOM registry"
+            );
+        }
+    }
+
+    #[test]
+    fn css_namespace_handlers_not_in_registry() {
+        // Engine-bound CSS namespace dispatch calls `elidex_css` directly
+        // (see `create_dom_registry` doc comment for `CSS.escape`).  The
+        // handlers exist as reference implementations but are not
+        // registered.
+        let registry = create_dom_registry();
+        assert!(registry.resolve("CSS.escape").is_none());
+        assert!(registry.resolve("CSS.supports").is_none());
     }
 
     #[test]

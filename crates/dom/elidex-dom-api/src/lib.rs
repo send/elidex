@@ -16,6 +16,7 @@ pub mod char_data;
 pub mod child_node;
 pub mod class_list;
 pub mod computed_style;
+pub mod css_namespace;
 pub mod document;
 pub mod element;
 pub mod live_collection;
@@ -45,6 +46,7 @@ pub use class_list::{
     ClassListReplace, ClassListSupports, ClassListToggle, ClassListValueGet, ClassListValueSet,
 };
 pub use computed_style::{css_value_to_string, GetComputedStyle};
+pub use css_namespace::{CssEscape, CssSupports};
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };

@@ -108,6 +108,21 @@ impl VmInner {
             None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
+        // `style` accessor — returns an identity-preserving Inline
+        // `CSSStyleDeclaration` wrapper backed by the element's
+        // `InlineStyle` ECS component (CSSOM §6.6).  Read-only: per
+        // spec, `el.style = "color: red"` is a no-op (the style
+        // attribute setter shape lives at the IDL layer below the
+        // declaration block, and CSSOM does not surface a setter on
+        // `Element.style` itself — `style.cssText = "..."` is the
+        // intended write path).
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.style,
+            super::css_style_declaration::native_html_element_get_style,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
     }
 
     /// Install `focus()` / `blur()` on `HTMLElement.prototype`.
