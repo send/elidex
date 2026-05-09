@@ -48,11 +48,40 @@ fn normalize_property_name_owned(mut name: String) -> String {
     name
 }
 
-/// Ensure an `InlineStyle` component exists on the entity, inserting a default if missing.
+/// Ensure an `InlineStyle` component exists on the entity.  When the
+/// component is absent but `attrs("style")` already has content (from a
+/// prior `setAttribute("style", "...")`), parse the attribute string
+/// into declarations and seed the new `InlineStyle` so the next mutation
+/// via `style.setProperty` / `removeProperty` / `cssText` doesn't
+/// silently drop those declarations during the post-mutation
+/// `sync_to_attribute` round-trip.
+///
+/// This is the inverse of `sync_to_attribute`: the cascade reads
+/// declarations from `attrs("style")` so writes go style → attrs; this
+/// helper handles the symmetric attrs → style hydration on first
+/// mutation, closing the data-loss gap that arose when
+/// `setAttribute("style", "color: red"); el.style.setProperty("foo",
+/// "bar");` would land `attrs("style") = "foo: bar"` (color: red lost).
 fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
-    if dom.world_mut().get::<&InlineStyle>(entity).is_err() {
-        let _ = dom.world_mut().insert_one(entity, InlineStyle::default());
+    if dom.world_mut().get::<&InlineStyle>(entity).is_ok() {
+        return;
     }
+    // Snapshot the attribute before re-borrowing world_mut for insert_one.
+    let attr_value: Option<String> = dom
+        .world()
+        .get::<&Attributes>(entity)
+        .ok()
+        .and_then(|a| a.get("style").map(str::to_owned));
+    let mut hydrated = InlineStyle::default();
+    if let Some(css) = attr_value {
+        for decl in elidex_css::parse_declaration_block(&css) {
+            hydrated.set(
+                decl.property,
+                crate::computed_style::css_value_to_string(&decl.value),
+            );
+        }
+    }
+    let _ = dom.world_mut().insert_one(entity, hydrated);
 }
 
 /// Round-trip the current `InlineStyle` declarations into `attrs("style")`
@@ -174,14 +203,18 @@ impl DomApiHandler for StyleRemoveProperty {
     ) -> Result<JsValue, DomApiError> {
         let property_raw = require_string_arg(args, 0)?;
         let property = normalize_property_name(&property_raw);
-        // Same stale-wrapper / missing-component split as
-        // `StyleGetPropertyValue` — `removeProperty` on a freshly-created
-        // element silently no-ops (spec-correct: removing from an empty
-        // declaration block returns the empty old value), but a stale
-        // wrapper after the entity has been removed throws NotFoundError.
+        // Stale-wrapper guard mirrors `StyleGetPropertyValue`.
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        // Hydrate `InlineStyle` from `attrs("style")` if absent so
+        // `setAttribute("style","color:red"); el.style.removeProperty(
+        // "color")` actually removes the declaration from the cascade-
+        // visible attribute (instead of silently no-op'ing because the
+        // ECS component happened not to exist yet).  Symmetric with
+        // `StyleSetProperty`'s seed-on-first-mutation policy in
+        // `ensure_inline_style`.
+        ensure_inline_style(this, dom);
         let old_value = match dom.world_mut().get::<&mut InlineStyle>(this) {
             Ok(mut style) => style.remove(property.as_ref()).unwrap_or_default(),
             Err(_) => return Ok(JsValue::String(String::new())),

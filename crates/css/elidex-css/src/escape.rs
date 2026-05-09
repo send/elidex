@@ -24,11 +24,11 @@
 /// 6. Everything else → `\X` (backslash + character).
 #[must_use]
 pub fn escape_ident(ident: &str) -> String {
-    // Single-pass iteration with a 2-char lookbehind window avoids the
+    // Single-pass iteration with a 1-bit lookbehind avoids the
     // `Vec<char>` allocation that an earlier draft used to peek `chars[0]`
-    // / `chars[1]`.  `prev` tracks the most recent emitted char so the
-    // "second char of `-X` where X is a digit" rule (CSSOM §6.7.2 step 4)
-    // can fire without a buffered prefix.
+    // / `chars[1]`.  `prev_was_lone_dash` records whether the index-0 char
+    // was a single `-` so the "second char of `-X` where X is a digit"
+    // rule (CSSOM §6.7.2 step 4) can fire without a buffered prefix.
     let mut out = String::with_capacity(ident.len());
 
     // CSSOM §6.7.2 step 3: lone `-` serializes as `\-`.  Probe just the

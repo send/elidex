@@ -352,20 +352,50 @@ fn style_prototype_chains_to_object_prototype() {
 
 // --- liveness / round-trip ----------------------------------------
 
-/// `setAttribute('style', 'color: red')` followed by `el.style.color`
-/// goes through the existing cascade `attrs.get("style")` → re-parse
-/// path; the dom-api handler reads from `InlineStyle` which only
-/// reflects writes through `setProperty` / `cssText` / named-exotic.
-/// Setting via `setAttribute` does not auto-populate `InlineStyle`,
-/// so this is **observed divergence** in PR-A — see plan §A-1
-/// "InlineStyle ↔ attrs sync" for the full accepted round-trip
-/// direction (writes go style→attrs only).  Pin the current behaviour
-/// so a future round-trip widening surfaces here.
+/// Read-side `attrs("style")` → `InlineStyle` hydration is deferred:
+/// `setAttribute("style", ...)` does not auto-populate `InlineStyle`,
+/// so a *pure read* like `el.style.getPropertyValue("color")` returns
+/// the empty string until the first mutation triggers
+/// `ensure_inline_style`'s seed-from-attrs hydration (Copilot R5 IMP-1
+/// fix).  Pinning the read-side divergence here keeps the eager-read-
+/// hydration follow-up traceable.
 #[test]
-fn set_attribute_does_not_populate_inline_style_in_pr_a() {
+fn set_attribute_does_not_populate_inline_style_on_read() {
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('style', 'color: red'); \
          '|' + d.style.getPropertyValue('color') + '|';");
-    // Empty — InlineStyle ECS not yet populated from the attribute.
     assert_eq!(out, "||");
+}
+
+/// Copilot R5 IMP-1 regression: `setAttribute("style", ...)` followed
+/// by `el.style.setProperty("foo", "bar")` must NOT drop the
+/// pre-existing inline declarations (the post-mutation
+/// `sync_to_attribute` round-trip used to overwrite `attrs("style")`
+/// with an empty `InlineStyle`'s `css_text()` because the ECS component
+/// was seeded empty).  After the fix, the first mutation hydrates
+/// `InlineStyle` from the attribute string.
+#[test]
+fn set_attribute_then_set_property_preserves_existing_decls() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'color: red; display: block'); \
+         d.style.setProperty('font-weight', 'bold'); \
+         var s = d.getAttribute('style'); \
+         (s.indexOf('color') >= 0 && s.indexOf('display') >= 0 && \
+          s.indexOf('font-weight') >= 0) ? 'all-three' : s;");
+    assert_eq!(out, "all-three");
+}
+
+/// Copilot R5 IMP-2 regression: `setAttribute("style", ...)` followed
+/// by `el.style.removeProperty(...)` must remove the declaration from
+/// the cascade-visible attribute (previously a silent no-op because
+/// `removeProperty` early-returned on absent `InlineStyle`).
+#[test]
+fn set_attribute_then_remove_property_takes_effect() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'color: red; display: block'); \
+         d.style.removeProperty('color'); \
+         var s = d.getAttribute('style'); \
+         (s.indexOf('color') < 0 && s.indexOf('display') >= 0) \
+             ? 'removed' : s;");
+    assert_eq!(out, "removed");
 }
