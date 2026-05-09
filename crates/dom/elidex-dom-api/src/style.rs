@@ -90,6 +90,13 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
 /// `attrs("style")` (not `InlineStyle`), so without this sync any mutation
 /// through `el.style.*` would be invisible to layout.
 ///
+/// Routes through [`EcsDom::set_attribute`] (rather than mutating the
+/// `Attributes` component directly) so the canonical
+/// [`EcsDom::rev_version`] bump fires alongside the write.  Without that
+/// version-bump path, LiveCollection / layout / mutation-observer caches
+/// keyed on `inclusive_descendants_version` would stay stale across
+/// `el.style.*` mutations even though the attribute string changed.
+///
 /// Empty inline-style produces an empty attribute (preserves `style=""`
 /// rather than removing it) — matches Chrome's behaviour for an
 /// inline-style block emptied via `removeProperty`.
@@ -98,12 +105,7 @@ fn sync_to_attribute(entity: Entity, dom: &mut EcsDom) {
         Ok(style) => style.css_text(),
         Err(_) => return,
     };
-    if dom.world_mut().get::<&Attributes>(entity).is_err() {
-        let _ = dom.world_mut().insert_one(entity, Attributes::default());
-    }
-    if let Ok(mut attrs) = dom.world_mut().get::<&mut Attributes>(entity) {
-        attrs.set("style", css_text);
-    }
+    let _ = dom.set_attribute(entity, "style", css_text);
 }
 
 // ---------------------------------------------------------------------------
@@ -495,6 +497,33 @@ mod tests {
 
         // InlineStyle component should now exist.
         assert!(dom.world().get::<&InlineStyle>(elem).is_ok());
+    }
+
+    /// Copilot R7 regression: `sync_to_attribute` must route through
+    /// `EcsDom::set_attribute` so `rev_version` fires.  Without the
+    /// bump, LiveCollection / layout / mutation-observer caches keyed
+    /// on `inclusive_descendants_version` stay stale across
+    /// `el.style.*` mutations.
+    #[test]
+    fn set_property_bumps_subtree_version() {
+        let (mut dom, elem, mut session) = setup();
+        let before = dom.inclusive_descendants_version(elem);
+        StyleSetProperty
+            .invoke(
+                elem,
+                &[
+                    JsValue::String("color".into()),
+                    JsValue::String("red".into()),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let after = dom.inclusive_descendants_version(elem);
+        assert!(
+            after > before,
+            "subtree version must bump on style write (before={before}, after={after})"
+        );
     }
 
     /// CRIT-1 regression: setProperty must round-trip through
