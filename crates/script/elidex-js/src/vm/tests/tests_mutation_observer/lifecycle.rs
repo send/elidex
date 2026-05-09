@@ -32,12 +32,7 @@ fn mutation_observer_methods_after_unbind_do_not_panic() {
     let rebound_doc = build_doc(&mut rebound_dom);
     #[allow(unsafe_code)]
     unsafe {
-        bind_vm(
-            &mut vm,
-            &mut rebound_session,
-            &mut rebound_dom,
-            rebound_doc,
-        );
+        bind_vm(&mut vm, &mut rebound_session, &mut rebound_dom, rebound_doc);
     }
     let r = vm
         .eval("typeof mo.disconnect() + ':' + typeof mo.takeRecords() + ':' + mo.takeRecords().length")
