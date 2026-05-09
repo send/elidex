@@ -27,6 +27,15 @@ pub use tree::{
     ReplaceChild, SetInnerHtml,
 };
 
+// Tests are split by category to keep each file under the 1000-line
+// convention.  `unused_must_use` is allowed because individual test
+// bodies invoke mutation handlers (append_child / set_attribute /
+// dataset.set / etc.) without binding the `Result` they return —
+// the assertion target is always observed dom state, not the handler
+// return value.
 #[cfg(test)]
-#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
-mod tests;
+#[allow(unused_must_use)]
+mod tests_attrs;
+#[cfg(test)]
+#[allow(unused_must_use)]
+mod tests_tree;
