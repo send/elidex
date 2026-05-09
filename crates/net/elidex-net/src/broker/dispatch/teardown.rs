@@ -62,12 +62,13 @@ const GRACEFUL_CLOSE_POLL_INTERVAL: Duration = Duration::from_millis(5);
 /// correct worker (different workers don't share cancels).  The
 /// final `join()` is unbounded by design — workers observe cancel
 /// within a select tick (see `ws::io_loop::ws_io_loop` /
-/// [`crate::sse::sse_io_loop`] cancel arms), so the unbounded
+/// `crate::sse::sse_io_loop` cancel arms), so the unbounded
 /// wait is bounded in practice by the cancel-propagation latency.
-/// The WS reference is rendered as inline code rather than an
-/// intra-doc link because `io_loop` is a `pub(super)` submodule
-/// of `ws` (slot #10.6a HX26 split — Copilot R8 HX30 caught the
-/// stale link).
+/// Both references are rendered as inline code rather than intra-
+/// doc links because the underlying `io_loop` / `sse_io_loop`
+/// items are private to their parent modules (slot #10.6a HX26
+/// split — Copilot R8 HX30 caught the WS stale link, PR-7 R1
+/// caught the sibling SSE one).
 pub(super) fn join_pending_with_grace_then_cancel(
     pending: Vec<(std::thread::JoinHandle<()>, crate::CancelHandle)>,
 ) {
@@ -145,8 +146,16 @@ impl NetworkProcessState {
     ///    `ws::io_loop::send_close_frame` — slot #10.6a HX5;
     ///    rendered as inline code because the `io_loop`
     ///    submodule is `pub(super)`, Copilot R8 HX31).
-    /// 4. **Phase 4 — join all**: every worker thread is
-    ///    joined so `close_all_for_client` only returns once
+    /// 4. **Phase 4 — join all (off-thread)**: phases 2-4 run
+    ///    inside a spawned teardown thread tracked in
+    ///    [`Self::pending_teardowns`].  `close_all_for_client`
+    ///    itself returns once Phase 1 has fanned out the close
+    ///    commands; the per-handle joins (and the grace window /
+    ///    cancel fallback above) wait inside that background
+    ///    thread so the broker main loop is free to keep
+    ///    dispatching for OTHER renderers.  The broker `Shutdown`
+    ///    control path drains `pending_teardowns` before exit, so
+    ///    `NetworkProcessHandle::shutdown` only returns once
     ///    every worker has fully exited.
     ///
     /// The grace window is intentionally short
