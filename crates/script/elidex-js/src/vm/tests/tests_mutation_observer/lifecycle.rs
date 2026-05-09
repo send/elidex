@@ -12,6 +12,15 @@ use super::super::super::value::JsValue;
 use super::super::super::Vm;
 use super::{build_doc, setup_with_root};
 
+// `rebound_doc` (the document-root entity) and `rebound_dom` (the
+// EcsDom) are both keyed by the rebind operation; the names are
+// intentionally near-twin to mirror that pairing.  R1 PR #168
+// renamed `rebound_root` → `rebound_doc` for clarity (it's a doc-
+// root entity, not the mutation root element), which moved the
+// suffix from `_root` to `_doc` and made it edit-distance-1 from
+// `_dom`.  Allow the resulting `similar_names` trip rather than
+// re-renaming through a third spelling.
+#[allow(clippy::similar_names)]
 #[test]
 fn mutation_observer_methods_after_unbind_do_not_panic() {
     let mut vm = Vm::new();
