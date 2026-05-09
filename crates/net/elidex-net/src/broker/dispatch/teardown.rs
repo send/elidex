@@ -170,8 +170,10 @@ impl NetworkProcessState {
     /// Joining inside the broker thread is safe because each
     /// worker observes either the cancel signal or the dropped
     /// command channel within bounded time — see
-    /// `ws::io_loop::ws_io_loop` and [`crate::sse::sse_io_loop`]
-    /// for the cancel-injection surface.  Without the join, a
+    /// `ws::io_loop::ws_io_loop` and `crate::sse::sse_io_loop`
+    /// for the cancel-injection surface (both rendered as inline
+    /// code rather than intra-doc links because the underlying
+    /// items are private to their parent modules).  Without the join, a
     /// stale renderer's `WsHandle` / `SseHandle` would be
     /// detached and the worker thread could outlive
     /// `NetworkProcessHandle::shutdown`, continuing to consume
