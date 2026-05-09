@@ -135,6 +135,14 @@ impl DomApiHandler for StyleGetPropertyValue {
     ) -> Result<JsValue, DomApiError> {
         let property_raw = require_string_arg(args, 0)?;
         let property = normalize_property_name(&property_raw);
+        // Distinguish stale-wrapper (entity not in world → NotFoundError,
+        // matches the mutator handlers' shape) from "InlineStyle component
+        // absent" (freshly-created element with no inline declarations →
+        // empty string, which is the spec-correct CSSOM §6.6.1 named-getter
+        // result for an empty declaration block).
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
         match dom.world().get::<&InlineStyle>(this) {
             Ok(style) => match style.get(property.as_ref()) {
                 Some(val) => Ok(JsValue::String(val.to_string())),
@@ -166,6 +174,14 @@ impl DomApiHandler for StyleRemoveProperty {
     ) -> Result<JsValue, DomApiError> {
         let property_raw = require_string_arg(args, 0)?;
         let property = normalize_property_name(&property_raw);
+        // Same stale-wrapper / missing-component split as
+        // `StyleGetPropertyValue` — `removeProperty` on a freshly-created
+        // element silently no-ops (spec-correct: removing from an empty
+        // declaration block returns the empty old value), but a stale
+        // wrapper after the entity has been removed throws NotFoundError.
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
         let old_value = match dom.world_mut().get::<&mut InlineStyle>(this) {
             Ok(mut style) => style.remove(property.as_ref()).unwrap_or_default(),
             Err(_) => return Ok(JsValue::String(String::new())),
@@ -194,6 +210,13 @@ impl DomApiHandler for StyleLength {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
+        // Stale-wrapper distinction: NotFoundError if the entity has been
+        // removed; `0` if the entity exists but lacks `InlineStyle` (freshly-
+        // created element).  Mirrors the read-handler shape in
+        // `StyleGetPropertyValue`.
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
         let len = dom.world().get::<&InlineStyle>(this).map_or(0, |s| s.len());
         #[allow(clippy::cast_precision_loss)]
         Ok(JsValue::Number(len as f64))
