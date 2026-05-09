@@ -29,14 +29,14 @@ fn mutation_observer_methods_after_unbind_do_not_panic() {
     // Re-bind to a fresh DOM and call methods on the retained `mo`.
     let mut rebound_session = SessionCore::new();
     let mut rebound_dom = EcsDom::new();
-    let rebound_root = build_doc(&mut rebound_dom);
+    let rebound_doc = build_doc(&mut rebound_dom);
     #[allow(unsafe_code)]
     unsafe {
         bind_vm(
             &mut vm,
             &mut rebound_session,
             &mut rebound_dom,
-            rebound_root,
+            rebound_doc,
         );
     }
     let r = vm

@@ -70,9 +70,11 @@ pub(super) fn run_throws(script: &str) -> String {
     format!("{err:?}")
 }
 
-/// Build a typical document tree with a `<div id="root">` returned for
-/// targeted mutations, and bind the VM.  Exposes the root-element
-/// JS wrapper as `globalThis.root`.
+/// Build a typical document tree with a `<div>` returned for
+/// targeted mutations, and bind the VM.  Exposes the root `<div>`
+/// element's JS wrapper as `globalThis.root` (the variable name
+/// "root" is the JS-side identifier; the element itself has no
+/// `id` attribute).
 pub(super) fn setup_with_root(
     vm: &mut Vm,
     session: &mut SessionCore,
