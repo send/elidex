@@ -310,6 +310,31 @@ fn css_text_preserves_custom_property_case() {
     assert_eq!(out, "42/");
 }
 
+/// Copilot R2 #1: `style[0] = "x"` must NOT redirect to
+/// `setProperty("0", "x")` (CSSOM §6.6.1 indexed properties are
+/// read-only).  Falls through to ordinary [[Set]] which the
+/// non-extensible wrapper rejects.
+#[test]
+fn indexed_set_does_not_create_numeric_property() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.color = 'red'; \
+         try { d.style[0] = 'oops' } catch (e) {} \
+         d.style.length + ':' + d.style[0];");
+    assert_eq!(out, "1:color");
+}
+
+/// Copilot R2 #2: `delete style[0]` must NOT route to
+/// `removeProperty("0")` — indexed properties are not deletable.  The
+/// declared `color` property at slot 0 stays.
+#[test]
+fn indexed_delete_does_not_remove_property() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.color = 'red'; \
+         try { delete d.style[0] } catch (e) {} \
+         d.style.length + ':' + d.style.color;");
+    assert_eq!(out, "1:red");
+}
+
 // --- prototype chain -----------------------------------------------
 
 #[test]

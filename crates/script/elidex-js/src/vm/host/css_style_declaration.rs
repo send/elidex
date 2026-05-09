@@ -431,6 +431,16 @@ fn entity_and_source(vm: &VmInner, id: ObjectId) -> Option<(u8, Entity)> {
     Some((source, Entity::from_bits(key_bits)?))
 }
 
+/// Whether `sid` is a canonical numeric-index string per ES §7.1.21
+/// (an integer in `[0, 2^32-2]` whose `ToString` round-trips).  Used
+/// to peel off `style[0]` / `style["0"]` shaped writes / deletes from
+/// the named-property exotic so they fall through to the indexed-
+/// property path (which is read-only on a non-extensible legacy
+/// platform object).
+fn is_canonical_numeric_index_key(vm: &VmInner, sid: super::super::value::StringId) -> bool {
+    super::super::coerce_format::parse_array_index_u32(vm.strings.get(sid)).is_some()
+}
+
 /// `[[Get]]` trap (CSSOM §6.6.1 named getter).  `style.color` resolves
 /// to the value of the `color` property.  Returns `None` for prototype-
 /// chain hits (so `style.length` / `style.cssText` / `style.setProperty`
@@ -495,6 +505,14 @@ pub(crate) fn try_set(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    // CSSOM §6.6.1 indexed properties are read-only — `style[0] = "x"`
+    // must NOT be redirected to `setProperty("0", "x")` (which would
+    // create a CSS property named "0").  Fall through to ordinary
+    // [[Set]]; the wrapper is non-extensible, so the ordinary path
+    // rejects the write at the spec-correct layer.
+    if is_canonical_numeric_index_key(vm, key_sid) {
+        return None;
+    }
     if key_on_prototype_chain(vm, id, key_sid) {
         return None;
     }
@@ -529,6 +547,14 @@ pub(crate) fn try_delete(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
+    // CSSOM §6.6.1 indexed properties are not deletable — `delete
+    // style[0]` must NOT route to `removeProperty("0")`.  Fall through
+    // to ordinary `[[Delete]]`; legacy-platform-object semantics treat
+    // the indexed slot as a non-configurable derived property which
+    // ordinary delete will refuse.
+    if is_canonical_numeric_index_key(vm, key_sid) {
+        return None;
+    }
     if key_on_prototype_chain(vm, id, key_sid) {
         return None;
     }

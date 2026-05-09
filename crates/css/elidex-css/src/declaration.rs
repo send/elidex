@@ -69,15 +69,18 @@ pub fn parse_declaration_block(css: &str) -> Vec<Declaration> {
     while !input.is_exhausted() {
         let result: Result<Vec<Declaration>, ()> = input.try_parse(|i| {
             // CSS Variables Level 1 §2 — custom properties (`--*`) are
-            // case-sensitive; ASCII-lowercase the ident only when it is
-            // NOT a custom property so `--MyVar` and `--myvar` remain
+            // case-sensitive; lowercase the ident only when it is NOT
+            // a custom property so `--MyVar` and `--myvar` remain
             // distinct declarations after re-parsing
             // (CSSStyleDeclaration `cssText` setter round-trip etc.).
-            let raw = i.expect_ident().map_err(|_| ())?.as_ref().to_owned();
-            let name = if raw.starts_with("--") {
-                raw
+            // Allocate exactly once per branch — `to_owned()` for the
+            // case-preserving custom-property arm, `to_ascii_lowercase()`
+            // for the canonical-name arm.
+            let ident = i.expect_ident().map_err(|_| ())?;
+            let name = if ident.starts_with("--") {
+                ident.as_ref().to_owned()
             } else {
-                raw.to_ascii_lowercase()
+                ident.as_ref().to_ascii_lowercase()
             };
             i.expect_colon().map_err(|_| ())?;
             let mut decls = parse_property_value(&name, i, None);
