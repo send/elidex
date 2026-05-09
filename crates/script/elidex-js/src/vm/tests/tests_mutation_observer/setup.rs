@@ -5,6 +5,7 @@
 //! actual `MutationRecord` plumbing is exercised) and
 //! [`super::lifecycle`] (C5 unbind + rebind).
 
+use super::super::super::value::JsValue;
 use super::super::super::Vm;
 use super::{run, run_throws};
 
@@ -17,8 +18,19 @@ fn mutation_observer_prototype_installed() {
         vm.inner.mutation_observer_prototype.is_some(),
         "MutationObserver.prototype must be allocated during register_globals"
     );
-    // global binding present
-    assert!(vm.eval("typeof MutationObserver === 'function'").is_ok());
+    // Global binding present.  `typeof X === 'function'` evaluates
+    // to `false` (not a ReferenceError) for an undeclared `X`, so
+    // `.is_ok()` alone would pass even if `MutationObserver` were
+    // never installed — assert the returned value is `true`
+    // instead (Copilot R3 PR #168).
+    let result = vm
+        .eval("typeof MutationObserver === 'function'")
+        .expect("typeof expression must not throw");
+    assert_eq!(
+        result,
+        JsValue::Boolean(true),
+        "`MutationObserver` global binding must be installed by register_globals"
+    );
 }
 
 #[test]
