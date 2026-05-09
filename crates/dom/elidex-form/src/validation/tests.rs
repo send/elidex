@@ -601,7 +601,8 @@ fn email_whatwg_invalid_no_domain() {
 
 #[test]
 fn pattern_unicode_false_digit_shorthand() {
-    // Verify \d{3} works with unicode(false) — matches ASCII digits only.
+    // Rust regex default for `\d` is ASCII `[0-9]` (matches the JS `u` flag
+    // semantics that HTML §4.10.5.3.8 prescribes for the `pattern` attribute).
     let mut attrs = Attributes::default();
     attrs.set("pattern", r"\d{3}");
     attrs.set("value", "123");
