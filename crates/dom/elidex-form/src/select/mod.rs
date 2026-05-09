@@ -305,7 +305,10 @@ fn walk_options(
     }
 }
 
-/// Try to mark an option index as selected, returning the i32 index.
+/// If the most recently appended option carries `selected` AND no
+/// earlier selection has been recorded (`*selected_index < 0`), update
+/// `*selected_index` in place to that option's position.  Returns
+/// nothing — the result is signalled by the mutation.
 fn try_mark_selected(options: &[crate::SelectOption], selected_index: &mut i32) {
     if options.last().is_some_and(|opt| opt.selected) && *selected_index < 0 {
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
