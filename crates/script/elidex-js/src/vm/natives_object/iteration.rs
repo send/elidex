@@ -153,7 +153,7 @@ pub(in super::super) fn native_object_entries(
     Ok(create_array(ctx, entries))
 }
 
-/// `Object.fromEntries(iterable)` — ES2019 §22.1.2.1
+/// `Object.fromEntries(iterable)` — ES2020 §19.1.2.7
 pub(in super::super) fn native_object_from_entries(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

@@ -348,7 +348,7 @@ fn build_data_descriptor(
     desc_id
 }
 
-/// `Object.getOwnPropertyDescriptor(obj, prop)` — ES2020 §19.1.2.6
+/// `Object.getOwnPropertyDescriptor(obj, prop)` — ES2020 §19.1.2.8
 pub(in super::super) fn native_object_get_own_property_descriptor(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
