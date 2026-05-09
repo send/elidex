@@ -260,6 +260,56 @@ fn cross_receiver_throws_type_error() {
     assert_eq!(out, "yes");
 }
 
+/// Copilot R1 #1: `parentRule` accessor must brand-check the receiver
+/// (WebIDL §3.10) — a `.call({})` invocation must throw TypeError, not
+/// silently return null.
+#[test]
+fn parent_rule_brand_check_throws_on_alien_receiver() {
+    let out = run("var d = document.createElement('div'); \
+         var fn = Object.getOwnPropertyDescriptor( \
+             Object.getPrototypeOf(d.style), 'parentRule').get; \
+         try { fn.call({}); 'no' } catch (e) { 'yes' }");
+    assert_eq!(out, "yes");
+}
+
+/// `parentRule` returns `null` for both Inline and Computed source
+/// (only stylesheet-rule-owned declarations have a non-null parent).
+#[test]
+fn parent_rule_returns_null_for_inline_source() {
+    let out = run("var d = document.createElement('div'); \
+         (d.style.parentRule === null) ? 'null' : 'other';");
+    assert_eq!(out, "null");
+}
+
+/// Copilot R1 #3: `getComputedStyle` must reject non-Element node
+/// arguments (Text / Comment / Document) — the WebIDL signature is
+/// `getComputedStyle(Element elt, ...)`.
+#[test]
+fn get_computed_style_rejects_text_node() {
+    let out = run("var t = document.createTextNode('hi'); \
+         try { window.getComputedStyle(t); 'no' } catch (e) { 'yes' }");
+    assert_eq!(out, "yes");
+}
+
+#[test]
+fn get_computed_style_rejects_document() {
+    let out = run("try { window.getComputedStyle(document); 'no' } \
+         catch (e) { 'yes' }");
+    assert_eq!(out, "yes");
+}
+
+/// Copilot R1 #7: `cssText` setter parses through
+/// `parse_declaration_block` which lowercases ident tokens; the parser
+/// must preserve case for `--*` custom properties (CSS Variables L1 §2).
+#[test]
+fn css_text_preserves_custom_property_case() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.cssText = '--MyVar: 42'; \
+         d.style.getPropertyValue('--MyVar') + '/' + \
+         d.style.getPropertyValue('--myvar');");
+    assert_eq!(out, "42/");
+}
+
 // --- prototype chain -----------------------------------------------
 
 #[test]

@@ -24,25 +24,33 @@
 /// 6. Everything else → `\X` (backslash + character).
 #[must_use]
 pub fn escape_ident(ident: &str) -> String {
+    // Single-pass iteration with a 2-char lookbehind window avoids the
+    // `Vec<char>` allocation that an earlier draft used to peek `chars[0]`
+    // / `chars[1]`.  `prev` tracks the most recent emitted char so the
+    // "second char of `-X` where X is a digit" rule (CSSOM §6.7.2 step 4)
+    // can fire without a buffered prefix.
     let mut out = String::with_capacity(ident.len());
-    let chars: Vec<char> = ident.chars().collect();
-    let len = chars.len();
 
-    // Single "-" is a special case: serialize as "\-".
-    if len == 1 && chars[0] == '-' {
-        return "\\-".to_string();
+    // CSSOM §6.7.2 step 3: lone `-` serializes as `\-`.  Probe just the
+    // first two chars without buffering the whole input.
+    {
+        let mut probe = ident.chars();
+        if let (Some('-'), None) = (probe.next(), probe.next()) {
+            return "\\-".to_string();
+        }
     }
 
-    for (i, &c) in chars.iter().enumerate() {
+    let mut prev_was_lone_dash = false;
+    for (index, c) in ident.chars().enumerate() {
         match c {
             '\0' => out.push('\u{FFFD}'),
             '\u{0001}'..='\u{001F}' | '\u{007F}' => {
                 push_hex_escape(&mut out, c);
             }
-            '0'..='9' if i == 0 => {
+            '0'..='9' if index == 0 => {
                 push_hex_escape(&mut out, c);
             }
-            '0'..='9' if i == 1 && chars[0] == '-' => {
+            '0'..='9' if index == 1 && prev_was_lone_dash => {
                 push_hex_escape(&mut out, c);
             }
             'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => out.push(c),
@@ -52,6 +60,7 @@ pub fn escape_ident(ident: &str) -> String {
                 out.push(c);
             }
         }
+        prev_was_lone_dash = index == 0 && c == '-';
     }
     out
 }

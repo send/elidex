@@ -176,10 +176,13 @@ impl VmInner {
 // Brand check
 // ---------------------------------------------------------------------------
 
-/// Brand-check the receiver and recover `(source, owner Entity)`.  Returns
-/// `Some` on a stale-Entity hit and the caller short-circuits to its safe
-/// default — matches `class_list.rs`'s `vm_is_bound` pattern (post-unbind
-/// retained wrappers must not panic on access).
+/// Brand-check the receiver and recover `(source, owner Entity)`.  Throws
+/// `TypeError` on non-CSSStyleDeclaration receivers (`Illegal invocation`)
+/// and on stale entity bits (the wrapper survived a re-bind into a
+/// different `EcsDom` world where the Entity index no longer maps).  The
+/// post-unbind safe-default is checked SEPARATELY by every native via
+/// `ctx.host_if_bound()` after this brand check passes — they short-
+/// circuit to the type-appropriate default before any DOM-side dispatch.
 fn require_style_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -271,14 +274,17 @@ fn native_style_css_text_set(
 }
 
 fn native_style_parent_rule_get(
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // `parentRule` is `null` for Inline and Computed declaration blocks
     // (only stylesheet-rule-owned declarations have a non-null parent).
     // PR-B will route Rule-source wrappers through this accessor too.
-    let _ = this;
+    // Brand-check the receiver so `parentRule.call({})` throws the same
+    // `Illegal invocation` TypeError as the other accessors / methods,
+    // matching WebIDL §3.10 brand semantics.
+    let _ = require_style_receiver(ctx, this, "parentRule")?;
     Ok(JsValue::Null)
 }
 
@@ -443,7 +449,16 @@ pub(crate) fn try_get(
         return None;
     }
     if !is_bound(vm) {
-        return None;
+        // Post-unbind: CSSOM §6.6.1 named getter is spec-shaped to
+        // always return a string (empty for absent), so a retained
+        // `el.style.color` after `Vm::unbind()` must still surface `""`
+        // — falling through to ordinary [[Get]] would resolve to
+        // `undefined` because the wrapper carries no own `color` data
+        // property.  This differs from `dataset.try_get`'s post-unbind
+        // fall-through (DOMStringMap is allowed to fall through to the
+        // prototype chain since `dataset.foo` is not spec-shaped to a
+        // string).
+        return Some(Ok(JsValue::String(vm.well_known.empty)));
     }
     let handler = if source == SOURCE_COMPUTED {
         "getComputedStyle"
@@ -588,6 +603,24 @@ pub(super) fn native_window_get_computed_style(
             ));
         }
     };
+    // WebIDL signature `getComputedStyle(Element elt, ...)` — `HostObject`
+    // is shared with Text / Comment / Document / Window wrappers, so a
+    // brand-only check would let `getComputedStyle(textNode)` pass with a
+    // misleading "not an Element" message after the fact.  Reject any
+    // non-Element NodeKind here while the bound DOM is still in scope;
+    // post-unbind the entity has no observable kind so we let it through
+    // (the wrapper is stale anyway and the resulting CSSStyleDeclaration
+    // is read-only).
+    if let Some(hd) = ctx.host_if_bound() {
+        if !matches!(
+            hd.dom().node_kind(entity),
+            Some(elidex_ecs::NodeKind::Element)
+        ) {
+            return Err(VmError::type_error(
+                "Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not an Element",
+            ));
+        }
+    }
     let id = ctx.vm.alloc_computed_style(entity);
     Ok(JsValue::Object(id))
 }

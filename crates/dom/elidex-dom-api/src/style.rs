@@ -36,6 +36,18 @@ fn normalize_property_name(name: &str) -> Cow<'_, str> {
     }
 }
 
+/// In-place ASCII-lowercase variant for the common path where the caller
+/// already owns a `String` from arg coercion.  Avoids the [`Cow`]
+/// `into_owned` round-trip for the most-frequent shape (no uppercase).
+/// Custom properties (`--*`) are passed through unchanged per CSS
+/// Variables L1 §2.
+fn normalize_property_name_owned(mut name: String) -> String {
+    if !name.starts_with("--") && name.bytes().any(|b| b.is_ascii_uppercase()) {
+        name.make_ascii_lowercase();
+    }
+    name
+}
+
 /// Ensure an `InlineStyle` component exists on the entity, inserting a default if missing.
 fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
     if dom.world_mut().get::<&InlineStyle>(entity).is_err() {
@@ -85,7 +97,7 @@ impl DomApiHandler for StyleSetProperty {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let property_raw = require_string_arg(args, 0)?;
-        let property = normalize_property_name(&property_raw);
+        let property = normalize_property_name_owned(property_raw);
         let value = require_string_arg(args, 1)?;
 
         ensure_inline_style(this, dom);
@@ -95,7 +107,7 @@ impl DomApiHandler for StyleSetProperty {
                 .world_mut()
                 .get::<&mut InlineStyle>(this)
                 .map_err(|_| not_found_error("element not found"))?;
-            style.set(property.into_owned(), value);
+            style.set(property, value);
         }
         sync_to_attribute(this, dom);
         Ok(JsValue::Undefined)
