@@ -252,6 +252,11 @@ impl DomApiHandler for StyleItem {
         }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let idx = idx_f as usize;
+        // Same stale-wrapper / missing-component split as
+        // `StyleGetPropertyValue`.
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
         match dom.world().get::<&InlineStyle>(this) {
             Ok(style) => Ok(JsValue::String(
                 style.property_at(idx).unwrap_or("").to_string(),
@@ -280,6 +285,13 @@ impl DomApiHandler for StyleCssTextGet {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
+        // Same stale-wrapper / missing-component split as the read-handler
+        // family above — NotFoundError on stale entities, empty string on
+        // entity-without-InlineStyle (CSSOM §6.6.1 cssText getter on an
+        // empty declaration block).
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
         let text = match dom.world().get::<&InlineStyle>(this) {
             Ok(style) => style.css_text(),
             Err(_) => String::new(),
@@ -313,6 +325,15 @@ impl DomApiHandler for StyleCssTextSet {
         let css = require_string_arg(args, 0)?;
         let declarations = elidex_css::parse_declaration_block(&css);
 
+        // Stale-wrapper guard: same shape as the read handlers + the
+        // mutator handlers (`setProperty` / `removeProperty`).  Without
+        // this, `world_mut().insert_one` silently fails on a removed
+        // entity and the cssText set becomes a no-op — inconsistent with
+        // the rest of the surface.
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
+
         // All-or-nothing replace: drop any existing component and insert
         // a freshly-built one so insertion order matches the parsed
         // declarations exactly (no leftover keys from prior content).
@@ -323,7 +344,9 @@ impl DomApiHandler for StyleCssTextSet {
                 crate::computed_style::css_value_to_string(&decl.value),
             );
         }
-        let _ = dom.world_mut().insert_one(this, new_style);
+        dom.world_mut()
+            .insert_one(this, new_style)
+            .map_err(|_| not_found_error("element not found"))?;
         sync_to_attribute(this, dom);
         Ok(JsValue::Undefined)
     }

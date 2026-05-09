@@ -71,6 +71,19 @@ impl DomApiHandler for CssSupports {
         _session: &mut SessionCore,
         _dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
+        // WebIDL: `CSS.supports()` with zero arguments throws TypeError
+        // (the first parameter is required in both the 1-arg
+        // `<supports-condition>` and 2-arg `(property, value)` overloads).
+        // Match the VM-side `native_css_supports` shape so the standalone
+        // handler stays consistent with the engine binding.
+        if args.is_empty() {
+            return Err(elidex_script_session::DomApiError {
+                kind: elidex_script_session::DomApiErrorKind::TypeError,
+                message:
+                    "Failed to execute 'supports' on 'CSS': 1 argument required, but 0 present."
+                        .into(),
+            });
+        }
         if args.len() < 2 {
             // 1-arg <supports-condition> form deferred — see module docs.
             return Ok(JsValue::Bool(false));
