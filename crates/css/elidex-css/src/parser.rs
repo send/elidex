@@ -95,11 +95,36 @@ pub fn parse_single_rule(css: &str) -> Option<CssRule> {
     if trimmed.is_empty() {
         return None;
     }
-    let stylesheet = parse_stylesheet(trimmed, Origin::Author);
-    if stylesheet.rules.len() != 1 {
+    let mut pi = ParserInput::new(trimmed);
+    let mut input = Parser::new(&mut pi);
+    let mut source_order: u32 = 0;
+    let mut next_rule_id: u64 = 0;
+    let mut keyframes_raw = Vec::new();
+    let mut page_rules = Vec::new();
+    let mut rule_parser = RuleListParser {
+        source_order: &mut source_order,
+        next_rule_id: &mut next_rule_id,
+        keyframes_raw: &mut keyframes_raw,
+        page_rules: &mut page_rules,
+        registry: None,
+    };
+    // Strict: must yield exactly one `Ok(rule)` and then end-of-stream.
+    // - Any `Err` (parse error / unrecognized at-rule) = skipped content
+    //   → `insertRule` must reject per CSSOM §6.4 SyntaxError, despite
+    //   the broader `parse_stylesheet` path's CSS error-recovery.
+    // - `@keyframes` / `@page` end up in the side-channel vecs even when
+    //   their parse_block returns Err; reject if either fired.
+    let (first, second) = {
+        let mut iter = StyleSheetParser::new(&mut input, &mut rule_parser);
+        (iter.next(), iter.next())
+    };
+    if !keyframes_raw.is_empty() || !page_rules.is_empty() {
         return None;
     }
-    stylesheet.rules.into_iter().next()
+    match (first, second) {
+        (Some(Ok(rule)), None) => Some(rule),
+        _ => None,
+    }
 }
 
 /// Parse a CSS string into a [`Stylesheet`], with optional handler registry.

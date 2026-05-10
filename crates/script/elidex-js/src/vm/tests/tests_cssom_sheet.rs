@@ -497,6 +497,39 @@ fn html_element_sheet_getter_foreign_receiver_throws() {
 }
 
 #[test]
+fn insert_rule_rejects_multi_rule_input() {
+    // R8 IMP regression: CSSOM §6.4 specifies that `insertRule(text)`
+    // must throw `SyntaxError` for input that contains more than one
+    // rule.  The previous `parse_single_rule` used `parse_stylesheet`
+    // which silently dropped invalid / at-rule content via CSS error
+    // recovery, so `insertRule("@media screen {} div {}")` succeeded
+    // when it should reject.  Strict variant rejects any input where
+    // the StyleSheetParser yields anything other than exactly one
+    // qualified rule.
+    let out = run_with_css(
+        "div {}",
+        "var s = document.getElementsByTagName('style')[0]; \
+         try { s.sheet.insertRule('@media screen { p {} } span {}', 0); 'no-throw'; } \
+         catch (e) { e.name; }",
+    );
+    assert_eq!(out, "SyntaxError");
+}
+
+#[test]
+fn insert_rule_rejects_at_rule_input() {
+    // R8 IMP regression: pure at-rule input (e.g. `@media`) should
+    // fail because the strict parser treats unrecognised at-rules as
+    // skipped content per `parse_stylesheet`'s drop policy.
+    let out = run_with_css(
+        "div {}",
+        "var s = document.getElementsByTagName('style')[0]; \
+         try { s.sheet.insertRule('@media screen { p {} }', 0); 'no-throw'; } \
+         catch (e) { e.name; }",
+    );
+    assert_eq!(out, "SyntaxError");
+}
+
+#[test]
 fn rule_selector_text_handles_brace_in_attribute_value() {
     // R7 MIN regression: `selectorText` previously used `split_once('{')`
     // which mis-sliced selectors containing `{` inside an attribute
