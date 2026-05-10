@@ -747,37 +747,40 @@ pub(crate) fn try_indexed_get_style_sheet_list(
 }
 
 /// `HTMLStyleElement.prototype.sheet` getter (CSSOM §6.2). Returns the
-/// `[SameObject]` `CSSStyleSheet` wrapper for `<style>`; `null` for any
-/// non-`<style>` element. Foreign receivers (`getter.call({})`) throw
-/// `TypeError` per WebIDL brand-check semantics — mirrors PR-A's
-/// `native_html_element_get_style`. Installed on the shared
-/// `HTMLElement.prototype` because elidex collapses the per-tag
-/// interface tree to a single `HTMLElement` shape.
-pub(super) fn native_html_element_get_sheet(
+/// `[SameObject]` `CSSStyleSheet` wrapper for `<style>`. Foreign
+/// receivers (`getter.call(<div>)` etc.) throw `TypeError` per WebIDL
+/// brand-check semantics — `<style>.sheet` is a HTMLStyleElement IDL
+/// member, so the prototype install lives on `html_style_proto.rs`
+/// (slot `#11-tags-T2b-passive`); non-`<style>` elements no longer
+/// have a `sheet` accessor on their prototype chain.
+pub(super) fn native_html_style_get_sheet(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity =
-        super::event_target::require_receiver(ctx, this, "HTMLElement", "sheet", |kind| {
+        super::event_target::require_receiver(ctx, this, "HTMLStyleElement", "sheet", |kind| {
             matches!(kind, elidex_ecs::NodeKind::Element)
         })?
         .ok_or_else(|| {
-            VmError::type_error("Failed to execute 'sheet' on 'HTMLElement': Illegal invocation")
+            VmError::type_error(
+                "Failed to execute 'sheet' on 'HTMLStyleElement': Illegal invocation",
+            )
         })?;
     let Some(hd) = ctx.host_if_bound() else {
         return Ok(JsValue::Null);
     };
     // ASCII case-insensitive tag match per WHATWG DOM §4.2.6.2.
-    // `EcsDom::has_tag` is case-sensitive, but raw `create_element`
-    // ("STYLE", ...) callers (and any future XML / mixed-case path)
-    // expect the spec-correct CI compare here.  Mirrors
-    // `first_child_with_tag`'s `eq_ignore_ascii_case` pattern.
+    // Mirrors `first_child_with_tag`'s `eq_ignore_ascii_case` pattern
+    // — accepts raw `create_element("STYLE", ...)` callers and any
+    // future XML / mixed-case path.
     let is_style = hd.dom().with_tag_name(entity, |t| {
         t.is_some_and(|t| t.eq_ignore_ascii_case("style"))
     });
     if !is_style {
-        return Ok(JsValue::Null);
+        return Err(VmError::type_error(
+            "Failed to execute 'sheet' on 'HTMLStyleElement': Illegal invocation",
+        ));
     }
     let id = ctx.vm.alloc_or_cached_stylesheet(entity);
     Ok(JsValue::Object(id))

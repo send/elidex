@@ -122,6 +122,53 @@ pub const AREA_SHAPE_VALUES: &[&str] = &["circle", "default", "poly", "rect"];
 pub const AREA_SHAPE_MISSING_DEFAULT: &str = "rect";
 pub const AREA_SHAPE_INVALID_DEFAULT: &str = "rect";
 
+// ---------------------------------------------------------------------------
+// "Limited to only known values" — case-sensitive variant
+// ---------------------------------------------------------------------------
+
+/// Canonicalise per HTML §6.5.5 "limited to only known values" — used
+/// by enumerated reflects whose canonical keywords differ only in
+/// ASCII case (so the regular ASCII-CI [`canonicalize_enumerated_attr`]
+/// would collapse them).
+///
+/// Per HTML §6.5.5 the IDL getter for a "limited to only known values"
+/// reflect:
+/// 1. Reads the content attribute value.
+/// 2. If the value is not in canonical form (here: an exact
+///    case-sensitive match against one of `known`), returns the empty
+///    string.
+/// 3. Otherwise returns the matching canonical keyword.
+///
+/// `raw = None` → `""` (no value to canonicalise).
+///
+/// Distinct from [`canonicalize_enumerated_attr`] which performs ASCII
+/// case-insensitive matching and returns separate missing/invalid
+/// defaults.  `<ol>.type` is the only T2b consumer (keywords `1` /
+/// `a` / `A` / `i` / `I` — `a` and `A` are intentionally distinct).
+pub fn canonicalize_limited_to_known_values(
+    raw: Option<&str>,
+    known: &[&'static str],
+) -> &'static str {
+    let Some(value) = raw else {
+        return "";
+    };
+    for &candidate in known {
+        if value == candidate {
+            return candidate;
+        }
+    }
+    ""
+}
+
+/// `<ol>.type` IDL attribute (HTML §4.4.5 ordered-list type).
+///
+/// Keywords are case-sensitive (`a` and `A` are distinct, etc.) so
+/// canonicalisation must go through
+/// [`canonicalize_limited_to_known_values`] (not the ASCII-CI
+/// [`canonicalize_enumerated_attr`]).  Missing / invalid → `""`
+/// per the "limited to only known values" pattern.
+pub const OL_TYPE_VALUES: &[&str] = &["1", "a", "A", "i", "I"];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,6 +326,64 @@ mod tests {
                 DECODING_INVALID_DEFAULT
             ),
             "auto"
+        );
+    }
+
+    // -- canonicalize_limited_to_known_values (case-sensitive) --------------
+
+    #[test]
+    fn ol_type_distinct_lowercase_uppercase() {
+        assert_eq!(
+            canonicalize_limited_to_known_values(Some("a"), OL_TYPE_VALUES),
+            "a"
+        );
+        assert_eq!(
+            canonicalize_limited_to_known_values(Some("A"), OL_TYPE_VALUES),
+            "A"
+        );
+        assert_eq!(
+            canonicalize_limited_to_known_values(Some("i"), OL_TYPE_VALUES),
+            "i"
+        );
+        assert_eq!(
+            canonicalize_limited_to_known_values(Some("I"), OL_TYPE_VALUES),
+            "I"
+        );
+        assert_eq!(
+            canonicalize_limited_to_known_values(Some("1"), OL_TYPE_VALUES),
+            "1"
+        );
+    }
+
+    #[test]
+    fn ol_type_invalid_returns_empty() {
+        assert_eq!(
+            canonicalize_limited_to_known_values(Some("X"), OL_TYPE_VALUES),
+            ""
+        );
+        assert_eq!(
+            canonicalize_limited_to_known_values(Some(""), OL_TYPE_VALUES),
+            ""
+        );
+    }
+
+    #[test]
+    fn ol_type_missing_returns_empty() {
+        assert_eq!(
+            canonicalize_limited_to_known_values(None, OL_TYPE_VALUES),
+            ""
+        );
+    }
+
+    #[test]
+    fn ol_type_case_sensitive_no_collapse() {
+        // "B" doesn't match "a"/"A"/"1"/"i"/"I" — the case-insensitive
+        // canonicalize_enumerated_attr would treat "A" as matching "a"
+        // (collapsing the two), but the limited-to-known-values variant
+        // must keep them distinct.
+        assert_eq!(
+            canonicalize_limited_to_known_values(Some("B"), OL_TYPE_VALUES),
+            ""
         );
     }
 }

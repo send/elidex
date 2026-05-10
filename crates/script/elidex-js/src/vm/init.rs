@@ -200,6 +200,56 @@ impl Vm {
                 html_script_prototype: None,
                 #[cfg(feature = "engine")]
                 html_link_prototype: None,
+                // T2b passive head + grouping prototypes
+                // (slot `#11-tags-T2b-passive`).
+                #[cfg(feature = "engine")]
+                html_html_prototype: None,
+                #[cfg(feature = "engine")]
+                html_head_prototype: None,
+                #[cfg(feature = "engine")]
+                html_body_prototype: None,
+                #[cfg(feature = "engine")]
+                html_title_prototype: None,
+                #[cfg(feature = "engine")]
+                html_base_prototype: None,
+                #[cfg(feature = "engine")]
+                html_meta_prototype: None,
+                #[cfg(feature = "engine")]
+                html_style_prototype: None,
+                #[cfg(feature = "engine")]
+                html_div_prototype: None,
+                #[cfg(feature = "engine")]
+                html_span_prototype: None,
+                #[cfg(feature = "engine")]
+                html_br_prototype: None,
+                #[cfg(feature = "engine")]
+                html_hr_prototype: None,
+                #[cfg(feature = "engine")]
+                html_pre_prototype: None,
+                #[cfg(feature = "engine")]
+                html_p_prototype: None,
+                #[cfg(feature = "engine")]
+                html_heading_prototype: None,
+                #[cfg(feature = "engine")]
+                html_quote_prototype: None,
+                #[cfg(feature = "engine")]
+                html_olist_prototype: None,
+                #[cfg(feature = "engine")]
+                html_ulist_prototype: None,
+                #[cfg(feature = "engine")]
+                html_li_prototype: None,
+                #[cfg(feature = "engine")]
+                html_dlist_prototype: None,
+                #[cfg(feature = "engine")]
+                html_menu_prototype: None,
+                #[cfg(feature = "engine")]
+                html_map_prototype: None,
+                #[cfg(feature = "engine")]
+                html_picture_prototype: None,
+                #[cfg(feature = "engine")]
+                html_data_prototype: None,
+                #[cfg(feature = "engine")]
+                html_time_prototype: None,
                 #[cfg(feature = "engine")]
                 html_form_controls_collection_prototype: None,
                 #[cfg(feature = "engine")]
@@ -212,6 +262,8 @@ impl Vm {
                 options_collection_wrappers: HashMap::new(),
                 #[cfg(feature = "engine")]
                 form_controls_collection_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                map_areas_wrappers: HashMap::new(),
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,
                 #[cfg(feature = "engine")]

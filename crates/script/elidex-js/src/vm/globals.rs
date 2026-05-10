@@ -294,6 +294,27 @@ impl VmInner {
             self.register_html_image_prototype();
             self.register_html_script_prototype();
             self.register_html_link_prototype();
+
+            // T2b passive head + grouping prototypes (slot
+            // `#11-tags-T2b-passive`).  Brand-only bundle first so
+            // the 14 shared-pattern prototypes land before the 10
+            // accessor-bearing ones — no ordering dependency between
+            // them (each chains to `HTMLElement.prototype` via the
+            // existing parent), but grouping the brand-only install
+            // keeps the prototype-id allocation contiguous which
+            // helps the GC `proto_roots` pass identify them as a
+            // single span.
+            self.register_html_passive_brand_only_prototypes();
+            self.register_html_title_prototype();
+            self.register_html_base_prototype();
+            self.register_html_meta_prototype();
+            self.register_html_style_prototype();
+            self.register_html_quote_prototype();
+            self.register_html_olist_prototype();
+            self.register_html_li_prototype();
+            self.register_html_map_prototype();
+            self.register_html_data_prototype();
+            self.register_html_time_prototype();
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared

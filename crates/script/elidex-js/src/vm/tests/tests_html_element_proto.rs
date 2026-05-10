@@ -53,16 +53,22 @@ fn run(script: &str) -> String {
 
 #[test]
 fn html_element_proto_chain_includes_html_element() {
-    // `div.__proto__` must be `HTMLElement.prototype`, not
-    // `Element.prototype`.  `Element.prototype` still sits one step
-    // further up.
+    // T2b carve-out: `<div>` and `<span>` each have their own
+    // per-tag prototype (HTMLDivElement.prototype /
+    // HTMLSpanElement.prototype), each chaining to
+    // HTMLElement.prototype.  The chain `wrapper → HTMLDivElement →
+    // HTMLElement → Element → Node → EventTarget` must climb through
+    // the per-tag layer first, then through HTMLElement.prototype.
+    // The two per-tag prototypes are distinct (separate identity)
+    // but their parent (HTMLElement.prototype) is shared.
     let out = run("var div = document.createElement('div'); \
-         var p1 = Object.getPrototypeOf(div); \
-         var p2 = Object.getPrototypeOf(p1); \
-         var divA = document.createElement('div'); \
-         var divB = document.createElement('span'); \
-         var sameProto = Object.getPrototypeOf(divA) === Object.getPrototypeOf(divB); \
-         (p1 !== p2 && sameProto) ? 'ok' : 'fail';");
+         var span = document.createElement('span'); \
+         var divProto = Object.getPrototypeOf(div); \
+         var spanProto = Object.getPrototypeOf(span); \
+         var distinctPerTag = divProto !== spanProto; \
+         var sharedHtmlElement = Object.getPrototypeOf(divProto) === Object.getPrototypeOf(spanProto); \
+         var htmlElementNotElement = Object.getPrototypeOf(divProto) !== Object.getPrototypeOf(Object.getPrototypeOf(divProto)); \
+         (distinctPerTag && sharedHtmlElement && htmlElementNotElement) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
@@ -70,12 +76,14 @@ fn html_element_proto_chain_includes_html_element() {
 fn iframe_proto_chain_splices_html_element() {
     // `iframe.__proto__ = HTMLIFrameElement.prototype`; the next
     // step must be `HTMLElement.prototype` (spliced in by PR5b),
-    // not `Element.prototype`.  Identity compared via <div>'s own
-    // `__proto__` which IS `HTMLElement.prototype`.
+    // not `Element.prototype`.  Identity compared via <div>'s
+    // grandparent — T2b moved <div> behind a per-tag prototype too,
+    // so HTMLElement.prototype is now <div>'s **grand**parent, not
+    // its direct parent.
     let out = run("var iframe = document.createElement('iframe'); \
          var div = document.createElement('div'); \
          var iframeGrandparent = Object.getPrototypeOf(Object.getPrototypeOf(iframe)); \
-         var htmlElementProto = Object.getPrototypeOf(div); \
+         var htmlElementProto = Object.getPrototypeOf(Object.getPrototypeOf(div)); \
          (iframeGrandparent === htmlElementProto) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
@@ -451,8 +459,12 @@ fn contenteditable_element_gets_tab_index_zero() {
 
 #[test]
 fn idl_attr_getter_brand_check_rejects_plain_object() {
+    // T2b: `<div>`'s direct prototype is now HTMLDivElement.prototype
+    // (which has no own `hidden` accessor — `hidden` lives on the
+    // shared HTMLElement.prototype one step further up).  Climb one
+    // more `getPrototypeOf` to reach the `hidden` accessor.
     let out = run(
-        "var proto = Object.getPrototypeOf(document.createElement('div')); \
+        "var proto = Object.getPrototypeOf(Object.getPrototypeOf(document.createElement('div'))); \
          var getter = Object.getOwnPropertyDescriptor(proto, 'hidden').get; \
          try { getter.call({}); 'no-throw'; } \
          catch (e) { (e && e.message && e.message.indexOf('Illegal') >= 0) \

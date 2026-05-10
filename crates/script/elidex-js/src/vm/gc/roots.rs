@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 91],
+    pub(super) proto_roots: [Option<ObjectId>; 115],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -249,6 +249,13 @@ pub(super) struct GcRoots<'a> {
     /// Owner is the `<form>` or `<fieldset>` entity.
     #[cfg(feature = "engine")]
     pub(super) form_controls_collection_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `<map>.areas` `[SameObject]` HTMLCollection identity cache
+    /// (slot `#11-tags-T2b-passive`).  Owner is the `<map>` entity;
+    /// mark-via-owner semantics — entry stays live while the
+    /// `<map>` element wrapper is reachable.  Sweep tail prunes
+    /// entries whose value `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    pub(super) map_areas_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -491,6 +498,17 @@ pub(super) fn mark_roots(
         }
         #[cfg(feature = "engine")]
         for (entity, &id) in roots.form_controls_collection_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        // (e5) T2b `<map>.areas` `[SameObject]` cache — same
+        // weak-through-owner contract.  The HTMLCollection itself
+        // contains no payload that needs separate fan-out (the
+        // descendant `<area>` entities are reached via the document
+        // tree walk, not through the collection).
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.map_areas_wrappers {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(id, obj_marks, work);
             }
