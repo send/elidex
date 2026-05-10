@@ -155,6 +155,7 @@ impl DomApiHandler for TokenListHandler {
         self.method_name
     }
 
+    #[allow(clippy::too_many_lines)]
     fn invoke(
         &self,
         this: Entity,
@@ -268,8 +269,7 @@ impl DomApiHandler for TokenListHandler {
                     _ => {
                         return Err(DomApiError {
                             kind: DomApiErrorKind::TypeError,
-                            message: format!("{}: argument 0 must be a number", self.method_name)
-                                .into(),
+                            message: format!("{}: argument 0 must be a number", self.method_name),
                         });
                     }
                 };
@@ -284,8 +284,7 @@ impl DomApiHandler for TokenListHandler {
                 message: format!(
                     "{} is not supported for this DOMTokenList",
                     self.method_name
-                )
-                .into(),
+                ),
             }),
         }
     }
