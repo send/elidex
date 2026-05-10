@@ -87,8 +87,12 @@ mod tests {
     }
 
     #[test]
-    fn non_digit_returns_zero() {
+    fn leading_non_digit_returns_zero() {
         assert_eq!(parse_unsigned_long("garbage"), 0);
+    }
+
+    #[test]
+    fn trailing_non_digit_ignored() {
         assert_eq!(parse_unsigned_long("100px"), 100);
     }
 
