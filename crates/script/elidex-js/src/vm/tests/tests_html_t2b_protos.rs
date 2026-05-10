@@ -83,10 +83,20 @@ fn body_has_no_onload_event_handler_idl_attr() {
     // attributes (HTML §4.3.1.1) are deferred to slot
     // `#11-tags-T2b-body-events` paired with D-10 EventHandlerAttribute
     // base machinery.  This test pins the absence so a future
-    // accidental install on HTMLElement.prototype gets caught.
+    // accidental install on HTMLElement.prototype (or any other
+    // ancestor) gets caught: walks the **entire** prototype chain
+    // up to Object.prototype rather than only the body's own
+    // prototype, so an `onload` accessor installed on
+    // HTMLElement.prototype would also surface as a regression.
     let out = run("var b = document.createElement('body'); \
-         var hasOnload = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(b), 'onload') !== undefined; \
-         hasOnload ? 'has-onload' : 'no-onload';");
+         var p = Object.getPrototypeOf(b); \
+         var found = false; \
+         while (p) { \
+            if (Object.getOwnPropertyDescriptor(p, 'onload')) { found = true; break; } \
+            p = Object.getPrototypeOf(p); \
+         } \
+         var present = ('onload' in b) || (b.onload !== undefined); \
+         (found || present) ? 'has-onload' : 'no-onload';");
     assert_eq!(out, "no-onload");
 }
 
