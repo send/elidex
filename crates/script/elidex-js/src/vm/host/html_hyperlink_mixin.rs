@@ -204,16 +204,24 @@ fn hyperlink_to_string(
 // Enumerated-reflect canonicalisation — referrerPolicy
 // ---------------------------------------------------------------------------
 
-/// Read the `referrerpolicy` content attribute, canonicalise per HTML
-/// §6.6.5 enumerated-attribute set, and return the canonical IDL
-/// keyword as a `JsValue::String`.  Shared between every element
-/// that exposes `referrerPolicy` (anchor / area / image / script /
-/// link / iframe).
-pub(super) fn get_enumerated_reflect_referrer_policy(
+/// Read a content attribute, canonicalise it per HTML's
+/// "reflect" enumerated-attribute step (§2.3.5) using the supplied
+/// keyword table + missing/invalid defaults, and return the canonical
+/// IDL keyword as a `JsValue::String`.  Shared by every T2a element
+/// that exposes an enumerated reflect IDL property
+/// (anchor.referrerPolicy / area.shape / area.referrerPolicy /
+/// img.{crossOrigin,referrerPolicy,decoding,loading,fetchpriority} /
+/// script.{crossOrigin,referrerPolicy,fetchpriority} /
+/// link.{crossOrigin,referrerPolicy,fetchpriority}).
+pub(super) fn get_enumerated_reflect(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
+    attr_name: &str,
+    table: &[&'static str],
+    missing_default: &'static str,
+    invalid_default: &'static str,
 ) -> Result<JsValue, VmError> {
-    let attr_sid = ctx.vm.strings.intern("referrerpolicy");
+    let attr_sid = ctx.vm.strings.intern(attr_name);
     let raw_value = invoke_dom_api(ctx, "getAttribute", entity, &[JsValue::String(attr_sid)])?;
     let raw = match raw_value {
         JsValue::String(sid) => {
@@ -222,12 +230,25 @@ pub(super) fn get_enumerated_reflect_referrer_policy(
         }
         _ => None,
     };
-    let canonical = canonicalize_enumerated_attr(
-        raw.as_deref(),
+    let canonical =
+        canonicalize_enumerated_attr(raw.as_deref(), table, missing_default, invalid_default);
+    let out_sid = ctx.vm.strings.intern(canonical);
+    Ok(JsValue::String(out_sid))
+}
+
+/// Convenience: `get_enumerated_reflect` specialised for the
+/// `referrerpolicy` content attribute.  The most common enumerated
+/// reflect across T2a elements (used by 5 of the 5).
+pub(super) fn get_enumerated_reflect_referrer_policy(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+) -> Result<JsValue, VmError> {
+    get_enumerated_reflect(
+        ctx,
+        entity,
+        "referrerpolicy",
         REFERRER_POLICY_VALUES,
         REFERRER_POLICY_MISSING_DEFAULT,
         REFERRER_POLICY_INVALID_DEFAULT,
-    );
-    let out_sid = ctx.vm.strings.intern(canonical);
-    Ok(JsValue::String(out_sid))
+    )
 }
