@@ -6,13 +6,15 @@
 //! [`super::VmInner::install_url_members`]; the matching read
 //! halves live in [`super::accessors`].
 //!
-//! Setters share two helpers private to this module:
-//! [`take_url_setter_arg`] (argument coercion) and
-//! [`split_host_port`] (parsing `host[:port]` for the `host`
-//! setter, with bracketed-IPv6 awareness).  The cross-module
-//! [`super::rebuild_linked_search_params`] is invoked by the
-//! `href` and `search` setters to refresh the linked
-//! `URLSearchParams` entry list after a query mutation.
+//! Setter helpers: [`take_url_setter_arg`] (argument coercion,
+//! private to this module) and
+//! [`elidex_dom_api::element::href_accessor::split_host_port`]
+//! (parsing `host[:port]` for the `host` setter with bracketed-IPv6
+//! awareness, hoisted to engine-indep in slot
+//! `#11-tags-T2a-url-bearing` so HTMLAnchor/HTMLArea share the same
+//! validation).  The cross-module [`super::rebuild_linked_search_params`]
+//! is invoked by the `href` and `search` setters to refresh the
+//! linked `URLSearchParams` entry list after a query mutation.
 
 use elidex_dom_api::element::href_accessor::split_host_port;
 

@@ -439,7 +439,7 @@ macro_rules! numeric_getter {
             let attr_sid = ctx.vm.strings.intern($attr);
             let v = invoke_dom_api(ctx, "getAttribute", entity, &[JsValue::String(attr_sid)])?;
             let raw = match v {
-                JsValue::String(sid) => String::from_utf16_lossy(ctx.vm.strings.get(sid)),
+                JsValue::String(sid) => ctx.vm.strings.get_utf8(sid),
                 _ => String::new(),
             };
             let parsed = parse_unsigned_long(&raw);

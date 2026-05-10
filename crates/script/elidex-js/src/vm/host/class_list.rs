@@ -146,9 +146,6 @@ impl VmInner {
     }
 
     /// Allocate / fetch a `DOMTokenList` wrapper for `<link>.relList`.
-    /// `dead_code` suppressed at C3 mid-phase — used by
-    /// `html_link_proto.rs` once that file lands.
-    #[allow(dead_code)]
     pub(crate) fn alloc_or_cached_link_rel_list(&mut self, owner: Entity) -> ObjectId {
         if let Some(&id) = self.link_rel_list_wrapper_cache.get(&owner) {
             return id;
@@ -159,9 +156,6 @@ impl VmInner {
     }
 
     /// Allocate / fetch a `DOMTokenList` wrapper for `<link>.sizes`.
-    /// `dead_code` suppressed at C3 mid-phase — used by
-    /// `html_link_proto.rs` once that file lands.
-    #[allow(dead_code)]
     pub(crate) fn alloc_or_cached_link_sizes(&mut self, owner: Entity) -> ObjectId {
         if let Some(&id) = self.link_sizes_wrapper_cache.get(&owner) {
             return id;

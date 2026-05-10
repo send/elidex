@@ -3,11 +3,12 @@
 //!
 //! `<a>` and `<area>` share an 11-property URL accessor surface
 //! plus a `toString()` method.  Each getter reads the `href` content
-//! attribute, resolves it against the document base URL, parses with
-//! `url::Url::parse_with_base_url` (relative resolution), and emits
-//! one component string.  Setters mutate one URL component, serialise
-//! the parsed URL, and write back to the `href` content attribute via
-//! `EcsDom::set_attribute` (lesson #181 — canonical write path).
+//! attribute, parses it with `Url::parse` falling back to
+//! `Url::parse(base).join(href)` for relative resolution (WHATWG URL
+//! §4.4 basic URL parser), and emits one component string.  Setters
+//! mutate one URL component, serialise the parsed URL, and write back
+//! to the `href` content attribute via `EcsDom::set_attribute`
+//! (lesson #181 — canonical write path that bumps `rev_version`).
 //!
 //! ## Layering
 //!
@@ -102,11 +103,14 @@ fn read_href_attr(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
 }
 
 fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: String) -> Result<(), DomApiError> {
-    let mut attrs = dom
-        .world_mut()
-        .get::<&mut Attributes>(entity)
-        .map_err(|_| not_found_error("element not found"))?;
-    attrs.set("href", value);
+    // Lesson #181: `EcsDom::set_attribute` is the canonical write
+    // path — it bumps `rev_version` so live-collection caches
+    // (`document.links` / `document.images` / etc.) and
+    // MutationObserver delivery invalidate.  Direct `attrs.set`
+    // bypasses that and silently breaks observer plumbing.
+    if !dom.set_attribute(entity, "href", value) {
+        return Err(not_found_error("element not found"));
+    }
     Ok(())
 }
 

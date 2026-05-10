@@ -220,10 +220,7 @@ pub(super) fn get_enumerated_reflect(
     let attr_sid = ctx.vm.strings.intern(attr_name);
     let raw_value = invoke_dom_api(ctx, "getAttribute", entity, &[JsValue::String(attr_sid)])?;
     let raw = match raw_value {
-        JsValue::String(sid) => {
-            let units = ctx.vm.strings.get(sid);
-            Some(String::from_utf16_lossy(units))
-        }
+        JsValue::String(sid) => Some(ctx.vm.strings.get_utf8(sid)),
         _ => None,
     };
     let canonical =

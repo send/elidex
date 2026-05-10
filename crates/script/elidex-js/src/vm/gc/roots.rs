@@ -181,24 +181,19 @@ pub(super) struct GcRoots<'a> {
     /// `DOMTokenList` (`HTMLAnchorElement.relList` /
     /// `HTMLAreaElement.relList`) wrapper identity cache.  Same
     /// weak-through-owner semantics as
-    /// [`Self::class_list_wrapper_cache`].  Field is consumed in C3
-    /// by the per-element prototype install + relList mark roots —
-    /// allowed to look unused at the C1 skeleton phase.
+    /// [`Self::class_list_wrapper_cache`].
     #[cfg(feature = "engine")]
-    #[allow(dead_code)]
     pub(super) rel_list_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// `DOMTokenList` (`HTMLLinkElement.relList`) wrapper identity
     /// cache.  Separate from [`Self::rel_list_wrapper_cache`] so each
     /// per-attr binding has its own (Entity → ObjectId) namespace per
     /// CRIT-2 Option A in the D-4 plan memo.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)]
     pub(super) link_rel_list_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// `DOMTokenList` (`HTMLLinkElement.sizes`) wrapper identity
     /// cache.  Same weak-through-owner semantics as the rel-list
     /// caches above.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)]
     pub(super) link_sizes_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// Inline `CSSStyleDeclaration` (`Element.style`) wrapper identity
     /// cache.  Same weak-through-owner semantics as
@@ -403,6 +398,29 @@ pub(super) fn mark_roots(
         }
         #[cfg(feature = "engine")]
         for (entity, &id) in roots.dataset_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        // (e3.1) T2a `<a>.relList` / `<area>.relList` /
+        // `<link>.relList` / `<link>.sizes` wrappers — same
+        // weak-through-owner contract as classList / dataset above.
+        // Slot `#11-tags-T2a-url-bearing` (CRIT-2 Option A: separate
+        // per-attr caches).
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.rel_list_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.link_rel_list_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.link_sizes_wrapper_cache {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(id, obj_marks, work);
             }
