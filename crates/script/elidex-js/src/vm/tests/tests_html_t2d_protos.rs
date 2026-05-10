@@ -697,6 +697,26 @@ fn progress_max_negative_collapses_to_one() {
 }
 
 #[test]
+fn progress_value_setter_serialises_negative_zero_as_zero() {
+    // Copilot R2 IMP regression test: ES Number::ToString (ES2020
+    // §7.1.12) emits "0" for -0; Rust's Display emits "-0".  Setter
+    // must route through the VM's `coerce::to_string` so the reflected
+    // content attribute matches browser semantics.
+    let out = run("var p = document.createElement('progress'); \
+         p.value = -0; \
+         (p.getAttribute('value') === '0') ? 'ok' : 'fail:' + p.getAttribute('value');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn meter_value_setter_serialises_negative_zero_as_zero() {
+    let out = run("var m = document.createElement('meter'); \
+         m.min = -1; m.max = 1; m.value = -0; \
+         (m.getAttribute('value') === '0') ? 'ok' : 'fail:' + m.getAttribute('value');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn progress_value_setter_rejects_non_finite() {
     // WebIDL §3.10.5: restricted `double` setter throws TypeError
     // on NaN / ±Infinity.  HTML §4.10.14 declares `<progress>.value`

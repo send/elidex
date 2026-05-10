@@ -15,7 +15,9 @@
 //! Setters route the JS Number through
 //! [`super::idl_coerce::coerce_double_idl_arg`] (which delegates to
 //! `coerce::to_number` so `valueOf` / `toString` on objects fires per
-//! WebIDL §3.10.5), then serialise via `f64::to_string()`.
+//! WebIDL §3.10.5), then serialise via the VM's ES `Number::ToString`
+//! (`coerce::to_string`) so reflected attribute values match browser
+//! semantics (notably `-0` → `"0"`, distinct from Rust `Display`).
 //!
 //! ## Layering
 //!
@@ -146,8 +148,11 @@ fn progress_set_value(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    let serialised = format!("{n}");
-    let value_sid = ctx.vm.strings.intern(&serialised);
+    // ES Number ToString (ES2020 §7.1.12) — diverges from Rust's
+    // Display in `-0` (ES → "0", Rust → "-0") and exponent edge cases.
+    // Routing through `coerce::to_string` keeps reflected attribute
+    // values matching browser JS semantics.
+    let value_sid = super::super::coerce::to_string(ctx.vm, JsValue::Number(n))?;
     let attr_sid = ctx.vm.strings.intern("value");
     invoke_dom_api(
         ctx,
@@ -183,8 +188,7 @@ fn progress_set_max(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    let serialised = format!("{n}");
-    let value_sid = ctx.vm.strings.intern(&serialised);
+    let value_sid = super::super::coerce::to_string(ctx.vm, JsValue::Number(n))?;
     let attr_sid = ctx.vm.strings.intern("max");
     invoke_dom_api(
         ctx,
