@@ -388,7 +388,7 @@ fn populate_direct_children_with_tags(
 /// children of the **first** `<thead>` direct child (in tree order),
 /// then walk the table's direct children appending direct `<tr>`s and
 /// expanding `<tbody>` direct children's `<tr>`s, then append all
-/// `<tr>` direct children of the **last** `<tfoot>` direct child.
+/// `<tr>` direct children of the **first** `<tfoot>` direct child.
 ///
 /// `thead`/`tfoot` themselves do NOT appear in the output — only
 /// their direct `<tr>` children (HTML §4.9.1 explicitly walks
