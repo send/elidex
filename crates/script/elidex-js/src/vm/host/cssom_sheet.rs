@@ -556,7 +556,15 @@ pub(crate) fn try_indexed_get_rule_list(
     };
     let entity = Entity::from_bits(sheet_entity_bits)?;
     let idx = match key {
-        JsValue::Number(n) if n.is_finite() && n >= 0.0 => {
+        // ES §7.1.21 canonical numeric-index string range is
+        // `[0, 2^32-2]` — the same bound that
+        // `coerce_format::parse_array_index_u32` and
+        // `class_list::try_indexed_get` enforce for ES array-index
+        // semantics.  Without the upper-bound guard, `list[2^32-1]`
+        // would be intercepted as an index access and route through
+        // `item` (returning null) instead of falling through to
+        // ordinary [[Get]] / the prototype chain.
+        JsValue::Number(n) if n.is_finite() && (0.0..=f64::from(u32::MAX - 1)).contains(&n) => {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let i = n as u32;
             if f64::from(i) != n {
@@ -703,7 +711,15 @@ pub(crate) fn try_indexed_get_style_sheet_list(
     };
     let document = Entity::from_bits(document_entity_bits)?;
     let idx = match key {
-        JsValue::Number(n) if n.is_finite() && n >= 0.0 => {
+        // ES §7.1.21 canonical numeric-index string range is
+        // `[0, 2^32-2]` — the same bound that
+        // `coerce_format::parse_array_index_u32` and
+        // `class_list::try_indexed_get` enforce for ES array-index
+        // semantics.  Without the upper-bound guard, `list[2^32-1]`
+        // would be intercepted as an index access and route through
+        // `item` (returning null) instead of falling through to
+        // ordinary [[Get]] / the prototype chain.
+        JsValue::Number(n) if n.is_finite() && (0.0..=f64::from(u32::MAX - 1)).contains(&n) => {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let i = n as u32;
             if f64::from(i) != n {
