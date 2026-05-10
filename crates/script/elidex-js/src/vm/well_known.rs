@@ -537,6 +537,17 @@ define_well_known_strings! {
         // `CSS` namespace identifier.
         css_namespace => "CSS",
         escape => "escape",
+        // CSSStyleSheet / CSSRuleList / CSSStyleRule / StyleSheetList
+        // surface (PR-B).  CSSOM §6.2 / §6.3 / §6.6 / §6.8.
+        sheet => "sheet",
+        css_rules => "cssRules",
+        owner_node => "ownerNode",
+        r#type => "type",
+        insert_rule => "insertRule",
+        delete_rule => "deleteRule",
+        selector_text => "selectorText",
+        parent_style_sheet => "parentStyleSheet",
+        style_sheets => "styleSheets",
     }
 
     "AbortController / AbortSignal (PR4d)" {

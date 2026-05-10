@@ -235,6 +235,21 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("replaceData", Box::new(super::ReplaceData));
     r.register_static("splitText", Box::new(super::SplitText));
 
+    // --- CSSOM stylesheet (`#11-style-declaration` PR-B) ---
+    r.register_static("cssRules.length", Box::new(super::CssRulesLength));
+    r.register_static("cssRules.itemId", Box::new(super::CssRulesItemId));
+    r.register_static("stylesheet.insertRule", Box::new(super::InsertRule));
+    r.register_static("stylesheet.deleteRule", Box::new(super::DeleteRule));
+    r.register_static("rule.cssText.get", Box::new(super::RuleCssText));
+    r.register_static("rule.selectorText.get", Box::new(super::RuleSelectorText));
+    r.register_static(
+        "rule.style.getPropertyValue",
+        Box::new(super::RuleStyleGetPropertyValue),
+    );
+    r.register_static("rule.style.length", Box::new(super::RuleStyleLength));
+    r.register_static("rule.style.item", Box::new(super::RuleStyleItem));
+    r.register_static("rule.style.cssText.get", Box::new(super::RuleStyleCssText));
+
     r
 }
 

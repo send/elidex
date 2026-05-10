@@ -15,38 +15,13 @@
 //! returns the value of `color`.  Custom properties (`--*`) are case-sensitive
 //! per CSS Variables Level 1 §2 and are NOT lowercased.
 
-use std::borrow::Cow;
-
 use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
-use crate::util::{not_found_error, require_string_arg};
-
-/// CSSOM §6.6.1 property-name normalisation: ASCII-lowercase non-custom
-/// names; preserve case for custom properties (`--*`).  Returns a borrowed
-/// `&str` when no allocation is needed (already lowercase / starts with `--`).
-fn normalize_property_name(name: &str) -> Cow<'_, str> {
-    if name.starts_with("--") {
-        Cow::Borrowed(name)
-    } else if name.bytes().any(|b| b.is_ascii_uppercase()) {
-        Cow::Owned(name.to_ascii_lowercase())
-    } else {
-        Cow::Borrowed(name)
-    }
-}
-
-/// In-place ASCII-lowercase variant for the common path where the caller
-/// already owns a `String` from arg coercion.  Avoids the [`Cow`]
-/// `into_owned` round-trip for the most-frequent shape (no uppercase).
-/// Custom properties (`--*`) are passed through unchanged per CSS
-/// Variables L1 §2.
-fn normalize_property_name_owned(mut name: String) -> String {
-    if !name.starts_with("--") && name.bytes().any(|b| b.is_ascii_uppercase()) {
-        name.make_ascii_lowercase();
-    }
-    name
-}
+use crate::util::{
+    normalize_property_name, normalize_property_name_owned, not_found_error, require_string_arg,
+};
 
 /// Ensure an `InlineStyle` component exists on the entity.  When the
 /// component is absent but `attrs("style")` already has content (from a

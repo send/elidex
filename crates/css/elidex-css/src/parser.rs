@@ -29,6 +29,11 @@ pub struct Stylesheet {
     pub keyframes_raw: Vec<(String, String)>,
     /// Parsed `@page` rules (CSS Paged Media Level 3).
     pub page_rules: Vec<PageRule>,
+    /// Next [`CssRule::rule_id`] to issue when CSSOM `insertRule` extends
+    /// this stylesheet at run time (CSSOM §6.4 / §6.5). Set to one past
+    /// the highest `rule_id` issued during parse so that `insertRule`-
+    /// produced rules never collide with parse-time rules.
+    pub next_rule_id: u64,
 }
 
 /// A single CSS rule (selector list + declarations).
@@ -40,6 +45,27 @@ pub struct CssRule {
     pub declarations: Vec<Declaration>,
     /// Position in the source stylesheet (0-based).
     pub source_order: u32,
+    /// Stable opaque identity for CSSOM rule wrappers (`CSSStyleRule`,
+    /// `CSSMediaRule`, …). Issued sequentially at parse time and at
+    /// `insertRule` time from [`Stylesheet::next_rule_id`]; survives
+    /// `deleteRule` reordering so a JS reference like
+    /// `let r = sheet.cssRules[1]; sheet.deleteRule(0); r.cssText`
+    /// continues to address the right rule.
+    pub rule_id: u64,
+    /// Raw source text of this rule (selector list + declaration block,
+    /// trimmed). Captured at parse time and used to back CSSOM
+    /// `CSSStyleRule.cssText` (read) and `CSSStyleSheet` re-serialisation
+    /// when `insertRule` / `deleteRule` writes back to `<style>.textContent`.
+    /// Selector and declaration serialisation are not implemented; storing
+    /// the source text avoids the round-trip.
+    pub source_text: String,
+    /// Raw selector portion of the rule's source text (everything
+    /// before the opening `{`, trimmed). Captured separately from
+    /// [`Self::source_text`] so CSSOM `CSSStyleRule.selectorText`
+    /// returns the spec-correct slice without a `split_once('{')`
+    /// heuristic — the heuristic mis-slices selectors that contain
+    /// `{` inside an attribute value (e.g. `[data-x="{"]`).
+    pub selector_text: String,
 }
 
 /// Parse a CSS string into a [`Stylesheet`].
@@ -49,6 +75,56 @@ pub struct CssRule {
 #[must_use]
 pub fn parse_stylesheet(css: &str, origin: Origin) -> Stylesheet {
     parse_stylesheet_with_registry(css, origin, None)
+}
+
+/// Parse a single CSS rule for CSSOM `CSSStyleSheet.insertRule(text)` (CSSOM
+/// §6.4 step 2). Returns `Some(rule)` when `text` parses as exactly one
+/// qualified rule; returns `None` for empty / invalid / multi-rule input
+/// (the caller is expected to throw `SyntaxError` per CSSOM §6.4).
+///
+/// The returned rule has `rule_id = 0` and `source_order = 0`. The
+/// caller (`CSSStyleSheet.insertRule`) overwrites `rule_id` with the
+/// next id from [`Stylesheet::next_rule_id`]; `source_order` is left
+/// alone because `CSSStyleSheet`'s mutator round-trip writes the
+/// updated stylesheet back to `<style>.textContent` and the next
+/// cascade walk re-parses it, assigning fresh sequential
+/// `source_order` values across all rules.
+#[must_use]
+pub fn parse_single_rule(css: &str) -> Option<CssRule> {
+    let trimmed = css.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut pi = ParserInput::new(trimmed);
+    let mut input = Parser::new(&mut pi);
+    let mut source_order: u32 = 0;
+    let mut next_rule_id: u64 = 0;
+    let mut keyframes_raw = Vec::new();
+    let mut page_rules = Vec::new();
+    let mut rule_parser = RuleListParser {
+        source_order: &mut source_order,
+        next_rule_id: &mut next_rule_id,
+        keyframes_raw: &mut keyframes_raw,
+        page_rules: &mut page_rules,
+        registry: None,
+    };
+    // Strict: must yield exactly one `Ok(rule)` and then end-of-stream.
+    // - Any `Err` (parse error / unrecognized at-rule) = skipped content
+    //   → `insertRule` must reject per CSSOM §6.4 SyntaxError, despite
+    //   the broader `parse_stylesheet` path's CSS error-recovery.
+    // - `@keyframes` / `@page` end up in the side-channel vecs even when
+    //   their parse_block returns Err; reject if either fired.
+    let (first, second) = {
+        let mut iter = StyleSheetParser::new(&mut input, &mut rule_parser);
+        (iter.next(), iter.next())
+    };
+    if !keyframes_raw.is_empty() || !page_rules.is_empty() {
+        return None;
+    }
+    match (first, second) {
+        (Some(Ok(rule)), None) => Some(rule),
+        _ => None,
+    }
 }
 
 /// Parse a CSS string into a [`Stylesheet`], with optional handler registry.
@@ -68,11 +144,13 @@ pub fn parse_stylesheet_with_registry(
     let mut input = Parser::new(&mut pi);
     let mut rules = Vec::new();
     let mut source_order: u32 = 0;
+    let mut next_rule_id: u64 = 0;
     let mut keyframes_raw = Vec::new();
     let mut page_rules = Vec::new();
 
     let mut rule_parser = RuleListParser {
         source_order: &mut source_order,
+        next_rule_id: &mut next_rule_id,
         keyframes_raw: &mut keyframes_raw,
         page_rules: &mut page_rules,
         registry,
@@ -87,6 +165,7 @@ pub fn parse_stylesheet_with_registry(
         rules,
         keyframes_raw,
         page_rules,
+        next_rule_id,
     }
 }
 
@@ -94,6 +173,7 @@ pub fn parse_stylesheet_with_registry(
 
 struct RuleListParser<'a> {
     source_order: &'a mut u32,
+    next_rule_id: &'a mut u64,
     keyframes_raw: &'a mut Vec<(String, String)>,
     page_rules: &'a mut Vec<PageRule>,
     registry: Option<&'a CssPropertyRegistry>,
@@ -185,7 +265,10 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
 }
 
 impl<'i> QualifiedRuleParser<'i> for RuleListParser<'_> {
-    type Prelude = Vec<Selector>;
+    /// `(selectors, selector_text)` — `selector_text` is captured raw so
+    /// CSSOM `CSSStyleRule.cssText` / `selectorText` can return the source
+    /// text without re-implementing selector serialisation.
+    type Prelude = (Vec<Selector>, String);
     type QualifiedRule = CssRule;
     type Error = ();
 
@@ -193,15 +276,21 @@ impl<'i> QualifiedRuleParser<'i> for RuleListParser<'_> {
         &mut self,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self::Prelude, ParseError<'i, ()>> {
-        parse_selector_list(input).map_err(|()| input.new_custom_error(()))
+        let start_pos = input.position();
+        let selectors = parse_selector_list(input).map_err(|()| input.new_custom_error(()))?;
+        let selector_text = input.slice_from(start_pos).trim().to_string();
+        Ok((selectors, selector_text))
     }
 
     fn parse_block<'t>(
         &mut self,
-        selectors: Self::Prelude,
+        prelude: Self::Prelude,
         _location: &ParserState,
         input: &mut Parser<'i, 't>,
     ) -> Result<Self::QualifiedRule, ParseError<'i, ()>> {
+        let (selectors, selector_text) = prelude;
+        let body_start = input.position();
+
         let mut decl_parser = DeclarationListParser {
             registry: self.registry,
         };
@@ -211,13 +300,26 @@ impl<'i> QualifiedRuleParser<'i> for RuleListParser<'_> {
             declarations.extend(decls);
         }
 
+        let body_text = input.slice_from(body_start).trim().to_string();
+
         let order = *self.source_order;
         *self.source_order = self.source_order.saturating_add(1);
+        let rule_id = *self.next_rule_id;
+        *self.next_rule_id = self.next_rule_id.saturating_add(1);
+
+        let source_text = if body_text.is_empty() {
+            format!("{selector_text} {{ }}")
+        } else {
+            format!("{selector_text} {{ {body_text} }}")
+        };
 
         Ok(CssRule {
             selectors,
             declarations,
             source_order: order,
+            rule_id,
+            source_text,
+            selector_text,
         })
     }
 }
@@ -236,8 +338,18 @@ impl<'i> DeclarationParser<'i> for DeclarationListParser<'_> {
         input: &mut Parser<'i, 't>,
         _start: &cssparser::ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, ()>> {
-        let lower_name = name.to_ascii_lowercase();
-        let decls = parse_property_value(&lower_name, input, self.registry);
+        // CSS Variables Level 1 §2: custom properties (`--*`) are
+        // case-sensitive — must preserve `--MyVar` vs `--myvar` so
+        // `getPropertyValue('--MyVar')` against a stylesheet rule
+        // doesn't miss.  `parse_declaration_block` (declaration.rs)
+        // already does this; the stylesheet path was unconditionally
+        // lowercasing and producing the asymmetry Copilot flagged.
+        let property_name = if name.starts_with("--") {
+            name.as_ref().to_string()
+        } else {
+            name.to_ascii_lowercase()
+        };
+        let decls = parse_property_value(&property_name, input, self.registry);
         if decls.is_empty() {
             Err(input.new_custom_error(()))
         } else {

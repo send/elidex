@@ -69,6 +69,19 @@ use elidex_ecs::Entity;
 const SOURCE_INLINE: u8 = 0;
 /// Computed source — read-only, backed by `ComputedStyle` ECS, fresh-alloc.
 const SOURCE_COMPUTED: u8 = 1;
+/// Decoded receiver — covers both `ObjectKind::CSSStyleDeclaration`
+/// (source 0/1) and `ObjectKind::CSSRuleStyleDeclaration` (Rule source,
+/// keyed by `(sheet, rule_id)` instead of a single `Entity`).  Rule
+/// source is read-only in PR-B; mutators are silent no-ops (deferred
+/// to slot `#11-css-rule-style-mutation` — write-back requires
+/// Selector + Declaration serialisers to round-trip the rule's
+/// `source_text`).
+#[derive(Clone, Copy)]
+pub(super) enum StyleReceiver {
+    Inline(Entity),
+    Computed(Entity),
+    Rule { sheet: Entity, rule_id: u64 },
+}
 
 impl VmInner {
     /// Allocate `CSSStyleDeclaration.prototype` chained to
@@ -176,34 +189,57 @@ impl VmInner {
 // Brand check
 // ---------------------------------------------------------------------------
 
-/// Brand-check the receiver and recover `(source, owner Entity)`.  Throws
-/// `TypeError` on non-CSSStyleDeclaration receivers (`Illegal invocation`)
-/// and on stale entity bits (the wrapper survived a re-bind into a
-/// different `EcsDom` world where the Entity index no longer maps).  The
-/// post-unbind safe-default is checked SEPARATELY by every native via
-/// `ctx.host_if_bound()` after this brand check passes — they short-
-/// circuit to the type-appropriate default before any DOM-side dispatch.
+/// Brand-check the receiver and recover the decoded
+/// [`StyleReceiver`] — accepts both the PR-A unified
+/// `CSSStyleDeclaration` (Inline / Computed sources) and the PR-B
+/// `CSSRuleStyleDeclaration` (Rule source) variants.  Throws
+/// `TypeError` on any other receiver (`Illegal invocation`) and on
+/// stale entity bits (the wrapper survived a re-bind into a different
+/// `EcsDom` world).  Post-unbind safe-defaults are checked separately
+/// by each native via `ctx.host_if_bound()` after this brand check.
 fn require_style_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &'static str,
-) -> Result<(u8, Entity), VmError> {
+) -> Result<StyleReceiver, VmError> {
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'CSSStyleDeclaration': Illegal invocation"
         )));
     };
-    let ObjectKind::CSSStyleDeclaration { source, key_bits } = ctx.vm.get_object(id).kind else {
-        return Err(VmError::type_error(format!(
+    match &ctx.vm.get_object(id).kind {
+        ObjectKind::CSSStyleDeclaration { source, key_bits } => {
+            let entity = Entity::from_bits(*key_bits).ok_or_else(|| {
+                VmError::type_error(format!(
+                    "Failed to execute '{method}' on 'CSSStyleDeclaration': stale entity"
+                ))
+            })?;
+            match *source {
+                SOURCE_INLINE => Ok(StyleReceiver::Inline(entity)),
+                SOURCE_COMPUTED => Ok(StyleReceiver::Computed(entity)),
+                _ => Err(VmError::type_error(format!(
+                    "Failed to execute '{method}' on 'CSSStyleDeclaration': unknown source"
+                ))),
+            }
+        }
+        ObjectKind::CSSRuleStyleDeclaration {
+            sheet_entity_bits,
+            rule_id,
+        } => {
+            let sheet = Entity::from_bits(*sheet_entity_bits).ok_or_else(|| {
+                VmError::type_error(format!(
+                    "Failed to execute '{method}' on 'CSSStyleDeclaration': stale entity"
+                ))
+            })?;
+            Ok(StyleReceiver::Rule {
+                sheet,
+                rule_id: *rule_id,
+            })
+        }
+        _ => Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'CSSStyleDeclaration': Illegal invocation"
-        )));
-    };
-    let entity = Entity::from_bits(key_bits).ok_or_else(|| {
-        VmError::type_error(format!(
-            "Failed to execute '{method}' on 'CSSStyleDeclaration': stale entity"
-        ))
-    })?;
-    Ok((source, entity))
+        ))),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -215,15 +251,20 @@ fn native_style_length_get(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (source, entity) = require_style_receiver(ctx, this, "length")?;
+    let recv = require_style_receiver(ctx, this, "length")?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Number(0.0));
     }
-    if source == SOURCE_COMPUTED {
-        // ComputedStyle enumeration deferred — see module docs.
-        return Ok(JsValue::Number(0.0));
+    match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(ctx, "style.length", entity, &[]),
+        StyleReceiver::Computed(_) => Ok(JsValue::Number(0.0)),
+        StyleReceiver::Rule { sheet, rule_id } => invoke_dom_api(
+            ctx,
+            "rule.style.length",
+            sheet,
+            &[super::cssom_sheet::rule_id_to_js(rule_id)],
+        ),
     }
-    invoke_dom_api(ctx, "style.length", entity, &[])
 }
 
 fn native_style_item(
@@ -231,19 +272,31 @@ fn native_style_item(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (source, entity) = require_style_receiver(ctx, this, "item")?;
+    let recv = require_style_receiver(ctx, this, "item")?;
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     // WebIDL §3.10.13 indexed getter (`unsigned long`) → ToUint32.
     let idx = super::super::coerce::to_uint32(ctx.vm, arg)?;
-    if ctx.host_if_bound().is_none() || source == SOURCE_COMPUTED {
+    if ctx.host_if_bound().is_none() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
-    invoke_dom_api(
-        ctx,
-        "style.item",
-        entity,
-        &[JsValue::Number(f64::from(idx))],
-    )
+    match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            ctx,
+            "style.item",
+            entity,
+            &[JsValue::Number(f64::from(idx))],
+        ),
+        StyleReceiver::Computed(_) => Ok(JsValue::String(ctx.vm.well_known.empty)),
+        StyleReceiver::Rule { sheet, rule_id } => invoke_dom_api(
+            ctx,
+            "rule.style.item",
+            sheet,
+            &[
+                super::cssom_sheet::rule_id_to_js(rule_id),
+                JsValue::Number(f64::from(idx)),
+            ],
+        ),
+    }
 }
 
 fn native_style_css_text_get(
@@ -251,11 +304,20 @@ fn native_style_css_text_get(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (source, entity) = require_style_receiver(ctx, this, "cssText")?;
-    if ctx.host_if_bound().is_none() || source == SOURCE_COMPUTED {
+    let recv = require_style_receiver(ctx, this, "cssText")?;
+    if ctx.host_if_bound().is_none() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
-    invoke_dom_api(ctx, "style.cssText.get", entity, &[])
+    match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(ctx, "style.cssText.get", entity, &[]),
+        StyleReceiver::Computed(_) => Ok(JsValue::String(ctx.vm.well_known.empty)),
+        StyleReceiver::Rule { sheet, rule_id } => invoke_dom_api(
+            ctx,
+            "rule.style.cssText.get",
+            sheet,
+            &[super::cssom_sheet::rule_id_to_js(rule_id)],
+        ),
+    }
 }
 
 fn native_style_css_text_set(
@@ -263,14 +325,21 @@ fn native_style_css_text_set(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (source, entity) = require_style_receiver(ctx, this, "cssText")?;
+    let recv = require_style_receiver(ctx, this, "cssText")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
-    if ctx.host_if_bound().is_none() || source == SOURCE_COMPUTED {
-        // Computed source: silent no-op (read-only declaration block);
-        // strict-mode TypeError surfacing deferred — module docs.
+    if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    invoke_dom_api(ctx, "style.cssText.set", entity, &[JsValue::String(sid)])
+    match recv {
+        StyleReceiver::Inline(entity) => {
+            invoke_dom_api(ctx, "style.cssText.set", entity, &[JsValue::String(sid)])
+        }
+        // Computed / Rule sources: silent no-op (read-only declaration
+        // blocks).  Strict-mode TypeError surfacing deferred — slot
+        // `#11-style-readonly-strict-throw` (Computed) /
+        // `#11-css-rule-style-mutation` (Rule).
+        StyleReceiver::Computed(_) | StyleReceiver::Rule { .. } => Ok(JsValue::Undefined),
+    }
 }
 
 fn native_style_parent_rule_get(
@@ -278,14 +347,19 @@ fn native_style_parent_rule_get(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `parentRule` is `null` for Inline and Computed declaration blocks
-    // (only stylesheet-rule-owned declarations have a non-null parent).
-    // PR-B will route Rule-source wrappers through this accessor too.
-    // Brand-check the receiver so `parentRule.call({})` throws the same
-    // `Illegal invocation` TypeError as the other accessors / methods,
-    // matching WebIDL §3.10 brand semantics.
-    let _ = require_style_receiver(ctx, this, "parentRule")?;
-    Ok(JsValue::Null)
+    // `parentRule` returns the owning `CSSStyleRule` for Rule-source
+    // declarations (CSSOM §6.6.5) and `null` for Inline / Computed
+    // declaration blocks.  Brand-check the receiver so
+    // `parentRule.call({})` throws the same `Illegal invocation`
+    // TypeError as the other accessors / methods.
+    let recv = require_style_receiver(ctx, this, "parentRule")?;
+    match recv {
+        StyleReceiver::Inline(_) | StyleReceiver::Computed(_) => Ok(JsValue::Null),
+        StyleReceiver::Rule { sheet, rule_id } => {
+            let id = ctx.vm.alloc_or_cached_css_style_rule(sheet, rule_id);
+            Ok(JsValue::Object(id))
+        }
+    }
 }
 
 fn native_style_get_property_value(
@@ -293,17 +367,31 @@ fn native_style_get_property_value(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (source, entity) = require_style_receiver(ctx, this, "getPropertyValue")?;
+    let recv = require_style_receiver(ctx, this, "getPropertyValue")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
-    let handler = if source == SOURCE_COMPUTED {
-        "getComputedStyle"
-    } else {
-        "style.getPropertyValue"
-    };
-    invoke_dom_api(ctx, handler, entity, &[JsValue::String(sid)])
+    match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            ctx,
+            "style.getPropertyValue",
+            entity,
+            &[JsValue::String(sid)],
+        ),
+        StyleReceiver::Computed(entity) => {
+            invoke_dom_api(ctx, "getComputedStyle", entity, &[JsValue::String(sid)])
+        }
+        StyleReceiver::Rule { sheet, rule_id } => invoke_dom_api(
+            ctx,
+            "rule.style.getPropertyValue",
+            sheet,
+            &[
+                super::cssom_sheet::rule_id_to_js(rule_id),
+                JsValue::String(sid),
+            ],
+        ),
+    }
 }
 
 fn native_style_get_property_priority(
@@ -316,7 +404,7 @@ fn native_style_get_property_priority(
     // (see plan §A-1).  PR-A returns the empty string for every property
     // (CSSOM §6.6.1 — empty string ⇒ "not !important"), which keeps the
     // method shape callable for framework feature-detect.
-    let (_source, _entity) = require_style_receiver(ctx, this, "getPropertyPriority")?;
+    let _ = require_style_receiver(ctx, this, "getPropertyPriority")?;
     Ok(JsValue::String(ctx.vm.well_known.empty))
 }
 
@@ -325,23 +413,23 @@ fn native_style_set_property(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (source, entity) = require_style_receiver(ctx, this, "setProperty")?;
+    let recv = require_style_receiver(ctx, this, "setProperty")?;
     let prop_sid = coerce_first_arg_to_string_id(ctx, args)?;
     let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let val_sid = super::super::coerce::to_string(ctx.vm, val_arg)?;
-    if ctx.host_if_bound().is_none() || source == SOURCE_COMPUTED {
-        // Computed source: silent no-op (read-only) — see module docs.
+    if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    // `priority` arg (`""` / `"important"`) is currently ignored; the
-    // dom-api `style.setProperty` handler tracks no `!important` flag
-    // (see `getPropertyPriority` deferral note).
-    invoke_dom_api(
-        ctx,
-        "style.setProperty",
-        entity,
-        &[JsValue::String(prop_sid), JsValue::String(val_sid)],
-    )
+    match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            ctx,
+            "style.setProperty",
+            entity,
+            &[JsValue::String(prop_sid), JsValue::String(val_sid)],
+        ),
+        // Computed / Rule sources: silent no-op (read-only).
+        StyleReceiver::Computed(_) | StyleReceiver::Rule { .. } => Ok(JsValue::Undefined),
+    }
 }
 
 fn native_style_remove_property(
@@ -349,12 +437,19 @@ fn native_style_remove_property(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (source, entity) = require_style_receiver(ctx, this, "removeProperty")?;
+    let recv = require_style_receiver(ctx, this, "removeProperty")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
-    if ctx.host_if_bound().is_none() || source == SOURCE_COMPUTED {
+    if ctx.host_if_bound().is_none() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
-    invoke_dom_api(ctx, "style.removeProperty", entity, &[JsValue::String(sid)])
+    match recv {
+        StyleReceiver::Inline(entity) => {
+            invoke_dom_api(ctx, "style.removeProperty", entity, &[JsValue::String(sid)])
+        }
+        StyleReceiver::Computed(_) | StyleReceiver::Rule { .. } => {
+            Ok(JsValue::String(ctx.vm.well_known.empty))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -371,10 +466,7 @@ pub(crate) fn try_indexed_get(
     id: ObjectId,
     key: JsValue,
 ) -> Option<Result<JsValue, VmError>> {
-    let ObjectKind::CSSStyleDeclaration { source, key_bits } = vm.get_object(id).kind else {
-        return None;
-    };
-    let entity = Entity::from_bits(key_bits)?;
+    let recv = decode_receiver(vm, id)?;
     let idx_u32 = match key {
         JsValue::Number(n) if n.is_finite() => {
             // Exact-integer round-trip per ECMA §7.1.21
@@ -403,19 +495,28 @@ pub(crate) fn try_indexed_get(
     {
         // Post-unbind: indexed access on a retained wrapper returns the
         // empty string (out-of-range token) — matches the empty-block
-        // behaviour for any index.  Inline / Computed share this default.
-        return Some(Ok(JsValue::String(vm.well_known.empty)));
-    }
-    if source == SOURCE_COMPUTED {
+        // behaviour for any index.  All sources share this default.
         return Some(Ok(JsValue::String(vm.well_known.empty)));
     }
     let mut ctx = NativeContext { vm };
-    let result = invoke_dom_api(
-        &mut ctx,
-        "style.item",
-        entity,
-        &[JsValue::Number(f64::from(idx_u32))],
-    );
+    let result = match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            &mut ctx,
+            "style.item",
+            entity,
+            &[JsValue::Number(f64::from(idx_u32))],
+        ),
+        StyleReceiver::Computed(_) => Ok(JsValue::String(ctx.vm.well_known.empty)),
+        StyleReceiver::Rule { sheet, rule_id } => invoke_dom_api(
+            &mut ctx,
+            "rule.style.item",
+            sheet,
+            &[
+                super::cssom_sheet::rule_id_to_js(rule_id),
+                JsValue::Number(f64::from(idx_u32)),
+            ],
+        ),
+    };
     Some(result)
 }
 
@@ -424,11 +525,30 @@ pub(crate) fn try_indexed_get(
 // `ops_property::set_property_val`, `ops_property::try_delete_property`.
 // ---------------------------------------------------------------------------
 
-fn entity_and_source(vm: &VmInner, id: ObjectId) -> Option<(u8, Entity)> {
-    let ObjectKind::CSSStyleDeclaration { source, key_bits } = vm.get_object(id).kind else {
-        return None;
-    };
-    Some((source, Entity::from_bits(key_bits)?))
+/// Decode a `[[Get]]` / `[[Set]]` / `[[Delete]]` receiver — accepts
+/// both `CSSStyleDeclaration` (Inline / Computed) and
+/// `CSSRuleStyleDeclaration` (Rule) variants.  Returns `None` when the
+/// receiver is neither (so the named-property exotic falls through to
+/// ordinary [[Get]]).
+fn decode_receiver(vm: &VmInner, id: ObjectId) -> Option<StyleReceiver> {
+    match vm.get_object(id).kind {
+        ObjectKind::CSSStyleDeclaration { source, key_bits } => {
+            let entity = Entity::from_bits(key_bits)?;
+            match source {
+                SOURCE_INLINE => Some(StyleReceiver::Inline(entity)),
+                SOURCE_COMPUTED => Some(StyleReceiver::Computed(entity)),
+                _ => None,
+            }
+        }
+        ObjectKind::CSSRuleStyleDeclaration {
+            sheet_entity_bits,
+            rule_id,
+        } => {
+            let sheet = Entity::from_bits(sheet_entity_bits)?;
+            Some(StyleReceiver::Rule { sheet, rule_id })
+        }
+        _ => None,
+    }
 }
 
 /// Whether `sid` is a canonical numeric-index string per ES §7.1.21
@@ -450,7 +570,7 @@ pub(crate) fn try_get(
     id: ObjectId,
     key: JsValue,
 ) -> Option<Result<JsValue, VmError>> {
-    let (source, entity) = entity_and_source(vm, id)?;
+    let recv = decode_receiver(vm, id)?;
     let sid = match coerce_key_or_none(vm, key)? {
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
@@ -470,22 +590,30 @@ pub(crate) fn try_get(
         // string).
         return Some(Ok(JsValue::String(vm.well_known.empty)));
     }
-    let handler = if source == SOURCE_COMPUTED {
-        "getComputedStyle"
-    } else {
-        "style.getPropertyValue"
-    };
     let mut ctx = NativeContext { vm };
-    let result = invoke_dom_api(&mut ctx, handler, entity, &[JsValue::String(sid)]);
-    // CSSOM §6.6.1 named-getter: a present-or-absent supported name
-    // always resolves to a string (empty for absent), NOT to the
-    // prototype chain.  This differs from `dataset.try_get` (which
-    // falls through on absent so `dataset.toString` still resolves to
-    // `Object.prototype.toString`); for `style`, `key_on_prototype_chain`
-    // already short-circuited above for any key that exists on the
-    // prototype, so reaching invoke_dom_api means the key is purely a
-    // CSS-property name (or unknown), and the empty-string return is
-    // the spec-correct value.
+    let result = match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            &mut ctx,
+            "style.getPropertyValue",
+            entity,
+            &[JsValue::String(sid)],
+        ),
+        StyleReceiver::Computed(entity) => invoke_dom_api(
+            &mut ctx,
+            "getComputedStyle",
+            entity,
+            &[JsValue::String(sid)],
+        ),
+        StyleReceiver::Rule { sheet, rule_id } => invoke_dom_api(
+            &mut ctx,
+            "rule.style.getPropertyValue",
+            sheet,
+            &[
+                super::cssom_sheet::rule_id_to_js(rule_id),
+                JsValue::String(sid),
+            ],
+        ),
+    };
     Some(result)
 }
 
@@ -500,7 +628,7 @@ pub(crate) fn try_set(
     key: JsValue,
     value: JsValue,
 ) -> Option<Result<(), VmError>> {
-    let (source, entity) = entity_and_source(vm, id)?;
+    let recv = decode_receiver(vm, id)?;
     let key_sid = match coerce_key_or_none(vm, key)? {
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
@@ -520,54 +648,56 @@ pub(crate) fn try_set(
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
-    if !is_bound(vm) || source == SOURCE_COMPUTED {
-        // Post-unbind / Computed source: silent no-op.
+    if !is_bound(vm) {
         return Some(Ok(()));
     }
     let mut ctx = NativeContext { vm };
-    let result = invoke_dom_api(
-        &mut ctx,
-        "style.setProperty",
-        entity,
-        &[JsValue::String(key_sid), JsValue::String(val_sid)],
-    );
+    let result = match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            &mut ctx,
+            "style.setProperty",
+            entity,
+            &[JsValue::String(key_sid), JsValue::String(val_sid)],
+        ),
+        // Computed / Rule sources: silent no-op (read-only block).
+        StyleReceiver::Computed(_) | StyleReceiver::Rule { .. } => Ok(JsValue::Undefined),
+    };
     Some(result.map(|_| ()))
 }
 
 /// `[[Delete]]` trap.  String / numeric keys route to `removeProperty`;
-/// Symbol keys / non-string-coercible keys fall through.  Computed source
-/// is a silent no-op (mirrors `try_set`).
+/// Symbol keys / non-string-coercible keys fall through.  Computed and
+/// Rule sources are silent no-ops (mirror `try_set`).
 pub(crate) fn try_delete(
     vm: &mut VmInner,
     id: ObjectId,
     key: JsValue,
 ) -> Option<Result<bool, VmError>> {
-    let (source, entity) = entity_and_source(vm, id)?;
+    let recv = decode_receiver(vm, id)?;
     let key_sid = match coerce_key_or_none(vm, key)? {
         Ok(sid) => sid,
         Err(e) => return Some(Err(e)),
     };
-    // CSSOM §6.6.1 indexed properties are not deletable — `delete
-    // style[0]` must NOT route to `removeProperty("0")`.  Fall through
-    // to ordinary `[[Delete]]`; legacy-platform-object semantics treat
-    // the indexed slot as a non-configurable derived property which
-    // ordinary delete will refuse.
+    // CSSOM §6.6.1 indexed properties are not deletable.
     if is_canonical_numeric_index_key(vm, key_sid) {
         return None;
     }
     if key_on_prototype_chain(vm, id, key_sid) {
         return None;
     }
-    if !is_bound(vm) || source == SOURCE_COMPUTED {
+    if !is_bound(vm) {
         return Some(Ok(true));
     }
     let mut ctx = NativeContext { vm };
-    let result = invoke_dom_api(
-        &mut ctx,
-        "style.removeProperty",
-        entity,
-        &[JsValue::String(key_sid)],
-    );
+    let result = match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            &mut ctx,
+            "style.removeProperty",
+            entity,
+            &[JsValue::String(key_sid)],
+        ),
+        StyleReceiver::Computed(_) | StyleReceiver::Rule { .. } => Ok(JsValue::Undefined),
+    };
     Some(result.map(|_| true))
 }
 

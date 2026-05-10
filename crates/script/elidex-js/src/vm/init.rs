@@ -139,6 +139,20 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 style_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
+                css_stylesheet_prototype: None,
+                #[cfg(feature = "engine")]
+                css_rule_list_prototype: None,
+                #[cfg(feature = "engine")]
+                css_style_rule_prototype: None,
+                #[cfg(feature = "engine")]
+                style_sheet_list_prototype: None,
+                #[cfg(feature = "engine")]
+                stylesheet_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
+                css_style_rule_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
+                rule_style_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
                 mutation_observer_prototype: None,
                 #[cfg(feature = "engine")]
                 storage_prototype: None,

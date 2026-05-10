@@ -444,6 +444,74 @@ pub enum ObjectKind {
     /// collected; Computed wrappers are not cached so no prune needed.
     #[cfg(feature = "engine")]
     CSSStyleDeclaration { source: u8, key_bits: u64 },
+    /// `CSSStyleSheet` instance (CSSOM §6.2) — wraps a `<style>` element
+    /// entity; `cssRules` / `insertRule` / `deleteRule` route to the
+    /// per-`<style>` parsed `Stylesheet` snapshot in
+    /// `SessionCore::cssom_sheets`.  Identity preserved via
+    /// `VmInner::stylesheet_wrapper_cache` keyed by owner `Entity` so
+    /// `el.sheet === el.sheet`.
+    ///
+    /// GC contract: payload-free in trace terms (`entity_bits` carries
+    /// no `ObjectId` reference).  Sweep tail prunes
+    /// `stylesheet_wrapper_cache` entries whose value `ObjectId` was
+    /// collected.
+    #[cfg(feature = "engine")]
+    CSSStyleSheet { entity_bits: u64 },
+    /// `CSSRuleList` instance (CSSOM §6.3) — `[[Indexed]]` legacy
+    /// platform object backing `CSSStyleSheet.cssRules`.  Fresh-alloc
+    /// on every `cssRules` read (matches WPT identity rules — repeated
+    /// reads do NOT preserve the same reference; framework code rarely
+    /// holds the rule list anyway).
+    ///
+    /// GC contract: same as [`Self::CSSStyleSheet`] — payload-free.
+    #[cfg(feature = "engine")]
+    CSSRuleList { sheet_entity_bits: u64 },
+    /// `CSSStyleRule` instance (CSSOM §6.4 / §6.6) — opaque rule wrapper
+    /// keyed by `(sheet entity, rule_id)` where `rule_id` is the stable
+    /// id issued by [`elidex_css::Stylesheet::next_rule_id`] at parse /
+    /// `insertRule` time.  Identity preserved via
+    /// `VmInner::css_style_rule_wrapper_cache` keyed by `(Entity, u64)`.
+    ///
+    /// GC contract: payload-free.  Sweep tail prunes
+    /// `css_style_rule_wrapper_cache` entries whose value was collected.
+    #[cfg(feature = "engine")]
+    CSSStyleRule {
+        sheet_entity_bits: u64,
+        rule_id: u64,
+    },
+    /// Rule-source `CSSStyleDeclaration` (CSSOM §6.6.1).  Distinct
+    /// variant from [`Self::CSSStyleDeclaration`] because the (sheet,
+    /// rule_id) key needs both `u64`s inline — packing them into the
+    /// PR-A unified variant's `key_bits: u64` would require truncating
+    /// `Entity::to_bits()` which is not safe across hecs generations.
+    /// Shares `css_style_declaration_prototype` with the Inline /
+    /// Computed sources so brand checks accept either kind; the
+    /// dispatch trampoline routes by variant.
+    ///
+    /// PR-B ships read-only declaration access (`getPropertyValue` /
+    /// `length` / `item` / `cssText` get).  Mutators
+    /// (`setProperty` / `removeProperty` / `cssText.set`) are silent
+    /// no-ops — write-back through rule-source mutation is deferred
+    /// to slot `#11-css-rule-style-mutation` (requires Selector +
+    /// Declaration serialisers to round-trip the rule's
+    /// `source_text`).
+    ///
+    /// GC contract: payload-free.  Sweep tail prunes
+    /// `rule_style_wrapper_cache` entries whose value was collected.
+    #[cfg(feature = "engine")]
+    CSSRuleStyleDeclaration {
+        sheet_entity_bits: u64,
+        rule_id: u64,
+    },
+    /// `StyleSheetList` instance (CSSOM §6.8) — `[[Indexed]]` legacy
+    /// platform object backing `document.styleSheets`.  Fresh-alloc
+    /// on every read (mirrors `CSSRuleList`).  The walker enumerates
+    /// `<style>` descendants of the document; `<link rel="stylesheet">`
+    /// is deferred to slot `#11-link-stylesheet-loading`.
+    ///
+    /// GC contract: payload-free.
+    #[cfg(feature = "engine")]
+    StyleSheetList { document_entity_bits: u64 },
     /// `Attr` instance (WHATWG DOM §4.9.2) — the wrapper returned by
     /// `getAttributeNode` / `setAttributeNode` / NamedNodeMap
     /// indexed + named access.  Payload-free; the backing

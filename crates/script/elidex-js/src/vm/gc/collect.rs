@@ -27,6 +27,25 @@ impl VmInner {
         clear_marks(&mut self.gc_object_marks);
         clear_marks(&mut self.gc_upvalue_marks);
 
+        // Snapshot live CSSOM rule_ids (per `<style>` entity) from the
+        // bound session so the mark-roots fan-out for the rule-keyed
+        // wrapper caches can gate on rule_id liveness — stale rule_ids
+        // (deleted via `deleteRule` or reissued after textContent
+        // rewrite) get unmarked → swept → pruned by the sweep-tail
+        // `retain`.  Without this gate, insertRule/deleteRule cycles
+        // would accumulate permanently-pinned cache entries (Copilot
+        // R9 finding).  Empty when the VM is unbound.
+        #[cfg(feature = "engine")]
+        let active_cssom_rule_ids = match self.host_data.as_deref_mut() {
+            Some(hd) if hd.is_bound() => hd.session().active_cssom_rule_ids(),
+            _ => std::collections::HashMap::new(),
+        };
+        #[cfg(not(feature = "engine"))]
+        let active_cssom_rule_ids: std::collections::HashMap<
+            elidex_ecs::Entity,
+            std::collections::HashSet<u64>,
+        > = std::collections::HashMap::new();
+
         // 2. Mark phase — split borrow: mark bits are &mut, everything else is &.
         let roots = GcRoots {
             stack: &self.stack,
@@ -416,10 +435,35 @@ impl VmInner {
                 // — `VmInner::css_style_declaration_prototype` retains
                 // a stale id if the prototype is collected behind a
                 // severed global binding.  PR-A only ships Inline /
-                // Computed sources; PR-B's Rule source will share the
+                // Computed sources; PR-B's Rule source shares the
                 // same prototype, so the entry covers both.
                 #[cfg(feature = "engine")]
                 self.css_style_declaration_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                // 82 + 4 = 86 (M4-12 slot #11-style-declaration PR-B:
+                // CSSStyleSheet / CSSRuleList / CSSStyleRule /
+                // StyleSheetList prototypes).  Each chains to
+                // `Object.prototype`.  Without these entries the
+                // freshly-allocated prototype objects can be collected
+                // before the first JS access reaches them through the
+                // wrapper chain (the wrapper's `prototype: Some(id)`
+                // is not a strong root by itself when the wrapper
+                // itself isn't yet referenced).
+                #[cfg(feature = "engine")]
+                self.css_stylesheet_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.css_rule_list_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.css_style_rule_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.style_sheet_list_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
             ],
@@ -472,6 +516,14 @@ impl VmInner {
             dataset_wrapper_cache: &self.dataset_wrapper_cache,
             #[cfg(feature = "engine")]
             style_wrapper_cache: &self.style_wrapper_cache,
+            #[cfg(feature = "engine")]
+            stylesheet_wrapper_cache: &self.stylesheet_wrapper_cache,
+            #[cfg(feature = "engine")]
+            css_style_rule_wrapper_cache: &self.css_style_rule_wrapper_cache,
+            #[cfg(feature = "engine")]
+            rule_style_wrapper_cache: &self.rule_style_wrapper_cache,
+            #[cfg(feature = "engine")]
+            active_cssom_rule_ids: &active_cssom_rule_ids,
             #[cfg(feature = "engine")]
             validity_state_wrappers: &self.validity_state_wrappers,
             #[cfg(feature = "engine")]
@@ -698,6 +750,16 @@ impl VmInner {
             // CSSStyleDeclaration wrappers are not cached, so this
             // single retain covers all PR-A identity-tracked wrappers.
             self.style_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            // CSSOM stylesheet wrappers (`#11-style-declaration` PR-B)
+            // — same prune contract as the PR-A `style_wrapper_cache`.
+            // CSSRuleList / StyleSheetList are fresh-alloc per access
+            // and have no identity cache to prune.
+            self.stylesheet_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            self.css_style_rule_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            self.rule_style_wrapper_cache
                 .retain(|_, id| bit_get(marks, id.0));
             // T1-v2 form-control identity caches — `[SameObject]`
             // semantics for `input.validity` / `select.options` /

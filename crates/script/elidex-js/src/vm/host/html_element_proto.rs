@@ -123,6 +123,15 @@ impl VmInner {
             None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
+        // `HTMLStyleElement.prototype.sheet` — see
+        // `cssom_sheet::native_html_element_get_sheet`.
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.sheet,
+            super::cssom_sheet::native_html_element_get_sheet,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
     }
 
     /// Install `focus()` / `blur()` on `HTMLElement.prototype`.
