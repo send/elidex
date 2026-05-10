@@ -7,10 +7,13 @@
 //! - `htmlFor` — `[SameObject, PutForwards=value]` DOMTokenList backed
 //!   by the `for` content attribute.  Identity is preserved per
 //!   `[SameObject]` via [`VmInner::output_html_for_wrappers`]; the
-//!   `[PutForwards=value]` rewrite is handled by the engine assignment
-//!   path so `output.htmlFor = "id1 id2"` is equivalent to
-//!   `output.htmlFor.value = "id1 id2"`.  This getter therefore only
-//!   needs to surface the cached DOMTokenList wrapper.
+//!   getter surfaces the cached DOMTokenList wrapper.  The
+//!   `[PutForwards=value]` semantic is implemented by an explicit
+//!   accessor setter (`output_set_html_for`) that ToString-coerces
+//!   the assigned value and writes it directly to the `for` content
+//!   attribute — equivalent to `output.htmlFor.value = ToString(v)`.
+//!   Mirrors the `<link>.sizes` setter precedent
+//!   ([`super::html_link_proto::link_set_sizes`]).
 //! - `form` — form-owner accessor (descendant-of-form lookup, same
 //!   resolution path as `<input>.form`).
 //! - `name` — DOMString reflect of the `name` content attribute.
