@@ -748,10 +748,11 @@ pub(crate) fn try_indexed_get_style_sheet_list(
 
 /// `HTMLStyleElement.prototype.sheet` getter (CSSOM §6.2). Returns the
 /// `[SameObject]` `CSSStyleSheet` wrapper for `<style>`; `null` for any
-/// other tag (including post-unbind retained wrappers). Installed on
-/// the shared `HTMLElement.prototype` because elidex collapses the
-/// per-tag interface tree to a single `HTMLElement` shape (see PR-A
-/// precedent for `Element.style`).
+/// non-`<style>` element. Foreign receivers (`getter.call({})`) throw
+/// `TypeError` per WebIDL brand-check semantics — mirrors PR-A's
+/// `native_html_element_get_style`. Installed on the shared
+/// `HTMLElement.prototype` because elidex collapses the per-tag
+/// interface tree to a single `HTMLElement` shape.
 pub(super) fn native_html_element_get_sheet(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -760,10 +761,10 @@ pub(super) fn native_html_element_get_sheet(
     let entity =
         super::event_target::require_receiver(ctx, this, "HTMLElement", "sheet", |kind| {
             matches!(kind, elidex_ecs::NodeKind::Element)
+        })?
+        .ok_or_else(|| {
+            VmError::type_error("Failed to execute 'sheet' on 'HTMLElement': Illegal invocation")
         })?;
-    let Some(entity) = entity else {
-        return Ok(JsValue::Null);
-    };
     let Some(hd) = ctx.host_if_bound() else {
         return Ok(JsValue::Null);
     };

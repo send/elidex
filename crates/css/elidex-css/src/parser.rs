@@ -59,6 +59,13 @@ pub struct CssRule {
     /// Selector and declaration serialisation are not implemented; storing
     /// the source text avoids the round-trip.
     pub source_text: String,
+    /// Raw selector portion of the rule's source text (everything
+    /// before the opening `{`, trimmed). Captured separately from
+    /// [`Self::source_text`] so CSSOM `CSSStyleRule.selectorText`
+    /// returns the spec-correct slice without a `split_once('{')`
+    /// heuristic — the heuristic mis-slices selectors that contain
+    /// `{` inside an attribute value (e.g. `[data-x="{"]`).
+    pub selector_text: String,
 }
 
 /// Parse a CSS string into a [`Stylesheet`].
@@ -287,6 +294,7 @@ impl<'i> QualifiedRuleParser<'i> for RuleListParser<'_> {
             source_order: order,
             rule_id,
             source_text,
+            selector_text,
         })
     }
 }

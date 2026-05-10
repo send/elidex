@@ -479,6 +479,42 @@ fn document_style_sheets_includes_uppercase_style_via_ascii_ci() {
 }
 
 #[test]
+fn html_element_sheet_getter_foreign_receiver_throws() {
+    // R7 IMP regression: WebIDL brand-check semantics — `<style>.sheet`
+    // getter called with a non-HostObject receiver (`{}`) must throw
+    // `TypeError`, mirroring PR-A's `HTMLElement.style` accessor.
+    // Sibling Document accessors (`document.styleSheets`, `head`,
+    // `body`) keep the safe-default-null convention; HTMLElement
+    // accessors brand-check.
+    let out = run_with_css(
+        "div {}",
+        "var s = document.getElementsByTagName('style')[0]; \
+         var getter = Object.getOwnPropertyDescriptor( \
+             Object.getPrototypeOf(s), 'sheet').get; \
+         try { getter.call({}); 'no-throw'; } catch (e) { e.name; }",
+    );
+    assert_eq!(out, "TypeError");
+}
+
+#[test]
+fn rule_selector_text_handles_brace_in_attribute_value() {
+    // R7 MIN regression: `selectorText` previously used `split_once('{')`
+    // which mis-sliced selectors containing `{` inside an attribute
+    // value.  Parser now captures `selector_text` separately; the
+    // attribute-string brace is preserved.
+    let out = run_with_css(
+        "[data-x=\"{\"] { color: red; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.cssRules[0].selectorText;",
+    );
+    assert!(out.contains("[data-x"), "actual: {out}");
+    assert!(
+        out.contains("\"{\"") || out.contains("'{'"),
+        "actual: {out}"
+    );
+}
+
+#[test]
 fn document_style_sheets_non_host_receiver_returns_null() {
     // R2 IMP regression: when `require_receiver` returns `Ok(None)`
     // (the receiver isn't a HostObject — e.g. a plain `{}` after the

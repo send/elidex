@@ -392,16 +392,12 @@ impl DomApiHandler for RuleCssText {
     }
 }
 
-/// `CSSStyleRule.selectorText` (read) — selector portion of the rule.
-/// Derived by slicing the cached `source_text` up to the first `{`.
-///
-/// **Heuristic limitation**: this naive `split_once('{')` mis-slices a
-/// selector that legitimately contains `{` inside an attribute selector
-/// value (e.g. `[data-foo="{"]`). The spec allows it via the CSS string
-/// production but no major CSS framework uses it. A spec-conforming
-/// tokeniser-based extraction lands with the selector serialiser in
-/// slot `#11-css-rule-selector-text-set` (which also adds the
-/// writable setter).
+/// `CSSStyleRule.selectorText` (read) — selector portion of the rule,
+/// returned from the parser-captured `CssRule::selector_text` field
+/// (the trimmed slice from `parse_prelude`'s `slice_from`). Avoids the
+/// `split_once('{')` heuristic that would mis-slice selectors with
+/// `{` inside an attribute value (e.g. `[data-x="{"]`). Setter is
+/// deferred to slot `#11-css-rule-selector-text-set`.
 pub struct RuleSelectorText;
 
 impl DomApiHandler for RuleSelectorText {
@@ -417,9 +413,7 @@ impl DomApiHandler for RuleSelectorText {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let text = with_rule(this, args, session, dom, String::new(), |r| {
-            r.source_text
-                .split_once('{')
-                .map_or_else(|| r.source_text.clone(), |(s, _)| s.trim().to_string())
+            r.selector_text.clone()
         });
         Ok(JsValue::String(text))
     }
