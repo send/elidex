@@ -420,8 +420,8 @@ pub enum ObjectKind {
     /// stateless beyond the entity reference.
     ///
     /// Identity is preserved via `VmInner::class_list_wrapper_cache`
-    /// (when `source = TOKEN_LIST_SOURCE_CLASS`) and the per-attribute
-    /// caches added in slot `#11-tags-T2a-url-bearing`
+    /// (when `source` is `DomTokenListSource::Class`) and the
+    /// per-attribute caches added in slot `#11-tags-T2a-url-bearing`
     /// (`rel_list_wrapper_cache` / `link_rel_list_wrapper_cache` /
     /// `link_sizes_wrapper_cache`).  GC contract: payload-free in
     /// trace terms (the `entity_bits` is not an `ObjectId`); the

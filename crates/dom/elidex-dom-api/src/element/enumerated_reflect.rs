@@ -18,9 +18,17 @@
 //!
 //! ## Layering
 //!
-//! Engine-independent.  VM `host/` is restricted to dispatching the
-//! handler registered under `"<idl-attr>.enumerated.get"` — the
-//! algorithm itself stays here per CLAUDE.md "Layering mandate".
+//! Engine-independent.  Tables (`*_VALUES`, `*_MISSING_DEFAULT`,
+//! `*_INVALID_DEFAULT` consts) and the canonicalisation algorithm
+//! ([`canonicalize_enumerated_attr`]) live here; VM `host/` consumes
+//! them through getter helpers (`get_enumerated_reflect` /
+//! `get_enumerated_reflect_nullable` in
+//! `vm/host/html_hyperlink_mixin.rs`) and **does not** route through
+//! a dom-api registry handler — the algorithm is pure data + a `match`
+//! against the keyword table, so the binding inlines the call rather
+//! than going through `invoke_dom_api`.  Per CLAUDE.md "Layering
+//! mandate" the algorithm itself stays in this engine-independent
+//! crate.
 
 /// Canonicalise an enumerated-attribute raw value against a known keyword
 /// table.  Performs ASCII case-insensitive match per HTML §2.3.5.
