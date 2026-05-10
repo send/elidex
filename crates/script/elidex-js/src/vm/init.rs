@@ -285,6 +285,26 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 table_row_cells_wrappers: HashMap::new(),
                 #[cfg(feature = "engine")]
+                html_dialog_prototype: None,
+                #[cfg(feature = "engine")]
+                html_details_prototype: None,
+                #[cfg(feature = "engine")]
+                html_template_prototype: None,
+                #[cfg(feature = "engine")]
+                html_datalist_prototype: None,
+                #[cfg(feature = "engine")]
+                html_output_prototype: None,
+                #[cfg(feature = "engine")]
+                html_progress_prototype: None,
+                #[cfg(feature = "engine")]
+                html_meter_prototype: None,
+                #[cfg(feature = "engine")]
+                template_content_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                datalist_options_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                output_html_for_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
                 dom_exception_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_states: HashMap::new(),

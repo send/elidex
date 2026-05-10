@@ -371,6 +371,57 @@ handler!(LINK_SIZES_LENGTH, "linkSizes.length", "sizes", Length);
 handler!(LINK_SIZES_ITEM, "linkSizes.item", "sizes", Item);
 handler!(LINK_SIZES_SUPPORTS, "linkSizes.supports", "sizes", Supports);
 
+handler!(OUTPUT_HTML_FOR_ADD, "outputHtmlFor.add", "for", Add);
+handler!(
+    OUTPUT_HTML_FOR_REMOVE,
+    "outputHtmlFor.remove",
+    "for",
+    Remove
+);
+handler!(
+    OUTPUT_HTML_FOR_TOGGLE,
+    "outputHtmlFor.toggle",
+    "for",
+    Toggle
+);
+handler!(
+    OUTPUT_HTML_FOR_CONTAINS,
+    "outputHtmlFor.contains",
+    "for",
+    Contains
+);
+handler!(
+    OUTPUT_HTML_FOR_REPLACE,
+    "outputHtmlFor.replace",
+    "for",
+    Replace
+);
+handler!(
+    OUTPUT_HTML_FOR_VALUE_GET,
+    "outputHtmlFor.value.get",
+    "for",
+    ValueGet
+);
+handler!(
+    OUTPUT_HTML_FOR_VALUE_SET,
+    "outputHtmlFor.value.set",
+    "for",
+    ValueSet
+);
+handler!(
+    OUTPUT_HTML_FOR_LENGTH,
+    "outputHtmlFor.length",
+    "for",
+    Length
+);
+handler!(OUTPUT_HTML_FOR_ITEM, "outputHtmlFor.item", "for", Item);
+handler!(
+    OUTPUT_HTML_FOR_SUPPORTS,
+    "outputHtmlFor.supports",
+    "for",
+    Supports
+);
+
 #[cfg(test)]
 #[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
 mod tests {

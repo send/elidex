@@ -357,6 +357,15 @@ impl Vm {
             self.inner.table_bodies_wrappers.clear();
             self.inner.table_section_rows_wrappers.clear();
             self.inner.table_row_cells_wrappers.clear();
+            // T2d slot (`#11-tags-T2d-interactive`) — 3 `[SameObject]`
+            // identity caches for the interactive bundle
+            // (template.content DocumentFragment / datalist.options
+            // HTMLCollection / output.htmlFor DOMTokenList).  Same
+            // Entity-index cross-DOM aliasing risk as the T2a/T2b/T2c
+            // wrapper caches above (lesson #195).
+            self.inner.template_content_wrappers.clear();
+            self.inner.datalist_options_wrappers.clear();
+            self.inner.output_html_for_wrappers.clear();
             // `mutation_observers.clear_all_targets()` drains every
             // observer's target list + record queue so a post-rebind
             // `notify` cannot match a `target` Entity that happens to

@@ -187,6 +187,42 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("linkSizes.item", Box::new(super::LINK_SIZES_ITEM));
     r.register_static("linkSizes.supports", Box::new(super::LINK_SIZES_SUPPORTS));
 
+    // `<output>.htmlFor` DOMTokenList family — slot `#11-tags-T2d-interactive`.
+    r.register_static("outputHtmlFor.add", Box::new(super::OUTPUT_HTML_FOR_ADD));
+    r.register_static(
+        "outputHtmlFor.remove",
+        Box::new(super::OUTPUT_HTML_FOR_REMOVE),
+    );
+    r.register_static(
+        "outputHtmlFor.toggle",
+        Box::new(super::OUTPUT_HTML_FOR_TOGGLE),
+    );
+    r.register_static(
+        "outputHtmlFor.contains",
+        Box::new(super::OUTPUT_HTML_FOR_CONTAINS),
+    );
+    r.register_static(
+        "outputHtmlFor.replace",
+        Box::new(super::OUTPUT_HTML_FOR_REPLACE),
+    );
+    r.register_static(
+        "outputHtmlFor.value.get",
+        Box::new(super::OUTPUT_HTML_FOR_VALUE_GET),
+    );
+    r.register_static(
+        "outputHtmlFor.value.set",
+        Box::new(super::OUTPUT_HTML_FOR_VALUE_SET),
+    );
+    r.register_static(
+        "outputHtmlFor.length",
+        Box::new(super::OUTPUT_HTML_FOR_LENGTH),
+    );
+    r.register_static("outputHtmlFor.item", Box::new(super::OUTPUT_HTML_FOR_ITEM));
+    r.register_static(
+        "outputHtmlFor.supports",
+        Box::new(super::OUTPUT_HTML_FOR_SUPPORTS),
+    );
+
     // --- HTMLHyperlinkElementUtils mixin (anchor / area, slot #11-tags-T2a-url-bearing) ---
     r.register_static("hyperlink.href.get", Box::new(super::HyperlinkHrefGet));
     r.register_static("hyperlink.href.set", Box::new(super::HyperlinkHrefSet));

@@ -8,10 +8,10 @@ mod dom;
 
 pub use components::{
     AnonymousTableMarker, AssociatedDocument, AttrData, AttrEntityCache, Attributes,
-    BackgroundImages, CommentData, DocTypeData, ElementState, IframeData, ImageData, InlineStyle,
-    LoadingAttribute, NodeKind, PseudoElementMarker, ScrollState, ShadowHost, ShadowRoot,
-    ShadowRootMode, SlotAssignment, SlotAssignmentMode, SlottedMarker, TagType, TemplateContent,
-    TextContent,
+    BackgroundImages, CommentData, DialogReturnValue, DocTypeData, ElementState, IframeData,
+    ImageData, InlineStyle, IsModalDialog, LoadingAttribute, NodeKind, OutputDefaultValue,
+    OutputValueOverride, PseudoElementMarker, ScrollState, ShadowHost, ShadowRoot, ShadowRootMode,
+    SlotAssignment, SlotAssignmentMode, SlottedMarker, TagType, TemplateContent, TextContent,
 };
 pub use dom::equality::{
     DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,

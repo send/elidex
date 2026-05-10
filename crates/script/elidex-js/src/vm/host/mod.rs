@@ -133,6 +133,12 @@ pub(super) mod html_base_proto;
 pub(super) mod html_button_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_data_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_datalist_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_details_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_dialog_proto;
 pub(super) mod html_element_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_fieldset_proto;
@@ -156,6 +162,8 @@ pub(super) mod html_map_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_meta_proto;
 #[cfg(feature = "engine")]
+pub(super) mod html_meter_proto;
+#[cfg(feature = "engine")]
 pub(super) mod html_olist_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_optgroup_proto;
@@ -164,7 +172,13 @@ pub(super) mod html_option_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_options_collection;
 #[cfg(feature = "engine")]
+pub(super) mod html_output_proto;
+#[cfg(feature = "engine")]
 pub(super) mod html_passive_protos;
+#[cfg(feature = "engine")]
+pub(super) mod html_progress_proto;
+#[cfg(feature = "engine")]
+pub(super) mod html_template_proto;
 
 #[cfg(feature = "engine")]
 pub(super) mod form_state_sync;

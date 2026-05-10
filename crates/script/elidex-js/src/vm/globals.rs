@@ -327,6 +327,30 @@ impl VmInner {
             self.register_html_table_cell_prototype();
             self.register_html_table_caption_prototype();
             self.register_html_table_col_prototype();
+
+            // T2d interactive prototypes (slot
+            // `#11-tags-T2d-interactive`).  7 prototypes routed across
+            // 7 dispatch arms (no shared prototypes).  Each chains to
+            // `HTMLElement.prototype` via the existing parent.  Order
+            // matches the dispatch chain extension in
+            // `tag_specific_t2d_prototype`.
+            self.register_html_dialog_prototype();
+            self.register_html_details_prototype();
+            self.register_html_template_prototype();
+            self.register_html_datalist_prototype();
+            self.register_html_output_prototype();
+            self.register_html_progress_prototype();
+            self.register_html_meter_prototype();
+            // ConstraintValidation mixin install on `<output>` —
+            // HTML §4.10.13 lists `<output>` as a listed form-control
+            // (`willValidate` / `validity` / `validationMessage` /
+            // `checkValidity` / `reportValidity` / `setCustomValidity`).
+            // Mirrors the T1-v2 install block above for the 5 form
+            // controls; must run after `register_html_output_prototype`
+            // so the prototype slot is populated.
+            if let Some(output_proto) = self.html_output_prototype {
+                self.install_constraint_validation_mixin(output_proto);
+            }
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared
