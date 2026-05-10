@@ -73,12 +73,20 @@ fn style_element_sheet_is_css_style_sheet() {
 }
 
 #[test]
-fn non_style_element_sheet_is_null() {
+fn non_style_element_sheet_is_undefined() {
+    // T2b moved the `sheet` accessor from the shared
+    // `HTMLElement.prototype` (PR-B convenience location) to
+    // `HTMLStyleElement.prototype`, matching WebIDL — so non-style
+    // elements no longer expose a `sheet` property at all
+    // (= `undefined`, not `null`).  Pre-T2b PR-B's getter brand-checked
+    // the receiver and returned `null` for non-`<style>` from the
+    // shared accessor; that brand-check no-op is now done by the
+    // prototype-chain itself (no accessor, no value).
     let out = run_with_css(
         "div {}",
-        "var d = document.createElement('div'); (d.sheet === null) ? 'null' : 'not-null';",
+        "var d = document.createElement('div'); (d.sheet === undefined) ? 'undefined' : 'not-undefined';",
     );
-    assert_eq!(out, "null");
+    assert_eq!(out, "undefined");
 }
 
 #[test]

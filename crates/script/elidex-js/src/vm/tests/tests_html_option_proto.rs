@@ -273,9 +273,14 @@ fn option_brand_check_throws_on_non_option_receiver() {
 
 #[test]
 fn option_prototype_chains_through_html_element() {
+    // T2b: `<div>`'s direct prototype is now HTMLDivElement.prototype;
+    // climb one extra `getPrototypeOf` on the `<div>` side to reach
+    // HTMLElement.prototype, which is HTMLOptionElement.prototype's
+    // own parent.
     let out = run("var o = document.createElement('option'); \
          var p = Object.getPrototypeOf(o); \
          var pp = Object.getPrototypeOf(p); \
-         (pp === Object.getPrototypeOf(document.createElement('div'))) ? 'good' : 'bad';");
+         var divHtmlElementProto = Object.getPrototypeOf(Object.getPrototypeOf(document.createElement('div'))); \
+         (pp === divHtmlElementProto) ? 'good' : 'bad';");
     assert_eq!(out, "good");
 }

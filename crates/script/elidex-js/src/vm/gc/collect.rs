@@ -491,6 +491,108 @@ impl VmInner {
                 self.html_link_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 91 + 24 = 115 (M4-12 slot #11-tags-T2b-passive:
+                // 7 head + 17 grouping prototypes — h1-h6 share one
+                // HTMLHeadingElement prototype and blockquote+q
+                // share one HTMLQuoteElement prototype, so the field
+                // count is 24 rather than 25).  All chain to
+                // `HTMLElement.prototype`.
+                #[cfg(feature = "engine")]
+                self.html_html_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_head_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_body_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_title_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_base_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_meta_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_style_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_div_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_span_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_br_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_hr_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_pre_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_p_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_heading_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_quote_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_olist_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_ulist_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_li_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_dlist_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_menu_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_map_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_picture_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_data_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_time_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -561,6 +663,8 @@ impl VmInner {
             options_collection_wrappers: &self.options_collection_wrappers,
             #[cfg(feature = "engine")]
             form_controls_collection_wrappers: &self.form_controls_collection_wrappers,
+            #[cfg(feature = "engine")]
+            map_areas_wrappers: &self.map_areas_wrappers,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
             #[cfg(feature = "engine")]
@@ -813,6 +917,9 @@ impl VmInner {
                 .retain(|_, id| bit_get(marks, id.0));
             self.form_controls_collection_wrappers
                 .retain(|_, id| bit_get(marks, id.0));
+            // T2b `<map>.areas` `[SameObject]` cache — same
+            // prune-by-wrapper-mark contract.
+            self.map_areas_wrappers.retain(|_, id| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

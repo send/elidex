@@ -171,16 +171,18 @@ impl VmInner {
     /// prototype, in which case `create_element_wrapper` falls back
     /// to `HTMLElement.prototype`.  Slot `#11-tags-T1-v2` extends
     /// the dispatch with the 10 form-control tags (Group α K-3
-    /// fold).
+    /// fold); slot `#11-tags-T2a-url-bearing` adds 5 URL-bearing
+    /// tags; slot `#11-tags-T2b-passive` adds the 7 head, 17
+    /// grouping, and empty tags (h1-h6 and blockquote+q each route
+    /// to a single shared prototype).
     fn tag_specific_html_prototype(&self, entity: elidex_ecs::Entity) -> Option<ObjectId> {
         let host = self.host_data.as_deref()?;
         // Linear chain of `tag_matches_ascii_case` checks.  Each
         // call walks the entity's `TagType` component without
-        // allocating; for the 11 tags in scope this is well below
-        // the cost of a single per-call `to_ascii_lowercase`.  When
-        // T2 carve-out adds a 12th+ tag the chain stays linear; an
-        // O(1) lookup table is a separate, benchmark-driven
-        // optimisation.
+        // allocating; for the ~40 tags in scope this is still well
+        // below the cost of a per-call `to_ascii_lowercase`.  An
+        // O(1) lookup table remains a separate, benchmark-driven
+        // optimisation (defer slot in the master roadmap §H-7).
         if host.tag_matches_ascii_case(entity, "iframe") {
             return self.html_iframe_prototype;
         }
@@ -228,6 +230,103 @@ impl VmInner {
         }
         if host.tag_matches_ascii_case(entity, "input") {
             return self.html_input_prototype;
+        }
+        self.tag_specific_t2b_prototype(entity)
+    }
+
+    /// T2b passive head + grouping/empty bundle dispatch.  Split out
+    /// of `tag_specific_html_prototype` to keep each function under
+    /// the 100-line cap; the two halves share the same linear-`if`
+    /// structure and could be refused into a `[(name, slot)]` table
+    /// later (deferred to the bench-driven O(1) optimisation slot in
+    /// the master roadmap §H-7 — that work touches **all** dispatch
+    /// arms, not just the T2b half).
+    fn tag_specific_t2b_prototype(&self, entity: elidex_ecs::Entity) -> Option<ObjectId> {
+        let host = self.host_data.as_deref()?;
+        // Head bundle.
+        if host.tag_matches_ascii_case(entity, "html") {
+            return self.html_html_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "head") {
+            return self.html_head_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "body") {
+            return self.html_body_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "title") {
+            return self.html_title_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "base") {
+            return self.html_base_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "meta") {
+            return self.html_meta_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "style") {
+            return self.html_style_prototype;
+        }
+        // Grouping/empty bundle.
+        if host.tag_matches_ascii_case(entity, "div") {
+            return self.html_div_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "span") {
+            return self.html_span_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "br") {
+            return self.html_br_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "hr") {
+            return self.html_hr_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "pre") {
+            return self.html_pre_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "p") {
+            return self.html_p_prototype;
+        }
+        // h1-h6 share HTMLHeadingElement.prototype; six explicit
+        // arms keep each `tag_matches_ascii_case` call monomorphic.
+        if host.tag_matches_ascii_case(entity, "h1")
+            || host.tag_matches_ascii_case(entity, "h2")
+            || host.tag_matches_ascii_case(entity, "h3")
+            || host.tag_matches_ascii_case(entity, "h4")
+            || host.tag_matches_ascii_case(entity, "h5")
+            || host.tag_matches_ascii_case(entity, "h6")
+        {
+            return self.html_heading_prototype;
+        }
+        // blockquote + q share HTMLQuoteElement.prototype.
+        if host.tag_matches_ascii_case(entity, "blockquote")
+            || host.tag_matches_ascii_case(entity, "q")
+        {
+            return self.html_quote_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "ol") {
+            return self.html_olist_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "ul") {
+            return self.html_ulist_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "li") {
+            return self.html_li_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "dl") {
+            return self.html_dlist_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "menu") {
+            return self.html_menu_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "map") {
+            return self.html_map_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "picture") {
+            return self.html_picture_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "data") {
+            return self.html_data_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "time") {
+            return self.html_time_prototype;
         }
         None
     }

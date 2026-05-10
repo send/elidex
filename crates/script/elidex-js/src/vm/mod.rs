@@ -566,6 +566,126 @@ pub(crate) struct VmInner {
     /// `#11-link-stylesheet-loading`).
     #[cfg(feature = "engine")]
     pub(crate) html_link_prototype: Option<ObjectId>,
+    // -----------------------------------------------------------------
+    // T2b passive head + grouping prototypes (slot
+    // `#11-tags-T2b-passive`).  All chain to `HTMLElement.prototype`.
+    // 7 head + 17 grouping = 24 prototypes; HTMLHeading is shared
+    // across h1-h6 and HTMLQuote is shared across blockquote+q so the
+    // dispatch chain has more arms than this field set.
+    // -----------------------------------------------------------------
+    /// `HTMLHtmlElement.prototype` (HTML §4.1.1).  Brand-only —
+    /// deprecated `version` attribute is not surfaced.
+    #[cfg(feature = "engine")]
+    pub(crate) html_html_prototype: Option<ObjectId>,
+    /// `HTMLHeadElement.prototype` (HTML §4.2.1).  Brand-only.
+    #[cfg(feature = "engine")]
+    pub(crate) html_head_prototype: Option<ObjectId>,
+    /// `HTMLBodyElement.prototype` (HTML §4.3.1).  Brand-only — the
+    /// 16 event-handler IDL attributes (`onload` / `onbeforeunload`
+    /// / etc.) are deferred to slot `#11-tags-T2b-body-events`
+    /// pending the generic EventHandlerAttribute infrastructure
+    /// (paired with D-10 `#11-events-misc`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_body_prototype: Option<ObjectId>,
+    /// `HTMLTitleElement.prototype` (HTML §4.2.2).  Carries the
+    /// `text` accessor (textContent alias).
+    #[cfg(feature = "engine")]
+    pub(crate) html_title_prototype: Option<ObjectId>,
+    /// `HTMLBaseElement.prototype` (HTML §4.2.3).  Carries `href`
+    /// (URL-resolved-fallback-to-raw via
+    /// [`elidex_dom_api::element::href_accessor::href_value_or_raw`])
+    /// and `target` (string reflect).  `<base href>` propagation
+    /// into anchor / area / img / link / script base resolution is
+    /// deferred to slot `#11-base-href-resolution` (re-noted from
+    /// T2a).
+    #[cfg(feature = "engine")]
+    pub(crate) html_base_prototype: Option<ObjectId>,
+    /// `HTMLMetaElement.prototype` (HTML §4.2.5).  Six string
+    /// reflects: `name` / `httpEquiv` / `content` / `charset` /
+    /// `media` / `scheme` (deprecated but reflected for legacy
+    /// scripts that read `<meta scheme>`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_meta_prototype: Option<ObjectId>,
+    /// `HTMLStyleElement.prototype` (HTML §4.2.6).  Carries `media`
+    /// and `type` (string reflect) plus `sheet` (`[SameObject]`
+    /// CSSStyleSheet wrapper via PR-B's
+    /// [`Self::stylesheet_wrapper_cache`]).  `disabled` is folded
+    /// into the existing slot `#11-stylesheet-disabled` (cross-crate
+    /// cascade integration shared with `CSSStyleSheet.disabled`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_style_prototype: Option<ObjectId>,
+    /// `HTMLDivElement.prototype` (HTML §4.4.16).  Brand-only;
+    /// deprecated `align` deferred to slot
+    /// `#11-tags-deprecated-attr-sweep`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_div_prototype: Option<ObjectId>,
+    /// `HTMLSpanElement.prototype` (HTML §4.5.26).  Brand-only.
+    #[cfg(feature = "engine")]
+    pub(crate) html_span_prototype: Option<ObjectId>,
+    /// `HTMLBRElement.prototype` (HTML §4.5.27).  Brand-only;
+    /// deprecated `clear` deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_br_prototype: Option<ObjectId>,
+    /// `HTMLHRElement.prototype` (HTML §4.4.2).  Brand-only;
+    /// 5 deprecated attrs deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_hr_prototype: Option<ObjectId>,
+    /// `HTMLPreElement.prototype` (HTML §4.4.3).  Brand-only;
+    /// deprecated `width` deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_pre_prototype: Option<ObjectId>,
+    /// `HTMLParagraphElement.prototype` (HTML §4.4.1).  Brand-only;
+    /// deprecated `align` deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_p_prototype: Option<ObjectId>,
+    /// `HTMLHeadingElement.prototype` (HTML §4.3.6).  Shared across
+    /// h1-h6.  Brand-only.
+    #[cfg(feature = "engine")]
+    pub(crate) html_heading_prototype: Option<ObjectId>,
+    /// `HTMLQuoteElement.prototype` (HTML §4.5.4 / §4.5.5).  Shared
+    /// across `<blockquote>` and `<q>`.  Carries `cite` (string
+    /// reflect, plain DOMString IDL).
+    #[cfg(feature = "engine")]
+    pub(crate) html_quote_prototype: Option<ObjectId>,
+    /// `HTMLOListElement.prototype` (HTML §4.4.5).  Carries
+    /// `reversed` (boolean), `start` (long, default 1), and `type`
+    /// (DOMString limited-to-only-known-values: `1` / `a` / `A` /
+    /// `i` / `I`, case-sensitive match per spec).  Deprecated
+    /// `compact` deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_olist_prototype: Option<ObjectId>,
+    /// `HTMLUListElement.prototype` (HTML §4.4.6).  Brand-only;
+    /// deprecated `compact` / `type` deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_ulist_prototype: Option<ObjectId>,
+    /// `HTMLLIElement.prototype` (HTML §4.4.8).  Carries `value`
+    /// (long, default 0).  Deprecated `type` deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_li_prototype: Option<ObjectId>,
+    /// `HTMLDListElement.prototype` (HTML §4.4.9).  Brand-only;
+    /// deprecated `compact` deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_dlist_prototype: Option<ObjectId>,
+    /// `HTMLMenuElement.prototype` (HTML §4.4.7).  Brand-only.
+    #[cfg(feature = "engine")]
+    pub(crate) html_menu_prototype: Option<ObjectId>,
+    /// `HTMLMapElement.prototype` (HTML §4.8.13).  Carries `name`
+    /// (string reflect) and `areas` (live `HTMLCollection` of
+    /// descendant `<area>` elements via
+    /// [`elidex_dom_api::live_collection::LiveCollection`]).
+    #[cfg(feature = "engine")]
+    pub(crate) html_map_prototype: Option<ObjectId>,
+    /// `HTMLPictureElement.prototype` (HTML §4.8.1).  Brand-only.
+    #[cfg(feature = "engine")]
+    pub(crate) html_picture_prototype: Option<ObjectId>,
+    /// `HTMLDataElement.prototype` (HTML §4.5.13).  Carries `value`
+    /// (string reflect, attr `value`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_data_prototype: Option<ObjectId>,
+    /// `HTMLTimeElement.prototype` (HTML §4.5.14).  Carries
+    /// `dateTime` (string reflect, attr `datetime`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_time_prototype: Option<ObjectId>,
     /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
     /// reserved-not-yet-registered slot.  When the
     /// `#11-tags-radionodelist` defer slot lands, this will hold a
@@ -606,6 +726,16 @@ pub(crate) struct VmInner {
     /// weak-through-owner semantics.
     #[cfg(feature = "engine")]
     pub(crate) form_controls_collection_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `<map>.areas` `[SameObject]` HTMLCollection identity cache,
+    /// keyed by the owning `<map>` entity (HTML §4.8.13).  Same
+    /// weak-through-owner mark-via-owner semantics as the other
+    /// `*_wrappers` collections — sweep prunes entries whose key
+    /// `<map>` element wrapper is no longer reachable.
+    /// Cleared on `Vm::unbind` (lesson #195: every Entity-keyed
+    /// wrapper cache needs an explicit clear in the unbind path so
+    /// stale entries can't be cross-DOM-aliased after a re-bind).
+    #[cfg(feature = "engine")]
+    pub(crate) map_areas_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor

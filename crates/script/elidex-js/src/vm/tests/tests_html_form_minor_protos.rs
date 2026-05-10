@@ -258,12 +258,14 @@ fn legend_brand_check_throws_on_non_legend_receiver() {
 
 #[test]
 fn label_prototype_chains_through_html_element() {
+    // T2b: `<div>` now has its own per-tag prototype, so the
+    // identity comparison must climb one extra `getPrototypeOf` to
+    // reach HTMLElement.prototype on the `<div>` side.
     let out = run("var l = document.createElement('label'); \
          var p = Object.getPrototypeOf(l); \
          var pp = Object.getPrototypeOf(p); \
-         (p !== Object.getPrototypeOf(document.createElement('div')) \
-            && pp === Object.getPrototypeOf(document.createElement('div'))) \
-              ? 'good' : 'bad';");
+         var divHtmlElementProto = Object.getPrototypeOf(Object.getPrototypeOf(document.createElement('div'))); \
+         (p !== divHtmlElementProto && pp === divHtmlElementProto) ? 'good' : 'bad';");
     assert_eq!(out, "good");
 }
 

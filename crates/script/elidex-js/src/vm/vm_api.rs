@@ -344,6 +344,10 @@ impl Vm {
             self.inner.stylesheet_wrapper_cache.clear();
             self.inner.css_style_rule_wrapper_cache.clear();
             self.inner.rule_style_wrapper_cache.clear();
+            // T2b slot — `<map>.areas` `[SameObject]` HTMLCollection
+            // identity cache.  Same Entity-index cross-DOM aliasing
+            // risk as the T2a wrapper caches above (lesson #195).
+            self.inner.map_areas_wrappers.clear();
             // `mutation_observers.clear_all_targets()` drains every
             // observer's target list + record queue so a post-rebind
             // `notify` cannot match a `target` Entity that happens to
