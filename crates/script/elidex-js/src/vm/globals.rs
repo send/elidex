@@ -310,6 +310,19 @@ impl VmInner {
             // prototypes' policy).
             self.register_dom_token_list_prototype();
             self.register_dom_string_map_prototype();
+            // CSSStyleDeclaration.prototype — backs both `Element.style`
+            // (mutable inline) and `getComputedStyle` (read-only).
+            // Chains to `Object.prototype` (CSSOM §6.6 declares it as a
+            // plain non-EventTarget interface).  Must land before
+            // `register_html_element_prototype` is consulted by any
+            // `style` accessor invocation; placement here mirrors the
+            // DOMTokenList / DOMStringMap prototype installs that the
+            // sibling `classList` / `dataset` accessors depend on.
+            self.register_css_style_declaration_prototype();
+            // CSS namespace global (`CSS.escape` / `CSS.supports`) —
+            // CSSOM §6.7.  Plain object on globalThis; chains to
+            // `Object.prototype`.
+            self.register_css_namespace_global();
             // MutationObserver — chains directly to Object.prototype.
             // Registered after object_prototype is populated and
             // before the Window splice, since the constructor is a

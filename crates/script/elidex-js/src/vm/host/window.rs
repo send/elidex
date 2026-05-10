@@ -344,6 +344,10 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
         "postMessage",
         super::pending_tasks::native_window_post_message,
     ),
+    (
+        "getComputedStyle",
+        super::css_style_declaration::native_window_get_computed_style,
+    ),
 ];
 
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /

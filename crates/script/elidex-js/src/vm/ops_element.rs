@@ -327,6 +327,33 @@ impl VmInner {
                     return result;
                 }
             }
+            // CSSStyleDeclaration (Element.style + getComputedStyle)
+            // indexed-property exotic AND named-property exotic
+            // [[Get]] (CSSOM §6.6.1).  The named-getter path
+            // (`style.color`) reads via `style.getPropertyValue`
+            // (Inline) or `getComputedStyle` (Computed).  The indexed-
+            // getter path (`style[0]`) returns the i-th declared
+            // property name for Inline, empty string for Computed.
+            // Symbol / non-coercible keys fall through to the
+            // prototype chain.
+            #[cfg(feature = "engine")]
+            if matches!(
+                self.get_object(id).kind,
+                ObjectKind::CSSStyleDeclaration { .. }
+            ) {
+                // Indexed access first — numeric keys never resolve as
+                // named properties (CSSOM §6.6.1 indexed getter takes
+                // precedence over named getter for canonical numeric
+                // index strings).
+                if let Some(result) =
+                    super::host::css_style_declaration::try_indexed_get(self, id, key)
+                {
+                    return result;
+                }
+                if let Some(result) = super::host::css_style_declaration::try_get(self, id, key) {
+                    return result;
+                }
+            }
             // Storage named-property exotic [[Get]] — bracket-form
             // `localStorage["k"]` reads the stored value, falling
             // through to the prototype chain for built-in method
@@ -658,6 +685,23 @@ impl VmInner {
             #[cfg(feature = "engine")]
             if matches!(self.get_object(id).kind, ObjectKind::DOMStringMap { .. }) {
                 if let Some(result) = super::host::dataset::try_set(self, id, key, val) {
+                    return result;
+                }
+            }
+            // CSSStyleDeclaration named-property exotic [[Set]] —
+            // `style.color = "red"` routes to `style.setProperty`
+            // (CSSOM §6.6.1 named setter).  Per design review IMP-1/2:
+            // raw write, no `parse_declaration_block` shorthand expand
+            // (matches Chrome).  Computed-source receivers silently
+            // no-op (read-only block).
+            #[cfg(feature = "engine")]
+            if matches!(
+                self.get_object(id).kind,
+                ObjectKind::CSSStyleDeclaration { .. }
+            ) {
+                if let Some(result) =
+                    super::host::css_style_declaration::try_set(self, id, key, val)
+                {
                     return result;
                 }
             }

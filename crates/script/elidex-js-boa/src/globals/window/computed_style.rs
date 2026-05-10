@@ -35,14 +35,16 @@ pub(super) fn create_computed_style_proxy(
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
                 let prop = require_js_string_arg(args, 0, "getPropertyValue", ctx)?;
-                // GetComputedStyle is a CssomApiHandler, not DomApiHandler.
-                // Look up from the CSSOM registry.
+                // §M4-12 #11-style-declaration CRIT-2: GetComputedStyle
+                // migrated CssomApiHandler → DomApiHandler in the same
+                // PR that added the custom-VM CSSStyleDeclaration
+                // surface; the cssom registry is now empty.
                 let handler = bridge
-                    .cssom_registry()
+                    .dom_registry()
                     .resolve("getComputedStyle")
                     .ok_or_else(|| {
                         boa_engine::JsNativeError::typ()
-                            .with_message("Unknown CSSOM method: getComputedStyle")
+                            .with_message("Unknown DOM method: getComputedStyle")
                     })?;
                 bridge.with(|session, dom| {
                     let result = handler

@@ -87,6 +87,8 @@ pub(super) mod class_list;
 #[cfg(feature = "engine")]
 pub(crate) mod cors;
 #[cfg(feature = "engine")]
+pub(super) mod css_style_declaration;
+#[cfg(feature = "engine")]
 pub(crate) mod data_view;
 #[cfg(feature = "engine")]
 pub(super) mod dataset;

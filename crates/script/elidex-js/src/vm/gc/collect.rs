@@ -409,6 +409,19 @@ impl VmInner {
                 self.validity_state_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 81 + 1 = 82 (M4-12 slot #11-style-declaration:
+                // CSSStyleDeclaration.prototype, CSSOM §6.6).  Chains
+                // to `Object.prototype`.  Same `delete globalThis.<X>`
+                // invariant as every other intrinsic prototype above
+                // — `VmInner::css_style_declaration_prototype` retains
+                // a stale id if the prototype is collected behind a
+                // severed global binding.  PR-A only ships Inline /
+                // Computed sources; PR-B's Rule source will share the
+                // same prototype, so the entry covers both.
+                #[cfg(feature = "engine")]
+                self.css_style_declaration_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -457,6 +470,8 @@ impl VmInner {
             class_list_wrapper_cache: &self.class_list_wrapper_cache,
             #[cfg(feature = "engine")]
             dataset_wrapper_cache: &self.dataset_wrapper_cache,
+            #[cfg(feature = "engine")]
+            style_wrapper_cache: &self.style_wrapper_cache,
             #[cfg(feature = "engine")]
             validity_state_wrappers: &self.validity_state_wrappers,
             #[cfg(feature = "engine")]
@@ -676,6 +691,13 @@ impl VmInner {
             self.class_list_wrapper_cache
                 .retain(|_, id| bit_get(marks, id.0));
             self.dataset_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            // Inline `CSSStyleDeclaration` (`Element.style`) cache —
+            // same prune contract: drop entries whose wrapper
+            // `ObjectId` was collected this sweep.  Computed-source
+            // CSSStyleDeclaration wrappers are not cached, so this
+            // single retain covers all PR-A identity-tracked wrappers.
+            self.style_wrapper_cache
                 .retain(|_, id| bit_get(marks, id.0));
             // T1-v2 form-control identity caches — `[SameObject]`
             // semantics for `input.validity` / `select.options` /

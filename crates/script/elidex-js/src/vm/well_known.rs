@@ -518,6 +518,27 @@ define_well_known_strings! {
         dataset => "dataset",
     }
 
+    "CSSStyleDeclaration / CSS namespace (slot #11-style-declaration)" {
+        // `Element.style` accessor — returns an identity-cached
+        // `CSSStyleDeclaration` (Inline source) wrapper. CSSOM §6.6.
+        style => "style",
+        // `CSSStyleDeclaration` accessor + method names.  `length` /
+        // `item` already live in the core/Element-children sections.
+        css_text => "cssText",
+        get_property_value => "getPropertyValue",
+        get_property_priority => "getPropertyPriority",
+        set_property => "setProperty",
+        remove_property => "removeProperty",
+        parent_rule => "parentRule",
+        // `window.getComputedStyle` global function name.  CSSOM §7.2.
+        get_computed_style => "getComputedStyle",
+        // CSS namespace static methods (CSSOM §6.7).  `escape` /
+        // `supports` (the latter shared with DOMTokenList) plus the
+        // `CSS` namespace identifier.
+        css_namespace => "CSS",
+        escape => "escape",
+    }
+
     "AbortController / AbortSignal (PR4d)" {
         // Method, accessor, and listener-option key names.  Pre-interned
         // here so `parse_listener_options` can look up `signal` without

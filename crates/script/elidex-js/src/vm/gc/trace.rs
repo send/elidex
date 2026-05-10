@@ -352,6 +352,14 @@ pub(super) fn trace_work_list(
             // step `(e3)` and pruned in the sweep tail.
             #[cfg(feature = "engine")]
             ObjectKind::DOMTokenList { .. } | ObjectKind::DOMStringMap { .. } => {}
+            // `CSSStyleDeclaration` carries only `(source, key_bits)`
+            // inline — no `ObjectId` references and no side table.
+            // Inline-source identity is tracked by
+            // `style_wrapper_cache` (scanned in mark-roots `(e3)`,
+            // pruned in the sweep tail); Computed-source wrappers are
+            // not cached.  Trace fan-out is a no-op.
+            #[cfg(feature = "engine")]
+            ObjectKind::CSSStyleDeclaration { .. } => {}
             // `MutationObserver` carries only an inline observer ID
             // (not an `ObjectId`).  The JS callback is stored in
             // `HostData::mutation_observer_callbacks` keyed by that

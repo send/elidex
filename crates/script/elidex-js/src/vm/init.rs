@@ -135,6 +135,10 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 dataset_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
+                css_style_declaration_prototype: None,
+                #[cfg(feature = "engine")]
+                style_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
                 mutation_observer_prototype: None,
                 #[cfg(feature = "engine")]
                 storage_prototype: None,

@@ -2,7 +2,7 @@
 
 use elidex_ecs::{EcsDom, ElementState, Entity};
 use elidex_plugin::{ComputedStyle, CssValue, JsValue, TransformFunction};
-use elidex_script_session::{CssomApiHandler, DomApiError, DomApiErrorKind, SessionCore};
+use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, SessionCore};
 use elidex_style::get_computed;
 
 use crate::util::require_string_arg;
@@ -47,7 +47,7 @@ fn is_visited_restricted(property: &str) -> bool {
 /// text-decoration-color, fill, and stroke.
 pub struct GetComputedStyle;
 
-impl CssomApiHandler for GetComputedStyle {
+impl DomApiHandler for GetComputedStyle {
     fn method_name(&self) -> &str {
         "getComputedStyle"
     }
