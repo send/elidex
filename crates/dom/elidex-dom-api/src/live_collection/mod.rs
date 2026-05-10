@@ -66,6 +66,22 @@ pub enum CollectionFilter {
     /// per-entity matcher path can't express this rule because it
     /// requires whole-list inspection to find the implicit default).
     SelectedOptions,
+    /// Match *direct* children of the root whose tag matches any of
+    /// the given names (ASCII-case-insensitive).  Empty vec yields
+    /// an empty result.  Backs `<table>.tBodies`
+    /// (`vec!["tbody"]`), section.rows / `<tr>.cells`
+    /// (`vec!["tr"]` and `vec!["td","th"]` respectively).  Strings
+    /// are owned (`Vec<String>`) to match the `ByClassNames` precedent
+    /// — filter is moved into the `LiveCollection`, so `&'static str`
+    /// slices won't compile across the dispatch surface.  Per-call
+    /// allocation is at filter **construction** (one-time per
+    /// `LiveCollection::new`), not on match (hot path).
+    DirectChildrenByTagName(Vec<String>),
+    /// Match `<table>.rows` per HTML §4.9.1: thead's tr (in tree
+    /// order) → table-direct tr / tbody's tr (interleaved in tree
+    /// order) → tfoot's tr.  Bespoke walker because the algorithm
+    /// requires whole-tree inspection of the root `<table>`.
+    TableRows,
 }
 
 /// Whether the collection behaves as an `HTMLCollection` or a `NodeList`.
@@ -258,6 +274,10 @@ impl LiveCollection {
             // ByClassNames with empty vec always returns empty.
             CollectionFilter::ByClassNames(names) if names.is_empty() => {}
             CollectionFilter::SelectedOptions => populate_selected_options(root, dom, out),
+            CollectionFilter::DirectChildrenByTagName(tags) => {
+                populate_direct_children_with_tags(root, dom, tags, out);
+            }
+            CollectionFilter::TableRows => populate_table_rows(root, dom, out),
             // All other filters: pre-order traversal of the subtree.
             // Shadow boundaries are respected because the child
             // iterators used by `traverse_descendants` skip
@@ -337,6 +357,75 @@ fn populate_selected_options(root: Entity, dom: &EcsDom, out: &mut Vec<Entity>) 
         if !crate::element::is_option_disabled(dom, *opt) {
             out.push(*opt);
             return;
+        }
+    }
+}
+
+/// `DirectChildrenByTagName` walker — direct children of `root`
+/// whose tag matches any of `tags` (ASCII-case-insensitive).  Empty
+/// `tags` yields nothing (matching the empty `ByClassNames` semantic).
+fn populate_direct_children_with_tags(
+    root: Entity,
+    dom: &EcsDom,
+    tags: &[String],
+    out: &mut Vec<Entity>,
+) {
+    if tags.is_empty() {
+        return;
+    }
+    for child in dom.children_iter(root) {
+        let Ok(tt) = dom.world().get::<&TagType>(child) else {
+            continue;
+        };
+        let child_tag = tt.0.as_str();
+        if tags.iter().any(|t| child_tag.eq_ignore_ascii_case(t)) {
+            out.push(child);
+        }
+    }
+}
+
+/// `<table>.rows` walker per HTML §4.9.1: append all `<tr>` direct
+/// children of the **first** `<thead>` direct child (in tree order),
+/// then walk the table's direct children appending direct `<tr>`s and
+/// expanding `<tbody>` direct children's `<tr>`s, then append all
+/// `<tr>` direct children of the **last** `<tfoot>` direct child.
+///
+/// `thead`/`tfoot` themselves do NOT appear in the output — only
+/// their direct `<tr>` children (HTML §4.9.1 explicitly walks
+/// "rows of the table").  Multiple `<thead>` / `<tfoot>` direct
+/// children: HTML §4.9.1 specifies only the **first** `<thead>` and
+/// the **first** `<tfoot>` participate (additional ones are
+/// non-conforming and ignored).
+fn populate_table_rows(root: Entity, dom: &EcsDom, out: &mut Vec<Entity>) {
+    // Collect thead's direct <tr> children first.
+    let thead = dom.first_child_with_tag(root, "thead");
+    if let Some(thead) = thead {
+        for tr in dom.children_iter(thead) {
+            if matches_tag_ascii_ci(tr, "tr", dom) {
+                out.push(tr);
+            }
+        }
+    }
+    // Walk root's direct children: collect direct <tr>, expand <tbody>'s direct <tr>.
+    // <thead>/<tfoot> are skipped here (handled separately).
+    for child in dom.children_iter(root) {
+        if matches_tag_ascii_ci(child, "tr", dom) {
+            out.push(child);
+        } else if matches_tag_ascii_ci(child, "tbody", dom) {
+            for tr in dom.children_iter(child) {
+                if matches_tag_ascii_ci(tr, "tr", dom) {
+                    out.push(tr);
+                }
+            }
+        }
+    }
+    // Collect tfoot's direct <tr> children last.
+    let tfoot = dom.first_child_with_tag(root, "tfoot");
+    if let Some(tfoot) = tfoot {
+        for tr in dom.children_iter(tfoot) {
+            if matches_tag_ascii_ci(tr, "tr", dom) {
+                out.push(tr);
+            }
         }
     }
 }
@@ -440,10 +529,15 @@ fn matches_filter(entity: Entity, filter: &CollectionFilter, dom: &EcsDom) -> bo
         // direct-child / cached-snapshot fast path.  The `false`
         // return makes the per-entity matcher path a no-op for these,
         // matching the populate-time short-circuit.
+        // T2c `DirectChildrenByTagName` / `TableRows` are also
+        // direct-walk filters that bypass the descendant-traversal
+        // matcher path.
         CollectionFilter::ChildNodes
         | CollectionFilter::ElementChildren
         | CollectionFilter::Snapshot
-        | CollectionFilter::SelectedOptions => false,
+        | CollectionFilter::SelectedOptions
+        | CollectionFilter::DirectChildrenByTagName(_)
+        | CollectionFilter::TableRows => false,
     }
 }
 

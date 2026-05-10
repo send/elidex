@@ -48,3 +48,41 @@ pub(super) fn serialise_long_idl_arg(
     let n = to_number(ctx.vm, raw)?;
     Ok(js_number_to_i32_saturating(n).to_string())
 }
+
+/// Coerce a required IDL `long` argument (e.g. `deleteRow(index)`) to
+/// its `i32` representation per WebIDL §3.10.7 ToNumber + i32
+/// saturation.  Sibling of [`serialise_long_idl_arg`] for callers
+/// that need the integer rather than the serialised string (e.g.
+/// methods whose spec algorithm operates on the integer directly).
+///
+/// Used by HTMLTable family mutation method dispatch sites
+/// (`<table>.deleteRow` / `<tr>.insertCell` / etc., slot
+/// `#11-tags-T2c-table`) so the spec ToNumber pipeline applies
+/// uniformly.  Same `Symbol` / `BigInt` rejection as
+/// [`serialise_long_idl_arg`].
+pub(super) fn coerce_long_idl_arg(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+) -> Result<i32, VmError> {
+    let raw = args.first().copied().unwrap_or(JsValue::Undefined);
+    let n = to_number(ctx.vm, raw)?;
+    Ok(js_number_to_i32_saturating(n))
+}
+
+/// Coerce an optional IDL `long` argument with default value (e.g.
+/// `insertRow(optional long index = -1)`) to `i32`.  Per WebIDL
+/// §3.10.7, both omitted args (`args.is_empty()`) AND explicit
+/// `undefined` use the default; any other input goes through
+/// ToNumber + i32 saturation.
+pub(super) fn coerce_optional_long_idl_arg(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    default: i32,
+) -> Result<i32, VmError> {
+    let raw = args.first().copied().unwrap_or(JsValue::Undefined);
+    if matches!(raw, JsValue::Undefined) {
+        return Ok(default);
+    }
+    let n = to_number(ctx.vm, raw)?;
+    Ok(js_number_to_i32_saturating(n))
+}

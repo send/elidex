@@ -122,6 +122,17 @@ pub const AREA_SHAPE_VALUES: &[&str] = &["circle", "default", "poly", "rect"];
 pub const AREA_SHAPE_MISSING_DEFAULT: &str = "rect";
 pub const AREA_SHAPE_INVALID_DEFAULT: &str = "rect";
 
+/// `<th>.scope` / `<td>.scope` IDL attribute (HTML §4.9.10 table
+/// cell scope).  Per spec the IDL is on the shared
+/// HTMLTableCellElement interface so both `<th>` and `<td>` accept
+/// the accessor; only `<th>.scope` carries semantic weight (header
+/// cell association).  ASCII-CI canonicalisation per §2.3.5.
+///
+/// Missing default = `""`, invalid default = `""`.
+pub const SCOPE_VALUES: &[&str] = &["row", "col", "rowgroup", "colgroup"];
+pub const SCOPE_MISSING_DEFAULT: &str = "";
+pub const SCOPE_INVALID_DEFAULT: &str = "";
+
 // ---------------------------------------------------------------------------
 // "Limited to only known values" — case-sensitive variant
 // ---------------------------------------------------------------------------

@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 115],
+    pub(super) proto_roots: [Option<ObjectId>; 121],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -256,6 +256,18 @@ pub(super) struct GcRoots<'a> {
     /// entries whose value `ObjectId` was collected.
     #[cfg(feature = "engine")]
     pub(super) map_areas_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// 4 `[SameObject]` HTMLCollection identity caches for the
+    /// HTMLTable family (slot `#11-tags-T2c-table`).  Same
+    /// mark-via-owner semantics as `map_areas_wrappers` — owner is
+    /// the `<table>` / section / `<tr>` entity respectively.
+    #[cfg(feature = "engine")]
+    pub(super) table_rows_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(super) table_bodies_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(super) table_section_rows_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(super) table_row_cells_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -509,6 +521,34 @@ pub(super) fn mark_roots(
         // tree walk, not through the collection).
         #[cfg(feature = "engine")]
         for (entity, &id) in roots.map_areas_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        // (e6) T2c `<table>.rows` / `<table>.tBodies` /
+        // section.rows / `<tr>.cells` `[SameObject]` caches — same
+        // weak-through-owner contract.  Descendant entities reached
+        // via the document tree walk, not through the collection.
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.table_rows_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.table_bodies_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.table_section_rows_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.table_row_cells_wrappers {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(id, obj_marks, work);
             }

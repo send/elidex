@@ -265,6 +265,26 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 map_areas_wrappers: HashMap::new(),
                 #[cfg(feature = "engine")]
+                html_table_prototype: None,
+                #[cfg(feature = "engine")]
+                html_table_section_prototype: None,
+                #[cfg(feature = "engine")]
+                html_table_row_prototype: None,
+                #[cfg(feature = "engine")]
+                html_table_cell_prototype: None,
+                #[cfg(feature = "engine")]
+                html_table_caption_prototype: None,
+                #[cfg(feature = "engine")]
+                html_table_col_prototype: None,
+                #[cfg(feature = "engine")]
+                table_rows_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                table_bodies_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                table_section_rows_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                table_row_cells_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
                 dom_exception_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_states: HashMap::new(),

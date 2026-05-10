@@ -593,6 +593,37 @@ impl VmInner {
                 self.html_time_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 115 + 6 = 121 (M4-12 slot #11-tags-T2c-table:
+                // HTMLTableElement / HTMLTableSectionElement (shared
+                // thead/tbody/tfoot) / HTMLTableRowElement /
+                // HTMLTableCellElement (shared td/th) /
+                // HTMLTableCaptionElement / HTMLTableColElement
+                // (shared col/colgroup) prototypes).  Each chains to
+                // `HTMLElement.prototype`.
+                #[cfg(feature = "engine")]
+                self.html_table_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_table_section_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_table_row_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_table_cell_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_table_caption_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_table_col_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -665,6 +696,14 @@ impl VmInner {
             form_controls_collection_wrappers: &self.form_controls_collection_wrappers,
             #[cfg(feature = "engine")]
             map_areas_wrappers: &self.map_areas_wrappers,
+            #[cfg(feature = "engine")]
+            table_rows_wrappers: &self.table_rows_wrappers,
+            #[cfg(feature = "engine")]
+            table_bodies_wrappers: &self.table_bodies_wrappers,
+            #[cfg(feature = "engine")]
+            table_section_rows_wrappers: &self.table_section_rows_wrappers,
+            #[cfg(feature = "engine")]
+            table_row_cells_wrappers: &self.table_row_cells_wrappers,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
             #[cfg(feature = "engine")]
@@ -920,6 +959,17 @@ impl VmInner {
             // T2b `<map>.areas` `[SameObject]` cache — same
             // prune-by-wrapper-mark contract.
             self.map_areas_wrappers.retain(|_, id| bit_get(marks, id.0));
+            // T2c `<table>.rows` / `<table>.tBodies` / section.rows /
+            // `<tr>.cells` `[SameObject]` caches — same prune-by-
+            // wrapper-mark contract as `map_areas_wrappers`.
+            self.table_rows_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
+            self.table_bodies_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
+            self.table_section_rows_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
+            self.table_row_cells_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

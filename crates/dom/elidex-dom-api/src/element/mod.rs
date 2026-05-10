@@ -9,6 +9,7 @@ pub(crate) mod layout_query;
 pub mod numeric_reflect;
 mod option_disabled;
 mod props;
+pub mod table_mutation;
 pub(crate) mod tree;
 
 pub use attrs::{camel_to_data_attr, data_attr_to_camel};
