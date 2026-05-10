@@ -210,6 +210,51 @@ fn rule_style_length() {
 }
 
 #[test]
+fn rule_style_length_dedupes_property_names() {
+    // R3 IMP regression: CSSOM §6.6.1 supported-property-name list
+    // counts distinct names; `div { color: red; color: blue; }`
+    // reports length 1 (matches Chrome).
+    let out = run_with_css(
+        "div { color: red; color: blue; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         String(s.sheet.cssRules[0].style.length);",
+    );
+    assert_eq!(out, "1");
+}
+
+#[test]
+fn rule_style_item_dedupes_and_uses_first_occurrence_order() {
+    // R3 IMP regression: indexed access enumerates the supported-name
+    // list (deduped, first-occurrence order).
+    let out = run_with_css(
+        "div { color: red; background: blue; color: green; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         var st = s.sheet.cssRules[0].style; \
+         st[0] + ',' + st[1];",
+    );
+    // background expands to many longhands; color appears first so it
+    // takes index 0 regardless of which background-* longhand lands at
+    // index 1.  Test only that `color` is the first slot (deterministic
+    // shorthand expansion ordering is deferred to slot
+    // `#11-style-shorthand-expand`).
+    assert!(out.starts_with("color,"), "actual: {out}");
+}
+
+#[test]
+fn rule_style_get_property_value_preserves_custom_property_case() {
+    // R3 IMP regression: custom properties (`--*`) are case-sensitive
+    // per CSS Variables L1 §2.  The stylesheet parser was unconditionally
+    // lowercasing, so `getPropertyValue('--MyVar')` against a rule
+    // declaring `--MyVar: blue` was missing.
+    let out = run_with_css(
+        "div { --MyVar: blue; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.cssRules[0].style.getPropertyValue('--MyVar');",
+    );
+    assert_eq!(out, "blue");
+}
+
+#[test]
 fn rule_style_set_property_is_silent_noop() {
     // Rule-source mutation is deferred to slot `#11-css-rule-style-mutation`.
     // PR-B accepts the call but does not change the underlying rule.

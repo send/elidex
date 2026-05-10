@@ -75,9 +75,13 @@ pub fn parse_stylesheet(css: &str, origin: Origin) -> Stylesheet {
 /// qualified rule; returns `None` for empty / invalid / multi-rule input
 /// (the caller is expected to throw `SyntaxError` per CSSOM §6.4).
 ///
-/// The returned rule has `rule_id = 0` and `source_order = 0`; the caller
-/// (`CSSStyleSheet.insertRule`) overwrites both with the next id from
-/// [`Stylesheet::next_rule_id`] and the post-splice source_order.
+/// The returned rule has `rule_id = 0` and `source_order = 0`. The
+/// caller (`CSSStyleSheet.insertRule`) overwrites `rule_id` with the
+/// next id from [`Stylesheet::next_rule_id`]; `source_order` is left
+/// alone because `CSSStyleSheet`'s mutator round-trip writes the
+/// updated stylesheet back to `<style>.textContent` and the next
+/// cascade walk re-parses it, assigning fresh sequential
+/// `source_order` values across all rules.
 #[must_use]
 pub fn parse_single_rule(css: &str) -> Option<CssRule> {
     let trimmed = css.trim();
@@ -301,8 +305,18 @@ impl<'i> DeclarationParser<'i> for DeclarationListParser<'_> {
         input: &mut Parser<'i, 't>,
         _start: &cssparser::ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, ()>> {
-        let lower_name = name.to_ascii_lowercase();
-        let decls = parse_property_value(&lower_name, input, self.registry);
+        // CSS Variables Level 1 §2: custom properties (`--*`) are
+        // case-sensitive — must preserve `--MyVar` vs `--myvar` so
+        // `getPropertyValue('--MyVar')` against a stylesheet rule
+        // doesn't miss.  `parse_declaration_block` (declaration.rs)
+        // already does this; the stylesheet path was unconditionally
+        // lowercasing and producing the asymmetry Copilot flagged.
+        let property_name = if name.starts_with("--") {
+            name.as_ref().to_string()
+        } else {
+            name.to_ascii_lowercase()
+        };
+        let decls = parse_property_value(&property_name, input, self.registry);
         if decls.is_empty() {
             Err(input.new_custom_error(()))
         } else {

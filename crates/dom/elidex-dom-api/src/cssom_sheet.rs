@@ -343,6 +343,34 @@ fn push_declaration(out: &mut String, decl: &elidex_css::Declaration) {
     }
 }
 
+/// CSSOM §6.6.1 supported-property-name list: one [`Declaration`] per
+/// distinct property name, ordered by first-occurrence index, with the
+/// value taken from the last occurrence (cascade-wins semantics —
+/// matches Chrome's `style.cssText` for `div{a:1; a:2}` returning
+/// `a: 2;` and `style.length === 1`).  Backs `length` / `item` /
+/// `cssText` for both Inline and Rule sources.
+fn unique_properties_last_wins(decls: &[elidex_css::Declaration]) -> Vec<&elidex_css::Declaration> {
+    let mut first_index: Vec<usize> = Vec::with_capacity(decls.len());
+    let mut last_index: Vec<usize> = Vec::with_capacity(decls.len());
+    let mut names: Vec<&str> = Vec::with_capacity(decls.len());
+    for (i, d) in decls.iter().enumerate() {
+        if let Some(slot) = names.iter().position(|n| *n == d.property.as_str()) {
+            last_index[slot] = i;
+        } else {
+            names.push(d.property.as_str());
+            first_index.push(i);
+            last_index.push(i);
+        }
+    }
+    // Output order = first_index ascending (== `names` order); value
+    // pointer = last_index (cascade winner).
+    first_index
+        .iter()
+        .enumerate()
+        .map(|(slot, _)| &decls[last_index[slot]])
+        .collect()
+}
+
 /// `CSSStyleRule.cssText` (read) — full source text of the rule.
 pub struct RuleCssText;
 
@@ -446,7 +474,7 @@ impl DomApiHandler for RuleStyleLength {
     ) -> Result<JsValue, DomApiError> {
         #[allow(clippy::cast_precision_loss)]
         let len = with_rule(this, args, session, dom, 0.0, |r| {
-            r.declarations.len() as f64
+            unique_properties_last_wins(&r.declarations).len() as f64
         });
         Ok(JsValue::Number(len))
     }
@@ -476,7 +504,7 @@ impl DomApiHandler for RuleStyleItem {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let idx = idx_f as usize;
         let name = with_rule(this, args, session, dom, String::new(), |r| {
-            r.declarations
+            unique_properties_last_wins(&r.declarations)
                 .get(idx)
                 .map_or_else(String::new, |d| d.property.clone())
         });
@@ -485,7 +513,9 @@ impl DomApiHandler for RuleStyleItem {
 }
 
 /// `CSSStyleRule.style.cssText` (read) — concatenated declaration block
-/// as CSS text (`property: value; …`).
+/// as CSS text (`property: value; …`).  Per CSSOM §6.6.1.4 "serialize
+/// a CSS declaration block": each property name appears at most once;
+/// duplicates collapse to the cascade-winning (last) declaration.
 pub struct RuleStyleCssText;
 
 impl DomApiHandler for RuleStyleCssText {
@@ -502,7 +532,10 @@ impl DomApiHandler for RuleStyleCssText {
     ) -> Result<JsValue, DomApiError> {
         let text = with_rule(this, args, session, dom, String::new(), |r| {
             let mut out = String::new();
-            for (i, d) in r.declarations.iter().enumerate() {
+            for (i, d) in unique_properties_last_wins(&r.declarations)
+                .iter()
+                .enumerate()
+            {
                 if i > 0 {
                     out.push_str("; ");
                 }
