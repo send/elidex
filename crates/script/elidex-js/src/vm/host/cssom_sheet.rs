@@ -751,7 +751,15 @@ pub(super) fn native_html_element_get_sheet(
     let Some(hd) = ctx.host_if_bound() else {
         return Ok(JsValue::Null);
     };
-    if !hd.dom().has_tag(entity, "style") {
+    // ASCII case-insensitive tag match per WHATWG DOM §4.2.6.2.
+    // `EcsDom::has_tag` is case-sensitive, but raw `create_element`
+    // ("STYLE", ...) callers (and any future XML / mixed-case path)
+    // expect the spec-correct CI compare here.  Mirrors
+    // `first_child_with_tag`'s `eq_ignore_ascii_case` pattern.
+    let is_style = hd.dom().with_tag_name(entity, |t| {
+        t.is_some_and(|t| t.eq_ignore_ascii_case("style"))
+    });
+    if !is_style {
         return Ok(JsValue::Null);
     }
     let id = ctx.vm.alloc_or_cached_stylesheet(entity);

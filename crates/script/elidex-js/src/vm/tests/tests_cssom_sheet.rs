@@ -409,6 +409,76 @@ fn document_style_sheets_indexed_returns_css_style_sheet() {
 }
 
 #[test]
+fn style_element_sheet_matches_uppercase_tag_via_ascii_ci() {
+    // R5 IMP regression: WHATWG DOM §4.2.6.2 mandates ASCII-CI tag
+    // matching for HTML documents.  `<STYLE>` (raw create_element with
+    // uppercase) must surface a `CSSStyleSheet` via `el.sheet` just like
+    // lowercase `<style>` does.  Mirrors `tests_dom_collection.rs::
+    // get_elements_by_tag_name_matches_uppercase_element_via_ascii_ci`.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc_with_style(&mut dom, "div {}");
+    // Inject a sibling `<STYLE>` (uppercase) element under <head>.
+    let head = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "head")
+        .unwrap();
+    let upper_style = dom.create_element("STYLE", Attributes::default());
+    let upper_text = dom.create_text("p { color: red; }".to_string());
+    assert!(dom.append_child(upper_style, upper_text));
+    assert!(dom.append_child(head, upper_style));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // getElementsByTagName('style') matches both lower + upper via ASCII-CI;
+    // the second element is the uppercase one.  Verify its `.sheet` returns
+    // a CSSStyleSheet (not null).
+    let result = vm
+        .eval(
+            "var els = document.getElementsByTagName('style'); \
+             (els[1].sheet !== null && typeof els[1].sheet === 'object') ? 'ok' : 'null';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    vm.unbind();
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn document_style_sheets_includes_uppercase_style_via_ascii_ci() {
+    // R5 IMP regression: `document.styleSheets` walker must also match
+    // `<STYLE>` (mixed-case) per WHATWG DOM §4.2.6.2.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc_with_style(&mut dom, "div {}");
+    let head = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "head")
+        .unwrap();
+    let upper_style = dom.create_element("STYLE", Attributes::default());
+    let upper_text = dom.create_text("p { color: red; }".to_string());
+    assert!(dom.append_child(upper_style, upper_text));
+    assert!(dom.append_child(head, upper_style));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm.eval("String(document.styleSheets.length);").unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    vm.unbind();
+    assert_eq!(out, "2");
+}
+
+#[test]
 fn document_style_sheets_non_host_receiver_returns_null() {
     // R2 IMP regression: when `require_receiver` returns `Ok(None)`
     // (the receiver isn't a HostObject — e.g. a plain `{}` after the

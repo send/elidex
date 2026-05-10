@@ -349,26 +349,25 @@ fn push_declaration(out: &mut String, decl: &elidex_css::Declaration) {
 /// matches Chrome's `style.cssText` for `div{a:1; a:2}` returning
 /// `a: 2;` and `style.length === 1`).  Backs `length` / `item` /
 /// `cssText` for both Inline and Rule sources.
+///
+/// O(n) via a `HashMap<&str, slot>` mapping each property name to its
+/// position in the result vector. Naive `position`-search would be
+/// O(n²) — deep shorthand expansion (`border` / `font` / etc.) inflates
+/// declaration counts past the point where that matters.
 fn unique_properties_last_wins(decls: &[elidex_css::Declaration]) -> Vec<&elidex_css::Declaration> {
-    let mut first_index: Vec<usize> = Vec::with_capacity(decls.len());
+    let mut name_to_slot: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::with_capacity(decls.len());
     let mut last_index: Vec<usize> = Vec::with_capacity(decls.len());
-    let mut names: Vec<&str> = Vec::with_capacity(decls.len());
     for (i, d) in decls.iter().enumerate() {
-        if let Some(slot) = names.iter().position(|n| *n == d.property.as_str()) {
+        let name: &str = &d.property;
+        if let Some(&slot) = name_to_slot.get(name) {
             last_index[slot] = i;
         } else {
-            names.push(d.property.as_str());
-            first_index.push(i);
+            name_to_slot.insert(name, last_index.len());
             last_index.push(i);
         }
     }
-    // Output order = first_index ascending (== `names` order); value
-    // pointer = last_index (cascade winner).
-    first_index
-        .iter()
-        .enumerate()
-        .map(|(slot, _)| &decls[last_index[slot]])
-        .collect()
+    last_index.into_iter().map(|i| &decls[i]).collect()
 }
 
 /// `CSSStyleRule.cssText` (read) — full source text of the rule.
@@ -578,7 +577,13 @@ fn walk_styles(entity: Entity, dom: &EcsDom, mut visit: impl FnMut(Entity)) {
 }
 
 fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity)) {
-    if dom.has_tag(entity, "style") {
+    // ASCII case-insensitive tag match per WHATWG DOM §4.2.6.2 — `<STYLE>`
+    // (mixed-case via raw `create_element`) is a valid HTML style element
+    // and must surface in `document.styleSheets`.
+    let is_style = dom.with_tag_name(entity, |t| {
+        t.is_some_and(|t| t.eq_ignore_ascii_case("style"))
+    });
+    if is_style {
         visit(entity);
     }
     for child in dom.children_iter(entity) {
