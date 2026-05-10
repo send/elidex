@@ -306,19 +306,10 @@ pub(crate) fn dispatch_method(source: DomTokenListSource, suffix: TokenListOp) -
     }
 }
 
-#[derive(Copy, Clone)]
-pub(crate) enum TokenListOp {
-    Add,
-    Remove,
-    Toggle,
-    Contains,
-    Replace,
-    Item,
-    Length,
-    ValueGet,
-    ValueSet,
-    Supports,
-}
+/// Re-export the dom-api `TokenListOp` so VM-side `dispatch_method`
+/// and the dom-api handler family share a single op enum (PR178 R4
+/// MIN — keeps the two crates from drifting when ops are added).
+pub(crate) use elidex_dom_api::TokenListOp;
 
 // ---------------------------------------------------------------------------
 // Natives — one-line invoke_dom_api dispatch each.

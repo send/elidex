@@ -14,9 +14,13 @@ use crate::util::{not_found_error, require_string_arg};
 /// Validate a token per the `DOMTokenList` spec.
 ///
 /// Returns `SyntaxError` for empty strings and `InvalidCharacterError` for
-/// strings containing whitespace.  Used by every DOMTokenList family
-/// (`classList` / `relList` / `linkSizes`), so the messages are kept
-/// generic ("token must …") rather than naming any specific attribute.
+/// strings containing **ASCII whitespace** (U+0009, U+000A, U+000C,
+/// U+000D, U+0020) — WHATWG DOM §6 defines DOMTokenList validation in
+/// terms of ASCII whitespace, so non-ASCII whitespace such as U+00A0
+/// (NBSP) is a valid token character and must NOT throw.  Used by every
+/// DOMTokenList family (`classList` / `relList` / `linkSizes`), so the
+/// messages are kept generic ("token must …") rather than naming any
+/// specific attribute.
 fn validate_token(token: &str) -> Result<(), DomApiError> {
     if token.is_empty() {
         return Err(DomApiError {
@@ -24,10 +28,10 @@ fn validate_token(token: &str) -> Result<(), DomApiError> {
             message: "token must not be empty".into(),
         });
     }
-    if token.contains(char::is_whitespace) {
+    if token.bytes().any(|b| b.is_ascii_whitespace()) {
         return Err(DomApiError {
             kind: DomApiErrorKind::InvalidCharacterError,
-            message: "token must not contain whitespace".into(),
+            message: "token must not contain ASCII whitespace".into(),
         });
     }
     Ok(())
@@ -374,6 +378,31 @@ mod tests {
         let elem = dom.create_element("div", attrs);
         let session = SessionCore::new();
         (dom, elem, session)
+    }
+
+    #[test]
+    fn validate_token_rejects_ascii_whitespace() {
+        // Spec scope: each of the 5 ASCII whitespace bytes must error.
+        for ws in ["\t", "\n", "\x0c", "\r", " "] {
+            let token = format!("foo{ws}bar");
+            let err = validate_token(&token).unwrap_err();
+            assert_eq!(err.kind, DomApiErrorKind::InvalidCharacterError);
+        }
+    }
+
+    #[test]
+    fn validate_token_accepts_non_ascii_whitespace() {
+        // PR178 R4 IMP regression — `char::is_whitespace` previously
+        // rejected non-ASCII whitespace such as U+00A0 (NBSP), which
+        // the spec considers a valid token character.
+        for ch in ["\u{00A0}", "\u{2003}", "\u{3000}"] {
+            let token = format!("foo{ch}bar");
+            assert!(
+                validate_token(&token).is_ok(),
+                "token containing {:?} should be accepted (non-ASCII whitespace)",
+                ch
+            );
+        }
     }
 
     #[test]
