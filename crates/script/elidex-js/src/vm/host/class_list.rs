@@ -11,15 +11,16 @@
 //!
 //! ## Multi-source DOMTokenList (slot `#11-tags-T2a-url-bearing`)
 //!
-//! [`ObjectKind::DOMTokenList`] carries a `source: u8` discriminator
-//! so the same `DOMTokenList.prototype` natives back four different
-//! content attributes (per CRIT-2 Option A in the D-4 plan memo):
+//! [`ObjectKind::DOMTokenList`] carries a [`DomTokenListSource`]
+//! discriminator so the same `DOMTokenList.prototype` natives back
+//! four different content attributes (per CRIT-2 Option A in the
+//! D-4 plan memo):
 //!
-//! - [`TOKEN_LIST_SOURCE_CLASS`] — `Element.classList` → `class`
-//! - [`TOKEN_LIST_SOURCE_REL_HYPERLINK`] —
+//! - [`DomTokenListSource::Class`] — `Element.classList` → `class`
+//! - [`DomTokenListSource::RelHyperlink`] —
 //!   `<a>.relList` / `<area>.relList` → `rel`
-//! - [`TOKEN_LIST_SOURCE_REL_LINK`] — `<link>.relList` → `rel`
-//! - [`TOKEN_LIST_SOURCE_LINK_SIZES`] — `<link>.sizes` → `sizes`
+//! - [`DomTokenListSource::RelLink`] — `<link>.relList` → `rel`
+//! - [`DomTokenListSource::LinkSizes`] — `<link>.sizes` → `sizes`
 //!
 //! Each native body reads the source and routes through the
 //! matching engine-independent handler family
@@ -52,6 +53,7 @@
 
 #![cfg(feature = "engine")]
 
+use super::super::object_kind::DomTokenListSource;
 use super::super::shape;
 use super::super::value::{
     ArrayIterState, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
@@ -129,7 +131,7 @@ impl VmInner {
         if let Some(&id) = self.class_list_wrapper_cache.get(&owner) {
             return id;
         }
-        let id = self.alloc_dom_token_list(owner, TOKEN_LIST_SOURCE_CLASS);
+        let id = self.alloc_dom_token_list(owner, DomTokenListSource::Class);
         self.class_list_wrapper_cache.insert(owner, id);
         id
     }
@@ -140,7 +142,7 @@ impl VmInner {
         if let Some(&id) = self.rel_list_wrapper_cache.get(&owner) {
             return id;
         }
-        let id = self.alloc_dom_token_list(owner, TOKEN_LIST_SOURCE_REL_HYPERLINK);
+        let id = self.alloc_dom_token_list(owner, DomTokenListSource::RelHyperlink);
         self.rel_list_wrapper_cache.insert(owner, id);
         id
     }
@@ -150,7 +152,7 @@ impl VmInner {
         if let Some(&id) = self.link_rel_list_wrapper_cache.get(&owner) {
             return id;
         }
-        let id = self.alloc_dom_token_list(owner, TOKEN_LIST_SOURCE_REL_LINK);
+        let id = self.alloc_dom_token_list(owner, DomTokenListSource::RelLink);
         self.link_rel_list_wrapper_cache.insert(owner, id);
         id
     }
@@ -160,12 +162,12 @@ impl VmInner {
         if let Some(&id) = self.link_sizes_wrapper_cache.get(&owner) {
             return id;
         }
-        let id = self.alloc_dom_token_list(owner, TOKEN_LIST_SOURCE_LINK_SIZES);
+        let id = self.alloc_dom_token_list(owner, DomTokenListSource::LinkSizes);
         self.link_sizes_wrapper_cache.insert(owner, id);
         id
     }
 
-    fn alloc_dom_token_list(&mut self, owner: Entity, source: u8) -> ObjectId {
+    fn alloc_dom_token_list(&mut self, owner: Entity, source: DomTokenListSource) -> ObjectId {
         let proto = self
             .dom_token_list_prototype
             .expect("alloc_dom_token_list before register_dom_token_list_prototype");
@@ -185,14 +187,11 @@ impl VmInner {
 // DOMTokenList source discriminators (CRIT-2 Option A — slot #11-tags-T2a-url-bearing).
 // ---------------------------------------------------------------------------
 
-/// Wrapper backs `Element.classList` (`class` content attribute).
-pub(crate) const TOKEN_LIST_SOURCE_CLASS: u8 = 0;
-/// Wrapper backs `<a>.relList` / `<area>.relList` (`rel` content attribute).
-pub(crate) const TOKEN_LIST_SOURCE_REL_HYPERLINK: u8 = 1;
-/// Wrapper backs `<link>.relList` (`rel` content attribute).
-pub(crate) const TOKEN_LIST_SOURCE_REL_LINK: u8 = 2;
-/// Wrapper backs `<link>.sizes` (`sizes` content attribute).
-pub(crate) const TOKEN_LIST_SOURCE_LINK_SIZES: u8 = 3;
+// `DomTokenListSource` enum lives in `super::super::object_kind` —
+// imported at the top of this file.  The four variants
+// (`Class` / `RelHyperlink` / `RelLink` / `LinkSizes`) replace the
+// pre-/simplify `TOKEN_LIST_SOURCE_*: u8` constants for type safety
+// (exhaustive `match` in `dispatch_method` without `unreachable!`).
 
 // ---------------------------------------------------------------------------
 // Post-unbind tolerance
@@ -219,7 +218,7 @@ fn require_dom_token_list_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &'static str,
-) -> Result<(Entity, u8), VmError> {
+) -> Result<(Entity, DomTokenListSource), VmError> {
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'DOMTokenList': Illegal invocation"
@@ -246,58 +245,63 @@ fn require_dom_token_list_receiver(
 /// given DOMTokenList source + operation suffix.  Used by every
 /// native body to route through the matching handler family
 /// (`classList.*` / `relList.*` / `linkSizes.*`) per CRIT-2 Option A.
-pub(crate) fn dispatch_method(source: u8, suffix: TokenListOp) -> &'static str {
+pub(crate) fn dispatch_method(source: DomTokenListSource, suffix: TokenListOp) -> &'static str {
     use TokenListOp::{
         Add, Contains, Item, Length, Remove, Replace, Supports, Toggle, ValueGet, ValueSet,
     };
     match (source, suffix) {
-        (TOKEN_LIST_SOURCE_CLASS, Add) => "classList.add",
-        (TOKEN_LIST_SOURCE_CLASS, Remove) => "classList.remove",
-        (TOKEN_LIST_SOURCE_CLASS, Toggle) => "classList.toggle",
-        (TOKEN_LIST_SOURCE_CLASS, Contains) => "classList.contains",
-        (TOKEN_LIST_SOURCE_CLASS, Replace) => "classList.replace",
-        (TOKEN_LIST_SOURCE_CLASS, Item) => "classList.item",
-        (TOKEN_LIST_SOURCE_CLASS, Length) => "classList.length",
-        (TOKEN_LIST_SOURCE_CLASS, ValueGet) => "classList.value.get",
-        (TOKEN_LIST_SOURCE_CLASS, ValueSet) => "classList.value.set",
+        (DomTokenListSource::Class, Add) => "classList.add",
+        (DomTokenListSource::Class, Remove) => "classList.remove",
+        (DomTokenListSource::Class, Toggle) => "classList.toggle",
+        (DomTokenListSource::Class, Contains) => "classList.contains",
+        (DomTokenListSource::Class, Replace) => "classList.replace",
+        (DomTokenListSource::Class, Item) => "classList.item",
+        (DomTokenListSource::Class, Length) => "classList.length",
+        (DomTokenListSource::Class, ValueGet) => "classList.value.get",
+        (DomTokenListSource::Class, ValueSet) => "classList.value.set",
         // `relList.supports("noopener")` etc. are spec-supported (HTML
         // §4.6.5 supportedTokens) but the dom-api crate currently
         // mirrors classList behaviour and throws TypeError; fold the
         // four `Supports` arms together.
         (
-            TOKEN_LIST_SOURCE_CLASS
-            | TOKEN_LIST_SOURCE_REL_HYPERLINK
-            | TOKEN_LIST_SOURCE_REL_LINK
-            | TOKEN_LIST_SOURCE_LINK_SIZES,
+            DomTokenListSource::Class
+            | DomTokenListSource::RelHyperlink
+            | DomTokenListSource::RelLink
+            | DomTokenListSource::LinkSizes,
             Supports,
         ) => "classList.supports",
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Add) => "relList.add",
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Remove) => "relList.remove",
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Toggle) => "relList.toggle",
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Contains) => {
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Add) => "relList.add",
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Remove) => {
+            "relList.remove"
+        }
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Toggle) => {
+            "relList.toggle"
+        }
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Contains) => {
             "relList.contains"
         }
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Replace) => {
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Replace) => {
             "relList.replace"
         }
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Item) => "relList.item",
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Length) => "relList.length",
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, ValueGet) => {
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Item) => "relList.item",
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Length) => {
+            "relList.length"
+        }
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, ValueGet) => {
             "relList.value.get"
         }
-        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, ValueSet) => {
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, ValueSet) => {
             "relList.value.set"
         }
-        (TOKEN_LIST_SOURCE_LINK_SIZES, Add) => "linkSizes.add",
-        (TOKEN_LIST_SOURCE_LINK_SIZES, Remove) => "linkSizes.remove",
-        (TOKEN_LIST_SOURCE_LINK_SIZES, Toggle) => "linkSizes.toggle",
-        (TOKEN_LIST_SOURCE_LINK_SIZES, Contains) => "linkSizes.contains",
-        (TOKEN_LIST_SOURCE_LINK_SIZES, Replace) => "linkSizes.replace",
-        (TOKEN_LIST_SOURCE_LINK_SIZES, Item) => "linkSizes.item",
-        (TOKEN_LIST_SOURCE_LINK_SIZES, Length) => "linkSizes.length",
-        (TOKEN_LIST_SOURCE_LINK_SIZES, ValueGet) => "linkSizes.value.get",
-        (TOKEN_LIST_SOURCE_LINK_SIZES, ValueSet) => "linkSizes.value.set",
-        _ => unreachable!("dispatch_method: unknown source {source}"),
+        (DomTokenListSource::LinkSizes, Add) => "linkSizes.add",
+        (DomTokenListSource::LinkSizes, Remove) => "linkSizes.remove",
+        (DomTokenListSource::LinkSizes, Toggle) => "linkSizes.toggle",
+        (DomTokenListSource::LinkSizes, Contains) => "linkSizes.contains",
+        (DomTokenListSource::LinkSizes, Replace) => "linkSizes.replace",
+        (DomTokenListSource::LinkSizes, Item) => "linkSizes.item",
+        (DomTokenListSource::LinkSizes, Length) => "linkSizes.length",
+        (DomTokenListSource::LinkSizes, ValueGet) => "linkSizes.value.get",
+        (DomTokenListSource::LinkSizes, ValueSet) => "linkSizes.value.set",
     }
 }
 

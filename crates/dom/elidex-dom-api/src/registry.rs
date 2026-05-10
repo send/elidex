@@ -150,39 +150,40 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     // implementations and for any future engine that prefers the unified
     // dispatch path; they are intentionally NOT registered here.
 
-    // --- ClassList ---
-    r.register_static("classList.add", Box::new(super::ClassListAdd));
-    r.register_static("classList.remove", Box::new(super::ClassListRemove));
-    r.register_static("classList.toggle", Box::new(super::ClassListToggle));
-    r.register_static("classList.contains", Box::new(super::ClassListContains));
-    r.register_static("classList.replace", Box::new(super::ClassListReplace));
-    r.register_static("classList.value.get", Box::new(super::ClassListValueGet));
-    r.register_static("classList.value.set", Box::new(super::ClassListValueSet));
-    r.register_static("classList.length", Box::new(super::ClassListLength));
-    r.register_static("classList.item", Box::new(super::ClassListItem));
-    r.register_static("classList.supports", Box::new(super::ClassListSupports));
+    // --- DOMTokenList families (classList / relList / linkSizes) ---
+    // Single TokenListHandler factory dispatches by (attr_name, op);
+    // /simplify H3 fold of slot `#11-tags-T2a-url-bearing` collapsed
+    // 28 unit struct types into 28 const instances.
+    r.register_static("classList.add", Box::new(super::CLASS_LIST_ADD));
+    r.register_static("classList.remove", Box::new(super::CLASS_LIST_REMOVE));
+    r.register_static("classList.toggle", Box::new(super::CLASS_LIST_TOGGLE));
+    r.register_static("classList.contains", Box::new(super::CLASS_LIST_CONTAINS));
+    r.register_static("classList.replace", Box::new(super::CLASS_LIST_REPLACE));
+    r.register_static("classList.value.get", Box::new(super::CLASS_LIST_VALUE_GET));
+    r.register_static("classList.value.set", Box::new(super::CLASS_LIST_VALUE_SET));
+    r.register_static("classList.length", Box::new(super::CLASS_LIST_LENGTH));
+    r.register_static("classList.item", Box::new(super::CLASS_LIST_ITEM));
+    r.register_static("classList.supports", Box::new(super::CLASS_LIST_SUPPORTS));
 
-    // --- RelList (slot #11-tags-T2a-url-bearing) ---
-    r.register_static("relList.add", Box::new(super::RelListAdd));
-    r.register_static("relList.remove", Box::new(super::RelListRemove));
-    r.register_static("relList.toggle", Box::new(super::RelListToggle));
-    r.register_static("relList.contains", Box::new(super::RelListContains));
-    r.register_static("relList.replace", Box::new(super::RelListReplace));
-    r.register_static("relList.value.get", Box::new(super::RelListValueGet));
-    r.register_static("relList.value.set", Box::new(super::RelListValueSet));
-    r.register_static("relList.length", Box::new(super::RelListLength));
-    r.register_static("relList.item", Box::new(super::RelListItem));
+    r.register_static("relList.add", Box::new(super::REL_LIST_ADD));
+    r.register_static("relList.remove", Box::new(super::REL_LIST_REMOVE));
+    r.register_static("relList.toggle", Box::new(super::REL_LIST_TOGGLE));
+    r.register_static("relList.contains", Box::new(super::REL_LIST_CONTAINS));
+    r.register_static("relList.replace", Box::new(super::REL_LIST_REPLACE));
+    r.register_static("relList.value.get", Box::new(super::REL_LIST_VALUE_GET));
+    r.register_static("relList.value.set", Box::new(super::REL_LIST_VALUE_SET));
+    r.register_static("relList.length", Box::new(super::REL_LIST_LENGTH));
+    r.register_static("relList.item", Box::new(super::REL_LIST_ITEM));
 
-    // --- LinkSizes (slot #11-tags-T2a-url-bearing, <link>.sizes) ---
-    r.register_static("linkSizes.add", Box::new(super::LinkSizesAdd));
-    r.register_static("linkSizes.remove", Box::new(super::LinkSizesRemove));
-    r.register_static("linkSizes.toggle", Box::new(super::LinkSizesToggle));
-    r.register_static("linkSizes.contains", Box::new(super::LinkSizesContains));
-    r.register_static("linkSizes.replace", Box::new(super::LinkSizesReplace));
-    r.register_static("linkSizes.value.get", Box::new(super::LinkSizesValueGet));
-    r.register_static("linkSizes.value.set", Box::new(super::LinkSizesValueSet));
-    r.register_static("linkSizes.length", Box::new(super::LinkSizesLength));
-    r.register_static("linkSizes.item", Box::new(super::LinkSizesItem));
+    r.register_static("linkSizes.add", Box::new(super::LINK_SIZES_ADD));
+    r.register_static("linkSizes.remove", Box::new(super::LINK_SIZES_REMOVE));
+    r.register_static("linkSizes.toggle", Box::new(super::LINK_SIZES_TOGGLE));
+    r.register_static("linkSizes.contains", Box::new(super::LINK_SIZES_CONTAINS));
+    r.register_static("linkSizes.replace", Box::new(super::LINK_SIZES_REPLACE));
+    r.register_static("linkSizes.value.get", Box::new(super::LINK_SIZES_VALUE_GET));
+    r.register_static("linkSizes.value.set", Box::new(super::LINK_SIZES_VALUE_SET));
+    r.register_static("linkSizes.length", Box::new(super::LINK_SIZES_LENGTH));
+    r.register_static("linkSizes.item", Box::new(super::LINK_SIZES_ITEM));
 
     // --- HTMLHyperlinkElementUtils mixin (anchor / area, slot #11-tags-T2a-url-bearing) ---
     r.register_static("hyperlink.href.get", Box::new(super::HyperlinkHrefGet));
