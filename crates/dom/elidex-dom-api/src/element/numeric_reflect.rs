@@ -8,10 +8,14 @@
 //!
 //! 1. Skip ASCII whitespace.
 //! 2. Optional leading `+`.
-//! 3. One or more ASCII digits.
+//! 3. Take the maximal *leading* run of ASCII digits.  Trailing
+//!    non-digit garbage (e.g. `"100px"` → `100`) is ignored — it does
+//!    not fail the parse, matching browser behaviour for legacy CSS
+//!    pixel-suffixed reflect attributes.
 //! 4. On overflow, saturate at `u32::MAX`.
-//! 5. Anything else (empty after trim, non-digit, leading `-` etc.)
-//!    → return `0` (the IDL "default" for unsigned long reflects).
+//! 5. If no digits were collected (empty after trim, leading non-digit
+//!    such as `-` or a letter), return `0` — the IDL default for
+//!    unsigned-long reflects.
 //!
 //! ## Layering
 //!
@@ -20,8 +24,9 @@
 //! back through `EcsDom::set_attribute`.
 
 /// Parse a content-attribute string per HTML's "rules for parsing
-/// non-negative integers" (HTML §2.4.4.2).  Returns `0` for any
-/// failure path (empty, missing digits, overflow at `u32::MAX`).
+/// non-negative integers" (HTML §2.4.4.2).  Takes the maximal leading
+/// run of ASCII digits (so `"100px"` → `100`); returns `0` when no
+/// digits are present, and saturates at `u32::MAX` on overflow.
 pub fn parse_unsigned_long(raw: &str) -> u32 {
     // Skip leading ASCII whitespace.
     let trimmed = raw.trim_start_matches(|c: char| c.is_ascii_whitespace());

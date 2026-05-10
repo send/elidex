@@ -345,7 +345,6 @@ impl DomApiHandler for HyperlinkHrefSet {
     ) -> Result<JsValue, DomApiError> {
         let value = require_string_arg(args, 0)?;
         set_href(this, dom, &value)?;
-        dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
 }
@@ -368,7 +367,6 @@ macro_rules! setter_handler {
                 href_url_set_component(this, dom, |$url| {
                     $body;
                 })?;
-                dom.rev_version(this);
                 Ok(JsValue::Undefined)
             }
         }
@@ -417,7 +415,6 @@ impl DomApiHandler for HyperlinkHostSet {
                 }
             }
         })?;
-        dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
 }
@@ -453,6 +450,9 @@ setter_handler!(HyperlinkHashSet, "hyperlink.hash.set", |u, v| {
 });
 
 /// `toString()` — alias for `href` getter (HTMLHyperlinkElementUtils §4.6.5).
+/// Uses [`href_value_or_raw`] (same as [`HyperlinkHrefGet`]) so the two
+/// always agree on parse failure: `a.toString() === a.href` even when the
+/// `href` content attribute fails URL parsing.
 pub struct HyperlinkToString;
 impl DomApiHandler for HyperlinkToString {
     fn method_name(&self) -> &str {
@@ -465,11 +465,7 @@ impl DomApiHandler for HyperlinkToString {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        Ok(JsValue::String(href_url_component(
-            this,
-            dom,
-            component_href,
-        )?))
+        Ok(JsValue::String(href_value_or_raw(this, dom)?))
     }
 }
 

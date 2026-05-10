@@ -536,9 +536,10 @@ fn native_class_list_supports(
     let (entity, source) = require_dom_token_list_receiver(ctx, this, "supports")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
     if ctx.host_if_bound().is_none() {
-        return Err(VmError::type_error(
-            "classList.supports() is not supported for classList",
-        ));
+        let method = dispatch_method(source, TokenListOp::Supports);
+        return Err(VmError::type_error(format!(
+            "{method} is not supported for this DOMTokenList"
+        )));
     }
     invoke_dom_api(
         ctx,

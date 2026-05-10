@@ -217,6 +217,21 @@ fn anchor_empty_href_getter_returns_empty() {
     assert_eq!(out, "||");
 }
 
+#[test]
+fn anchor_to_string_matches_href_on_parse_failure() {
+    // Copilot R1 IMP fix: `toString()` must agree with the `href` getter
+    // even when the `href` content attribute fails URL parsing
+    // (relative href under the about:blank base — same scenario as
+    // `anchor_unparseable_href_getter_returns_raw`).  Pre-fix, toString
+    // routed through `href_url_component(component_href)` which returns
+    // `""` on parse failure, so `a.toString() !== a.href` for relative
+    // URLs.  Post-fix, both share `href_value_or_raw`.
+    let out = run("var a = document.createElement('a'); \
+         a.href = '/relative/path'; \
+         (a.toString() === a.href) ? a.toString() : 'mismatch';");
+    assert_eq!(out, "/relative/path");
+}
+
 // =====================================================================
 // Foreign-receiver TypeError brand check
 // =====================================================================
