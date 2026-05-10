@@ -23,7 +23,7 @@ use elidex_plugin::JsValue;
 use url::Url;
 
 use crate::util::{not_found_error, require_string_arg};
-use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, SessionCore};
+use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
 /// Document base-URL placeholder until `#11-base-href-resolution`
 /// lands real navigation state + `<base href>` walking.  Matches the
@@ -65,13 +65,28 @@ where
     Ok(())
 }
 
-/// Set the `href` attribute to a freshly-parsed URL string.  Used by
-/// the `href` setter directly (no component mutation, just
-/// re-serialisation through `url::Url` to canonicalise).
+/// Set the `href` content attribute.  WHATWG HTML §HTMLHyperlinkElementUtils
+/// 6.5 specifies the setter steps as **plain "set this's href content
+/// attribute's value to the given value"** — no parse, no normalise.
+/// Distinct from the `URL` interface's `href` setter (`vm/host/url/setters`)
+/// which throws on parse failure; HTMLAnchorElement / HTMLAreaElement do not.
 pub fn set_href(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), DomApiError> {
-    // WHATWG URL setter parses + re-serialises; if parsing fails the
-    // setter still stores the raw string.  Match V8: store as-is.
     write_href_attr(entity, dom, value.to_string())
+}
+
+/// Read the `href` content attribute and return either the URL
+/// serialisation (when the attribute parses) or the raw stored value
+/// (when it doesn't).  Implements WHATWG HTML §HTMLHyperlinkElementUtils
+/// 6.4 step 4: "if url is null, return this's href content attribute's
+/// value".  This differs from `href_url_component(.., component_href)`
+/// — the latter returns the empty string on parse failure (correct for
+/// the per-component getters but wrong for `href` itself).
+pub fn href_value_or_raw(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
+    let href = read_href_attr(entity, dom)?;
+    match parse_with_base(&href) {
+        Some(url) => Ok(url.as_str().to_string()),
+        None => Ok(href),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +120,63 @@ fn parse_with_base(href: &str) -> Option<Url> {
             .ok()
             .and_then(|base| base.join(href).ok())
     })
+}
+
+// ---------------------------------------------------------------------------
+// `host[:port]` parser (WHATWG URL §6.1 host setter, IPv6-aware).
+//
+// Hoisted from `vm/host/url/setters.rs` (private fn there before this
+// PR) so HTMLAnchor/HTMLArea host setter and the `URL` interface host
+// setter share the spec-compliant bracketed-IPv6 + multi-colon
+// validation.  The VM-side setter now imports this through the
+// `elidex_dom_api::element::href_accessor` re-export.
+// ---------------------------------------------------------------------------
+
+/// Split a `host[:port]` string into `(host, Option<port>)` per the
+/// WHATWG URL §6.1 "host setter" expectations.  Returns `None` for
+/// inputs that the WHATWG basic URL parser would validation-error on
+/// (bracketed IPv6 with trailing garbage; non-bracketed multi-colon
+/// like `host:1:2`; non-digit / overflow port).
+///
+/// Successful return shape: `("[ipv6]", Some("8080"))` for `[::1]:8080`;
+/// `("host", None)` for `host`; `("host", Some(""))` for `host:`
+/// (trailing `:` clears the port per port-state with state override).
+pub fn split_host_port(val: &str) -> Option<(String, Option<String>)> {
+    let (host, port): (String, Option<String>) = if val.starts_with('[') {
+        // Bracketed IPv6 — must be `[…]` or `[…]:port`.
+        let end = val.find(']')?;
+        let host = val[..=end].to_owned();
+        let rest = &val[end + 1..];
+        match rest {
+            "" => (host, None),
+            _ => match rest.strip_prefix(':') {
+                Some(p) => (host, Some(p.to_owned())),
+                // Trailing garbage after `]` (e.g. `[::1]abc`) — invalid host.
+                None => return None,
+            },
+        }
+    } else {
+        // Non-bracketed: at most one `:` separator.  `splitn(3, ':')`
+        // surfaces a third part exactly when the input has more than
+        // one `:` — that's a multi-colon input which the WHATWG host
+        // parser rejects (and `url::Url::set_host` would silently
+        // accept by truncating).
+        let mut parts = val.splitn(3, ':');
+        let h = parts
+            .next()
+            .expect("splitn always yields at least one part");
+        let p = parts.next();
+        if parts.next().is_some() {
+            return None;
+        }
+        (h.to_owned(), p.map(str::to_owned))
+    };
+    if let Some(ref p) = port {
+        if !p.is_empty() && p.parse::<u16>().is_err() {
+            return None;
+        }
+    }
+    Some((host, port))
 }
 
 // ---------------------------------------------------------------------------
@@ -172,19 +244,6 @@ pub fn component_href(u: &Url) -> String {
     u.as_str().to_string()
 }
 
-// ---------------------------------------------------------------------------
-// Attribute-validation helper (shared with setters)
-// ---------------------------------------------------------------------------
-
-/// Wrap a `url::Url::set_*` failure as a TypeError.  Setters that
-/// silently no-op on bad input use `let _ = ...set_*(...)` instead.
-pub fn invalid_url_setter(component: &'static str) -> DomApiError {
-    DomApiError {
-        kind: DomApiErrorKind::TypeError,
-        message: format!("Invalid value for `{component}`"),
-    }
-}
-
 // ===========================================================================
 // DomApiHandler structs — registered as `"hyperlink.<component>.{get,set}"`
 // in the dom registry.  VM host calls `invoke_dom_api(ctx, "...", entity, ...)`.
@@ -214,7 +273,26 @@ macro_rules! getter_handler {
     };
 }
 
-getter_handler!(HyperlinkHrefGet, "hyperlink.href.get", component_href);
+/// `href` getter — WHATWG HTML §HTMLHyperlinkElementUtils 6.4 step 4
+/// requires returning the raw `href` content attribute when the URL
+/// fails to parse (rather than the empty string the per-component
+/// getters use).  Uses the spec-faithful [`href_value_or_raw`] helper
+/// instead of the `component_href` closure.
+pub struct HyperlinkHrefGet;
+impl DomApiHandler for HyperlinkHrefGet {
+    fn method_name(&self) -> &str {
+        "hyperlink.href.get"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        Ok(JsValue::String(href_value_or_raw(this, dom)?))
+    }
+}
 getter_handler!(HyperlinkOriginGet, "hyperlink.origin.get", component_origin);
 getter_handler!(
     HyperlinkProtocolGet,
@@ -303,22 +381,42 @@ setter_handler!(HyperlinkUsernameSet, "hyperlink.username.set", |u, v| {
 setter_handler!(HyperlinkPasswordSet, "hyperlink.password.set", |u, v| {
     let _ = u.set_password(if v.is_empty() { None } else { Some(&v) });
 });
-setter_handler!(HyperlinkHostSet, "hyperlink.host.set", |u, v| {
-    // host setter accepts "hostname[:port]" — split on last `:` to
-    // separate (matches WHATWG URL §6.1 host setter).
-    if let Some((host_part, port_part)) = v.rsplit_once(':') {
-        let _ = u.set_host(if host_part.is_empty() {
-            None
-        } else {
-            Some(host_part)
-        });
-        if let Ok(p) = port_part.parse::<u16>() {
-            let _ = u.set_port(Some(p));
-        }
-    } else {
-        let _ = u.set_host(if v.is_empty() { None } else { Some(&v) });
+/// `host` setter — uses [`split_host_port`] for spec-compliant
+/// IPv6-aware parsing (bracketed `[::1]:8080` form, multi-colon
+/// rejection).  Mirrors the WHATWG URL §6.1 host setter contract:
+/// invalid host = no-op (no partial mutation).  Same algorithm shared
+/// with `vm/host/url/setters.rs` URL interface host setter.
+pub struct HyperlinkHostSet;
+impl DomApiHandler for HyperlinkHostSet {
+    fn method_name(&self) -> &str {
+        "hyperlink.host.set"
     }
-});
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let val = require_string_arg(args, 0)?;
+        let Some((host_part, port_part)) = split_host_port(&val) else {
+            return Ok(JsValue::Undefined);
+        };
+        href_url_set_component(this, dom, |u| {
+            if u.set_host(Some(&host_part)).is_ok() {
+                if let Some(p) = port_part {
+                    if p.is_empty() {
+                        let _ = u.set_port(None);
+                    } else if let Ok(parsed_port) = p.parse::<u16>() {
+                        let _ = u.set_port(Some(parsed_port));
+                    }
+                }
+            }
+        })?;
+        dom.rev_version(this);
+        Ok(JsValue::Undefined)
+    }
+}
 setter_handler!(HyperlinkHostnameSet, "hyperlink.hostname.set", |u, v| {
     let _ = u.set_host(if v.is_empty() { None } else { Some(&v) });
 });

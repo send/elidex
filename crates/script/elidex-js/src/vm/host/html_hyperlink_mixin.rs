@@ -30,10 +30,6 @@ use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
 
-impl VmInner {
-    // No-op trait helper — see `install_hyperlink_url_accessors` below.
-}
-
 /// Install the 11 IDL accessor pairs + `toString()` method on a
 /// hyperlink-bearing prototype (anchor / area).
 pub(super) fn install_hyperlink_url_accessors(vm: &mut VmInner, proto_id: ObjectId) {

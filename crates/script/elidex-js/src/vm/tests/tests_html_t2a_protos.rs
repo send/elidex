@@ -159,14 +159,39 @@ fn anchor_host_setter_round_trip() {
     assert_eq!(out, "https://newhost:8080/");
 }
 
+#[test]
+fn anchor_host_setter_ipv6_bracketed() {
+    // IMP-2 fix: bracketed IPv6 with port — the shared
+    // `split_host_port` honours WHATWG URL §6.1 by treating
+    // `[::1]:8080` as host=`[::1]` + port=`8080`, not `rsplit(':')`.
+    let out = run("var a = document.createElement('a'); \
+         a.href = 'https://example.com/'; \
+         a.host = '[::1]:8080'; \
+         a.host;");
+    assert_eq!(out, "[::1]:8080");
+}
+
+#[test]
+fn anchor_host_setter_multi_colon_rejected() {
+    // IMP-2 fix: non-bracketed multi-colon `host:1:2` is invalid per
+    // WHATWG host parser; setter must no-op (not silently truncate).
+    let out = run("var a = document.createElement('a'); \
+         a.href = 'https://example.com/'; \
+         a.host = 'bogus:1:2'; \
+         a.host;");
+    assert_eq!(out, "example.com");
+}
+
 // =====================================================================
 // Base URL behaviour pin (about:blank — relative href returns empty)
 // =====================================================================
 
 #[test]
-fn anchor_relative_href_unparseable_getters_return_empty() {
+fn anchor_relative_href_unparseable_per_component_getters_return_empty() {
     // about:blank is opaque-origin so relative resolution fails;
-    // WHATWG URL §6.2 specifies getters return "" on parse failure.
+    // per WHATWG HTML §HTMLHyperlinkElementUtils 6.4 the per-component
+    // getters return "" when the URL is null.  The `href` getter
+    // itself (tested separately below) returns the raw attribute.
     let out = run("var a = document.createElement('a'); \
          a.href = '/relative/path'; \
          a.protocol + '|' + a.host + '|' + a.pathname;");
@@ -174,7 +199,19 @@ fn anchor_relative_href_unparseable_getters_return_empty() {
 }
 
 #[test]
-fn anchor_empty_href_getters_return_empty() {
+fn anchor_unparseable_href_getter_returns_raw() {
+    // §HTMLHyperlinkElementUtils 6.4 step 4: when url is null, the
+    // `href` getter returns the raw href content attribute value
+    // (NOT the empty string).  Distinguishes `href` from per-component
+    // getters which use the empty-on-failure path.
+    let out = run("var a = document.createElement('a'); \
+         a.href = '/relative/path'; \
+         a.href;");
+    assert_eq!(out, "/relative/path");
+}
+
+#[test]
+fn anchor_empty_href_getter_returns_empty() {
     let out = run("var a = document.createElement('a'); \
          a.protocol + '|' + a.host + '|' + a.href;");
     assert_eq!(out, "||");

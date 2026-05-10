@@ -14,6 +14,8 @@
 //! `href` and `search` setters to refresh the linked
 //! `URLSearchParams` entry list after a query mutation.
 
+use elidex_dom_api::element::href_accessor::split_host_port;
+
 use super::super::super::value::{JsValue, NativeContext, VmError};
 use super::{rebuild_linked_search_params, require_url_state_mut, require_url_this};
 
@@ -225,78 +227,10 @@ pub(super) fn native_url_set_hash(
 // Helpers (private to this module)
 // ---------------------------------------------------------------------------
 
-/// Split a `host[:port]` string into `(host, Option<port>)` per
-/// the WHATWG URL §6.1 "host setter" expectations.  Returns
-/// `None` for inputs that the WHATWG basic URL parser would
-/// validation-error on, leaving the caller responsible for
-/// no-oping the assignment:
-///
-/// - **Bracketed IPv6 with trailing garbage**: `[::1]abc`,
-///   `[::1]]:80`.  The opening `[` requires a matching `]`
-///   immediately followed by either `:port` or end-of-string;
-///   anything else is invalid.
-/// - **Non-bracketed multi-colon**: `example.com:1:2`.  Without
-///   brackets there can be at most one `:` separator (host vs
-///   port).  `url::Url::set_host` is too lenient here — it
-///   silently truncates at the first `:` rather than rejecting
-///   — so this strict pre-check is required to honour the
-///   WHATWG "invalid host = no-op" contract.
-/// - **Non-digit / overflow port**: `host:not`, `host:99999`.
-///   WHATWG basic URL parser port-state-with-override rejects
-///   non-ASCII-digit characters and values outside `0..=65535`
-///   as a validation error, returning failure for the whole
-///   assignment.  Empty port (trailing `:`) is allowed and
-///   clears the port.
-///
-/// Successful return shape: `("[ipv6]", Some("8080"))` for
-/// `[::1]:8080`; `("host", None)` for `host`; `("host", Some(""))`
-/// for `host:` (trailing `:` clears the port per port-state with
-/// state-override).
-fn split_host_port(val: &str) -> Option<(String, Option<String>)> {
-    let (host, port): (String, Option<String>) = if val.starts_with('[') {
-        // Bracketed IPv6 — must be `[…]` or `[…]:port`.
-        let end = val.find(']')?;
-        let host = val[..=end].to_owned();
-        let rest = &val[end + 1..];
-        match rest {
-            "" => (host, None),
-            _ => match rest.strip_prefix(':') {
-                Some(p) => (host, Some(p.to_owned())),
-                // Trailing garbage after `]` (e.g. `[::1]abc`,
-                // `[::1]]:80`) — invalid host.
-                None => return None,
-            },
-        }
-    } else {
-        // Non-bracketed: at most one `:` separator.  `splitn(3,
-        // ':')` surfaces a third part exactly when the input has
-        // more than one `:` — that's a multi-colon input which
-        // the WHATWG host parser rejects (and `url::Url::set_host`
-        // would silently accept by truncating).
-        let mut parts = val.splitn(3, ':');
-        let h = parts
-            .next()
-            .expect("splitn always yields at least one part");
-        let p = parts.next();
-        if parts.next().is_some() {
-            return None;
-        }
-        (h.to_owned(), p.map(str::to_owned))
-    };
-    // Port string validation: empty (clear-port) is allowed;
-    // non-empty must parse as `u16` (digit-only AND ≤ 65535).
-    // `url::Url::set_port` would silently drop an invalid port
-    // here, leaving the host already-applied and the port
-    // untouched — a partial mutation the WHATWG host setter
-    // forbids (validation error in port-state returns failure
-    // for the whole assignment).
-    if let Some(ref p) = port {
-        if !p.is_empty() && p.parse::<u16>().is_err() {
-            return None;
-        }
-    }
-    Some((host, port))
-}
+// `split_host_port` was hoisted to
+// [`elidex_dom_api::element::href_accessor::split_host_port`] in slot
+// `#11-tags-T2a-url-bearing` so the HTMLAnchor / HTMLArea host setter
+// shares the same WHATWG URL §6.1 validation as the URL interface.
 
 /// Coerce the first positional argument to a `String` via
 /// [`super::super::super::coerce::to_string`].  Used by every URL
