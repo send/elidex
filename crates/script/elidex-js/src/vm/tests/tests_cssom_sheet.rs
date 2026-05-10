@@ -269,6 +269,52 @@ fn rule_style_set_property_is_silent_noop() {
 }
 
 #[test]
+fn deleted_rule_wrapper_caches_drop_after_gc() {
+    // R9 IMP regression: rule-keyed wrapper caches
+    // (`css_style_rule_wrapper_cache` / `rule_style_wrapper_cache`)
+    // must not pin entries for rule_ids no longer in the parsed
+    // sheet.  Mark-roots gates on `active_cssom_rule_ids`, so a
+    // wrapper for a `deleteRule`'d rule_id (no live JS reference)
+    // becomes collectable after a GC cycle.  Without the gate,
+    // insertRule/deleteRule cycles would accumulate permanently-
+    // pinned cache entries.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc_with_style(&mut dom, "div {} p {} span {}");
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Touch the rule wrappers so the caches populate.
+    vm.eval(
+        "globalThis.s = document.getElementsByTagName('style')[0]; \
+         var _0 = s.sheet.cssRules[0]; var _1 = s.sheet.cssRules[1]; \
+         var _2 = s.sheet.cssRules[2];",
+    )
+    .unwrap();
+    let populated_count = vm.inner.css_style_rule_wrapper_cache.len();
+    assert_eq!(populated_count, 3, "all three rule wrappers cached");
+
+    // Delete one rule + drop all JS-side references to the rule
+    // wrappers; the cache entries should now be unreachable.
+    vm.eval("s.sheet.deleteRule(0);").unwrap();
+    vm.inner.collect_garbage();
+
+    // After GC: the wrapper for the deleted rule_id (now stale) plus
+    // the wrappers whose JS references we cleared should be
+    // collectable.  The mark-roots gate ensures rule_ids absent from
+    // the new parsed sheet are not pinned via owner-`<style>`.
+    let after_count = vm.inner.css_style_rule_wrapper_cache.len();
+    assert!(
+        after_count < populated_count,
+        "expected wrapper cache to shrink after deleteRule + GC: {populated_count} → {after_count}"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn rule_style_set_property_strict_mode_silent_not_throw() {
     // Strict-mode regression for IMP-1: the named-property exotic [[Set]]
     // path in `ops_element` must intercept `CSSRuleStyleDeclaration` so the

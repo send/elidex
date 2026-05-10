@@ -27,6 +27,25 @@ impl VmInner {
         clear_marks(&mut self.gc_object_marks);
         clear_marks(&mut self.gc_upvalue_marks);
 
+        // Snapshot live CSSOM rule_ids (per `<style>` entity) from the
+        // bound session so the mark-roots fan-out for the rule-keyed
+        // wrapper caches can gate on rule_id liveness — stale rule_ids
+        // (deleted via `deleteRule` or reissued after textContent
+        // rewrite) get unmarked → swept → pruned by the sweep-tail
+        // `retain`.  Without this gate, insertRule/deleteRule cycles
+        // would accumulate permanently-pinned cache entries (Copilot
+        // R9 finding).  Empty when the VM is unbound.
+        #[cfg(feature = "engine")]
+        let active_cssom_rule_ids = match self.host_data.as_deref_mut() {
+            Some(hd) if hd.is_bound() => hd.session().active_cssom_rule_ids(),
+            _ => std::collections::HashMap::new(),
+        };
+        #[cfg(not(feature = "engine"))]
+        let active_cssom_rule_ids: std::collections::HashMap<
+            elidex_ecs::Entity,
+            std::collections::HashSet<u64>,
+        > = std::collections::HashMap::new();
+
         // 2. Mark phase — split borrow: mark bits are &mut, everything else is &.
         let roots = GcRoots {
             stack: &self.stack,
@@ -503,6 +522,8 @@ impl VmInner {
             css_style_rule_wrapper_cache: &self.css_style_rule_wrapper_cache,
             #[cfg(feature = "engine")]
             rule_style_wrapper_cache: &self.rule_style_wrapper_cache,
+            #[cfg(feature = "engine")]
+            active_cssom_rule_ids: &active_cssom_rule_ids,
             #[cfg(feature = "engine")]
             validity_state_wrappers: &self.validity_state_wrappers,
             #[cfg(feature = "engine")]

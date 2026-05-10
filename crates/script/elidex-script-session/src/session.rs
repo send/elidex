@@ -124,6 +124,26 @@ impl SessionCore {
     pub fn identity_map(&self) -> &IdentityMap {
         &self.identity
     }
+
+    /// Snapshot of currently-live CSSOM rule_ids per `<style>` entity,
+    /// built from [`Self::cssom_sheets`].  GC mark-roots consults this
+    /// to avoid pinning stale `(<style>, rule_id)` wrapper cache
+    /// entries: `insertRule` / `deleteRule` cycles produce unbounded
+    /// rule_ids over the session's lifetime, and cache entries whose
+    /// rule_id is no longer in the parsed rules list must be evictable
+    /// rather than rooted forever via the owner `<style>` wrapper.
+    /// Each call rebuilds the snapshot — GC is rare enough that the
+    /// O(rules) walk is not a concern.
+    #[must_use]
+    pub fn active_cssom_rule_ids(&self) -> HashMap<Entity, std::collections::HashSet<u64>> {
+        self.cssom_sheets
+            .iter()
+            .map(|(entity, state)| {
+                let ids = state.parsed.rules.iter().map(|r| r.rule_id).collect();
+                (*entity, ids)
+            })
+            .collect()
+    }
 }
 
 impl Default for SessionCore {

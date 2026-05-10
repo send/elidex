@@ -191,17 +191,32 @@ pub(super) struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     pub(super) stylesheet_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// `CSSStyleRule` wrapper identity cache keyed by
-    /// `(<style> Entity, rule_id)`.  Weak-through-owner: an entry is
-    /// pinned only while the `<style>` element wrapper is reachable
-    /// (rule_id alone has no observable JS lifetime separate from
-    /// the sheet).
+    /// `(<style> Entity, rule_id)`.  Weak-through-owner AND
+    /// gated on rule_id liveness: an entry is pinned only while
+    /// the `<style>` element wrapper is reachable AND the rule_id
+    /// still exists in the parsed sheet
+    /// ([`Self::active_cssom_rule_ids`]).  Without the rule_id
+    /// gate, `insertRule`/`deleteRule` cycles produce unbounded
+    /// rule_ids over time and cache entries for stale rule_ids
+    /// would pin forever (Copilot R9 finding).
     #[cfg(feature = "engine")]
     pub(super) css_style_rule_wrapper_cache: &'a HashMap<(elidex_ecs::Entity, u64), ObjectId>,
     /// Rule-source `CSSRuleStyleDeclaration` wrapper identity cache.
     /// Same shape and lifetime contract as
-    /// [`Self::css_style_rule_wrapper_cache`].
+    /// [`Self::css_style_rule_wrapper_cache`] — including the
+    /// rule_id-liveness gate.
     #[cfg(feature = "engine")]
     pub(super) rule_style_wrapper_cache: &'a HashMap<(elidex_ecs::Entity, u64), ObjectId>,
+    /// Snapshot of currently-live CSSOM rule_ids per `<style>` entity,
+    /// rebuilt from [`elidex_script_session::SessionCore::cssom_sheets`]
+    /// at the start of each GC cycle.  Used to gate
+    /// [`Self::css_style_rule_wrapper_cache`] /
+    /// [`Self::rule_style_wrapper_cache`] mark-roots so wrappers for
+    /// rule_ids that no longer exist in the parsed sheet are eligible
+    /// for collection.
+    #[cfg(feature = "engine")]
+    pub(super) active_cssom_rule_ids:
+        &'a HashMap<elidex_ecs::Entity, std::collections::HashSet<u64>>,
     /// `ValidityState` `[SameObject]` identity cache.  Same
     /// weak-through-owner semantics as
     /// [`Self::class_list_wrapper_cache`] — entries are pinned only
@@ -388,15 +403,32 @@ pub(super) fn mark_roots(
                 mark_object(id, obj_marks, work);
             }
         }
+        // Gate rule-wrapper marking on BOTH owner-wrapper presence
+        // AND rule_id liveness in the current parsed sheet.  Stale
+        // rule_ids (deleted via `deleteRule`, or reissued after a
+        // `<style>.textContent =` rewrite) get unmarked → swept →
+        // pruned by the sweep-tail `retain`.  Without the rule_id
+        // gate, insertRule/deleteRule cycles would accumulate
+        // permanently-pinned cache entries (Copilot R9 finding).
         #[cfg(feature = "engine")]
-        for (&(entity, _rule_id), &id) in roots.css_style_rule_wrapper_cache {
-            if hd.get_cached_wrapper(entity).is_some() {
+        for (&(entity, rule_id), &id) in roots.css_style_rule_wrapper_cache {
+            if hd.get_cached_wrapper(entity).is_some()
+                && roots
+                    .active_cssom_rule_ids
+                    .get(&entity)
+                    .is_some_and(|ids| ids.contains(&rule_id))
+            {
                 mark_object(id, obj_marks, work);
             }
         }
         #[cfg(feature = "engine")]
-        for (&(entity, _rule_id), &id) in roots.rule_style_wrapper_cache {
-            if hd.get_cached_wrapper(entity).is_some() {
+        for (&(entity, rule_id), &id) in roots.rule_style_wrapper_cache {
+            if hd.get_cached_wrapper(entity).is_some()
+                && roots
+                    .active_cssom_rule_ids
+                    .get(&entity)
+                    .is_some_and(|ids| ids.contains(&rule_id))
+            {
                 mark_object(id, obj_marks, work);
             }
         }
