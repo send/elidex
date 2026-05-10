@@ -260,19 +260,23 @@ fn walk_form_descendants(
 pub fn reset_form(dom: &mut EcsDom, form_entity: Entity) {
     let controls: Vec<Entity> = collect_form_entities(dom, form_entity);
     for entity in controls {
+        // Distinguish `<output>` controls before borrowing the
+        // FormControlState mutably so the same source-of-truth
+        // (`fcs.kind`) drives both the per-kind reset and the
+        // dispatch decision.  Re-reading `TagType` would add an
+        // independent ECS lookup whose answer can drift from
+        // `FormControlState::from_element`'s classification.
+        let is_output = matches!(
+            dom.world().get::<&FormControlState>(entity).map(|s| s.kind),
+            Ok(FormControlKind::Output)
+        );
         if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(entity) {
             fcs.reset_value();
         }
-        if is_output_element(dom, entity) {
+        if is_output {
             reset_output_value_mode(dom, entity);
         }
     }
-}
-
-fn is_output_element(dom: &EcsDom, entity: Entity) -> bool {
-    dom.world()
-        .get::<&TagType>(entity)
-        .is_ok_and(|t| t.0.eq_ignore_ascii_case("output"))
 }
 
 /// `<output>` reset hook (HTML §4.10.13).  Clears the value-mode
