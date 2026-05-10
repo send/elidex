@@ -233,6 +233,10 @@ impl DomApiHandler for InsertRule {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let rule_text = require_string_arg(args, 0)?;
+        // Host-side `native_sheet_insert_rule` applies the WebIDL
+        // `optional unsigned long index = 0` coercion: `args[1]` is
+        // guaranteed to be a non-negative `JsValue::Number` (or 0.0
+        // for the absent case). Anything else is a binding-layer bug.
         let index_f = match args.get(1).cloned() {
             Some(JsValue::Number(n)) if n.is_finite() && n >= 0.0 => n,
             _ => 0.0,
@@ -283,16 +287,17 @@ impl DomApiHandler for DeleteRule {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
+        // Host-side `native_sheet_delete_rule` already applied the
+        // WebIDL `unsigned long` → ToUint32 coercion (and threw TypeError
+        // on missing arg), so we only need to handle the `JsValue::Number`
+        // payload. A non-Number reaching here is a binding-layer bug,
+        // not a script-level error — surface as `Other`.
         let JsValue::Number(idx_f) = args.first().cloned().unwrap_or(JsValue::Undefined) else {
-            return Err(index_size_error(
-                "Failed to execute 'deleteRule' on 'CSSStyleSheet': index is required",
-            ));
+            return Err(DomApiError {
+                kind: DomApiErrorKind::Other,
+                message: "stylesheet.deleteRule: numeric index expected from binding layer".into(),
+            });
         };
-        if !idx_f.is_finite() || idx_f < 0.0 {
-            return Err(index_size_error(
-                "Failed to execute 'deleteRule' on 'CSSStyleSheet': index is out of range",
-            ));
-        }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let index = idx_f as usize;
 

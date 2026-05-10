@@ -280,6 +280,46 @@ fn insert_rule_round_trips_through_text_content() {
 }
 
 #[test]
+fn insert_rule_coerces_string_index() {
+    // R1 IMP regression: WebIDL `unsigned long` ToUint32 coercion must
+    // run on `index`, so `insertRule(rule, '1')` lands at index 1
+    // rather than defaulting to 0 via a non-Number short-circuit.
+    let out = run_with_css(
+        "div {} span {}",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.insertRule('p { color: green; }', '1'); \
+         s.sheet.cssRules[1].selectorText;",
+    );
+    assert_eq!(out, "p");
+}
+
+#[test]
+fn delete_rule_missing_arg_is_type_error() {
+    // R1 IMP regression: required WebIDL arg → TypeError, not
+    // IndexSizeError.
+    let out = run_with_css(
+        "div {} p {}",
+        "var s = document.getElementsByTagName('style')[0]; \
+         try { s.sheet.deleteRule(); 'ok'; } catch (e) { e.name; }",
+    );
+    assert_eq!(out, "TypeError");
+}
+
+#[test]
+fn delete_rule_coerces_string_index() {
+    // R1 IMP regression: ToUint32 coercion lets `deleteRule('1')`
+    // succeed (delete the rule at index 1) instead of throwing on the
+    // raw non-Number JsValue.
+    let out = run_with_css(
+        "div {} p {} span {}",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.deleteRule('1'); \
+         String(s.sheet.cssRules.length) + ',' + s.sheet.cssRules[1].selectorText;",
+    );
+    assert_eq!(out, "2,span");
+}
+
+#[test]
 fn delete_rule_shrinks_rules() {
     let out = run_with_css(
         "div {} p {} span {}",

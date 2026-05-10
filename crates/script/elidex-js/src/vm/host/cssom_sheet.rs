@@ -419,11 +419,12 @@ fn native_sheet_disabled_set(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // Silent no-op as far as cascade plumbing — see
-    // `native_sheet_disabled_get`.  Still run the WebIDL boolean
-    // coercion path on the argument so a user-visible error
-    // (Symbol arg → TypeError) surfaces consistently with the
-    // `disabled` getter being branded; otherwise the setter would
-    // silently accept inputs that the spec rejects.
+    // `native_sheet_disabled_get`.  ToBoolean is infallible (Symbol
+    // and every other type coerce to a boolean per ES §7.1.2); we
+    // still call it for shape consistency with the would-be
+    // observable spec algorithm, even though no value is recorded.
+    // A real WebIDL strict-boolean conversion path lands with the
+    // cascade-disabled wiring (slot `#11-stylesheet-disabled`).
     let _ = require_sheet_receiver(ctx, this, "disabled")?;
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let _ = super::super::coerce::to_boolean(ctx.vm, arg);
@@ -448,7 +449,14 @@ fn native_sheet_insert_rule(
 ) -> Result<JsValue, VmError> {
     let entity = require_sheet_receiver(ctx, this, "insertRule")?;
     let rule_sid = coerce_first_arg_to_string_id(ctx, args)?;
-    let index_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    // CSSOM IDL: `insertRule(CSSOMString rule, optional unsigned long index = 0)`.
+    // Missing arg defaults to 0; otherwise apply WebIDL `unsigned long` →
+    // ToUint32 coercion before forwarding to the dom-api handler so callers
+    // like `insertRule(rule, '1')` land at index 1, not 0.
+    let index_value = match args.get(1).copied() {
+        None | Some(JsValue::Undefined) => JsValue::Number(0.0),
+        Some(v) => JsValue::Number(f64::from(super::super::coerce::to_uint32(ctx.vm, v)?)),
+    };
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Number(0.0));
     }
@@ -456,7 +464,7 @@ fn native_sheet_insert_rule(
         ctx,
         "stylesheet.insertRule",
         entity,
-        &[JsValue::String(rule_sid), index_arg],
+        &[JsValue::String(rule_sid), index_value],
     )
 }
 
@@ -466,11 +474,23 @@ fn native_sheet_delete_rule(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_sheet_receiver(ctx, this, "deleteRule")?;
-    let index_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    // CSSOM IDL: `deleteRule(unsigned long index)` — required arg.
+    // Missing arg → WebIDL TypeError; provided → ToUint32 coercion.
+    let Some(arg) = args.first().copied() else {
+        return Err(VmError::type_error(
+            "Failed to execute 'deleteRule' on 'CSSStyleSheet': 1 argument required, but only 0 present.",
+        ));
+    };
+    let idx = super::super::coerce::to_uint32(ctx.vm, arg)?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    invoke_dom_api(ctx, "stylesheet.deleteRule", entity, &[index_arg])
+    invoke_dom_api(
+        ctx,
+        "stylesheet.deleteRule",
+        entity,
+        &[JsValue::Number(f64::from(idx))],
+    )
 }
 
 // ---------------------------------------------------------------------------
