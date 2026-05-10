@@ -126,6 +126,88 @@ pub fn parse_long_or_default(raw: Option<&str>, default: i32) -> i32 {
     }
 }
 
+/// Parse a content-attribute value per HTML's "rules for parsing
+/// floating-point number values" (HTML §2.4.4.3) — the `double`
+/// counterpart to [`parse_long_or_default`].  Used by `<progress>` /
+/// `<meter>` reflect getters (slot `#11-tags-T2d-interactive`) and by
+/// any future floating-point reflect attribute.
+///
+/// Algorithm summary (HTML §2.4.4.3):
+/// 1. `raw = None` → return `default`.
+/// 2. Skip ASCII whitespace.
+/// 3. Optional leading sign (`+` or `-`).  An `e` exponent later
+///    accepts its own sign.
+/// 4. Parse a number consisting of a leading run of ASCII digits and
+///    an optional `.` decimal followed by ASCII digits, and an
+///    optional `e`/`E` exponent followed by an optional sign and
+///    ASCII digits.
+/// 5. If no digits are present at all, return `default`.
+/// 6. NaN and ±Infinity (which the algorithm cannot produce from any
+///    finite input character sequence) return `default` per the spec
+///    "if value is greater than the largest positive finite IEEE 754
+///    double-precision value, return an error" / "if value is NaN,
+///    return an error" clauses.
+///
+/// Implementation note: relies on `str::parse::<f64>` which accepts
+/// leading sign / decimal / exponent per IEEE 754; explicit handling
+/// of "Infinity" / "infinity" / "NaN" string literals is rejected
+/// because those substrings would not survive the spec's leading-run
+/// truncation step (they begin with a non-digit character after the
+/// optional sign).  We therefore truncate the input to the maximal
+/// floating-point-shaped prefix before delegating to `str::parse`.
+#[must_use]
+pub fn parse_double_or_default(raw: Option<&str>, default: f64) -> f64 {
+    let Some(input) = raw else {
+        return default;
+    };
+    let trimmed = input.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let bytes = trimmed.as_bytes();
+    let mut end = 0;
+    if matches!(bytes.first(), Some(b'+' | b'-')) {
+        end += 1;
+    }
+    let pre_int = end;
+    while end < bytes.len() && bytes[end].is_ascii_digit() {
+        end += 1;
+    }
+    let had_int_digits = end > pre_int;
+    if end < bytes.len() && bytes[end] == b'.' {
+        end += 1;
+        let pre_frac = end;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        if !had_int_digits && end == pre_frac {
+            // Bare "." with no digits anywhere.
+            return default;
+        }
+    } else if !had_int_digits {
+        return default;
+    }
+    if end < bytes.len() && (bytes[end] == b'e' || bytes[end] == b'E') {
+        let exp_marker = end;
+        end += 1;
+        if matches!(bytes.get(end), Some(b'+' | b'-')) {
+            end += 1;
+        }
+        let exp_digits_start = end;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        if end == exp_digits_start {
+            // Trailing "e" / "e+" without exponent digits — drop the
+            // exponent suffix and parse the mantissa alone (matches
+            // browser behaviour for `"1e"` → 1).
+            end = exp_marker;
+        }
+    }
+    let candidate = &trimmed[..end];
+    match candidate.parse::<f64>() {
+        Ok(n) if n.is_finite() => n,
+        _ => default,
+    }
+}
+
 /// Convert an `f64` (the natural ECMAScript Number IDL form) to an
 /// i32 with browser-compatible saturation semantics: NaN / ±Inf
 /// collapse to 0; values outside the i32 range saturate to the
@@ -304,5 +386,68 @@ mod tests {
     #[test]
     fn number_to_i32_below_min_saturates() {
         assert_eq!(js_number_to_i32_saturating(-1e20), i32::MIN);
+    }
+
+    // -- parse_double_or_default --------------------------------------------
+
+    #[test]
+    fn double_missing_returns_default() {
+        assert_eq!(parse_double_or_default(None, 1.0), 1.0);
+    }
+
+    #[test]
+    fn double_simple_integer() {
+        assert_eq!(parse_double_or_default(Some("42"), 1.0), 42.0);
+    }
+
+    #[test]
+    fn double_simple_negative() {
+        assert_eq!(parse_double_or_default(Some("-3.5"), 0.0), -3.5);
+    }
+
+    #[test]
+    fn double_leading_plus() {
+        assert_eq!(parse_double_or_default(Some("+0.25"), 1.0), 0.25);
+    }
+
+    #[test]
+    fn double_skips_leading_whitespace() {
+        assert_eq!(parse_double_or_default(Some("  2.5"), 0.0), 2.5);
+    }
+
+    #[test]
+    fn double_exponent() {
+        assert_eq!(parse_double_or_default(Some("1.5e2"), 0.0), 150.0);
+        assert_eq!(parse_double_or_default(Some("1E-1"), 0.0), 0.1);
+    }
+
+    #[test]
+    fn double_trailing_garbage_ignored() {
+        assert_eq!(parse_double_or_default(Some("12.5px"), 0.0), 12.5);
+    }
+
+    #[test]
+    fn double_invalid_returns_default() {
+        assert_eq!(parse_double_or_default(Some(""), 1.0), 1.0);
+        assert_eq!(parse_double_or_default(Some("garbage"), 1.0), 1.0);
+        assert_eq!(parse_double_or_default(Some("."), 1.0), 1.0);
+        assert_eq!(parse_double_or_default(Some("Infinity"), 1.0), 1.0);
+        assert_eq!(parse_double_or_default(Some("NaN"), 1.0), 1.0);
+    }
+
+    #[test]
+    fn double_bare_exponent_marker_drops_suffix() {
+        // `"1e"` is a leading "1" with a trailing exponent marker that
+        // has no exponent digits — drop the bare `e` and parse the
+        // mantissa, matching browser behaviour.
+        assert_eq!(parse_double_or_default(Some("1e"), 0.0), 1.0);
+        assert_eq!(parse_double_or_default(Some("2.5e+"), 0.0), 2.5);
+    }
+
+    #[test]
+    fn double_dot_only() {
+        // A bare `.` with no digits anywhere is invalid.
+        assert_eq!(parse_double_or_default(Some(".5"), 0.0), 0.5);
+        assert_eq!(parse_double_or_default(Some("5."), 0.0), 5.0);
     }
 }

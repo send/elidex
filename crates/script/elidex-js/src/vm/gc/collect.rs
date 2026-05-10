@@ -624,6 +624,40 @@ impl VmInner {
                 self.html_table_col_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 121 + 7 (slot `#11-tags-T2d-interactive`:
+                // HTMLDialogElement / HTMLDetailsElement /
+                // HTMLTemplateElement / HTMLDataListElement /
+                // HTMLOutputElement / HTMLProgressElement /
+                // HTMLMeterElement) = 128.  Each chains to
+                // `HTMLElement.prototype`.
+                #[cfg(feature = "engine")]
+                self.html_dialog_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_details_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_template_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_datalist_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_output_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_progress_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_meter_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -704,6 +738,12 @@ impl VmInner {
             table_section_rows_wrappers: &self.table_section_rows_wrappers,
             #[cfg(feature = "engine")]
             table_row_cells_wrappers: &self.table_row_cells_wrappers,
+            #[cfg(feature = "engine")]
+            template_content_wrappers: &self.template_content_wrappers,
+            #[cfg(feature = "engine")]
+            datalist_options_wrappers: &self.datalist_options_wrappers,
+            #[cfg(feature = "engine")]
+            output_html_for_wrappers: &self.output_html_for_wrappers,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
             #[cfg(feature = "engine")]
@@ -969,6 +1009,15 @@ impl VmInner {
             self.table_section_rows_wrappers
                 .retain(|_, id| bit_get(marks, id.0));
             self.table_row_cells_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
+            // T2d `<template>.content` / `<datalist>.options` /
+            // `<output>.htmlFor` `[SameObject]` caches — same
+            // prune-by-wrapper-mark contract as `map_areas_wrappers`.
+            self.template_content_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
+            self.datalist_options_wrappers
+                .retain(|_, id| bit_get(marks, id.0));
+            self.output_html_for_wrappers
                 .retain(|_, id| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't

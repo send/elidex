@@ -62,6 +62,8 @@ pub enum DomTokenListSource {
     RelLink = 2,
     /// `<link>.sizes` → `sizes` attribute.
     LinkSizes = 3,
+    /// `<output>.htmlFor` → `for` attribute (slot `#11-tags-T2d-interactive`).
+    OutputHtmlFor = 4,
 }
 
 /// The internal kind of an object.

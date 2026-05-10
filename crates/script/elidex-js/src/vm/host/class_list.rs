@@ -21,10 +21,12 @@
 //!   `<a>.relList` / `<area>.relList` → `rel`
 //! - [`DomTokenListSource::RelLink`] — `<link>.relList` → `rel`
 //! - [`DomTokenListSource::LinkSizes`] — `<link>.sizes` → `sizes`
+//! - [`DomTokenListSource::OutputHtmlFor`] — `<output>.htmlFor` → `for`
+//!   (slot `#11-tags-T2d-interactive`)
 //!
 //! Each native body reads the source and routes through the
 //! matching engine-independent handler family
-//! (`classList.*` / `relList.*` / `linkSizes.*`).
+//! (`classList.*` / `relList.*` / `linkSizes.*` / `outputHtmlFor.*`).
 //!
 //! ## Backing state
 //!
@@ -167,6 +169,19 @@ impl VmInner {
         id
     }
 
+    /// Allocate / fetch a `DOMTokenList` wrapper for `<output>.htmlFor`
+    /// (slot `#11-tags-T2d-interactive`).  Backed by the `for` content
+    /// attribute; identity is preserved per `[SameObject]` via
+    /// [`Self::output_html_for_wrappers`].
+    pub(crate) fn alloc_or_cached_output_html_for(&mut self, owner: Entity) -> ObjectId {
+        if let Some(&id) = self.output_html_for_wrappers.get(&owner) {
+            return id;
+        }
+        let id = self.alloc_dom_token_list(owner, DomTokenListSource::OutputHtmlFor);
+        self.output_html_for_wrappers.insert(owner, id);
+        id
+    }
+
     fn alloc_dom_token_list(&mut self, owner: Entity, source: DomTokenListSource) -> ObjectId {
         let proto = self
             .dom_token_list_prototype
@@ -303,6 +318,16 @@ pub(crate) fn dispatch_method(source: DomTokenListSource, suffix: TokenListOp) -
         (DomTokenListSource::LinkSizes, Length) => "linkSizes.length",
         (DomTokenListSource::LinkSizes, ValueGet) => "linkSizes.value.get",
         (DomTokenListSource::LinkSizes, ValueSet) => "linkSizes.value.set",
+        (DomTokenListSource::OutputHtmlFor, Add) => "outputHtmlFor.add",
+        (DomTokenListSource::OutputHtmlFor, Remove) => "outputHtmlFor.remove",
+        (DomTokenListSource::OutputHtmlFor, Toggle) => "outputHtmlFor.toggle",
+        (DomTokenListSource::OutputHtmlFor, Contains) => "outputHtmlFor.contains",
+        (DomTokenListSource::OutputHtmlFor, Replace) => "outputHtmlFor.replace",
+        (DomTokenListSource::OutputHtmlFor, Item) => "outputHtmlFor.item",
+        (DomTokenListSource::OutputHtmlFor, Length) => "outputHtmlFor.length",
+        (DomTokenListSource::OutputHtmlFor, ValueGet) => "outputHtmlFor.value.get",
+        (DomTokenListSource::OutputHtmlFor, ValueSet) => "outputHtmlFor.value.set",
+        (DomTokenListSource::OutputHtmlFor, Supports) => "outputHtmlFor.supports",
     }
 }
 

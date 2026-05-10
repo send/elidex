@@ -371,6 +371,41 @@ impl VmInner {
         {
             return self.html_table_col_prototype;
         }
+        self.tag_specific_t2d_prototype(host, entity)
+    }
+
+    /// T2d interactive bundle dispatch (slot
+    /// `#11-tags-T2d-interactive`).  7 prototypes routed across 7
+    /// dispatch arms — no shared prototypes (each tag has a distinct
+    /// IDL surface).  Same chain shape as the T2b/T2c helpers; takes
+    /// `host` by reference so the dispatch chain doesn't redundantly
+    /// re-resolve `host_data.as_deref()`.
+    fn tag_specific_t2d_prototype(
+        &self,
+        host: &super::super::host_data::HostData,
+        entity: elidex_ecs::Entity,
+    ) -> Option<ObjectId> {
+        if host.tag_matches_ascii_case(entity, "dialog") {
+            return self.html_dialog_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "details") {
+            return self.html_details_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "template") {
+            return self.html_template_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "datalist") {
+            return self.html_datalist_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "output") {
+            return self.html_output_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "progress") {
+            return self.html_progress_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "meter") {
+            return self.html_meter_prototype;
+        }
         None
     }
 }

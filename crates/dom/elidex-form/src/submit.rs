@@ -1,6 +1,8 @@
 //! Form submission and reset.
 
-use elidex_ecs::{EcsDom, Entity, TagType, MAX_ANCESTOR_DEPTH};
+use elidex_ecs::{
+    EcsDom, Entity, OutputDefaultValue, OutputValueOverride, TagType, MAX_ANCESTOR_DEPTH,
+};
 
 use crate::{FormControlKind, FormControlState};
 
@@ -247,13 +249,78 @@ fn walk_form_descendants(
     }
 }
 
-/// Reset all form controls within a form to their default values.
+/// Reset all form controls within a form to their default values
+/// (HTML §4.10.21.5).
+///
+/// `<output>` reset (HTML §4.10.13 step "reset algorithm"): clears the
+/// value-mode override (`OutputValueOverride`) and replaces the element's
+/// children with a single text node containing the default value
+/// (read from `OutputDefaultValue` if explicitly set, otherwise the
+/// empty string).  Slot `#11-tags-T2d-interactive`.
 pub fn reset_form(dom: &mut EcsDom, form_entity: Entity) {
     let controls: Vec<Entity> = collect_form_entities(dom, form_entity);
     for entity in controls {
+        // Distinguish `<output>` controls before borrowing the
+        // FormControlState mutably so the same source-of-truth
+        // (`fcs.kind`) drives both the per-kind reset and the
+        // dispatch decision.  Re-reading `TagType` would add an
+        // independent ECS lookup whose answer can drift from
+        // `FormControlState::from_element`'s classification.
+        let is_output = matches!(
+            dom.world().get::<&FormControlState>(entity).map(|s| s.kind),
+            Ok(FormControlKind::Output)
+        );
         if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(entity) {
             fcs.reset_value();
         }
+        if is_output {
+            reset_output_value_mode(dom, entity);
+        }
+    }
+}
+
+/// `<output>` reset hook (HTML §4.10.13).  Clears the value-mode
+/// override and re-renders the displayed text from the snapshotted
+/// `OutputDefaultValue`.  Pristine default-mode elements (no
+/// `OutputValueOverride` ever set) are left untouched: their
+/// descendant text content already IS the default per spec, and
+/// rewriting children unconditionally would wipe `<output>5</output>`
+/// to the empty string when no explicit snapshot exists.
+fn reset_output_value_mode(dom: &mut EcsDom, entity: Entity) {
+    let was_in_value_mode = dom
+        .world_mut()
+        .remove_one::<OutputValueOverride>(entity)
+        .is_ok();
+    if !was_in_value_mode {
+        return;
+    }
+    let default_text = dom
+        .world()
+        .get::<&OutputDefaultValue>(entity)
+        .map(|d| d.0.clone())
+        .unwrap_or_default();
+    replace_children_with_text(dom, entity, &default_text);
+}
+
+/// Drop every child of `entity` and append a single fresh text node
+/// containing `text` (skipped if `text` is empty — output's reset to
+/// an empty default leaves the element child-less, matching the
+/// `textContent.set` behaviour for empty strings).
+///
+/// No `session.release(child)` call accompanies the removal because
+/// `reset_form` runs without a session reference; any session-side
+/// identity-map entries for the removed text/comment children become
+/// stale and are pruned at the next GC sweep.  This matches the
+/// session-less mutation precedent (`update_pattern` /
+/// `dom.set_attribute` direct calls).
+fn replace_children_with_text(dom: &mut EcsDom, entity: Entity, text: &str) {
+    let children: Vec<Entity> = dom.children(entity);
+    for child in children {
+        let _ = dom.remove_child(entity, child);
+    }
+    if !text.is_empty() {
+        let text_node = dom.create_text(text);
+        let _ = dom.append_child(entity, text_node);
     }
 }
 

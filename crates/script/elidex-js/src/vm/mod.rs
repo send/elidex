@@ -742,6 +742,72 @@ pub(crate) struct VmInner {
     /// Keyed by the owning `<tr>` Entity.
     #[cfg(feature = "engine")]
     pub(crate) table_row_cells_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `HTMLDialogElement.prototype` (HTML §4.11.4).  Carries
+    /// `open` (boolean reflect) + `returnValue` (state via
+    /// [`elidex_ecs::DialogReturnValue`]) + `show()` / `showModal()`
+    /// (sets [`elidex_ecs::IsModalDialog`] marker) /
+    /// `close(returnValue?)` (clears state, fires `close` event).
+    /// Slot `#11-tags-T2d-interactive`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_dialog_prototype: Option<ObjectId>,
+    /// `HTMLDetailsElement.prototype` (HTML §4.11.1).  Carries
+    /// `open` (boolean reflect) + `name` (string reflect).  ToggleEvent
+    /// fire on open change is deferred to slot
+    /// `#11-tags-T2d-details-toggle-event`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_details_prototype: Option<ObjectId>,
+    /// `HTMLTemplateElement.prototype` (HTML §4.12.3).  Carries the
+    /// `[SameObject]` `content` DocumentFragment accessor.  Lazy
+    /// allocation per [`Self::template_content_wrappers`].
+    #[cfg(feature = "engine")]
+    pub(crate) html_template_prototype: Option<ObjectId>,
+    /// `HTMLDataListElement.prototype` (HTML §4.10.10).  Carries the
+    /// `[SameObject]` `options` HTMLCollection of descendant
+    /// `<option>` elements.
+    #[cfg(feature = "engine")]
+    pub(crate) html_datalist_prototype: Option<ObjectId>,
+    /// `HTMLOutputElement.prototype` (HTML §4.10.13).  Carries
+    /// `htmlFor` (`[SameObject, PutForwards=value]` DOMTokenList) +
+    /// `form` / `name` / `type` / `defaultValue` / `value` (state
+    /// machine via [`elidex_ecs::OutputDefaultValue`] +
+    /// [`elidex_ecs::OutputValueOverride`]) / `labels` stub +
+    /// ConstraintValidation mixin.
+    #[cfg(feature = "engine")]
+    pub(crate) html_output_prototype: Option<ObjectId>,
+    /// `HTMLProgressElement.prototype` (HTML §4.10.14).  Carries
+    /// `value` / `max` (double IDL with clamping) + `position`
+    /// (computed: -1 if indeterminate else clamp(value,0,max)/max) +
+    /// `labels` stub.
+    #[cfg(feature = "engine")]
+    pub(crate) html_progress_prototype: Option<ObjectId>,
+    /// `HTMLMeterElement.prototype` (HTML §4.10.15).  Carries
+    /// `value` / `min` / `max` / `low` / `high` / `optimum` (all
+    /// double IDL) + `labels` stub.
+    #[cfg(feature = "engine")]
+    pub(crate) html_meter_prototype: Option<ObjectId>,
+    /// `<template>.content` `[SameObject]` DocumentFragment identity
+    /// cache, keyed by the owning `<template>` Entity (HTML §4.12.3).
+    /// Lazy allocation: first read creates the fragment Entity via
+    /// [`elidex_ecs::EcsDom::create_document_fragment_with_owner`] and
+    /// inserts here.  Same weak-through-owner mark-via-owner semantics
+    /// as [`Self::map_areas_wrappers`].  Cleared on `Vm::unbind`
+    /// (lesson #195).  Slot `#11-tags-T2d-interactive`.
+    #[cfg(feature = "engine")]
+    pub(crate) template_content_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `<datalist>.options` `[SameObject]` HTMLCollection identity
+    /// cache, keyed by the owning `<datalist>` Entity (HTML §4.10.10).
+    /// Same weak-through-owner mark-via-owner semantics as
+    /// [`Self::map_areas_wrappers`].  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) datalist_options_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `<output>.htmlFor` `[SameObject, PutForwards=value]`
+    /// DOMTokenList identity cache, keyed by the owning `<output>`
+    /// Entity (HTML §4.10.13).  Parallels the T2a per-attr
+    /// DOMTokenList caches (`rel_list_wrapper_cache` /
+    /// `link_rel_list_wrapper_cache` / `link_sizes_wrapper_cache`).
+    /// Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) output_html_for_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
     /// reserved-not-yet-registered slot.  When the
     /// `#11-tags-radionodelist` defer slot lands, this will hold a

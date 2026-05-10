@@ -277,6 +277,35 @@ pub struct SlottedMarker;
 #[derive(Clone, Copy, Debug)]
 pub struct TemplateContent;
 
+/// Marker set on `<dialog>` entities by `dialog.showModal()`, cleared
+/// by `dialog.close()` (HTML §4.11.4, slot `#11-tags-T2d-interactive`).
+///
+/// Render-side top-layer / focus-management consumption is deferred to
+/// slot `#11-dialog-top-layer` (Phase 4 shell pairing).
+#[derive(Clone, Copy, Debug)]
+pub struct IsModalDialog;
+
+/// Per-`<dialog>` return-value state (HTML §4.11.4).  Defaults to the
+/// empty string; updated by `dialog.returnValue` setter or by the
+/// optional argument to `dialog.close(returnValue?)`.  Slot
+/// `#11-tags-T2d-interactive`.
+#[derive(Clone, Debug, Default)]
+pub struct DialogReturnValue(pub String);
+
+/// Per-`<output>` default-value state (HTML §4.10.13).  Stored separately
+/// from the rendered text so that form reset can restore the displayed
+/// content from the default snapshot.  Slot `#11-tags-T2d-interactive`.
+#[derive(Clone, Debug, Default)]
+pub struct OutputDefaultValue(pub String);
+
+/// Per-`<output>` value-mode override (HTML §4.10.13).  `None` means
+/// the element is in default mode and reads/writes go through
+/// `textContent`; `Some(_)` means the `value` IDL setter has been
+/// called and the explicit override is the source of truth.  Cleared
+/// by form reset.  Slot `#11-tags-T2d-interactive`.
+#[derive(Clone, Debug, Default)]
+pub struct OutputValueOverride(pub Option<String>);
+
 /// Decoded image pixel data for `<img>` elements.
 ///
 /// Stored as a component on image entities after the image has been

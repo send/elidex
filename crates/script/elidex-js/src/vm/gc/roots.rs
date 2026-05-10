@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 121],
+    pub(super) proto_roots: [Option<ObjectId>; 128],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -268,6 +268,16 @@ pub(super) struct GcRoots<'a> {
     pub(super) table_section_rows_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     #[cfg(feature = "engine")]
     pub(super) table_row_cells_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// 3 `[SameObject]` identity caches for the T2d interactive bundle
+    /// (slot `#11-tags-T2d-interactive`).  Same mark-via-owner
+    /// semantics as `map_areas_wrappers` — owner is the `<template>` /
+    /// `<datalist>` / `<output>` entity respectively.
+    #[cfg(feature = "engine")]
+    pub(super) template_content_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(super) datalist_options_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(super) output_html_for_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -549,6 +559,35 @@ pub(super) fn mark_roots(
         }
         #[cfg(feature = "engine")]
         for (entity, &id) in roots.table_row_cells_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        // (e7) T2d `<template>.content` / `<datalist>.options` /
+        // `<output>.htmlFor` `[SameObject]` caches — same
+        // weak-through-owner contract.  The cached value (a
+        // DocumentFragment / HTMLCollection / DOMTokenList wrapper)
+        // contains no extra payload that needs separate fan-out: a
+        // template fragment's children are reached via the document
+        // tree walk through the fragment Entity, the descendant
+        // `<option>` entities for `<datalist>.options` are reached via
+        // the document tree walk, and a DOMTokenList wrapper carries
+        // only its owner `Entity` inline.  Slot
+        // `#11-tags-T2d-interactive`.
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.template_content_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.datalist_options_wrappers {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.output_html_for_wrappers {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(id, obj_marks, work);
             }
