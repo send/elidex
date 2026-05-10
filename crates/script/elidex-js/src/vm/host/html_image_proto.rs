@@ -11,10 +11,10 @@
 #![cfg(feature = "engine")]
 
 use elidex_dom_api::element::enumerated_reflect::{
-    CROSS_ORIGIN_INVALID_DEFAULT, CROSS_ORIGIN_MISSING_DEFAULT, CROSS_ORIGIN_VALUES,
-    DECODING_INVALID_DEFAULT, DECODING_MISSING_DEFAULT, DECODING_VALUES,
-    FETCH_PRIORITY_INVALID_DEFAULT, FETCH_PRIORITY_MISSING_DEFAULT, FETCH_PRIORITY_VALUES,
-    LOADING_INVALID_DEFAULT, LOADING_MISSING_DEFAULT, LOADING_VALUES,
+    CROSS_ORIGIN_INVALID_DEFAULT, CROSS_ORIGIN_VALUES, DECODING_INVALID_DEFAULT,
+    DECODING_MISSING_DEFAULT, DECODING_VALUES, FETCH_PRIORITY_INVALID_DEFAULT,
+    FETCH_PRIORITY_MISSING_DEFAULT, FETCH_PRIORITY_VALUES, LOADING_INVALID_DEFAULT,
+    LOADING_MISSING_DEFAULT, LOADING_VALUES,
 };
 use elidex_dom_api::element::numeric_reflect::parse_unsigned_long;
 use elidex_ecs::{Entity, NodeKind};
@@ -313,14 +313,25 @@ macro_rules! enum_setter {
     };
 }
 
-enum_getter!(
-    image_get_cross_origin,
-    "crossorigin",
-    "crossOrigin",
-    CROSS_ORIGIN_VALUES,
-    CROSS_ORIGIN_MISSING_DEFAULT,
-    CROSS_ORIGIN_INVALID_DEFAULT
-);
+fn image_get_cross_origin(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, super::super::value::VmError> {
+    let Some(entity) = require_image_receiver(ctx, this, "crossOrigin")? else {
+        return Ok(JsValue::Null);
+    };
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    super::html_hyperlink_mixin::get_enumerated_reflect_nullable(
+        ctx,
+        entity,
+        "crossorigin",
+        CROSS_ORIGIN_VALUES,
+        CROSS_ORIGIN_INVALID_DEFAULT,
+    )
+}
 enum_setter!(image_set_cross_origin, "crossorigin", "crossOrigin");
 
 fn image_get_referrer_policy(

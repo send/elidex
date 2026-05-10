@@ -245,3 +245,33 @@ pub(super) fn get_enumerated_reflect_referrer_policy(
         REFERRER_POLICY_INVALID_DEFAULT,
     )
 }
+
+/// Nullable enumerated-reflect getter — same algorithm as
+/// [`get_enumerated_reflect`] but returns `JsValue::Null` when the
+/// content attribute is absent, matching IDL `DOMString?` semantics.
+/// Used by `crossOrigin` (`<img>` / `<script>` / `<link>`), the only
+/// nullable enumerated reflect in the T2a slot — the others
+/// (`referrerpolicy` / `decoding` / `loading` / `fetchpriority`) are
+/// non-null `DOMString` and use the regular getter.
+pub(super) fn get_enumerated_reflect_nullable(
+    ctx: &mut NativeContext<'_>,
+    entity: Entity,
+    attr_name: &str,
+    table: &[&'static str],
+    invalid_default: &'static str,
+) -> Result<JsValue, VmError> {
+    let attr_sid = ctx.vm.strings.intern(attr_name);
+    let raw_value = invoke_dom_api(ctx, "getAttribute", entity, &[JsValue::String(attr_sid)])?;
+    let raw = match raw_value {
+        JsValue::String(sid) => ctx.vm.strings.get_utf8(sid),
+        // Missing attribute → null per WHATWG IDL `DOMString?`.
+        _ => return Ok(JsValue::Null),
+    };
+    // Present-but-invalid maps to invalid_default; present-and-valid
+    // returns canonical lowercase form.  `""` (empty default for the
+    // missing-side of the table) is unused on the nullable path
+    // because `_ => return Null` short-circuits the missing case.
+    let canonical = canonicalize_enumerated_attr(Some(raw.as_ref()), table, "", invalid_default);
+    let out_sid = ctx.vm.strings.intern(canonical);
+    Ok(JsValue::String(out_sid))
+}

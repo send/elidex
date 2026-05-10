@@ -374,6 +374,33 @@ fn image_cross_origin_invalid_returns_anonymous() {
 }
 
 #[test]
+fn image_cross_origin_missing_returns_null() {
+    // PR178 R7 IMP regression — `crossOrigin` IDL is `DOMString?`
+    // (HTML §3.2.7.5), so a missing `crossorigin` content attribute
+    // must return JS `null`, not `""`.  The shared
+    // `get_enumerated_reflect` getter previously returned the
+    // missing-default empty-string sentinel; nullable variant added
+    // for `<img>` / `<script>` / `<link>` crossOrigin getters.
+    let out = run("var img = document.createElement('img'); \
+         (img.crossOrigin === null) ? 'null' : ('not-null:' + img.crossOrigin);");
+    assert_eq!(out, "null");
+}
+
+#[test]
+fn script_cross_origin_missing_returns_null() {
+    let out = run("var s = document.createElement('script'); \
+         (s.crossOrigin === null) ? 'null' : ('not-null:' + s.crossOrigin);");
+    assert_eq!(out, "null");
+}
+
+#[test]
+fn link_cross_origin_missing_returns_null() {
+    let out = run("var l = document.createElement('link'); \
+         (l.crossOrigin === null) ? 'null' : ('not-null:' + l.crossOrigin);");
+    assert_eq!(out, "null");
+}
+
+#[test]
 fn image_fetch_priority_canonicalises() {
     let out = run("var img = document.createElement('img'); \
          img.setAttribute('fetchpriority', 'HIGH'); \

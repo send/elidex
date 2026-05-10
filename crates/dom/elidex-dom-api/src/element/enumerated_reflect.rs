@@ -74,10 +74,13 @@ pub const REFERRER_POLICY_INVALID_DEFAULT: &str = "";
 
 /// `crossOrigin` IDL attribute (HTML §3.2.7.5 CORS settings).
 ///
-/// Missing default = `""` (the empty-string sentinel — IDL is nullable
-/// `DOMString?`, but this module uses `""` throughout to keep the
-/// `&[&'static str]` table machinery uniform; the prototype-side
-/// binding maps `""` → `null` at the JS boundary).  Invalid default
+/// IDL type `DOMString?` (nullable).  The prototype-side binding
+/// goes through `get_enumerated_reflect_nullable` (in
+/// `vm/host/html_hyperlink_mixin.rs`) which returns `JsValue::Null`
+/// directly when the content attribute is absent, so
+/// `CROSS_ORIGIN_MISSING_DEFAULT` is **not consumed by the binding**;
+/// it is retained only for the engine-independent canonicalisation
+/// table machinery + the unit tests in this module.  Invalid default
 /// = `"anonymous"` per HTML.
 pub const CROSS_ORIGIN_VALUES: &[&str] = &["", "anonymous", "use-credentials"];
 pub const CROSS_ORIGIN_MISSING_DEFAULT: &str = "";
