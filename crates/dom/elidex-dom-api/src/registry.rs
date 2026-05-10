@@ -162,6 +162,82 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("classList.item", Box::new(super::ClassListItem));
     r.register_static("classList.supports", Box::new(super::ClassListSupports));
 
+    // --- RelList (slot #11-tags-T2a-url-bearing) ---
+    r.register_static("relList.add", Box::new(super::RelListAdd));
+    r.register_static("relList.remove", Box::new(super::RelListRemove));
+    r.register_static("relList.toggle", Box::new(super::RelListToggle));
+    r.register_static("relList.contains", Box::new(super::RelListContains));
+    r.register_static("relList.replace", Box::new(super::RelListReplace));
+    r.register_static("relList.value.get", Box::new(super::RelListValueGet));
+    r.register_static("relList.value.set", Box::new(super::RelListValueSet));
+    r.register_static("relList.length", Box::new(super::RelListLength));
+    r.register_static("relList.item", Box::new(super::RelListItem));
+
+    // --- LinkSizes (slot #11-tags-T2a-url-bearing, <link>.sizes) ---
+    r.register_static("linkSizes.add", Box::new(super::LinkSizesAdd));
+    r.register_static("linkSizes.remove", Box::new(super::LinkSizesRemove));
+    r.register_static("linkSizes.toggle", Box::new(super::LinkSizesToggle));
+    r.register_static("linkSizes.contains", Box::new(super::LinkSizesContains));
+    r.register_static("linkSizes.replace", Box::new(super::LinkSizesReplace));
+    r.register_static("linkSizes.value.get", Box::new(super::LinkSizesValueGet));
+    r.register_static("linkSizes.value.set", Box::new(super::LinkSizesValueSet));
+    r.register_static("linkSizes.length", Box::new(super::LinkSizesLength));
+    r.register_static("linkSizes.item", Box::new(super::LinkSizesItem));
+
+    // --- HTMLHyperlinkElementUtils mixin (anchor / area, slot #11-tags-T2a-url-bearing) ---
+    r.register_static("hyperlink.href.get", Box::new(super::HyperlinkHrefGet));
+    r.register_static("hyperlink.href.set", Box::new(super::HyperlinkHrefSet));
+    r.register_static("hyperlink.origin.get", Box::new(super::HyperlinkOriginGet));
+    r.register_static(
+        "hyperlink.protocol.get",
+        Box::new(super::HyperlinkProtocolGet),
+    );
+    r.register_static(
+        "hyperlink.protocol.set",
+        Box::new(super::HyperlinkProtocolSet),
+    );
+    r.register_static(
+        "hyperlink.username.get",
+        Box::new(super::HyperlinkUsernameGet),
+    );
+    r.register_static(
+        "hyperlink.username.set",
+        Box::new(super::HyperlinkUsernameSet),
+    );
+    r.register_static(
+        "hyperlink.password.get",
+        Box::new(super::HyperlinkPasswordGet),
+    );
+    r.register_static(
+        "hyperlink.password.set",
+        Box::new(super::HyperlinkPasswordSet),
+    );
+    r.register_static("hyperlink.host.get", Box::new(super::HyperlinkHostGet));
+    r.register_static("hyperlink.host.set", Box::new(super::HyperlinkHostSet));
+    r.register_static(
+        "hyperlink.hostname.get",
+        Box::new(super::HyperlinkHostnameGet),
+    );
+    r.register_static(
+        "hyperlink.hostname.set",
+        Box::new(super::HyperlinkHostnameSet),
+    );
+    r.register_static("hyperlink.port.get", Box::new(super::HyperlinkPortGet));
+    r.register_static("hyperlink.port.set", Box::new(super::HyperlinkPortSet));
+    r.register_static(
+        "hyperlink.pathname.get",
+        Box::new(super::HyperlinkPathnameGet),
+    );
+    r.register_static(
+        "hyperlink.pathname.set",
+        Box::new(super::HyperlinkPathnameSet),
+    );
+    r.register_static("hyperlink.search.get", Box::new(super::HyperlinkSearchGet));
+    r.register_static("hyperlink.search.set", Box::new(super::HyperlinkSearchSet));
+    r.register_static("hyperlink.hash.get", Box::new(super::HyperlinkHashGet));
+    r.register_static("hyperlink.hash.set", Box::new(super::HyperlinkHashSet));
+    r.register_static("hyperlink.toString", Box::new(super::HyperlinkToString));
+
     // --- Tree navigation ---
     r.register_static("parentNode.get", Box::new(super::GetParentNode));
     r.register_static("parentElement.get", Box::new(super::GetParentElement));

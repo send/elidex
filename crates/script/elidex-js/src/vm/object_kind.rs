@@ -401,12 +401,24 @@ pub enum ObjectKind {
     /// stateless beyond the entity reference.
     ///
     /// Identity is preserved via `VmInner::class_list_wrapper_cache`
-    /// keyed by owner `Entity`.  GC contract: payload-free in trace
-    /// terms (the `entity_bits` is not an `ObjectId`); the sweep tail
-    /// prunes `class_list_wrapper_cache` entries whose value
+    /// (when `source = TOKEN_LIST_SOURCE_CLASS`) and the per-attribute
+    /// caches added in slot `#11-tags-T2a-url-bearing`
+    /// (`rel_list_wrapper_cache` / `link_rel_list_wrapper_cache` /
+    /// `link_sizes_wrapper_cache`).  GC contract: payload-free in
+    /// trace terms (the `entity_bits` is not an `ObjectId`); the
+    /// sweep tail prunes the matching cache entry whose value
     /// `ObjectId` was collected.
+    ///
+    /// `source` discriminates which content attribute backs the
+    /// wrapper — see [`TOKEN_LIST_SOURCE_CLASS`] /
+    /// [`TOKEN_LIST_SOURCE_REL_HYPERLINK`] /
+    /// [`TOKEN_LIST_SOURCE_REL_LINK`] /
+    /// [`TOKEN_LIST_SOURCE_LINK_SIZES`].  The native methods on
+    /// `DOMTokenList.prototype` route their `invoke_dom_api` method
+    /// name (`"classList.add"` / `"relList.add"` /
+    /// `"linkSizes.add"`) by reading this discriminator at call time.
     #[cfg(feature = "engine")]
-    DOMTokenList { entity_bits: u64 },
+    DOMTokenList { entity_bits: u64, source: u8 },
     /// `DOMStringMap` instance (WHATWG HTML §3.2.6 / WebIDL §3.10)
     /// — the named-property exotic backing `HTMLElement.dataset`.
     /// Carries the owner `Entity` inline.  `[[Get]]` / `[[Set]]` /

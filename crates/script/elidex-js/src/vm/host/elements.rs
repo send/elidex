@@ -184,6 +184,21 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "iframe") {
             return self.html_iframe_prototype;
         }
+        if host.tag_matches_ascii_case(entity, "a") {
+            return self.html_anchor_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "area") {
+            return self.html_area_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "img") {
+            return self.html_image_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "script") {
+            return self.html_script_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "link") {
+            return self.html_link_prototype;
+        }
         if host.tag_matches_ascii_case(entity, "label") {
             return self.html_label_prototype;
         }

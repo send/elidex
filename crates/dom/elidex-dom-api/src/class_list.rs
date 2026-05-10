@@ -48,46 +48,62 @@ fn normalize_class_string(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn get_class_string(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
+/// Read the raw token string for a given attribute name (e.g. `"class"`,
+/// `"rel"`, `"sizes"`).  Generalised in slot `#11-tags-T2a-url-bearing` so
+/// the same DOMTokenList algorithms back `Element.classList`,
+/// `HTMLAnchorElement.relList`, `HTMLLinkElement.sizes`, etc.
+fn get_token_string(entity: Entity, dom: &EcsDom, attr_name: &str) -> Result<String, DomApiError> {
     let attrs = dom
         .world()
         .get::<&Attributes>(entity)
         .map_err(|_| not_found_error("element not found"))?;
-    Ok(attrs.get("class").unwrap_or("").to_string())
+    Ok(attrs.get(attr_name).unwrap_or("").to_string())
 }
 
-fn set_class_string(entity: Entity, dom: &mut EcsDom, value: String) -> Result<(), DomApiError> {
+fn set_token_string(
+    entity: Entity,
+    dom: &mut EcsDom,
+    attr_name: &str,
+    value: String,
+) -> Result<(), DomApiError> {
     let mut attrs = dom
         .world_mut()
         .get::<&mut Attributes>(entity)
         .map_err(|_| not_found_error("element not found"))?;
-    attrs.set("class", value);
+    attrs.set(attr_name, value);
     Ok(())
 }
 
-/// Add a class name to the class string if not already present.
-fn add_class(entity: Entity, class_name: &str, dom: &mut EcsDom) -> Result<(), DomApiError> {
-    let current = get_class_string(entity, dom)?;
-    if !current.split_whitespace().any(|c| c == class_name) {
+/// Add a token to the attribute's whitespace-separated list if not already present.
+fn add_token(
+    entity: Entity,
+    attr_name: &str,
+    token: &str,
+    dom: &mut EcsDom,
+) -> Result<(), DomApiError> {
+    let current = get_token_string(entity, dom, attr_name)?;
+    if !current.split_whitespace().any(|c| c == token) {
         let normalized = normalize_class_string(&current);
-        let new_class = if normalized.is_empty() {
-            class_name.to_string()
+        let new_value = if normalized.is_empty() {
+            token.to_string()
         } else {
-            format!("{normalized} {class_name}")
+            format!("{normalized} {token}")
         };
-        set_class_string(entity, dom, new_class)?;
+        set_token_string(entity, dom, attr_name, new_value)?;
     }
     Ok(())
 }
 
-/// Remove a class name from the class string.
-fn remove_class(entity: Entity, class_name: &str, dom: &mut EcsDom) -> Result<(), DomApiError> {
-    let current = get_class_string(entity, dom)?;
-    let new_class: Vec<&str> = current
-        .split_whitespace()
-        .filter(|c| *c != class_name)
-        .collect();
-    set_class_string(entity, dom, new_class.join(" "))?;
+/// Remove a token from the attribute's whitespace-separated list.
+fn remove_token(
+    entity: Entity,
+    attr_name: &str,
+    token: &str,
+    dom: &mut EcsDom,
+) -> Result<(), DomApiError> {
+    let current = get_token_string(entity, dom, attr_name)?;
+    let new_tokens: Vec<&str> = current.split_whitespace().filter(|c| *c != token).collect();
+    set_token_string(entity, dom, attr_name, new_tokens.join(" "))?;
     Ok(())
 }
 
@@ -112,7 +128,7 @@ impl DomApiHandler for ClassListAdd {
     ) -> Result<JsValue, DomApiError> {
         let class_name = require_string_arg(args, 0)?;
         validate_token(&class_name)?;
-        add_class(this, &class_name, dom)?;
+        add_token(this, "class", &class_name, dom)?;
         dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
@@ -139,7 +155,7 @@ impl DomApiHandler for ClassListRemove {
     ) -> Result<JsValue, DomApiError> {
         let class_name = require_string_arg(args, 0)?;
         validate_token(&class_name)?;
-        remove_class(this, &class_name, dom)?;
+        remove_token(this, "class", &class_name, dom)?;
         dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
@@ -173,28 +189,28 @@ impl DomApiHandler for ClassListToggle {
             _ => None,
         };
 
-        let current = get_class_string(this, dom)?;
+        let current = get_token_string(this, dom, "class")?;
         let has = current.split_whitespace().any(|c| c == class_name);
 
         let result = match force {
             Some(true) => {
                 if !has {
-                    add_class(this, &class_name, dom)?;
+                    add_token(this, "class", &class_name, dom)?;
                 }
                 true
             }
             Some(false) => {
                 if has {
-                    remove_class(this, &class_name, dom)?;
+                    remove_token(this, "class", &class_name, dom)?;
                 }
                 false
             }
             None => {
                 if has {
-                    remove_class(this, &class_name, dom)?;
+                    remove_token(this, "class", &class_name, dom)?;
                     false
                 } else {
-                    add_class(this, &class_name, dom)?;
+                    add_token(this, "class", &class_name, dom)?;
                     true
                 }
             }
@@ -224,7 +240,7 @@ impl DomApiHandler for ClassListContains {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let class_name = require_string_arg(args, 0)?;
-        let current = get_class_string(this, dom)?;
+        let current = get_token_string(this, dom, "class")?;
         let has = current.split_whitespace().any(|c| c == class_name);
         Ok(JsValue::Bool(has))
     }
@@ -256,7 +272,7 @@ impl DomApiHandler for ClassListReplace {
         validate_token(&old_token)?;
         validate_token(&new_token)?;
 
-        let current = get_class_string(this, dom)?;
+        let current = get_token_string(this, dom, "class")?;
         let tokens: Vec<&str> = current.split_whitespace().collect();
         if !tokens.contains(&old_token.as_str()) {
             return Ok(JsValue::Bool(false));
@@ -276,7 +292,7 @@ impl DomApiHandler for ClassListReplace {
             }
             // Skip duplicate new_token (either pre-existing or from replacement).
         }
-        set_class_string(this, dom, result.join(" "))?;
+        set_token_string(this, dom, "class", result.join(" "))?;
         dom.rev_version(this);
         Ok(JsValue::Bool(true))
     }
@@ -301,7 +317,7 @@ impl DomApiHandler for ClassListValueGet {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let s = get_class_string(this, dom)?;
+        let s = get_token_string(this, dom, "class")?;
         Ok(JsValue::String(s))
     }
 }
@@ -322,7 +338,7 @@ impl DomApiHandler for ClassListValueSet {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let value = require_string_arg(args, 0)?;
-        set_class_string(this, dom, value)?;
+        set_token_string(this, dom, "class", value)?;
         dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
@@ -347,7 +363,7 @@ impl DomApiHandler for ClassListLength {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let s = get_class_string(this, dom)?;
+        let s = get_token_string(this, dom, "class")?;
         let count = parse_ordered_set(&s).len();
         #[allow(clippy::cast_precision_loss)] // DOM IDL uses f64 for all numeric values
         Ok(JsValue::Number(count as f64))
@@ -385,7 +401,7 @@ impl DomApiHandler for ClassListItem {
                 });
             }
         };
-        let s = get_class_string(this, dom)?;
+        let s = get_token_string(this, dom, "class")?;
         match parse_ordered_set(&s).get(index) {
             Some(token) => Ok(JsValue::String((*token).to_string())),
             None => Ok(JsValue::Null),
@@ -419,6 +435,497 @@ impl DomApiHandler for ClassListSupports {
             kind: DomApiErrorKind::TypeError,
             message: "classList.supports() is not supported for classList".into(),
         })
+    }
+}
+
+// ===========================================================================
+// relList — `<a>.relList` / `<area>.relList` / `<link>.relList`
+// (HTML §4.6.5).  Same DOMTokenList algorithms backed by the `rel`
+// content attribute instead of `class`.
+// ===========================================================================
+
+/// `element.relList.add(token)` — adds a rel token if not present.
+pub struct RelListAdd;
+impl DomApiHandler for RelListAdd {
+    fn method_name(&self) -> &str {
+        "relList.add"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let token = require_string_arg(args, 0)?;
+        validate_token(&token)?;
+        add_token(this, "rel", &token, dom)?;
+        dom.rev_version(this);
+        Ok(JsValue::Undefined)
+    }
+}
+
+/// `element.relList.remove(token)` — removes a rel token.
+pub struct RelListRemove;
+impl DomApiHandler for RelListRemove {
+    fn method_name(&self) -> &str {
+        "relList.remove"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let token = require_string_arg(args, 0)?;
+        validate_token(&token)?;
+        remove_token(this, "rel", &token, dom)?;
+        dom.rev_version(this);
+        Ok(JsValue::Undefined)
+    }
+}
+
+/// `element.relList.toggle(token, force?)` — toggles a rel token and
+/// returns the new state.
+pub struct RelListToggle;
+impl DomApiHandler for RelListToggle {
+    fn method_name(&self) -> &str {
+        "relList.toggle"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let token = require_string_arg(args, 0)?;
+        validate_token(&token)?;
+        let force = match args.get(1) {
+            Some(JsValue::Bool(b)) => Some(*b),
+            _ => None,
+        };
+        let current = get_token_string(this, dom, "rel")?;
+        let has = current.split_whitespace().any(|c| c == token);
+        let result = match force {
+            Some(true) => {
+                if !has {
+                    add_token(this, "rel", &token, dom)?;
+                }
+                true
+            }
+            Some(false) => {
+                if has {
+                    remove_token(this, "rel", &token, dom)?;
+                }
+                false
+            }
+            None => {
+                if has {
+                    remove_token(this, "rel", &token, dom)?;
+                    false
+                } else {
+                    add_token(this, "rel", &token, dom)?;
+                    true
+                }
+            }
+        };
+        dom.rev_version(this);
+        Ok(JsValue::Bool(result))
+    }
+}
+
+/// `element.relList.contains(token)` — checks if a rel token is present.
+pub struct RelListContains;
+impl DomApiHandler for RelListContains {
+    fn method_name(&self) -> &str {
+        "relList.contains"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let token = require_string_arg(args, 0)?;
+        let current = get_token_string(this, dom, "rel")?;
+        let has = current.split_whitespace().any(|c| c == token);
+        Ok(JsValue::Bool(has))
+    }
+}
+
+/// `element.relList.replace(old, new)` — replaces a rel token in
+/// place.  Returns `true` if the old token was found.
+pub struct RelListReplace;
+impl DomApiHandler for RelListReplace {
+    fn method_name(&self) -> &str {
+        "relList.replace"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let old_token = require_string_arg(args, 0)?;
+        let new_token = require_string_arg(args, 1)?;
+        validate_token(&old_token)?;
+        validate_token(&new_token)?;
+        let current = get_token_string(this, dom, "rel")?;
+        let tokens: Vec<&str> = current.split_whitespace().collect();
+        if !tokens.contains(&old_token.as_str()) {
+            return Ok(JsValue::Bool(false));
+        }
+        let mut replaced = false;
+        let mut result: Vec<&str> = Vec::with_capacity(tokens.len());
+        for t in &tokens {
+            if !replaced && *t == old_token.as_str() {
+                result.push(new_token.as_str());
+                replaced = true;
+            } else if *t != new_token.as_str() {
+                result.push(t);
+            }
+        }
+        set_token_string(this, dom, "rel", result.join(" "))?;
+        dom.rev_version(this);
+        Ok(JsValue::Bool(true))
+    }
+}
+
+/// `element.relList.value` getter — returns the raw rel string.
+pub struct RelListValueGet;
+impl DomApiHandler for RelListValueGet {
+    fn method_name(&self) -> &str {
+        "relList.value.get"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let s = get_token_string(this, dom, "rel")?;
+        Ok(JsValue::String(s))
+    }
+}
+
+/// `element.relList.value` setter — sets the rel attribute directly.
+pub struct RelListValueSet;
+impl DomApiHandler for RelListValueSet {
+    fn method_name(&self) -> &str {
+        "relList.value.set"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let value = require_string_arg(args, 0)?;
+        set_token_string(this, dom, "rel", value)?;
+        dom.rev_version(this);
+        Ok(JsValue::Undefined)
+    }
+}
+
+/// `element.relList.length` — returns the number of rel tokens.
+pub struct RelListLength;
+impl DomApiHandler for RelListLength {
+    fn method_name(&self) -> &str {
+        "relList.length"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let s = get_token_string(this, dom, "rel")?;
+        let count = parse_ordered_set(&s).len();
+        #[allow(clippy::cast_precision_loss)]
+        Ok(JsValue::Number(count as f64))
+    }
+}
+
+/// `element.relList.item(index)` — returns the token at the index or
+/// `Null` if out of bounds.
+pub struct RelListItem;
+impl DomApiHandler for RelListItem {
+    fn method_name(&self) -> &str {
+        "relList.item"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let index = match args.first() {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Some(JsValue::Number(n)) => *n as usize,
+            _ => {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::TypeError,
+                    message: "relList.item: argument 0 must be a number".into(),
+                });
+            }
+        };
+        let s = get_token_string(this, dom, "rel")?;
+        match parse_ordered_set(&s).get(index) {
+            Some(token) => Ok(JsValue::String((*token).to_string())),
+            None => Ok(JsValue::Null),
+        }
+    }
+}
+
+// ===========================================================================
+// linkSizes — `<link>.sizes` (HTML §4.6.7,
+// `[SameObject, PutForwards=value] DOMTokenList`).  Backed by the
+// `sizes` content attribute.  Slot `#11-tags-T2a-url-bearing` (D-4).
+// ===========================================================================
+
+/// `<link>.sizes.add(token)` — adds a sizes token if not present.
+pub struct LinkSizesAdd;
+impl DomApiHandler for LinkSizesAdd {
+    fn method_name(&self) -> &str {
+        "linkSizes.add"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let token = require_string_arg(args, 0)?;
+        validate_token(&token)?;
+        add_token(this, "sizes", &token, dom)?;
+        dom.rev_version(this);
+        Ok(JsValue::Undefined)
+    }
+}
+
+/// `<link>.sizes.remove(token)` — removes a sizes token.
+pub struct LinkSizesRemove;
+impl DomApiHandler for LinkSizesRemove {
+    fn method_name(&self) -> &str {
+        "linkSizes.remove"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let token = require_string_arg(args, 0)?;
+        validate_token(&token)?;
+        remove_token(this, "sizes", &token, dom)?;
+        dom.rev_version(this);
+        Ok(JsValue::Undefined)
+    }
+}
+
+/// `<link>.sizes.toggle(token, force?)` — toggles a sizes token.
+pub struct LinkSizesToggle;
+impl DomApiHandler for LinkSizesToggle {
+    fn method_name(&self) -> &str {
+        "linkSizes.toggle"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let token = require_string_arg(args, 0)?;
+        validate_token(&token)?;
+        let force = match args.get(1) {
+            Some(JsValue::Bool(b)) => Some(*b),
+            _ => None,
+        };
+        let current = get_token_string(this, dom, "sizes")?;
+        let has = current.split_whitespace().any(|c| c == token);
+        let result = match force {
+            Some(true) => {
+                if !has {
+                    add_token(this, "sizes", &token, dom)?;
+                }
+                true
+            }
+            Some(false) => {
+                if has {
+                    remove_token(this, "sizes", &token, dom)?;
+                }
+                false
+            }
+            None => {
+                if has {
+                    remove_token(this, "sizes", &token, dom)?;
+                    false
+                } else {
+                    add_token(this, "sizes", &token, dom)?;
+                    true
+                }
+            }
+        };
+        dom.rev_version(this);
+        Ok(JsValue::Bool(result))
+    }
+}
+
+/// `<link>.sizes.contains(token)` — checks if a sizes token is present.
+pub struct LinkSizesContains;
+impl DomApiHandler for LinkSizesContains {
+    fn method_name(&self) -> &str {
+        "linkSizes.contains"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let token = require_string_arg(args, 0)?;
+        let current = get_token_string(this, dom, "sizes")?;
+        let has = current.split_whitespace().any(|c| c == token);
+        Ok(JsValue::Bool(has))
+    }
+}
+
+/// `<link>.sizes.replace(old, new)`.
+pub struct LinkSizesReplace;
+impl DomApiHandler for LinkSizesReplace {
+    fn method_name(&self) -> &str {
+        "linkSizes.replace"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let old_token = require_string_arg(args, 0)?;
+        let new_token = require_string_arg(args, 1)?;
+        validate_token(&old_token)?;
+        validate_token(&new_token)?;
+        let current = get_token_string(this, dom, "sizes")?;
+        let tokens: Vec<&str> = current.split_whitespace().collect();
+        if !tokens.contains(&old_token.as_str()) {
+            return Ok(JsValue::Bool(false));
+        }
+        let mut replaced = false;
+        let mut result: Vec<&str> = Vec::with_capacity(tokens.len());
+        for t in &tokens {
+            if !replaced && *t == old_token.as_str() {
+                result.push(new_token.as_str());
+                replaced = true;
+            } else if *t != new_token.as_str() {
+                result.push(t);
+            }
+        }
+        set_token_string(this, dom, "sizes", result.join(" "))?;
+        dom.rev_version(this);
+        Ok(JsValue::Bool(true))
+    }
+}
+
+/// `<link>.sizes.value` getter.
+pub struct LinkSizesValueGet;
+impl DomApiHandler for LinkSizesValueGet {
+    fn method_name(&self) -> &str {
+        "linkSizes.value.get"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let s = get_token_string(this, dom, "sizes")?;
+        Ok(JsValue::String(s))
+    }
+}
+
+/// `<link>.sizes.value` setter.
+pub struct LinkSizesValueSet;
+impl DomApiHandler for LinkSizesValueSet {
+    fn method_name(&self) -> &str {
+        "linkSizes.value.set"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let value = require_string_arg(args, 0)?;
+        set_token_string(this, dom, "sizes", value)?;
+        dom.rev_version(this);
+        Ok(JsValue::Undefined)
+    }
+}
+
+/// `<link>.sizes.length`.
+pub struct LinkSizesLength;
+impl DomApiHandler for LinkSizesLength {
+    fn method_name(&self) -> &str {
+        "linkSizes.length"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let s = get_token_string(this, dom, "sizes")?;
+        let count = parse_ordered_set(&s).len();
+        #[allow(clippy::cast_precision_loss)]
+        Ok(JsValue::Number(count as f64))
+    }
+}
+
+/// `<link>.sizes.item(index)`.
+pub struct LinkSizesItem;
+impl DomApiHandler for LinkSizesItem {
+    fn method_name(&self) -> &str {
+        "linkSizes.item"
+    }
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let index = match args.first() {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Some(JsValue::Number(n)) => *n as usize,
+            _ => {
+                return Err(DomApiError {
+                    kind: DomApiErrorKind::TypeError,
+                    message: "linkSizes.item: argument 0 must be a number".into(),
+                });
+            }
+        };
+        let s = get_token_string(this, dom, "sizes")?;
+        match parse_ordered_set(&s).get(index) {
+            Some(token) => Ok(JsValue::String((*token).to_string())),
+            None => Ok(JsValue::Null),
+        }
     }
 }
 

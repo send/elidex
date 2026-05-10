@@ -135,6 +135,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 dataset_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
+                rel_list_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
+                link_rel_list_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
+                link_sizes_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
                 css_style_declaration_prototype: None,
                 #[cfg(feature = "engine")]
                 style_wrapper_cache: HashMap::new(),
@@ -184,6 +190,16 @@ impl Vm {
                 html_select_prototype: None,
                 #[cfg(feature = "engine")]
                 html_input_prototype: None,
+                #[cfg(feature = "engine")]
+                html_anchor_prototype: None,
+                #[cfg(feature = "engine")]
+                html_area_prototype: None,
+                #[cfg(feature = "engine")]
+                html_image_prototype: None,
+                #[cfg(feature = "engine")]
+                html_script_prototype: None,
+                #[cfg(feature = "engine")]
+                html_link_prototype: None,
                 #[cfg(feature = "engine")]
                 html_form_controls_collection_prototype: None,
                 #[cfg(feature = "engine")]

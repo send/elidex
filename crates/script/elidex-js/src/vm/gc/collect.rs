@@ -466,6 +466,31 @@ impl VmInner {
                 self.style_sheet_list_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 86 + 5 = 91 (M4-12 slot #11-tags-T2a-url-bearing:
+                // HTMLAnchorElement / HTMLAreaElement /
+                // HTMLImageElement / HTMLScriptElement /
+                // HTMLLinkElement prototypes).  Each chains to
+                // `HTMLElement.prototype`.
+                #[cfg(feature = "engine")]
+                self.html_anchor_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_area_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_image_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_script_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.html_link_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -514,6 +539,12 @@ impl VmInner {
             class_list_wrapper_cache: &self.class_list_wrapper_cache,
             #[cfg(feature = "engine")]
             dataset_wrapper_cache: &self.dataset_wrapper_cache,
+            #[cfg(feature = "engine")]
+            rel_list_wrapper_cache: &self.rel_list_wrapper_cache,
+            #[cfg(feature = "engine")]
+            link_rel_list_wrapper_cache: &self.link_rel_list_wrapper_cache,
+            #[cfg(feature = "engine")]
+            link_sizes_wrapper_cache: &self.link_sizes_wrapper_cache,
             #[cfg(feature = "engine")]
             style_wrapper_cache: &self.style_wrapper_cache,
             #[cfg(feature = "engine")]
@@ -743,6 +774,16 @@ impl VmInner {
             self.class_list_wrapper_cache
                 .retain(|_, id| bit_get(marks, id.0));
             self.dataset_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            // T2a `relList` / `<link>.sizes` DOMTokenList wrapper
+            // identity caches (slot `#11-tags-T2a-url-bearing`,
+            // CRIT-2 Option A — separate per-attr Entity-keyed
+            // caches).  Same prune contract.
+            self.rel_list_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            self.link_rel_list_wrapper_cache
+                .retain(|_, id| bit_get(marks, id.0));
+            self.link_sizes_wrapper_cache
                 .retain(|_, id| bit_get(marks, id.0));
             // Inline `CSSStyleDeclaration` (`Element.style`) cache —
             // same prune contract: drop entries whose wrapper

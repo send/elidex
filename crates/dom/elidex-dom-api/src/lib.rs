@@ -45,6 +45,10 @@ pub use child_node::{
 pub use class_list::{
     ClassListAdd, ClassListContains, ClassListItem, ClassListLength, ClassListRemove,
     ClassListReplace, ClassListSupports, ClassListToggle, ClassListValueGet, ClassListValueSet,
+    LinkSizesAdd, LinkSizesContains, LinkSizesItem, LinkSizesLength, LinkSizesRemove,
+    LinkSizesReplace, LinkSizesToggle, LinkSizesValueGet, LinkSizesValueSet, RelListAdd,
+    RelListContains, RelListItem, RelListLength, RelListRemove, RelListReplace, RelListToggle,
+    RelListValueGet, RelListValueSet,
 };
 pub use computed_style::{css_value_to_string, GetComputedStyle};
 pub use css_namespace::{CssEscape, CssSupports};
@@ -55,6 +59,14 @@ pub use cssom_sheet::{
 };
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
+};
+pub use element::href_accessor::{
+    HyperlinkHashGet, HyperlinkHashSet, HyperlinkHostGet, HyperlinkHostSet, HyperlinkHostnameGet,
+    HyperlinkHostnameSet, HyperlinkHrefGet, HyperlinkHrefSet, HyperlinkOriginGet,
+    HyperlinkPasswordGet, HyperlinkPasswordSet, HyperlinkPathnameGet, HyperlinkPathnameSet,
+    HyperlinkPortGet, HyperlinkPortSet, HyperlinkProtocolGet, HyperlinkProtocolSet,
+    HyperlinkSearchGet, HyperlinkSearchSet, HyperlinkToString, HyperlinkUsernameGet,
+    HyperlinkUsernameSet,
 };
 pub use element::{
     camel_to_data_attr, collect_text_content, data_attr_to_camel, serialize_inner_html,

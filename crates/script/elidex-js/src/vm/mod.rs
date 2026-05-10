@@ -383,6 +383,26 @@ pub(crate) struct VmInner {
     /// pruned in the GC sweep tail.
     #[cfg(feature = "engine")]
     pub(crate) dataset_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// Identity cache for `DOMTokenList` wrappers backing
+    /// `HTMLAnchorElement.relList` / `HTMLAreaElement.relList`
+    /// (WHATWG HTML §4.6.5).  Same shape as
+    /// [`Self::class_list_wrapper_cache`] (Option A — separate
+    /// per-attr Entity-keyed cache for liveness simplicity).
+    #[cfg(feature = "engine")]
+    pub(crate) rel_list_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// Identity cache for `DOMTokenList` wrappers backing
+    /// `HTMLLinkElement.relList` (WHATWG HTML §4.6.7).  Separate from
+    /// [`Self::rel_list_wrapper_cache`] so an anchor and a link with
+    /// the same `Entity` ID would not collide (defensive — entities
+    /// are globally unique per `EcsDom`, but the separation makes
+    /// the per-attr cache discipline obvious at the call site).
+    #[cfg(feature = "engine")]
+    pub(crate) link_rel_list_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// Identity cache for `DOMTokenList` wrappers backing
+    /// `HTMLLinkElement.sizes` (HTML §4.6.7,
+    /// `[SameObject, PutForwards=value] DOMTokenList`).
+    #[cfg(feature = "engine")]
+    pub(crate) link_sizes_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `CSSStyleDeclaration.prototype` — shared prototype for every
     /// `ObjectKind::CSSStyleDeclaration` wrapper backing both
     /// `Element.style` (Inline source) and `getComputedStyle`
@@ -506,6 +526,46 @@ pub(crate) struct VmInner {
     /// `HTMLInputElement.prototype` (HTML §4.10.5).
     #[cfg(feature = "engine")]
     pub(crate) html_input_prototype: Option<ObjectId>,
+    /// `HTMLAnchorElement.prototype` (HTML §4.6.1).  Carries the
+    /// HTMLHyperlinkElementUtils mixin (URL accessor 11 IDL attrs
+    /// `toString()`), DOMString reflect (`target`, `download`,
+    /// `ping`, `hreflang`, `type`), enumerated reflect
+    /// (`referrerPolicy`), the `text` accessor, and `relList`.
+    /// `None` until `register_html_anchor_prototype()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) html_anchor_prototype: Option<ObjectId>,
+    /// `HTMLAreaElement.prototype` (HTML §4.6.2).  Same
+    /// HTMLHyperlinkElementUtils mixin as anchor plus `alt`,
+    /// `coords`, `shape` (enumerated, missing+invalid default
+    /// `rect`), `target`, `download`, `ping`, `referrerPolicy`,
+    /// and `relList`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_area_prototype: Option<ObjectId>,
+    /// `HTMLImageElement.prototype` (HTML §4.8.4).  Carries
+    /// DOMString reflect (`alt`, `src`, `srcset`, `sizes`, `useMap`),
+    /// enumerated reflect (`crossOrigin`, `referrerPolicy`,
+    /// `decoding`, `loading`, `fetchpriority`), boolean reflect
+    /// (`isMap`), numeric reflect (`width`, `height`), and stub
+    /// accessors `naturalWidth` / `naturalHeight` / `complete` /
+    /// `decode()` (paint pipeline deferred).
+    #[cfg(feature = "engine")]
+    pub(crate) html_image_prototype: Option<ObjectId>,
+    /// `HTMLScriptElement.prototype` (HTML §4.12.1).  Carries
+    /// DOMString reflect (`src`, `type`, `integrity`), enumerated
+    /// reflect (`crossOrigin`, `referrerPolicy`, `fetchpriority`),
+    /// boolean reflect (`async`, `defer`, `noModule`), and the
+    /// `text` accessor (textContent alias).
+    #[cfg(feature = "engine")]
+    pub(crate) html_script_prototype: Option<ObjectId>,
+    /// `HTMLLinkElement.prototype` (HTML §4.6.7).  Carries
+    /// DOMString reflect (`href`, `media`, `hreflang`, `type`,
+    /// `integrity`, `imageSrcset`, `imageSizes`, `as`), enumerated
+    /// reflect (`crossOrigin`, `referrerPolicy`, `fetchpriority`),
+    /// boolean reflect (`disabled`), the `relList` and `sizes`
+    /// DOMTokenLists, and a `sheet` stub (`null`, pending defer slot
+    /// `#11-link-stylesheet-loading`).
+    #[cfg(feature = "engine")]
+    pub(crate) html_link_prototype: Option<ObjectId>,
     /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
     /// reserved-not-yet-registered slot.  When the
     /// `#11-tags-radionodelist` defer slot lands, this will hold a

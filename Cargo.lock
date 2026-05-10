@@ -1938,6 +1938,7 @@ dependencies = [
  "elidex-script-session",
  "elidex-style",
  "hecs",
+ "url",
 ]
 
 [[package]]

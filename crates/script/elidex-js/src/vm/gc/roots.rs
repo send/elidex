@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 86],
+    pub(super) proto_roots: [Option<ObjectId>; 91],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -178,6 +178,28 @@ pub(super) struct GcRoots<'a> {
     /// [`Self::class_list_wrapper_cache`].
     #[cfg(feature = "engine")]
     pub(super) dataset_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `DOMTokenList` (`HTMLAnchorElement.relList` /
+    /// `HTMLAreaElement.relList`) wrapper identity cache.  Same
+    /// weak-through-owner semantics as
+    /// [`Self::class_list_wrapper_cache`].  Field is consumed in C3
+    /// by the per-element prototype install + relList mark roots —
+    /// allowed to look unused at the C1 skeleton phase.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)]
+    pub(super) rel_list_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `DOMTokenList` (`HTMLLinkElement.relList`) wrapper identity
+    /// cache.  Separate from [`Self::rel_list_wrapper_cache`] so each
+    /// per-attr binding has its own (Entity → ObjectId) namespace per
+    /// CRIT-2 Option A in the D-4 plan memo.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)]
+    pub(super) link_rel_list_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `DOMTokenList` (`HTMLLinkElement.sizes`) wrapper identity
+    /// cache.  Same weak-through-owner semantics as the rel-list
+    /// caches above.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)]
+    pub(super) link_sizes_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// Inline `CSSStyleDeclaration` (`Element.style`) wrapper identity
     /// cache.  Same weak-through-owner semantics as
     /// [`Self::class_list_wrapper_cache`].  Computed-source wrappers

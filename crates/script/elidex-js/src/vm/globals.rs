@@ -280,6 +280,18 @@ impl VmInner {
             if let Some(fieldset_proto) = self.html_fieldset_prototype {
                 self.install_constraint_validation_mixin(fieldset_proto);
             }
+
+            // T2a per-tag prototypes (slot `#11-tags-T2a-url-bearing`).
+            // Each chains to `HTMLElement.prototype` (same pattern as
+            // iframe and the T1-v2 form-control protos above).
+            // Registration order matches `tag_specific_html_prototype`
+            // dispatch chain extension.  C1 stub: only the prototype
+            // object is allocated; member install is C3 phase.
+            self.register_html_anchor_prototype();
+            self.register_html_area_prototype();
+            self.register_html_image_prototype();
+            self.register_html_script_prototype();
+            self.register_html_link_prototype();
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared

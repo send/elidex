@@ -9,6 +9,22 @@
 //! tokenization, or attribute parsing live here, per the CLAUDE.md
 //! Layering mandate.
 //!
+//! ## Multi-source DOMTokenList (slot `#11-tags-T2a-url-bearing`)
+//!
+//! [`ObjectKind::DOMTokenList`] carries a `source: u8` discriminator
+//! so the same `DOMTokenList.prototype` natives back four different
+//! content attributes (per CRIT-2 Option A in the D-4 plan memo):
+//!
+//! - [`TOKEN_LIST_SOURCE_CLASS`] — `Element.classList` → `class`
+//! - [`TOKEN_LIST_SOURCE_REL_HYPERLINK`] —
+//!   `<a>.relList` / `<area>.relList` → `rel`
+//! - [`TOKEN_LIST_SOURCE_REL_LINK`] — `<link>.relList` → `rel`
+//! - [`TOKEN_LIST_SOURCE_LINK_SIZES`] — `<link>.sizes` → `sizes`
+//!
+//! Each native body reads the source and routes through the
+//! matching engine-independent handler family
+//! (`classList.*` / `relList.*` / `linkSizes.*`).
+//!
 //! ## Backing state
 //!
 //! [`ObjectKind::DOMTokenList`] carries the owner `Entity` inline
@@ -113,21 +129,76 @@ impl VmInner {
         if let Some(&id) = self.class_list_wrapper_cache.get(&owner) {
             return id;
         }
+        let id = self.alloc_dom_token_list(owner, TOKEN_LIST_SOURCE_CLASS);
+        self.class_list_wrapper_cache.insert(owner, id);
+        id
+    }
+
+    /// Allocate / fetch a `DOMTokenList` wrapper for
+    /// `<a>.relList` / `<area>.relList`.  Slot `#11-tags-T2a-url-bearing`.
+    pub(crate) fn alloc_or_cached_rel_list(&mut self, owner: Entity) -> ObjectId {
+        if let Some(&id) = self.rel_list_wrapper_cache.get(&owner) {
+            return id;
+        }
+        let id = self.alloc_dom_token_list(owner, TOKEN_LIST_SOURCE_REL_HYPERLINK);
+        self.rel_list_wrapper_cache.insert(owner, id);
+        id
+    }
+
+    /// Allocate / fetch a `DOMTokenList` wrapper for `<link>.relList`.
+    /// `dead_code` suppressed at C3 mid-phase — used by
+    /// `html_link_proto.rs` once that file lands.
+    #[allow(dead_code)]
+    pub(crate) fn alloc_or_cached_link_rel_list(&mut self, owner: Entity) -> ObjectId {
+        if let Some(&id) = self.link_rel_list_wrapper_cache.get(&owner) {
+            return id;
+        }
+        let id = self.alloc_dom_token_list(owner, TOKEN_LIST_SOURCE_REL_LINK);
+        self.link_rel_list_wrapper_cache.insert(owner, id);
+        id
+    }
+
+    /// Allocate / fetch a `DOMTokenList` wrapper for `<link>.sizes`.
+    /// `dead_code` suppressed at C3 mid-phase — used by
+    /// `html_link_proto.rs` once that file lands.
+    #[allow(dead_code)]
+    pub(crate) fn alloc_or_cached_link_sizes(&mut self, owner: Entity) -> ObjectId {
+        if let Some(&id) = self.link_sizes_wrapper_cache.get(&owner) {
+            return id;
+        }
+        let id = self.alloc_dom_token_list(owner, TOKEN_LIST_SOURCE_LINK_SIZES);
+        self.link_sizes_wrapper_cache.insert(owner, id);
+        id
+    }
+
+    fn alloc_dom_token_list(&mut self, owner: Entity, source: u8) -> ObjectId {
         let proto = self
             .dom_token_list_prototype
-            .expect("alloc_or_cached_class_list before register_dom_token_list_prototype");
-        let id = self.alloc_object(Object {
+            .expect("alloc_dom_token_list before register_dom_token_list_prototype");
+        self.alloc_object(Object {
             kind: ObjectKind::DOMTokenList {
                 entity_bits: owner.to_bits().get(),
+                source,
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: Some(proto),
             extensible: false,
-        });
-        self.class_list_wrapper_cache.insert(owner, id);
-        id
+        })
     }
 }
+
+// ---------------------------------------------------------------------------
+// DOMTokenList source discriminators (CRIT-2 Option A — slot #11-tags-T2a-url-bearing).
+// ---------------------------------------------------------------------------
+
+/// Wrapper backs `Element.classList` (`class` content attribute).
+pub(crate) const TOKEN_LIST_SOURCE_CLASS: u8 = 0;
+/// Wrapper backs `<a>.relList` / `<area>.relList` (`rel` content attribute).
+pub(crate) const TOKEN_LIST_SOURCE_REL_HYPERLINK: u8 = 1;
+/// Wrapper backs `<link>.relList` (`rel` content attribute).
+pub(crate) const TOKEN_LIST_SOURCE_REL_LINK: u8 = 2;
+/// Wrapper backs `<link>.sizes` (`sizes` content attribute).
+pub(crate) const TOKEN_LIST_SOURCE_LINK_SIZES: u8 = 3;
 
 // ---------------------------------------------------------------------------
 // Post-unbind tolerance
@@ -154,22 +225,100 @@ fn require_dom_token_list_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &'static str,
-) -> Result<Entity, VmError> {
+) -> Result<(Entity, u8), VmError> {
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'DOMTokenList': Illegal invocation"
         )));
     };
-    let ObjectKind::DOMTokenList { entity_bits } = ctx.vm.get_object(id).kind else {
+    let ObjectKind::DOMTokenList {
+        entity_bits,
+        source,
+    } = ctx.vm.get_object(id).kind
+    else {
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'DOMTokenList': Illegal invocation"
         )));
     };
-    Entity::from_bits(entity_bits).ok_or_else(|| {
+    let entity = Entity::from_bits(entity_bits).ok_or_else(|| {
         VmError::type_error(format!(
             "Failed to execute '{method}' on 'DOMTokenList': stale entity"
         ))
-    })
+    })?;
+    Ok((entity, source))
+}
+
+/// Resolve the engine-independent `DomApiHandler` method name for a
+/// given DOMTokenList source + operation suffix.  Used by every
+/// native body to route through the matching handler family
+/// (`classList.*` / `relList.*` / `linkSizes.*`) per CRIT-2 Option A.
+pub(crate) fn dispatch_method(source: u8, suffix: TokenListOp) -> &'static str {
+    use TokenListOp::{
+        Add, Contains, Item, Length, Remove, Replace, Supports, Toggle, ValueGet, ValueSet,
+    };
+    match (source, suffix) {
+        (TOKEN_LIST_SOURCE_CLASS, Add) => "classList.add",
+        (TOKEN_LIST_SOURCE_CLASS, Remove) => "classList.remove",
+        (TOKEN_LIST_SOURCE_CLASS, Toggle) => "classList.toggle",
+        (TOKEN_LIST_SOURCE_CLASS, Contains) => "classList.contains",
+        (TOKEN_LIST_SOURCE_CLASS, Replace) => "classList.replace",
+        (TOKEN_LIST_SOURCE_CLASS, Item) => "classList.item",
+        (TOKEN_LIST_SOURCE_CLASS, Length) => "classList.length",
+        (TOKEN_LIST_SOURCE_CLASS, ValueGet) => "classList.value.get",
+        (TOKEN_LIST_SOURCE_CLASS, ValueSet) => "classList.value.set",
+        // `relList.supports("noopener")` etc. are spec-supported (HTML
+        // §4.6.5 supportedTokens) but the dom-api crate currently
+        // mirrors classList behaviour and throws TypeError; fold the
+        // four `Supports` arms together.
+        (
+            TOKEN_LIST_SOURCE_CLASS
+            | TOKEN_LIST_SOURCE_REL_HYPERLINK
+            | TOKEN_LIST_SOURCE_REL_LINK
+            | TOKEN_LIST_SOURCE_LINK_SIZES,
+            Supports,
+        ) => "classList.supports",
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Add) => "relList.add",
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Remove) => "relList.remove",
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Toggle) => "relList.toggle",
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Contains) => {
+            "relList.contains"
+        }
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Replace) => {
+            "relList.replace"
+        }
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Item) => "relList.item",
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, Length) => "relList.length",
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, ValueGet) => {
+            "relList.value.get"
+        }
+        (TOKEN_LIST_SOURCE_REL_HYPERLINK | TOKEN_LIST_SOURCE_REL_LINK, ValueSet) => {
+            "relList.value.set"
+        }
+        (TOKEN_LIST_SOURCE_LINK_SIZES, Add) => "linkSizes.add",
+        (TOKEN_LIST_SOURCE_LINK_SIZES, Remove) => "linkSizes.remove",
+        (TOKEN_LIST_SOURCE_LINK_SIZES, Toggle) => "linkSizes.toggle",
+        (TOKEN_LIST_SOURCE_LINK_SIZES, Contains) => "linkSizes.contains",
+        (TOKEN_LIST_SOURCE_LINK_SIZES, Replace) => "linkSizes.replace",
+        (TOKEN_LIST_SOURCE_LINK_SIZES, Item) => "linkSizes.item",
+        (TOKEN_LIST_SOURCE_LINK_SIZES, Length) => "linkSizes.length",
+        (TOKEN_LIST_SOURCE_LINK_SIZES, ValueGet) => "linkSizes.value.get",
+        (TOKEN_LIST_SOURCE_LINK_SIZES, ValueSet) => "linkSizes.value.set",
+        _ => unreachable!("dispatch_method: unknown source {source}"),
+    }
+}
+
+#[derive(Copy, Clone)]
+pub(crate) enum TokenListOp {
+    Add,
+    Remove,
+    Toggle,
+    Contains,
+    Replace,
+    Item,
+    Length,
+    ValueGet,
+    ValueSet,
+    Supports,
 }
 
 // ---------------------------------------------------------------------------
@@ -181,11 +330,16 @@ fn native_class_list_length_get(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "length")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "length")?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Number(0.0));
     }
-    invoke_dom_api(ctx, "classList.length", entity, &[])
+    invoke_dom_api(
+        ctx,
+        dispatch_method(source, TokenListOp::Length),
+        entity,
+        &[],
+    )
 }
 
 fn native_class_list_value_get(
@@ -193,11 +347,16 @@ fn native_class_list_value_get(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "value")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "value")?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
-    invoke_dom_api(ctx, "classList.value.get", entity, &[])
+    invoke_dom_api(
+        ctx,
+        dispatch_method(source, TokenListOp::ValueGet),
+        entity,
+        &[],
+    )
 }
 
 fn native_class_list_value_set(
@@ -205,12 +364,17 @@ fn native_class_list_value_set(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "value")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "value")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    invoke_dom_api(ctx, "classList.value.set", entity, &[JsValue::String(sid)])
+    invoke_dom_api(
+        ctx,
+        dispatch_method(source, TokenListOp::ValueSet),
+        entity,
+        &[JsValue::String(sid)],
+    )
 }
 
 fn native_class_list_item(
@@ -218,20 +382,15 @@ fn native_class_list_item(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "item")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "item")?;
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // WebIDL §3.10.13 indexed-property getter (`unsigned long`) → ToUint32
-    // (mod 2^32).  Without this, negative inputs like `tokens.item(-1)`
-    // would reach the handler as negative `f64` and the float→usize
-    // cast in `parse_array_index_u32` would map them to 0, returning
-    // the first token instead of `null`.
     let idx = super::super::coerce::to_uint32(ctx.vm, arg)?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Null);
     }
     invoke_dom_api(
         ctx,
-        "classList.item",
+        dispatch_method(source, TokenListOp::Item),
         entity,
         &[JsValue::Number(f64::from(idx))],
     )
@@ -242,12 +401,17 @@ fn native_class_list_contains(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "contains")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "contains")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Boolean(false));
     }
-    invoke_dom_api(ctx, "classList.contains", entity, &[JsValue::String(sid)])
+    invoke_dom_api(
+        ctx,
+        dispatch_method(source, TokenListOp::Contains),
+        entity,
+        &[JsValue::String(sid)],
+    )
 }
 
 /// `classList.add(...tokens)` — variadic.  Each token is added in
@@ -260,14 +424,7 @@ fn native_class_list_add(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "add")?;
-    // Coerce every arg up front so the only `TypeError` that can
-    // surface — `ToString(Symbol)` — is still observable post-unbind.
-    // Handler-side `SyntaxError` / `InvalidCharacterError` checks
-    // are gated by the bound-state guard below: post-unbind callers
-    // get a silent no-op (no DOM exists to mutate or validate
-    // against), matching the rest of the post-unbind tolerance
-    // contract (NamedNodeMap mutators / Attr setters etc.).
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "add")?;
     let mut sids = Vec::with_capacity(args.len());
     for arg in args {
         sids.push(super::super::coerce::to_string(ctx.vm, *arg)?);
@@ -275,8 +432,9 @@ fn native_class_list_add(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
+    let method = dispatch_method(source, TokenListOp::Add);
     for sid in sids {
-        invoke_dom_api(ctx, "classList.add", entity, &[JsValue::String(sid)])?;
+        invoke_dom_api(ctx, method, entity, &[JsValue::String(sid)])?;
     }
     Ok(JsValue::Undefined)
 }
@@ -286,10 +444,7 @@ fn native_class_list_remove(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "remove")?;
-    // Same coerce-then-gate pattern as `add`: ToString TypeError
-    // surfaces regardless of bound state; handler validation only
-    // runs when bound.
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "remove")?;
     let mut sids = Vec::with_capacity(args.len());
     for arg in args {
         sids.push(super::super::coerce::to_string(ctx.vm, *arg)?);
@@ -297,8 +452,9 @@ fn native_class_list_remove(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
+    let method = dispatch_method(source, TokenListOp::Remove);
     for sid in sids {
-        invoke_dom_api(ctx, "classList.remove", entity, &[JsValue::String(sid)])?;
+        invoke_dom_api(ctx, method, entity, &[JsValue::String(sid)])?;
     }
     Ok(JsValue::Undefined)
 }
@@ -308,17 +464,9 @@ fn native_class_list_toggle(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "toggle")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "toggle")?;
     let token = args.first().copied().unwrap_or(JsValue::Undefined);
     let token_sid = super::super::coerce::to_string(ctx.vm, token)?;
-    // Optional `force` (ToBoolean per WebIDL).  WHATWG §7.1 step 4
-    // distinguishes "force given" (apply ToBoolean) vs "force not
-    // given" (flip current state).  `args.get(1) == Some(Undefined)`
-    // is the *given-as-undefined* case → ToBoolean(undefined) = false.
-    // `JsValue::Empty` is the internal sparse-array hole sentinel and
-    // is treated as "not given" because user code can never observe
-    // it; the call frame substitutes `Undefined` for missing
-    // positional args.
     let mut vm_args: Vec<JsValue> = Vec::with_capacity(2);
     vm_args.push(JsValue::String(token_sid));
     if let Some(&force) = args.get(1) {
@@ -330,7 +478,12 @@ fn native_class_list_toggle(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Boolean(false));
     }
-    invoke_dom_api(ctx, "classList.toggle", entity, &vm_args)
+    invoke_dom_api(
+        ctx,
+        dispatch_method(source, TokenListOp::Toggle),
+        entity,
+        &vm_args,
+    )
 }
 
 fn native_class_list_replace(
@@ -338,7 +491,7 @@ fn native_class_list_replace(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "replace")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "replace")?;
     let old_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let new_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let old_sid = super::super::coerce::to_string(ctx.vm, old_arg)?;
@@ -348,7 +501,7 @@ fn native_class_list_replace(
     }
     invoke_dom_api(
         ctx,
-        "classList.replace",
+        dispatch_method(source, TokenListOp::Replace),
         entity,
         &[JsValue::String(old_sid), JsValue::String(new_sid)],
     )
@@ -365,11 +518,16 @@ fn native_class_list_to_string(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "toString")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "toString")?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));
     }
-    invoke_dom_api(ctx, "classList.value.get", entity, &[])
+    invoke_dom_api(
+        ctx,
+        dispatch_method(source, TokenListOp::ValueGet),
+        entity,
+        &[],
+    )
 }
 
 fn native_class_list_supports(
@@ -377,19 +535,19 @@ fn native_class_list_supports(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "supports")?;
-    // Spec: classList.supports() always throws TypeError; the handler
-    // returns a `DomApiErrorKind::TypeError` which maps to ECMA
-    // `TypeError` in `dom_api_error_to_vm_error`.
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "supports")?;
     let sid = coerce_first_arg_to_string_id(ctx, args)?;
     if ctx.host_if_bound().is_none() {
-        // Match the handler's message verbatim so bound and unbound
-        // paths surface the same observable error.
         return Err(VmError::type_error(
             "classList.supports() is not supported for classList",
         ));
     }
-    invoke_dom_api(ctx, "classList.supports", entity, &[JsValue::String(sid)])
+    invoke_dom_api(
+        ctx,
+        dispatch_method(source, TokenListOp::Supports),
+        entity,
+        &[JsValue::String(sid)],
+    )
 }
 
 /// `[Symbol.iterator]()` — return a values iterator over the token
@@ -402,7 +560,7 @@ fn native_class_list_iterator(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let entity = require_dom_token_list_receiver(ctx, this, "@@iterator")?;
+    let (entity, source) = require_dom_token_list_receiver(ctx, this, "@@iterator")?;
     if ctx.host_if_bound().is_none() {
         // Empty iterator post-unbind — token snapshot is the empty list.
         // GC-safety: temp-root `array_id` across `alloc_object` so a
@@ -426,10 +584,12 @@ fn native_class_list_iterator(
         drop(rooted);
         return Ok(JsValue::Object(iter_obj));
     }
-    let len_val = invoke_dom_api(ctx, "classList.length", entity, &[])?;
+    let len_method = dispatch_method(source, TokenListOp::Length);
+    let item_method = dispatch_method(source, TokenListOp::Item);
+    let len_val = invoke_dom_api(ctx, len_method, entity, &[])?;
     let JsValue::Number(len) = len_val else {
         return Err(VmError::type_error(
-            "DOMTokenList iterator: classList.length must be a number",
+            "DOMTokenList iterator: length must be a number",
         ));
     };
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -437,7 +597,7 @@ fn native_class_list_iterator(
     let mut values = Vec::with_capacity(len_usize);
     for i in 0..len_usize {
         #[allow(clippy::cast_precision_loss)]
-        let v = invoke_dom_api(ctx, "classList.item", entity, &[JsValue::Number(i as f64)])?;
+        let v = invoke_dom_api(ctx, item_method, entity, &[JsValue::Number(i as f64)])?;
         values.push(v);
     }
     let array_id = ctx.vm.create_array_object(values);
@@ -482,7 +642,11 @@ pub(crate) fn try_indexed_get(
     id: ObjectId,
     key: JsValue,
 ) -> Option<Result<JsValue, VmError>> {
-    let ObjectKind::DOMTokenList { entity_bits } = vm.get_object(id).kind else {
+    let ObjectKind::DOMTokenList {
+        entity_bits,
+        source,
+    } = vm.get_object(id).kind
+    else {
         return None;
     };
     let entity = Entity::from_bits(entity_bits)?;
@@ -525,7 +689,7 @@ pub(crate) fn try_indexed_get(
     let mut ctx = NativeContext { vm };
     let result = invoke_dom_api(
         &mut ctx,
-        "classList.item",
+        dispatch_method(source, TokenListOp::Item),
         entity,
         &[JsValue::Number(f64::from(idx_u32))],
     );
