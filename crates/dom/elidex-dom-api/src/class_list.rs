@@ -339,6 +339,7 @@ handler!(REL_LIST_VALUE_GET, "relList.value.get", "rel", ValueGet);
 handler!(REL_LIST_VALUE_SET, "relList.value.set", "rel", ValueSet);
 handler!(REL_LIST_LENGTH, "relList.length", "rel", Length);
 handler!(REL_LIST_ITEM, "relList.item", "rel", Item);
+handler!(REL_LIST_SUPPORTS, "relList.supports", "rel", Supports);
 
 handler!(LINK_SIZES_ADD, "linkSizes.add", "sizes", Add);
 handler!(LINK_SIZES_REMOVE, "linkSizes.remove", "sizes", Remove);
@@ -359,6 +360,7 @@ handler!(
 );
 handler!(LINK_SIZES_LENGTH, "linkSizes.length", "sizes", Length);
 handler!(LINK_SIZES_ITEM, "linkSizes.item", "sizes", Item);
+handler!(LINK_SIZES_SUPPORTS, "linkSizes.supports", "sizes", Supports);
 
 #[cfg(test)]
 #[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values

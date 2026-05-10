@@ -174,6 +174,7 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("relList.value.set", Box::new(super::REL_LIST_VALUE_SET));
     r.register_static("relList.length", Box::new(super::REL_LIST_LENGTH));
     r.register_static("relList.item", Box::new(super::REL_LIST_ITEM));
+    r.register_static("relList.supports", Box::new(super::REL_LIST_SUPPORTS));
 
     r.register_static("linkSizes.add", Box::new(super::LINK_SIZES_ADD));
     r.register_static("linkSizes.remove", Box::new(super::LINK_SIZES_REMOVE));
@@ -184,6 +185,7 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static("linkSizes.value.set", Box::new(super::LINK_SIZES_VALUE_SET));
     r.register_static("linkSizes.length", Box::new(super::LINK_SIZES_LENGTH));
     r.register_static("linkSizes.item", Box::new(super::LINK_SIZES_ITEM));
+    r.register_static("linkSizes.supports", Box::new(super::LINK_SIZES_SUPPORTS));
 
     // --- HTMLHyperlinkElementUtils mixin (anchor / area, slot #11-tags-T2a-url-bearing) ---
     r.register_static("hyperlink.href.get", Box::new(super::HyperlinkHrefGet));

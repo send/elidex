@@ -261,15 +261,16 @@ pub(crate) fn dispatch_method(source: DomTokenListSource, suffix: TokenListOp) -
         (DomTokenListSource::Class, ValueSet) => "classList.value.set",
         // `relList.supports("noopener")` etc. are spec-supported (HTML
         // §4.6.5 supportedTokens) but the dom-api crate currently
-        // mirrors classList behaviour and throws TypeError; fold the
-        // four `Supports` arms together.
-        (
-            DomTokenListSource::Class
-            | DomTokenListSource::RelHyperlink
-            | DomTokenListSource::RelLink
-            | DomTokenListSource::LinkSizes,
-            Supports,
-        ) => "classList.supports",
+        // throws `TypeError` for every DOMTokenList source.  Each
+        // (source, Supports) pair routes through its own registry
+        // key so the resulting error message names the actual call
+        // site (`relList.supports` / `linkSizes.supports`) rather
+        // than a misleading hardcoded `classList.supports`.
+        (DomTokenListSource::Class, Supports) => "classList.supports",
+        (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Supports) => {
+            "relList.supports"
+        }
+        (DomTokenListSource::LinkSizes, Supports) => "linkSizes.supports",
         (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Add) => "relList.add",
         (DomTokenListSource::RelHyperlink | DomTokenListSource::RelLink, Remove) => {
             "relList.remove"
