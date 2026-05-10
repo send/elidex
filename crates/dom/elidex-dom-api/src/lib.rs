@@ -17,6 +17,7 @@ pub mod child_node;
 pub mod class_list;
 pub mod computed_style;
 pub mod css_namespace;
+pub mod cssom_sheet;
 pub mod document;
 pub mod element;
 pub mod live_collection;
@@ -47,6 +48,10 @@ pub use class_list::{
 };
 pub use computed_style::{css_value_to_string, GetComputedStyle};
 pub use css_namespace::{CssEscape, CssSupports};
+pub use cssom_sheet::{
+    collect_stylesheet_owners, CssRulesItemId, CssRulesLength, DeleteRule, InsertRule, RuleCssText,
+    RuleSelectorText, RuleStyleCssText, RuleStyleGetPropertyValue, RuleStyleItem, RuleStyleLength,
+};
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };

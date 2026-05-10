@@ -334,6 +334,9 @@ impl Vm {
             self.inner.class_list_wrapper_cache.clear();
             self.inner.dataset_wrapper_cache.clear();
             self.inner.style_wrapper_cache.clear();
+            self.inner.stylesheet_wrapper_cache.clear();
+            self.inner.css_style_rule_wrapper_cache.clear();
+            self.inner.rule_style_wrapper_cache.clear();
             // `mutation_observers.clear_all_targets()` drains every
             // observer's target list + record queue so a post-rebind
             // `notify` cannot match a `target` Entity that happens to

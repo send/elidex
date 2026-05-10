@@ -1,5 +1,8 @@
 //! Core session state coordinating identity mapping and mutation buffering.
 
+use std::collections::HashMap;
+
+use elidex_css::Stylesheet;
 use elidex_ecs::{EcsDom, Entity};
 
 use crate::event_queue::{EventQueue, QueuedEvent};
@@ -7,11 +10,40 @@ use crate::identity_map::IdentityMap;
 use crate::mutation::{apply_mutation, Mutation, MutationRecord};
 use crate::types::{ComponentKind, JsObjectRef, ReadyState};
 
+/// Per-`<style>` parsed-stylesheet snapshot backing the CSSOM
+/// `CSSStyleSheet` API surface (CSSOM §6.2). The cache is keyed by the
+/// `<style>` element entity; entries are populated lazily on first
+/// CSSOM access and refreshed when the `<style>` subtree's
+/// `inclusive_descendants_version` diverges from
+/// [`Self::snapshot_version`] (e.g. the script wrote
+/// `<style>.textContent` or appended/removed text children).
+///
+/// Using the ECS version counter rather than a `String` snapshot makes
+/// the divergence check O(1) per CSSOM access instead of
+/// O(text-content-length); for a 100-rule sheet iterated read-only,
+/// this avoids ~100 full text-tree walks + string comparisons. When
+/// CSSOM handlers detect divergence they re-parse and reassign
+/// `rule_id`s — wrappers held over a textContent rewrite become stale
+/// by design.
+#[derive(Debug)]
+pub struct CssomSheetState {
+    /// Cached parsed stylesheet.
+    pub parsed: Stylesheet,
+    /// `EcsDom::inclusive_descendants_version` of the owning `<style>`
+    /// element at the time `parsed` was produced. Compared cheaply
+    /// against the current version on every CSSOM access; mismatch
+    /// triggers a re-walk + re-parse.
+    pub snapshot_version: u64,
+}
+
 /// Central session state for a single script execution context.
 ///
 /// `SessionCore` coordinates:
 /// - **Identity mapping** — stable JS object references for ECS entities
 /// - **Mutation buffering** — DOM changes are recorded and applied on [`flush()`](Self::flush)
+/// - **CSSOM stylesheet cache** — parsed `Stylesheet` per `<style>` for
+///   `CSSStyleSheet` rule-list stability across `insertRule`/`deleteRule`
+///   (CSSOM §6.4 / §6.5)
 ///
 /// In Phase 2's single-threaded model, `flush()` is called at the end of each
 /// script task (microtask checkpoint).
@@ -22,6 +54,8 @@ pub struct SessionCore {
     event_queue: EventQueue,
     /// Current document ready state.
     pub document_ready_state: ReadyState,
+    /// Per-`<style>` parsed-stylesheet cache for CSSOM rule-list APIs.
+    pub cssom_sheets: HashMap<Entity, CssomSheetState>,
 }
 
 impl SessionCore {
@@ -32,6 +66,7 @@ impl SessionCore {
             pending: Vec::new(),
             event_queue: EventQueue::new(),
             document_ready_state: ReadyState::default(),
+            cssom_sheets: HashMap::new(),
         }
     }
 
@@ -67,7 +102,15 @@ impl SessionCore {
     }
 
     /// Release all JS object references for the given entity.
+    ///
+    /// Also drops any cached CSSOM stylesheet state keyed by `entity`
+    /// (only `<style>` elements ever have one, so this is a no-op for
+    /// every other node kind).  Without this prune the parsed
+    /// `Stylesheet` would live until the session was dropped, since
+    /// nothing else flushes the cache when the owning element leaves
+    /// the DOM.
     pub fn release(&mut self, entity: Entity) -> usize {
+        self.cssom_sheets.remove(&entity);
         self.identity.release_entity(entity)
     }
 

@@ -1,0 +1,535 @@
+//! `CSSStyleSheet` / `CSSStyleRule` / `CSSRuleList` / `StyleSheetList` DOM API
+//! handlers (CSSOM §6.2 / §6.4 / §6.6 / §6.8).
+//!
+//! ## Storage model
+//!
+//! Per `<style>` element the parsed `Stylesheet` lives in
+//! `SessionCore::cssom_sheets`, keyed by the `<style>` `Entity`.  The cache
+//! is populated lazily on first CSSOM access; on every entry, the handler
+//! checks the `<style>` subtree's `EcsDom::inclusive_descendants_version`
+//! against the cached snapshot version — divergence (the script wrote
+//! `<style>.textContent` directly) triggers a re-walk + re-parse and
+//! reassigns rule_ids, leaving any held `CSSStyleRule` /
+//! `CSSStyleDeclaration` Rule wrapper stale by design.  Using the ECS
+//! version counter rather than a string snapshot keeps the divergence
+//! check O(1) per CSSOM access.
+//!
+//! ## Mutator round-trip (CRIT-3 Option II)
+//!
+//! `insertRule` / `deleteRule` mutate the cache, then re-serialise the
+//! `Stylesheet` via [`elidex_css::serialize_stylesheet`] and write the
+//! result back to `<style>.textContent` through the canonical
+//! `SetTextContentNodeKind` path so the cascade picks up the change on the
+//! next walk and `EcsDom::rev_version` fires for `LiveCollection` /
+//! `MutationObserver` invalidation.
+//!
+//! ## CSSMediaRule deferral
+//!
+//! `@media` is silently dropped by [`elidex_css::parse_stylesheet`] (the
+//! cascade ignores grouping rules).  Surfacing CSSMediaRule via CSSOM
+//! requires a parser extension that retains `@media` blocks + nested
+//! `CSSRuleList`; tracked as deferred slot `#11-css-media-rule`.  PR-B
+//! exposes only `CSSStyleRule`.
+
+use elidex_css::{parse_single_rule, parse_stylesheet, serialize_stylesheet, Origin};
+use elidex_ecs::{EcsDom, Entity};
+use elidex_plugin::JsValue;
+use elidex_script_session::{
+    CssomSheetState, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
+};
+
+use crate::computed_style::css_value_to_string;
+use crate::element::collect_text_content;
+use crate::node_methods::SetTextContentNodeKind;
+use crate::util::require_string_arg;
+
+// ---------------------------------------------------------------------------
+// Cache plumbing
+// ---------------------------------------------------------------------------
+
+/// Sync the cached `Stylesheet` against the current `<style>` subtree
+/// and return a mutable reference. Re-parses (and reassigns rule_ids)
+/// when `EcsDom::inclusive_descendants_version` indicates the subtree
+/// has changed since the last cache fill — far cheaper than the
+/// alternative of stringifying + comparing the textContent on every
+/// CSSOM access (PR-B review F1).
+fn sync_and_get_state<'a>(
+    sheet_entity: Entity,
+    session: &'a mut SessionCore,
+    dom: &EcsDom,
+) -> &'a mut CssomSheetState {
+    let version = dom.inclusive_descendants_version(sheet_entity);
+    let needs_reparse = session
+        .cssom_sheets
+        .get(&sheet_entity)
+        .is_none_or(|s| s.snapshot_version != version);
+    if needs_reparse {
+        let parsed = parse_stylesheet(&collect_text_content(sheet_entity, dom), Origin::Author);
+        session.cssom_sheets.insert(
+            sheet_entity,
+            CssomSheetState {
+                parsed,
+                snapshot_version: version,
+            },
+        );
+    }
+    session
+        .cssom_sheets
+        .get_mut(&sheet_entity)
+        .expect("cssom_sheets entry just inserted")
+}
+
+/// Re-serialise the cached parsed stylesheet and write back to
+/// `<style>.textContent`. The write goes through the canonical
+/// `SetTextContentNodeKind` handler so `EcsDom::rev_version` fires for
+/// cascade / `LiveCollection` / `MutationObserver` invalidation. The
+/// version bump also synchronises [`CssomSheetState::snapshot_version`]
+/// — the next `sync_and_get_state` will see an up-to-date version and
+/// skip a redundant re-parse.
+fn flush_to_text_content(
+    sheet_entity: Entity,
+    session: &mut SessionCore,
+    dom: &mut EcsDom,
+) -> Result<(), DomApiError> {
+    let serialized = {
+        let state = session
+            .cssom_sheets
+            .get(&sheet_entity)
+            .expect("flush_to_text_content called before sync_and_get_state");
+        serialize_stylesheet(&state.parsed)
+    };
+    SetTextContentNodeKind.invoke(sheet_entity, &[JsValue::String(serialized)], session, dom)?;
+    if let Some(state) = session.cssom_sheets.get_mut(&sheet_entity) {
+        state.snapshot_version = dom.inclusive_descendants_version(sheet_entity);
+    }
+    Ok(())
+}
+
+/// Run `project` against the rule with `rule_id` (extracted from
+/// `args[0]`) under the synced cache; return `default` if the rule_id
+/// is absent or `args[0]` is non-numeric. Centralises the
+/// "stale rule_id ⇒ spec default" invariant for every rule-level
+/// read accessor.
+fn with_rule<R>(
+    sheet: Entity,
+    args: &[JsValue],
+    session: &mut SessionCore,
+    dom: &EcsDom,
+    default: R,
+    project: impl FnOnce(&elidex_css::CssRule) -> R,
+) -> R {
+    let Some(rule_id) = rule_id_arg(args) else {
+        return default;
+    };
+    let state = sync_and_get_state(sheet, session, dom);
+    state
+        .parsed
+        .rules
+        .iter()
+        .find(|r| r.rule_id == rule_id)
+        .map_or(default, project)
+}
+
+fn syntax_error(message: impl Into<String>) -> DomApiError {
+    DomApiError {
+        kind: DomApiErrorKind::SyntaxError,
+        message: message.into(),
+    }
+}
+
+fn index_size_error(message: impl Into<String>) -> DomApiError {
+    DomApiError {
+        kind: DomApiErrorKind::IndexSizeError,
+        message: message.into(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sheet-level handlers
+// ---------------------------------------------------------------------------
+
+/// `CSSStyleSheet.cssRules.length` — number of rules in the sheet.
+pub struct CssRulesLength;
+
+impl DomApiHandler for CssRulesLength {
+    fn method_name(&self) -> &str {
+        "cssRules.length"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let state = sync_and_get_state(this, session, dom);
+        #[allow(clippy::cast_precision_loss)]
+        Ok(JsValue::Number(state.parsed.rules.len() as f64))
+    }
+}
+
+/// `CSSStyleSheet.cssRules.item(index)` — returns the stable `rule_id` of the
+/// rule at `index`, or `-1` when out-of-range.  The host wraps this id into a
+/// `CSSStyleRule` JS object; encoding the id as a number lets the dom-api
+/// layer stay JS-engine-agnostic (the alternative would require returning an
+/// engine-specific wrapper handle).
+pub struct CssRulesItemId;
+
+impl DomApiHandler for CssRulesItemId {
+    fn method_name(&self) -> &str {
+        "cssRules.itemId"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let JsValue::Number(idx_f) = args.first().cloned().unwrap_or(JsValue::Undefined) else {
+            return Ok(JsValue::Number(-1.0));
+        };
+        if !idx_f.is_finite() || idx_f < 0.0 {
+            return Ok(JsValue::Number(-1.0));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let idx = idx_f as usize;
+        let state = sync_and_get_state(this, session, dom);
+        let id = state
+            .parsed
+            .rules
+            .get(idx)
+            .map(|r| r.rule_id)
+            .map_or(-1.0, |id| {
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    id as f64
+                }
+            });
+        Ok(JsValue::Number(id))
+    }
+}
+
+/// `CSSStyleSheet.insertRule(rule, index)` (CSSOM §6.4) — parse the rule
+/// text, assign the next stable `rule_id`, splice into the rule list, then
+/// re-serialise.  Returns the new rule's index.  Per spec:
+/// - omitted `index` defaults to `0`
+/// - `index > rules.length` throws `IndexSizeError`
+/// - unparseable / multi-rule input throws `SyntaxError`
+pub struct InsertRule;
+
+impl DomApiHandler for InsertRule {
+    fn method_name(&self) -> &str {
+        "stylesheet.insertRule"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let rule_text = require_string_arg(args, 0)?;
+        let index_f = match args.get(1).cloned() {
+            Some(JsValue::Number(n)) if n.is_finite() && n >= 0.0 => n,
+            _ => 0.0,
+        };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let index = index_f as usize;
+
+        let state = sync_and_get_state(this, session, dom);
+        if index > state.parsed.rules.len() {
+            return Err(index_size_error(format!(
+                "Failed to execute 'insertRule' on 'CSSStyleSheet': index {} is larger than rule count {}",
+                index,
+                state.parsed.rules.len()
+            )));
+        }
+        let mut new_rule = parse_single_rule(&rule_text).ok_or_else(|| {
+            syntax_error(
+                "Failed to execute 'insertRule' on 'CSSStyleSheet': the rule could not be parsed",
+            )
+        })?;
+        new_rule.rule_id = state.parsed.next_rule_id;
+        state.parsed.next_rule_id = state.parsed.next_rule_id.saturating_add(1);
+        state.parsed.rules.insert(index, new_rule);
+        // No need to renumber `source_order` here: `flush_to_text_content`
+        // re-serialises the sheet and writes back to `<style>.textContent`,
+        // so the next `sync_and_get_state` re-parses from textContent and
+        // assigns fresh sequential `source_order` values from scratch.  Any
+        // in-memory mutation here would be overwritten on the next walk.
+        flush_to_text_content(this, session, dom)?;
+        #[allow(clippy::cast_precision_loss)]
+        Ok(JsValue::Number(index_f))
+    }
+}
+
+/// `CSSStyleSheet.deleteRule(index)` (CSSOM §6.5).  Per spec:
+/// - `index >= rules.length` throws `IndexSizeError`
+pub struct DeleteRule;
+
+impl DomApiHandler for DeleteRule {
+    fn method_name(&self) -> &str {
+        "stylesheet.deleteRule"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let JsValue::Number(idx_f) = args.first().cloned().unwrap_or(JsValue::Undefined) else {
+            return Err(index_size_error(
+                "Failed to execute 'deleteRule' on 'CSSStyleSheet': index is required",
+            ));
+        };
+        if !idx_f.is_finite() || idx_f < 0.0 {
+            return Err(index_size_error(
+                "Failed to execute 'deleteRule' on 'CSSStyleSheet': index is out of range",
+            ));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let index = idx_f as usize;
+
+        let state = sync_and_get_state(this, session, dom);
+        if index >= state.parsed.rules.len() {
+            return Err(index_size_error(format!(
+                "Failed to execute 'deleteRule' on 'CSSStyleSheet': index {index} is out of range",
+            )));
+        }
+        state.parsed.rules.remove(index);
+        // No `source_order` renumbering here — the next `sync_and_get_state`
+        // re-parses from the post-flush textContent and assigns fresh
+        // sequential values (mirrors `InsertRule` above).
+        flush_to_text_content(this, session, dom)?;
+        Ok(JsValue::Undefined)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rule-level handlers — keyed by `(sheet entity, rule_id)` where the rule_id
+// arrives as `args[0]` (Number).  Returns spec defaults (empty string / null)
+// when the rule_id is no longer present so stale wrapper reads do not throw.
+// ---------------------------------------------------------------------------
+
+fn rule_id_arg(args: &[JsValue]) -> Option<u64> {
+    match args.first().cloned() {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Some(JsValue::Number(n)) if n.is_finite() && n >= 0.0 => Some(n as u64),
+        _ => None,
+    }
+}
+
+/// Append the serialisation of one [`Declaration`] to `out` (`property:
+/// value[ !important]`). Used by [`RuleStyleCssText`] to build the
+/// declaration-block text in a single allocation rather than collecting
+/// per-declaration `String`s into a `Vec` and joining (PR-B review F4).
+fn push_declaration(out: &mut String, decl: &elidex_css::Declaration) {
+    out.push_str(&decl.property);
+    out.push_str(": ");
+    out.push_str(&css_value_to_string(&decl.value));
+    if decl.important {
+        out.push_str(" !important");
+    }
+}
+
+/// `CSSStyleRule.cssText` (read) — full source text of the rule.
+pub struct RuleCssText;
+
+impl DomApiHandler for RuleCssText {
+    fn method_name(&self) -> &str {
+        "rule.cssText.get"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let text = with_rule(this, args, session, dom, String::new(), |r| {
+            r.source_text.clone()
+        });
+        Ok(JsValue::String(text))
+    }
+}
+
+/// `CSSStyleRule.selectorText` (read) — selector portion of the rule.
+/// Derived by slicing the cached `source_text` up to the first `{`.
+///
+/// **Heuristic limitation**: this naive `split_once('{')` mis-slices a
+/// selector that legitimately contains `{` inside an attribute selector
+/// value (e.g. `[data-foo="{"]`). The spec allows it via the CSS string
+/// production but no major CSS framework uses it. A spec-conforming
+/// tokeniser-based extraction lands with the selector serialiser in
+/// slot `#11-css-rule-selector-text-set` (which also adds the
+/// writable setter).
+pub struct RuleSelectorText;
+
+impl DomApiHandler for RuleSelectorText {
+    fn method_name(&self) -> &str {
+        "rule.selectorText.get"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let text = with_rule(this, args, session, dom, String::new(), |r| {
+            r.source_text
+                .split_once('{')
+                .map_or_else(|| r.source_text.clone(), |(s, _)| s.trim().to_string())
+        });
+        Ok(JsValue::String(text))
+    }
+}
+
+/// `CSSStyleRule.style.getPropertyValue(name)` — read declaration for
+/// the named property from the rule's parsed declarations. Returns the
+/// empty string when the rule_id is stale or the property is absent.
+pub struct RuleStyleGetPropertyValue;
+
+impl DomApiHandler for RuleStyleGetPropertyValue {
+    fn method_name(&self) -> &str {
+        "rule.style.getPropertyValue"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let property = require_string_arg(args, 1)?;
+        let normalized = crate::util::normalize_property_name(&property);
+        let value = with_rule(this, args, session, dom, String::new(), |r| {
+            r.declarations
+                .iter()
+                .rev()
+                .find(|d| d.property == normalized)
+                .map_or_else(String::new, |d| css_value_to_string(&d.value))
+        });
+        Ok(JsValue::String(value))
+    }
+}
+
+/// `CSSStyleRule.style.length` — number of declared properties (after
+/// shorthand expansion) for the rule.
+pub struct RuleStyleLength;
+
+impl DomApiHandler for RuleStyleLength {
+    fn method_name(&self) -> &str {
+        "rule.style.length"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        #[allow(clippy::cast_precision_loss)]
+        let len = with_rule(this, args, session, dom, 0.0, |r| {
+            r.declarations.len() as f64
+        });
+        Ok(JsValue::Number(len))
+    }
+}
+
+/// `CSSStyleRule.style[i]` — declared property name at index `i`.
+pub struct RuleStyleItem;
+
+impl DomApiHandler for RuleStyleItem {
+    fn method_name(&self) -> &str {
+        "rule.style.item"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let JsValue::Number(idx_f) = args.get(1).cloned().unwrap_or(JsValue::Undefined) else {
+            return Ok(JsValue::String(String::new()));
+        };
+        if !idx_f.is_finite() || idx_f < 0.0 {
+            return Ok(JsValue::String(String::new()));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let idx = idx_f as usize;
+        let name = with_rule(this, args, session, dom, String::new(), |r| {
+            r.declarations
+                .get(idx)
+                .map_or_else(String::new, |d| d.property.clone())
+        });
+        Ok(JsValue::String(name))
+    }
+}
+
+/// `CSSStyleRule.style.cssText` (read) — concatenated declaration block
+/// as CSS text (`property: value; …`).
+pub struct RuleStyleCssText;
+
+impl DomApiHandler for RuleStyleCssText {
+    fn method_name(&self) -> &str {
+        "rule.style.cssText.get"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let text = with_rule(this, args, session, dom, String::new(), |r| {
+            let mut out = String::new();
+            for (i, d) in r.declarations.iter().enumerate() {
+                if i > 0 {
+                    out.push_str("; ");
+                }
+                push_declaration(&mut out, d);
+            }
+            out
+        });
+        Ok(JsValue::String(text))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// document.styleSheets walker
+// ---------------------------------------------------------------------------
+
+/// Collect all `<style>` element entities in document order.  Used by the
+/// host-side `document.styleSheets` indexed-property exotic and `length`.
+/// `<link rel="stylesheet">` is intentionally NOT walked in PR-B —
+/// stylesheet preloading lives in a future milestone (slot
+/// `#11-link-stylesheet-loading`).
+#[must_use]
+pub fn collect_stylesheet_owners(document: Entity, dom: &EcsDom) -> Vec<Entity> {
+    let mut out = Vec::new();
+    walk_styles(document, dom, &mut out);
+    out
+}
+
+fn walk_styles(entity: Entity, dom: &EcsDom, out: &mut Vec<Entity>) {
+    if dom.has_tag(entity, "style") {
+        out.push(entity);
+    }
+    for child in dom.children_iter(entity) {
+        walk_styles(child, dom, out);
+    }
+}

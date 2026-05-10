@@ -1,0 +1,759 @@
+//! `CSSStyleSheet` / `CSSRuleList` / `CSSStyleRule` / `StyleSheetList`
+//! prototype install + native method bodies (CSSOM §6.2 / §6.3 / §6.6 / §6.8).
+//!
+//! Thin bindings to `elidex_dom_api::cssom_sheet` per the CLAUDE.md Layering
+//! mandate — every body is either a single [`invoke_dom_api`] dispatch or a
+//! direct allocator helper that reads no DOM state.
+//!
+//! ## Wrapper allocators
+//!
+//! - [`VmInner::alloc_or_cached_stylesheet`] — `<style>.sheet` identity
+//!   ([`SameObject`]) per `<style>` Entity.
+//! - [`VmInner::alloc_css_rule_list`] — fresh-alloc per `cssRules` access
+//!   (matches WPT identity rules; the rule list is rarely retained).
+//! - [`VmInner::alloc_or_cached_css_style_rule`] — `(<style> Entity, rule_id)`
+//!   identity so `sheet.cssRules[i] === sheet.cssRules[i]`.
+//! - [`VmInner::alloc_or_cached_rule_style`] — `(<style> Entity, rule_id)`
+//!   identity for `r.style` (CSSStyleDeclaration source=Rule).
+//! - [`VmInner::alloc_style_sheet_list`] — fresh-alloc per
+//!   `document.styleSheets` access.
+//!
+//! ## Brand-check sharing with `CSSStyleDeclaration`
+//!
+//! `CSSRuleStyleDeclaration` chains to the same `CSSStyleDeclaration.prototype`
+//! installed in PR-A so `r.style.getPropertyValue(...)` resolves through the
+//! shared method table.  The native bodies in `css_style_declaration.rs` are
+//! extended to accept both `ObjectKind::CSSStyleDeclaration` and
+//! `ObjectKind::CSSRuleStyleDeclaration` receivers; the kind tag distinguishes
+//! the backing store at dispatch time.
+
+#![cfg(feature = "engine")]
+
+use super::super::shape;
+use super::super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
+};
+use super::super::{NativeFn, VmInner};
+use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
+
+use elidex_ecs::Entity;
+
+/// Encode a CSSOM rule_id as a JS `Number` argument for engine-agnostic
+/// dom-api dispatch. rule_ids transit through `JsValue::Number` so the
+/// dom-api layer stays JS-engine-independent (it has no concept of a
+/// branded `RuleId` type). The `f64` cast is precision-lossy beyond
+/// `2^53` rule_ids; in practice a single sheet would need 9×10¹⁵
+/// `insertRule` calls to reach that bound, so the lossy cast is
+/// accepted. Localising the `#[allow]` here keeps the call sites quiet.
+#[allow(clippy::cast_precision_loss)]
+pub(super) fn rule_id_to_js(rule_id: u64) -> JsValue {
+    JsValue::Number(rule_id as f64)
+}
+
+// ---------------------------------------------------------------------------
+// Prototype install + wrapper allocators
+// ---------------------------------------------------------------------------
+
+impl VmInner {
+    /// Install the `CSSStyleSheet` / `CSSRuleList` / `CSSStyleRule` /
+    /// `StyleSheetList` prototypes.  Must run after
+    /// `register_object_prototype` and `register_css_style_declaration_prototype`
+    /// (CSSStyleRule.style returns a wrapper whose prototype is the
+    /// shared CSSStyleDeclaration.prototype).
+    pub(in crate::vm) fn register_cssom_sheet_prototypes(&mut self) {
+        self.install_css_stylesheet_prototype();
+        self.install_css_rule_list_prototype();
+        self.install_css_style_rule_prototype();
+        self.install_style_sheet_list_prototype();
+    }
+
+    /// Allocate an `Ordinary` prototype chained to `Object.prototype`,
+    /// install the listed accessor pairs (RO WebIDL semantics) and
+    /// methods, and return its `ObjectId`. Centralises the four
+    /// CSSOM-prototype shells (CSSStyleSheet / CSSRuleList /
+    /// CSSStyleRule / StyleSheetList) which differ only in their
+    /// property tables.
+    fn alloc_simple_prototype(
+        &mut self,
+        accessors: &[(super::super::value::StringId, NativeFn, Option<NativeFn>)],
+        methods: &[(super::super::value::StringId, NativeFn)],
+    ) -> ObjectId {
+        let obj_proto = self.object_prototype;
+        let proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: obj_proto,
+            extensible: true,
+        });
+        let ro = shape::PropertyAttrs::WEBIDL_RO_ACCESSOR;
+        for &(sid, getter, setter) in accessors {
+            self.install_accessor_pair(proto, sid, getter, setter, ro);
+        }
+        for &(name_sid, func) in methods {
+            self.install_native_method(proto, name_sid, func, shape::PropertyAttrs::METHOD);
+        }
+        proto
+    }
+
+    fn install_css_stylesheet_prototype(&mut self) {
+        let proto = self.alloc_simple_prototype(
+            &[
+                (self.well_known.css_rules, native_sheet_css_rules_get, None),
+                (
+                    self.well_known.owner_node,
+                    native_sheet_owner_node_get,
+                    None,
+                ),
+                (self.well_known.r#type, native_sheet_type_get, None),
+                (
+                    self.well_known.disabled,
+                    native_sheet_disabled_get,
+                    Some(native_sheet_disabled_set),
+                ),
+                (self.well_known.href, native_sheet_href_get, None),
+            ],
+            &[
+                (self.well_known.insert_rule, native_sheet_insert_rule),
+                (self.well_known.delete_rule, native_sheet_delete_rule),
+            ],
+        );
+        self.css_stylesheet_prototype = Some(proto);
+    }
+
+    fn install_css_rule_list_prototype(&mut self) {
+        let proto = self.alloc_simple_prototype(
+            &[(self.well_known.length, native_rule_list_length_get, None)],
+            &[(self.well_known.item, native_rule_list_item)],
+        );
+        self.css_rule_list_prototype = Some(proto);
+    }
+
+    fn install_css_style_rule_prototype(&mut self) {
+        let proto = self.alloc_simple_prototype(
+            &[
+                (
+                    self.well_known.css_text,
+                    native_style_rule_css_text_get,
+                    None,
+                ),
+                (
+                    self.well_known.selector_text,
+                    native_style_rule_selector_text_get,
+                    None,
+                ),
+                (self.well_known.style, native_style_rule_style_get, None),
+                (
+                    self.well_known.parent_style_sheet,
+                    native_style_rule_parent_style_sheet_get,
+                    None,
+                ),
+            ],
+            &[],
+        );
+        self.css_style_rule_prototype = Some(proto);
+    }
+
+    fn install_style_sheet_list_prototype(&mut self) {
+        let proto = self.alloc_simple_prototype(
+            &[(
+                self.well_known.length,
+                native_style_sheet_list_length_get,
+                None,
+            )],
+            &[(self.well_known.item, native_style_sheet_list_item)],
+        );
+        self.style_sheet_list_prototype = Some(proto);
+    }
+
+    /// Allocate (or return cached) `CSSStyleSheet` wrapper for `<style>`
+    /// `owner`.  CSSOM §6.2 `[SameObject]` for `HTMLStyleElement.sheet`.
+    pub(crate) fn alloc_or_cached_stylesheet(&mut self, owner: Entity) -> ObjectId {
+        if let Some(&id) = self.stylesheet_wrapper_cache.get(&owner) {
+            return id;
+        }
+        let proto = self
+            .css_stylesheet_prototype
+            .expect("alloc_or_cached_stylesheet before register_cssom_sheet_prototypes");
+        let id = self.alloc_object(Object {
+            kind: ObjectKind::CSSStyleSheet {
+                entity_bits: owner.to_bits().get(),
+            },
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(proto),
+            extensible: false,
+        });
+        self.stylesheet_wrapper_cache.insert(owner, id);
+        id
+    }
+
+    /// Allocate a fresh `CSSRuleList` wrapper.  Not cached (matches WPT
+    /// identity).
+    pub(crate) fn alloc_css_rule_list(&mut self, owner: Entity) -> ObjectId {
+        let proto = self
+            .css_rule_list_prototype
+            .expect("alloc_css_rule_list before register_cssom_sheet_prototypes");
+        self.alloc_object(Object {
+            kind: ObjectKind::CSSRuleList {
+                sheet_entity_bits: owner.to_bits().get(),
+            },
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(proto),
+            extensible: false,
+        })
+    }
+
+    /// Allocate (or return cached) `CSSStyleRule` wrapper for
+    /// `(sheet, rule_id)`.
+    pub(crate) fn alloc_or_cached_css_style_rule(
+        &mut self,
+        sheet: Entity,
+        rule_id: u64,
+    ) -> ObjectId {
+        if let Some(&id) = self.css_style_rule_wrapper_cache.get(&(sheet, rule_id)) {
+            return id;
+        }
+        let proto = self
+            .css_style_rule_prototype
+            .expect("alloc_or_cached_css_style_rule before register_cssom_sheet_prototypes");
+        let id = self.alloc_object(Object {
+            kind: ObjectKind::CSSStyleRule {
+                sheet_entity_bits: sheet.to_bits().get(),
+                rule_id,
+            },
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(proto),
+            extensible: false,
+        });
+        self.css_style_rule_wrapper_cache
+            .insert((sheet, rule_id), id);
+        id
+    }
+
+    /// Allocate (or return cached) Rule-source `CSSStyleDeclaration` wrapper
+    /// for `(sheet, rule_id)`.  Chains to the shared
+    /// `CSSStyleDeclaration.prototype` from PR-A.
+    pub(crate) fn alloc_or_cached_rule_style(&mut self, sheet: Entity, rule_id: u64) -> ObjectId {
+        if let Some(&id) = self.rule_style_wrapper_cache.get(&(sheet, rule_id)) {
+            return id;
+        }
+        let proto = self
+            .css_style_declaration_prototype
+            .expect("alloc_or_cached_rule_style before register_css_style_declaration_prototype");
+        let id = self.alloc_object(Object {
+            kind: ObjectKind::CSSRuleStyleDeclaration {
+                sheet_entity_bits: sheet.to_bits().get(),
+                rule_id,
+            },
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(proto),
+            extensible: false,
+        });
+        self.rule_style_wrapper_cache.insert((sheet, rule_id), id);
+        id
+    }
+
+    /// Allocate a fresh `StyleSheetList` wrapper.  Not cached.
+    pub(crate) fn alloc_style_sheet_list(&mut self, document: Entity) -> ObjectId {
+        let proto = self
+            .style_sheet_list_prototype
+            .expect("alloc_style_sheet_list before register_cssom_sheet_prototypes");
+        self.alloc_object(Object {
+            kind: ObjectKind::StyleSheetList {
+                document_entity_bits: document.to_bits().get(),
+            },
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(proto),
+            extensible: false,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Brand-check helpers
+// ---------------------------------------------------------------------------
+
+/// Brand-check a JS receiver and decode its branded payload via
+/// `decode`. `Illegal invocation` covers both "wrong receiver type" and
+/// "stale entity bits" — distinguishing the two is not observable
+/// (entity-bit decode failure only happens after a cross-EcsDom rebind
+/// where the wrapper itself is also unusable). Returning a single
+/// TypeError matches the WebIDL §3.10 brand-check shape.
+fn require_branded<T>(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    class: &'static str,
+    method: &'static str,
+    decode: impl FnOnce(&ObjectKind) -> Option<T>,
+) -> Result<T, VmError> {
+    let illegal = || {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on '{class}': Illegal invocation"
+        ))
+    };
+    let JsValue::Object(id) = this else {
+        return Err(illegal());
+    };
+    decode(&ctx.vm.get_object(id).kind).ok_or_else(illegal)
+}
+
+fn require_sheet_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &'static str,
+) -> Result<Entity, VmError> {
+    require_branded(ctx, this, "CSSStyleSheet", method, |kind| {
+        if let ObjectKind::CSSStyleSheet { entity_bits } = kind {
+            Entity::from_bits(*entity_bits)
+        } else {
+            None
+        }
+    })
+}
+
+fn require_rule_list_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &'static str,
+) -> Result<Entity, VmError> {
+    require_branded(ctx, this, "CSSRuleList", method, |kind| {
+        if let ObjectKind::CSSRuleList { sheet_entity_bits } = kind {
+            Entity::from_bits(*sheet_entity_bits)
+        } else {
+            None
+        }
+    })
+}
+
+fn require_style_rule_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &'static str,
+) -> Result<(Entity, u64), VmError> {
+    require_branded(ctx, this, "CSSStyleRule", method, |kind| {
+        if let ObjectKind::CSSStyleRule {
+            sheet_entity_bits,
+            rule_id,
+        } = kind
+        {
+            Entity::from_bits(*sheet_entity_bits).map(|e| (e, *rule_id))
+        } else {
+            None
+        }
+    })
+}
+
+fn require_style_sheet_list_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &'static str,
+) -> Result<Entity, VmError> {
+    require_branded(ctx, this, "StyleSheetList", method, |kind| {
+        if let ObjectKind::StyleSheetList {
+            document_entity_bits,
+        } = kind
+        {
+            Entity::from_bits(*document_entity_bits)
+        } else {
+            None
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
+// CSSStyleSheet natives
+// ---------------------------------------------------------------------------
+
+fn native_sheet_css_rules_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_sheet_receiver(ctx, this, "cssRules")?;
+    let id = ctx.vm.alloc_css_rule_list(entity);
+    Ok(JsValue::Object(id))
+}
+
+fn native_sheet_owner_node_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_sheet_receiver(ctx, this, "ownerNode")?;
+    let Some(hd) = ctx.host_if_bound() else {
+        return Ok(JsValue::Null);
+    };
+    if hd.dom().node_kind(entity).is_none() {
+        return Ok(JsValue::Null);
+    }
+    let id = ctx.vm.create_element_wrapper(entity);
+    Ok(JsValue::Object(id))
+}
+
+fn native_sheet_type_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = require_sheet_receiver(ctx, this, "type")?;
+    let sid = ctx.vm.strings.intern("text/css");
+    Ok(JsValue::String(sid))
+}
+
+fn native_sheet_disabled_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // PR-B does not propagate `disabled` to the cascade — the bit is stored
+    // as a property on the wrapper (extensibility=false prevents that on
+    // instances) so we always return `false`.  Surfacing a real disabled
+    // bit lands in slot `#11-stylesheet-disabled` alongside cascade
+    // invalidation plumbing.
+    let _ = require_sheet_receiver(ctx, this, "disabled")?;
+    Ok(JsValue::Boolean(false))
+}
+
+fn native_sheet_disabled_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Silent no-op as far as cascade plumbing — see
+    // `native_sheet_disabled_get`.  Still run the WebIDL boolean
+    // coercion path on the argument so a user-visible error
+    // (Symbol arg → TypeError) surfaces consistently with the
+    // `disabled` getter being branded; otherwise the setter would
+    // silently accept inputs that the spec rejects.
+    let _ = require_sheet_receiver(ctx, this, "disabled")?;
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let _ = super::super::coerce::to_boolean(ctx.vm, arg);
+    Ok(JsValue::Undefined)
+}
+
+fn native_sheet_href_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // `<style>.sheet.href` is null per CSSOM §6.2 (only `<link>`-loaded
+    // sheets carry an href).  Slot `#11-link-stylesheet-loading` extends.
+    let _ = require_sheet_receiver(ctx, this, "href")?;
+    Ok(JsValue::Null)
+}
+
+fn native_sheet_insert_rule(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_sheet_receiver(ctx, this, "insertRule")?;
+    let rule_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    let index_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Number(0.0));
+    }
+    invoke_dom_api(
+        ctx,
+        "stylesheet.insertRule",
+        entity,
+        &[JsValue::String(rule_sid), index_arg],
+    )
+}
+
+fn native_sheet_delete_rule(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_sheet_receiver(ctx, this, "deleteRule")?;
+    let index_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Undefined);
+    }
+    invoke_dom_api(ctx, "stylesheet.deleteRule", entity, &[index_arg])
+}
+
+// ---------------------------------------------------------------------------
+// CSSRuleList natives
+// ---------------------------------------------------------------------------
+
+fn native_rule_list_length_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_rule_list_receiver(ctx, this, "length")?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Number(0.0));
+    }
+    invoke_dom_api(ctx, "cssRules.length", entity, &[])
+}
+
+fn native_rule_list_item(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity = require_rule_list_receiver(ctx, this, "item")?;
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let idx = super::super::coerce::to_uint32(ctx.vm, arg)?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    let id_value = invoke_dom_api(
+        ctx,
+        "cssRules.itemId",
+        entity,
+        &[JsValue::Number(f64::from(idx))],
+    )?;
+    let JsValue::Number(rule_id_f) = id_value else {
+        return Ok(JsValue::Null);
+    };
+    if rule_id_f < 0.0 {
+        return Ok(JsValue::Null);
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let rule_id = rule_id_f as u64;
+    let id = ctx.vm.alloc_or_cached_css_style_rule(entity, rule_id);
+    Ok(JsValue::Object(id))
+}
+
+/// Indexed-property exotic dispatch from `ops_element::get_element` — `list[i]`
+/// returns the same wrapper as `list.item(i)`.  Returns `None` for non-numeric
+/// keys so prototype-chain access (`length`) still resolves.
+pub(crate) fn try_indexed_get_rule_list(
+    vm: &mut VmInner,
+    id: ObjectId,
+    key: JsValue,
+) -> Option<Result<JsValue, VmError>> {
+    let ObjectKind::CSSRuleList { sheet_entity_bits } = vm.get_object(id).kind else {
+        return None;
+    };
+    let entity = Entity::from_bits(sheet_entity_bits)?;
+    let idx = match key {
+        JsValue::Number(n) if n.is_finite() && n >= 0.0 => {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let i = n as u32;
+            if f64::from(i) != n {
+                return None;
+            }
+            i
+        }
+        JsValue::String(sid) => {
+            let units = vm.strings.get(sid);
+            super::super::coerce_format::parse_array_index_u32(units)?
+        }
+        _ => return None,
+    };
+    if !vm
+        .host_data
+        .as_deref()
+        .is_some_and(super::super::host_data::HostData::is_bound)
+    {
+        return Some(Ok(JsValue::Null));
+    }
+    let mut ctx = NativeContext { vm };
+    let id_value = match invoke_dom_api(
+        &mut ctx,
+        "cssRules.itemId",
+        entity,
+        &[JsValue::Number(f64::from(idx))],
+    ) {
+        Ok(v) => v,
+        Err(e) => return Some(Err(e)),
+    };
+    let JsValue::Number(rule_id_f) = id_value else {
+        return Some(Ok(JsValue::Null));
+    };
+    if rule_id_f < 0.0 {
+        return Some(Ok(JsValue::Null));
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let rule_id = rule_id_f as u64;
+    let wrapper = vm.alloc_or_cached_css_style_rule(entity, rule_id);
+    Some(Ok(JsValue::Object(wrapper)))
+}
+
+// ---------------------------------------------------------------------------
+// CSSStyleRule natives
+// ---------------------------------------------------------------------------
+
+fn native_style_rule_css_text_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (sheet, rule_id) = require_style_rule_receiver(ctx, this, "cssText")?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    invoke_dom_api(ctx, "rule.cssText.get", sheet, &[rule_id_to_js(rule_id)])
+}
+
+fn native_style_rule_selector_text_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (sheet, rule_id) = require_style_rule_receiver(ctx, this, "selectorText")?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    invoke_dom_api(
+        ctx,
+        "rule.selectorText.get",
+        sheet,
+        &[rule_id_to_js(rule_id)],
+    )
+}
+
+fn native_style_rule_style_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (sheet, rule_id) = require_style_rule_receiver(ctx, this, "style")?;
+    let id = ctx.vm.alloc_or_cached_rule_style(sheet, rule_id);
+    Ok(JsValue::Object(id))
+}
+
+fn native_style_rule_parent_style_sheet_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (sheet, _rule_id) = require_style_rule_receiver(ctx, this, "parentStyleSheet")?;
+    let id = ctx.vm.alloc_or_cached_stylesheet(sheet);
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// StyleSheetList natives
+// ---------------------------------------------------------------------------
+
+fn native_style_sheet_list_length_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let document = require_style_sheet_list_receiver(ctx, this, "length")?;
+    let Some(hd) = ctx.host_if_bound() else {
+        return Ok(JsValue::Number(0.0));
+    };
+    let count = elidex_dom_api::collect_stylesheet_owners(document, hd.dom()).len();
+    #[allow(clippy::cast_precision_loss)]
+    Ok(JsValue::Number(count as f64))
+}
+
+fn native_style_sheet_list_item(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let document = require_style_sheet_list_receiver(ctx, this, "item")?;
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let idx = super::super::coerce::to_uint32(ctx.vm, arg)?;
+    let Some(hd) = ctx.host_if_bound() else {
+        return Ok(JsValue::Null);
+    };
+    let owners = elidex_dom_api::collect_stylesheet_owners(document, hd.dom());
+    let Some(&owner) = owners.get(idx as usize) else {
+        return Ok(JsValue::Null);
+    };
+    let id = ctx.vm.alloc_or_cached_stylesheet(owner);
+    Ok(JsValue::Object(id))
+}
+
+/// Indexed-property exotic for `document.styleSheets[i]`.
+pub(crate) fn try_indexed_get_style_sheet_list(
+    vm: &mut VmInner,
+    id: ObjectId,
+    key: JsValue,
+) -> Option<Result<JsValue, VmError>> {
+    let ObjectKind::StyleSheetList {
+        document_entity_bits,
+    } = vm.get_object(id).kind
+    else {
+        return None;
+    };
+    let document = Entity::from_bits(document_entity_bits)?;
+    let idx = match key {
+        JsValue::Number(n) if n.is_finite() && n >= 0.0 => {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let i = n as u32;
+            if f64::from(i) != n {
+                return None;
+            }
+            i
+        }
+        JsValue::String(sid) => {
+            let units = vm.strings.get(sid);
+            super::super::coerce_format::parse_array_index_u32(units)?
+        }
+        _ => return None,
+    };
+    let owner_opt = match vm.host_data.as_deref_mut() {
+        Some(hd) if hd.is_bound() => elidex_dom_api::collect_stylesheet_owners(document, hd.dom())
+            .get(idx as usize)
+            .copied(),
+        _ => return Some(Ok(JsValue::Null)),
+    };
+    let Some(owner) = owner_opt else {
+        return Some(Ok(JsValue::Null));
+    };
+    let wrapper = vm.alloc_or_cached_stylesheet(owner);
+    Some(Ok(JsValue::Object(wrapper)))
+}
+
+/// `HTMLStyleElement.prototype.sheet` getter (CSSOM §6.2). Returns the
+/// `[SameObject]` `CSSStyleSheet` wrapper for `<style>`; `null` for any
+/// other tag (including post-unbind retained wrappers). Installed on
+/// the shared `HTMLElement.prototype` because elidex collapses the
+/// per-tag interface tree to a single `HTMLElement` shape (see PR-A
+/// precedent for `Element.style`).
+pub(super) fn native_html_element_get_sheet(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity =
+        super::event_target::require_receiver(ctx, this, "HTMLElement", "sheet", |kind| {
+            matches!(kind, elidex_ecs::NodeKind::Element)
+        })?;
+    let Some(entity) = entity else {
+        return Ok(JsValue::Null);
+    };
+    let Some(hd) = ctx.host_if_bound() else {
+        return Ok(JsValue::Null);
+    };
+    if !hd.dom().has_tag(entity, "style") {
+        return Ok(JsValue::Null);
+    }
+    let id = ctx.vm.alloc_or_cached_stylesheet(entity);
+    Ok(JsValue::Object(id))
+}
+
+// ---------------------------------------------------------------------------
+// Document.styleSheets accessor — installed on Document.prototype.
+// ---------------------------------------------------------------------------
+
+/// `Document.prototype.styleSheets` getter (CSSOM §6.8).  Returns a
+/// fresh `StyleSheetList` wrapper; the walker enumerates `<style>`
+/// descendants on each access.
+pub(super) fn native_document_get_style_sheets(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let entity =
+        super::event_target::require_receiver(ctx, this, "Document", "styleSheets", |kind| {
+            matches!(kind, elidex_ecs::NodeKind::Document)
+        })?;
+    let Some(entity) = entity else {
+        return Err(VmError::type_error(
+            "Failed to execute 'styleSheets' on 'Document': Illegal invocation",
+        ));
+    };
+    let id = ctx.vm.alloc_style_sheet_list(entity);
+    Ok(JsValue::Object(id))
+}

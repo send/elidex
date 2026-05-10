@@ -2222,6 +2222,7 @@ dependencies = [
 name = "elidex-script-session"
 version = "0.1.0"
 dependencies = [
+ "elidex-css",
  "elidex-ecs",
  "elidex-html-parser",
  "elidex-plugin",

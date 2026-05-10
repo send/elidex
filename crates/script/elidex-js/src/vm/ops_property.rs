@@ -88,14 +88,16 @@ impl VmInner {
                 }
                 // CSSStyleDeclaration named-property exotic [[Get]] —
                 // `style.color` reads via `style.getPropertyValue`
-                // (Inline) or `getComputedStyle` (Computed) (CSSOM
-                // §6.6.1).  Falls through on prototype-chain hits so
+                // (Inline) / `getComputedStyle` (Computed) /
+                // `rule.style.getPropertyValue` (Rule, PR-B) per CSSOM
+                // §6.6.1.  Falls through on prototype-chain hits so
                 // `style.length` / `style.cssText` / `style.setProperty`
                 // resolve via the accessor / method chain.
                 #[cfg(feature = "engine")]
                 if matches!(
                     self.get_object(id).kind,
                     ObjectKind::CSSStyleDeclaration { .. }
+                        | ObjectKind::CSSRuleStyleDeclaration { .. }
                 ) {
                     if let Some(result) =
                         super::host::css_style_declaration::try_get(self, id, JsValue::String(key))
@@ -324,11 +326,12 @@ impl VmInner {
         }
         // CSSStyleDeclaration named-property exotic [[Delete]] —
         // `delete style.color` routes to `style.removeProperty`.
-        // Computed-source receivers silently no-op (read-only).
+        // Computed / Rule-source receivers silently no-op (read-only).
         #[cfg(feature = "engine")]
         if matches!(
             self.get_object(id).kind,
             super::value::ObjectKind::CSSStyleDeclaration { .. }
+                | super::value::ObjectKind::CSSRuleStyleDeclaration { .. }
         ) {
             if let PropertyKey::String(sid) = pk {
                 let result =
@@ -528,12 +531,13 @@ impl VmInner {
             }
         }
         // CSSStyleDeclaration named-property exotic [[Set]] —
-        // `style.color = x` routes to `style.setProperty`.  Same
-        // sealed-wrapper rationale as DOMStringMap above.
+        // `style.color = x` routes to `style.setProperty` (Inline) /
+        // silent no-op (Computed / Rule).  Same sealed-wrapper
+        // rationale as DOMStringMap above.
         #[cfg(feature = "engine")]
         if matches!(
             self.get_object(target_id).kind,
-            ObjectKind::CSSStyleDeclaration { .. }
+            ObjectKind::CSSStyleDeclaration { .. } | ObjectKind::CSSRuleStyleDeclaration { .. }
         ) {
             if let Some(result) = super::host::css_style_declaration::try_set(
                 self,

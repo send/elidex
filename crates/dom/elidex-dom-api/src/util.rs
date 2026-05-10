@@ -1,8 +1,38 @@
 //! Shared argument extraction and validation helpers.
 
+use std::borrow::Cow;
+
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiErrorKind};
+
+/// CSSOM §6.6.1 property-name normalisation: ASCII-lowercase non-custom
+/// names; preserve case for custom properties (`--*`) per CSS Variables
+/// Level 1 §2. Returns a borrowed `&str` when no allocation is needed
+/// (already lowercase / starts with `--`). Used by both `style.*` and
+/// `rule.style.*` handler families.
+#[must_use]
+pub(crate) fn normalize_property_name(name: &str) -> Cow<'_, str> {
+    if name.starts_with("--") {
+        Cow::Borrowed(name)
+    } else if name.bytes().any(|b| b.is_ascii_uppercase()) {
+        Cow::Owned(name.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(name)
+    }
+}
+
+/// In-place ASCII-lowercase variant of [`normalize_property_name`] for
+/// the common path where the caller already owns a `String` from arg
+/// coercion. Avoids the [`Cow`] `into_owned` round-trip for the
+/// most-frequent shape (no uppercase).
+#[must_use]
+pub(crate) fn normalize_property_name_owned(mut name: String) -> String {
+    if !name.starts_with("--") && name.bytes().any(|b| b.is_ascii_uppercase()) {
+        name.make_ascii_lowercase();
+    }
+    name
+}
 
 /// Extract a required string argument, returning `TypeError` if missing.
 ///

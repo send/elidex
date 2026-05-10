@@ -25,6 +25,7 @@ mod tests_cookie_referrer;
 mod tests_core_eval;
 mod tests_create_event_object;
 mod tests_css_style_declaration;
+mod tests_cssom_sheet;
 mod tests_data_view;
 mod tests_dataset;
 mod tests_dispatch_event;

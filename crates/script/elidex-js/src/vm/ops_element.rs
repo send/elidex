@@ -339,7 +339,7 @@ impl VmInner {
             #[cfg(feature = "engine")]
             if matches!(
                 self.get_object(id).kind,
-                ObjectKind::CSSStyleDeclaration { .. }
+                ObjectKind::CSSStyleDeclaration { .. } | ObjectKind::CSSRuleStyleDeclaration { .. }
             ) {
                 // Indexed access first — numeric keys never resolve as
                 // named properties (CSSOM §6.6.1 indexed getter takes
@@ -351,6 +351,26 @@ impl VmInner {
                     return result;
                 }
                 if let Some(result) = super::host::css_style_declaration::try_get(self, id, key) {
+                    return result;
+                }
+            }
+            // CSSRuleList / StyleSheetList indexed-property exotics —
+            // CSSOM §6.3 / §6.8 require `list[i]` to behave like
+            // `list.item(i)` and never resolve through the prototype
+            // chain for canonical numeric indices.
+            #[cfg(feature = "engine")]
+            if matches!(self.get_object(id).kind, ObjectKind::CSSRuleList { .. }) {
+                if let Some(result) =
+                    super::host::cssom_sheet::try_indexed_get_rule_list(self, id, key)
+                {
+                    return result;
+                }
+            }
+            #[cfg(feature = "engine")]
+            if matches!(self.get_object(id).kind, ObjectKind::StyleSheetList { .. }) {
+                if let Some(result) =
+                    super::host::cssom_sheet::try_indexed_get_style_sheet_list(self, id, key)
+                {
                     return result;
                 }
             }
@@ -692,12 +712,12 @@ impl VmInner {
             // `style.color = "red"` routes to `style.setProperty`
             // (CSSOM §6.6.1 named setter).  Per design review IMP-1/2:
             // raw write, no `parse_declaration_block` shorthand expand
-            // (matches Chrome).  Computed-source receivers silently
-            // no-op (read-only block).
+            // (matches Chrome).  Computed / Rule-source receivers
+            // silently no-op (read-only block).
             #[cfg(feature = "engine")]
             if matches!(
                 self.get_object(id).kind,
-                ObjectKind::CSSStyleDeclaration { .. }
+                ObjectKind::CSSStyleDeclaration { .. } | ObjectKind::CSSRuleStyleDeclaration { .. }
             ) {
                 if let Some(result) =
                     super::host::css_style_declaration::try_set(self, id, key, val)

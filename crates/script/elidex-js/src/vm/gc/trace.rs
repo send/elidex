@@ -360,6 +360,20 @@ pub(super) fn trace_work_list(
             // not cached.  Trace fan-out is a no-op.
             #[cfg(feature = "engine")]
             ObjectKind::CSSStyleDeclaration { .. } => {}
+            // CSSOM stylesheet wrappers (`#11-style-declaration` PR-B)
+            // — every variant carries only inline `Entity` / `rule_id`
+            // bits, no `ObjectId` references.  Identity for cached
+            // wrappers (CSSStyleSheet / CSSStyleRule /
+            // CSSRuleStyleDeclaration) is tracked by their respective
+            // `*_wrapper_cache` maps, scanned in mark-roots `(e3)` and
+            // pruned in the sweep tail.  CSSRuleList / StyleSheetList
+            // are fresh-alloc per access (not cached).
+            #[cfg(feature = "engine")]
+            ObjectKind::CSSStyleSheet { .. }
+            | ObjectKind::CSSRuleList { .. }
+            | ObjectKind::CSSStyleRule { .. }
+            | ObjectKind::CSSRuleStyleDeclaration { .. }
+            | ObjectKind::StyleSheetList { .. } => {}
             // `MutationObserver` carries only an inline observer ID
             // (not an `ObjectId`).  The JS callback is stored in
             // `HostData::mutation_observer_callbacks` keyed by that

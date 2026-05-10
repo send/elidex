@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 82],
+    pub(super) proto_roots: [Option<ObjectId>; 86],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -185,6 +185,23 @@ pub(super) struct GcRoots<'a> {
     /// here.
     #[cfg(feature = "engine")]
     pub(super) style_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `CSSStyleSheet` (`<style>.sheet`) wrapper identity cache.  Same
+    /// weak-through-owner semantics as
+    /// [`Self::style_wrapper_cache`].  Owner is the `<style>` element.
+    #[cfg(feature = "engine")]
+    pub(super) stylesheet_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `CSSStyleRule` wrapper identity cache keyed by
+    /// `(<style> Entity, rule_id)`.  Weak-through-owner: an entry is
+    /// pinned only while the `<style>` element wrapper is reachable
+    /// (rule_id alone has no observable JS lifetime separate from
+    /// the sheet).
+    #[cfg(feature = "engine")]
+    pub(super) css_style_rule_wrapper_cache: &'a HashMap<(elidex_ecs::Entity, u64), ObjectId>,
+    /// Rule-source `CSSRuleStyleDeclaration` wrapper identity cache.
+    /// Same shape and lifetime contract as
+    /// [`Self::css_style_rule_wrapper_cache`].
+    #[cfg(feature = "engine")]
+    pub(super) rule_style_wrapper_cache: &'a HashMap<(elidex_ecs::Entity, u64), ObjectId>,
     /// `ValidityState` `[SameObject]` identity cache.  Same
     /// weak-through-owner semantics as
     /// [`Self::class_list_wrapper_cache`] — entries are pinned only
@@ -356,6 +373,30 @@ pub(super) fn mark_roots(
         #[cfg(feature = "engine")]
         for (entity, &id) in roots.style_wrapper_cache {
             if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        // CSSOM stylesheet wrappers (`#11-style-declaration` PR-B) —
+        // weak-through-owner: a cached wrapper for `<style>.sheet`,
+        // `sheet.cssRules[i]` (CSSStyleRule), or `rule.style`
+        // (CSSRuleStyleDeclaration) survives only while the owning
+        // `<style>` element wrapper is reachable.  Each variant is
+        // payload-free in trace terms, so a single mark suffices.
+        #[cfg(feature = "engine")]
+        for (entity, &id) in roots.stylesheet_wrapper_cache {
+            if hd.get_cached_wrapper(*entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (&(entity, _rule_id), &id) in roots.css_style_rule_wrapper_cache {
+            if hd.get_cached_wrapper(entity).is_some() {
+                mark_object(id, obj_marks, work);
+            }
+        }
+        #[cfg(feature = "engine")]
+        for (&(entity, _rule_id), &id) in roots.rule_style_wrapper_cache {
+            if hd.get_cached_wrapper(entity).is_some() {
                 mark_object(id, obj_marks, work);
             }
         }

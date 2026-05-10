@@ -33,5 +33,5 @@ pub use event_listener::{EventListeners, ListenerEntry, ListenerId};
 pub use event_queue::{EventQueue, QueuedEvent};
 pub use identity_map::IdentityMap;
 pub use mutation::{apply_mutation, Mutation, MutationKind, MutationRecord};
-pub use session::SessionCore;
+pub use session::{CssomSheetState, SessionCore};
 pub use types::{ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, ReadyState};

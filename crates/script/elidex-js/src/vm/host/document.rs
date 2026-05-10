@@ -939,6 +939,12 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     // PR5b §C1 — `activeElement` returns the focused Element (or
     // `body` when no element is focused, per WHATWG §6.6.3 step 2).
     ("activeElement", native_document_get_active_element),
+    // CSSOM §6.8 — `document.styleSheets`.  Returns a fresh
+    // `StyleSheetList` wrapper; not `[SameObject]` (matches Chrome).
+    (
+        "styleSheets",
+        super::cssom_sheet::native_document_get_style_sheets,
+    ),
 ];
 
 /// Read/write Document accessors.  `title` is WHATWG-backed; `cookie`

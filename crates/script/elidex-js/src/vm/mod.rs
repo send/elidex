@@ -401,6 +401,40 @@ pub(crate) struct VmInner {
     /// like `class_list_wrapper_cache`.
     #[cfg(feature = "engine")]
     pub(crate) style_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `CSSStyleSheet.prototype` (CSSOM §6.2).  Chains to
+    /// `Object.prototype`; carries `cssRules` / `ownerNode` /
+    /// `type` / `disabled` / `href` / `media` accessors and
+    /// `insertRule` / `deleteRule` methods.  `None` until
+    /// `register_cssom_sheet_prototypes()` runs in `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) css_stylesheet_prototype: Option<ObjectId>,
+    /// `CSSRuleList.prototype` — `length` accessor + `item` method.
+    #[cfg(feature = "engine")]
+    pub(crate) css_rule_list_prototype: Option<ObjectId>,
+    /// `CSSStyleRule.prototype` (CSSOM §6.6) — `cssText` /
+    /// `selectorText` accessors and `style` accessor.
+    #[cfg(feature = "engine")]
+    pub(crate) css_style_rule_prototype: Option<ObjectId>,
+    /// `StyleSheetList.prototype` (CSSOM §6.8) — `length` accessor +
+    /// `item` method.
+    #[cfg(feature = "engine")]
+    pub(crate) style_sheet_list_prototype: Option<ObjectId>,
+    /// Identity cache for `CSSStyleSheet` wrappers backing
+    /// `<style>.sheet` (CSSOM §6.2).  Keyed by `<style>` `Entity`.
+    /// Pruned in the GC sweep tail.
+    #[cfg(feature = "engine")]
+    pub(crate) stylesheet_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// Identity cache for `CSSStyleRule` wrappers (CSSOM §6.6) keyed
+    /// by `(<style> Entity, rule_id)` so `sheet.cssRules[i] ===
+    /// sheet.cssRules[i]` across reads of the same rule.  Pruned in
+    /// the GC sweep tail.
+    #[cfg(feature = "engine")]
+    pub(crate) css_style_rule_wrapper_cache: HashMap<(elidex_ecs::Entity, u64), ObjectId>,
+    /// Identity cache for Rule-source `CSSRuleStyleDeclaration`
+    /// wrappers (CSSOM §6.6.1).  Same key shape as
+    /// [`Self::css_style_rule_wrapper_cache`] so `r.style === r.style`.
+    #[cfg(feature = "engine")]
+    pub(crate) rule_style_wrapper_cache: HashMap<(elidex_ecs::Entity, u64), ObjectId>,
     /// `MutationObserver.prototype` (WHATWG DOM §4.3).  Chains to
     /// `Object.prototype` and carries the `observe` / `disconnect` /
     /// `takeRecords` methods.  `None` until
