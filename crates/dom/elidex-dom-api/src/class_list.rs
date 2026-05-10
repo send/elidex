@@ -404,8 +404,7 @@ mod tests {
             let token = format!("foo{ch}bar");
             assert!(
                 validate_token(&token).is_ok(),
-                "token containing {:?} should be accepted (non-ASCII whitespace)",
-                ch
+                "token containing {ch:?} should be accepted (non-ASCII whitespace)"
             );
         }
     }
