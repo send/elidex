@@ -7,9 +7,14 @@
 //! `EcsDom`-versioned write path).
 //!
 //! The serialisation is **source-text concatenation**, not AST round-trip:
-//! each [`CssRule`] carries its raw `source_text` captured at parse time so we
-//! avoid implementing selector / declaration serialisation. Newly inserted
-//! rules from `insertRule(text, …)` ship the user-supplied text verbatim.
+//! each [`CssRule`] carries a `source_text` captured at parse time so we
+//! avoid implementing selector / declaration serialisation. The captured
+//! text is the post-parse normalised form (the parser builds
+//! `format!("{selector_text} {{ {body_text} }}")` over the trimmed
+//! prelude + body slices), so a `<style>{div{color:red}}` round-trip
+//! through `insertRule` becomes `div { color:red }` with whitespace
+//! around the braces. Author-visible CSS semantics are preserved; only
+//! exact byte-equivalence with the original textContent is not.
 
 use crate::parser::Stylesheet;
 

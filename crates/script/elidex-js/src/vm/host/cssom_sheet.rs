@@ -2,8 +2,13 @@
 //! prototype install + native method bodies (CSSOM §6.2 / §6.3 / §6.6 / §6.8).
 //!
 //! Thin bindings to `elidex_dom_api::cssom_sheet` per the CLAUDE.md Layering
-//! mandate — every body is either a single [`invoke_dom_api`] dispatch or a
-//! direct allocator helper that reads no DOM state.
+//! mandate — most bodies are a single [`invoke_dom_api`] dispatch or a direct
+//! allocator helper. The `StyleSheetList` natives (`length` / `item` /
+//! indexed exotic) and `<style>.sheet` getter additionally call the
+//! engine-independent walker [`elidex_dom_api::collect_stylesheet_owners`]
+//! (and `EcsDom::has_tag` for the per-element brand) directly — same shape
+//! as PR-A's `getComputedStyle` host binding, which reads `ComputedStyle` /
+//! tag info via dom-api helpers without an `invoke_dom_api` round-trip.
 //!
 //! ## Wrapper allocators
 //!
@@ -660,7 +665,7 @@ fn native_style_sheet_list_length_get(
     let Some(hd) = ctx.host_if_bound() else {
         return Ok(JsValue::Number(0.0));
     };
-    let count = elidex_dom_api::collect_stylesheet_owners(document, hd.dom()).len();
+    let count = elidex_dom_api::count_stylesheet_owners(document, hd.dom());
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(count as f64))
 }
@@ -769,10 +774,13 @@ pub(super) fn native_document_get_style_sheets(
         super::event_target::require_receiver(ctx, this, "Document", "styleSheets", |kind| {
             matches!(kind, elidex_ecs::NodeKind::Document)
         })?;
+    // Mirror sibling Document accessors (`head` / `body` / etc.):
+    // post-unbind / non-Document-receiver paths produce `Ok(None)`
+    // here and surface a safe default rather than `TypeError`. The
+    // brand-check `Err` path (a wrong-kind HostObject) still throws
+    // through `require_receiver`'s own error.
     let Some(entity) = entity else {
-        return Err(VmError::type_error(
-            "Failed to execute 'styleSheets' on 'Document': Illegal invocation",
-        ));
+        return Ok(JsValue::Null);
     };
     let id = ctx.vm.alloc_style_sheet_list(entity);
     Ok(JsValue::Object(id))

@@ -49,8 +49,9 @@ pub use class_list::{
 pub use computed_style::{css_value_to_string, GetComputedStyle};
 pub use css_namespace::{CssEscape, CssSupports};
 pub use cssom_sheet::{
-    collect_stylesheet_owners, CssRulesItemId, CssRulesLength, DeleteRule, InsertRule, RuleCssText,
-    RuleSelectorText, RuleStyleCssText, RuleStyleGetPropertyValue, RuleStyleItem, RuleStyleLength,
+    collect_stylesheet_owners, count_stylesheet_owners, CssRulesItemId, CssRulesLength, DeleteRule,
+    InsertRule, RuleCssText, RuleSelectorText, RuleStyleCssText, RuleStyleGetPropertyValue,
+    RuleStyleItem, RuleStyleLength,
 };
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,

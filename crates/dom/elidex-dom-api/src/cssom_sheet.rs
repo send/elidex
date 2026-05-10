@@ -518,23 +518,37 @@ impl DomApiHandler for RuleStyleCssText {
 // document.styleSheets walker
 // ---------------------------------------------------------------------------
 
-/// Collect all `<style>` element entities in document order.  Used by the
-/// host-side `document.styleSheets` indexed-property exotic and `length`.
+/// Collect all `<style>` element entities in document order. Used by the
+/// host-side `document.styleSheets` indexed-property exotic and `item`.
 /// `<link rel="stylesheet">` is intentionally NOT walked in PR-B —
 /// stylesheet preloading lives in a future milestone (slot
 /// `#11-link-stylesheet-loading`).
 #[must_use]
 pub fn collect_stylesheet_owners(document: Entity, dom: &EcsDom) -> Vec<Entity> {
     let mut out = Vec::new();
-    walk_styles(document, dom, &mut out);
+    walk_styles(document, dom, |e| out.push(e));
     out
 }
 
-fn walk_styles(entity: Entity, dom: &EcsDom, out: &mut Vec<Entity>) {
+/// Count `<style>` element entities under `document` without materialising
+/// the entity list. Backs `document.styleSheets.length` so the common
+/// length-only read path avoids a per-access `Vec` allocation.
+#[must_use]
+pub fn count_stylesheet_owners(document: Entity, dom: &EcsDom) -> usize {
+    let mut n: usize = 0;
+    walk_styles(document, dom, |_| n += 1);
+    n
+}
+
+fn walk_styles(entity: Entity, dom: &EcsDom, mut visit: impl FnMut(Entity)) {
+    walk_styles_inner(entity, dom, &mut visit);
+}
+
+fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity)) {
     if dom.has_tag(entity, "style") {
-        out.push(entity);
+        visit(entity);
     }
     for child in dom.children_iter(entity) {
-        walk_styles(child, dom, out);
+        walk_styles_inner(child, dom, visit);
     }
 }

@@ -271,7 +271,9 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::CSSStyleSheet { .. } => CloneKind::Unclonable("CSSStyleSheet"),
         ObjectKind::CSSRuleList { .. } => CloneKind::Unclonable("CSSRuleList"),
         ObjectKind::CSSStyleRule { .. } => CloneKind::Unclonable("CSSStyleRule"),
-        ObjectKind::CSSRuleStyleDeclaration { .. } => CloneKind::Unclonable("CSSStyleDeclaration"),
+        ObjectKind::CSSRuleStyleDeclaration { .. } => {
+            CloneKind::Unclonable("CSSRuleStyleDeclaration")
+        }
         ObjectKind::StyleSheetList { .. } => CloneKind::Unclonable("StyleSheetList"),
         ObjectKind::MutationObserver { .. } => CloneKind::Unclonable("MutationObserver"),
         ObjectKind::Storage { .. } => CloneKind::Unclonable("Storage"),

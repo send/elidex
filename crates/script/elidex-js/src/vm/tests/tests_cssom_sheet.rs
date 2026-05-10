@@ -364,6 +364,23 @@ fn document_style_sheets_indexed_returns_css_style_sheet() {
 }
 
 #[test]
+fn document_style_sheets_non_host_receiver_returns_null() {
+    // R2 IMP regression: when `require_receiver` returns `Ok(None)`
+    // (the receiver isn't a HostObject — e.g. a plain `{}` after the
+    // accessor is rebound, or any post-unbind retained wrapper), the
+    // styleSheets getter must surface a safe-default `null` instead
+    // of `TypeError`, mirroring sibling Document accessors
+    // (`head` / `body` / etc.) that already follow this convention.
+    let out = run_with_css(
+        "div {}",
+        "var getter = Object.getOwnPropertyDescriptor(document, 'styleSheets').get; \
+         try { var r = getter.call({}); (r === null) ? 'null' : 'not-null'; } \
+         catch (e) { 'threw: ' + e.name; }",
+    );
+    assert_eq!(out, "null");
+}
+
+#[test]
 fn document_style_sheets_out_of_range_is_null() {
     let out = run_with_css(
         "div {}",
