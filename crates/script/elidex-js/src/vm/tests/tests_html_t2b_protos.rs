@@ -661,11 +661,16 @@ fn meta_http_equiv_setter_on_div_throws() {
 
 #[test]
 fn brand_only_prototypes_all_chain_to_html_element() {
-    // 13 brand-only T2b protos all chain to the same HTMLElement
-    // prototype.  Compare via `<div>`'s grandparent (`<div>` itself
-    // routes through HTMLDivElement → HTMLElement → ...).
+    // All 14 T2b brand-only protos (`<div>` is included even though
+    // the JS-side comparison uses it as the reference grandparent —
+    // the test list explicitly contains every brand-only tag plus
+    // one heading representative `h3` to confirm the shared
+    // HTMLHeadingElement prototype also chains through correctly)
+    // resolve to the same `HTMLElement.prototype`.  Each `<div>`-side
+    // climb is `wrapper → HTMLDivElement.prototype → HTMLElement.prototype`,
+    // so the reference is `Object.getPrototypeOf(Object.getPrototypeOf(div))`.
     let out = run("var divHtmlElementProto = Object.getPrototypeOf(Object.getPrototypeOf(document.createElement('div'))); \
-         var brandOnlyTags = ['html', 'head', 'body', 'span', 'br', 'hr', 'pre', 'p', 'ul', 'dl', 'menu', 'picture']; \
+         var brandOnlyTags = ['html', 'head', 'body', 'div', 'span', 'br', 'hr', 'pre', 'p', 'h3', 'ul', 'dl', 'menu', 'picture']; \
          var allChain = true; \
          for (var i = 0; i < brandOnlyTags.length; i++) { \
             var el = document.createElement(brandOnlyTags[i]); \

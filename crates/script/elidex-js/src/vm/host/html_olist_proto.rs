@@ -33,6 +33,7 @@ use elidex_dom_api::element::enumerated_reflect::{
 use elidex_dom_api::element::numeric_reflect::parse_long_or_default;
 use elidex_ecs::{Entity, NodeKind};
 
+use super::super::coerce::to_boolean;
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, VmError};
 use super::super::VmInner;
@@ -128,16 +129,14 @@ fn ol_set_reversed(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    // ECMAScript ToBoolean per HTML §6.5.5 boolean reflect setter:
-    // truthy → set attribute to "" (empty per HTML legacy convention),
-    // falsy → remove attribute.
-    let truthy = match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Empty | JsValue::Undefined | JsValue::Null => false,
-        JsValue::Boolean(b) => b,
-        JsValue::Number(n) => n != 0.0 && !n.is_nan(),
-        JsValue::String(sid) => !ctx.vm.strings.get_utf8(sid).is_empty(),
-        JsValue::Object(_) | JsValue::Symbol(_) | JsValue::BigInt(_) => true,
-    };
+    // HTML §6.5.5 boolean reflect setter: ECMAScript ToBoolean →
+    // truthy sets attribute to "" (HTML legacy convention), falsy
+    // removes.  Routes through the shared `coerce::to_boolean` so
+    // `0n` → false (and any other ToBoolean spec edge stays in one
+    // place), rather than the previous local hand-rolled match
+    // which wrongly treated all BigInts as truthy.
+    let raw = args.first().copied().unwrap_or(JsValue::Undefined);
+    let truthy = to_boolean(ctx.vm, raw);
     let attr_sid = ctx.vm.strings.intern("reversed");
     if truthy {
         let empty_value = JsValue::String(ctx.vm.well_known.empty);

@@ -1,9 +1,10 @@
 //! Brand-only `HTMLElement` per-tag prototype family for the T2b
 //! passive grouping bundle (slot `#11-tags-T2b-passive`).
 //!
-//! Houses the 13 prototypes that surface no IDL attributes beyond the
+//! Houses the 14 prototypes that surface no IDL attributes beyond the
 //! inherited `HTMLElement` / `Element` / `Node` / `EventTarget`
-//! members.  Each is a fresh `Ordinary` object chained to
+//! members: html / head / body / div / span / br / hr / pre / p /
+//! heading (shared h1-h6) / ul / dl / menu / picture.  Each is a fresh `Ordinary` object chained to
 //! `HTMLElement.prototype`; the only observable difference from
 //! `HTMLElement.prototype` itself is identity (so brand checks like
 //! `Object.getPrototypeOf(div) === HTMLDivElement.prototype` hold).
@@ -30,7 +31,7 @@ use super::super::value::{Object, ObjectId, ObjectKind, PropertyStorage};
 use super::super::VmInner;
 
 impl VmInner {
-    /// Install all 13 brand-only T2b passive prototypes in one pass.
+    /// Install all 14 brand-only T2b passive prototypes in one pass.
     /// Each chains to `HTMLElement.prototype`; the call MUST happen
     /// after `register_html_element_prototype` so the parent slot is
     /// populated.

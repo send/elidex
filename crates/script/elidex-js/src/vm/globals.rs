@@ -297,7 +297,7 @@ impl VmInner {
 
             // T2b passive head + grouping prototypes (slot
             // `#11-tags-T2b-passive`).  Brand-only bundle first so
-            // the 13 shared-pattern prototypes land before the 11
+            // the 14 shared-pattern prototypes land before the 10
             // accessor-bearing ones — no ordering dependency between
             // them (each chains to `HTMLElement.prototype` via the
             // existing parent), but grouping the brand-only install

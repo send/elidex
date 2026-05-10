@@ -237,7 +237,7 @@ impl VmInner {
     /// T2b passive head + grouping/empty bundle dispatch.  Split out
     /// of `tag_specific_html_prototype` to keep each function under
     /// the 100-line cap; the two halves share the same linear-`if`
-    /// structure and could be refused into a `[(name, slot)]` table
+    /// structure and could be refactored into a `[(name, slot)]` table
     /// later (deferred to the bench-driven O(1) optimisation slot in
     /// the master roadmap §H-7 — that work touches **all** dispatch
     /// arms, not just the T2b half).
