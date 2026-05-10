@@ -333,6 +333,13 @@ impl Vm {
             // Clearing here keeps post-rebind lookups allocate-fresh.
             self.inner.class_list_wrapper_cache.clear();
             self.inner.dataset_wrapper_cache.clear();
+            // T2a slot — per-attr DOMTokenList wrapper caches share
+            // the same Entity-index aliasing risk as classList /
+            // dataset.  Clearing here keeps post-rebind lookups
+            // allocate-fresh.
+            self.inner.rel_list_wrapper_cache.clear();
+            self.inner.link_rel_list_wrapper_cache.clear();
+            self.inner.link_sizes_wrapper_cache.clear();
             self.inner.style_wrapper_cache.clear();
             self.inner.stylesheet_wrapper_cache.clear();
             self.inner.css_style_rule_wrapper_cache.clear();

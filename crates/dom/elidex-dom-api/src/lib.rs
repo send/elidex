@@ -43,8 +43,13 @@ pub use child_node::{
     After, Append, Before, ChildNodeRemove, Closest, Matches, Prepend, ReplaceChildren, ReplaceWith,
 };
 pub use class_list::{
-    ClassListAdd, ClassListContains, ClassListItem, ClassListLength, ClassListRemove,
-    ClassListReplace, ClassListSupports, ClassListToggle, ClassListValueGet, ClassListValueSet,
+    TokenListHandler, TokenListOp, CLASS_LIST_ADD, CLASS_LIST_CONTAINS, CLASS_LIST_ITEM,
+    CLASS_LIST_LENGTH, CLASS_LIST_REMOVE, CLASS_LIST_REPLACE, CLASS_LIST_SUPPORTS,
+    CLASS_LIST_TOGGLE, CLASS_LIST_VALUE_GET, CLASS_LIST_VALUE_SET, LINK_SIZES_ADD,
+    LINK_SIZES_CONTAINS, LINK_SIZES_ITEM, LINK_SIZES_LENGTH, LINK_SIZES_REMOVE, LINK_SIZES_REPLACE,
+    LINK_SIZES_SUPPORTS, LINK_SIZES_TOGGLE, LINK_SIZES_VALUE_GET, LINK_SIZES_VALUE_SET,
+    REL_LIST_ADD, REL_LIST_CONTAINS, REL_LIST_ITEM, REL_LIST_LENGTH, REL_LIST_REMOVE,
+    REL_LIST_REPLACE, REL_LIST_SUPPORTS, REL_LIST_TOGGLE, REL_LIST_VALUE_GET, REL_LIST_VALUE_SET,
 };
 pub use computed_style::{css_value_to_string, GetComputedStyle};
 pub use css_namespace::{CssEscape, CssSupports};
@@ -55,6 +60,14 @@ pub use cssom_sheet::{
 };
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
+};
+pub use element::href_accessor::{
+    HyperlinkHashGet, HyperlinkHashSet, HyperlinkHostGet, HyperlinkHostSet, HyperlinkHostnameGet,
+    HyperlinkHostnameSet, HyperlinkHrefGet, HyperlinkHrefSet, HyperlinkOriginGet,
+    HyperlinkPasswordGet, HyperlinkPasswordSet, HyperlinkPathnameGet, HyperlinkPathnameSet,
+    HyperlinkPortGet, HyperlinkPortSet, HyperlinkProtocolGet, HyperlinkProtocolSet,
+    HyperlinkSearchGet, HyperlinkSearchSet, HyperlinkToString, HyperlinkUsernameGet,
+    HyperlinkUsernameSet,
 };
 pub use element::{
     camel_to_data_attr, collect_text_content, data_attr_to_camel, serialize_inner_html,

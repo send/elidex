@@ -740,3 +740,53 @@ fn attr_wrapper_cache_cleared_on_unbind() {
         "dataset_wrapper_cache must be empty after unbind"
     );
 }
+
+// ---------------------------------------------------------------------------
+// PR178 R3 regression — `Vm::unbind` must clear the T2a-slot
+// per-attr DOMTokenList wrapper caches (`rel_list_wrapper_cache` /
+// `link_rel_list_wrapper_cache` / `link_sizes_wrapper_cache`) for the
+// same cross-DOM Entity-index aliasing reason as `attr_wrapper_cache`
+// / `class_list_wrapper_cache` / `dataset_wrapper_cache`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn t2a_token_list_wrapper_caches_cleared_on_unbind() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    let body = dom.create_element("body", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    assert!(dom.append_child(html, body));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Touch each per-attr wrapper to populate its identity cache.
+    vm.eval(
+        "var a = document.createElement('a'); a.relList; \
+         var l = document.createElement('link'); l.relList; l.sizes;",
+    )
+    .unwrap();
+    assert!(
+        !vm.inner.rel_list_wrapper_cache.is_empty()
+            && !vm.inner.link_rel_list_wrapper_cache.is_empty()
+            && !vm.inner.link_sizes_wrapper_cache.is_empty(),
+        "T2a wrapper caches should be populated after relList / sizes touch"
+    );
+    vm.unbind();
+    assert!(
+        vm.inner.rel_list_wrapper_cache.is_empty(),
+        "rel_list_wrapper_cache must be empty after unbind"
+    );
+    assert!(
+        vm.inner.link_rel_list_wrapper_cache.is_empty(),
+        "link_rel_list_wrapper_cache must be empty after unbind"
+    );
+    assert!(
+        vm.inner.link_sizes_wrapper_cache.is_empty(),
+        "link_sizes_wrapper_cache must be empty after unbind"
+    );
+}

@@ -150,17 +150,96 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     // implementations and for any future engine that prefers the unified
     // dispatch path; they are intentionally NOT registered here.
 
-    // --- ClassList ---
-    r.register_static("classList.add", Box::new(super::ClassListAdd));
-    r.register_static("classList.remove", Box::new(super::ClassListRemove));
-    r.register_static("classList.toggle", Box::new(super::ClassListToggle));
-    r.register_static("classList.contains", Box::new(super::ClassListContains));
-    r.register_static("classList.replace", Box::new(super::ClassListReplace));
-    r.register_static("classList.value.get", Box::new(super::ClassListValueGet));
-    r.register_static("classList.value.set", Box::new(super::ClassListValueSet));
-    r.register_static("classList.length", Box::new(super::ClassListLength));
-    r.register_static("classList.item", Box::new(super::ClassListItem));
-    r.register_static("classList.supports", Box::new(super::ClassListSupports));
+    // --- DOMTokenList families (classList / relList / linkSizes) ---
+    // Single TokenListHandler factory dispatches by (attr_name, op);
+    // /simplify H3 fold of slot `#11-tags-T2a-url-bearing` collapsed
+    // 28 unit struct types into 28 const instances.
+    r.register_static("classList.add", Box::new(super::CLASS_LIST_ADD));
+    r.register_static("classList.remove", Box::new(super::CLASS_LIST_REMOVE));
+    r.register_static("classList.toggle", Box::new(super::CLASS_LIST_TOGGLE));
+    r.register_static("classList.contains", Box::new(super::CLASS_LIST_CONTAINS));
+    r.register_static("classList.replace", Box::new(super::CLASS_LIST_REPLACE));
+    r.register_static("classList.value.get", Box::new(super::CLASS_LIST_VALUE_GET));
+    r.register_static("classList.value.set", Box::new(super::CLASS_LIST_VALUE_SET));
+    r.register_static("classList.length", Box::new(super::CLASS_LIST_LENGTH));
+    r.register_static("classList.item", Box::new(super::CLASS_LIST_ITEM));
+    r.register_static("classList.supports", Box::new(super::CLASS_LIST_SUPPORTS));
+
+    r.register_static("relList.add", Box::new(super::REL_LIST_ADD));
+    r.register_static("relList.remove", Box::new(super::REL_LIST_REMOVE));
+    r.register_static("relList.toggle", Box::new(super::REL_LIST_TOGGLE));
+    r.register_static("relList.contains", Box::new(super::REL_LIST_CONTAINS));
+    r.register_static("relList.replace", Box::new(super::REL_LIST_REPLACE));
+    r.register_static("relList.value.get", Box::new(super::REL_LIST_VALUE_GET));
+    r.register_static("relList.value.set", Box::new(super::REL_LIST_VALUE_SET));
+    r.register_static("relList.length", Box::new(super::REL_LIST_LENGTH));
+    r.register_static("relList.item", Box::new(super::REL_LIST_ITEM));
+    r.register_static("relList.supports", Box::new(super::REL_LIST_SUPPORTS));
+
+    r.register_static("linkSizes.add", Box::new(super::LINK_SIZES_ADD));
+    r.register_static("linkSizes.remove", Box::new(super::LINK_SIZES_REMOVE));
+    r.register_static("linkSizes.toggle", Box::new(super::LINK_SIZES_TOGGLE));
+    r.register_static("linkSizes.contains", Box::new(super::LINK_SIZES_CONTAINS));
+    r.register_static("linkSizes.replace", Box::new(super::LINK_SIZES_REPLACE));
+    r.register_static("linkSizes.value.get", Box::new(super::LINK_SIZES_VALUE_GET));
+    r.register_static("linkSizes.value.set", Box::new(super::LINK_SIZES_VALUE_SET));
+    r.register_static("linkSizes.length", Box::new(super::LINK_SIZES_LENGTH));
+    r.register_static("linkSizes.item", Box::new(super::LINK_SIZES_ITEM));
+    r.register_static("linkSizes.supports", Box::new(super::LINK_SIZES_SUPPORTS));
+
+    // --- HTMLHyperlinkElementUtils mixin (anchor / area, slot #11-tags-T2a-url-bearing) ---
+    r.register_static("hyperlink.href.get", Box::new(super::HyperlinkHrefGet));
+    r.register_static("hyperlink.href.set", Box::new(super::HyperlinkHrefSet));
+    r.register_static("hyperlink.origin.get", Box::new(super::HyperlinkOriginGet));
+    r.register_static(
+        "hyperlink.protocol.get",
+        Box::new(super::HyperlinkProtocolGet),
+    );
+    r.register_static(
+        "hyperlink.protocol.set",
+        Box::new(super::HyperlinkProtocolSet),
+    );
+    r.register_static(
+        "hyperlink.username.get",
+        Box::new(super::HyperlinkUsernameGet),
+    );
+    r.register_static(
+        "hyperlink.username.set",
+        Box::new(super::HyperlinkUsernameSet),
+    );
+    r.register_static(
+        "hyperlink.password.get",
+        Box::new(super::HyperlinkPasswordGet),
+    );
+    r.register_static(
+        "hyperlink.password.set",
+        Box::new(super::HyperlinkPasswordSet),
+    );
+    r.register_static("hyperlink.host.get", Box::new(super::HyperlinkHostGet));
+    r.register_static("hyperlink.host.set", Box::new(super::HyperlinkHostSet));
+    r.register_static(
+        "hyperlink.hostname.get",
+        Box::new(super::HyperlinkHostnameGet),
+    );
+    r.register_static(
+        "hyperlink.hostname.set",
+        Box::new(super::HyperlinkHostnameSet),
+    );
+    r.register_static("hyperlink.port.get", Box::new(super::HyperlinkPortGet));
+    r.register_static("hyperlink.port.set", Box::new(super::HyperlinkPortSet));
+    r.register_static(
+        "hyperlink.pathname.get",
+        Box::new(super::HyperlinkPathnameGet),
+    );
+    r.register_static(
+        "hyperlink.pathname.set",
+        Box::new(super::HyperlinkPathnameSet),
+    );
+    r.register_static("hyperlink.search.get", Box::new(super::HyperlinkSearchGet));
+    r.register_static("hyperlink.search.set", Box::new(super::HyperlinkSearchSet));
+    r.register_static("hyperlink.hash.get", Box::new(super::HyperlinkHashGet));
+    r.register_static("hyperlink.hash.set", Box::new(super::HyperlinkHashSet));
+    r.register_static("hyperlink.toString", Box::new(super::HyperlinkToString));
 
     // --- Tree navigation ---
     r.register_static("parentNode.get", Box::new(super::GetParentNode));

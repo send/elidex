@@ -45,6 +45,25 @@ use super::value::{
     ObjectId, StringId, StringIterState, SymbolId,
 };
 
+/// Discriminator for [`ObjectKind::DOMTokenList`] indicating which
+/// content attribute backs the wrapper.  Slot
+/// `#11-tags-T2a-url-bearing` (CRIT-2 Option A — separate per-attr
+/// caches with shared `DOMTokenList.prototype`).  Encoded as `u8`
+/// for compact storage in `ObjectKind`.
+#[cfg(feature = "engine")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum DomTokenListSource {
+    /// `Element.classList` → `class` attribute.
+    Class = 0,
+    /// `<a>.relList` / `<area>.relList` → `rel` attribute.
+    RelHyperlink = 1,
+    /// `<link>.relList` → `rel` attribute.
+    RelLink = 2,
+    /// `<link>.sizes` → `sizes` attribute.
+    LinkSizes = 3,
+}
+
 /// The internal kind of an object.
 pub enum ObjectKind {
     /// Plain `{}` object.
@@ -401,12 +420,24 @@ pub enum ObjectKind {
     /// stateless beyond the entity reference.
     ///
     /// Identity is preserved via `VmInner::class_list_wrapper_cache`
-    /// keyed by owner `Entity`.  GC contract: payload-free in trace
-    /// terms (the `entity_bits` is not an `ObjectId`); the sweep tail
-    /// prunes `class_list_wrapper_cache` entries whose value
+    /// (when `source` is `DomTokenListSource::Class`) and the
+    /// per-attribute caches added in slot `#11-tags-T2a-url-bearing`
+    /// (`rel_list_wrapper_cache` / `link_rel_list_wrapper_cache` /
+    /// `link_sizes_wrapper_cache`).  GC contract: payload-free in
+    /// trace terms (the `entity_bits` is not an `ObjectId`); the
+    /// sweep tail prunes the matching cache entry whose value
     /// `ObjectId` was collected.
+    ///
+    /// `source` discriminates which content attribute backs the
+    /// wrapper — see `DomTokenListSource`.  The native methods on
+    /// `DOMTokenList.prototype` route their `invoke_dom_api` method
+    /// name (`"classList.add"` / `"relList.add"` /
+    /// `"linkSizes.add"`) by reading this discriminator at call time.
     #[cfg(feature = "engine")]
-    DOMTokenList { entity_bits: u64 },
+    DOMTokenList {
+        entity_bits: u64,
+        source: DomTokenListSource,
+    },
     /// `DOMStringMap` instance (WHATWG HTML §3.2.6 / WebIDL §3.10)
     /// — the named-property exotic backing `HTMLElement.dataset`.
     /// Carries the owner `Entity` inline.  `[[Get]]` / `[[Set]]` /

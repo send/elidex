@@ -2,8 +2,11 @@
 //! getAttribute/setAttribute/removeAttribute, textContent, innerHTML.
 
 mod attrs;
+pub mod enumerated_reflect;
+pub mod href_accessor;
 mod inheritance;
 pub(crate) mod layout_query;
+pub mod numeric_reflect;
 mod option_disabled;
 mod props;
 pub(crate) mod tree;

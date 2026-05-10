@@ -17,6 +17,7 @@ elidex-script-session.workspace = true
 elidex-css.workspace = true
 elidex-style.workspace = true
 hecs.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true
