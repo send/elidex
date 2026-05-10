@@ -315,6 +315,18 @@ impl VmInner {
             self.register_html_map_prototype();
             self.register_html_data_prototype();
             self.register_html_time_prototype();
+
+            // T2c HTMLTable family prototypes (slot
+            // `#11-tags-T2c-table`).  6 prototypes routed across 10
+            // dispatch arms (3 share section, 2 share cell, 2 share
+            // col).  Each chains to `HTMLElement.prototype` via the
+            // existing parent.
+            self.register_html_table_prototype();
+            self.register_html_table_section_prototype();
+            self.register_html_table_row_prototype();
+            self.register_html_table_cell_prototype();
+            self.register_html_table_caption_prototype();
+            self.register_html_table_col_prototype();
         }
 
         // HTMLCollection.prototype / NodeList.prototype — shared

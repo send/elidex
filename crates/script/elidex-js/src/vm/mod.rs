@@ -686,6 +686,62 @@ pub(crate) struct VmInner {
     /// `dateTime` (string reflect, attr `datetime`).
     #[cfg(feature = "engine")]
     pub(crate) html_time_prototype: Option<ObjectId>,
+    /// `HTMLTableElement.prototype` (HTML §4.9.1).  Carries
+    /// `caption` / `tHead` / `tFoot` getter+setter pairs +
+    /// `tBodies` / `rows` `[SameObject]` HTMLCollections +
+    /// `createTHead` / `createTFoot` / `createCaption` /
+    /// `createTBody` / `deleteTHead` / `deleteTFoot` /
+    /// `deleteCaption` / `insertRow` / `deleteRow`.
+    /// Slot `#11-tags-T2c-table`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_table_prototype: Option<ObjectId>,
+    /// `HTMLTableSectionElement.prototype` (HTML §4.9.5-7) — shared
+    /// across `<thead>` / `<tbody>` / `<tfoot>`.  Carries `rows`
+    /// `[SameObject]` HTMLCollection of direct `<tr>` children +
+    /// `insertRow` / `deleteRow`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_table_section_prototype: Option<ObjectId>,
+    /// `HTMLTableRowElement.prototype` (HTML §4.9.8).  Carries
+    /// `rowIndex` / `sectionRowIndex` + `cells` `[SameObject]`
+    /// HTMLCollection of direct `<td>`/`<th>` children +
+    /// `insertCell` / `deleteCell`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_table_row_prototype: Option<ObjectId>,
+    /// `HTMLTableCellElement.prototype` (HTML §4.9.9-10) — shared
+    /// across `<td>` / `<th>`.  Carries `cellIndex` + `colSpan` /
+    /// `rowSpan` (clamped long IDL) + `headers` / `abbr` (string
+    /// reflect) + `scope` (enumerated reflect).
+    #[cfg(feature = "engine")]
+    pub(crate) html_table_cell_prototype: Option<ObjectId>,
+    /// `HTMLTableCaptionElement.prototype` (HTML §4.9.2).
+    /// Brand-only; deprecated `align` deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_table_caption_prototype: Option<ObjectId>,
+    /// `HTMLTableColElement.prototype` (HTML §4.9.4) — shared across
+    /// `<col>` / `<colgroup>`.  Carries `span` (long, default 1,
+    /// clamped 1..=1000).  Deprecated `align`/`vAlign`/`width`/`ch`/`chOff`
+    /// deferred.
+    #[cfg(feature = "engine")]
+    pub(crate) html_table_col_prototype: Option<ObjectId>,
+    /// `<table>.rows` `[SameObject]` HTMLCollection identity cache
+    /// (HTML §4.9.1).  Keyed by the owning `<table>` Entity; same
+    /// weak-through-owner mark-via-owner semantics as
+    /// [`Self::map_areas_wrappers`].  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) table_rows_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `<table>.tBodies` `[SameObject]` HTMLCollection identity cache.
+    /// Keyed by the owning `<table>` Entity.
+    #[cfg(feature = "engine")]
+    pub(crate) table_bodies_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `<thead>`/`<tbody>`/`<tfoot>` `.rows` `[SameObject]`
+    /// HTMLCollection identity cache.  Keyed by the owning section
+    /// Entity (one cache shared across the three section tags).
+    #[cfg(feature = "engine")]
+    pub(crate) table_section_rows_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `<tr>.cells` `[SameObject]` HTMLCollection identity cache.
+    /// Keyed by the owning `<tr>` Entity.
+    #[cfg(feature = "engine")]
+    pub(crate) table_row_cells_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
     /// reserved-not-yet-registered slot.  When the
     /// `#11-tags-radionodelist` defer slot lands, this will hold a

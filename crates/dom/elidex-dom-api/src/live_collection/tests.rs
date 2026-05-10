@@ -894,3 +894,232 @@ fn selected_options_implicit_default_skips_nested_optgroup_disabled() {
     assert_eq!(coll.length(&dom), 1);
     assert_eq!(coll.item(0, &dom), Some(o2));
 }
+
+// ---------------------------------------------------------------------------
+// T2c: DirectChildrenByTagName + TableRows walkers
+// ---------------------------------------------------------------------------
+
+#[test]
+fn direct_children_by_tag_name_single() {
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let tb1 = dom.create_element("tbody", Attributes::default());
+    let tb2 = dom.create_element("tbody", Attributes::default());
+    let caption = dom.create_element("caption", Attributes::default());
+    dom.append_child(table, caption);
+    dom.append_child(table, tb1);
+    dom.append_child(table, tb2);
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::DirectChildrenByTagName(vec!["tbody".into()]),
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 2);
+    assert_eq!(coll.item(0, &dom), Some(tb1));
+    assert_eq!(coll.item(1, &dom), Some(tb2));
+}
+
+#[test]
+fn direct_children_by_tag_name_multi() {
+    // <tr>'s cells: td and th.
+    let mut dom = EcsDom::new();
+    let tr = dom.create_element("tr", Attributes::default());
+    let td1 = dom.create_element("td", Attributes::default());
+    let th = dom.create_element("th", Attributes::default());
+    let td2 = dom.create_element("td", Attributes::default());
+    dom.append_child(tr, td1);
+    dom.append_child(tr, th);
+    dom.append_child(tr, td2);
+    let mut coll = LiveCollection::new(
+        tr,
+        CollectionFilter::DirectChildrenByTagName(vec!["td".into(), "th".into()]),
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 3);
+    assert_eq!(coll.item(0, &dom), Some(td1));
+    assert_eq!(coll.item(1, &dom), Some(th));
+    assert_eq!(coll.item(2, &dom), Some(td2));
+}
+
+#[test]
+fn direct_children_by_tag_name_ascii_ci() {
+    let mut dom = EcsDom::new();
+    let tr = dom.create_element("TR", Attributes::default());
+    let td = dom.create_element("TD", Attributes::default());
+    dom.append_child(tr, td);
+    let mut coll = LiveCollection::new(
+        tr,
+        CollectionFilter::DirectChildrenByTagName(vec!["td".into()]),
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 1);
+}
+
+#[test]
+fn direct_children_by_tag_name_only_direct() {
+    // Nested <tr> inside a <tbody> child must not appear in the
+    // <table>.tBodies-style direct walk for the "tr" filter.
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let tbody = dom.create_element("tbody", Attributes::default());
+    let nested_tr = dom.create_element("tr", Attributes::default());
+    dom.append_child(table, tbody);
+    dom.append_child(tbody, nested_tr);
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::DirectChildrenByTagName(vec!["tr".into()]),
+        CollectionKind::HtmlCollection,
+    );
+    // Only direct <tr> children of <table> count — none here.
+    assert_eq!(coll.length(&dom), 0);
+}
+
+#[test]
+fn direct_children_by_tag_name_empty_vec() {
+    let mut dom = EcsDom::new();
+    let tr = dom.create_element("tr", Attributes::default());
+    let td = dom.create_element("td", Attributes::default());
+    dom.append_child(tr, td);
+    let mut coll = LiveCollection::new(
+        tr,
+        CollectionFilter::DirectChildrenByTagName(Vec::new()),
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 0);
+}
+
+#[test]
+fn table_rows_basic_thead_body_tfoot() {
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let thead = dom.create_element("thead", Attributes::default());
+    let tbody = dom.create_element("tbody", Attributes::default());
+    let tfoot = dom.create_element("tfoot", Attributes::default());
+    let h_tr = dom.create_element("tr", Attributes::default());
+    let b_tr = dom.create_element("tr", Attributes::default());
+    let f_tr = dom.create_element("tr", Attributes::default());
+    dom.append_child(table, thead);
+    dom.append_child(table, tbody);
+    dom.append_child(table, tfoot);
+    dom.append_child(thead, h_tr);
+    dom.append_child(tbody, b_tr);
+    dom.append_child(tfoot, f_tr);
+
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::TableRows,
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 3);
+    let snap = coll.snapshot(&dom);
+    assert_eq!(snap, &[h_tr, b_tr, f_tr]);
+}
+
+#[test]
+fn table_rows_empty_table() {
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::TableRows,
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 0);
+}
+
+#[test]
+fn table_rows_no_tbody_direct_tr() {
+    // <table><tr>...</tr></table> — direct <tr> child of <table>.
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let tr = dom.create_element("tr", Attributes::default());
+    dom.append_child(table, tr);
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::TableRows,
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 1);
+    assert_eq!(coll.item(0, &dom), Some(tr));
+}
+
+#[test]
+fn table_rows_multiple_tbodies_in_order() {
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let tb1 = dom.create_element("tbody", Attributes::default());
+    let tb2 = dom.create_element("tbody", Attributes::default());
+    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr2 = dom.create_element("tr", Attributes::default());
+    dom.append_child(table, tb1);
+    dom.append_child(table, tb2);
+    dom.append_child(tb1, tr1);
+    dom.append_child(tb2, tr2);
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::TableRows,
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 2);
+    assert_eq!(coll.snapshot(&dom), &[tr1, tr2]);
+}
+
+#[test]
+fn table_rows_interleaved_direct_tr_and_tbody() {
+    // <table><tr A></tr><tbody><tr B></tr></tbody><tr C></tr></table>
+    // Result order: A, B, C (tree order; thead/tfoot absent).
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let tr_a = dom.create_element("tr", Attributes::default());
+    let tbody = dom.create_element("tbody", Attributes::default());
+    let tr_b = dom.create_element("tr", Attributes::default());
+    let tr_c = dom.create_element("tr", Attributes::default());
+    dom.append_child(table, tr_a);
+    dom.append_child(table, tbody);
+    dom.append_child(tbody, tr_b);
+    dom.append_child(table, tr_c);
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::TableRows,
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.snapshot(&dom), &[tr_a, tr_b, tr_c]);
+}
+
+#[test]
+fn table_rows_skips_non_tr_in_section() {
+    // Stray non-<tr> children of <tbody> must not appear in rows.
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let tbody = dom.create_element("tbody", Attributes::default());
+    let tr = dom.create_element("tr", Attributes::default());
+    let stray = dom.create_element("div", Attributes::default());
+    dom.append_child(table, tbody);
+    dom.append_child(tbody, stray);
+    dom.append_child(tbody, tr);
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::TableRows,
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.length(&dom), 1);
+    assert_eq!(coll.item(0, &dom), Some(tr));
+}
+
+#[test]
+fn table_rows_thead_only() {
+    let mut dom = EcsDom::new();
+    let table = dom.create_element("table", Attributes::default());
+    let thead = dom.create_element("thead", Attributes::default());
+    let tr1 = dom.create_element("tr", Attributes::default());
+    let tr2 = dom.create_element("tr", Attributes::default());
+    dom.append_child(table, thead);
+    dom.append_child(thead, tr1);
+    dom.append_child(thead, tr2);
+    let mut coll = LiveCollection::new(
+        table,
+        CollectionFilter::TableRows,
+        CollectionKind::HtmlCollection,
+    );
+    assert_eq!(coll.snapshot(&dom), &[tr1, tr2]);
+}

@@ -348,6 +348,15 @@ impl Vm {
             // identity cache.  Same Entity-index cross-DOM aliasing
             // risk as the T2a wrapper caches above (lesson #195).
             self.inner.map_areas_wrappers.clear();
+            // T2c slot (`#11-tags-T2c-table`) — 4 `[SameObject]`
+            // HTMLCollection identity caches for the HTMLTable family
+            // (table.rows / table.tBodies / section.rows / row.cells).
+            // Same Entity-index cross-DOM aliasing risk as the T2a/T2b
+            // wrapper caches above (lesson #195).
+            self.inner.table_rows_wrappers.clear();
+            self.inner.table_bodies_wrappers.clear();
+            self.inner.table_section_rows_wrappers.clear();
+            self.inner.table_row_cells_wrappers.clear();
             // `mutation_observers.clear_all_targets()` drains every
             // observer's target list + record queue so a post-rebind
             // `notify` cannot match a `target` Entity that happens to

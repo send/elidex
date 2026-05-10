@@ -328,6 +328,49 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "time") {
             return self.html_time_prototype;
         }
+        // Pass `host` through so the T2c chain doesn't re-resolve
+        // `host_data.as_deref()?` — the parent call already owns a
+        // borrow of the same `HostData`.
+        self.tag_specific_t2c_prototype(host, entity)
+    }
+
+    /// T2c HTMLTable family bundle dispatch (slot
+    /// `#11-tags-T2c-table`).  Six prototypes routed across ten
+    /// dispatch arms — `<thead>`/`<tbody>`/`<tfoot>` share section,
+    /// `<td>`/`<th>` share cell, `<col>`/`<colgroup>` share col.
+    /// Split out of `tag_specific_html_prototype` to keep each
+    /// function under the 100-line cap; the same linear-`if`
+    /// structure as the T2b helper.  Takes `host` by reference so
+    /// the dispatch chain doesn't redundantly re-resolve
+    /// `host_data.as_deref()` (caller already holds the borrow).
+    fn tag_specific_t2c_prototype(
+        &self,
+        host: &super::super::host_data::HostData,
+        entity: elidex_ecs::Entity,
+    ) -> Option<ObjectId> {
+        if host.tag_matches_ascii_case(entity, "table") {
+            return self.html_table_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "thead")
+            || host.tag_matches_ascii_case(entity, "tbody")
+            || host.tag_matches_ascii_case(entity, "tfoot")
+        {
+            return self.html_table_section_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "tr") {
+            return self.html_table_row_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "td") || host.tag_matches_ascii_case(entity, "th") {
+            return self.html_table_cell_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "caption") {
+            return self.html_table_caption_prototype;
+        }
+        if host.tag_matches_ascii_case(entity, "col")
+            || host.tag_matches_ascii_case(entity, "colgroup")
+        {
+            return self.html_table_col_prototype;
+        }
         None
     }
 }
