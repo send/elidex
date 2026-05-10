@@ -429,7 +429,7 @@ pub enum ObjectKind {
     /// `ObjectId` was collected.
     ///
     /// `source` discriminates which content attribute backs the
-    /// wrapper — see [`DomTokenListSource`].  The native methods on
+    /// wrapper — see `DomTokenListSource`.  The native methods on
     /// `DOMTokenList.prototype` route their `invoke_dom_api` method
     /// name (`"classList.add"` / `"relList.add"` /
     /// `"linkSizes.add"`) by reading this discriminator at call time.
