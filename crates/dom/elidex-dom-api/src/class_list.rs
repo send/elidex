@@ -1,9 +1,11 @@
 //! classList DOM API handlers: add, remove, toggle, contains.
 //!
-//! Class names are split via `split_whitespace()` and re-joined with single
-//! spaces. This implicitly normalizes the `class` attribute (tabs, newlines,
-//! and consecutive spaces become a single space). This matches browser behavior
-//! where `classList` operations normalize whitespace.
+//! Class names are split via `split_ascii_whitespace()` and re-joined with
+//! single spaces.  This implicitly normalises the `class` attribute (tabs,
+//! newlines, and consecutive ASCII spaces become a single space) while
+//! treating non-ASCII whitespace (U+00A0 NBSP etc.) as ordinary token
+//! content per WHATWG DOM §6 ("ASCII whitespace" tokenisation rule shared
+//! across `classList` / `relList` / `linkSizes`).
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
@@ -41,7 +43,7 @@ fn validate_token(token: &str) -> Result<(), DomApiError> {
 /// while preserving first-occurrence order.
 fn parse_ordered_set(class_str: &str) -> Vec<&str> {
     let mut seen = Vec::new();
-    for token in class_str.split_whitespace() {
+    for token in class_str.split_ascii_whitespace() {
         if !seen.contains(&token) {
             seen.push(token);
         }
@@ -51,7 +53,7 @@ fn parse_ordered_set(class_str: &str) -> Vec<&str> {
 
 /// Normalize whitespace in a class string: collapse multiple spaces, trim.
 fn normalize_class_string(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    s.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Read the raw token string for a given attribute name (e.g. `"class"`,
@@ -88,7 +90,7 @@ fn add_token(
     dom: &mut EcsDom,
 ) -> Result<(), DomApiError> {
     let current = get_token_string(entity, dom, attr_name)?;
-    if !current.split_whitespace().any(|c| c == token) {
+    if !current.split_ascii_whitespace().any(|c| c == token) {
         let normalized = normalize_class_string(&current);
         let new_value = if normalized.is_empty() {
             token.to_string()
@@ -108,7 +110,10 @@ fn remove_token(
     dom: &mut EcsDom,
 ) -> Result<(), DomApiError> {
     let current = get_token_string(entity, dom, attr_name)?;
-    let new_tokens: Vec<&str> = current.split_whitespace().filter(|c| *c != token).collect();
+    let new_tokens: Vec<&str> = current
+        .split_ascii_whitespace()
+        .filter(|c| *c != token)
+        .collect();
     set_token_string(entity, dom, attr_name, new_tokens.join(" "))?;
     Ok(())
 }
@@ -192,7 +197,7 @@ impl DomApiHandler for TokenListHandler {
                     _ => None,
                 };
                 let current = get_token_string(this, dom, self.attr_name)?;
-                let has = current.split_whitespace().any(|c| c == token);
+                let has = current.split_ascii_whitespace().any(|c| c == token);
                 let result = match force {
                     Some(true) => {
                         if !has {
@@ -222,7 +227,7 @@ impl DomApiHandler for TokenListHandler {
             TokenListOp::Contains => {
                 let token = require_string_arg(args, 0)?;
                 let current = get_token_string(this, dom, self.attr_name)?;
-                let has = current.split_whitespace().any(|c| c == token);
+                let has = current.split_ascii_whitespace().any(|c| c == token);
                 Ok(JsValue::Bool(has))
             }
             TokenListOp::Replace => {
@@ -231,7 +236,7 @@ impl DomApiHandler for TokenListHandler {
                 validate_token(&old_token)?;
                 validate_token(&new_token)?;
                 let current = get_token_string(this, dom, self.attr_name)?;
-                let tokens: Vec<&str> = current.split_whitespace().collect();
+                let tokens: Vec<&str> = current.split_ascii_whitespace().collect();
                 if !tokens.contains(&old_token.as_str()) {
                     return Ok(JsValue::Bool(false));
                 }
@@ -406,6 +411,40 @@ mod tests {
     }
 
     #[test]
+    fn add_then_contains_token_with_nbsp() {
+        // PR178 R5 IMP regression — every tokenisation site (parse_ordered_set,
+        // normalize_class_string, add_token, remove_token, Toggle / Contains /
+        // Replace / Length / Item) was using `split_whitespace` (Unicode-aware),
+        // which would break `contains`/`add` for tokens containing NBSP
+        // (U+00A0) and other non-ASCII whitespace.  Switched to
+        // `split_ascii_whitespace` so the membership check matches the
+        // ASCII-whitespace parser used at insertion time.
+        let (mut dom, elem, mut session) = setup();
+        let nbsp_token = "foo\u{00A0}bar";
+        CLASS_LIST_ADD
+            .invoke(
+                elem,
+                &[JsValue::String(nbsp_token.into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let result = CLASS_LIST_CONTAINS
+            .invoke(
+                elem,
+                &[JsValue::String(nbsp_token.into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(
+            result,
+            JsValue::Bool(true),
+            "contains() must find an NBSP-containing token previously added"
+        );
+    }
+
+    #[test]
     fn add_new_class() {
         let (mut dom, elem, mut session) = setup();
         CLASS_LIST_ADD
@@ -417,7 +456,11 @@ mod tests {
             )
             .unwrap();
         let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs.get("class").unwrap().split_whitespace().collect();
+        let classes: Vec<&str> = attrs
+            .get("class")
+            .unwrap()
+            .split_ascii_whitespace()
+            .collect();
         assert!(classes.contains(&"baz"));
         assert!(classes.contains(&"foo"));
     }
@@ -437,7 +480,7 @@ mod tests {
         let count = attrs
             .get("class")
             .unwrap()
-            .split_whitespace()
+            .split_ascii_whitespace()
             .filter(|c| *c == "foo")
             .count();
         assert_eq!(count, 1);
@@ -458,7 +501,7 @@ mod tests {
         assert!(!attrs
             .get("class")
             .unwrap()
-            .split_whitespace()
+            .split_ascii_whitespace()
             .any(|c| c == "foo"));
     }
 
@@ -585,7 +628,7 @@ mod tests {
         assert!(attrs
             .get("class")
             .unwrap()
-            .split_whitespace()
+            .split_ascii_whitespace()
             .any(|c| c == "baz"));
     }
 
@@ -605,7 +648,7 @@ mod tests {
         assert!(attrs
             .get("class")
             .unwrap()
-            .split_whitespace()
+            .split_ascii_whitespace()
             .any(|c| c == "foo"));
     }
 
@@ -625,7 +668,7 @@ mod tests {
         assert!(!attrs
             .get("class")
             .unwrap()
-            .split_whitespace()
+            .split_ascii_whitespace()
             .any(|c| c == "foo"));
     }
 
@@ -660,7 +703,11 @@ mod tests {
             .unwrap();
         assert_eq!(result, JsValue::Bool(true));
         let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs.get("class").unwrap().split_whitespace().collect();
+        let classes: Vec<&str> = attrs
+            .get("class")
+            .unwrap()
+            .split_ascii_whitespace()
+            .collect();
         // "baz" should be in the position of "foo" (first).
         assert_eq!(classes, vec!["baz", "bar"]);
     }
@@ -682,7 +729,11 @@ mod tests {
         assert_eq!(result, JsValue::Bool(false));
         // Class string unchanged.
         let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs.get("class").unwrap().split_whitespace().collect();
+        let classes: Vec<&str> = attrs
+            .get("class")
+            .unwrap()
+            .split_ascii_whitespace()
+            .collect();
         assert!(classes.contains(&"foo"));
         assert!(classes.contains(&"bar"));
     }
@@ -908,7 +959,11 @@ mod tests {
             .unwrap();
         assert_eq!(result, JsValue::Bool(true));
         let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs.get("class").unwrap().split_whitespace().collect();
+        let classes: Vec<&str> = attrs
+            .get("class")
+            .unwrap()
+            .split_ascii_whitespace()
+            .collect();
         assert_eq!(classes, vec!["bar", "baz"]);
     }
 
@@ -930,7 +985,11 @@ mod tests {
             .unwrap();
         assert_eq!(result, JsValue::Bool(true));
         let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs.get("class").unwrap().split_whitespace().collect();
+        let classes: Vec<&str> = attrs
+            .get("class")
+            .unwrap()
+            .split_ascii_whitespace()
+            .collect();
         assert_eq!(classes, vec!["x", "bar", "y", "z"]);
     }
 
