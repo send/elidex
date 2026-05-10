@@ -565,6 +565,22 @@ fn output_value_setter_snapshots_initial_text_into_default() {
 }
 
 #[test]
+fn output_form_reset_preserves_pristine_default_text() {
+    // Copilot R1 IMP regression test: an `<output>` that has never
+    // entered value mode (no `OutputValueOverride`) keeps its
+    // descendant text content on form reset — the children represent
+    // the implicit default per HTML §4.10.13, not a stale value-mode
+    // display that needs wiping.
+    let out = run("var f = document.createElement('form'); \
+         var o = document.createElement('output'); \
+         o.appendChild(document.createTextNode('initial')); \
+         f.appendChild(o); document.body.appendChild(f); \
+         f.reset(); \
+         (o.textContent === 'initial' && o.value === 'initial' && o.defaultValue === 'initial') ? 'ok' : 'fail:text=' + o.textContent + ',val=' + o.value + ',def=' + o.defaultValue;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn output_form_reset_reverts_to_default_mode() {
     let out = run("var f = document.createElement('form'); \
          var o = document.createElement('output'); \

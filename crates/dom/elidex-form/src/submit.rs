@@ -276,10 +276,20 @@ fn is_output_element(dom: &EcsDom, entity: Entity) -> bool {
 }
 
 /// `<output>` reset hook (HTML §4.10.13).  Clears the value-mode
-/// override (component absence == default mode) and re-renders the
-/// displayed text from the explicit `OutputDefaultValue`, if any.
+/// override and re-renders the displayed text from the snapshotted
+/// `OutputDefaultValue`.  Pristine default-mode elements (no
+/// `OutputValueOverride` ever set) are left untouched: their
+/// descendant text content already IS the default per spec, and
+/// rewriting children unconditionally would wipe `<output>5</output>`
+/// to the empty string when no explicit snapshot exists.
 fn reset_output_value_mode(dom: &mut EcsDom, entity: Entity) {
-    let _ = dom.world_mut().remove_one::<OutputValueOverride>(entity);
+    let was_in_value_mode = dom
+        .world_mut()
+        .remove_one::<OutputValueOverride>(entity)
+        .is_ok();
+    if !was_in_value_mode {
+        return;
+    }
     let default_text = dom
         .world()
         .get::<&OutputDefaultValue>(entity)
