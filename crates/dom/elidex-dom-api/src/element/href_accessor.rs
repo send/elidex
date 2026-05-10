@@ -374,7 +374,12 @@ macro_rules! setter_handler {
 }
 
 setter_handler!(HyperlinkProtocolSet, "hyperlink.protocol.set", |u, v| {
-    let scheme = v.trim_end_matches(':');
+    // WHATWG URL §6.1 protocol setter strips at most one trailing `:`
+    // (the IDL serialised form `https:` is the canonical input).
+    // Multi-colon inputs like `"https::"` reach `set_scheme` with the
+    // extra colon intact, which `url::Url::set_scheme` rejects — matching
+    // the `URL` interface setter in `vm/host/url/setters.rs`.
+    let scheme = v.strip_suffix(':').unwrap_or(&v);
     let _ = u.set_scheme(scheme);
 });
 setter_handler!(HyperlinkUsernameSet, "hyperlink.username.set", |u, v| {

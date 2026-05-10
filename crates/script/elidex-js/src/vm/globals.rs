@@ -285,8 +285,10 @@ impl VmInner {
             // Each chains to `HTMLElement.prototype` (same pattern as
             // iframe and the T1-v2 form-control protos above).
             // Registration order matches `tag_specific_html_prototype`
-            // dispatch chain extension.  C1 stub: only the prototype
-            // object is allocated; member install is C3 phase.
+            // dispatch chain extension.  Each `register_html_*` body
+            // allocates the prototype, installs its accessors / methods,
+            // and (for hyperlink-bearing protos) installs the
+            // HTMLHyperlinkElementUtils mixin.
             self.register_html_anchor_prototype();
             self.register_html_area_prototype();
             self.register_html_image_prototype();

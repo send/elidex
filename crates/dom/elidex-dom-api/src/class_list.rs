@@ -11,21 +11,23 @@ use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, Session
 
 use crate::util::{not_found_error, require_string_arg};
 
-/// Validate a class token per the `DOMTokenList` spec.
+/// Validate a token per the `DOMTokenList` spec.
 ///
 /// Returns `SyntaxError` for empty strings and `InvalidCharacterError` for
-/// strings containing whitespace.
+/// strings containing whitespace.  Used by every DOMTokenList family
+/// (`classList` / `relList` / `linkSizes`), so the messages are kept
+/// generic ("token must …") rather than naming any specific attribute.
 fn validate_token(token: &str) -> Result<(), DomApiError> {
     if token.is_empty() {
         return Err(DomApiError {
             kind: DomApiErrorKind::SyntaxError,
-            message: "class name must not be empty".into(),
+            message: "token must not be empty".into(),
         });
     }
     if token.contains(char::is_whitespace) {
         return Err(DomApiError {
             kind: DomApiErrorKind::InvalidCharacterError,
-            message: "class name must not contain whitespace".into(),
+            message: "token must not contain whitespace".into(),
         });
     }
     Ok(())
