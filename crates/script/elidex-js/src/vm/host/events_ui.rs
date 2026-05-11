@@ -456,24 +456,23 @@ impl VmInner {
             self.well_known.input_event_global,
             |vm, id| vm.input_event_prototype = Some(id),
         );
-        // D-10 §C-8: install `dataTransfer` getter (null stub —
-        // DataTransfer wrapper deferred to D-9 `#11-events-modern-
-        // input`) + `getTargetRanges()` method (returns fresh empty
-        // Array — StaticRange wrapper deferred to D-8 `#11-traversal-
-        // and-range`).  Stored on `InputEvent.prototype`; instances
-        // chain through it so `e.dataTransfer` / `e.getTargetRanges()`
-        // resolve via prototype walk.
+        // D-10 §C-8: install `getTargetRanges()` method (returns fresh
+        // empty Array — StaticRange wrapper deferred to D-8
+        // `#11-traversal-and-range`).
+        //
+        // `dataTransfer` is NOT installed as a prototype accessor: the
+        // `input_event_constructed` shape carries it as the 4th
+        // own-data slot (after data / isComposing / inputType), so
+        // `instance.dataTransfer` resolves via the own-property fast
+        // path with the value the constructor seeded (default `null`,
+        // or any-pass-through from the init dict).  Reading
+        // `InputEvent.prototype.dataTransfer` therefore yields
+        // `undefined` — matching Chrome / Firefox where the IDL
+        // `attribute` getter is also a prototype-side accessor whose
+        // direct prototype read returns `undefined`.
         let proto_id = self
             .input_event_prototype
             .expect("register_input_event_global just stored input_event_prototype");
-        let data_transfer_sid = self.well_known.data_transfer;
-        self.install_accessor_pair(
-            proto_id,
-            data_transfer_sid,
-            native_input_event_get_data_transfer,
-            None,
-            super::super::shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-        );
         let get_target_ranges_sid = self.well_known.get_target_ranges;
         self.install_native_method(
             proto_id,
@@ -786,39 +785,6 @@ fn native_input_event_constructor(
     let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, in_proto, slots);
     drop(g);
     Ok(JsValue::Object(id))
-}
-
-/// `InputEvent.prototype.dataTransfer` getter — D-10 stub.  Reads the
-/// `dataTransfer` own-data slot (slot 4 of the
-/// `input_event_constructed` shape) on `this` and returns it.  When
-/// the receiver is not a constructed InputEvent (e.g. `Object.create(
-/// InputEvent.prototype).dataTransfer`), returns `null` to match
-/// real-browser fallback behaviour.
-fn native_input_event_get_data_transfer(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let JsValue::Object(id) = this else {
-        return Ok(JsValue::Null);
-    };
-    // Read via shape lookup — `dataTransfer` lives at the input-
-    // event-specific shape position (slot 12 of the
-    // input_event_constructed transition chain: 9 core + view + detail
-    // + data + isComposing + inputType + dataTransfer = 4th input-
-    // specific slot).  Fall through to null for any non-shaped or
-    // missing case.
-    let dt_sid = ctx.vm.well_known.data_transfer;
-    let lookup = ctx
-        .vm
-        .get_object(id)
-        .storage
-        .get(PropertyKey::String(dt_sid), &ctx.vm.shapes);
-    if let Some((PropertyValue::Data(value), _attrs)) = lookup {
-        Ok(*value)
-    } else {
-        Ok(JsValue::Null)
-    }
 }
 
 /// `InputEvent.prototype.getTargetRanges()` — D-10 stub.  Returns a

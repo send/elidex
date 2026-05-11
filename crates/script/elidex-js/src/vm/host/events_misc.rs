@@ -171,11 +171,18 @@ impl VmInner {
             |vm, id| vm.wheel_event_prototype = Some(id),
         );
         // Install DOM_DELTA_* numeric constants on `WheelEvent.prototype`
-        // (UI Events §5.5).  Property attrs match the WebIDL `const`
-        // declaration: enumerable but neither writable nor
-        // configurable — `BUILTIN` matches the existing pattern used
-        // for `Event.NONE` / `CAPTURING_PHASE` etc. (which the engine
-        // currently does NOT install, so this is the first set).
+        // (UI Events §5.5).  WebIDL `const` members are exposed with
+        // `{Writable: false, Enumerable: true, Configurable: false}`
+        // per WebIDL §3.7.6, but the engine has no exact-match
+        // `PropertyAttrs` constant: `WEBIDL_RO` is the closest fit
+        // (writable=false, enumerable=true) at the cost of
+        // `configurable=true` (vs the spec's `false`).  The configurable
+        // delta is observable only via `Object.defineProperty` reconfig
+        // / `delete`, both rare on intrinsic prototype slots; the
+        // enumerability bit (which `BUILTIN` would flip to false) is
+        // the load-bearing one for `for..in` / `Object.keys` parity
+        // with real browsers, so `WEBIDL_RO` is the better default
+        // until a dedicated `WEBIDL_CONST` constant lands.
         let proto_id = self
             .wheel_event_prototype
             .expect("register_wheel_event_global just stored wheel_event_prototype");
@@ -189,7 +196,7 @@ impl VmInner {
                 proto_id,
                 PropertyKey::String(sid),
                 PropertyValue::Data(JsValue::Number(value)),
-                shape::PropertyAttrs::BUILTIN,
+                shape::PropertyAttrs::WEBIDL_RO,
             );
         }
     }

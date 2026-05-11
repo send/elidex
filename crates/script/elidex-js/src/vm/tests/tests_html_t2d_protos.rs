@@ -485,23 +485,35 @@ fn details_close_does_not_cascade_exclusion() {
 #[test]
 fn details_exclusion_pre_collects_siblings_snapshot() {
     // Listener mutation during sibling close loop must not re-enter
-    // the outer loop.  Listener on `a`'s close opens `c` (also
-    // `name=g`), but the close walk is already past `c` in the
-    // snapshot — `c` stays open.
+    // the outer loop.  When `d` opens, the snapshot is `[a, c]` (both
+    // open with `name=g`).  The first close (on `a`) fires a toggle
+    // listener that mutates the DOM — appending a NEW `<details
+    // name=g open>` (`x`).  If exclusion ran on the live tree, `x`
+    // would be in scope for the close walk; the snapshot guarantees
+    // it is not, so `x` stays open after `d`'s exclusion completes.
     let out = run("var p = document.createElement('div'); \
          var a = document.createElement('details'); a.name = 'g'; a.open = true; \
          var c = document.createElement('details'); c.name = 'g'; c.open = true; \
          var d = document.createElement('details'); d.name = 'g'; \
          p.appendChild(a); p.appendChild(c); p.appendChild(d); \
-         var aFireCount = 0; \
-         a.addEventListener('toggle', function() { aFireCount++; }); \
+         var x = null; \
+         a.addEventListener('toggle', function() { \
+             /* Mutate the DOM mid-close: insert a new same-group \
+                already-open <details>.  Snapshot semantics mean \
+                this insertion is invisible to the in-flight \
+                close loop — `x` must stay open. */ \
+             x = document.createElement('details'); \
+             x.name = 'g'; \
+             x.setAttribute('open', ''); \
+             p.appendChild(x); \
+         }); \
          d.open = true; \
-         /* a + c both close from snapshot; d is open; \
-            aFireCount counts only the close on 'a'. */ \
+         /* Expected: a + c closed by the snapshot; d opened; \
+            x inserted mid-loop and still open (snapshot proof). */ \
          (a.open === false && c.open === false && d.open === true \
-             && aFireCount === 1) ? 'ok' \
+             && x !== null && x.open === true) ? 'ok' \
              : 'fail:a.open=' + a.open + ',c.open=' + c.open \
-                 + ',d.open=' + d.open + ',aFireCount=' + aFireCount;");
+                 + ',d.open=' + d.open + ',x=' + (x === null ? 'null' : ('open=' + x.open));");
     assert_eq!(out, "ok");
 }
 
