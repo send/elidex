@@ -491,6 +491,38 @@ fn details_close_does_not_cascade_exclusion() {
 }
 
 #[test]
+fn details_open_setter_normalises_attribute_value_when_already_open() {
+    // R7 IMP regression: per HTML §6.13.1 "reflect a boolean
+    // attribute" the setter must always normalise the content
+    // attribute (present-with-empty-value when true, absent when
+    // false) regardless of state change.  Pre-fix the state-unchanged
+    // short-circuit also skipped this normalisation, leaving the
+    // attribute value as whatever `setAttribute` had previously set
+    // (e.g. `"x"`).
+    let out = run("var d = document.createElement('details'); \
+         d.setAttribute('open', 'x'); \
+         d.open = true; \
+         (d.getAttribute('open') === '') ? 'ok' : 'fail:' + d.getAttribute('open');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_open_setter_normalisation_does_not_double_fire_toggle() {
+    // Companion to the normalisation regression: the idempotent
+    // setter call must still fire ToggleEvent exactly once across
+    // back-to-back invocations even though both writes hit
+    // `setAttribute`.  Lesson #209 (state-machine reset-hook
+    // companion) — verifies the split (normalise-always + fire-on-
+    // state-change) doesn't break the prior idempotency contract.
+    let out = run("var d = document.createElement('details'); \
+         var count = 0; \
+         d.addEventListener('toggle', function() { count++; }); \
+         d.open = true; d.open = true; d.open = true; \
+         (count === 1) ? 'ok' : 'fail:count=' + count;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn details_exclusion_skips_already_closed_sibling_in_loop() {
     // R5 IMP regression: within the sibling-close loop, if a prior
     // sibling's `toggle` listener mutates another snapshot member to

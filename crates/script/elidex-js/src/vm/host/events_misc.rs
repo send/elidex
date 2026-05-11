@@ -37,7 +37,9 @@
 #![cfg(feature = "engine")]
 
 use super::super::shape;
-use super::super::value::{JsValue, NativeContext, ObjectId, PropertyKey, PropertyValue, VmError};
+use super::super::value::{
+    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, VmError,
+};
 use super::super::VmInner;
 use super::events::{check_construct, parse_event_init, type_arg};
 use super::events_extras::{
@@ -343,6 +345,24 @@ fn native_formdata_event_constructor(
         return Err(VmError::type_error(
             "Failed to construct 'FormDataEvent': \
              required member formData is undefined.",
+        ));
+    }
+    // WebIDL dictionary conversion: `required FormData formData` —
+    // the value must be a FormData instance (per WHATWG IDL §3.10.21
+    // interface-type coercion).  Chrome / Firefox throw TypeError at
+    // dictionary conversion time if the value is not a FormData; we
+    // brand-check via `ObjectKind::FormData`.  Anything else
+    // (`null` is already rejected by the required-member check above;
+    // plain `{}` / numbers / strings / non-FormData Objects) reaches
+    // this branch and throws.
+    let is_form_data = matches!(
+        form_data_val,
+        JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::FormData)
+    );
+    if !is_form_data {
+        return Err(VmError::type_error(
+            "Failed to construct 'FormDataEvent': \
+             member formData is not of type 'FormData'.",
         ));
     }
     let shape_id = ctx

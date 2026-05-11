@@ -113,13 +113,38 @@ fn details_set_open(
         invoke_dom_api(ctx, "hasAttribute", entity, &[JsValue::String(attr_sid)])?,
         JsValue::Boolean(true)
     );
-    // 2. State unchanged → no-op (spec §4.11.1 — both attribute write
-    //    and ToggleEvent fire skipped).  Idempotency is observable:
-    //    `d.open = true; d.open = true` fires ToggleEvent exactly once.
-    if prior_open == new_open {
+    let state_changed = prior_open != new_open;
+    // 2. Apply attribute mutation UNCONDITIONALLY (HTML §6.13.1
+    //    "reflect a boolean attribute" — the setter normalises the
+    //    content attribute: present-with-empty-value when true,
+    //    absent when false, regardless of whether the boolean state
+    //    actually changed).  This means
+    //    `d.setAttribute('open','x'); d.open = true;
+    //     d.getAttribute('open')` correctly normalises to `""` and
+    //    not the stale `"x"` — matches Chrome / Firefox.
+    //
+    //    ToggleEvent dispatch + multi-disclosure exclusion are gated
+    //    on `state_changed` (step 4+), so the idempotent setter
+    //    (`d.open = true; d.open = true`) still fires exactly one
+    //    toggle event despite running setAttribute twice.
+    if new_open {
+        let empty_sid = ctx.vm.well_known.empty;
+        invoke_dom_api(
+            ctx,
+            "setAttribute",
+            entity,
+            &[JsValue::String(attr_sid), JsValue::String(empty_sid)],
+        )?;
+    } else {
+        invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])?;
+    }
+    // 3. State unchanged → skip exclusion + ToggleEvent dispatch.
+    //    The attribute mutation above has already normalised the
+    //    content attribute value to the reflect-defined form.
+    if !state_changed {
         return Ok(JsValue::Undefined);
     }
-    // 3. Multi-disclosure exclusion — opening a named `<details>` closes
+    // 4. Multi-disclosure exclusion — opening a named `<details>` closes
     //    every other open `<details>` in the same tree with the same
     //    byte-equal `name`.  Pre-collect the snapshot BEFORE the close
     //    loop so listener mutations during one sibling's ToggleEvent
@@ -178,19 +203,9 @@ fn details_set_open(
         )?;
         let _cancelled = dispatch_toggle_event(ctx, sibling, "open", "closed")?;
     }
-    // 5. Apply own attribute mutation.
-    if new_open {
-        let empty_sid = ctx.vm.well_known.empty;
-        invoke_dom_api(
-            ctx,
-            "setAttribute",
-            entity,
-            &[JsValue::String(attr_sid), JsValue::String(empty_sid)],
-        )?;
-    } else {
-        invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])?;
-    }
-    // 6. Fire ToggleEvent on self with the appropriate state pair.
+    // 5. Fire ToggleEvent on self with the appropriate state pair.
+    //    (Own attribute mutation already happened at step 2 — see the
+    //    "Apply attribute mutation UNCONDITIONALLY" block.)
     let old_state = if prior_open { "open" } else { "closed" };
     let new_state = if new_open { "open" } else { "closed" };
     let _cancelled = dispatch_toggle_event(ctx, entity, old_state, new_state)?;

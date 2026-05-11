@@ -163,6 +163,28 @@ fn formdata_event_empty_dict_throws() {
 }
 
 #[test]
+fn formdata_event_rejects_non_form_data_object() {
+    // R7 IMP regression: WebIDL dictionary conversion requires the
+    // `formData` member to be an actual FormData instance.  Plain
+    // `{}` / non-FormData objects must throw TypeError at conversion
+    // time — matches Chrome / Firefox.
+    let out = run("var ok = false; var msg = ''; \
+         try { new FormDataEvent('formdata', { formData: {} }); } \
+         catch (e) { ok = true; msg = String(e); } \
+         (ok && msg.indexOf(\"not of type 'FormData'\") !== -1) ? 'ok' : 'fail:' + msg;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn formdata_event_rejects_form_data_primitive_string() {
+    let out = run("var ok = false; \
+         try { new FormDataEvent('formdata', { formData: 'hello' }); } \
+         catch (_) { ok = true; } \
+         ok ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn formdata_event_form_data_round_trip() {
     let out = run("var fd = new FormData(); \
          var e = new FormDataEvent('formdata', { formData: fd }); \
