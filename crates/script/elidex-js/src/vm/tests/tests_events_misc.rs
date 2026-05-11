@@ -639,6 +639,21 @@ fn progress_event_loaded_fractional_truncates_toward_zero() {
 }
 
 #[test]
+fn progress_event_loaded_negative_fraction_normalises_to_positive_zero() {
+    // R10 MIN regression: `-0.5` truncates to `-0.0` which
+    // per WebIDL §3.10.10 step 2 must be normalised to `+0`.
+    // Pre-fix the fast-path returned `-0.0` directly, observable
+    // via `Object.is(e.loaded, 0) === false` and
+    // `1 / e.loaded === -Infinity`.
+    let out = run("var e = new ProgressEvent('p', { loaded: -0.5 }); \
+         (e.loaded === 0 && Object.is(e.loaded, 0) \
+             && 1 / e.loaded === Infinity) ? 'ok' \
+             : 'fail:loaded=' + e.loaded + ',isPosZero=' + Object.is(e.loaded, 0) \
+                 + ',recip=' + (1 / e.loaded);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn progress_event_loaded_nan_and_infinity_become_zero() {
     let out = run("var e = new ProgressEvent('p', \
              { loaded: NaN, total: Infinity }); \

@@ -357,13 +357,29 @@ pub(super) fn f64_to_uint32(n: f64) -> u32 {
 /// that path is unreachable for any realistic JS input (f64 max
 /// finite is ~1.8e308, mod 2^64 collapses it but content has lost
 /// precision long before reaching such magnitudes).
+///
+/// Engine-gated to match the only caller (`vm/host/events_misc.rs::
+/// native_progress_event_constructor`); non-engine builds drop the
+/// helper entirely so it never trips dead-code lints when
+/// feature-gated callers are absent.
+#[cfg(feature = "engine")]
 pub(crate) fn f64_to_uint64_loose(n: f64) -> f64 {
     if !n.is_finite() || n == 0.0 {
         return 0.0;
     }
     let truncated = n.trunc();
+    // Per WebIDL §3.10.10 step 2 the result for `±0` is `+0`.  Inputs
+    // that fall through the early-return guard but `trunc` to a zero
+    // (e.g. `-0.5` → `-0.0`, `0.5` → `+0.0`) must normalise to `+0`
+    // so `Object.is(e.loaded, 0) === true` rather than `-0`.  Without
+    // this normalisation a small-magnitude negative `loaded` /
+    // `total` slot would surface as `-0`, observable via
+    // `1 / e.loaded === -Infinity`.
+    if truncated == 0.0 {
+        return 0.0;
+    }
     let modulus = 18_446_744_073_709_551_616.0_f64; // 2^64
-    if truncated >= 0.0 && truncated < modulus {
+    if truncated > 0.0 && truncated < modulus {
         return truncated;
     }
     // Negative: fold into positive via mod-2^64 addition.
