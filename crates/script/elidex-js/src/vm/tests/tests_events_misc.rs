@@ -621,6 +621,48 @@ fn before_unload_return_value_setter_throws_on_non_event_receiver() {
     assert_eq!(out, "ok");
 }
 
+#[test]
+fn before_unload_return_value_getter_throws_on_other_event_subclass() {
+    // Brand check must reject Event subclasses that aren't
+    // BeforeUnloadEvent — calling the getter `.call(new MouseEvent())`
+    // matches Chrome's "Illegal invocation" semantics.  The `ObjectKind::
+    // Event` check alone is not enough; the prototype chain must include
+    // `BeforeUnloadEvent.prototype`.
+    let out = run("var getter = Object.getOwnPropertyDescriptor( \
+             BeforeUnloadEvent.prototype, 'returnValue').get; \
+         var me = new MouseEvent('click'); \
+         var ok = false; var msg = ''; \
+         try { getter.call(me); } \
+         catch (err) { ok = true; msg = String(err); } \
+         (ok && msg.indexOf('Illegal invocation') !== -1) ? 'ok' : 'fail:' + msg;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn before_unload_return_value_setter_throws_on_other_event_subclass() {
+    let out = run("var setter = Object.getOwnPropertyDescriptor( \
+             BeforeUnloadEvent.prototype, 'returnValue').set; \
+         var me = new MouseEvent('click'); \
+         var ok = false; var msg = ''; \
+         try { setter.call(me, 'wait!'); } \
+         catch (err) { ok = true; msg = String(err); } \
+         (ok && msg.indexOf('Illegal invocation') !== -1) ? 'ok' : 'fail:' + msg;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn before_unload_return_value_setter_error_message_says_set_not_read() {
+    // R3 MIN: setter and getter share `require_before_unload_receiver`,
+    // so the error message must be parameterised by op (`read` / `set`)
+    // — not hardcoded as one or the other.  Verify setter says "set".
+    let out = run("var e = Object.create(BeforeUnloadEvent.prototype); \
+         var msg = ''; \
+         try { e.returnValue = 'x'; } \
+         catch (err) { msg = String(err); } \
+         (msg.indexOf(\"set 'returnValue'\") !== -1) ? 'ok' : 'fail:' + msg;");
+    assert_eq!(out, "ok");
+}
+
 // =====================================================================
 // 10 prototypes are all distinct
 // =====================================================================

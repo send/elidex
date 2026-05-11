@@ -549,28 +549,67 @@ fn native_before_unload_event_constructor(
 }
 
 /// Brand-check the receiver of a `BeforeUnloadEvent.prototype` accessor.
-/// Returns the `ObjectId` if the receiver is an `ObjectKind::Event`;
-/// throws `TypeError("Illegal invocation")` otherwise — matches Chrome
-/// and WebIDL §3.7.2.4 brand-check semantics for IDL `attribute`
-/// getters/setters.
+/// Returns the `ObjectId` if BOTH:
+/// 1. the receiver is an `ObjectKind::Event` (rules out plain objects
+///    + `Object.create` of unrelated prototypes), AND
+/// 2. its prototype chain includes `BeforeUnloadEvent.prototype`
+///    (rules out other Event subclasses like MouseEvent / KeyboardEvent
+///    via `accessor.call(otherEvent)`).
 ///
-/// Without this check, any plain object created via
-/// `Object.create(BeforeUnloadEvent.prototype)` would be allowed to
-/// read/write `returnValue` AND would accumulate entries in the
-/// `before_unload_return_values` side table.
+/// Throws `TypeError("Failed to <op> 'returnValue' ... Illegal
+/// invocation")` otherwise — matches Chrome and WebIDL §3.7.2.4
+/// brand-check semantics for IDL `attribute` getters/setters.  `op`
+/// is `"read"` for the getter and `"set"` for the setter so the error
+/// message correctly identifies which path failed.
+///
+/// Without this check, any plain object via `Object.create(
+/// BeforeUnloadEvent.prototype)` (caught by step 1) OR any cross-Event
+/// receiver via `getter.call(new MouseEvent(...))` (caught by step 2)
+/// would be allowed to read/write `returnValue` AND would accumulate
+/// entries in the `before_unload_return_values` side table.
 fn require_before_unload_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
+    op: &str,
 ) -> Result<ObjectId, VmError> {
     if let JsValue::Object(id) = this {
-        if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. }) {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. })
+            && receiver_chains_to_before_unload(ctx, id)
+        {
             return Ok(id);
         }
     }
-    Err(VmError::type_error(
-        "Failed to read 'returnValue' property from 'BeforeUnloadEvent': \
+    Err(VmError::type_error(format!(
+        "Failed to {op} 'returnValue' property from 'BeforeUnloadEvent': \
          Illegal invocation",
-    ))
+    )))
+}
+
+/// Walk the prototype chain of `id` looking for the registered
+/// `BeforeUnloadEvent.prototype` ObjectId.  Bounded by a hop counter so
+/// a hypothetically corrupted prototype cycle can't loop forever — the
+/// engine's prototype chains are typically 4-6 hops deep, 32 is ample
+/// headroom.
+fn receiver_chains_to_before_unload(ctx: &NativeContext<'_>, id: ObjectId) -> bool {
+    let Some(target) = ctx.vm.before_unload_event_prototype else {
+        // Defensive: registration ordering would have to put accessor
+        // install before prototype storage for this to fire, which it
+        // doesn't.  Default-deny on registration gap.
+        return false;
+    };
+    let mut current = ctx.vm.get_object(id).prototype;
+    let mut hops = 0;
+    while let Some(proto_id) = current {
+        if proto_id == target {
+            return true;
+        }
+        hops += 1;
+        if hops > 32 {
+            return false;
+        }
+        current = ctx.vm.get_object(proto_id).prototype;
+    }
+    false
 }
 
 /// `BeforeUnloadEvent.prototype.returnValue` getter — reads the
@@ -582,7 +621,7 @@ fn native_before_unload_get_return_value(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_before_unload_receiver(ctx, this)?;
+    let id = require_before_unload_receiver(ctx, this, "read")?;
     Ok(ctx
         .vm
         .before_unload_return_values
@@ -600,7 +639,7 @@ fn native_before_unload_set_return_value(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_before_unload_receiver(ctx, this)?;
+    let id = require_before_unload_receiver(ctx, this, "set")?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     ctx.vm.before_unload_return_values.insert(id, sid);
