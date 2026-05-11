@@ -491,6 +491,34 @@ fn details_close_does_not_cascade_exclusion() {
 }
 
 #[test]
+fn details_exclusion_skips_already_closed_sibling_in_loop() {
+    // R5 IMP regression: within the sibling-close loop, if a prior
+    // sibling's `toggle` listener mutates another snapshot member to
+    // already-closed (e.g. `b.removeAttribute('open')`), the loop
+    // must re-check the live `open` attribute and skip both the
+    // attribute mutation AND the ToggleEvent dispatch — otherwise
+    // `b` receives a spurious second ToggleEvent (open→closed).
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.name = 'g'; a.open = true; \
+         var b = document.createElement('details'); b.name = 'g'; b.open = true; \
+         var c = document.createElement('details'); c.name = 'g'; \
+         p.appendChild(a); p.appendChild(b); p.appendChild(c); \
+         var bToggleCount = 0; \
+         a.addEventListener('toggle', function() { \
+             /* Listener mutates b directly via raw setAttribute path \
+                (does NOT fire toggle on b — only the JS .open setter \
+                fires).  If the outer close loop re-checks live state \
+                and skips, b's toggle listener fires zero times. */ \
+             b.removeAttribute('open'); \
+         }); \
+         b.addEventListener('toggle', function() { bToggleCount++; }); \
+         c.open = true; \
+         (b.open === false && bToggleCount === 0) ? 'ok' \
+             : 'fail:b.open=' + b.open + ',bToggleCount=' + bToggleCount;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn details_exclusion_pre_collects_siblings_snapshot() {
     // Listener mutation during sibling close loop must not re-enter
     // the outer loop.  When `d` opens, the snapshot is `[a, c]` (both

@@ -147,7 +147,29 @@ fn details_set_open(
     //    `removeAttribute` DOM call (NOT the JS setter) so we don't
     //    re-enter `details_set_open` recursively — exclusion is a
     //    direct attribute mutation per HTML §4.11.1.
+    //
+    //    The snapshot reflects the state at exclusion start, but a
+    //    prior sibling's `toggle` listener can mutate other siblings
+    //    in the snapshot directly (e.g. `b.removeAttribute('open')`
+    //    or `b.open = false`).  Per HTML §4.11.1 each step is gated
+    //    on "if it is open" — re-check the live attribute presence
+    //    before each close so an already-closed sibling does NOT get
+    //    a spurious second ToggleEvent dispatched.  Without this
+    //    re-check, closing one sibling via a listener side effect
+    //    causes that sibling to receive `toggle(open→closed)` twice
+    //    (once via the listener-driven setter, once via this loop).
     for sibling in siblings_to_close {
+        let still_open = ctx
+            .host()
+            .dom()
+            .world()
+            .get::<&Attributes>(sibling)
+            .ok()
+            .and_then(|attrs| attrs.get("open").map(|_| true))
+            .unwrap_or(false);
+        if !still_open {
+            continue;
+        }
         invoke_dom_api(
             ctx,
             "removeAttribute",
