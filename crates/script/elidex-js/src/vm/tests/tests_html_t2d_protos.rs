@@ -340,14 +340,248 @@ fn details_no_event_handler_idl_attrs() {
 }
 
 #[test]
-fn details_open_setter_does_not_fire_toggle_event() {
-    // Defer-proof: setting `open` on `<details>` must NOT fire a
-    // ToggleEvent — that fire is paired with D-10.
+fn details_open_setter_fires_toggle_event() {
+    // D-10 §C-3 wires ToggleEvent dispatch on `<details>.open` setter
+    // (resolves T2d defer slot `#11-tags-T2d-details-toggle-event`).
+    // Inverted from T2d's defer-proof absence test.
     let out = run("var d = document.createElement('details'); \
-         var fired = false; \
-         d.addEventListener('toggle', function() { fired = true; }); \
+         var fired = false; var oldS = ''; var newS = ''; \
+         d.addEventListener('toggle', function(e) { \
+             fired = true; oldS = e.oldState; newS = e.newState; \
+         }); \
          d.open = true; \
-         fired ? 'fail' : 'ok';");
+         (fired && oldS === 'closed' && newS === 'open') ? 'ok' \
+             : ('fail:fired=' + fired + ',old=' + oldS + ',new=' + newS);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_open_setter_idempotent_no_double_fire() {
+    // State unchanged → no event (HTML §4.11.1.5 — both attribute
+    // write and ToggleEvent fire skipped when prior == new).  Lesson
+    // #209 (state-machine reset-hook companion) — verify the
+    // pristine-mode path stays a no-op.
+    let out = run("var d = document.createElement('details'); \
+         d.open = true; \
+         var count = 0; \
+         d.addEventListener('toggle', function() { count++; }); \
+         d.open = true; d.open = true; \
+         (count === 0) ? 'ok' : 'fail:count=' + count;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_open_to_closed_fires_with_correct_states() {
+    // Round-trip — opening fires (closed → open), closing fires
+    // (open → closed).
+    let out = run("var d = document.createElement('details'); \
+         var states = []; \
+         d.addEventListener('toggle', function(e) { \
+             states.push(e.oldState + '->' + e.newState); \
+         }); \
+         d.open = true; d.open = false; \
+         (states.length === 2 && states[0] === 'closed->open' \
+             && states[1] === 'open->closed') ? 'ok' \
+             : 'fail:' + JSON.stringify(states);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_toggle_event_does_not_bubble() {
+    // ToggleEvent is `bubbles=false` per spec.  Ancestor listener
+    // must NOT see the event.
+    let out = run("var d = document.createElement('details'); \
+         var div = document.createElement('div'); \
+         div.appendChild(d); \
+         var rootSeen = false; \
+         div.addEventListener('toggle', function() { rootSeen = true; }); \
+         d.open = true; \
+         rootSeen ? 'fail' : 'ok';");
+    assert_eq!(out, "ok");
+}
+
+// =====================================================================
+// <details>.name multi-disclosure exclusion (HTML §4.11.1)
+// =====================================================================
+
+#[test]
+fn details_name_exclusion_closes_open_sibling() {
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.name = 'g'; a.open = true; \
+         var b = document.createElement('details'); b.name = 'g'; \
+         p.appendChild(a); p.appendChild(b); \
+         b.open = true; \
+         (a.open === false && b.open === true) ? 'ok' \
+             : 'fail:a.open=' + a.open + ',b.open=' + b.open;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_name_exclusion_fires_close_toggle_event_on_each() {
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.name = 'g'; a.open = true; \
+         var b = document.createElement('details'); b.name = 'g'; \
+         p.appendChild(a); p.appendChild(b); \
+         var fired = []; \
+         a.addEventListener('toggle', function(e) { \
+             fired.push('a:' + e.oldState + '->' + e.newState); \
+         }); \
+         b.open = true; \
+         (fired.length === 1 && fired[0] === 'a:open->closed') ? 'ok' \
+             : 'fail:' + JSON.stringify(fired);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_empty_name_no_exclusion() {
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.name = ''; a.open = true; \
+         var b = document.createElement('details'); b.name = ''; \
+         p.appendChild(a); p.appendChild(b); \
+         b.open = true; \
+         (a.open === true && b.open === true) ? 'ok' \
+             : 'fail:a.open=' + a.open + ',b.open=' + b.open;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_no_name_attribute_no_exclusion() {
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.open = true; \
+         var b = document.createElement('details'); \
+         p.appendChild(a); p.appendChild(b); \
+         b.open = true; \
+         (a.open === true && b.open === true) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_name_byte_equality_not_case_insensitive() {
+    // `name=g` and `name=G` are distinct accordion groups
+    // per HTML §4.11.1 (byte-for-byte equality, not ASCII-CI).
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.name = 'g'; a.open = true; \
+         var b = document.createElement('details'); b.name = 'G'; \
+         p.appendChild(a); p.appendChild(b); \
+         b.open = true; \
+         (a.open === true && b.open === true) ? 'ok' \
+             : 'fail:a.open=' + a.open + ',b.open=' + b.open;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_close_does_not_cascade_exclusion() {
+    // Closing a `<details>` does NOT trigger exclusion (only opening
+    // does, per HTML §4.11.1 "name attribute change steps").  Setup
+    // bypasses the JS `.open` setter via direct `setAttribute('open',
+    // '')` so both siblings can start in the (spec-violating-but-
+    // engineered) state of two open same-group `<details>`; the test
+    // then closes `a` via the setter and asserts `b` STAYS OPEN — if
+    // exclusion incorrectly cascaded on close, `b` would be closed too.
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.name = 'g'; \
+         a.setAttribute('open', ''); \
+         var b = document.createElement('details'); b.name = 'g'; \
+         b.setAttribute('open', ''); \
+         p.appendChild(a); p.appendChild(b); \
+         a.open = false; \
+         (a.open === false && b.open === true) ? 'ok' \
+             : 'fail:a.open=' + a.open + ',b.open=' + b.open;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_open_setter_normalises_attribute_value_when_already_open() {
+    // R7 IMP regression: per HTML §6.13.1 "reflect a boolean
+    // attribute" the setter must always normalise the content
+    // attribute (present-with-empty-value when true, absent when
+    // false) regardless of state change.  Pre-fix the state-unchanged
+    // short-circuit also skipped this normalisation, leaving the
+    // attribute value as whatever `setAttribute` had previously set
+    // (e.g. `"x"`).
+    let out = run("var d = document.createElement('details'); \
+         d.setAttribute('open', 'x'); \
+         d.open = true; \
+         (d.getAttribute('open') === '') ? 'ok' : 'fail:' + d.getAttribute('open');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_open_setter_normalisation_does_not_double_fire_toggle() {
+    // Companion to the normalisation regression: the idempotent
+    // setter call must still fire ToggleEvent exactly once across
+    // back-to-back invocations even though both writes hit
+    // `setAttribute`.  Lesson #209 (state-machine reset-hook
+    // companion) — verifies the split (normalise-always + fire-on-
+    // state-change) doesn't break the prior idempotency contract.
+    let out = run("var d = document.createElement('details'); \
+         var count = 0; \
+         d.addEventListener('toggle', function() { count++; }); \
+         d.open = true; d.open = true; d.open = true; \
+         (count === 1) ? 'ok' : 'fail:count=' + count;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_exclusion_skips_already_closed_sibling_in_loop() {
+    // R5 IMP regression: within the sibling-close loop, if a prior
+    // sibling's `toggle` listener mutates another snapshot member to
+    // already-closed (e.g. `b.removeAttribute('open')`), the loop
+    // must re-check the live `open` attribute and skip both the
+    // attribute mutation AND the ToggleEvent dispatch — otherwise
+    // `b` receives a spurious second ToggleEvent (open→closed).
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.name = 'g'; a.open = true; \
+         var b = document.createElement('details'); b.name = 'g'; b.open = true; \
+         var c = document.createElement('details'); c.name = 'g'; \
+         p.appendChild(a); p.appendChild(b); p.appendChild(c); \
+         var bToggleCount = 0; \
+         a.addEventListener('toggle', function() { \
+             /* Listener mutates b directly via raw setAttribute path \
+                (does NOT fire toggle on b — only the JS .open setter \
+                fires).  If the outer close loop re-checks live state \
+                and skips, b's toggle listener fires zero times. */ \
+             b.removeAttribute('open'); \
+         }); \
+         b.addEventListener('toggle', function() { bToggleCount++; }); \
+         c.open = true; \
+         (b.open === false && bToggleCount === 0) ? 'ok' \
+             : 'fail:b.open=' + b.open + ',bToggleCount=' + bToggleCount;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn details_exclusion_pre_collects_siblings_snapshot() {
+    // Listener mutation during sibling close loop must not re-enter
+    // the outer loop.  When `d` opens, the snapshot is `[a, c]` (both
+    // open with `name=g`).  The first close (on `a`) fires a toggle
+    // listener that mutates the DOM — appending a NEW `<details
+    // name=g open>` (`x`).  If exclusion ran on the live tree, `x`
+    // would be in scope for the close walk; the snapshot guarantees
+    // it is not, so `x` stays open after `d`'s exclusion completes.
+    let out = run("var p = document.createElement('div'); \
+         var a = document.createElement('details'); a.name = 'g'; a.open = true; \
+         var c = document.createElement('details'); c.name = 'g'; c.open = true; \
+         var d = document.createElement('details'); d.name = 'g'; \
+         p.appendChild(a); p.appendChild(c); p.appendChild(d); \
+         var x = null; \
+         a.addEventListener('toggle', function() { \
+             /* Mutate the DOM mid-close: insert a new same-group \
+                already-open <details>.  Snapshot semantics mean \
+                this insertion is invisible to the in-flight \
+                close loop — `x` must stay open. */ \
+             x = document.createElement('details'); \
+             x.name = 'g'; \
+             x.setAttribute('open', ''); \
+             p.appendChild(x); \
+         }); \
+         d.open = true; \
+         /* Expected: a + c closed by the snapshot; d opened; \
+            x inserted mid-loop and still open (snapshot proof). */ \
+         (a.open === false && c.open === false && d.open === true \
+             && x !== null && x.open === true) ? 'ok' \
+             : 'fail:a.open=' + a.open + ',c.open=' + c.open \
+                 + ',d.open=' + d.open + ',x=' + (x === null ? 'null' : ('open=' + x.open));");
     assert_eq!(out, "ok");
 }
 

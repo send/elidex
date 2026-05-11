@@ -1083,6 +1083,66 @@ pub(crate) struct VmInner {
     /// own-data slots (reuses the UA-dispatch `close_event` shape).
     #[cfg(feature = "engine")]
     pub(crate) close_event_prototype: Option<ObjectId>,
+    /// `SubmitEvent.prototype` (HTML §4.10.21.5.5).  Chains to
+    /// [`event_prototype`].  Adds `submitter` own-data slot.
+    #[cfg(feature = "engine")]
+    pub(crate) submit_event_prototype: Option<ObjectId>,
+    /// `FormDataEvent.prototype` (HTML §4.10.21.5.4).  Chains to
+    /// [`event_prototype`].  Adds `formData` own-data slot.
+    #[cfg(feature = "engine")]
+    pub(crate) formdata_event_prototype: Option<ObjectId>,
+    /// `ToggleEvent.prototype` (HTML §4.11.1.5).  Chains to
+    /// [`event_prototype`].  Adds `newState` / `oldState` own-data slots.
+    #[cfg(feature = "engine")]
+    pub(crate) toggle_event_prototype: Option<ObjectId>,
+    /// `CompositionEvent.prototype` (UI Events §5.6).  Chains to
+    /// [`ui_event_prototype`].  Adds `data` own-data slot beyond the
+    /// UIEvent base.
+    #[cfg(feature = "engine")]
+    pub(crate) composition_event_prototype: Option<ObjectId>,
+    /// `ClipboardEvent.prototype` (Clipboard API §3).  Chains to
+    /// [`event_prototype`].  Adds `clipboardData` own-data slot.
+    #[cfg(feature = "engine")]
+    pub(crate) clipboard_event_prototype: Option<ObjectId>,
+    /// `ProgressEvent.prototype` (XHR §10).  Chains to
+    /// [`event_prototype`].  Adds `lengthComputable` / `loaded` / `total`
+    /// own-data slots.
+    #[cfg(feature = "engine")]
+    pub(crate) progress_event_prototype: Option<ObjectId>,
+    /// `BeforeUnloadEvent.prototype` (HTML §9.10.2).  Chains to
+    /// [`event_prototype`].  No public constructor — `new
+    /// BeforeUnloadEvent(...)` throws TypeError "Illegal constructor".
+    /// `returnValue` is a mutable accessor pair installed on the
+    /// prototype (legacy spec — script reads/writes it inside an
+    /// `onbeforeunload` handler).  Still registered so UA-dispatched
+    /// instances pass `instanceof BeforeUnloadEvent`.
+    #[cfg(feature = "engine")]
+    pub(crate) before_unload_event_prototype: Option<ObjectId>,
+    /// Per-`BeforeUnloadEvent` instance `returnValue` slot, keyed by
+    /// the instance's `ObjectId`.  Lazy: only present after a setter
+    /// invocation; the getter returns the empty string for missing
+    /// entries.  GC contract: sweep tail prunes entries whose key
+    /// `ObjectId` was collected so a recycled slot can't observe a
+    /// stale string.
+    #[cfg(feature = "engine")]
+    pub(crate) before_unload_return_values: HashMap<ObjectId, StringId>,
+    /// `MessageEvent.prototype` (HTML §9.4.4).  Chains to
+    /// [`event_prototype`].  Adds `data` / `origin` / `lastEventId` /
+    /// `source` / `ports` own-data slots (reuses the UA-dispatch
+    /// `message` shape).
+    #[cfg(feature = "engine")]
+    pub(crate) message_event_prototype: Option<ObjectId>,
+    /// `WheelEvent.prototype` (UI Events §5.5).  Chains to
+    /// [`mouse_event_prototype`].  Adds `deltaX` / `deltaY` / `deltaZ` /
+    /// `deltaMode` own-data slots beyond the MouseEvent base, plus
+    /// DOM_DELTA_* constants installed as static fields on the prototype.
+    #[cfg(feature = "engine")]
+    pub(crate) wheel_event_prototype: Option<ObjectId>,
+    /// `PageTransitionEvent.prototype` (HTML §7.10.1.7.4).  Chains to
+    /// [`event_prototype`].  Adds `persisted` own-data slot (reuses the
+    /// UA-dispatch `page_transition` shape).
+    #[cfg(feature = "engine")]
+    pub(crate) page_transition_event_prototype: Option<ObjectId>,
     /// `Headers.prototype` (WHATWG Fetch §5.2).  Chains to
     /// `Object.prototype` — Headers is a WebIDL interface with no
     /// EventTarget ancestry.  Holds `append` / `set` / `delete` /

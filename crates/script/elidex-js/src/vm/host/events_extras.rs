@@ -39,7 +39,7 @@ use super::events::{check_construct, install_ctor, parse_event_init, type_arg, E
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn opts_object_id(val: JsValue) -> Option<ObjectId> {
+pub(super) fn opts_object_id(val: JsValue) -> Option<ObjectId> {
     match val {
         JsValue::Object(id) => Some(id),
         _ => None,
@@ -48,7 +48,7 @@ fn opts_object_id(val: JsValue) -> Option<ObjectId> {
 
 /// Read a string init-dict member — missing / undefined → empty string
 /// default.  Non-string values coerce via ToString (Symbol throws).
-fn read_string(
+pub(super) fn read_string(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
     key: StringId,
@@ -63,7 +63,7 @@ fn read_string(
 }
 
 /// Read a numeric init-dict member — `undefined` → `default`.
-fn read_number(
+pub(super) fn read_number(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
     key: StringId,
@@ -82,7 +82,7 @@ fn read_number(
 /// supplied `default`; otherwise pass through unchanged (WebIDL `any`
 /// preserves the value, including non-default `undefined` if the caller
 /// passes `default = JsValue::Undefined`).
-fn read_any(
+pub(super) fn read_any(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
     key: StringId,
@@ -103,7 +103,7 @@ fn read_any(
 /// `ToBoolean` step itself is total / never throws, but the preceding
 /// `get_property_value` may invoke a user-defined getter on the init
 /// dict that throws — that error is propagated unchanged.
-fn read_bool(
+pub(super) fn read_bool(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
     key: StringId,

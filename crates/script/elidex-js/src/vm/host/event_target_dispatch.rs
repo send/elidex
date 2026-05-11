@@ -541,3 +541,108 @@ pub(super) fn dispatch_simple_event(
     // not proceed under a hidden failure.
     result.map(|not_default_prevented| !not_default_prevented)
 }
+
+/// Dispatch a `toggle` ToggleEvent at `target_entity`, mirroring the
+/// hand-rolled allocation pattern of [`dispatch_simple_event`] but
+/// extending the slot Vec with the two ToggleEvent-specific payload
+/// values (`newState`, `oldState`).
+///
+/// Used by the `<details>.open` setter (HTML §4.11.1.5) — both for
+/// the self-fire on state change and for each sibling closed by
+/// multi-disclosure exclusion.
+///
+/// Per spec the `toggle` event is `bubbles=false`, `cancelable=false`.
+/// `is_trusted=true` since this is a UA-fired event (the setter is
+/// the spec-mandated dispatch site, not a script-side `dispatchEvent`).
+///
+/// Returns `Ok(true)` when the event was cancelled (bubbles=false +
+/// cancelable=false, so always returns `Ok(false)` in practice — but
+/// the same contract is preserved for caller symmetry).  `Err` is
+/// only returned for VM-level failures.
+///
+/// No `EventPayload::Toggle` variant is added to elidex-plugin — the
+/// dispatch path here is fully VM-side, so the engine-indep
+/// `EventPayload` enum stays untouched.
+///
+/// Parameter order is `(old_state, new_state)` to read naturally at
+/// call sites ("closed → open" / "open → closed").  The internal slot
+/// order is `(newState, oldState)` per Chrome DevTools enumeration
+/// and the `toggle_event` shape transition.  Bindings below mirror
+/// the SIGNATURE order on the lines that ToString-intern the values
+/// so a reader following the parameter list down the function body
+/// doesn't transpose them; the slot-population order is then made
+/// explicit at the slot-Vec construction site.
+pub(super) fn dispatch_toggle_event(
+    ctx: &mut NativeContext<'_>,
+    target_entity: elidex_ecs::Entity,
+    old_state: &str,
+    new_state: &str,
+) -> Result<bool, VmError> {
+    use super::super::value::PropertyValue;
+
+    let toggle_type_sid = ctx.vm.well_known.toggle;
+    // ToggleEvent.prototype is the brand for UA-fired toggles —
+    // matches the §C-7 UA-brand fix surface.  Falls back to
+    // `Event.prototype` if (somehow) the registration order changed
+    // and `toggle_event_prototype` is `None`.
+    let toggle_proto = ctx.vm.toggle_event_prototype.or(ctx.vm.event_prototype);
+    let target_wrapper = ctx.vm.create_element_wrapper(target_entity);
+    let toggle_shape = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .toggle_event;
+
+    let event_id = ctx.vm.alloc_object(super::super::value::Object {
+        kind: ObjectKind::Event {
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_propagation_stopped: false,
+            cancelable: false,
+            passive: false,
+            type_sid: toggle_type_sid,
+            bubbles: false,
+            composed: false,
+            composed_path: None,
+        },
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: toggle_proto,
+        extensible: true,
+    });
+    // Same GC-rooting strategy as `dispatch_simple_event`: insert into
+    // `dispatched_events` so the walker treats `event_id` as a strong
+    // root for the duration of the dispatch + remove on the
+    // normal-return path.
+    ctx.vm.dispatched_events.insert(event_id);
+
+    let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;
+    // Intern order matches the function signature
+    // (`old_state, new_state`) — slot-population order below
+    // independently rearranges to `(newState, oldState)` per shape.
+    let old_state_sid = ctx.vm.strings.intern(old_state);
+    let new_state_sid = ctx.vm.strings.intern(new_state);
+    // Slot order: 9 core values then 2 toggle-payload values.
+    // Toggle slots match the `toggle_event` shape transition:
+    // newState then oldState (matches Chrome DevTools enumeration).
+    let slots: Vec<PropertyValue> = vec![
+        PropertyValue::Data(JsValue::String(toggle_type_sid)), // type
+        PropertyValue::Data(JsValue::Boolean(false)),          // bubbles
+        PropertyValue::Data(JsValue::Boolean(false)),          // cancelable
+        PropertyValue::Data(JsValue::Number(0.0)),             // eventPhase
+        PropertyValue::Data(JsValue::Object(target_wrapper)),  // target
+        PropertyValue::Data(JsValue::Object(target_wrapper)),  // currentTarget
+        PropertyValue::Data(JsValue::Number(timestamp_ms)),    // timeStamp
+        PropertyValue::Data(JsValue::Boolean(false)),          // composed
+        PropertyValue::Data(JsValue::Boolean(true)),           // isTrusted (UA-fired)
+        PropertyValue::Data(JsValue::String(new_state_sid)),   // newState
+        PropertyValue::Data(JsValue::String(old_state_sid)),   // oldState
+    ];
+    ctx.vm
+        .define_with_precomputed_shape(event_id, toggle_shape, slots);
+
+    let result = dispatch_script_event(ctx, event_id, target_entity);
+    ctx.vm.dispatched_events.remove(&event_id);
+
+    result.map(|not_default_prevented| !not_default_prevented)
+}

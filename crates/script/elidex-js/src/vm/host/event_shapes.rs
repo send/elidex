@@ -118,8 +118,11 @@ pub(crate) struct PrecomputedEventShapes {
     /// anchored at `ui_event_constructed`, preserving `view` / `detail`
     /// own-data on instances.
     pub(crate) focus_event_constructed: ShapeId,
-    /// `new InputEvent(type, init)` — UIEvent base + `inputType` /
-    /// `data` / `isComposing`.
+    /// `new InputEvent(type, init)` — UIEvent base + `data` /
+    /// `isComposing` / `inputType` / `dataTransfer`.  D-10 extends
+    /// the slot count from 3 to 4 — `dataTransfer` is a null stub
+    /// until D-9 ships the real DataTransfer wrapper (`#11-events-
+    /// modern-input` paired with `#11-event-modern-extras`).
     pub(crate) input_event_constructed: ShapeId,
     // -- Non-UIEvent specialized constructor shapes --
     //
@@ -141,6 +144,43 @@ pub(crate) struct PrecomputedEventShapes {
     pub(crate) error_event: ShapeId,
     /// `new PopStateEvent(type, init)` — core + `state`.
     pub(crate) pop_state_event: ShapeId,
+    // -- D-10 events-misc constructor shapes --
+    //
+    // All chain to `core` directly except `composition_event_constructed`
+    // (chains through `ui_event_constructed`) and `wheel_event_constructed`
+    // (chains through `mouse_event_constructed`).  MessageEvent +
+    // PageTransitionEvent reuse the existing `message` / `page_transition`
+    // UA-dispatch shapes (init-dict order matches UA payload).
+    /// `new SubmitEvent(type, init)` — core + `submitter`.
+    pub(crate) submit_event: ShapeId,
+    /// `new FormDataEvent(type, init)` — core + `formData`.
+    pub(crate) formdata_event: ShapeId,
+    /// `new ToggleEvent(type, init)` — core + `newState` + `oldState`.
+    /// Slot order matches `dispatch_toggle_event` (newState before
+    /// oldState — DevTools enumeration / spec attr-order).
+    pub(crate) toggle_event: ShapeId,
+    /// `new CompositionEvent(type, init)` — UIEvent base + `data`.
+    pub(crate) composition_event_constructed: ShapeId,
+    /// `new ClipboardEvent(type, init)` — core + `clipboardData`.
+    pub(crate) clipboard_event_constructed: ShapeId,
+    /// `new ProgressEvent(type, init)` — core + `lengthComputable` +
+    /// `loaded` + `total`.
+    pub(crate) progress_event: ShapeId,
+    /// `new BeforeUnloadEvent(...)` — core only (no constructable
+    /// surface). `returnValue` is a mutable prototype accessor backed
+    /// by an internal slot rather than an own-data shape slot, so the
+    /// shape stays at the core-9 layout.  Reserved for future
+    /// UA-dispatch path; currently unread because `BeforeUnloadEvent`
+    /// always throws on construct + no UA-dispatch path fires
+    /// `beforeunload` yet (deferred to `#11-event-dispatch-extra`).
+    /// Kept on the struct so the precomputed-shape registry is
+    /// 1-1 with the prototype set.
+    #[allow(dead_code)]
+    pub(crate) before_unload_event: ShapeId,
+    /// `new WheelEvent(type, init)` — MouseEvent base + `deltaX` /
+    /// `deltaY` / `deltaZ` / `deltaMode`.  Distinct from the UA-dispatch
+    /// `wheel` shape (3 keys, no deltaZ + no UIEvent prefix).
+    pub(crate) wheel_event_constructed: ShapeId,
 }
 
 // Local helpers for [`dispatch_payload`] — keep each variant arm
@@ -602,6 +642,9 @@ impl VmInner {
             ui_event_constructed,
             &[self.well_known.related_target],
         );
+        // D-10 extends `input_event_constructed` from 3 to 4 slots:
+        // adds `dataTransfer` after `inputType`.  Existing slot
+        // positions for data/isComposing/inputType are preserved.
         let input_event_constructed = extend(
             self,
             ui_event_constructed,
@@ -609,6 +652,7 @@ impl VmInner {
                 self.well_known.data,
                 self.well_known.is_composing,
                 self.well_known.input_type,
+                self.well_known.data_transfer,
             ],
         );
 
@@ -632,6 +676,47 @@ impl VmInner {
             ],
         );
         let pop_state_event = extend(self, core, &[self.well_known.state]);
+
+        // D-10 events-misc constructor shapes.
+        let submit_event = extend(self, core, &[self.well_known.submitter]);
+        let formdata_event = extend(self, core, &[self.well_known.form_data]);
+        // ToggleEvent slot order: newState before oldState (matches
+        // dispatch_toggle_event hand-rolled allocation + Chrome
+        // DevTools enumeration order).
+        let toggle_event = extend(
+            self,
+            core,
+            &[self.well_known.new_state, self.well_known.old_state],
+        );
+        let composition_event_constructed =
+            extend(self, ui_event_constructed, &[self.well_known.data]);
+        let clipboard_event_constructed = extend(self, core, &[self.well_known.clipboard_data]);
+        let progress_event = extend(
+            self,
+            core,
+            &[
+                self.well_known.length_computable,
+                self.well_known.loaded,
+                self.well_known.total,
+            ],
+        );
+        // BeforeUnloadEvent shape stays at core-9 — `returnValue` is a
+        // mutable prototype accessor backed by an internal slot, not an
+        // own-data shape slot.
+        let before_unload_event = core;
+        // WheelEvent shape extends mouse_event_constructed with the 4
+        // wheel-specific slots.  Slot order: deltaX, deltaY, deltaZ,
+        // deltaMode (matches WebIDL declaration order in UI Events §5.5).
+        let wheel_event_constructed = extend(
+            self,
+            mouse_event_constructed,
+            &[
+                self.well_known.delta_x,
+                self.well_known.delta_y,
+                self.well_known.delta_z,
+                self.well_known.delta_mode,
+            ],
+        );
 
         PrecomputedEventShapes {
             core,
@@ -658,6 +743,14 @@ impl VmInner {
             promise_rejection_event,
             error_event,
             pop_state_event,
+            submit_event,
+            formdata_event,
+            toggle_event,
+            composition_event_constructed,
+            clipboard_event_constructed,
+            progress_event,
+            before_unload_event,
+            wheel_event_constructed,
         }
     }
 }

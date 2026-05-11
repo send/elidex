@@ -139,6 +139,17 @@ impl VmInner {
         // internal `type_sid` slot (authoritative for dispatch) and
         // the same-value JS `type` data property below.
         let type_sid = self.strings.intern(&event.event_type);
+        // Subclass-aware prototype selection — D-10 §C-12 systemic
+        // UA-brand fix.  Pre-D-10 this was hardcoded to
+        // `self.event_prototype` for ALL UA-dispatched events, so
+        // `el.addEventListener('click', e => e instanceof MouseEvent)`
+        // returned `false` even though `e.clientX` etc. worked via the
+        // own-data shape slots.  `prototype_for_payload` selects the
+        // matching subclass prototype (MouseEvent.prototype /
+        // KeyboardEvent.prototype / etc.) per `EventPayload` variant,
+        // falling back to `event_prototype` for `None` / `Scroll` /
+        // unknown variants.
+        let prototype = self.prototype_for_payload(&event.payload);
         let event_id = self.alloc_object(Object {
             kind: ObjectKind::Event {
                 default_prevented: event.flags.default_prevented,
@@ -152,10 +163,11 @@ impl VmInner {
                 composed_path: None,
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            // Methods + `defaultPrevented` accessor inherited from
-            // `Event.prototype` (shared across all events — UA-
-            // initiated and script-constructed alike).
-            prototype: self.event_prototype,
+            // Methods + `defaultPrevented` accessor inherited from the
+            // subclass prototype chain, which terminates at
+            // `Event.prototype` so all Event-prototype-installed
+            // accessors remain reachable.
+            prototype,
             extensible: true,
         });
 
@@ -433,6 +445,98 @@ pub(super) fn type_arg(
         ))
     })?;
     super::super::coerce::to_string(ctx.vm, v)
+}
+
+/// Brand-check the receiver of an Event-subclass `prototype` accessor
+/// or method against a specific subclass prototype.  Returns the
+/// receiver `ObjectId` if it is an `ObjectKind::Event` whose prototype
+/// chain includes `target_proto`; throws `TypeError(...)` otherwise —
+/// matches Chrome and WebIDL §3.7.2.4 brand-check semantics for IDL
+/// `attribute` getters/setters and operations.
+///
+/// `target_proto` should be the subclass prototype `ObjectId` (e.g.
+/// `vm.before_unload_event_prototype` / `vm.input_event_prototype`).
+/// `None` means the subclass isn't registered yet — defensive
+/// default-deny so a registration-ordering bug surfaces as TypeError
+/// instead of silent acceptance.
+///
+/// `kind` selects the error message wording to match the codebase's
+/// existing brand-check conventions:
+/// - `Attribute("read" | "set")` → `"Failed to {op} '{member}'
+///   property from '{interface}': Illegal invocation"`.
+/// - `Operation` → `"Failed to execute '{member}' on '{interface}':
+///   Illegal invocation"` (matches `require_details_receiver` etc.).
+///
+/// `member` is the JS-visible IDL attribute / method name (e.g.
+/// `returnValue`, `getTargetRanges`).  `interface` is the WebIDL
+/// interface name (e.g. `BeforeUnloadEvent`, `InputEvent`).
+///
+/// The 32-hop chain walk bound is defensive against a hypothetically
+/// corrupted prototype cycle; engine-installed prototype chains are
+/// 4-6 hops deep so 32 is ample headroom.
+pub(super) fn require_event_subclass_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    target_proto: Option<ObjectId>,
+    interface: &str,
+    member: &str,
+    kind: BrandCheckKind<'_>,
+) -> Result<ObjectId, VmError> {
+    if let JsValue::Object(id) = this {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. })
+            && receiver_chains_to(ctx, id, target_proto)
+        {
+            return Ok(id);
+        }
+    }
+    let msg = match kind {
+        BrandCheckKind::Attribute(op) => format!(
+            "Failed to {op} '{member}' property from '{interface}': \
+             Illegal invocation",
+        ),
+        BrandCheckKind::Operation => format!(
+            "Failed to execute '{member}' on '{interface}': \
+             Illegal invocation",
+        ),
+    };
+    Err(VmError::type_error(msg))
+}
+
+/// Distinguishes the two brand-check error message templates
+/// [`require_event_subclass_receiver`] supports.  Modelled as an enum
+/// so the call site is forced to make an explicit choice; passing a
+/// freeform `op: &str` would let callers accidentally compose the
+/// wrong wording (R8 finding — operations were getting the
+/// `"property from"` template intended for accessors).
+#[derive(Clone, Copy)]
+pub(super) enum BrandCheckKind<'a> {
+    /// IDL `attribute` getter (`"read"`) or setter (`"set"`).
+    Attribute(&'a str),
+    /// IDL operation / method (e.g. `getTargetRanges()`).
+    Operation,
+}
+
+fn receiver_chains_to(
+    ctx: &NativeContext<'_>,
+    id: ObjectId,
+    target_proto: Option<ObjectId>,
+) -> bool {
+    let Some(target) = target_proto else {
+        return false;
+    };
+    let mut current = ctx.vm.get_object(id).prototype;
+    let mut hops = 0;
+    while let Some(proto_id) = current {
+        if proto_id == target {
+            return true;
+        }
+        hops += 1;
+        if hops > 32 {
+            return false;
+        }
+        current = ctx.vm.get_object(proto_id).prototype;
+    }
+    false
 }
 
 /// Wire a ctor function object to its prototype + the `name` global.

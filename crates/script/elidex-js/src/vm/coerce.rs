@@ -337,6 +337,56 @@ pub(super) fn f64_to_uint32(n: f64) -> u32 {
     result
 }
 
+/// WebIDL `unsigned long long` coercion (§3.10.10) without
+/// `[EnforceRange]` / `[Clamp]`.  Returns the value as `f64` because
+/// the engine stores numbers as `f64` and the result of the spec's
+/// modulo-2^64 operation may exceed `u64::MAX` when expressed in JS
+/// Number range (`f64` precision tops out at 2^53 anyway).
+///
+/// Spec (no `[EnforceRange]`, no `[Clamp]`):
+/// 1. Already-`ToNumber`'d input `n: f64`.
+/// 2. NaN / +0 / -0 / ±∞ → 0.
+/// 3. Otherwise: `x = sign(n) * floor(|n|)`, then `x mod 2^64`.
+///
+/// Used by `ProgressEvent.loaded` / `.total` (WHATWG XHR §10) and
+/// any other WebIDL `unsigned long long` attribute init member that
+/// doesn't carry `[EnforceRange]`.  Implementation prioritises the
+/// common cases (small positives untouched, fractional truncated,
+/// negative folded into positive via single 2^64 add) — strict
+/// mod-2^64 for arbitrarily large negatives requires multi-add but
+/// that path is unreachable for any realistic JS input (f64 max
+/// finite is ~1.8e308, mod 2^64 collapses it but content has lost
+/// precision long before reaching such magnitudes).
+///
+/// Engine-gated to match the only caller (`vm/host/events_misc.rs::
+/// native_progress_event_constructor`); non-engine builds drop the
+/// helper entirely so it never trips dead-code lints when
+/// feature-gated callers are absent.
+#[cfg(feature = "engine")]
+pub(crate) fn f64_to_uint64_loose(n: f64) -> f64 {
+    if !n.is_finite() || n == 0.0 {
+        return 0.0;
+    }
+    let truncated = n.trunc();
+    // Per WebIDL §3.10.10 step 2 the result for `±0` is `+0`.  Inputs
+    // that fall through the early-return guard but `trunc` to a zero
+    // (e.g. `-0.5` → `-0.0`, `0.5` → `+0.0`) must normalise to `+0`
+    // so `Object.is(e.loaded, 0) === true` rather than `-0`.  Without
+    // this normalisation a small-magnitude negative `loaded` /
+    // `total` slot would surface as `-0`, observable via
+    // `1 / e.loaded === -Infinity`.
+    if truncated == 0.0 {
+        return 0.0;
+    }
+    let modulus = 18_446_744_073_709_551_616.0_f64; // 2^64
+    if truncated > 0.0 && truncated < modulus {
+        return truncated;
+    }
+    // Negative: fold into positive via mod-2^64 addition.
+    // Large positive (> 2^64): wrap via rem_euclid.
+    truncated.rem_euclid(modulus)
+}
+
 /// ToUint16 (ES2020 §7.1.10 / WebIDL §3.10.5).  Modular truncation
 /// to the `[0, 2^16)` range.  Used by WebIDL `unsigned short`
 /// coercion (`MouseEventInit.buttons`) and by `String.fromCharCode`

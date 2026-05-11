@@ -336,6 +336,30 @@ impl Vm {
                 transition_event_prototype: None,
                 #[cfg(feature = "engine")]
                 close_event_prototype: None,
+                // D-10 events-misc: 10 NEW Event constructor prototypes
+                // (slot `#11-events-misc`).
+                #[cfg(feature = "engine")]
+                submit_event_prototype: None,
+                #[cfg(feature = "engine")]
+                formdata_event_prototype: None,
+                #[cfg(feature = "engine")]
+                toggle_event_prototype: None,
+                #[cfg(feature = "engine")]
+                composition_event_prototype: None,
+                #[cfg(feature = "engine")]
+                clipboard_event_prototype: None,
+                #[cfg(feature = "engine")]
+                progress_event_prototype: None,
+                #[cfg(feature = "engine")]
+                before_unload_event_prototype: None,
+                #[cfg(feature = "engine")]
+                before_unload_return_values: HashMap::new(),
+                #[cfg(feature = "engine")]
+                message_event_prototype: None,
+                #[cfg(feature = "engine")]
+                wheel_event_prototype: None,
+                #[cfg(feature = "engine")]
+                page_transition_event_prototype: None,
                 #[cfg(feature = "engine")]
                 headers_prototype: None,
                 #[cfg(feature = "engine")]
