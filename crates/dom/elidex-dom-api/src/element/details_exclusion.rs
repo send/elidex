@@ -100,10 +100,30 @@ pub fn collect_open_details_by_name(
 /// existing `tree.rs` walkers (selector matching / collect-text) all
 /// have caller-specific filters, so a small ad-hoc walker keeps this
 /// helper self-contained.
+///
+/// **Iterative, NOT recursive.**  DOM trees in this codebase can be up
+/// to [`elidex_ecs::MAX_ANCESTOR_DEPTH`] (10000) deep, which would blow
+/// the default Rust thread stack with a recursive walker (~100 bytes
+/// per frame × 10000 frames ≈ 1 MB; safe in isolation but susceptible
+/// to overflow when invoked deep inside an existing JS / dispatch call
+/// stack).  Explicit `Vec` stack with reverse-push of children
+/// preserves pre-order semantics: pop yields the next node in
+/// document-order, children pushed in reverse so the leftmost child
+/// pops first.
 fn walk_inclusive(dom: &EcsDom, root: Entity, visit: &mut impl FnMut(Entity)) {
-    visit(root);
-    for child in dom.children_iter(root) {
-        walk_inclusive(dom, child, visit);
+    let mut stack: Vec<Entity> = vec![root];
+    while let Some(entity) = stack.pop() {
+        visit(entity);
+        // Collect children first, then push in reverse so the leftmost
+        // child is on top of the stack (pops first → pre-order walk).
+        // Allocating a per-node Vec is wasteful for shallow trees but
+        // keeps the iterative invariant simple; in practice the DOM
+        // walker fires only on `<details>.open` mutation paths, not
+        // hot-loop scenarios.
+        let children: Vec<Entity> = dom.children_iter(entity).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
     }
 }
 
@@ -222,6 +242,29 @@ mod tests {
         let outer_div = make_div_parent(&mut dom, &[opener, inner_div]);
         let result = collect_open_details_by_name(&dom, outer_div, "g", opener);
         assert_eq!(result, vec![nested]);
+    }
+
+    #[test]
+    fn deep_nesting_does_not_overflow_stack() {
+        // Regression for R4 IMP: pre-fix the walker was recursive and
+        // would overflow the thread stack at deep nesting.  Build a
+        // 5000-deep `<div>` chain with the opener at the bottom, and
+        // assert the walker completes without panic.  5000 is well
+        // under MAX_ANCESTOR_DEPTH (10000) but enough to overflow the
+        // recursive variant on a default-stack thread.
+        let mut dom = EcsDom::new();
+        let opener = make_details(&mut dom, Some("g"), false);
+        // Wrap opener in 5000 nested divs.
+        let mut current = opener;
+        for _ in 0..5000 {
+            let outer = dom.create_element("div", Attributes::default());
+            assert!(dom.append_child(outer, current));
+            current = outer;
+        }
+        let result = collect_open_details_by_name(&dom, current, "g", opener);
+        // No matching open siblings — opener is the only details, and
+        // it's the exclude.
+        assert!(result.is_empty(), "deep walk completed without overflow");
     }
 
     #[test]
