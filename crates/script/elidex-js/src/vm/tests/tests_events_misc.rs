@@ -519,9 +519,16 @@ fn wheel_event_delta_round_trip() {
 
 #[test]
 fn wheel_event_dom_delta_constants() {
+    // Per WebIDL §3.7.6 const members are exposed as own properties of
+    // BOTH the interface object (constructor) AND the interface
+    // prototype object.  Verify both sides match the spec values
+    // 0 / 1 / 2.
     let out = run("(WheelEvent.prototype.DOM_DELTA_PIXEL === 0 \
          && WheelEvent.prototype.DOM_DELTA_LINE === 1 \
-         && WheelEvent.prototype.DOM_DELTA_PAGE === 2) ? 'ok' : 'fail';");
+         && WheelEvent.prototype.DOM_DELTA_PAGE === 2 \
+         && WheelEvent.DOM_DELTA_PIXEL === 0 \
+         && WheelEvent.DOM_DELTA_LINE === 1 \
+         && WheelEvent.DOM_DELTA_PAGE === 2) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 

@@ -176,30 +176,47 @@ impl VmInner {
             self.well_known.wheel_event_global,
             |vm, id| vm.wheel_event_prototype = Some(id),
         );
-        // Install DOM_DELTA_* numeric constants on `WheelEvent.prototype`
-        // (UI Events §5.5).  WebIDL `const` members are exposed with
-        // `{Writable: false, Enumerable: true, Configurable: false}`
-        // per WebIDL §3.7.6, but the engine has no exact-match
-        // `PropertyAttrs` constant: `WEBIDL_RO` is the closest fit
-        // (writable=false, enumerable=true) at the cost of
-        // `configurable=true` (vs the spec's `false`).  The configurable
-        // delta is observable only via `Object.defineProperty` reconfig
-        // / `delete`, both rare on intrinsic prototype slots; the
-        // enumerability bit (which `BUILTIN` would flip to false) is
-        // the load-bearing one for `for..in` / `Object.keys` parity
-        // with real browsers, so `WEBIDL_RO` is the better default
-        // until a dedicated `WEBIDL_CONST` constant lands.
+        // Install DOM_DELTA_* numeric constants on BOTH the
+        // `WheelEvent` interface object (constructor) AND on
+        // `WheelEvent.prototype` per WebIDL §3.7.6: const members of
+        // an interface are exposed as own properties of the interface
+        // object AND as own properties of the interface prototype
+        // object.  Pre-fix only the prototype carried them, so
+        // `WheelEvent.DOM_DELTA_PIXEL` returned `undefined` —
+        // divergence from Chrome / Firefox.
+        //
+        // Attrs: `WEBIDL_RO` (writable=false, enumerable=true,
+        // configurable=true).  The configurable=true delta from spec
+        // (which mandates `configurable=false`) is observable only via
+        // `Object.defineProperty` reconfig / `delete`, both rare on
+        // intrinsic surfaces; matches the engine convention for other
+        // exposed-readonly constants.
         let proto_id = self
             .wheel_event_prototype
             .expect("register_wheel_event_global just stored wheel_event_prototype");
+        let ctor_id = match self.globals.get(&self.well_known.wheel_event_global) {
+            Some(JsValue::Object(id)) => *id,
+            _ => unreachable!(
+                "register_descendant just inserted WheelEvent constructor into globals"
+            ),
+        };
         let constants = [
             (self.well_known.dom_delta_pixel, 0.0_f64),
             (self.well_known.dom_delta_line, 1.0_f64),
             (self.well_known.dom_delta_page, 2.0_f64),
         ];
         for (sid, value) in constants {
+            // Prototype side.
             self.define_shaped_property(
                 proto_id,
+                PropertyKey::String(sid),
+                PropertyValue::Data(JsValue::Number(value)),
+                shape::PropertyAttrs::WEBIDL_RO,
+            );
+            // Constructor / interface-object side — same value and
+            // attrs as the prototype slot.
+            self.define_shaped_property(
+                ctor_id,
                 PropertyKey::String(sid),
                 PropertyValue::Data(JsValue::Number(value)),
                 shape::PropertyAttrs::WEBIDL_RO,
