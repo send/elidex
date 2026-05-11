@@ -450,10 +450,9 @@ pub(super) fn type_arg(
 /// Brand-check the receiver of an Event-subclass `prototype` accessor
 /// or method against a specific subclass prototype.  Returns the
 /// receiver `ObjectId` if it is an `ObjectKind::Event` whose prototype
-/// chain includes `target_proto`; throws `TypeError("Failed to {op}
-/// '{member}' property from '{interface}': Illegal invocation")`
-/// otherwise — matches Chrome and WebIDL §3.7.2.4 brand-check
-/// semantics for IDL `attribute` getters/setters and operations.
+/// chain includes `target_proto`; throws `TypeError(...)` otherwise —
+/// matches Chrome and WebIDL §3.7.2.4 brand-check semantics for IDL
+/// `attribute` getters/setters and operations.
 ///
 /// `target_proto` should be the subclass prototype `ObjectId` (e.g.
 /// `vm.before_unload_event_prototype` / `vm.input_event_prototype`).
@@ -461,11 +460,16 @@ pub(super) fn type_arg(
 /// default-deny so a registration-ordering bug surfaces as TypeError
 /// instead of silent acceptance.
 ///
-/// `op` is `"read"` for an attribute getter, `"set"` for setter, and
-/// `"execute"` for an operation/method.  `member` is the JS-visible
-/// IDL attribute / method name (e.g. `returnValue`, `getTargetRanges`).
-/// `interface` is the WebIDL interface name (e.g. `BeforeUnloadEvent`,
-/// `InputEvent`).
+/// `kind` selects the error message wording to match the codebase's
+/// existing brand-check conventions:
+/// - `Attribute("read" | "set")` → `"Failed to {op} '{member}'
+///   property from '{interface}': Illegal invocation"`.
+/// - `Operation` → `"Failed to execute '{member}' on '{interface}':
+///   Illegal invocation"` (matches `require_details_receiver` etc.).
+///
+/// `member` is the JS-visible IDL attribute / method name (e.g.
+/// `returnValue`, `getTargetRanges`).  `interface` is the WebIDL
+/// interface name (e.g. `BeforeUnloadEvent`, `InputEvent`).
 ///
 /// The 32-hop chain walk bound is defensive against a hypothetically
 /// corrupted prototype cycle; engine-installed prototype chains are
@@ -476,7 +480,7 @@ pub(super) fn require_event_subclass_receiver(
     target_proto: Option<ObjectId>,
     interface: &str,
     member: &str,
-    op: &str,
+    kind: BrandCheckKind<'_>,
 ) -> Result<ObjectId, VmError> {
     if let JsValue::Object(id) = this {
         if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. })
@@ -485,10 +489,31 @@ pub(super) fn require_event_subclass_receiver(
             return Ok(id);
         }
     }
-    Err(VmError::type_error(format!(
-        "Failed to {op} '{member}' property from '{interface}': \
-         Illegal invocation",
-    )))
+    let msg = match kind {
+        BrandCheckKind::Attribute(op) => format!(
+            "Failed to {op} '{member}' property from '{interface}': \
+             Illegal invocation",
+        ),
+        BrandCheckKind::Operation => format!(
+            "Failed to execute '{member}' on '{interface}': \
+             Illegal invocation",
+        ),
+    };
+    Err(VmError::type_error(msg))
+}
+
+/// Distinguishes the two brand-check error message templates
+/// [`require_event_subclass_receiver`] supports.  Modelled as an enum
+/// so the call site is forced to make an explicit choice; passing a
+/// freeform `op: &str` would let callers accidentally compose the
+/// wrong wording (R8 finding — operations were getting the
+/// `"property from"` template intended for accessors).
+#[derive(Clone, Copy)]
+pub(super) enum BrandCheckKind<'a> {
+    /// IDL `attribute` getter (`"read"`) or setter (`"set"`).
+    Attribute(&'a str),
+    /// IDL operation / method (e.g. `getTargetRanges()`).
+    Operation,
 }
 
 fn receiver_chains_to(

@@ -810,7 +810,7 @@ fn native_input_event_get_target_ranges(
         ctx.vm.input_event_prototype,
         "InputEvent",
         "getTargetRanges",
-        "execute",
+        super::events::BrandCheckKind::Operation,
     )?;
     let arr = ctx.vm.create_array_object(Vec::new());
     Ok(JsValue::Object(arr))

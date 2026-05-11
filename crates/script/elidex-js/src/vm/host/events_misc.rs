@@ -587,7 +587,7 @@ fn native_before_unload_get_return_value(
         ctx.vm.before_unload_event_prototype,
         "BeforeUnloadEvent",
         "returnValue",
-        "read",
+        super::events::BrandCheckKind::Attribute("read"),
     )?;
     Ok(ctx
         .vm
@@ -612,7 +612,7 @@ fn native_before_unload_set_return_value(
         ctx.vm.before_unload_event_prototype,
         "BeforeUnloadEvent",
         "returnValue",
-        "set",
+        super::events::BrandCheckKind::Attribute("set"),
     )?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;

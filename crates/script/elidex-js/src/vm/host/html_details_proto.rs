@@ -144,11 +144,12 @@ fn details_set_open(
     if !state_changed {
         return Ok(JsValue::Undefined);
     }
-    // 4. Multi-disclosure exclusion — opening a named `<details>` closes
-    //    every other open `<details>` in the same tree with the same
-    //    byte-equal `name`.  Pre-collect the snapshot BEFORE the close
-    //    loop so listener mutations during one sibling's ToggleEvent
-    //    dispatch don't re-enter the outer loop.
+    // 4. Multi-disclosure exclusion (snapshot collection) — opening a
+    //    named `<details>` collects every other open `<details>` in
+    //    the same tree with the same byte-equal `name`.  Pre-collect
+    //    the snapshot BEFORE the close loop so listener mutations
+    //    during one sibling's ToggleEvent dispatch don't re-enter the
+    //    outer loop.
     let siblings_to_close: Vec<Entity> = if new_open {
         let owned_name: Option<String> = ctx
             .host()
@@ -168,10 +169,10 @@ fn details_set_open(
     } else {
         Vec::new()
     };
-    // 4. Close each sibling + fire ToggleEvent on it.  Use the raw
-    //    `removeAttribute` DOM call (NOT the JS setter) so we don't
-    //    re-enter `details_set_open` recursively — exclusion is a
-    //    direct attribute mutation per HTML §4.11.1.
+    // 5. Close each snapshot sibling + fire ToggleEvent on it.  Use
+    //    the raw `removeAttribute` DOM call (NOT the JS setter) so
+    //    we don't re-enter `details_set_open` recursively — exclusion
+    //    is a direct attribute mutation per HTML §4.11.1.
     //
     //    The snapshot reflects the state at exclusion start, but a
     //    prior sibling's `toggle` listener can mutate other siblings
@@ -203,7 +204,7 @@ fn details_set_open(
         )?;
         let _cancelled = dispatch_toggle_event(ctx, sibling, "open", "closed")?;
     }
-    // 5. Fire ToggleEvent on self with the appropriate state pair.
+    // 6. Fire ToggleEvent on self with the appropriate state pair.
     //    (Own attribute mutation already happened at step 2 — see the
     //    "Apply attribute mutation UNCONDITIONALLY" block.)
     let old_state = if prior_open { "open" } else { "closed" };
