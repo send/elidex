@@ -472,13 +472,21 @@ fn details_name_byte_equality_not_case_insensitive() {
 #[test]
 fn details_close_does_not_cascade_exclusion() {
     // Closing a `<details>` does NOT trigger exclusion (only opening
-    // does, per HTML §4.11.1 "name attribute change steps").
+    // does, per HTML §4.11.1 "name attribute change steps").  Setup
+    // bypasses the JS `.open` setter via direct `setAttribute('open',
+    // '')` so both siblings can start in the (spec-violating-but-
+    // engineered) state of two open same-group `<details>`; the test
+    // then closes `a` via the setter and asserts `b` STAYS OPEN — if
+    // exclusion incorrectly cascaded on close, `b` would be closed too.
     let out = run("var p = document.createElement('div'); \
-         var a = document.createElement('details'); a.name = 'g'; a.open = true; \
+         var a = document.createElement('details'); a.name = 'g'; \
+         a.setAttribute('open', ''); \
          var b = document.createElement('details'); b.name = 'g'; \
+         b.setAttribute('open', ''); \
          p.appendChild(a); p.appendChild(b); \
          a.open = false; \
-         (a.open === false && b.open === false) ? 'ok' : 'fail';");
+         (a.open === false && b.open === true) ? 'ok' \
+             : 'fail:a.open=' + a.open + ',b.open=' + b.open;");
     assert_eq!(out, "ok");
 }
 

@@ -493,7 +493,8 @@ define_well_known_strings! {
         // Keys reused from elsewhere: `data` (composition), `origin` /
         // `last_event_id` / `source` / `ports` (message), `persisted`
         // (page_transition), `delta_x` / `delta_y` / `delta_mode`
-        // (wheel), `toggle` (toggle event type — already at line 511).
+        // (wheel), `toggle` (existing event-type SID reused for
+        // ToggleEvent's `type` value).
         submitter => "submitter",
         form_data => "formData",
         old_state => "oldState",

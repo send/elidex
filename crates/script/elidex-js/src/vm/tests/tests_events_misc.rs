@@ -597,25 +597,27 @@ fn input_event_existing_fields_still_work() {
 // =====================================================================
 
 #[test]
-fn before_unload_return_value_default_empty_string() {
+fn before_unload_return_value_getter_throws_on_non_event_receiver() {
+    // Brand check (WebIDL §3.7.2.4): `Object.create(BeforeUnloadEvent.
+    // prototype)` is not an `ObjectKind::Event` instance, so reading
+    // `returnValue` must throw TypeError "Illegal invocation" — matches
+    // Chrome / Firefox.  Without the brand check the side table would
+    // accumulate entries for arbitrary objects.
     let out = run("var e = Object.create(BeforeUnloadEvent.prototype); \
-         (e.returnValue === '') ? 'ok' : 'fail';");
+         var ok = false; var msg = ''; \
+         try { var v = e.returnValue; } \
+         catch (err) { ok = true; msg = String(err); } \
+         (ok && msg.indexOf('Illegal invocation') !== -1) ? 'ok' : 'fail:' + msg;");
     assert_eq!(out, "ok");
 }
 
 #[test]
-fn before_unload_return_value_setter_round_trip() {
+fn before_unload_return_value_setter_throws_on_non_event_receiver() {
     let out = run("var e = Object.create(BeforeUnloadEvent.prototype); \
-         e.returnValue = 'wait!'; \
-         (e.returnValue === 'wait!') ? 'ok' : 'fail';");
-    assert_eq!(out, "ok");
-}
-
-#[test]
-fn before_unload_return_value_coerces_via_to_string() {
-    let out = run("var e = Object.create(BeforeUnloadEvent.prototype); \
-         e.returnValue = 42; \
-         (e.returnValue === '42') ? 'ok' : 'fail';");
+         var ok = false; var msg = ''; \
+         try { e.returnValue = 'wait!'; } \
+         catch (err) { ok = true; msg = String(err); } \
+         (ok && msg.indexOf('Illegal invocation') !== -1) ? 'ok' : 'fail:' + msg;");
     assert_eq!(out, "ok");
 }
 

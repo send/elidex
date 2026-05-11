@@ -37,7 +37,9 @@
 #![cfg(feature = "engine")]
 
 use super::super::shape;
-use super::super::value::{JsValue, NativeContext, ObjectId, PropertyKey, PropertyValue, VmError};
+use super::super::value::{
+    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, VmError,
+};
 use super::super::VmInner;
 use super::events::{check_construct, parse_event_init, type_arg};
 use super::events_extras::{
@@ -121,10 +123,14 @@ impl VmInner {
     ///
     /// `returnValue` is a mutable accessor pair installed on
     /// `BeforeUnloadEvent.prototype`; the slot value lives on a
-    /// per-instance side table (`return_value_states`) keyed by the
-    /// receiver `ObjectId`.  Lazy: instances start with no entry, and
-    /// the getter returns `""` for a missing entry to match
-    /// `String(returnValue) === ""` for a freshly-fired event.
+    /// per-instance side table (`VmInner::before_unload_return_values`)
+    /// keyed by the receiver `ObjectId`.  Lazy: instances start with no
+    /// entry, and the getter returns `""` for a missing entry to match
+    /// `String(returnValue) === ""` for a freshly-fired event.  Both
+    /// accessors brand-check the receiver to `ObjectKind::Event` and
+    /// throw `TypeError("Illegal invocation")` on wrong receiver, so
+    /// `Object.create(BeforeUnloadEvent.prototype).returnValue` does
+    /// not silently grow the side table.
     pub(in crate::vm) fn register_before_unload_event_global(&mut self) {
         register_event_subclass(
             self,
@@ -542,6 +548,31 @@ fn native_before_unload_event_constructor(
     Err(VmError::type_error("Illegal constructor"))
 }
 
+/// Brand-check the receiver of a `BeforeUnloadEvent.prototype` accessor.
+/// Returns the `ObjectId` if the receiver is an `ObjectKind::Event`;
+/// throws `TypeError("Illegal invocation")` otherwise — matches Chrome
+/// and WebIDL §3.7.2.4 brand-check semantics for IDL `attribute`
+/// getters/setters.
+///
+/// Without this check, any plain object created via
+/// `Object.create(BeforeUnloadEvent.prototype)` would be allowed to
+/// read/write `returnValue` AND would accumulate entries in the
+/// `before_unload_return_values` side table.
+fn require_before_unload_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+) -> Result<ObjectId, VmError> {
+    if let JsValue::Object(id) = this {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. }) {
+            return Ok(id);
+        }
+    }
+    Err(VmError::type_error(
+        "Failed to read 'returnValue' property from 'BeforeUnloadEvent': \
+         Illegal invocation",
+    ))
+}
+
 /// `BeforeUnloadEvent.prototype.returnValue` getter — reads the
 /// per-instance `returnValue` slot from the side table, defaulting to
 /// the empty string when no entry exists (matches a freshly-fired UA
@@ -551,9 +582,7 @@ fn native_before_unload_get_return_value(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let JsValue::Object(id) = this else {
-        return Ok(JsValue::String(ctx.vm.well_known.empty));
-    };
+    let id = require_before_unload_receiver(ctx, this)?;
     Ok(ctx
         .vm
         .before_unload_return_values
@@ -571,9 +600,7 @@ fn native_before_unload_set_return_value(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let JsValue::Object(id) = this else {
-        return Ok(JsValue::Undefined);
-    };
+    let id = require_before_unload_receiver(ctx, this)?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     ctx.vm.before_unload_return_values.insert(id, sid);
