@@ -658,6 +658,55 @@ impl VmInner {
                 self.html_meter_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 128 + 10 = 138 (M4-12 slot `#11-events-misc`:
+                // SubmitEvent / FormDataEvent / ToggleEvent /
+                // CompositionEvent / ClipboardEvent / ProgressEvent /
+                // BeforeUnloadEvent / MessageEvent / WheelEvent /
+                // PageTransitionEvent prototypes).  Same `delete
+                // globalThis.<X>` invariant as every other intrinsic
+                // prototype in this list — the matching
+                // `VmInner::<x>_event_prototype` field retains a stale
+                // id otherwise.
+                #[cfg(feature = "engine")]
+                self.submit_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.formdata_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.toggle_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.composition_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.clipboard_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.progress_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.before_unload_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.message_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.wheel_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.page_transition_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -818,6 +867,13 @@ impl VmInner {
             // `StringId` pairs (pool-permanent) — no trace pass
             // needed during mark, only this post-sweep GC.
             self.dom_exception_states
+                .retain(|id, _| bit_get(marks, id.0));
+            // BeforeUnloadEvent.returnValue side table — pool-permanent
+            // StringId payload (no trace step), but the key ObjectId
+            // entry must be pruned when the event instance is collected
+            // so a recycled slot can't observe a stale string written
+            // by a previous BeforeUnloadEvent.
+            self.before_unload_return_values
                 .retain(|id, _| bit_get(marks, id.0));
             // `pending_timeout_signals` — values are rooted during
             // mark so a collected signal is an invariant violation

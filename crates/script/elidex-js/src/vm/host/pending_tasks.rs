@@ -194,7 +194,18 @@ fn dispatch_post_message(
     // no-op per MessageEvent's §2.2 default.  `is_trusted = true`
     // because UA is the synthesizer (postMessage is a browser-
     // initiated dispatch, not a user script `dispatchEvent(...)` call).
-    let event_proto = g_data.event_prototype;
+    //
+    // D-10 §C-7 systemic UA-brand fix: prototype is the
+    // MessageEvent.prototype (chains through Event.prototype) so
+    // `e instanceof MessageEvent` returns true post-fix.  Falls back
+    // to `event_prototype` if (somehow) MessageEvent isn't
+    // registered yet — same belt-and-suspenders pattern as
+    // `prototype_for_payload`.  This site bypasses
+    // `create_event_object` (the standard UA-dispatch path) so the
+    // §C-12 fix doesn't reach it transitively; per lesson #202 ("fix
+    // the pattern, not just the call site") the prototype selection
+    // is mirrored here too.
+    let event_proto = g_data.message_event_prototype.or(g_data.event_prototype);
     let event_id = g_data.alloc_object(Object {
         kind: ObjectKind::Event {
             default_prevented: false,

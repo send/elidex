@@ -472,6 +472,49 @@ define_well_known_strings! {
         attribute_name => "attributeName",
     }
 
+    "D-10 events-misc constructor globals + init-dict keys (slot #11-events-misc)" {
+        // 10 NEW Event-family constructor globals.  All chain through
+        // either `Event.prototype` (8 of them) or `MouseEvent.prototype`
+        // (WheelEvent only) / `UIEvent.prototype` (CompositionEvent
+        // only).  Installed via the shared `register_event_subclass`
+        // helper (Event-base) or `register_descendant` (UIEvent-base
+        // family).
+        submit_event_global => "SubmitEvent",
+        formdata_event_global => "FormDataEvent",
+        toggle_event_global => "ToggleEvent",
+        composition_event_global => "CompositionEvent",
+        clipboard_event_global => "ClipboardEvent",
+        progress_event_global => "ProgressEvent",
+        before_unload_event_global => "BeforeUnloadEvent",
+        message_event_global => "MessageEvent",
+        wheel_event_global => "WheelEvent",
+        page_transition_event_global => "PageTransitionEvent",
+        // Init-dict / IDL attribute keys not already in earlier sections.
+        // Keys reused from elsewhere: `data` (composition), `origin` /
+        // `last_event_id` / `source` / `ports` (message), `persisted`
+        // (page_transition), `delta_x` / `delta_y` / `delta_mode`
+        // (wheel), `toggle` (toggle event type — already at line 511).
+        submitter => "submitter",
+        form_data => "formData",
+        old_state => "oldState",
+        new_state => "newState",
+        clipboard_data => "clipboardData",
+        length_computable => "lengthComputable",
+        loaded => "loaded",
+        total => "total",
+        return_value => "returnValue",
+        data_transfer => "dataTransfer",
+        target_ranges => "targetRanges",
+        get_target_ranges => "getTargetRanges",
+        // WheelEvent-specific deltaZ + DOM_DELTA_* constant names.
+        // `deltaX` / `deltaY` / `deltaMode` already in event-payload
+        // section.
+        delta_z => "deltaZ",
+        dom_delta_pixel => "DOM_DELTA_PIXEL",
+        dom_delta_line => "DOM_DELTA_LINE",
+        dom_delta_page => "DOM_DELTA_PAGE",
+    }
+
     "Storage / StorageEvent (slot #11-storage-web)" {
         // Constructor / global identifier names (WHATWG HTML §11.2).
         // `localStorage` / `sessionStorage` are accessor properties

@@ -479,6 +479,21 @@ impl VmInner {
             // StorageEvent — chains to Event.prototype, paired with
             // the `Storage` interface above.  WHATWG HTML §11.4.2.
             self.register_storage_event_global();
+            // M4-12 slot `#11-events-misc` (D-10) — 10 NEW Event
+            // constructor classes.  8 chain to Event.prototype, 1
+            // chains to UIEvent.prototype (CompositionEvent), 1 chains
+            // to MouseEvent.prototype (WheelEvent).  All registered
+            // after their respective parent prototypes (above).
+            self.register_submit_event_global();
+            self.register_formdata_event_global();
+            self.register_toggle_event_global();
+            self.register_composition_event_global();
+            self.register_clipboard_event_global();
+            self.register_progress_event_global();
+            self.register_before_unload_event_global();
+            self.register_message_event_global();
+            self.register_wheel_event_global();
+            self.register_page_transition_event_global();
         }
 
         // `DOMException` constructor + prototype (WebIDL §3.14).

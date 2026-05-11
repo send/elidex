@@ -139,6 +139,17 @@ impl VmInner {
         // internal `type_sid` slot (authoritative for dispatch) and
         // the same-value JS `type` data property below.
         let type_sid = self.strings.intern(&event.event_type);
+        // Subclass-aware prototype selection — D-10 §C-12 systemic
+        // UA-brand fix.  Pre-D-10 this was hardcoded to
+        // `self.event_prototype` for ALL UA-dispatched events, so
+        // `el.addEventListener('click', e => e instanceof MouseEvent)`
+        // returned `false` even though `e.clientX` etc. worked via the
+        // own-data shape slots.  `prototype_for_payload` selects the
+        // matching subclass prototype (MouseEvent.prototype /
+        // KeyboardEvent.prototype / etc.) per `EventPayload` variant,
+        // falling back to `event_prototype` for `None` / `Scroll` /
+        // unknown variants.
+        let prototype = self.prototype_for_payload(&event.payload);
         let event_id = self.alloc_object(Object {
             kind: ObjectKind::Event {
                 default_prevented: event.flags.default_prevented,
@@ -152,10 +163,11 @@ impl VmInner {
                 composed_path: None,
             },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            // Methods + `defaultPrevented` accessor inherited from
-            // `Event.prototype` (shared across all events — UA-
-            // initiated and script-constructed alike).
-            prototype: self.event_prototype,
+            // Methods + `defaultPrevented` accessor inherited from the
+            // subclass prototype chain, which terminates at
+            // `Event.prototype` so all Event-prototype-installed
+            // accessors remain reachable.
+            prototype,
             extensible: true,
         });
 

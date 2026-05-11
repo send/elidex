@@ -46,6 +46,7 @@ mod tests_event_constructor;
 mod tests_event_extras_constructor;
 mod tests_event_object;
 mod tests_event_target;
+mod tests_events_misc;
 mod tests_fetch;
 mod tests_forbidden_headers;
 mod tests_form_data;

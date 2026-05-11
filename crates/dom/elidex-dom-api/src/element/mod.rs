@@ -2,6 +2,7 @@
 //! getAttribute/setAttribute/removeAttribute, textContent, innerHTML.
 
 mod attrs;
+pub mod details_exclusion;
 pub mod enumerated_reflect;
 pub mod href_accessor;
 mod inheritance;

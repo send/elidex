@@ -3,31 +3,33 @@
 //! `#11-tags-T2d-interactive`).
 //!
 //! IDL surface (HTML §4.11.1):
-//! - `open` — boolean reflect of the `open` content attribute.
+//! - `open` — boolean reflect of the `open` content attribute.  D-10
+//!   wires the spec-mandated `ToggleEvent` fire on open-state change
+//!   plus the `<details>.name` multi-disclosure exclusion algorithm
+//!   (HTML §4.11.1 — opening a named `<details>` auto-closes other
+//!   open `<details>` in the same tree with the byte-equal `name`).
 //! - `name` — DOMString reflect of the `name` content attribute
 //!   (current spec, accordion-style multi-disclosure groups).  Not
 //!   deprecated, so in scope per the core/compat/deprecated tiering
 //!   (`docs/design/ja/14-script-engines-webapi.md` §14.1.1 + §14.4.2).
 //!
-//! The spec-mandated `ToggleEvent` fire on open-state change is
-//! deferred to slot `#11-tags-T2d-details-toggle-event` (paired with
-//! D-10 `#11-events-misc` which lands the `ToggleEvent` class).  The
-//! multi-disclosure exclusion semantics (auto-close sibling
-//! `<details>` with the same `name`) are paired with that slot since
-//! the exclusion fires on toggle event ordering.
-//!
 //! ## Layering
 //!
-//! Per CLAUDE.md "Layering mandate", marshalling-only.
+//! Per CLAUDE.md "Layering mandate", VM-side marshalling +
+//! dispatch glue.  The pure tree-walk for multi-disclosure exclusion
+//! (`collect_open_details_by_name`) lives in `elidex-dom-api` per the
+//! engine-indep mandate.
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Entity, NodeKind};
+use elidex_dom_api::element::details_exclusion::collect_open_details_by_name;
+use elidex_ecs::{Attributes, Entity, NodeKind};
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, VmError};
 use super::super::VmInner;
 use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
+use super::event_target_dispatch::dispatch_toggle_event;
 
 impl VmInner {
     pub(in crate::vm) fn register_html_details_prototype(&mut self) {
@@ -101,22 +103,76 @@ fn details_set_open(
         return Ok(JsValue::Undefined);
     };
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let truthy = super::super::coerce::to_boolean(ctx.vm, val);
+    let new_open = super::super::coerce::to_boolean(ctx.vm, val);
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
+    // 1. Read prior open state via attribute presence.
     let attr_sid = ctx.vm.strings.intern("open");
-    if truthy {
+    let prior_open = matches!(
+        invoke_dom_api(ctx, "hasAttribute", entity, &[JsValue::String(attr_sid)])?,
+        JsValue::Boolean(true)
+    );
+    // 2. State unchanged → no-op (spec §4.11.1 — both attribute write
+    //    and ToggleEvent fire skipped).  Idempotency is observable:
+    //    `d.open = true; d.open = true` fires ToggleEvent exactly once.
+    if prior_open == new_open {
+        return Ok(JsValue::Undefined);
+    }
+    // 3. Multi-disclosure exclusion — opening a named `<details>` closes
+    //    every other open `<details>` in the same tree with the same
+    //    byte-equal `name`.  Pre-collect the snapshot BEFORE the close
+    //    loop so listener mutations during one sibling's ToggleEvent
+    //    dispatch don't re-enter the outer loop.
+    let siblings_to_close: Vec<Entity> = if new_open {
+        let owned_name: Option<String> = ctx
+            .host()
+            .dom()
+            .world()
+            .get::<&Attributes>(entity)
+            .ok()
+            .and_then(|attrs| attrs.get("name").map(str::to_owned))
+            .filter(|n| !n.is_empty());
+        if let Some(name) = owned_name {
+            let dom = ctx.host().dom();
+            let root = dom.find_tree_root(entity);
+            collect_open_details_by_name(dom, root, &name, entity)
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+    // 4. Close each sibling + fire ToggleEvent on it.  Use the raw
+    //    `removeAttribute` DOM call (NOT the JS setter) so we don't
+    //    re-enter `details_set_open` recursively — exclusion is a
+    //    direct attribute mutation per HTML §4.11.1.
+    for sibling in siblings_to_close {
+        invoke_dom_api(
+            ctx,
+            "removeAttribute",
+            sibling,
+            &[JsValue::String(attr_sid)],
+        )?;
+        let _cancelled = dispatch_toggle_event(ctx, sibling, "open", "closed")?;
+    }
+    // 5. Apply own attribute mutation.
+    if new_open {
         let empty_sid = ctx.vm.well_known.empty;
         invoke_dom_api(
             ctx,
             "setAttribute",
             entity,
             &[JsValue::String(attr_sid), JsValue::String(empty_sid)],
-        )
+        )?;
     } else {
-        invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])
+        invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])?;
     }
+    // 6. Fire ToggleEvent on self with the appropriate state pair.
+    let old_state = if prior_open { "open" } else { "closed" };
+    let new_state = if new_open { "open" } else { "closed" };
+    let _cancelled = dispatch_toggle_event(ctx, entity, old_state, new_state)?;
+    Ok(JsValue::Undefined)
 }
 
 fn details_get_name(

@@ -120,11 +120,16 @@ fn resolve_related_target(vm: &VmInner, val: JsValue, interface: &str) -> Result
 /// InputEvent init dictionaries.  Fields default to the WebIDL
 /// "no value supplied" form: `view` null, `detail` zero, plus the
 /// inherited [`EventInit`] booleans.
+///
+/// `pub(super)` so sibling host modules (events_misc.rs CompositionEvent
+/// + WheelEvent ctors) can reuse the parser without re-implementing the
+///   `view` / `detail` coercion.  Fields stay `pub(super)` for the same
+///   reason.
 #[derive(Clone, Copy)]
-struct UIEventInit {
-    base: EventInit,
-    view: JsValue,
-    detail: f64,
+pub(super) struct UIEventInit {
+    pub(super) base: EventInit,
+    pub(super) view: JsValue,
+    pub(super) detail: f64,
 }
 
 /// Parse the `view` + `detail` members of a UIEventInit (WebIDL §3.2).
@@ -161,14 +166,14 @@ fn parse_ui_members(
     Ok((view, detail))
 }
 
-fn opts_object_id(val: JsValue) -> Option<ObjectId> {
+pub(super) fn opts_object_id(val: JsValue) -> Option<ObjectId> {
     match val {
         JsValue::Object(id) => Some(id),
         _ => None,
     }
 }
 
-fn parse_ui_event_init(
+pub(super) fn parse_ui_event_init(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
     interface: &str,
@@ -235,7 +240,7 @@ fn read_bool(
 // Read a string init-dict member — missing / undefined → empty string
 // (WebIDL DOMString default).  Non-strings coerce via ToString
 // (Symbol throws, as with Event ctor).
-fn read_string(
+pub(super) fn read_string(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
     key: StringId,
@@ -262,6 +267,118 @@ fn to_int16(n: f64) -> i16 {
     } else {
         m as i16
     }
+}
+
+/// Result of parsing a `MouseEventInit` dictionary — the 13 own-data
+/// slot values that match the `mouse_event_constructed` shape transition
+/// chain, plus `related_target` returned separately so the caller can
+/// GC-root it across event allocation (the `Object` flavoured slot may
+/// reference a freshly-created element wrapper that isn't yet
+/// reachable).
+pub(super) struct MouseEventMembers {
+    /// Element wrapper or `null` — also embedded in `slots` at the
+    /// `relatedTarget` position; returned separately so the caller can
+    /// `push_temp_root` it before `build_ui_event_instance` allocates.
+    pub(super) related_target: JsValue,
+    /// 13 slots: screenX, screenY, clientX, clientY, ctrlKey, shiftKey,
+    /// altKey, metaKey, button, buttons, relatedTarget, movementX,
+    /// movementY.  Order MUST match the `mouse_event_constructed` shape
+    /// transition chain in `build_precomputed_event_shapes`.
+    pub(super) slots: Vec<PropertyValue>,
+}
+
+/// Parse a MouseEventInit dictionary into the 13 own-data slot values
+/// expected by the `mouse_event_constructed` shape.  Shared by
+/// MouseEvent and WheelEvent constructors (WheelEvent extends
+/// MouseEvent — same 13-key prefix, then 4 wheel-specific slots).
+///
+/// Slot order matches the shape transition chain so the resulting
+/// `slots` Vec can be appended to the UIEvent prefix and handed to
+/// `build_ui_event_instance` directly (or extended with descendant-
+/// specific values, as WheelEvent does with its 4 delta slots).
+#[allow(clippy::similar_names)] // button/buttons + movement_x/y_raw mirror spec field names.
+pub(super) fn parse_mouse_event_members(
+    ctx: &mut NativeContext<'_>,
+    opts_id: Option<ObjectId>,
+) -> Result<MouseEventMembers, VmError> {
+    let modifiers = parse_modifier_flags(ctx, opts_id)?;
+    let (
+        screen_x,
+        screen_y,
+        client_x,
+        client_y,
+        button,
+        buttons,
+        related_target,
+        movement_x,
+        movement_y,
+    ) = if let Some(opts_id) = opts_id {
+        let k_screen_x = ctx.vm.well_known.screen_x;
+        let k_screen_y = ctx.vm.well_known.screen_y;
+        let k_client_x = ctx.vm.well_known.client_x;
+        let k_client_y = ctx.vm.well_known.client_y;
+        let k_button = ctx.vm.well_known.button;
+        let k_buttons = ctx.vm.well_known.buttons;
+        let k_related = ctx.vm.well_known.related_target;
+        let k_movement_x = ctx.vm.well_known.movement_x;
+        let k_movement_y = ctx.vm.well_known.movement_y;
+        let screen_x = read_number(ctx, opts_id, k_screen_x, 0.0)?;
+        let screen_y = read_number(ctx, opts_id, k_screen_y, 0.0)?;
+        let client_x = read_number(ctx, opts_id, k_client_x, 0.0)?;
+        let client_y = read_number(ctx, opts_id, k_client_y, 0.0)?;
+        let button_num = read_number(ctx, opts_id, k_button, 0.0)?;
+        let button = f64::from(to_int16(button_num));
+        let buttons_num = read_number(ctx, opts_id, k_buttons, 0.0)?;
+        let buttons = f64::from(super::super::coerce::f64_to_uint16(buttons_num));
+        let related_raw = ctx
+            .vm
+            .get_property_value(opts_id, PropertyKey::String(k_related))?;
+        // Caller knows the actual interface name; we keep "MouseEvent"
+        // for the WebIDL coercion error so the message matches the
+        // original native_mouse_event_constructor wording.  WheelEvent
+        // re-uses this and emits the same string — an acceptable
+        // simplification: real-browser WheelEvent surfaces "MouseEvent"
+        // in its `relatedTarget` brand-error message too because the
+        // member is inherited from `MouseEventInit`.
+        let related_target = resolve_related_target(ctx.vm, related_raw, "MouseEvent")?;
+        let movement_x_raw = read_number(ctx, opts_id, k_movement_x, 0.0)?;
+        let movement_y_raw = read_number(ctx, opts_id, k_movement_y, 0.0)?;
+        let movement_x = f64::from(super::super::coerce::f64_to_int32(movement_x_raw));
+        let movement_y = f64::from(super::super::coerce::f64_to_int32(movement_y_raw));
+        (
+            screen_x,
+            screen_y,
+            client_x,
+            client_y,
+            button,
+            buttons,
+            related_target,
+            movement_x,
+            movement_y,
+        )
+    } else {
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, JsValue::Null, 0.0, 0.0)
+    };
+    let [ctrl, shift, alt, meta] = modifiers;
+    let slots = vec![
+        PropertyValue::Data(JsValue::Number(screen_x)),
+        PropertyValue::Data(JsValue::Number(screen_y)),
+        PropertyValue::Data(JsValue::Number(client_x)),
+        PropertyValue::Data(JsValue::Number(client_y)),
+        PropertyValue::Data(JsValue::Boolean(ctrl)),
+        PropertyValue::Data(JsValue::Boolean(shift)),
+        PropertyValue::Data(JsValue::Boolean(alt)),
+        PropertyValue::Data(JsValue::Boolean(meta)),
+        PropertyValue::Data(JsValue::Number(button)),
+        PropertyValue::Data(JsValue::Number(buttons)),
+        PropertyValue::Data(related_target),
+        PropertyValue::Data(JsValue::Number(movement_x)),
+        PropertyValue::Data(JsValue::Number(movement_y)),
+    ];
+    Ok(MouseEventMembers {
+        related_target,
+        slots,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +456,31 @@ impl VmInner {
             self.well_known.input_event_global,
             |vm, id| vm.input_event_prototype = Some(id),
         );
+        // D-10 §C-8: install `dataTransfer` getter (null stub —
+        // DataTransfer wrapper deferred to D-9 `#11-events-modern-
+        // input`) + `getTargetRanges()` method (returns fresh empty
+        // Array — StaticRange wrapper deferred to D-8 `#11-traversal-
+        // and-range`).  Stored on `InputEvent.prototype`; instances
+        // chain through it so `e.dataTransfer` / `e.getTargetRanges()`
+        // resolve via prototype walk.
+        let proto_id = self
+            .input_event_prototype
+            .expect("register_input_event_global just stored input_event_prototype");
+        let data_transfer_sid = self.well_known.data_transfer;
+        self.install_accessor_pair(
+            proto_id,
+            data_transfer_sid,
+            native_input_event_get_data_transfer,
+            None,
+            super::super::shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        let get_target_ranges_sid = self.well_known.get_target_ranges;
+        self.install_native_method(
+            proto_id,
+            get_target_ranges_sid,
+            native_input_event_get_target_ranges,
+            super::super::shape::PropertyAttrs::METHOD,
+        );
     }
 
     /// Shared post-construction path for every UIEvent-family ctor.
@@ -352,7 +494,7 @@ impl VmInner {
     /// descendant prototype afterwards so the chain ends
     /// `instance → <Descendant>.prototype → UIEvent.prototype →
     /// Event.prototype`.
-    fn build_ui_event_instance(
+    pub(super) fn build_ui_event_instance(
         &mut self,
         this: JsValue,
         type_sid: StringId,
@@ -383,7 +525,7 @@ impl VmInner {
     }
 }
 
-fn register_descendant(
+pub(super) fn register_descendant(
     vm: &mut VmInner,
     parent: Option<ObjectId>,
     name: &str,
@@ -436,7 +578,6 @@ fn native_ui_event_constructor(
 // MouseEvent (UI Events §5.2)
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::similar_names)] // button/buttons + movement_x/y_raw are spec field names
 fn native_mouse_event_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -447,101 +588,22 @@ fn native_mouse_event_constructor(
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "MouseEvent")?;
     let opts_id = opts_object_id(init_arg);
-    let modifiers = parse_modifier_flags(ctx, opts_id)?;
-    let (
-        screen_x,
-        screen_y,
-        client_x,
-        client_y,
-        button,
-        buttons,
-        related_target,
-        movement_x,
-        movement_y,
-    ) = if let Some(opts_id) = opts_id {
-        // StringId is Copy (u32) — extract up front so subsequent
-        // `read_number(ctx, ...)` calls don't conflict with a live
-        // borrow of `ctx.vm.well_known`.
-        let k_screen_x = ctx.vm.well_known.screen_x;
-        let k_screen_y = ctx.vm.well_known.screen_y;
-        let k_client_x = ctx.vm.well_known.client_x;
-        let k_client_y = ctx.vm.well_known.client_y;
-        let k_button = ctx.vm.well_known.button;
-        let k_buttons = ctx.vm.well_known.buttons;
-        let k_related = ctx.vm.well_known.related_target;
-        let k_movement_x = ctx.vm.well_known.movement_x;
-        let k_movement_y = ctx.vm.well_known.movement_y;
-        let screen_x = read_number(ctx, opts_id, k_screen_x, 0.0)?;
-        let screen_y = read_number(ctx, opts_id, k_screen_y, 0.0)?;
-        let client_x = read_number(ctx, opts_id, k_client_x, 0.0)?;
-        let client_y = read_number(ctx, opts_id, k_client_y, 0.0)?;
-        // `button` is `short` (WebIDL §3.10.4 ToInt16); default 0.
-        let button_num = read_number(ctx, opts_id, k_button, 0.0)?;
-        let button = f64::from(to_int16(button_num));
-        // `buttons` is `unsigned short` (WebIDL §3.10.5 ToUint16); default 0.
-        let buttons_num = read_number(ctx, opts_id, k_buttons, 0.0)?;
-        let buttons = f64::from(super::super::coerce::f64_to_uint16(buttons_num));
-        let related_raw = ctx
-            .vm
-            .get_property_value(opts_id, PropertyKey::String(k_related))?;
-        let related_target = resolve_related_target(ctx.vm, related_raw, "MouseEvent")?;
-        // `movementX` / `movementY` are WebIDL `long` (UI Events §5.1)
-        // — same ToInt32 treatment as `UIEvent.detail`.  `screenX`,
-        // `screenY`, `clientX`, `clientY` remain `double` per the
-        // MouseEvent IDL so ToNumber is correct for them.
-        let movement_x_raw = read_number(ctx, opts_id, k_movement_x, 0.0)?;
-        let movement_y_raw = read_number(ctx, opts_id, k_movement_y, 0.0)?;
-        let movement_x = f64::from(super::super::coerce::f64_to_int32(movement_x_raw));
-        let movement_y = f64::from(super::super::coerce::f64_to_int32(movement_y_raw));
-        (
-            screen_x,
-            screen_y,
-            client_x,
-            client_y,
-            button,
-            buttons,
-            related_target,
-            movement_x,
-            movement_y,
-        )
-    } else {
-        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, JsValue::Null, 0.0, 0.0)
-    };
+    let members = parse_mouse_event_members(ctx, opts_id)?;
     let shape_id = ctx
         .vm
         .precomputed_event_shapes
         .as_ref()
         .expect("precomputed_event_shapes missing")
         .mouse_event_constructed;
-    // Slot order must match the transition chain built by
-    // `build_precomputed_event_shapes::mouse_event_constructed`:
-    // screenX, screenY, clientX, clientY, ctrlKey, shiftKey, altKey,
-    // metaKey, button, buttons, relatedTarget, movementX, movementY.
-    let [ctrl, shift, alt, meta] = modifiers;
-    let slots = vec![
-        PropertyValue::Data(JsValue::Number(screen_x)),
-        PropertyValue::Data(JsValue::Number(screen_y)),
-        PropertyValue::Data(JsValue::Number(client_x)),
-        PropertyValue::Data(JsValue::Number(client_y)),
-        PropertyValue::Data(JsValue::Boolean(ctrl)),
-        PropertyValue::Data(JsValue::Boolean(shift)),
-        PropertyValue::Data(JsValue::Boolean(alt)),
-        PropertyValue::Data(JsValue::Boolean(meta)),
-        PropertyValue::Data(JsValue::Number(button)),
-        PropertyValue::Data(JsValue::Number(buttons)),
-        PropertyValue::Data(related_target),
-        PropertyValue::Data(JsValue::Number(movement_x)),
-        PropertyValue::Data(JsValue::Number(movement_y)),
-    ];
     // Root the related_target across allocation inside
     // `build_ui_event_instance` (it may allocate upon shape transition).
     // For an ObjectId relatedTarget, GC-rooting avoids the wrapper
     // being swept before it lands in the slot.
-    let mut g = ctx.vm.push_temp_root(related_target);
+    let mut g = ctx.vm.push_temp_root(members.related_target);
     let mouse_proto = g
         .mouse_event_prototype
         .expect("MouseEvent.prototype must be registered before native_mouse_event_constructor");
-    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, mouse_proto, slots);
+    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, mouse_proto, members.slots);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -664,10 +726,16 @@ fn native_input_event_constructor(
     let opts_id = opts_object_id(init_arg);
     // InputEventInit: data is `DOMString? = null` (nullable string).
     // Missing / undefined → null; otherwise ToString (Symbol throws).
-    let (data_val, is_composing, input_type_sid) = if let Some(opts_id) = opts_id {
+    // D-10 adds dataTransfer (any pass-through, default null) +
+    // discards targetRanges init dict member (StaticRange deferred to
+    // D-8 — the stub `getTargetRanges()` always returns a fresh empty
+    // Array regardless of init dict input).
+    let (data_val, is_composing, input_type_sid, data_transfer_val) = if let Some(opts_id) = opts_id
+    {
         let k_data = ctx.vm.well_known.data;
         let k_is_composing = ctx.vm.well_known.is_composing;
         let k_input_type = ctx.vm.well_known.input_type;
+        let k_data_transfer = ctx.vm.well_known.data_transfer;
         let data_raw = ctx
             .vm
             .get_property_value(opts_id, PropertyKey::String(k_data))?;
@@ -680,10 +748,20 @@ fn native_input_event_constructor(
         };
         let is_composing = read_bool(ctx, opts_id, k_is_composing)?;
         let input_type_sid = read_string(ctx, opts_id, k_input_type)?;
-        (data_val, is_composing, input_type_sid)
+        // dataTransfer: any pass-through (no DataTransfer brand check
+        // — wrapper deferred to D-9).  Missing / undefined → null.
+        let dt_raw = ctx
+            .vm
+            .get_property_value(opts_id, PropertyKey::String(k_data_transfer))?;
+        let data_transfer_val = if matches!(dt_raw, JsValue::Undefined) {
+            JsValue::Null
+        } else {
+            dt_raw
+        };
+        (data_val, is_composing, input_type_sid, data_transfer_val)
     } else {
         let empty = ctx.vm.strings.intern("");
-        (JsValue::Null, false, empty)
+        (JsValue::Null, false, empty, JsValue::Null)
     };
     let shape_id = ctx
         .vm
@@ -691,18 +769,68 @@ fn native_input_event_constructor(
         .as_ref()
         .expect("precomputed_event_shapes missing")
         .input_event_constructed;
-    // Slot order: data, isComposing, inputType.
+    // Slot order: data, isComposing, inputType, dataTransfer.
     let slots = vec![
         PropertyValue::Data(data_val),
         PropertyValue::Data(JsValue::Boolean(is_composing)),
         PropertyValue::Data(JsValue::String(input_type_sid)),
+        PropertyValue::Data(data_transfer_val),
     ];
-    let in_proto = ctx
-        .vm
+    // Root the dataTransfer Object slot across allocation in case it's
+    // an Object value (data slot is already either Null or an interned
+    // String, neither of which needs rooting).
+    let mut g = ctx.vm.push_temp_root(data_transfer_val);
+    let in_proto = g
         .input_event_prototype
         .expect("InputEvent.prototype must be registered before native_input_event_constructor");
-    let id = ctx
-        .vm
-        .build_ui_event_instance(this, type_sid, ui, shape_id, in_proto, slots);
+    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, in_proto, slots);
+    drop(g);
     Ok(JsValue::Object(id))
+}
+
+/// `InputEvent.prototype.dataTransfer` getter — D-10 stub.  Reads the
+/// `dataTransfer` own-data slot (slot 4 of the
+/// `input_event_constructed` shape) on `this` and returns it.  When
+/// the receiver is not a constructed InputEvent (e.g. `Object.create(
+/// InputEvent.prototype).dataTransfer`), returns `null` to match
+/// real-browser fallback behaviour.
+fn native_input_event_get_data_transfer(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::Object(id) = this else {
+        return Ok(JsValue::Null);
+    };
+    // Read via shape lookup — `dataTransfer` lives at the input-
+    // event-specific shape position (slot 12 of the
+    // input_event_constructed transition chain: 9 core + view + detail
+    // + data + isComposing + inputType + dataTransfer = 4th input-
+    // specific slot).  Fall through to null for any non-shaped or
+    // missing case.
+    let dt_sid = ctx.vm.well_known.data_transfer;
+    let lookup = ctx
+        .vm
+        .get_object(id)
+        .storage
+        .get(PropertyKey::String(dt_sid), &ctx.vm.shapes);
+    if let Some((PropertyValue::Data(value), _attrs)) = lookup {
+        Ok(*value)
+    } else {
+        Ok(JsValue::Null)
+    }
+}
+
+/// `InputEvent.prototype.getTargetRanges()` — D-10 stub.  Returns a
+/// freshly-allocated empty Array per call (matches Chrome behaviour
+/// for InputEvent instances constructed without a `targetRanges`
+/// init member; real implementation comes with D-8 `#11-traversal-
+/// and-range` paired with `#11-event-modern-extras`).
+fn native_input_event_get_target_ranges(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let arr = ctx.vm.create_array_object(Vec::new());
+    Ok(JsValue::Object(arr))
 }
