@@ -563,6 +563,15 @@ pub(super) fn dispatch_simple_event(
 /// No `EventPayload::Toggle` variant is added to elidex-plugin — the
 /// dispatch path here is fully VM-side, so the engine-indep
 /// `EventPayload` enum stays untouched.
+///
+/// Parameter order is `(old_state, new_state)` to read naturally at
+/// call sites ("closed → open" / "open → closed").  The internal slot
+/// order is `(newState, oldState)` per Chrome DevTools enumeration
+/// and the `toggle_event` shape transition.  Bindings below mirror
+/// the SIGNATURE order on the lines that ToString-intern the values
+/// so a reader following the parameter list down the function body
+/// doesn't transpose them; the slot-population order is then made
+/// explicit at the slot-Vec construction site.
 pub(super) fn dispatch_toggle_event(
     ctx: &mut NativeContext<'_>,
     target_entity: elidex_ecs::Entity,
@@ -608,8 +617,11 @@ pub(super) fn dispatch_toggle_event(
     ctx.vm.dispatched_events.insert(event_id);
 
     let timestamp_ms = ctx.vm.start_instant.elapsed().as_secs_f64() * 1000.0;
-    let new_state_sid = ctx.vm.strings.intern(new_state);
+    // Intern order matches the function signature
+    // (`old_state, new_state`) — slot-population order below
+    // independently rearranges to `(newState, oldState)` per shape.
     let old_state_sid = ctx.vm.strings.intern(old_state);
+    let new_state_sid = ctx.vm.strings.intern(new_state);
     // Slot order: 9 core values then 2 toggle-payload values.
     // Toggle slots match the `toggle_event` shape transition:
     // newState then oldState (matches Chrome DevTools enumeration).
