@@ -447,6 +447,73 @@ pub(super) fn type_arg(
     super::super::coerce::to_string(ctx.vm, v)
 }
 
+/// Brand-check the receiver of an Event-subclass `prototype` accessor
+/// or method against a specific subclass prototype.  Returns the
+/// receiver `ObjectId` if it is an `ObjectKind::Event` whose prototype
+/// chain includes `target_proto`; throws `TypeError("Failed to {op}
+/// '{member}' property from '{interface}': Illegal invocation")`
+/// otherwise — matches Chrome and WebIDL §3.7.2.4 brand-check
+/// semantics for IDL `attribute` getters/setters and operations.
+///
+/// `target_proto` should be the subclass prototype `ObjectId` (e.g.
+/// `vm.before_unload_event_prototype` / `vm.input_event_prototype`).
+/// `None` means the subclass isn't registered yet — defensive
+/// default-deny so a registration-ordering bug surfaces as TypeError
+/// instead of silent acceptance.
+///
+/// `op` is `"read"` for an attribute getter, `"set"` for setter, and
+/// `"execute"` for an operation/method.  `member` is the JS-visible
+/// IDL attribute / method name (e.g. `returnValue`, `getTargetRanges`).
+/// `interface` is the WebIDL interface name (e.g. `BeforeUnloadEvent`,
+/// `InputEvent`).
+///
+/// The 32-hop chain walk bound is defensive against a hypothetically
+/// corrupted prototype cycle; engine-installed prototype chains are
+/// 4-6 hops deep so 32 is ample headroom.
+pub(super) fn require_event_subclass_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    target_proto: Option<ObjectId>,
+    interface: &str,
+    member: &str,
+    op: &str,
+) -> Result<ObjectId, VmError> {
+    if let JsValue::Object(id) = this {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. })
+            && receiver_chains_to(ctx, id, target_proto)
+        {
+            return Ok(id);
+        }
+    }
+    Err(VmError::type_error(format!(
+        "Failed to {op} '{member}' property from '{interface}': \
+         Illegal invocation",
+    )))
+}
+
+fn receiver_chains_to(
+    ctx: &NativeContext<'_>,
+    id: ObjectId,
+    target_proto: Option<ObjectId>,
+) -> bool {
+    let Some(target) = target_proto else {
+        return false;
+    };
+    let mut current = ctx.vm.get_object(id).prototype;
+    let mut hops = 0;
+    while let Some(proto_id) = current {
+        if proto_id == target {
+            return true;
+        }
+        hops += 1;
+        if hops > 32 {
+            return false;
+        }
+        current = ctx.vm.get_object(proto_id).prototype;
+    }
+    false
+}
+
 /// Wire a ctor function object to its prototype + the `name` global.
 ///
 /// Shared between `Event` / `CustomEvent` (this module), the UIEvent

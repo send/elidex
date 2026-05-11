@@ -37,9 +37,7 @@
 #![cfg(feature = "engine")]
 
 use super::super::shape;
-use super::super::value::{
-    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, VmError,
-};
+use super::super::value::{JsValue, NativeContext, ObjectId, PropertyKey, PropertyValue, VmError};
 use super::super::VmInner;
 use super::events::{check_construct, parse_event_init, type_arg};
 use super::events_extras::{
@@ -501,12 +499,18 @@ fn native_progress_event_constructor(
         let k_loaded = ctx.vm.well_known.loaded;
         let k_total = ctx.vm.well_known.total;
         let lc = read_bool(ctx, opts_id, k_lc, false)?;
-        // `loaded` / `total` are WebIDL `unsigned long long` (§3.10.10).
-        // ToNumber + clamp-to-non-negative-integer; for storage we keep
-        // the raw `f64` (the ULLong→f64 round-trip preserves up to 2^53
-        // exactly, beyond which precision degrades — matches Chrome).
-        let l = read_number(ctx, opts_id, k_loaded, 0.0)?;
-        let t = read_number(ctx, opts_id, k_total, 0.0)?;
+        // `loaded` / `total` are WebIDL `unsigned long long` (§3.10.10
+        // without `[EnforceRange]`): ToNumber → sign-magnitude truncate
+        // toward zero → mod 2^64.  Routes the raw ToNumber result
+        // through `coerce::f64_to_uint64_loose` so `loaded: -1` yields
+        // 2^64 - 1 (Chrome-compatible), `loaded: 1.5` yields 1, and
+        // NaN / ±∞ yield 0 — matching Chrome / Firefox / WPT.  Without
+        // this conversion, `-1` would be reflected verbatim, which is
+        // the R6 IMP that this fix addresses.
+        let l_raw = read_number(ctx, opts_id, k_loaded, 0.0)?;
+        let t_raw = read_number(ctx, opts_id, k_total, 0.0)?;
+        let l = super::super::coerce::f64_to_uint64_loose(l_raw);
+        let t = super::super::coerce::f64_to_uint64_loose(t_raw);
         (lc, l, t)
     } else {
         (false, 0.0, 0.0)
@@ -548,70 +552,6 @@ fn native_before_unload_event_constructor(
     Err(VmError::type_error("Illegal constructor"))
 }
 
-/// Brand-check the receiver of a `BeforeUnloadEvent.prototype` accessor.
-/// Returns the `ObjectId` if BOTH:
-/// 1. the receiver is an `ObjectKind::Event` (rules out plain objects
-///    + `Object.create` of unrelated prototypes), AND
-/// 2. its prototype chain includes `BeforeUnloadEvent.prototype`
-///    (rules out other Event subclasses like MouseEvent / KeyboardEvent
-///    via `accessor.call(otherEvent)`).
-///
-/// Throws `TypeError("Failed to <op> 'returnValue' ... Illegal
-/// invocation")` otherwise — matches Chrome and WebIDL §3.7.2.4
-/// brand-check semantics for IDL `attribute` getters/setters.  `op`
-/// is `"read"` for the getter and `"set"` for the setter so the error
-/// message correctly identifies which path failed.
-///
-/// Without this check, any plain object via `Object.create(
-/// BeforeUnloadEvent.prototype)` (caught by step 1) OR any cross-Event
-/// receiver via `getter.call(new MouseEvent(...))` (caught by step 2)
-/// would be allowed to read/write `returnValue` AND would accumulate
-/// entries in the `before_unload_return_values` side table.
-fn require_before_unload_receiver(
-    ctx: &NativeContext<'_>,
-    this: JsValue,
-    op: &str,
-) -> Result<ObjectId, VmError> {
-    if let JsValue::Object(id) = this {
-        if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. })
-            && receiver_chains_to_before_unload(ctx, id)
-        {
-            return Ok(id);
-        }
-    }
-    Err(VmError::type_error(format!(
-        "Failed to {op} 'returnValue' property from 'BeforeUnloadEvent': \
-         Illegal invocation",
-    )))
-}
-
-/// Walk the prototype chain of `id` looking for the registered
-/// `BeforeUnloadEvent.prototype` ObjectId.  Bounded by a hop counter so
-/// a hypothetically corrupted prototype cycle can't loop forever — the
-/// engine's prototype chains are typically 4-6 hops deep, 32 is ample
-/// headroom.
-fn receiver_chains_to_before_unload(ctx: &NativeContext<'_>, id: ObjectId) -> bool {
-    let Some(target) = ctx.vm.before_unload_event_prototype else {
-        // Defensive: registration ordering would have to put accessor
-        // install before prototype storage for this to fire, which it
-        // doesn't.  Default-deny on registration gap.
-        return false;
-    };
-    let mut current = ctx.vm.get_object(id).prototype;
-    let mut hops = 0;
-    while let Some(proto_id) = current {
-        if proto_id == target {
-            return true;
-        }
-        hops += 1;
-        if hops > 32 {
-            return false;
-        }
-        current = ctx.vm.get_object(proto_id).prototype;
-    }
-    false
-}
-
 /// `BeforeUnloadEvent.prototype.returnValue` getter — reads the
 /// per-instance `returnValue` slot from the side table, defaulting to
 /// the empty string when no entry exists (matches a freshly-fired UA
@@ -621,7 +561,14 @@ fn native_before_unload_get_return_value(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_before_unload_receiver(ctx, this, "read")?;
+    let id = super::events::require_event_subclass_receiver(
+        ctx,
+        this,
+        ctx.vm.before_unload_event_prototype,
+        "BeforeUnloadEvent",
+        "returnValue",
+        "read",
+    )?;
     Ok(ctx
         .vm
         .before_unload_return_values
@@ -639,7 +586,14 @@ fn native_before_unload_set_return_value(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_before_unload_receiver(ctx, this, "set")?;
+    let id = super::events::require_event_subclass_receiver(
+        ctx,
+        this,
+        ctx.vm.before_unload_event_prototype,
+        "BeforeUnloadEvent",
+        "returnValue",
+        "set",
+    )?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     ctx.vm.before_unload_return_values.insert(id, sid);

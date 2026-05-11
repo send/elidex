@@ -550,6 +550,75 @@ fn page_transition_event_persisted_round_trip() {
 // =====================================================================
 
 #[test]
+fn input_event_get_target_ranges_throws_on_non_event_receiver() {
+    // R6 IMP regression: WebIDL §3.7.2.4 brand-check — calling
+    // `InputEvent.prototype.getTargetRanges.call({})` must throw
+    // TypeError "Illegal invocation".  Pre-fix: succeeded with []
+    // because the method had no receiver check.
+    let out = run("var fn = InputEvent.prototype.getTargetRanges; \
+         var ok = false; var msg = ''; \
+         try { fn.call({}); } \
+         catch (err) { ok = true; msg = String(err); } \
+         (ok && msg.indexOf('Illegal invocation') !== -1) ? 'ok' : 'fail:' + msg;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn input_event_get_target_ranges_throws_on_other_event_subclass() {
+    // Cross-Event-subclass receiver must also throw — the brand check
+    // requires the prototype chain to include InputEvent.prototype.
+    let out = run("var fn = InputEvent.prototype.getTargetRanges; \
+         var me = new MouseEvent('click'); \
+         var ok = false; var msg = ''; \
+         try { fn.call(me); } \
+         catch (err) { ok = true; msg = String(err); } \
+         (ok && msg.indexOf('Illegal invocation') !== -1) ? 'ok' : 'fail:' + msg;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn input_event_get_target_ranges_works_on_real_input_event() {
+    // Sanity: brand check accepts the canonical receiver — calling on
+    // a real InputEvent instance still returns an empty Array.
+    let out = run("var e = new InputEvent('input'); \
+         var r = e.getTargetRanges(); \
+         (Array.isArray(r) && r.length === 0) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn progress_event_loaded_negative_wraps_per_unsigned_long_long() {
+    // R6 IMP regression: WebIDL `unsigned long long` (§3.10.10 without
+    // [EnforceRange]) coerces `-1` via mod-2^64 to 2^64 - 1 (a very
+    // large positive).  Pre-fix the raw `-1` was reflected verbatim.
+    // Test asserts `loaded > 0` and `loaded !== -1` to avoid f64
+    // precision-comparison flakiness against the literal 2^64-1.
+    let out = run("var e = new ProgressEvent('p', { loaded: -1 }); \
+         (e.loaded > 0 && e.loaded !== -1) ? 'ok' \
+             : 'fail:loaded=' + e.loaded;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn progress_event_loaded_fractional_truncates_toward_zero() {
+    let out = run(
+        "var e = new ProgressEvent('p', { loaded: 1.9, total: 2.5 }); \
+         (e.loaded === 1 && e.total === 2) ? 'ok' \
+             : 'fail:loaded=' + e.loaded + ',total=' + e.total;",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn progress_event_loaded_nan_and_infinity_become_zero() {
+    let out = run("var e = new ProgressEvent('p', \
+             { loaded: NaN, total: Infinity }); \
+         (e.loaded === 0 && e.total === 0) ? 'ok' \
+             : 'fail:loaded=' + e.loaded + ',total=' + e.total;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn input_event_data_transfer_default_null() {
     let out = run("var e = new InputEvent('input'); \
          (e.dataTransfer === null) ? 'ok' : 'fail';");

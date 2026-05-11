@@ -792,11 +792,26 @@ fn native_input_event_constructor(
 /// for InputEvent instances constructed without a `targetRanges`
 /// init member; real implementation comes with D-8 `#11-traversal-
 /// and-range` paired with `#11-event-modern-extras`).
+///
+/// Brand-checks the receiver per WebIDL §3.7.2.4: `this` must be an
+/// `ObjectKind::Event` whose prototype chain includes
+/// `InputEvent.prototype`.  Calling `InputEvent.prototype.
+/// getTargetRanges.call({})` or `.call(new MouseEvent(...))` therefore
+/// throws `TypeError("Illegal invocation")`, matching Chrome's
+/// behaviour for IDL operations.
 fn native_input_event_get_target_ranges(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let _id = super::events::require_event_subclass_receiver(
+        ctx,
+        this,
+        ctx.vm.input_event_prototype,
+        "InputEvent",
+        "getTargetRanges",
+        "execute",
+    )?;
     let arr = ctx.vm.create_array_object(Vec::new());
     Ok(JsValue::Object(arr))
 }
