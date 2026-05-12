@@ -516,14 +516,18 @@ fn native_dt_get_types(
     // true descriptor-level freeze requires native_array_push +
     // `LoadElement` to honour extensible, which is a VM-wide change
     // beyond D-9's scope.
+    // First-seen-order dedup via HashSet membership + Vec ordering —
+    // keeps the build O(n) for scripts that grow `items` beyond a
+    // handful of entries (Copilot R4 perf finding).
     let mut format_sids: Vec<StringId> = Vec::new();
+    let mut seen: std::collections::HashSet<StringId> = std::collections::HashSet::new();
     let mut has_file = false;
     {
         let state = dt_state(ctx.vm, id);
         for entry in &state.items {
             match entry {
                 DataTransferEntry::String { format, .. } => {
-                    if !format_sids.contains(format) {
+                    if seen.insert(*format) {
                         format_sids.push(*format);
                     }
                 }

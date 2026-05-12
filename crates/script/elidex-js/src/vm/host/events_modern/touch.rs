@@ -577,20 +577,17 @@ fn parse_touch_sequence(
              sequence<Touch> member is null.",
         ));
     }
-    // Array fast-path: snapshot dense elements directly without
-    // walking the iterator protocol.
-    if let JsValue::Object(id) = raw {
-        if let ObjectKind::Array { elements } = &ctx.vm.get_object(id).kind {
-            let snapshot = elements.clone();
-            return collect_touch_entries(ctx, snapshot.into_iter());
-        }
-    }
-    // Iterator-protocol fallback.  `resolve_iterator` returns None
-    // for non-iterables (no `@@iterator`); WebIDL §3.2.27 requires
-    // a TypeError in that case.  `JsValue::String` *is* iterable
-    // (handled via the string_prototype's `@@iterator`), so passing
-    // the original `raw` directly preserves that branch; bare
-    // numbers / booleans correctly land in the `None` arm.
+    // Always route through the iterator protocol per WebIDL §3.2.27
+    // — even for `ObjectKind::Array`, a script may have overridden
+    // `arr[Symbol.iterator]` (or `Array.prototype[Symbol.iterator]`)
+    // and the spec mandates honouring that override.  The previous
+    // Array dense-elements fast-path bypassed `@@iterator` lookup
+    // and was a spec deviation flagged by Copilot R4.  `iter_next`
+    // overhead is negligible for typical sequence<Touch> sizes
+    // (<= 10 entries per TouchEvent).
+    //
+    // `JsValue::String` is iterable via `string_prototype[@@iterator]`,
+    // bare numbers / booleans land in the `None` arm (TypeError).
     // IteratorClose on early-exit matches §7.4.6 to honour custom
     // iterators' `.return()` hook.
     let iter = match ctx.vm.resolve_iterator(raw)? {
@@ -622,30 +619,6 @@ fn parse_touch_sequence(
                          sequence<Touch> entry is not of type 'Touch'.",
                     )
                 }));
-            }
-        }
-    }
-    Ok(out)
-}
-
-/// Validate each entry of a Touch sequence — Touch-brand or
-/// TypeError.  Shared between the Array fast-path and (indirectly)
-/// the iterator-protocol fallback.
-fn collect_touch_entries(
-    ctx: &mut NativeContext<'_>,
-    entries: impl Iterator<Item = JsValue>,
-) -> Result<Vec<ObjectId>, VmError> {
-    let mut out = Vec::new();
-    for entry in entries {
-        match entry {
-            JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::Touch) => {
-                out.push(id);
-            }
-            _ => {
-                return Err(VmError::type_error(
-                    "Failed to construct 'TouchEvent': \
-                     sequence<Touch> entry is not of type 'Touch'.",
-                ));
             }
         }
     }

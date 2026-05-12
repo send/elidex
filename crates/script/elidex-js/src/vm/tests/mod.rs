@@ -48,6 +48,7 @@ mod tests_event_object;
 mod tests_event_target;
 mod tests_events_misc;
 mod tests_events_modern;
+mod tests_events_modern_touch;
 mod tests_fetch;
 mod tests_forbidden_headers;
 mod tests_form_data;
