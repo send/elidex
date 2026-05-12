@@ -738,7 +738,18 @@ fn require_element_arg_bits(ctx: &mut NativeContext<'_>, value: JsValue) -> Resu
              parameter 1 is detached (invalid entity).",
         ));
     };
-    let dom = ctx.host().dom();
+    // Post-unbind tolerance: when `Vm::unbind` has cleared host
+    // pointers, `ctx.host().dom()` would panic.  Surface a TypeError
+    // marking the receiver as detached instead — mirrors the
+    // `EMPTY_DT_STATE` / `EMPTY_TOUCH_STATE` retained-wrapper
+    // contract for `setDragImage` callers (Copilot R5 finding).
+    let Some(host) = ctx.host_if_bound() else {
+        return Err(VmError::type_error(
+            "Failed to execute 'setDragImage' on 'DataTransfer': \
+             parameter 1 is detached (invalid entity).",
+        ));
+    };
+    let dom = host.dom();
     if !dom.contains(entity) {
         return Err(VmError::type_error(
             "Failed to execute 'setDragImage' on 'DataTransfer': \

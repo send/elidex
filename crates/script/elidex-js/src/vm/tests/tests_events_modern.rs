@@ -829,3 +829,40 @@ fn data_transfer_post_unbind_set_data_reinserts_state() {
     let out = vm.inner.strings.get_utf8(sid);
     assert_eq!(out, "after-unbind");
 }
+
+#[test]
+fn data_transfer_post_unbind_set_drag_image_tolerates_missing_host() {
+    // Regression: `setDragImage` validates the image argument via
+    // `require_element_arg_bits`, which previously called
+    // `ctx.host().dom()` and panicked on unbound VMs.  With
+    // `host_if_bound` guarding, an unbound VM surfaces a TypeError
+    // ("detached") instead of panicking — consistent with the
+    // post-unbind read-tolerance contract.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_empty_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.dt = new DataTransfer(); \
+         globalThis.el = document.createElement('div');",
+    )
+    .unwrap();
+    vm.unbind();
+    let result = vm
+        .eval(
+            "var threw = false; \
+             try { globalThis.dt.setDragImage(globalThis.el, 0, 0); } \
+             catch (e) { threw = (e instanceof TypeError); } \
+             threw ? 'ok' : 'fail';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}");
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    assert_eq!(out, "ok");
+}
