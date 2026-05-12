@@ -91,6 +91,15 @@ fn read_str(vm: &Vm, obj: ObjectId, name: &str) -> String {
 /// affect the comparison.  `Symbol`-keyed properties are skipped
 /// (event objects don't install any today; if that changes, extend
 /// the filter).
+///
+/// Sort uses Rust's `[T]::sort` over UTF-8 `String` (byte-lexicographic
+/// for ASCII).  This matches JS `Array.prototype.sort`'s UTF-16
+/// code-unit ordering ONLY for ASCII strings.  Every event property
+/// name installed today (clientX, view, deltaZ, ...) is pure ASCII,
+/// so the orderings coincide; if a future event interface ever
+/// introduces a non-ASCII own property name, this helper would need
+/// a UTF-16 comparator to stay observably equivalent to the JS
+/// surface.
 fn own_property_names(vm: &Vm, obj: ObjectId) -> Vec<String> {
     let shape_id = match &vm.inner.get_object(obj).storage {
         PropertyStorage::Shaped { shape, .. } => *shape,
