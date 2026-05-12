@@ -398,6 +398,38 @@ fn data_transfer_clear_data_with_format() {
 }
 
 #[test]
+fn data_transfer_clear_data_invalidates_item_wrapper_cache() {
+    // Regression: `clearData()` removes String entries, which can
+    // shift File-entry indices (or, here, simply leaves an empty
+    // list).  The `(parent, index)` wrapper-cache must be flushed
+    // so that future `add()` calls hand out fresh wrappers, not
+    // stale ones bound to the cleared entries.  Without the
+    // invalidation, the re-added item at index 0 would reuse the
+    // pre-clearData wrapper from index 0, breaking identity.
+    let out = run("var dt = new DataTransfer(); \
+         var a = dt.items.add('x', 'a'); \
+         dt.clearData(); \
+         var b = dt.items.add('y', 'a'); \
+         (a !== b) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn data_transfer_clear_data_with_format_invalidates_cache() {
+    // `clearData(format)` removes a specific entry, shifting any
+    // higher-index entries down by one.  Wrappers at the shifted
+    // indices must be invalidated so the cache doesn't hand out a
+    // wrapper bound to the wrong entry.
+    let out = run("var dt = new DataTransfer(); \
+         var a = dt.items.add('x', 'a'); \
+         var b = dt.items.add('y', 'b'); \
+         dt.clearData('a'); \
+         var c = dt.items.add('z', 'c'); \
+         (a !== b && b !== c && a !== c) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn data_transfer_clear_data_case_insensitive_format() {
     let out = run("var dt = new DataTransfer(); \
          dt.setData('text/plain', '1'); \
@@ -466,6 +498,27 @@ fn data_transfer_set_drag_image_accepts_element() {
 fn data_transfer_set_drag_image_rejects_non_element() {
     let out = run("var threw = false; \
          try { new DataTransfer().setDragImage({}, 0, 0); } \
+         catch (e) { threw = (e instanceof TypeError); } \
+         threw ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn data_transfer_set_drag_image_rejects_non_element_host_wrapper() {
+    // Regression: a HostObject whose entity is NOT `NodeKind::Element`
+    // (e.g. the Document itself) must throw TypeError, not silently
+    // store the entity_bits.  Previously any HostObject was accepted.
+    let out = run("var threw = false; \
+         try { new DataTransfer().setDragImage(document, 0, 0); } \
+         catch (e) { threw = (e instanceof TypeError); } \
+         threw ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn data_transfer_set_drag_image_rejects_null() {
+    let out = run("var threw = false; \
+         try { new DataTransfer().setDragImage(null, 0, 0); } \
          catch (e) { threw = (e instanceof TypeError); } \
          threw ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
@@ -568,14 +621,29 @@ fn data_transfer_item_get_as_file_returns_null() {
 }
 
 #[test]
-fn data_transfer_item_list_add_file_overload_throws() {
-    // D-9 stub: File-overload paired with D-14 (slot
-    // `#11-data-transfer-file-paired`).  We test via a Blob brand
-    // since Blob lands earlier than File.
+fn data_transfer_item_list_add_blob_falls_through_to_string_overload() {
+    // Per WebIDL overload resolution + File API §11.1, `Blob` is not
+    // a `File` subclass — `dt.items.add(blob, 'text/plain')` follows
+    // the `(DOMString, DOMString)` overload via `ToString(blob)`.
+    // The real `add(File)` brand check lands with D-14 (slot
+    // `#11-data-transfer-file-paired`); once `ObjectKind::File`
+    // exists the brand path will catch File but still let Blob fall
+    // through here.
     let out = run("var dt = new DataTransfer(); \
          var blob = new Blob(['x']); \
+         var item = dt.items.add(blob, 'text/plain'); \
+         (item instanceof DataTransferItem && dt.items.length === 1) \
+            ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn data_transfer_item_list_add_string_without_type_throws() {
+    // `(DOMString, DOMString)` overload: `type` is required.  Missing
+    // it throws a WebIDL TypeError (matches Chromium / Firefox).
+    let out = run("var dt = new DataTransfer(); \
          var threw = false; \
-         try { dt.items.add(blob); } \
+         try { dt.items.add('x'); } \
          catch (e) { threw = (e instanceof TypeError); } \
          threw ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
@@ -583,9 +651,12 @@ fn data_transfer_item_list_add_file_overload_throws() {
 
 #[test]
 fn data_transfer_item_identity_cache() {
-    // `dt.items[0] === dt.items[0]` would require indexed exotic;
-    // we test the slower `.length === 1` path indirectly via
-    // re-acquiring items list.
+    // `dt.items[0] === dt.items[0]` indexed-exotic dispatch is
+    // deferred to slot `#11-events-modern-indexed-exotic`; once
+    // landed, add an `i1 === dt.items[0]` assertion here (and a
+    // matching `touches[0]` test under §E).  For now the
+    // identity-cache property is verified indirectly via the
+    // `add()` return value being a fresh wrapper per call.
     let out = run("var dt = new DataTransfer(); \
          var i1 = dt.items.add('x', 'a'); \
          var i2 = dt.items.add('y', 'b'); \
@@ -623,6 +694,35 @@ fn touch_ctor_requires_init() {
          try { new Touch(); } \
          catch (e) { threw = (e instanceof TypeError); } \
          threw ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn touch_ctor_missing_arg_message_says_one_required() {
+    // No argument → message reflects the missing-arg case.
+    let out = run("var msg = ''; \
+         try { new Touch(); } catch (e) { msg = String(e.message); } \
+         msg.indexOf('1 argument required') >= 0 ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn touch_ctor_wrong_type_message_says_not_of_type_touch_init() {
+    // Argument present but not an object → message reflects the
+    // type-conversion failure, not the missing-arg case.
+    let out = run("var msg = ''; \
+         try { new Touch(1); } catch (e) { msg = String(e.message); } \
+         msg.indexOf(\"not of type 'TouchInit'\") >= 0 ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn touch_ctor_null_message_says_one_required() {
+    // Explicit `null` is treated as the missing-arg case (matches
+    // WebIDL §3.10.18 dictionary conversion for required dicts).
+    let out = run("var msg = ''; \
+         try { new Touch(null); } catch (e) { msg = String(e.message); } \
+         msg.indexOf('1 argument required') >= 0 ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 

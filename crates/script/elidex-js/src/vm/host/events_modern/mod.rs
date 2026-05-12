@@ -23,11 +23,21 @@
 //! ## Layering
 //!
 //! Engine-bound only — VM-side init-dict coercion + state-machine
-//! transitions + indexed-exotic plumbing.  No DOM mutation /
+//! transitions + identity-cache plumbing.  No DOM mutation /
 //! selector walking happens here.  Drag-image element references
 //! (`setDragImage(element, x, y)`) are stored as `entity_bits` only;
 //! integration with the paint pipeline is deferred to slot
 //! `#11-data-transfer-drag-image-paint`.
+//!
+//! ## Deferred: indexed-exotic dispatch
+//!
+//! `TouchList` / `DataTransferItemList` are WebIDL "indexed-exotic"
+//! interfaces.  This module provides the state, identity caches, and
+//! the `length` / `item(i)` operations, but **does not** wire indexed
+//! `[[Get]]` (`list[0]`) into the property-access path.  Bracket-index
+//! access currently resolves to `undefined`; scripts must call `.item(i)`
+//! until slot `#11-events-modern-indexed-exotic` lands the dispatch
+//! (mirrors `DOMTokenList` / `CSSRuleList`).
 
 #![cfg(feature = "engine")]
 

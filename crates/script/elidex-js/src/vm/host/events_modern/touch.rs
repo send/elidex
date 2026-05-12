@@ -230,12 +230,22 @@ fn native_touch_constructor(
 ) -> Result<JsValue, VmError> {
     check_construct(ctx, "Touch")?;
     // `TouchInit` is a `required` dictionary — missing or null/
-    // undefined triggers a TypeError per WebIDL §3.10.18.
+    // undefined triggers a TypeError per WebIDL §3.10.18.  Split the
+    // missing case (no argument, `undefined`, or explicit `null`)
+    // from the wrong-type case so the message matches what failed:
+    // missing → "1 argument required", wrong type → "not of type
+    // 'TouchInit'".
     let init_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Object(opts_id) = init_arg else {
+    if matches!(init_arg, JsValue::Undefined | JsValue::Null) {
         return Err(VmError::type_error(
             "Failed to construct 'Touch': \
              1 argument required, but only 0 present.",
+        ));
+    }
+    let JsValue::Object(opts_id) = init_arg else {
+        return Err(VmError::type_error(
+            "Failed to construct 'Touch': \
+             parameter 1 is not of type 'TouchInit'.",
         ));
     };
 

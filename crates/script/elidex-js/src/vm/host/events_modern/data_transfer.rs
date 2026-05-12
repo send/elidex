@@ -607,10 +607,19 @@ fn native_dt_clear_data(
         // No argument — drain all String entries (File-kind entries
         // retained per HTML §6.2 step "Remove each item in the drag
         // data store item list whose kind is text").
-        let state = dt_state_mut(ctx.vm, id);
-        state
-            .items
-            .retain(|e| matches!(e, DataTransferEntry::File { .. }));
+        let had_removal = {
+            let state = dt_state_mut(ctx.vm, id);
+            let before = state.items.len();
+            state
+                .items
+                .retain(|e| matches!(e, DataTransferEntry::File { .. }));
+            state.items.len() != before
+        };
+        if had_removal {
+            // Any String removal can shift File-entry indices and
+            // invalidate every `(parent, index)` wrapper-cache key.
+            invalidate_item_wrapper_cache_from(ctx.vm, id, 0);
+        }
     } else {
         let format_sid = super::super::super::coerce::to_string(ctx.vm, format_arg)?;
         // Collect indices to remove (two-phase borrow split).
@@ -632,13 +641,59 @@ fn native_dt_clear_data(
                 _ => None,
             })
             .collect();
+        let smallest_removed = to_remove.first().copied();
         // Remove highest-index-first to keep earlier indices valid.
         let state = dt_state_mut(ctx.vm, id);
         for i in to_remove.into_iter().rev() {
             state.items.remove(i);
         }
+        if let Some(from) = smallest_removed {
+            // Indices ≥ smallest_removed shift; invalidate from there.
+            invalidate_item_wrapper_cache_from(ctx.vm, id, from as u32);
+        }
     }
     Ok(JsValue::Undefined)
+}
+
+/// `setDragImage(image)`-style Element argument coercion.  Returns
+/// the entity bits or a WebIDL TypeError for non-Element values
+/// (`null` / `undefined` / non-host objects / Document / Window /
+/// Attr / Text / detached host wrappers).  Distinguishes
+/// "detached entity" from "wrong type" per `require_element_arg`
+/// precedent in `element_insert_adjacent.rs`.
+fn require_element_arg_bits(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<u64, VmError> {
+    let JsValue::Object(id) = value else {
+        return Err(VmError::type_error(
+            "Failed to execute 'setDragImage' on 'DataTransfer': \
+             parameter 1 is not of type 'Element'.",
+        ));
+    };
+    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
+        return Err(VmError::type_error(
+            "Failed to execute 'setDragImage' on 'DataTransfer': \
+             parameter 1 is not of type 'Element'.",
+        ));
+    };
+    let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) else {
+        return Err(VmError::type_error(
+            "Failed to execute 'setDragImage' on 'DataTransfer': \
+             parameter 1 is detached (invalid entity).",
+        ));
+    };
+    let dom = ctx.host().dom();
+    if !dom.contains(entity) {
+        return Err(VmError::type_error(
+            "Failed to execute 'setDragImage' on 'DataTransfer': \
+             parameter 1 is detached (invalid entity).",
+        ));
+    }
+    match dom.node_kind_inferred(entity) {
+        Some(elidex_ecs::NodeKind::Element) => Ok(entity_bits),
+        _ => Err(VmError::type_error(
+            "Failed to execute 'setDragImage' on 'DataTransfer': \
+             parameter 1 is not of type 'Element'.",
+        )),
+    }
 }
 
 fn native_dt_set_drag_image(
@@ -653,25 +708,11 @@ fn native_dt_set_drag_image(
             method: "setDragImage",
         },
     )?;
-    // `image: Element` — brand check.
+    // `image: Element` — brand check.  WebIDL conversion is "any host
+    // wrapper whose entity is `NodeKind::Element`"; Document / Window /
+    // Attr / Text / non-host objects throw TypeError.
     let image_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let entity_bits = match image_arg {
-        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
-            ObjectKind::HostObject { entity_bits } => entity_bits,
-            _ => {
-                return Err(VmError::type_error(
-                    "Failed to execute 'setDragImage' on 'DataTransfer': \
-                     parameter 1 is not of type 'Element'.",
-                ));
-            }
-        },
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to execute 'setDragImage' on 'DataTransfer': \
-                 parameter 1 is not of type 'Element'.",
-            ));
-        }
-    };
+    let entity_bits = require_element_arg_bits(ctx, image_arg)?;
     let x_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let y_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
     let x_num = super::super::super::coerce::to_number(ctx.vm, x_arg)?;
@@ -928,17 +969,17 @@ fn native_dt_item_list_add(
         }
     };
     let data_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // `add(File)` overload — D-9 stub.
-    if let JsValue::Object(obj_id) = data_arg {
-        if matches!(ctx.vm.get_object(obj_id).kind, ObjectKind::Blob) {
-            return Err(VmError::type_error(
-                "Failed to execute 'add' on 'DataTransferItemList': \
-                 The File overload is not yet supported (slot \
-                 '#11-data-transfer-file-paired' pending D-14).",
-            ));
-        }
-    }
-    // `add(string, type)` overload — both args required + ToString.
+    // `add(File)` overload — D-9 stub.  WebIDL overload resolution
+    // gates this on a real `File` brand; `Blob` (a sibling, not a
+    // subclass per File API §11.1) falls through to the
+    // `(DOMString, DOMString)` overload below via `ToString`.  Slot
+    // `#11-data-transfer-file-paired` lands the `File` brand check
+    // when D-14 wires the File API.
+    //
+    // Today no `ObjectKind::File` exists, so the brand check is
+    // structurally unreachable — the (string, type) path runs for
+    // every Object including Blob.  Future File-brand detection
+    // plugs in here.
     let type_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     if matches!(type_arg, JsValue::Undefined) {
         return Err(VmError::type_error(
