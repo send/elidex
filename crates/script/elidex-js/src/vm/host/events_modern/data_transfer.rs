@@ -287,16 +287,32 @@ fn require_dt_brand(
     }))
 }
 
+/// Const inert default returned by `dt_state` when the wrapper's
+/// state entry is missing — survives `Vm::unbind()` clearing
+/// `data_transfer_states`.  Matches `DataTransferState::empty()`
+/// exactly so post-unbind reads behave like a fresh
+/// `new DataTransfer()` would: no items, default enums, no drag
+/// image.  `dt_state_mut` lazily reinserts a real entry on first
+/// post-unbind write so subsequent reads see the mutation.
+static EMPTY_DT_STATE: DataTransferState = DataTransferState {
+    drop_effect: DropEffect::None,
+    effect_allowed: EffectAllowed::None,
+    items: Vec::new(),
+    items_wrapper: None,
+    files_wrapper: None,
+    drag_image_entity: None,
+    drag_image_x: 0,
+    drag_image_y: 0,
+};
+
 fn dt_state(vm: &VmInner, id: ObjectId) -> &DataTransferState {
-    vm.data_transfer_states
-        .get(&id)
-        .expect("DataTransferState must exist for branded DataTransfer instance")
+    vm.data_transfer_states.get(&id).unwrap_or(&EMPTY_DT_STATE)
 }
 
 fn dt_state_mut(vm: &mut VmInner, id: ObjectId) -> &mut DataTransferState {
     vm.data_transfer_states
-        .get_mut(&id)
-        .expect("DataTransferState must exist for branded DataTransfer instance")
+        .entry(id)
+        .or_insert_with(DataTransferState::empty)
 }
 
 // ---------------------------------------------------------------------------
@@ -484,11 +500,22 @@ fn native_dt_get_types(
             member: "types",
         },
     )?;
-    // Build a fresh FrozenArray per spec (HTML §6.2 step 3-5).
+    // Build a fresh Array per `types` getter (HTML §6.2 step 3-5).
     // Each String entry contributes its format; any File-kind
     // entry contributes the literal `"Files"` (NOT yet reachable
     // since D-9 doesn't accept File entries, but the path is
     // wired in advance).
+    //
+    // WebIDL §3.2.27 specifies `FrozenArray<DOMString>`; this
+    // returns a mutable Array because the VM's Array.prototype.push
+    // bypasses `extensible: false` (`ObjectKind::Array { elements }`
+    // mutates the Vec directly).  Calls return a fresh Array each
+    // time, so script-side mutation cannot leak into the drag data
+    // store — the observable contract (`dt.types !== dt.types`,
+    // `dt.types.length` reflects current entries) holds.  Wiring
+    // true descriptor-level freeze requires native_array_push +
+    // `LoadElement` to honour extensible, which is a VM-wide change
+    // beyond D-9's scope.
     let mut format_sids: Vec<StringId> = Vec::new();
     let mut has_file = false;
     {

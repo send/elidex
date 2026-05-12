@@ -162,10 +162,28 @@ fn require_touch_receiver(
     }
 }
 
+/// Const inert default returned by `touch_state` when the wrapper's
+/// state entry is missing — survives `Vm::unbind()` clearing
+/// `touch_states`.  All numeric fields read as 0, `target` reads as
+/// `null` (Touch is immutable post-construction, so no
+/// reinsert-on-write path is needed — unlike `dt_state_mut`).
+static EMPTY_TOUCH_STATE: TouchState = TouchState {
+    identifier: 0,
+    target: None,
+    client_x: 0.0,
+    client_y: 0.0,
+    screen_x: 0.0,
+    screen_y: 0.0,
+    page_x: 0.0,
+    page_y: 0.0,
+    radius_x: 0.0,
+    radius_y: 0.0,
+    rotation_angle: 0.0,
+    force: 0.0,
+};
+
 fn touch_state(vm: &VmInner, id: ObjectId) -> &TouchState {
-    vm.touch_states
-        .get(&id)
-        .expect("Touch state must exist for branded Touch instance")
+    vm.touch_states.get(&id).unwrap_or(&EMPTY_TOUCH_STATE)
 }
 
 fn native_touch_get_identifier(
@@ -533,6 +551,15 @@ fn native_touch_event_constructor(
 /// sequence entry must be Touch-brand; anything else throws
 /// TypeError per WebIDL §3.10.21.  Missing key → empty Vec
 /// (matches WebIDL default).
+///
+/// Fast-path on `ObjectKind::Array` reads the dense `elements` Vec
+/// directly (`get_property_value` with a stringified index does
+/// NOT hit Array dense storage in this VM — only the bytecode
+/// `LoadElement` opcode does).  Anything else falls back to the
+/// iterator protocol per WebIDL §3.2.27 so
+/// `new TouchEvent('t', { touches: customIterable })` behaves per
+/// spec — mirrors `url_search_params.rs` /
+/// `headers::resolve_headers_init`.
 fn parse_touch_sequence(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
@@ -557,22 +584,58 @@ fn parse_touch_sequence(
             ));
         }
     };
-    // For ObjectKind::Array, read the dense `elements` Vec
-    // directly — `get_property_value` with a stringified index
-    // does NOT hit the Array's dense storage in this VM (only the
-    // bytecode LoadElement opcode does).  For non-Array Array-likes
-    // (rare in init dicts) we'd need the indexed-property walker;
-    // D-9 init dicts pass plain Arrays so the dense path suffices.
-    let entries: Vec<JsValue> = match &ctx.vm.get_object(arr_id).kind {
-        ObjectKind::Array { elements } => elements.clone(),
-        _ => {
+    // Array fast-path: snapshot dense elements.
+    if let ObjectKind::Array { elements } = &ctx.vm.get_object(arr_id).kind {
+        let snapshot = elements.clone();
+        return collect_touch_entries(ctx, snapshot.into_iter());
+    }
+    // Iterator-protocol fallback.  `resolve_iterator` returns None
+    // for non-iterables (no `@@iterator`); WebIDL §3.2.27 requires
+    // a TypeError in that case.  IteratorClose on early-exit matches
+    // §7.4.6 to honour custom iterators' `.return()` hook.
+    let iter = match ctx.vm.resolve_iterator(JsValue::Object(arr_id))? {
+        Some(iter @ JsValue::Object(_)) => iter,
+        Some(_) => {
+            return Err(VmError::type_error(
+                "Failed to construct 'TouchEvent': \
+                 sequence<Touch> @@iterator must return an object.",
+            ));
+        }
+        None => {
             return Err(VmError::type_error(
                 "Failed to construct 'TouchEvent': \
                  sequence<Touch> member is not iterable.",
             ));
         }
     };
-    let mut out = Vec::with_capacity(entries.len());
+    let mut out: Vec<ObjectId> = Vec::new();
+    while let Some(entry) = ctx.vm.iter_next(iter)? {
+        match entry {
+            JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::Touch) => {
+                out.push(id);
+            }
+            _ => {
+                let close_err = ctx.vm.iter_close(iter).err();
+                return Err(close_err.unwrap_or_else(|| {
+                    VmError::type_error(
+                        "Failed to construct 'TouchEvent': \
+                         sequence<Touch> entry is not of type 'Touch'.",
+                    )
+                }));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Validate each entry of a Touch sequence — Touch-brand or
+/// TypeError.  Shared between the Array fast-path and (indirectly)
+/// the iterator-protocol fallback.
+fn collect_touch_entries(
+    ctx: &mut NativeContext<'_>,
+    entries: impl Iterator<Item = JsValue>,
+) -> Result<Vec<ObjectId>, VmError> {
+    let mut out = Vec::new();
     for entry in entries {
         match entry {
             JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::Touch) => {

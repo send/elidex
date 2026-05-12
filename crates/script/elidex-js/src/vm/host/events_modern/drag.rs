@@ -50,7 +50,7 @@ fn native_drag_event_constructor(
     let dt_val = if let Some(opts_id) = opts_id {
         let k = ctx.vm.well_known.data_transfer;
         let raw = ctx.vm.get_property_value(opts_id, PropertyKey::String(k))?;
-        coerce_data_transfer_nullable(ctx.vm, raw, "DragEvent")?
+        coerce_data_transfer_nullable(ctx.vm, raw, "DragEvent", "dataTransfer")?
     } else {
         JsValue::Null
     };
@@ -78,12 +78,16 @@ fn native_drag_event_constructor(
 /// - DataTransfer-brand Object → pass through
 /// - any other Object / primitive → TypeError
 ///
-/// Used by DragEvent + the D-10 brand upgrade for
-/// `InputEvent.dataTransfer` / `ClipboardEvent.clipboardData`.
+/// `interface` / `member` parameterise the WebIDL error message so
+/// callers report the correct attribute name (DragEvent's
+/// `dataTransfer` / ClipboardEvent's `clipboardData` /
+/// InputEvent's `dataTransfer`) — Copilot R2 caught the hardcoded
+/// `dataTransfer` leaking into ClipboardEvent's error text.
 pub(in crate::vm) fn coerce_data_transfer_nullable(
     vm: &VmInner,
     val: JsValue,
     interface: &str,
+    member: &str,
 ) -> Result<JsValue, VmError> {
     match val {
         JsValue::Undefined | JsValue::Null => Ok(JsValue::Null),
@@ -91,12 +95,12 @@ pub(in crate::vm) fn coerce_data_transfer_nullable(
             ObjectKind::DataTransfer => Ok(val),
             _ => Err(VmError::type_error(format!(
                 "Failed to construct '{interface}': \
-                 member dataTransfer is not of type 'DataTransfer'."
+                 member {member} is not of type 'DataTransfer'."
             ))),
         },
         _ => Err(VmError::type_error(format!(
             "Failed to construct '{interface}': \
-             member dataTransfer is not of type 'DataTransfer'."
+             member {member} is not of type 'DataTransfer'."
         ))),
     }
 }

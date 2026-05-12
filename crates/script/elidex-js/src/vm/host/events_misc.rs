@@ -505,6 +505,7 @@ fn native_clipboard_event_constructor(
                 ctx.vm,
                 raw,
                 "ClipboardEvent",
+                "clipboardData",
             )?
         }
         None => JsValue::Null,

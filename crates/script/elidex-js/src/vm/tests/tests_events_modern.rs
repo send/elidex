@@ -463,7 +463,13 @@ fn data_transfer_files_empty_stub() {
 
 #[test]
 fn data_transfer_types_fresh_each_call() {
-    // Spec: types returns FrozenArray-equivalent (fresh per read).
+    // Spec: `types` getter returns a fresh Array per read.  WebIDL
+    // promises `FrozenArray<DOMString>`, but the VM's Array.push
+    // bypasses `extensible: false` (see `native_dt_get_types`
+    // comment); shipping the fresh-per-read contract here is the
+    // observable half of the FrozenArray guarantee — script-side
+    // mutation cannot leak across reads because each call returns
+    // a new Array.
     let out = run("var dt = new DataTransfer(); \
          (dt.types !== dt.types) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
@@ -617,6 +623,59 @@ fn data_transfer_item_get_as_file_returns_null() {
     // D-9 stub: File wrapper paired with D-14.
     let out = run("var dt = new DataTransfer(); \
          dt.items.add('x', 'text/plain').getAsFile() === null ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn touch_event_sequence_accepts_iterable_non_array() {
+    // Regression: `sequence<Touch>` falls back to the iterator
+    // protocol for non-Array iterables per WebIDL §3.2.27.  Build a
+    // custom iterable that yields one Touch via `Symbol.iterator`.
+    let out = run(
+        "var t = new Touch({ identifier: 1, target: document.body }); \
+         var iterable = {}; \
+         iterable[Symbol.iterator] = function() { \
+             var done = false; \
+             return { next: function() { \
+                 if (done) return { value: undefined, done: true }; \
+                 done = true; \
+                 return { value: t, done: false }; \
+             } }; \
+         }; \
+         var ev = new TouchEvent('touchstart', { touches: iterable }); \
+         (ev.touches.length === 1 && ev.touches.item(0) === t) \
+            ? 'ok' : 'fail';",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn touch_event_sequence_rejects_non_iterable() {
+    let out = run("var threw = false; \
+         try { new TouchEvent('t', { touches: {} }); } \
+         catch (e) { threw = (e instanceof TypeError); } \
+         threw ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn clipboard_event_data_brand_error_says_clipboard_data() {
+    // Regression: the WebIDL TypeError text must reference the
+    // ClipboardEvent member name (`clipboardData`), not the helper's
+    // origin member (`dataTransfer`).
+    let out = run("var msg = ''; \
+         try { new ClipboardEvent('copy', { clipboardData: 42 }); } \
+         catch (e) { msg = String(e.message); } \
+         msg.indexOf('clipboardData') >= 0 ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn input_event_data_transfer_brand_error_says_data_transfer() {
+    let out = run("var msg = ''; \
+         try { new InputEvent('input', { dataTransfer: 42 }); } \
+         catch (e) { msg = String(e.message); } \
+         msg.indexOf('dataTransfer') >= 0 ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
@@ -926,4 +985,109 @@ fn touch_event_propagates_event_init() {
          (e.bubbles === true && e.cancelable === true) ? 'ok' : 'fail';",
     );
     assert_eq!(out, "ok");
+}
+
+// =====================================================================
+// §H. Post-unbind tolerance (Copilot R2 regression)
+// =====================================================================
+
+#[test]
+fn data_transfer_post_unbind_reads_inert_defaults() {
+    // Regression: retained DataTransfer / Touch wrappers must not
+    // panic post-unbind.  `Vm::unbind()` drops the side-table state
+    // tables; subsequent reads from a retained wrapper fall through
+    // to `EMPTY_DT_STATE` / `EMPTY_TOUCH_STATE` (or, for `dt_state_mut`,
+    // lazily reinsert an empty entry).  Without this, the previous
+    // `expect("DataTransferState must exist...")` would panic
+    // the VM.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_empty_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.dt = new DataTransfer(); \
+         globalThis.dt.setData('text/plain', 'hello');",
+    )
+    .unwrap();
+    vm.unbind();
+    // Reads after unbind: dropEffect / effectAllowed / types / items
+    // length / getData all read inert defaults instead of panicking.
+    let result = vm
+        .eval(
+            "globalThis.dt.dropEffect + '|' + \
+             globalThis.dt.effectAllowed + '|' + \
+             globalThis.dt.types.length + '|' + \
+             globalThis.dt.items.length + '|' + \
+             globalThis.dt.getData('text/plain');",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}");
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    assert_eq!(out, "none|none|0|0|");
+}
+
+#[test]
+fn data_transfer_post_unbind_set_data_reinserts_state() {
+    // `dt_state_mut` lazily reinserts an empty state on first
+    // post-unbind write, so subsequent reads see the mutation.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_empty_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("globalThis.dt = new DataTransfer();").unwrap();
+    vm.unbind();
+    let result = vm
+        .eval(
+            "globalThis.dt.setData('text/plain', 'after-unbind'); \
+             globalThis.dt.getData('text/plain');",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}");
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    assert_eq!(out, "after-unbind");
+}
+
+#[test]
+fn touch_post_unbind_reads_inert_defaults() {
+    // Touch is immutable — only read-path tolerance is needed.
+    // All numeric getters return 0; target returns null.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_empty_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.t = new Touch({ identifier: 99, target: document.body, \
+             clientX: 10, clientY: 20, force: 0.5 });",
+    )
+    .unwrap();
+    vm.unbind();
+    let result = vm
+        .eval(
+            "globalThis.t.identifier + '|' + \
+             (globalThis.t.target === null) + '|' + \
+             globalThis.t.clientX + '|' + globalThis.t.clientY + '|' + \
+             globalThis.t.force;",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}");
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    assert_eq!(out, "0|true|0|0|0");
 }

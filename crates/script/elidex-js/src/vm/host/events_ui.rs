@@ -759,6 +759,7 @@ fn native_input_event_constructor(
             ctx.vm,
             dt_raw,
             "InputEvent",
+            "dataTransfer",
         )?;
         (data_val, is_composing, input_type_sid, data_transfer_val)
     } else {
