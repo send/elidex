@@ -366,6 +366,22 @@ impl Vm {
             self.inner.template_content_wrappers.clear();
             self.inner.datalist_options_wrappers.clear();
             self.inner.output_html_for_wrappers.clear();
+            // D-9 events-modern-input (slot
+            // `#11-events-modern-input`).  Three state tables hold
+            // cross-DOM references and must be cleared on unbind:
+            // - `data_transfer_states`: `drag_image_entity` is raw
+            //   `entity_bits` from the previous EcsDom (`EcsDom::new()`
+            //   worlds share Entity index space).
+            // - `touch_states`: `target` ObjectId can be a HostObject
+            //   wrapping an Entity from the previous EcsDom.
+            // - `touch_list_states`: items list references Touch
+            //   wrappers whose `target` faces the same cross-DOM risk.
+            // The DataTransferItem identity cache must also be cleared
+            // because its parent DataTransfer state was just dropped.
+            self.inner.data_transfer_states.clear();
+            self.inner.data_transfer_item_wrapper_cache.clear();
+            self.inner.touch_states.clear();
+            self.inner.touch_list_states.clear();
             // `mutation_observers.clear_all_targets()` drains every
             // observer's target list + record queue so a post-rebind
             // `notify` cannot match a `target` Entity that happens to

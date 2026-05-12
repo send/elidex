@@ -1143,6 +1143,89 @@ pub(crate) struct VmInner {
     /// UA-dispatch `page_transition` shape).
     #[cfg(feature = "engine")]
     pub(crate) page_transition_event_prototype: Option<ObjectId>,
+    // -- D-9 events-modern-input (slot #11-events-modern-input) --
+    /// `PointerEvent.prototype` (UI Events Pointer §6).  Chains to
+    /// [`mouse_event_prototype`].  Adds 12 own-data slots (pointerId
+    /// / width / height / pressure / tangentialPressure / tiltX /
+    /// tiltY / twist / altitudeAngle / azimuthAngle / pointerType /
+    /// isPrimary), plus `getCoalescedEvents()` / `getPredictedEvents()`
+    /// stub methods that return fresh empty Arrays per call.
+    #[cfg(feature = "engine")]
+    pub(crate) pointer_event_prototype: Option<ObjectId>,
+    /// `DragEvent.prototype` (HTML DnD §6.4).  Chains to
+    /// [`mouse_event_prototype`].  Adds `dataTransfer` own-data slot.
+    #[cfg(feature = "engine")]
+    pub(crate) drag_event_prototype: Option<ObjectId>,
+    /// `TouchEvent.prototype` (Touch Events §5.5).  Chains to
+    /// [`ui_event_prototype`].  Adds 7 own-data slots (3 TouchLists +
+    /// 4 modifier flags).
+    #[cfg(feature = "engine")]
+    pub(crate) touch_event_prototype: Option<ObjectId>,
+    /// `Touch.prototype` (Touch Events §5.6).  Chains to
+    /// `Object.prototype`.  All accessors read from
+    /// [`Self::touch_states`].
+    #[cfg(feature = "engine")]
+    pub(crate) touch_prototype: Option<ObjectId>,
+    /// `TouchList.prototype` (Touch Events §5.6).  Chains to
+    /// `Object.prototype`.  Length getter + indexed exotic +
+    /// `item(idx)` method backed by [`Self::touch_list_states`].
+    #[cfg(feature = "engine")]
+    pub(crate) touch_list_prototype: Option<ObjectId>,
+    /// `DataTransfer.prototype` (HTML DnD §6.2).  Chains to
+    /// `Object.prototype`.  Holds the 4 enum-string accessors
+    /// (dropEffect / effectAllowed) + 3 `[SameObject]` accessors
+    /// (items / files / types) + 4 mutator methods (getData / setData
+    /// / clearData / setDragImage).  Mutable instance state in
+    /// [`Self::data_transfer_states`].
+    #[cfg(feature = "engine")]
+    pub(crate) data_transfer_prototype: Option<ObjectId>,
+    /// `DataTransferItem.prototype` (HTML DnD §6.3).  Chains to
+    /// `Object.prototype`.  Holds the `kind` / `type` accessors +
+    /// `getAsString(cb)` / `getAsFile()` methods.
+    #[cfg(feature = "engine")]
+    pub(crate) data_transfer_item_prototype: Option<ObjectId>,
+    /// `DataTransferItemList.prototype` (HTML DnD §6.3).  Chains to
+    /// `Object.prototype`.  Holds the `length` accessor +
+    /// `add(...)` / `remove(idx)` / `clear()` methods, plus an
+    /// indexed exotic `[[GetOwnProperty]]` for `list[i]`.
+    #[cfg(feature = "engine")]
+    pub(crate) data_transfer_item_list_prototype: Option<ObjectId>,
+    /// Per-`DataTransfer` mutable state (HTML DnD §6.2).  Keyed by
+    /// the instance's `ObjectId`.  Holds the dropEffect / effectAllowed
+    /// enum values (as `u8` indices), the ordered entry list, the
+    /// `[SameObject]` wrapper caches for `items` / `files`, and the
+    /// optional drag-image (entity_bits + x/y offsets).
+    ///
+    /// GC contract: the trace step fans out via the wrappers and
+    /// any blob `ObjectId`s on file entries.  `Vm::unbind` clears
+    /// the map because `drag_image_entity` is cross-DOM.  Sweep
+    /// tail prunes entries whose key was collected.
+    #[cfg(feature = "engine")]
+    pub(crate) data_transfer_states: HashMap<ObjectId, host::events_modern::DataTransferState>,
+    /// Identity cache for [`ObjectKind::DataTransferItem`] wrappers,
+    /// keyed by `(parent_dt_id, index)` so `dt.items[0] === dt.items[0]`.
+    /// Sweep tail prunes entries whose value `ObjectId` was collected
+    /// or whose parent / index combination is no longer live.
+    #[cfg(feature = "engine")]
+    pub(crate) data_transfer_item_wrapper_cache: HashMap<(ObjectId, u32), ObjectId>,
+    /// Per-`Touch` instance state (Touch Events §5.6).  Keyed by the
+    /// instance's `ObjectId`.  All 12 IDL members live here as
+    /// `f64` + `Option<ObjectId>` (the EventTarget `target`).
+    ///
+    /// GC contract: trace marks the state entry's `target`
+    /// `ObjectId`.  Sweep tail prunes entries whose key was
+    /// collected.
+    #[cfg(feature = "engine")]
+    pub(crate) touch_states: HashMap<ObjectId, host::events_modern::TouchState>,
+    /// Per-`TouchList` instance state (Touch Events §5.6).  Keyed
+    /// by the instance's `ObjectId`.  Holds the ordered Vec of
+    /// member `Touch` ObjectIds.
+    ///
+    /// GC contract: trace marks every Touch ObjectId in the state
+    /// entry's `items` Vec.  Sweep tail prunes entries whose key
+    /// was collected.
+    #[cfg(feature = "engine")]
+    pub(crate) touch_list_states: HashMap<ObjectId, host::events_modern::TouchListState>,
     /// `Headers.prototype` (WHATWG Fetch §5.2).  Chains to
     /// `Object.prototype` — Headers is a WebIDL interface with no
     /// EventTarget ancestry.  Holds `append` / `set` / `delete` /

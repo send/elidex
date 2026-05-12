@@ -747,16 +747,19 @@ fn native_input_event_constructor(
         };
         let is_composing = read_bool(ctx, opts_id, k_is_composing)?;
         let input_type_sid = read_string(ctx, opts_id, k_input_type)?;
-        // dataTransfer: any pass-through (no DataTransfer brand check
-        // — wrapper deferred to D-9).  Missing / undefined → null.
+        // dataTransfer: WebIDL `DataTransfer?` — D-9 brand upgrade.
+        // Accepts DataTransfer-brand Object OR null/undefined; any
+        // other Object value throws TypeError per WebIDL §3.10.21.
+        // Was any-pass-through in D-10 pending the D-9 ObjectKind
+        // landing.
         let dt_raw = ctx
             .vm
             .get_property_value(opts_id, PropertyKey::String(k_data_transfer))?;
-        let data_transfer_val = if matches!(dt_raw, JsValue::Undefined) {
-            JsValue::Null
-        } else {
-            dt_raw
-        };
+        let data_transfer_val = super::events_modern::drag::coerce_data_transfer_nullable(
+            ctx.vm,
+            dt_raw,
+            "InputEvent",
+        )?;
         (data_val, is_composing, input_type_sid, data_transfer_val)
     } else {
         let empty = ctx.vm.strings.intern("");

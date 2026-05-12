@@ -297,6 +297,16 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // source.
         ObjectKind::TypedArray { .. } => CloneKind::TypedArray,
         ObjectKind::DataView { .. } => CloneKind::DataView,
+        // D-9 events-modern-input — DataTransfer / Touch family
+        // are not structured-cloneable (slot
+        // `#11-events-modern-input`).  Match HTML §6.2 / Touch
+        // Events §5 implementation status in Chrome/Firefox
+        // where these throw DataCloneError.
+        ObjectKind::DataTransfer => CloneKind::Unclonable("DataTransfer"),
+        ObjectKind::DataTransferItem { .. } => CloneKind::Unclonable("DataTransferItem"),
+        ObjectKind::DataTransferItemList { .. } => CloneKind::Unclonable("DataTransferItemList"),
+        ObjectKind::Touch => CloneKind::Unclonable("Touch"),
+        ObjectKind::TouchList => CloneKind::Unclonable("TouchList"),
     }
 }
 

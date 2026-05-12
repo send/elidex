@@ -813,6 +813,79 @@ pub enum ObjectKind {
     /// wrapper is reachable via `HostData::wrapper_cache`.
     #[cfg(feature = "engine")]
     ValidityState { entity_bits: u64 },
+    /// `DataTransfer` instance (HTML DnD §6.2) — the transferable
+    /// data container for clipboard / drag-and-drop events.
+    /// Payload-free; the mutable state (drop-effect / effect-allowed
+    /// enum, ordered entry list, `[SameObject]` wrapper caches for
+    /// `items` / `files`, drag-image entity + offsets) lives
+    /// out-of-band in `super::VmInner::data_transfer_states`
+    /// keyed by this object's `ObjectId`.
+    ///
+    /// `new DataTransfer()` is exposed per HTML §6.2 since 2018 and
+    /// creates an empty container.  UA-fired drag / clipboard events
+    /// receive a populated instance (UA fire path deferred to slot
+    /// `#11-event-dispatch-extra`).
+    ///
+    /// GC contract: the trace step fans out via the state entry's
+    /// `items_wrapper`, `files_wrapper`, per-entry blob `ObjectId`,
+    /// and the drag-image element wrapper (if any).  Sweep tail
+    /// prunes `data_transfer_states` entries whose key was
+    /// collected.  `Vm::unbind` additionally clears the entire
+    /// state map because `drag_image_entity` is cross-DOM.
+    #[cfg(feature = "engine")]
+    DataTransfer,
+    /// `DataTransferItem` wrapper (HTML DnD §6.3).  Carries the
+    /// owning [`Self::DataTransfer`] `ObjectId` plus the entry index
+    /// inline; the actual entry data lives on the parent's state
+    /// (`items: Vec<DataTransferEntry>`).  Identity is preserved via
+    /// `super::VmInner::data_transfer_item_wrapper_cache` keyed by
+    /// `(parent_dt_id, index)` so `dt.items[0] === dt.items[0]`.
+    ///
+    /// GC contract: trace marks `parent_dt_id` so the parent stays
+    /// reachable.  The cache entry survives only while the parent
+    /// DataTransfer + the resolved item index are both live (sweep
+    /// prunes entries whose value `ObjectId` was collected).
+    #[cfg(feature = "engine")]
+    DataTransferItem { parent_dt_id: ObjectId, index: u32 },
+    /// `DataTransferItemList` wrapper (HTML DnD §6.3).  Indexed
+    /// platform object reflecting the parent DataTransfer's item
+    /// list.  Payload-free apart from the parent reference; every
+    /// read consults the parent's state.  Identity preserved via
+    /// the parent's `items_wrapper` slot (a single wrapper per
+    /// parent — matches Chrome `[SameObject]` semantics).
+    ///
+    /// GC contract: trace marks `parent_dt_id`.
+    #[cfg(feature = "engine")]
+    DataTransferItemList { parent_dt_id: ObjectId },
+    /// `Touch` instance (Touch Events §5).  Payload-free; the
+    /// 12 IDL members (identifier / target / coordinates / radii /
+    /// rotation / force) live in
+    /// `super::VmInner::touch_states` keyed by this object's
+    /// `ObjectId`.
+    ///
+    /// `new Touch(init)` is exposed per Touch Events §5.5 since
+    /// 2014.  UA-fired touch events are deferred to slot
+    /// `#11-event-dispatch-extra` (UA fire path still routes
+    /// `EventPayload::Mouse`).
+    ///
+    /// GC contract: trace marks the state entry's `target`
+    /// `ObjectId` (any EventTarget — Element / Document / Window /
+    /// AbortSignal / etc.).  Sweep tail prunes `touch_states`
+    /// entries whose key was collected.
+    #[cfg(feature = "engine")]
+    Touch,
+    /// `TouchList` instance (Touch Events §5.6).  Indexed platform
+    /// object backing TouchEvent.touches / targetTouches /
+    /// changedTouches.  Payload-free; the ordered list of
+    /// [`Self::Touch`] `ObjectId`s lives in
+    /// `super::VmInner::touch_list_states`.  No constructor (per
+    /// IDL); allocated by the TouchEvent ctor and by UA dispatch.
+    ///
+    /// GC contract: trace marks every `Touch` ObjectId in the
+    /// state entry's `items` Vec.  Sweep tail prunes entries
+    /// whose key was collected.
+    #[cfg(feature = "engine")]
+    TouchList,
 }
 
 impl ObjectKind {

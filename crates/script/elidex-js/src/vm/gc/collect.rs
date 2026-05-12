@@ -707,6 +707,45 @@ impl VmInner {
                 self.page_transition_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // D-9 events-modern-input (slot
+                // `#11-events-modern-input`).  138 + 8 = 146.  Eight
+                // new prototypes — PointerEvent / DragEvent / Touch /
+                // TouchList / TouchEvent / DataTransfer /
+                // DataTransferItem / DataTransferItemList.  Without
+                // marking, a freshly-allocated wrapper after GC could
+                // bind a recycled slot of an unrelated type.
+                #[cfg(feature = "engine")]
+                self.pointer_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.drag_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.touch_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.touch_list_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.touch_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.data_transfer_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.data_transfer_item_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.data_transfer_item_list_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -745,6 +784,12 @@ impl VmInner {
             url_states: &self.url_states,
             #[cfg(feature = "engine")]
             usp_parent_url: &self.usp_parent_url,
+            #[cfg(feature = "engine")]
+            data_transfer_states: &self.data_transfer_states,
+            #[cfg(feature = "engine")]
+            touch_states: &self.touch_states,
+            #[cfg(feature = "engine")]
+            touch_list_states: &self.touch_list_states,
             #[cfg(feature = "engine")]
             pending_timeout_signals: &self.pending_timeout_signals,
             #[cfg(feature = "engine")]
@@ -829,6 +874,12 @@ impl VmInner {
             roots.url_states,
             #[cfg(feature = "engine")]
             roots.usp_parent_url,
+            #[cfg(feature = "engine")]
+            roots.data_transfer_states,
+            #[cfg(feature = "engine")]
+            roots.touch_states,
+            #[cfg(feature = "engine")]
+            roots.touch_list_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -875,6 +926,22 @@ impl VmInner {
             // by a previous BeforeUnloadEvent.
             self.before_unload_return_values
                 .retain(|id, _| bit_get(marks, id.0));
+            // D-9 events-modern-input — sweep tail prunes the three
+            // new side tables + the DataTransferItem identity cache.
+            self.data_transfer_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.touch_states.retain(|id, _| bit_get(marks, id.0));
+            self.touch_list_states.retain(|id, _| bit_get(marks, id.0));
+            // `data_transfer_item_wrapper_cache` keys are
+            // `(parent_dt_id, index)`.  Prune by value (the
+            // DataTransferItem ObjectId) AND parent liveness
+            // (mark-via-owner — when the parent DataTransfer was
+            // collected the index entries no longer reference any
+            // live wrapper).
+            self.data_transfer_item_wrapper_cache
+                .retain(|(parent_dt_id, _), &mut item_id| {
+                    bit_get(marks, item_id.0) && bit_get(marks, parent_dt_id.0)
+                });
             // `pending_timeout_signals` — values are rooted during
             // mark so a collected signal is an invariant violation
             // (the `mark_roots` pass kept them alive).  Defensively

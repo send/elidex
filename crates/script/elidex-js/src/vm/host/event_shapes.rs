@@ -181,6 +181,30 @@ pub(crate) struct PrecomputedEventShapes {
     /// `deltaY` / `deltaZ` / `deltaMode`.  Distinct from the UA-dispatch
     /// `wheel` shape (3 keys, no deltaZ + no UIEvent prefix).
     pub(crate) wheel_event_constructed: ShapeId,
+    // -- D-9 events-modern-input constructor shapes --
+    /// `new PointerEvent(type, init)` — MouseEvent base + 12
+    /// pointer-specific keys (pointerId / width / height / pressure /
+    /// tangentialPressure / tiltX / tiltY / twist / altitudeAngle /
+    /// azimuthAngle / pointerType / isPrimary).  Chains through
+    /// `mouse_event_constructed`.
+    pub(crate) pointer_event_constructed: ShapeId,
+    /// `new DragEvent(type, init)` — MouseEvent base + `dataTransfer`.
+    /// Chains through `mouse_event_constructed`.
+    pub(crate) drag_event_constructed: ShapeId,
+    /// `new TouchEvent(type, init)` — UIEvent base + 3 TouchList
+    /// references (touches / targetTouches / changedTouches) + 4
+    /// modifier flags (ctrlKey / shiftKey / altKey / metaKey).
+    /// Chains through `ui_event_constructed`.
+    pub(crate) touch_event_constructed: ShapeId,
+    /// `new Touch(init)` — Touch is NOT an Event, so this shape
+    /// chains directly to ROOT (Touch.prototype → Object.prototype).
+    /// All 12 IDL members of Touch live on the side table
+    /// (VmInner::touch_states) — the shape stays empty, accessors
+    /// route through the prototype.  Kept here for symmetry with
+    /// the other ctor shapes; D-9 instances allocate with
+    /// `ROOT_SHAPE` directly.
+    #[allow(dead_code)]
+    pub(crate) touch_constructed: ShapeId,
 }
 
 // Local helpers for [`dispatch_payload`] — keep each variant arm
@@ -718,6 +742,51 @@ impl VmInner {
             ],
         );
 
+        // D-9 events-modern-input constructor shapes.
+        // PointerEvent extends MouseEvent with 12 pointer-specific
+        // slots.  Order matches `pointer.rs::parse_pointer_event_members`.
+        let pointer_event_constructed = extend(
+            self,
+            mouse_event_constructed,
+            &[
+                self.well_known.pointer_id,
+                self.well_known.width,
+                self.well_known.height,
+                self.well_known.pressure,
+                self.well_known.tangential_pressure,
+                self.well_known.tilt_x,
+                self.well_known.tilt_y,
+                self.well_known.twist,
+                self.well_known.altitude_angle,
+                self.well_known.azimuth_angle,
+                self.well_known.pointer_type,
+                self.well_known.is_primary,
+            ],
+        );
+        // DragEvent extends MouseEvent with `dataTransfer`.
+        let drag_event_constructed = extend(
+            self,
+            mouse_event_constructed,
+            &[self.well_known.data_transfer],
+        );
+        // TouchEvent extends UIEvent with 3 TouchLists + 4 modifier
+        // flags.  Order matches `touch.rs::native_touch_event_constructor`.
+        let touch_event_constructed = extend(
+            self,
+            ui_event_constructed,
+            &[
+                self.well_known.touches,
+                self.well_known.target_touches,
+                self.well_known.changed_touches,
+                self.well_known.ctrl_key,
+                self.well_known.shift_key,
+                self.well_known.alt_key,
+                self.well_known.meta_key,
+            ],
+        );
+        // Touch.constructed shape — empty (all state on side table).
+        let touch_constructed = ROOT_SHAPE;
+
         PrecomputedEventShapes {
             core,
             mouse,
@@ -751,6 +820,10 @@ impl VmInner {
             progress_event,
             before_unload_event,
             wheel_event_constructed,
+            pointer_event_constructed,
+            drag_event_constructed,
+            touch_event_constructed,
+            touch_constructed,
         }
     }
 }

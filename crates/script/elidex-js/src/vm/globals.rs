@@ -494,6 +494,23 @@ impl VmInner {
             self.register_message_event_global();
             self.register_wheel_event_global();
             self.register_page_transition_event_global();
+            // M4-12 slot `#11-events-modern-input` (D-9) — 5 NEW
+            // Event-family ctors + 3 NEW standalone interfaces
+            // (DataTransfer + Touch + TouchList).  Registration order
+            // matters: `register_pointer_event_global` /
+            // `register_drag_event_global` require
+            // `mouse_event_prototype`; `register_touch_event_global`
+            // requires `ui_event_prototype`; Touch / TouchList /
+            // DataTransfer family chain to `Object.prototype` so
+            // they can register before or after the Event family.
+            super::host::events_modern::register_pointer_event_global(self);
+            super::host::events_modern::register_drag_event_global(self);
+            super::host::events_modern::register_touch_global(self);
+            super::host::events_modern::register_touch_list_global(self);
+            super::host::events_modern::register_touch_event_global(self);
+            super::host::events_modern::register_data_transfer_global(self);
+            super::host::events_modern::register_data_transfer_item_global(self);
+            super::host::events_modern::register_data_transfer_item_list_global(self);
         }
 
         // `DOMException` constructor + prototype (WebIDL §3.14).

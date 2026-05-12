@@ -360,6 +360,32 @@ impl Vm {
                 wheel_event_prototype: None,
                 #[cfg(feature = "engine")]
                 page_transition_event_prototype: None,
+                // D-9 events-modern-input (slot
+                // `#11-events-modern-input`).
+                #[cfg(feature = "engine")]
+                pointer_event_prototype: None,
+                #[cfg(feature = "engine")]
+                drag_event_prototype: None,
+                #[cfg(feature = "engine")]
+                touch_event_prototype: None,
+                #[cfg(feature = "engine")]
+                touch_prototype: None,
+                #[cfg(feature = "engine")]
+                touch_list_prototype: None,
+                #[cfg(feature = "engine")]
+                data_transfer_prototype: None,
+                #[cfg(feature = "engine")]
+                data_transfer_item_prototype: None,
+                #[cfg(feature = "engine")]
+                data_transfer_item_list_prototype: None,
+                #[cfg(feature = "engine")]
+                data_transfer_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                data_transfer_item_wrapper_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
+                touch_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                touch_list_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 headers_prototype: None,
                 #[cfg(feature = "engine")]

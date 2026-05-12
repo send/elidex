@@ -22,7 +22,7 @@ pub(super) struct GcRoots<'a> {
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 138],
+    pub(super) proto_roots: [Option<ObjectId>; 146],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -142,6 +142,34 @@ pub(super) struct GcRoots<'a> {
     /// searchParams identity is observable.
     #[cfg(feature = "engine")]
     pub(super) usp_parent_url: &'a std::collections::HashMap<ObjectId, ObjectId>,
+    /// `DataTransfer` per-instance state (slot
+    /// `#11-events-modern-input`).  Trace step marks the
+    /// `[SameObject]` cached wrappers (`items_wrapper` /
+    /// `files_wrapper`) + every File-kind entry's blob ObjectId
+    /// so a script holding only `dt.items` keeps the parent
+    /// DataTransfer alive.  Drag-image element references are
+    /// stored as raw `entity_bits` (not ObjectIds) and resolve
+    /// through `HostData::wrapper_cache` — that cache is rooted
+    /// separately, so no trace pass is required here.
+    #[cfg(feature = "engine")]
+    pub(super) data_transfer_states: &'a std::collections::HashMap<
+        ObjectId,
+        super::super::host::events_modern::DataTransferState,
+    >,
+    /// `Touch` per-instance state (slot
+    /// `#11-events-modern-input`).  Trace step marks the
+    /// `target` ObjectId (any EventTarget — HostObject /
+    /// AbortSignal / etc.) so the target survives as long as the
+    /// Touch is reachable.
+    #[cfg(feature = "engine")]
+    pub(super) touch_states:
+        &'a std::collections::HashMap<ObjectId, super::super::host::events_modern::TouchState>,
+    /// `TouchList` per-instance state.  Trace step marks every
+    /// member Touch `ObjectId` so the list keeps its entries
+    /// reachable.
+    #[cfg(feature = "engine")]
+    pub(super) touch_list_states:
+        &'a std::collections::HashMap<ObjectId, super::super::host::events_modern::TouchListState>,
     /// Pending `AbortSignal.timeout(ms)` registrations — the
     /// `ObjectId` values are signals that must survive until the
     /// timer fires (see `VmInner::pending_timeout_signals` for the
