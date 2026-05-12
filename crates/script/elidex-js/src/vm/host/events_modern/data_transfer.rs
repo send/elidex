@@ -554,25 +554,53 @@ fn native_dt_get_data(
     let id = require_dt_brand(ctx, this, DtBrand::Operation { method: "getData" })?;
     let format_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let format_sid = super::super::super::coerce::to_string(ctx.vm, format_val)?;
-    let format_raw = ctx.vm.strings.get_utf8(format_sid);
-    // ASCII-CI format match.  Concatenate matching String entries
-    // (typical use is single-entry; multi-entry concat matches
-    // HTML §6.2 step 4 "for each item in the drag data store
-    // matching format").
-    let mut buf = String::new();
+    // ASCII-CI format match on WTF-16 code units.  Concatenate
+    // matching String entries (typical use is single-entry;
+    // multi-entry concat matches HTML §6.2 step 4 "for each item in
+    // the drag data store matching format").  Operating on the
+    // WTF-16 pool slice preserves lone surrogates — `get_utf8`
+    // would lossily replace them with `U+FFFD` and corrupt
+    // round-trips for non-ASCII DOMString data.
+    let mut buf: Vec<u16> = Vec::new();
     {
+        let needle = ctx.vm.strings.get(format_sid).to_vec();
         let state = dt_state(ctx.vm, id);
         for entry in &state.items {
             if let DataTransferEntry::String { format, data } = entry {
-                let entry_fmt = ctx.vm.strings.get_utf8(*format);
-                if entry_fmt.eq_ignore_ascii_case(&format_raw) {
-                    buf.push_str(&ctx.vm.strings.get_utf8(*data));
+                let entry_fmt = ctx.vm.strings.get(*format);
+                if eq_ignore_ascii_case_wtf16(entry_fmt, &needle) {
+                    buf.extend_from_slice(ctx.vm.strings.get(*data));
                 }
             }
         }
     }
-    let sid = ctx.vm.strings.intern(&buf);
+    let sid = ctx.vm.strings.intern_utf16(&buf);
     Ok(JsValue::String(sid))
+}
+
+/// ASCII case-insensitive equality on WTF-16 code units.  Folds
+/// only ASCII-range upper-case into lower-case (`A-Z` → `a-z`);
+/// surrogates and other Unicode code units compare bytewise per
+/// WebIDL "ASCII case-insensitive match" rules.  Mirrors the
+/// `str::eq_ignore_ascii_case` semantics on the WTF-16 plane.
+#[inline]
+fn eq_ignore_ascii_case_wtf16(a: &[u16], b: &[u16]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).all(|(x, y)| {
+        let xl = if (0x41..=0x5A).contains(x) {
+            x | 0x20
+        } else {
+            *x
+        };
+        let yl = if (0x41..=0x5A).contains(y) {
+            y | 0x20
+        } else {
+            *y
+        };
+        xl == yl
+    })
 }
 
 fn native_dt_set_data(
@@ -605,13 +633,14 @@ fn native_dt_set_data(
 
 /// Locate the index of the first `DataTransferEntry::String` whose
 /// format matches `format_sid` under ASCII case-insensitive
-/// comparison.  Returns `None` if no match.
+/// comparison on WTF-16 code units (preserves lone surrogates).
+/// Returns `None` if no match.
 fn find_string_entry_index_ci(vm: &VmInner, id: ObjectId, format_sid: StringId) -> Option<usize> {
-    let needle = vm.strings.get_utf8(format_sid);
+    let needle = vm.strings.get(format_sid);
     let state = dt_state(vm, id);
     state.items.iter().position(|entry| match entry {
         DataTransferEntry::String { format, .. } => {
-            vm.strings.get_utf8(*format).eq_ignore_ascii_case(&needle)
+            eq_ignore_ascii_case_wtf16(vm.strings.get(*format), needle)
         }
         DataTransferEntry::File { .. } => false,
     })
@@ -650,18 +679,16 @@ fn native_dt_clear_data(
     } else {
         let format_sid = super::super::super::coerce::to_string(ctx.vm, format_arg)?;
         // Collect indices to remove (two-phase borrow split).
-        let needle = ctx.vm.strings.get_utf8(format_sid);
+        // WTF-16 ASCII-CI compare preserves surrogates per the
+        // `find_string_entry_index_ci` precedent.
+        let needle = ctx.vm.strings.get(format_sid).to_vec();
         let to_remove: Vec<usize> = dt_state(ctx.vm, id)
             .items
             .iter()
             .enumerate()
             .filter_map(|(i, entry)| match entry {
                 DataTransferEntry::String { format, .. }
-                    if ctx
-                        .vm
-                        .strings
-                        .get_utf8(*format)
-                        .eq_ignore_ascii_case(&needle) =>
+                    if eq_ignore_ascii_case_wtf16(ctx.vm.strings.get(*format), &needle) =>
                 {
                     Some(i)
                 }

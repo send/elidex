@@ -650,11 +650,51 @@ fn touch_event_sequence_accepts_iterable_non_array() {
 }
 
 #[test]
+fn touch_event_sequence_accepts_empty_string_as_iterable() {
+    // WebIDL §3.2.27: `sequence<T>` accepts any iterable; JS strings
+    // are iterable via `String.prototype[@@iterator]`.  Empty string
+    // yields no entries, so the resulting list is empty.
+    let out = run("var ev = new TouchEvent('touchstart', { touches: '' }); \
+         (ev.touches.length === 0) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn touch_event_sequence_rejects_non_iterable() {
     let out = run("var threw = false; \
          try { new TouchEvent('t', { touches: {} }); } \
          catch (e) { threw = (e instanceof TypeError); } \
          threw ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn data_transfer_get_data_round_trips_lone_surrogate() {
+    // Regression: `getData` / `setData` must preserve lone
+    // surrogates per DOMString semantics.  `\uD800` (high surrogate)
+    // without a paired low surrogate would be lossily replaced with
+    // `U+FFFD` if the round-trip went through UTF-8.  WTF-16-clean
+    // round-trip keeps the original code unit.
+    let out = run("var dt = new DataTransfer(); \
+         dt.setData('text/plain', '\\uD800'); \
+         var v = dt.getData('text/plain'); \
+         (v.length === 1 && v.charCodeAt(0) === 0xD800) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn data_transfer_get_data_round_trips_surrogate_pair() {
+    // Paired surrogates (e.g. `\uD83D\uDE00` for U+1F600 😀) must
+    // also round-trip — the WTF-16 path preserves them as 2
+    // code units, while UTF-8 round-trip preserves the codepoint but
+    // would re-encode (no value change here, but the WTF-16 path is
+    // the canonical one for DOMString).
+    let out = run("var dt = new DataTransfer(); \
+         dt.setData('text/plain', '\\uD83D\\uDE00'); \
+         var v = dt.getData('text/plain'); \
+         (v.length === 2 && \
+          v.charCodeAt(0) === 0xD83D && \
+          v.charCodeAt(1) === 0xDE00) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 

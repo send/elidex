@@ -568,32 +568,32 @@ fn parse_touch_sequence(
     let raw = ctx
         .vm
         .get_property_value(opts_id, PropertyKey::String(key))?;
-    let arr_id = match raw {
-        JsValue::Undefined => return Ok(Vec::new()),
-        JsValue::Null => {
-            return Err(VmError::type_error(
-                "Failed to construct 'TouchEvent': \
-                 sequence<Touch> member is null.",
-            ));
+    if matches!(raw, JsValue::Undefined) {
+        return Ok(Vec::new());
+    }
+    if matches!(raw, JsValue::Null) {
+        return Err(VmError::type_error(
+            "Failed to construct 'TouchEvent': \
+             sequence<Touch> member is null.",
+        ));
+    }
+    // Array fast-path: snapshot dense elements directly without
+    // walking the iterator protocol.
+    if let JsValue::Object(id) = raw {
+        if let ObjectKind::Array { elements } = &ctx.vm.get_object(id).kind {
+            let snapshot = elements.clone();
+            return collect_touch_entries(ctx, snapshot.into_iter());
         }
-        JsValue::Object(id) => id,
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to construct 'TouchEvent': \
-                 sequence<Touch> member is not iterable.",
-            ));
-        }
-    };
-    // Array fast-path: snapshot dense elements.
-    if let ObjectKind::Array { elements } = &ctx.vm.get_object(arr_id).kind {
-        let snapshot = elements.clone();
-        return collect_touch_entries(ctx, snapshot.into_iter());
     }
     // Iterator-protocol fallback.  `resolve_iterator` returns None
     // for non-iterables (no `@@iterator`); WebIDL §3.2.27 requires
-    // a TypeError in that case.  IteratorClose on early-exit matches
-    // §7.4.6 to honour custom iterators' `.return()` hook.
-    let iter = match ctx.vm.resolve_iterator(JsValue::Object(arr_id))? {
+    // a TypeError in that case.  `JsValue::String` *is* iterable
+    // (handled via the string_prototype's `@@iterator`), so passing
+    // the original `raw` directly preserves that branch; bare
+    // numbers / booleans correctly land in the `None` arm.
+    // IteratorClose on early-exit matches §7.4.6 to honour custom
+    // iterators' `.return()` hook.
+    let iter = match ctx.vm.resolve_iterator(raw)? {
         Some(iter @ JsValue::Object(_)) => iter,
         Some(_) => {
             return Err(VmError::type_error(
