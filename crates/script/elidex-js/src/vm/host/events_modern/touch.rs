@@ -1,0 +1,626 @@
+//! `Touch` / `TouchList` / `TouchEvent` constructors + prototypes
+//! (Touch Events §5).
+//!
+//! ## Inheritance
+//!
+//! ```text
+//! TouchEvent : UIEvent
+//! Touch      : (Object)
+//! TouchList  : (Object — indexed exotic, no constructor)
+//! ```
+//!
+//! ## State storage
+//!
+//! - `Touch` instances are wrapper-only; the 12 IDL members live in
+//!   [`super::TouchState`] keyed by the wrapper's `ObjectId`.
+//! - `TouchList` instances likewise carry their ordered Vec of
+//!   member [`super::super::super::value::ObjectKind::Touch`] wrapper
+//!   IDs in [`super::TouchListState`].
+//! - `TouchEvent` instances are conventional shape-resident: the 3
+//!   `TouchList` references + 4 modifier flags occupy the 7 own-data
+//!   slots of the `touch_event_constructed` shape.
+
+#![cfg(feature = "engine")]
+
+use super::super::super::shape;
+use super::super::super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
+    PropertyValue, VmError,
+};
+use super::super::super::VmInner;
+use super::super::events::{check_construct, type_arg};
+use super::super::events_extras::{read_bool, read_number};
+use super::super::events_ui::{opts_object_id, parse_ui_event_init, register_descendant};
+use super::{TouchListState, TouchState};
+
+// ---------------------------------------------------------------------------
+// Registration glue
+// ---------------------------------------------------------------------------
+
+pub(in crate::vm) fn register_touch_global(vm: &mut VmInner) {
+    // `Touch` is NOT an Event — its prototype chains to
+    // `Object.prototype`, NOT UIEvent.prototype.  We allocate the
+    // prototype with `Object.prototype` as parent and install a
+    // freestanding constructor via `install_ctor`.
+    let parent = vm
+        .object_prototype
+        .expect("register_touch_global requires object_prototype");
+    let proto_id = vm.alloc_object(Object {
+        kind: ObjectKind::Ordinary,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: Some(parent),
+        extensible: true,
+    });
+    vm.touch_prototype = Some(proto_id);
+    super::super::events::install_ctor(
+        vm,
+        proto_id,
+        "Touch",
+        native_touch_constructor,
+        vm.well_known.touch_global,
+    );
+    install_touch_accessors(vm, proto_id);
+}
+
+pub(in crate::vm) fn register_touch_list_global(vm: &mut VmInner) {
+    // `TouchList` has no public ctor — but we still need the
+    // prototype + global identifier (instanceof + brand checks).
+    // Use `install_ctor` with a throw-on-construct native.
+    let parent = vm
+        .object_prototype
+        .expect("register_touch_list_global requires object_prototype");
+    let proto_id = vm.alloc_object(Object {
+        kind: ObjectKind::Ordinary,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: Some(parent),
+        extensible: true,
+    });
+    vm.touch_list_prototype = Some(proto_id);
+    super::super::events::install_ctor(
+        vm,
+        proto_id,
+        "TouchList",
+        native_touch_list_illegal_constructor,
+        vm.well_known.touch_list_global,
+    );
+    // `length` accessor + `item(index)` method.
+    let length_sid = vm.well_known.length;
+    let item_sid = vm.well_known.item;
+    vm.install_accessor_pair(
+        proto_id,
+        length_sid,
+        native_touch_list_get_length,
+        None,
+        shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+    );
+    vm.install_native_method(
+        proto_id,
+        item_sid,
+        native_touch_list_item,
+        shape::PropertyAttrs::METHOD,
+    );
+}
+
+pub(in crate::vm) fn register_touch_event_global(vm: &mut VmInner) {
+    register_descendant(
+        vm,
+        vm.ui_event_prototype,
+        "TouchEvent",
+        native_touch_event_constructor,
+        vm.well_known.touch_event_global,
+        |vm, id| vm.touch_event_prototype = Some(id),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Touch prototype accessors (12 readonly)
+// ---------------------------------------------------------------------------
+
+fn install_touch_accessors(vm: &mut VmInner, proto_id: ObjectId) {
+    let entries: &[(
+        super::super::super::value::StringId,
+        super::super::super::NativeFn,
+    )] = &[
+        (vm.well_known.identifier, native_touch_get_identifier),
+        (vm.well_known.target, native_touch_get_target),
+        (vm.well_known.client_x, native_touch_get_client_x),
+        (vm.well_known.client_y, native_touch_get_client_y),
+        (vm.well_known.screen_x, native_touch_get_screen_x),
+        (vm.well_known.screen_y, native_touch_get_screen_y),
+        (vm.well_known.page_x, native_touch_get_page_x),
+        (vm.well_known.page_y, native_touch_get_page_y),
+        (vm.well_known.radius_x, native_touch_get_radius_x),
+        (vm.well_known.radius_y, native_touch_get_radius_y),
+        (
+            vm.well_known.rotation_angle,
+            native_touch_get_rotation_angle,
+        ),
+        (vm.well_known.force, native_touch_get_force),
+    ];
+    for (sid, getter) in entries {
+        vm.install_accessor_pair(
+            proto_id,
+            *sid,
+            *getter,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+    }
+}
+
+fn require_touch_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    member: &str,
+) -> Result<ObjectId, VmError> {
+    match this {
+        JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::Touch) => Ok(id),
+        _ => Err(VmError::type_error(format!(
+            "Failed to read the '{member}' property from 'Touch': \
+             Illegal invocation."
+        ))),
+    }
+}
+
+/// Const inert default returned by `touch_state` when the wrapper's
+/// state entry is missing — survives `Vm::unbind()` clearing
+/// `touch_states`.  All numeric fields read as 0, `target` reads as
+/// `null` (Touch is immutable post-construction, so no
+/// reinsert-on-write path is needed — unlike `dt_state_mut`).
+static EMPTY_TOUCH_STATE: TouchState = TouchState {
+    identifier: 0,
+    target: None,
+    client_x: 0.0,
+    client_y: 0.0,
+    screen_x: 0.0,
+    screen_y: 0.0,
+    page_x: 0.0,
+    page_y: 0.0,
+    radius_x: 0.0,
+    radius_y: 0.0,
+    rotation_angle: 0.0,
+    force: 0.0,
+};
+
+fn touch_state(vm: &VmInner, id: ObjectId) -> &TouchState {
+    vm.touch_states.get(&id).unwrap_or(&EMPTY_TOUCH_STATE)
+}
+
+fn native_touch_get_identifier(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_touch_receiver(ctx, this, "identifier")?;
+    Ok(JsValue::Number(f64::from(
+        touch_state(ctx.vm, id).identifier,
+    )))
+}
+
+fn native_touch_get_target(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_touch_receiver(ctx, this, "target")?;
+    Ok(match touch_state(ctx.vm, id).target {
+        Some(tid) => JsValue::Object(tid),
+        None => JsValue::Null,
+    })
+}
+
+macro_rules! impl_touch_number_getter {
+    ($name:ident, $field:ident, $member:literal) => {
+        fn $name(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            _args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let id = require_touch_receiver(ctx, this, $member)?;
+            Ok(JsValue::Number(touch_state(ctx.vm, id).$field))
+        }
+    };
+}
+
+impl_touch_number_getter!(native_touch_get_client_x, client_x, "clientX");
+impl_touch_number_getter!(native_touch_get_client_y, client_y, "clientY");
+impl_touch_number_getter!(native_touch_get_screen_x, screen_x, "screenX");
+impl_touch_number_getter!(native_touch_get_screen_y, screen_y, "screenY");
+impl_touch_number_getter!(native_touch_get_page_x, page_x, "pageX");
+impl_touch_number_getter!(native_touch_get_page_y, page_y, "pageY");
+impl_touch_number_getter!(native_touch_get_radius_x, radius_x, "radiusX");
+impl_touch_number_getter!(native_touch_get_radius_y, radius_y, "radiusY");
+impl_touch_number_getter!(
+    native_touch_get_rotation_angle,
+    rotation_angle,
+    "rotationAngle"
+);
+impl_touch_number_getter!(native_touch_get_force, force, "force");
+
+// ---------------------------------------------------------------------------
+// Touch constructor
+// ---------------------------------------------------------------------------
+
+fn native_touch_constructor(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    check_construct(ctx, "Touch")?;
+    // `TouchInit` is a `required` dictionary — missing or null/
+    // undefined triggers a TypeError per WebIDL §3.10.18.  Split the
+    // missing case (no argument, `undefined`, or explicit `null`)
+    // from the wrong-type case so the message matches what failed:
+    // missing → "1 argument required", wrong type → "not of type
+    // 'TouchInit'".
+    let init_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    if matches!(init_arg, JsValue::Undefined | JsValue::Null) {
+        return Err(VmError::type_error(
+            "Failed to construct 'Touch': \
+             1 argument required, but only 0 present.",
+        ));
+    }
+    let JsValue::Object(opts_id) = init_arg else {
+        return Err(VmError::type_error(
+            "Failed to construct 'Touch': \
+             parameter 1 is not of type 'TouchInit'.",
+        ));
+    };
+
+    let k_identifier = ctx.vm.well_known.identifier;
+    let k_target = ctx.vm.well_known.target;
+    let k_client_x = ctx.vm.well_known.client_x;
+    let k_client_y = ctx.vm.well_known.client_y;
+    let k_screen_x = ctx.vm.well_known.screen_x;
+    let k_screen_y = ctx.vm.well_known.screen_y;
+    let k_page_x = ctx.vm.well_known.page_x;
+    let k_page_y = ctx.vm.well_known.page_y;
+    let k_radius_x = ctx.vm.well_known.radius_x;
+    let k_radius_y = ctx.vm.well_known.radius_y;
+    let k_rotation_angle = ctx.vm.well_known.rotation_angle;
+    let k_force = ctx.vm.well_known.force;
+
+    // `required long identifier` — missing throws.  Match
+    // FormDataEvent.formData precedent for the required-check
+    // wording.
+    let identifier_raw = ctx
+        .vm
+        .get_property_value(opts_id, PropertyKey::String(k_identifier))?;
+    if matches!(identifier_raw, JsValue::Undefined) {
+        return Err(VmError::type_error(
+            "Failed to construct 'Touch': \
+             required member identifier is undefined.",
+        ));
+    }
+    let identifier_num = super::super::super::coerce::to_number(ctx.vm, identifier_raw)?;
+    let identifier = super::super::super::coerce::f64_to_int32(identifier_num);
+
+    // `required EventTarget target` — accept any EventTarget brand
+    // (HostObject with a bound entity / AbortSignal / etc.).
+    let target_raw = ctx
+        .vm
+        .get_property_value(opts_id, PropertyKey::String(k_target))?;
+    if matches!(target_raw, JsValue::Undefined) {
+        return Err(VmError::type_error(
+            "Failed to construct 'Touch': \
+             required member target is undefined.",
+        ));
+    }
+    let target = coerce_event_target_required(ctx.vm, target_raw, "Touch", "target")?;
+
+    let client_x = read_number(ctx, opts_id, k_client_x, 0.0)?;
+    let client_y = read_number(ctx, opts_id, k_client_y, 0.0)?;
+    let screen_x = read_number(ctx, opts_id, k_screen_x, 0.0)?;
+    let screen_y = read_number(ctx, opts_id, k_screen_y, 0.0)?;
+    let page_x = read_number(ctx, opts_id, k_page_x, 0.0)?;
+    let page_y = read_number(ctx, opts_id, k_page_y, 0.0)?;
+    let radius_x = read_number(ctx, opts_id, k_radius_x, 0.0)?;
+    let radius_y = read_number(ctx, opts_id, k_radius_y, 0.0)?;
+    let rotation_angle = read_number(ctx, opts_id, k_rotation_angle, 0.0)?;
+    let force = read_number(ctx, opts_id, k_force, 0.0)?;
+
+    let target_id = match target {
+        JsValue::Object(id) => Some(id),
+        _ => None,
+    };
+    let proto = ctx
+        .vm
+        .touch_prototype
+        .expect("Touch.prototype must be registered before ctor");
+    let touch_id = ctx.vm.alloc_object(Object {
+        kind: ObjectKind::Touch,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: Some(proto),
+        extensible: true,
+    });
+    ctx.vm.touch_states.insert(
+        touch_id,
+        TouchState {
+            identifier,
+            target: target_id,
+            client_x,
+            client_y,
+            screen_x,
+            screen_y,
+            page_x,
+            page_y,
+            radius_x,
+            radius_y,
+            rotation_angle,
+            force,
+        },
+    );
+    Ok(JsValue::Object(touch_id))
+}
+
+/// Brand check for `required EventTarget target` — accepts any
+/// EventTarget shape (HostObject with bound entity / AbortSignal /
+/// future EventTarget variants).  Mirrors `events_ui::resolve_
+/// related_target` but for the required (non-nullable) case.
+fn coerce_event_target_required(
+    vm: &VmInner,
+    val: JsValue,
+    interface: &str,
+    member: &str,
+) -> Result<JsValue, VmError> {
+    if let JsValue::Object(id) = val {
+        match vm.get_object(id).kind {
+            ObjectKind::HostObject { entity_bits }
+                if elidex_ecs::Entity::from_bits(entity_bits).is_some() =>
+            {
+                return Ok(val);
+            }
+            ObjectKind::AbortSignal => return Ok(val),
+            _ => {}
+        }
+    }
+    Err(VmError::type_error(format!(
+        "Failed to construct '{interface}': \
+         member {member} is not of type 'EventTarget'."
+    )))
+}
+
+// ---------------------------------------------------------------------------
+// TouchList constructor (illegal) + accessors
+// ---------------------------------------------------------------------------
+
+fn native_touch_list_illegal_constructor(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    Err(VmError::type_error("Illegal constructor"))
+}
+
+fn require_touch_list_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    member: &str,
+) -> Result<ObjectId, VmError> {
+    match this {
+        JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::TouchList) => {
+            Ok(id)
+        }
+        _ => Err(VmError::type_error(format!(
+            "Failed to read the '{member}' property from 'TouchList': \
+             Illegal invocation."
+        ))),
+    }
+}
+
+fn native_touch_list_get_length(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_touch_list_receiver(ctx, this, "length")?;
+    let len = ctx
+        .vm
+        .touch_list_states
+        .get(&id)
+        .map_or(0, |s| u32::try_from(s.items.len()).unwrap_or(u32::MAX));
+    Ok(JsValue::Number(f64::from(len)))
+}
+
+fn native_touch_list_item(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = match this {
+        JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::TouchList) => id,
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'item' on 'TouchList': Illegal invocation.",
+            ));
+        }
+    };
+    let idx_raw = args.first().copied().unwrap_or(JsValue::Undefined);
+    let idx_num = super::super::super::coerce::to_number(ctx.vm, idx_raw)?;
+    let idx = super::super::super::coerce::f64_to_uint32(idx_num);
+    Ok(ctx
+        .vm
+        .touch_list_states
+        .get(&id)
+        .and_then(|s| s.items.get(idx as usize).copied())
+        .map_or(JsValue::Null, JsValue::Object))
+}
+
+/// Allocate a TouchList wrapper carrying the given items.  Used by
+/// the TouchEvent ctor to populate `touches` / `targetTouches` /
+/// `changedTouches`.
+pub(in crate::vm) fn alloc_touch_list(vm: &mut VmInner, items: Vec<ObjectId>) -> ObjectId {
+    let proto = vm
+        .touch_list_prototype
+        .expect("TouchList.prototype must be registered before alloc_touch_list");
+    let id = vm.alloc_object(Object {
+        kind: ObjectKind::TouchList,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: Some(proto),
+        extensible: true,
+    });
+    vm.touch_list_states.insert(id, TouchListState { items });
+    id
+}
+
+// ---------------------------------------------------------------------------
+// TouchEvent constructor
+// ---------------------------------------------------------------------------
+
+fn native_touch_event_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    check_construct(ctx, "TouchEvent")?;
+    let type_sid = type_arg(ctx, args, "TouchEvent")?;
+    let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let ui = parse_ui_event_init(ctx, init_arg, "TouchEvent")?;
+    let opts_id = opts_object_id(init_arg);
+
+    let (touches_id, target_touches_id, changed_touches_id, ctrl, shift, alt, meta) =
+        if let Some(opts_id) = opts_id {
+            let k_touches = ctx.vm.well_known.touches;
+            let k_target_touches = ctx.vm.well_known.target_touches;
+            let k_changed_touches = ctx.vm.well_known.changed_touches;
+            let k_ctrl = ctx.vm.well_known.ctrl_key;
+            let k_shift = ctx.vm.well_known.shift_key;
+            let k_alt = ctx.vm.well_known.alt_key;
+            let k_meta = ctx.vm.well_known.meta_key;
+            let touches = parse_touch_sequence(ctx, opts_id, k_touches)?;
+            let target_touches = parse_touch_sequence(ctx, opts_id, k_target_touches)?;
+            let changed_touches = parse_touch_sequence(ctx, opts_id, k_changed_touches)?;
+            let ctrl = read_bool(ctx, opts_id, k_ctrl, false)?;
+            let shift = read_bool(ctx, opts_id, k_shift, false)?;
+            let alt = read_bool(ctx, opts_id, k_alt, false)?;
+            let meta = read_bool(ctx, opts_id, k_meta, false)?;
+            (
+                touches,
+                target_touches,
+                changed_touches,
+                ctrl,
+                shift,
+                alt,
+                meta,
+            )
+        } else {
+            (
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                false,
+                false,
+                false,
+                false,
+            )
+        };
+
+    let touches_list = alloc_touch_list(ctx.vm, touches_id);
+    let target_touches_list = alloc_touch_list(ctx.vm, target_touches_id);
+    let changed_touches_list = alloc_touch_list(ctx.vm, changed_touches_id);
+
+    let shape_id = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing")
+        .touch_event_constructed;
+    let slots = vec![
+        PropertyValue::Data(JsValue::Object(touches_list)),
+        PropertyValue::Data(JsValue::Object(target_touches_list)),
+        PropertyValue::Data(JsValue::Object(changed_touches_list)),
+        PropertyValue::Data(JsValue::Boolean(ctrl)),
+        PropertyValue::Data(JsValue::Boolean(shift)),
+        PropertyValue::Data(JsValue::Boolean(alt)),
+        PropertyValue::Data(JsValue::Boolean(meta)),
+    ];
+    let mut g0 = ctx.vm.push_temp_root(JsValue::Object(touches_list));
+    let mut g1 = g0.push_temp_root(JsValue::Object(target_touches_list));
+    let mut g = g1.push_temp_root(JsValue::Object(changed_touches_list));
+    let touch_event_proto = g
+        .touch_event_prototype
+        .expect("TouchEvent.prototype must be registered before ctor");
+    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, touch_event_proto, slots);
+    drop(g);
+    drop(g1);
+    drop(g0);
+    Ok(JsValue::Object(id))
+}
+
+/// Parse a `sequence<Touch>` member from a TouchEventInit.  Each
+/// sequence entry must be Touch-brand; anything else throws
+/// TypeError per WebIDL §3.10.21.  Missing key → empty Vec
+/// (matches WebIDL default).
+///
+/// Fast-path on `ObjectKind::Array` reads the dense `elements` Vec
+/// directly (`get_property_value` with a stringified index does
+/// NOT hit Array dense storage in this VM — only the bytecode
+/// `LoadElement` opcode does).  Anything else falls back to the
+/// iterator protocol per WebIDL §3.2.27 so
+/// `new TouchEvent('t', { touches: customIterable })` behaves per
+/// spec — mirrors `url_search_params.rs` /
+/// `headers::resolve_headers_init`.
+fn parse_touch_sequence(
+    ctx: &mut NativeContext<'_>,
+    opts_id: ObjectId,
+    key: super::super::super::value::StringId,
+) -> Result<Vec<ObjectId>, VmError> {
+    let raw = ctx
+        .vm
+        .get_property_value(opts_id, PropertyKey::String(key))?;
+    if matches!(raw, JsValue::Undefined) {
+        return Ok(Vec::new());
+    }
+    if matches!(raw, JsValue::Null) {
+        return Err(VmError::type_error(
+            "Failed to construct 'TouchEvent': \
+             sequence<Touch> member is null.",
+        ));
+    }
+    // Always route through the iterator protocol per WebIDL §3.2.27
+    // — even for `ObjectKind::Array`, a script may have overridden
+    // `arr[Symbol.iterator]` (or `Array.prototype[Symbol.iterator]`)
+    // and the spec mandates honouring that override.  The previous
+    // Array dense-elements fast-path bypassed `@@iterator` lookup
+    // and was a spec deviation flagged by Copilot R4.  `iter_next`
+    // overhead is negligible for typical sequence<Touch> sizes
+    // (<= 10 entries per TouchEvent).
+    //
+    // `JsValue::String` is iterable via `string_prototype[@@iterator]`,
+    // bare numbers / booleans land in the `None` arm (TypeError).
+    // IteratorClose on early-exit matches §7.4.6 to honour custom
+    // iterators' `.return()` hook.
+    let iter = match ctx.vm.resolve_iterator(raw)? {
+        Some(iter @ JsValue::Object(_)) => iter,
+        Some(_) => {
+            return Err(VmError::type_error(
+                "Failed to construct 'TouchEvent': \
+                 sequence<Touch> @@iterator must return an object.",
+            ));
+        }
+        None => {
+            return Err(VmError::type_error(
+                "Failed to construct 'TouchEvent': \
+                 sequence<Touch> member is not iterable.",
+            ));
+        }
+    };
+    let mut out: Vec<ObjectId> = Vec::new();
+    while let Some(entry) = ctx.vm.iter_next(iter)? {
+        match entry {
+            JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::Touch) => {
+                out.push(id);
+            }
+            _ => {
+                let close_err = ctx.vm.iter_close(iter).err();
+                return Err(close_err.unwrap_or_else(|| {
+                    VmError::type_error(
+                        "Failed to construct 'TouchEvent': \
+                         sequence<Touch> entry is not of type 'Touch'.",
+                    )
+                }));
+            }
+        }
+    }
+    Ok(out)
+}

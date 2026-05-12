@@ -516,6 +516,77 @@ define_well_known_strings! {
         dom_delta_page => "DOM_DELTA_PAGE",
     }
 
+    "D-9 events-modern-input constructor globals + init-dict keys (slot #11-events-modern-input)" {
+        // PointerEvent + DragEvent + Touch family + DataTransfer family
+        // constructor globals.  Reused SIDs from earlier sections:
+        // `target`, `screen_x/y`, `client_x/y`, `width`, `height`,
+        // `files`, `data_transfer` (the IDL attribute name),
+        // `add` / `remove` / `clear_method` / `item` / `length` /
+        // `kind` (NEW below for DataTransferItem.kind).
+        pointer_event_global => "PointerEvent",
+        drag_event_global => "DragEvent",
+        touch_event_global => "TouchEvent",
+        touch_global => "Touch",
+        touch_list_global => "TouchList",
+        data_transfer_global => "DataTransfer",
+        data_transfer_item_global => "DataTransferItem",
+        data_transfer_item_list_global => "DataTransferItemList",
+        // PointerEventInit / PointerEvent IDL members (UI Events
+        // Pointer §6 — extends MouseEventInit).
+        pointer_id => "pointerId",
+        pressure => "pressure",
+        tangential_pressure => "tangentialPressure",
+        tilt_x => "tiltX",
+        tilt_y => "tiltY",
+        twist => "twist",
+        altitude_angle => "altitudeAngle",
+        azimuth_angle => "azimuthAngle",
+        pointer_type => "pointerType",
+        is_primary => "isPrimary",
+        coalesced_events => "coalescedEvents",
+        predicted_events => "predictedEvents",
+        get_coalesced_events => "getCoalescedEvents",
+        get_predicted_events => "getPredictedEvents",
+        // TouchInit / Touch IDL members (Touch Events §5).
+        // `target` / `screen_x` / `screen_y` / `client_x` /
+        // `client_y` reused from earlier sections.
+        identifier => "identifier",
+        page_x => "pageX",
+        page_y => "pageY",
+        radius_x => "radiusX",
+        radius_y => "radiusY",
+        rotation_angle => "rotationAngle",
+        force => "force",
+        // TouchEventInit / TouchEvent IDL members.
+        touches => "touches",
+        target_touches => "targetTouches",
+        changed_touches => "changedTouches",
+        // DataTransfer IDL members (HTML DnD §6.2).  `types` /
+        // `items` / `files` (existing) are accessor names.
+        drop_effect => "dropEffect",
+        effect_allowed => "effectAllowed",
+        items => "items",
+        types => "types",
+        get_data => "getData",
+        set_data => "setData",
+        clear_data => "clearData",
+        set_drag_image => "setDragImage",
+        // DataTransferItem / DataTransferItemList IDL members.
+        // `kind` is unique to DataTransferItem in the workspace —
+        // not yet present in any earlier section.
+        kind => "kind",
+        get_as_string => "getAsString",
+        get_as_file => "getAsFile",
+        // String literals returned by `DataTransferItem.kind` (per
+        // HTML §6.3 — exactly `"string"` or `"file"`).  Pre-interned
+        // so the kind getter avoids a per-call `strings.intern`.
+        kind_string => "string",
+        kind_file => "file",
+        // String literal used for `DataTransfer.types` Files entry
+        // when any file-kind item is present (HTML §6.2 step 3-5).
+        types_files_entry => "Files",
+    }
+
     "Storage / StorageEvent (slot #11-storage-web)" {
         // Constructor / global identifier names (WHATWG HTML §11.2).
         // `localStorage` / `sessionStorage` are accessor properties

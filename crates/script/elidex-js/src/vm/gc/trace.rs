@@ -59,6 +59,18 @@ pub(super) fn trace_work_list(
         super::super::host::url::UrlState,
     >,
     #[cfg(feature = "engine")] usp_parent_url: &std::collections::HashMap<ObjectId, ObjectId>,
+    #[cfg(feature = "engine")] data_transfer_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::events_modern::DataTransferState,
+    >,
+    #[cfg(feature = "engine")] touch_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::events_modern::TouchState,
+    >,
+    #[cfg(feature = "engine")] touch_list_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::events_modern::TouchListState,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -562,6 +574,66 @@ pub(super) fn trace_work_list(
             #[cfg(feature = "engine")]
             ObjectKind::ReadableStreamCancelStep { promise, .. } => {
                 mark_object(*promise, obj_marks, work);
+            }
+            // D-9 events-modern-input (slot `#11-events-modern-input`).
+            // `DataTransfer` state holds `[SameObject]` wrapper
+            // caches + per-entry blob references — mark all
+            // reachable ObjectIds.
+            #[cfg(feature = "engine")]
+            ObjectKind::DataTransfer => {
+                if let Some(state) = data_transfer_states.get(&ObjectId(obj_idx)) {
+                    if let Some(items_wrapper) = state.items_wrapper {
+                        mark_object(items_wrapper, obj_marks, work);
+                    }
+                    if let Some(files_wrapper) = state.files_wrapper {
+                        mark_object(files_wrapper, obj_marks, work);
+                    }
+                    for entry in &state.items {
+                        if let super::super::host::events_modern::DataTransferEntry::File {
+                            blob_id,
+                            ..
+                        } = entry
+                        {
+                            mark_object(*blob_id, obj_marks, work);
+                        }
+                    }
+                    // `drag_image_entity` is raw `entity_bits` (not an
+                    // ObjectId); the corresponding HostObject wrapper
+                    // is rooted via `HostData::wrapper_cache` separately,
+                    // so no extra mark needed here.
+                }
+            }
+            // `DataTransferItem` / `DataTransferItemList` carry the
+            // parent DataTransfer `ObjectId` inline; mark it so the
+            // parent stays reachable through any held wrapper.
+            #[cfg(feature = "engine")]
+            ObjectKind::DataTransferItem { parent_dt_id, .. } => {
+                mark_object(*parent_dt_id, obj_marks, work);
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::DataTransferItemList { parent_dt_id } => {
+                mark_object(*parent_dt_id, obj_marks, work);
+            }
+            // `Touch` state holds the EventTarget `target` ObjectId
+            // (HostObject / AbortSignal / etc.).  Mark it so the
+            // target survives as long as the Touch is reachable.
+            #[cfg(feature = "engine")]
+            ObjectKind::Touch => {
+                if let Some(state) = touch_states.get(&ObjectId(obj_idx)) {
+                    if let Some(target) = state.target {
+                        mark_object(target, obj_marks, work);
+                    }
+                }
+            }
+            // `TouchList` state holds the ordered Vec of member
+            // `Touch` ObjectIds; mark each.
+            #[cfg(feature = "engine")]
+            ObjectKind::TouchList => {
+                if let Some(state) = touch_list_states.get(&ObjectId(obj_idx)) {
+                    for &touch_id in &state.items {
+                        mark_object(touch_id, obj_marks, work);
+                    }
+                }
             }
         }
     }

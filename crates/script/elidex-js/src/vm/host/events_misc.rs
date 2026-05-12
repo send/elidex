@@ -494,11 +494,20 @@ fn native_clipboard_event_constructor(
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "ClipboardEvent")?;
     let opts_id = opts_object_id(init_arg);
-    // `clipboardData: DataTransfer? = null` — pass-through (no brand
-    // check; DataTransfer wrapper deferred to D-9
-    // `#11-events-modern-input` via `#11-event-modern-extras`).
+    // `clipboardData: DataTransfer?` — D-9 brand upgrade.  Accepts
+    // DataTransfer-brand Object OR null/undefined; any other Object
+    // value throws TypeError per WebIDL §3.10.21.  Was any-pass-
+    // through in D-10 pending D-9 ObjectKind.
     let clipboard_data = match opts_id {
-        Some(id) => read_any(ctx, id, ctx.vm.well_known.clipboard_data, JsValue::Null)?,
+        Some(id) => {
+            let raw = read_any(ctx, id, ctx.vm.well_known.clipboard_data, JsValue::Null)?;
+            super::events_modern::drag::coerce_data_transfer_nullable(
+                ctx.vm,
+                raw,
+                "ClipboardEvent",
+                "clipboardData",
+            )?
+        }
         None => JsValue::Null,
     };
     let shape_id = ctx

@@ -318,12 +318,28 @@ fn clipboard_event_default_clipboard_data_null() {
 }
 
 #[test]
-fn clipboard_event_data_pass_through() {
-    // DataTransfer wrapper deferred to D-9; ctor passes any value
-    // verbatim (no brand check).
-    let out = run("var stub = { kind: 'fake' }; \
-         var e = new ClipboardEvent('copy', { clipboardData: stub }); \
-         (e.clipboardData === stub) ? 'ok' : 'fail';");
+fn clipboard_event_data_brand_check() {
+    // D-9 upgrade: `clipboardData` must be a DataTransfer brand OR
+    // null / undefined.  Non-DataTransfer Objects throw TypeError
+    // per WebIDL §3.10.21 interface-type coercion.
+    let out = run("var threw = false; \
+         try { new ClipboardEvent('copy', { clipboardData: { kind: 'fake' } }); } \
+         catch (e) { threw = (e instanceof TypeError); } \
+         threw ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn clipboard_event_data_accepts_data_transfer() {
+    let out = run("var dt = new DataTransfer(); \
+         var e = new ClipboardEvent('copy', { clipboardData: dt }); \
+         (e.clipboardData === dt) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn clipboard_event_data_null_default() {
+    let out = run("(new ClipboardEvent('copy').clipboardData === null) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
@@ -685,10 +701,21 @@ fn input_event_get_target_ranges_returns_fresh_array_each_call() {
 }
 
 #[test]
-fn input_event_data_transfer_pass_through() {
-    let out = run("var stub = { kind: 'dt-stub' }; \
-         var e = new InputEvent('input', { dataTransfer: stub }); \
-         (e.dataTransfer === stub) ? 'ok' : 'fail';");
+fn input_event_data_transfer_brand_check() {
+    // D-9 upgrade: `dataTransfer` must be a DataTransfer brand OR
+    // null / undefined.  Non-DataTransfer Objects throw TypeError.
+    let out = run("var threw = false; \
+         try { new InputEvent('input', { dataTransfer: { kind: 'dt-stub' } }); } \
+         catch (e) { threw = (e instanceof TypeError); } \
+         threw ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn input_event_data_transfer_accepts_data_transfer() {
+    let out = run("var dt = new DataTransfer(); \
+         var e = new InputEvent('input', { dataTransfer: dt }); \
+         (e.dataTransfer === dt) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
