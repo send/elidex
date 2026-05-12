@@ -284,7 +284,9 @@ pub(crate) struct TouchState {
 /// `ObjectId`.
 pub(crate) struct TouchListState {
     /// Member [`super::super::value::ObjectKind::Touch`] wrapper
-    /// IDs in spec order.  TouchList is indexed exotic — `list[i]`
-    /// reads this Vec directly; out-of-range returns null per IDL.
+    /// IDs in spec order.  Read via `.item(i)` /  `.length` only;
+    /// indexed-exotic bracket access (`list[i]`) is deferred to slot
+    /// `#11-events-modern-indexed-exotic` and currently resolves to
+    /// `undefined` (consistent with `DataTransferItemList`).
     pub(in crate::vm) items: Vec<ObjectId>,
 }
