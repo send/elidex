@@ -29,6 +29,7 @@ use super::super::super::value::{
 };
 use super::super::super::VmInner;
 use super::super::events::{check_construct, type_arg};
+use super::super::events_extras::{read_bool, read_number};
 use super::super::events_ui::{opts_object_id, parse_ui_event_init, register_descendant};
 use super::{TouchListState, TouchState};
 
@@ -279,16 +280,16 @@ fn native_touch_constructor(
     }
     let target = coerce_event_target_required(ctx.vm, target_raw, "Touch", "target")?;
 
-    let client_x = read_optional_number(ctx, opts_id, k_client_x, 0.0)?;
-    let client_y = read_optional_number(ctx, opts_id, k_client_y, 0.0)?;
-    let screen_x = read_optional_number(ctx, opts_id, k_screen_x, 0.0)?;
-    let screen_y = read_optional_number(ctx, opts_id, k_screen_y, 0.0)?;
-    let page_x = read_optional_number(ctx, opts_id, k_page_x, 0.0)?;
-    let page_y = read_optional_number(ctx, opts_id, k_page_y, 0.0)?;
-    let radius_x = read_optional_number(ctx, opts_id, k_radius_x, 0.0)?;
-    let radius_y = read_optional_number(ctx, opts_id, k_radius_y, 0.0)?;
-    let rotation_angle = read_optional_number(ctx, opts_id, k_rotation_angle, 0.0)?;
-    let force = read_optional_number(ctx, opts_id, k_force, 0.0)?;
+    let client_x = read_number(ctx, opts_id, k_client_x, 0.0)?;
+    let client_y = read_number(ctx, opts_id, k_client_y, 0.0)?;
+    let screen_x = read_number(ctx, opts_id, k_screen_x, 0.0)?;
+    let screen_y = read_number(ctx, opts_id, k_screen_y, 0.0)?;
+    let page_x = read_number(ctx, opts_id, k_page_x, 0.0)?;
+    let page_y = read_number(ctx, opts_id, k_page_y, 0.0)?;
+    let radius_x = read_number(ctx, opts_id, k_radius_x, 0.0)?;
+    let radius_y = read_number(ctx, opts_id, k_radius_y, 0.0)?;
+    let rotation_angle = read_number(ctx, opts_id, k_rotation_angle, 0.0)?;
+    let force = read_number(ctx, opts_id, k_force, 0.0)?;
 
     let target_id = match target {
         JsValue::Object(id) => Some(id),
@@ -322,21 +323,6 @@ fn native_touch_constructor(
         },
     );
     Ok(JsValue::Object(touch_id))
-}
-
-fn read_optional_number(
-    ctx: &mut NativeContext<'_>,
-    opts_id: ObjectId,
-    key: super::super::super::value::StringId,
-    default: f64,
-) -> Result<f64, VmError> {
-    let v = ctx
-        .vm
-        .get_property_value(opts_id, PropertyKey::String(key))?;
-    match v {
-        JsValue::Undefined => Ok(default),
-        _ => super::super::super::coerce::to_number(ctx.vm, v),
-    }
 }
 
 /// Brand check for `required EventTarget target` — accepts any
@@ -476,10 +462,10 @@ fn native_touch_event_constructor(
             let touches = parse_touch_sequence(ctx, opts_id, k_touches)?;
             let target_touches = parse_touch_sequence(ctx, opts_id, k_target_touches)?;
             let changed_touches = parse_touch_sequence(ctx, opts_id, k_changed_touches)?;
-            let ctrl = read_optional_bool(ctx, opts_id, k_ctrl, false)?;
-            let shift = read_optional_bool(ctx, opts_id, k_shift, false)?;
-            let alt = read_optional_bool(ctx, opts_id, k_alt, false)?;
-            let meta = read_optional_bool(ctx, opts_id, k_meta, false)?;
+            let ctrl = read_bool(ctx, opts_id, k_ctrl, false)?;
+            let shift = read_bool(ctx, opts_id, k_shift, false)?;
+            let alt = read_bool(ctx, opts_id, k_alt, false)?;
+            let meta = read_bool(ctx, opts_id, k_meta, false)?;
             (
                 touches,
                 target_touches,
@@ -591,19 +577,4 @@ fn parse_touch_sequence(
         }
     }
     Ok(out)
-}
-
-fn read_optional_bool(
-    ctx: &mut NativeContext<'_>,
-    opts_id: ObjectId,
-    key: super::super::super::value::StringId,
-    default: bool,
-) -> Result<bool, VmError> {
-    let v = ctx
-        .vm
-        .get_property_value(opts_id, PropertyKey::String(key))?;
-    match v {
-        JsValue::Undefined => Ok(default),
-        _ => Ok(super::super::super::coerce::to_boolean(ctx.vm, v)),
-    }
 }

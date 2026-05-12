@@ -18,6 +18,7 @@ use super::super::super::shape;
 use super::super::super::value::{JsValue, NativeContext, ObjectId, PropertyValue, VmError};
 use super::super::super::VmInner;
 use super::super::events::{check_construct, type_arg};
+use super::super::events_extras::{read_bool, read_number};
 use super::super::events_ui::{
     opts_object_id, parse_mouse_event_members, parse_ui_event_init, register_descendant,
     MouseEventMembers,
@@ -110,10 +111,10 @@ fn parse_pointer_event_members(
         // `pointerId` / `tiltX` / `tiltY` / `twist` are WebIDL `long`
         // — signed-32 truncate (matches MouseEventInit.button precedent
         // but for the wider 32-bit range).
-        let id_raw = read_number_with_default(ctx, opts_id, k_pointer_id, 0.0)?;
-        let tilt_x_raw = read_number_with_default(ctx, opts_id, k_tilt_x, 0.0)?;
-        let tilt_y_raw = read_number_with_default(ctx, opts_id, k_tilt_y, 0.0)?;
-        let twist_raw = read_number_with_default(ctx, opts_id, k_twist, 0.0)?;
+        let id_raw = read_number(ctx, opts_id, k_pointer_id, 0.0)?;
+        let tilt_x_raw = read_number(ctx, opts_id, k_tilt_x, 0.0)?;
+        let tilt_y_raw = read_number(ctx, opts_id, k_tilt_y, 0.0)?;
+        let twist_raw = read_number(ctx, opts_id, k_twist, 0.0)?;
         pointer_id = f64::from(super::super::super::coerce::f64_to_int32(id_raw));
         tilt_x = f64::from(super::super::super::coerce::f64_to_int32(tilt_x_raw));
         tilt_y = f64::from(super::super::super::coerce::f64_to_int32(tilt_y_raw));
@@ -124,21 +125,20 @@ fn parse_pointer_event_members(
         // Pointer Events §6 doesn't apply `[EnforceRange]`, so NaN /
         // ±∞ is allowed at IDL level (matches Chrome / Firefox).
         // ToNumber-only, no clamp.
-        width = read_number_with_default(ctx, opts_id, k_width, 1.0)?;
-        height = read_number_with_default(ctx, opts_id, k_height, 1.0)?;
-        pressure = read_number_with_default(ctx, opts_id, k_pressure, 0.0)?;
-        tangential_pressure = read_number_with_default(ctx, opts_id, k_tangential, 0.0)?;
+        width = read_number(ctx, opts_id, k_width, 1.0)?;
+        height = read_number(ctx, opts_id, k_height, 1.0)?;
+        pressure = read_number(ctx, opts_id, k_pressure, 0.0)?;
+        tangential_pressure = read_number(ctx, opts_id, k_tangential, 0.0)?;
         // Default altitudeAngle = π/2 per spec (the "device upright"
         // canonical pose).
-        altitude_angle =
-            read_number_with_default(ctx, opts_id, k_altitude, std::f64::consts::FRAC_PI_2)?;
-        azimuth_angle = read_number_with_default(ctx, opts_id, k_azimuth, 0.0)?;
+        altitude_angle = read_number(ctx, opts_id, k_altitude, std::f64::consts::FRAC_PI_2)?;
+        azimuth_angle = read_number(ctx, opts_id, k_azimuth, 0.0)?;
         // `pointerType` is `DOMString` not enumerated (Chrome accepts
         // arbitrary values — spec mentions `"" / "mouse" / "pen" /
         // "touch"` as common values but doesn't enforce).
         pointer_type_sid = read_string(ctx, opts_id, k_pointer_type)?;
         // `isPrimary` is `boolean` — `ToBoolean`.
-        is_primary = read_bool_with_default(ctx, opts_id, k_is_primary, false)?;
+        is_primary = read_bool(ctx, opts_id, k_is_primary, false)?;
     } else {
         let empty = ctx.vm.strings.intern("");
         pointer_id = 0.0;
@@ -173,38 +173,6 @@ fn parse_pointer_event_members(
     ];
 
     Ok(PointerEventMembers { slots })
-}
-
-fn read_number_with_default(
-    ctx: &mut NativeContext<'_>,
-    opts_id: ObjectId,
-    key: super::super::super::value::StringId,
-    default: f64,
-) -> Result<f64, VmError> {
-    let v = ctx.vm.get_property_value(
-        opts_id,
-        super::super::super::value::PropertyKey::String(key),
-    )?;
-    match v {
-        JsValue::Undefined => Ok(default),
-        _ => super::super::super::coerce::to_number(ctx.vm, v),
-    }
-}
-
-fn read_bool_with_default(
-    ctx: &mut NativeContext<'_>,
-    opts_id: ObjectId,
-    key: super::super::super::value::StringId,
-    default: bool,
-) -> Result<bool, VmError> {
-    let v = ctx.vm.get_property_value(
-        opts_id,
-        super::super::super::value::PropertyKey::String(key),
-    )?;
-    match v {
-        JsValue::Undefined => Ok(default),
-        _ => Ok(super::super::super::coerce::to_boolean(ctx.vm, v)),
-    }
 }
 
 fn native_pointer_event_constructor(

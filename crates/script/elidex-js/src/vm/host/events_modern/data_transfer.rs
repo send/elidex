@@ -247,36 +247,44 @@ fn install_data_transfer_methods(vm: &mut VmInner, proto_id: ObjectId) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn require_dt_receiver(
-    ctx: &NativeContext<'_>,
-    this: JsValue,
-    member: &str,
-    op_kind: &str,
-) -> Result<ObjectId, VmError> {
-    match this {
-        JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::DataTransfer) => {
-            Ok(id)
-        }
-        _ => Err(VmError::type_error(format!(
-            "Failed to {op_kind} the '{member}' property from 'DataTransfer': \
-             Illegal invocation."
-        ))),
-    }
+/// Brand-check kind for [`require_dt_brand`].  Mirrors the
+/// `BrandCheckKind` enum in `events.rs` (lesson #211 source) — but
+/// scoped local to D-9 because the DataTransfer brand check is a
+/// single-variant `ObjectKind::DataTransfer` match, not a
+/// prototype-chain walk like UIEvent-family receivers.  Splitting
+/// the wording at the helper level keeps every call site
+/// declarative.
+#[derive(Clone, Copy)]
+enum DtBrand<'a> {
+    /// Attribute getter / setter — formats as
+    /// `"Failed to {op} the '{member}' property from 'DataTransfer': Illegal invocation."`
+    /// matching the wording already standardised by
+    /// `events.rs::BrandCheckKind::Attribute`.
+    Attribute { op: &'a str, member: &'a str },
+    /// Operation method — formats as
+    /// `"Failed to execute '{method}' on 'DataTransfer': Illegal invocation."`
+    Operation { method: &'a str },
 }
 
-fn require_dt_receiver_op(
+fn require_dt_brand(
     ctx: &NativeContext<'_>,
     this: JsValue,
-    method: &str,
+    kind: DtBrand<'_>,
 ) -> Result<ObjectId, VmError> {
-    match this {
-        JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::DataTransfer) => {
-            Ok(id)
+    if let JsValue::Object(id) = this {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::DataTransfer) {
+            return Ok(id);
         }
-        _ => Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'DataTransfer': Illegal invocation."
-        ))),
     }
+    Err(VmError::type_error(match kind {
+        DtBrand::Attribute { op, member } => format!(
+            "Failed to {op} the '{member}' property from 'DataTransfer': \
+             Illegal invocation."
+        ),
+        DtBrand::Operation { method } => {
+            format!("Failed to execute '{method}' on 'DataTransfer': Illegal invocation.")
+        }
+    }))
 }
 
 fn dt_state(vm: &VmInner, id: ObjectId) -> &DataTransferState {
@@ -326,7 +334,14 @@ fn native_dt_get_drop_effect(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver(ctx, this, "dropEffect", "read")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Attribute {
+            op: "read",
+            member: "dropEffect",
+        },
+    )?;
     let s = dt_state(ctx.vm, id).drop_effect.as_str();
     let sid = ctx.vm.strings.intern(s);
     Ok(JsValue::String(sid))
@@ -337,7 +352,14 @@ fn native_dt_set_drop_effect(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver(ctx, this, "dropEffect", "set")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Attribute {
+            op: "set",
+            member: "dropEffect",
+        },
+    )?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::super::coerce::to_string(ctx.vm, val)?;
     // Read the string back as Rust &str for ASCII-CI parse.
@@ -354,7 +376,14 @@ fn native_dt_get_effect_allowed(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver(ctx, this, "effectAllowed", "read")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Attribute {
+            op: "read",
+            member: "effectAllowed",
+        },
+    )?;
     let s = dt_state(ctx.vm, id).effect_allowed.as_str();
     let sid = ctx.vm.strings.intern(s);
     Ok(JsValue::String(sid))
@@ -365,7 +394,14 @@ fn native_dt_set_effect_allowed(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver(ctx, this, "effectAllowed", "set")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Attribute {
+            op: "set",
+            member: "effectAllowed",
+        },
+    )?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::super::coerce::to_string(ctx.vm, val)?;
     let raw = ctx.vm.strings.get_utf8(sid);
@@ -384,7 +420,14 @@ fn native_dt_get_items(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver(ctx, this, "items", "read")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Attribute {
+            op: "read",
+            member: "items",
+        },
+    )?;
     // `[SameObject]` cache — return existing wrapper if present.
     if let Some(cached) = dt_state(ctx.vm, id).items_wrapper {
         return Ok(JsValue::Object(cached));
@@ -408,7 +451,14 @@ fn native_dt_get_files(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver(ctx, this, "files", "read")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Attribute {
+            op: "read",
+            member: "files",
+        },
+    )?;
     if let Some(cached) = dt_state(ctx.vm, id).files_wrapper {
         return Ok(JsValue::Object(cached));
     }
@@ -426,7 +476,14 @@ fn native_dt_get_types(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver(ctx, this, "types", "read")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Attribute {
+            op: "read",
+            member: "types",
+        },
+    )?;
     // Build a fresh FrozenArray per spec (HTML §6.2 step 3-5).
     // Each String entry contributes its format; any File-kind
     // entry contributes the literal `"Files"` (NOT yet reachable
@@ -467,7 +524,7 @@ fn native_dt_get_data(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver_op(ctx, this, "getData")?;
+    let id = require_dt_brand(ctx, this, DtBrand::Operation { method: "getData" })?;
     let format_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let format_sid = super::super::super::coerce::to_string(ctx.vm, format_val)?;
     let format_raw = ctx.vm.strings.get_utf8(format_sid);
@@ -496,7 +553,7 @@ fn native_dt_set_data(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver_op(ctx, this, "setData")?;
+    let id = require_dt_brand(ctx, this, DtBrand::Operation { method: "setData" })?;
     let format_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let data_val = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let format_sid = super::super::super::coerce::to_string(ctx.vm, format_val)?;
@@ -538,7 +595,13 @@ fn native_dt_clear_data(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver_op(ctx, this, "clearData")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Operation {
+            method: "clearData",
+        },
+    )?;
     let format_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     if matches!(format_arg, JsValue::Undefined) {
         // No argument — drain all String entries (File-kind entries
@@ -583,7 +646,13 @@ fn native_dt_set_drag_image(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_dt_receiver_op(ctx, this, "setDragImage")?;
+    let id = require_dt_brand(
+        ctx,
+        this,
+        DtBrand::Operation {
+            method: "setDragImage",
+        },
+    )?;
     // `image: Element` — brand check.
     let image_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let entity_bits = match image_arg {
