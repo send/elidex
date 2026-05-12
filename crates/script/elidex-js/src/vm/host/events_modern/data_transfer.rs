@@ -592,16 +592,16 @@ fn eq_ignore_ascii_case_wtf16(a: &[u16], b: &[u16]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).all(|(x, y)| {
-        let xl = if (0x41..=0x5A).contains(x) {
+    a.iter().zip(b.iter()).all(|(&x, &y)| {
+        let xl = if (0x41..=0x5A).contains(&x) {
             x | 0x20
         } else {
-            *x
+            x
         };
-        let yl = if (0x41..=0x5A).contains(y) {
+        let yl = if (0x41..=0x5A).contains(&y) {
             y | 0x20
         } else {
-            *y
+            y
         };
         xl == yl
     })
