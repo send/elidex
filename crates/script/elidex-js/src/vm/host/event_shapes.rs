@@ -40,11 +40,22 @@
 //! but adding a new variant now touches one arm in one file instead
 //! of two arms across two files, which is what the SSOT unification
 //! was after.
+//!
+//! ## Boa parallel writer is intentionally NOT mirrored
+//!
+//! `elidex-js-boa::globals::events::set_payload_properties` carries a
+//! parallel UA payload writer with the same family-by-family slot
+//! layout.  Per master roadmap §E-2 Round 20 PR7, the boa runtime
+//! crate is scheduled for full deletion (~-15,000 LoC).  Shape
+//! changes in this file are NOT mirrored to boa deliberately — the
+//! work would be throwaway.  When `/copilot-review` flags the
+//! parallel for not being updated, resolve-with-cite this paragraph +
+//! `memory/project_boa_runtime_deletion.md`.
 
 #![cfg(feature = "engine")]
 
 use super::super::shape::{PropertyAttrs, ShapeId, ROOT_SHAPE};
-use super::super::value::{JsValue, PropertyKey, PropertyValue, StringId};
+use super::super::value::{JsValue, ObjectId, PropertyKey, PropertyValue, StringId};
 use super::super::VmInner;
 use elidex_plugin::EventPayload;
 
@@ -68,15 +79,15 @@ pub(crate) struct PrecomputedEventShapes {
     /// variants that install no extra properties (`None`, `Scroll`)
     /// and as the parent of every other variant's terminal shape.
     pub(crate) core: ShapeId,
-    pub(crate) mouse: ShapeId,
-    pub(crate) keyboard: ShapeId,
+    // The six former UIEvent-family UA-dispatch shapes (`mouse` /
+    // `keyboard` / `wheel` / `focus` / `input` / `composition`) were
+    // dropped by `#11-event-modern-extras-shape-fold` (2026-05-13).
+    // UA-dispatched events for those families now land at the
+    // corresponding `*_event_constructed` shape further down so they
+    // share a single shape with the script-side ctor instances.
     pub(crate) transition: ShapeId,
     pub(crate) animation: ShapeId,
-    pub(crate) input: ShapeId,
     pub(crate) clipboard: ShapeId,
-    pub(crate) composition: ShapeId,
-    pub(crate) focus: ShapeId,
-    pub(crate) wheel: ShapeId,
     pub(crate) message: ShapeId,
     pub(crate) close_event: ShapeId,
     pub(crate) hash_change: ShapeId,
@@ -100,29 +111,31 @@ pub(crate) struct PrecomputedEventShapes {
     /// `view` + `detail` (11 slots total).  Also the parent shape of
     /// every descendant's constructor shape below.
     pub(crate) ui_event_constructed: ShapeId,
-    /// `new MouseEvent(type, init)` — UIEvent base + 13 mouse keys
-    /// (clientX/Y, button, buttons, altKey/ctrlKey/metaKey/shiftKey,
-    /// screenX/Y, movementX/Y, relatedTarget).  Distinct from the
-    /// UA-dispatch `mouse` shape because constructed MouseEvents carry
-    /// the full WebIDL mouse attribute surface (the UA dispatch
-    /// variant trims to the 8 keys `DispatchEvent`'s payload populates).
+    /// `new MouseEvent(type, init)` and UA-dispatched mouse events —
+    /// UIEvent base + 13 mouse keys (screenX/Y, clientX/Y,
+    /// ctrlKey/shiftKey/altKey/metaKey, button, buttons,
+    /// relatedTarget, movementX/Y).  Shape unified for ctor + UA
+    /// paths by `#11-event-modern-extras-shape-fold` so
+    /// `getOwnPropertyNames` matches on both.  UA payloads omit
+    /// screen / movement / relatedTarget — defaults of 0 / 0 / null
+    /// land in those slots.
     pub(crate) mouse_event_constructed: ShapeId,
-    /// `new KeyboardEvent(type, init)` — UIEvent base + 9 keys
-    /// (key, code, altKey/ctrlKey/metaKey/shiftKey, repeat, location,
-    /// isComposing).  Separate from the UA-dispatch `keyboard` shape
-    /// because the ctor exposes `location` / `isComposing`, which the
-    /// 7-key UA payload omits.
+    /// `new KeyboardEvent(type, init)` and UA-dispatched key events —
+    /// UIEvent base + 9 keys (key, code, location,
+    /// ctrlKey/shiftKey/altKey/metaKey, repeat, isComposing).
+    /// Shape unified across ctor + UA paths.  UA payloads omit
+    /// location / isComposing — defaults of 0 / false fill those
+    /// slots.
     pub(crate) keyboard_event_constructed: ShapeId,
-    /// `new FocusEvent(type, init)` — UIEvent base + `relatedTarget`.
-    /// Separate from the UA-dispatch `focus` shape so the chain stays
-    /// anchored at `ui_event_constructed`, preserving `view` / `detail`
-    /// own-data on instances.
+    /// `new FocusEvent(type, init)` and UA-dispatched focus events —
+    /// UIEvent base + `relatedTarget`.  Shape unified across ctor +
+    /// UA paths.
     pub(crate) focus_event_constructed: ShapeId,
-    /// `new InputEvent(type, init)` — UIEvent base + `data` /
-    /// `isComposing` / `inputType` / `dataTransfer`.  D-10 extends
-    /// the slot count from 3 to 4 — `dataTransfer` is a null stub
-    /// until D-9 ships the real DataTransfer wrapper (`#11-events-
-    /// modern-input` paired with `#11-event-modern-extras`).
+    /// `new InputEvent(type, init)` and UA-dispatched input events —
+    /// UIEvent base + `data` / `isComposing` / `inputType` /
+    /// `dataTransfer`.  Shape unified across ctor + UA paths.  UA
+    /// payload omits `dataTransfer`; it defaults to null until a
+    /// future host-side input flow populates real clipboard data.
     pub(crate) input_event_constructed: ShapeId,
     // -- Non-UIEvent specialized constructor shapes --
     //
@@ -159,7 +172,9 @@ pub(crate) struct PrecomputedEventShapes {
     /// Slot order matches `dispatch_toggle_event` (newState before
     /// oldState — DevTools enumeration / spec attr-order).
     pub(crate) toggle_event: ShapeId,
-    /// `new CompositionEvent(type, init)` — UIEvent base + `data`.
+    /// `new CompositionEvent(type, init)` and UA-dispatched
+    /// composition events — UIEvent base + `data`.  Shape unified
+    /// across ctor + UA paths.
     pub(crate) composition_event_constructed: ShapeId,
     /// `new ClipboardEvent(type, init)` — core + `clipboardData`.
     pub(crate) clipboard_event_constructed: ShapeId,
@@ -177,9 +192,14 @@ pub(crate) struct PrecomputedEventShapes {
     /// 1-1 with the prototype set.
     #[allow(dead_code)]
     pub(crate) before_unload_event: ShapeId,
-    /// `new WheelEvent(type, init)` — MouseEvent base + `deltaX` /
-    /// `deltaY` / `deltaZ` / `deltaMode`.  Distinct from the UA-dispatch
-    /// `wheel` shape (3 keys, no deltaZ + no UIEvent prefix).
+    /// `new WheelEvent(type, init)` and UA-dispatched wheel events —
+    /// MouseEvent base + `deltaX` / `deltaY` / `deltaZ` / `deltaMode`.
+    /// Shape unified across ctor + UA paths.  The engine-indep
+    /// `WheelEventInit` struct only carries `delta_x` / `delta_y` /
+    /// `delta_mode`; UA dispatch fills the 13 inherited mouse slots
+    /// (screenX/Y, clientX/Y, modifier flags, button/buttons,
+    /// relatedTarget, movementX/Y) and `deltaZ` with WebIDL default
+    /// values (0 / false / null).
     pub(crate) wheel_event_constructed: ShapeId,
     // -- D-9 events-modern-input constructor shapes --
     /// `new PointerEvent(type, init)` — MouseEvent base + 12
@@ -225,6 +245,48 @@ fn push_val(slots: &mut Vec<PropertyValue>, v: JsValue) {
     slots.push(PropertyValue::Data(v));
 }
 
+/// Push the UIEvent-prefix slots (`view`, `detail`) for every UA-side
+/// payload writer whose terminal shape extends `ui_event_constructed`.
+///
+/// Structural mirror of [`super::events_ui::VmInner::build_ui_event_instance`]'s
+/// `view` / `detail` prepend (slots 9 / 10 of the
+/// `ui_event_constructed` shape transition chain).  Both helpers MUST
+/// emit slots at identical positions — drift between them re-creates
+/// the D-10 R9 UA-shape gap (UA-fired `instanceof MouseEvent` returns
+/// true but `event.view` returns `undefined`).  Six call sites consume
+/// this helper today (`dispatch_payload` Mouse / Keyboard / Wheel /
+/// Focus / Input / Composition arms); the slot-order TDD locks in
+/// `tests_event_shape_fold.rs` are the mechanical safety net against
+/// reorderings that bypass this helper.
+///
+/// **Value asymmetry vs ctor (deliberate Chrome-parity divergence)**:
+/// the ctor path's `view` defaults to `JsValue::Null` per the
+/// WebIDL declaration `attribute Window? view = null` on
+/// `UIEventInit` (UI Events L3 attribute table).  The UA-fire path
+/// defaults to `JsValue::Object(global_object)` — a UA convention
+/// (NOT spec-mandated): the "fire an event" / "fire a trusted
+/// event" algorithms are silent on `view`, but Chrome and Firefox
+/// both surface `event.view === window` for UA-dispatched UI
+/// events by populating it from the target node's owner document's
+/// `defaultView`.  Symmetry tests in `tests_event_shape_fold.rs`
+/// assert NAME equality on `getOwnPropertyNames(uaEvent)` vs
+/// `getOwnPropertyNames(ctorEvent)`, not value equality — checking
+/// values would falsely flag this deliberate asymmetry.
+///
+/// `detail` is symmetric: both paths default to `0` per WebIDL §3.2
+/// `attribute long detail = 0`.
+///
+/// Iframe milestone note: today there is exactly one realm per VM, so
+/// `vm.global_object` and `event.target.ownerDocument.defaultView` are
+/// the same `ObjectId`.  Once iframes ship, `view` should resolve to
+/// the target's owner document's `defaultView` rather than the current
+/// realm's `globalThis` — at that point this helper grows a target
+/// argument and the value derivation moves into the caller.
+fn push_ui_prefix(slots: &mut Vec<PropertyValue>, vm_global: ObjectId) {
+    push_val(slots, JsValue::Object(vm_global));
+    push_num(slots, 0.0);
+}
+
 /// Single source of truth for `EventPayload` ↔
 /// `(ShapeId, payload-slot sequence)`.  Picks the terminal shape
 /// and appends the variant-specific slot values to `slots` in a
@@ -255,15 +317,23 @@ pub(super) fn dispatch_payload(
             .as_ref()
             .expect("precomputed_event_shapes must be built before dispatch_payload");
         match payload {
-            EventPayload::Mouse(_) => shapes.mouse,
-            EventPayload::Keyboard(_) => shapes.keyboard,
+            // Six families share their UA shape with the corresponding
+            // ctor shape (`#11-event-modern-extras-shape-fold`,
+            // 2026-05-13): UA-fired Mouse / Keyboard / Wheel / Focus /
+            // Input / Composition events now carry the same own-data
+            // surface as their `new XEvent(type, init)` counterparts.
+            // `getOwnPropertyNames(uaEvent)` matches
+            // `getOwnPropertyNames(ctorEvent)` per family — values may
+            // differ (UA `view = window`, ctor `view = null`).
+            EventPayload::Mouse(_) => shapes.mouse_event_constructed,
+            EventPayload::Keyboard(_) => shapes.keyboard_event_constructed,
             EventPayload::Transition(_) => shapes.transition,
             EventPayload::Animation(_) => shapes.animation,
-            EventPayload::Input(_) => shapes.input,
+            EventPayload::Input(_) => shapes.input_event_constructed,
             EventPayload::Clipboard(_) => shapes.clipboard,
-            EventPayload::Composition(_) => shapes.composition,
-            EventPayload::Focus(_) => shapes.focus,
-            EventPayload::Wheel(_) => shapes.wheel,
+            EventPayload::Composition(_) => shapes.composition_event_constructed,
+            EventPayload::Focus(_) => shapes.focus_event_constructed,
+            EventPayload::Wheel(_) => shapes.wheel_event_constructed,
             EventPayload::Message { .. } => shapes.message,
             EventPayload::CloseEvent(_) => shapes.close_event,
             EventPayload::HashChange(_) => shapes.hash_change,
@@ -279,27 +349,53 @@ pub(super) fn dispatch_payload(
 
     match payload {
         EventPayload::Mouse(m) => {
-            // clientX, clientY, button, buttons, altKey, ctrlKey, metaKey, shiftKey
+            // Order matches `mouse_event_constructed` (UI prefix +
+            // 13 mouse slots: screenX, screenY, clientX, clientY,
+            // ctrlKey, shiftKey, altKey, metaKey, button, buttons,
+            // relatedTarget, movementX, movementY).  Within the
+            // 13-slot block the modifier order swaps from the prior
+            // UA layout (alt/ctrl/meta/shift → ctrl/shift/alt/meta)
+            // and button/buttons move from the leading mouse slots
+            // to positions 8/9.  TDD slot-order locks in
+            // `tests_event_shape_fold.rs` are the safety net.
+            //
+            // UA payloads omit screenX/Y / movementX/Y / relatedTarget;
+            // they default to spec values (0 / 0 / null) — host shells
+            // can populate real values via this same writer once they
+            // start carrying them in `MouseEventInit`.
+            push_ui_prefix(slots, vm.global_object);
+            push_num(slots, 0.0); // screenX
+            push_num(slots, 0.0); // screenY
             push_num(slots, m.client_x);
             push_num(slots, m.client_y);
+            push_bool(slots, m.ctrl_key);
+            push_bool(slots, m.shift_key);
+            push_bool(slots, m.alt_key);
+            push_bool(slots, m.meta_key);
             push_num(slots, f64::from(m.button));
             push_num(slots, f64::from(m.buttons));
-            push_bool(slots, m.alt_key);
-            push_bool(slots, m.ctrl_key);
-            push_bool(slots, m.meta_key);
-            push_bool(slots, m.shift_key);
+            push_val(slots, JsValue::Null); // relatedTarget
+            push_num(slots, 0.0); // movementX
+            push_num(slots, 0.0); // movementY
         }
         EventPayload::Keyboard(k) => {
-            // key, code, altKey, ctrlKey, metaKey, shiftKey, repeat
+            // Order matches `keyboard_event_constructed` (UI prefix +
+            // 9 keyboard slots: key, code, location, ctrlKey,
+            // shiftKey, altKey, metaKey, repeat, isComposing).  UA
+            // payload omits location / isComposing — defaults to 0 /
+            // false per WebIDL §3.4.
             let key_sid = vm.strings.intern(&k.key);
             let code_sid = vm.strings.intern(&k.code);
+            push_ui_prefix(slots, vm.global_object);
             push_str(slots, key_sid);
             push_str(slots, code_sid);
-            push_bool(slots, k.alt_key);
+            push_num(slots, 0.0); // location
             push_bool(slots, k.ctrl_key);
-            push_bool(slots, k.meta_key);
             push_bool(slots, k.shift_key);
+            push_bool(slots, k.alt_key);
+            push_bool(slots, k.meta_key);
             push_bool(slots, k.repeat);
+            push_bool(slots, false); // isComposing
         }
         EventPayload::Transition(t) => {
             // propertyName, elapsedTime, pseudoElement
@@ -318,15 +414,24 @@ pub(super) fn dispatch_payload(
             push_str(slots, pe_sid);
         }
         EventPayload::Input(i) => {
-            // inputType, data, isComposing
+            // Order matches `input_event_constructed` (UI prefix +
+            // data, isComposing, inputType, dataTransfer).  Note this
+            // is NOT the historical UA order (inputType, data,
+            // isComposing) — the ctor shape lists data first per the
+            // WebIDL declaration in Input Events L2 §5.  UA payload
+            // omits `dataTransfer`; defaults to null until a future
+            // host-side input flow populates real clipboard /
+            // composition DataTransfer payloads.
             let type_sid = vm.strings.intern(&i.input_type);
             let data_val = match &i.data {
                 Some(str_) => JsValue::String(vm.strings.intern(str_)),
                 None => JsValue::Null,
             };
-            push_str(slots, type_sid);
+            push_ui_prefix(slots, vm.global_object);
             push_val(slots, data_val);
             push_bool(slots, i.is_composing);
+            push_str(slots, type_sid);
+            push_val(slots, JsValue::Null); // dataTransfer
         }
         EventPayload::Clipboard(c) => {
             // dataType, data
@@ -336,12 +441,15 @@ pub(super) fn dispatch_payload(
             push_str(slots, data_sid);
         }
         EventPayload::Composition(c) => {
-            // data
+            // Order matches `composition_event_constructed`
+            // (UI prefix + `data`).
             let data_sid = vm.strings.intern(&c.data);
+            push_ui_prefix(slots, vm.global_object);
             push_str(slots, data_sid);
         }
         EventPayload::Focus(f) => {
-            // relatedTarget
+            // Order matches `focus_event_constructed`
+            // (UI prefix + `relatedTarget`).
             // `Entity::to_bits().get()` is NonZeroU64, so a `0` bits
             // value is a payload construction bug.  Fall back to
             // `null` rather than panic so a malformed payload still
@@ -350,12 +458,33 @@ pub(super) fn dispatch_payload(
                 Some(entity) => JsValue::Object(vm.create_element_wrapper(entity)),
                 None => JsValue::Null,
             };
+            push_ui_prefix(slots, vm.global_object);
             push_val(slots, related_val);
         }
         EventPayload::Wheel(w) => {
-            // deltaX, deltaY, deltaMode
+            // Order matches `wheel_event_constructed` (extends
+            // `mouse_event_constructed`): UI prefix + 13 mouse slots
+            // (all defaults — UA `WheelEventInit` carries none of the
+            // mouse keys) + 4 wheel slots (deltaX, deltaY, deltaZ,
+            // deltaMode).  UA payload omits deltaZ; defaults to 0.0
+            // per WebIDL §5.5.
+            push_ui_prefix(slots, vm.global_object);
+            push_num(slots, 0.0); // screenX
+            push_num(slots, 0.0); // screenY
+            push_num(slots, 0.0); // clientX
+            push_num(slots, 0.0); // clientY
+            push_bool(slots, false); // ctrlKey
+            push_bool(slots, false); // shiftKey
+            push_bool(slots, false); // altKey
+            push_bool(slots, false); // metaKey
+            push_num(slots, 0.0); // button
+            push_num(slots, 0.0); // buttons
+            push_val(slots, JsValue::Null); // relatedTarget
+            push_num(slots, 0.0); // movementX
+            push_num(slots, 0.0); // movementY
             push_num(slots, w.delta_x);
             push_num(slots, w.delta_y);
+            push_num(slots, 0.0); // deltaZ
             push_num(slots, f64::from(w.delta_mode));
         }
         EventPayload::Message {
@@ -501,38 +630,19 @@ impl VmInner {
         ];
         let core = extend(self, ROOT_SHAPE, &core_keys);
 
-        // Payload-specific keys per variant.  Order matches
-        // `events::append_payload_slots` — if the payload-slot
-        // appender is reordered, this table must be updated in
+        // Payload-specific keys per variant.  Order matches the
+        // sibling `dispatch_payload` per-variant slot pushes — if
+        // the writer is reordered, this table must be updated in
         // lockstep (or the slot values end up in the wrong
         // positions).
-        let mouse = extend(
-            self,
-            core,
-            &[
-                self.well_known.client_x,
-                self.well_known.client_y,
-                self.well_known.button,
-                self.well_known.buttons,
-                self.well_known.alt_key,
-                self.well_known.ctrl_key,
-                self.well_known.meta_key,
-                self.well_known.shift_key,
-            ],
-        );
-        let keyboard = extend(
-            self,
-            core,
-            &[
-                self.well_known.key,
-                self.well_known.code,
-                self.well_known.alt_key,
-                self.well_known.ctrl_key,
-                self.well_known.meta_key,
-                self.well_known.shift_key,
-                self.well_known.repeat,
-            ],
-        );
+        //
+        // The six former UA-only Mouse / Keyboard / Wheel / Focus /
+        // Input / Composition shapes were removed by
+        // `#11-event-modern-extras-shape-fold`.  Their UA-dispatch
+        // arms in `dispatch_payload` now share the corresponding
+        // `*_event_constructed` shape declared further below, so
+        // `getOwnPropertyNames(uaEvent)` matches
+        // `getOwnPropertyNames(ctorEvent)` per family.
         let transition = extend(
             self,
             core,
@@ -551,30 +661,10 @@ impl VmInner {
                 self.well_known.pseudo_element,
             ],
         );
-        let input = extend(
-            self,
-            core,
-            &[
-                self.well_known.input_type,
-                self.well_known.data,
-                self.well_known.is_composing,
-            ],
-        );
         let clipboard = extend(
             self,
             core,
             &[self.well_known.data_type, self.well_known.data],
-        );
-        let composition = extend(self, core, &[self.well_known.data]);
-        let focus = extend(self, core, &[self.well_known.related_target]);
-        let wheel = extend(
-            self,
-            core,
-            &[
-                self.well_known.delta_x,
-                self.well_known.delta_y,
-                self.well_known.delta_mode,
-            ],
         );
         let message = extend(
             self,
@@ -666,9 +756,9 @@ impl VmInner {
             ui_event_constructed,
             &[self.well_known.related_target],
         );
-        // D-10 extends `input_event_constructed` from 3 to 4 slots:
-        // adds `dataTransfer` after `inputType`.  Existing slot
-        // positions for data/isComposing/inputType are preserved.
+        // `input_event_constructed`: data, isComposing, inputType,
+        // dataTransfer — also reused by the UA-dispatch Input arm
+        // since the shape-fold (`#11-event-modern-extras-shape-fold`).
         let input_event_constructed = extend(
             self,
             ui_event_constructed,
@@ -789,15 +879,9 @@ impl VmInner {
 
         PrecomputedEventShapes {
             core,
-            mouse,
-            keyboard,
             transition,
             animation,
-            input,
             clipboard,
-            composition,
-            focus,
-            wheel,
             message,
             close_event,
             hash_change,
