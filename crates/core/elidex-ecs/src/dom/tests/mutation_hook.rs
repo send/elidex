@@ -517,6 +517,40 @@ fn replace_child_fires_after_remove_for_new_child_old_parent() {
 }
 
 #[test]
+fn attach_shadow_does_not_fire_hook_events() {
+    // Light-tree-only contract: `attach_shadow` plumbs the shadow root
+    // into the host's child list (via internal `append_child`), but per
+    // WHATWG §5.5 light-tree consumers (e.g. `LiveRangeRegistry`) must
+    // NOT see `after_insert(shadow_root, host, ...)`. Asserting that the
+    // event log stays empty here pins the suppression contract in tree.rs.
+    use crate::ShadowRootMode;
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+
+    let events = install_mock(&mut dom);
+    let _shadow = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow on <div>");
+
+    assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn destroy_shadow_root_does_not_fire_hook_events() {
+    use crate::ShadowRootMode;
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let shadow = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow on <div>");
+
+    let events = install_mock(&mut dom);
+    assert!(dom.destroy_entity(shadow));
+
+    assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
 fn index_in_parent_skips_shadow_root_siblings() {
     // The host's shadow root is a `prev_sibling`-reachable entity but
     // NOT exposed in `children_iter` / `children`. Counting it would
