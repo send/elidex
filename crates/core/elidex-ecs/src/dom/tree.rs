@@ -27,14 +27,15 @@ impl EcsDom {
             return false;
         }
 
-        self.detach(child);
+        self.detach_with_hook(child);
 
         let last_child = self.read_rel(parent, |rel| rel.last_child);
         self.link_node(parent, child, last_child, None);
         self.rev_version(parent);
 
-        let new_index = self.index_in_parent(child).unwrap_or(0);
-        if let Some(hook) = self.mutation_hook.as_mut() {
+        if let (Some(new_index), Some(hook)) =
+            (self.index_in_parent(child), self.mutation_hook.as_mut())
+        {
             hook.after_insert(child, parent, new_index);
         }
 
@@ -82,8 +83,9 @@ impl EcsDom {
             return false;
         }
 
-        // Detach new_child from its current position.
-        self.detach(new_child);
+        // Detach new_child from its current position (fires after_remove
+        // on the implicit old-parent removal, per WHATWG insert algorithm).
+        self.detach_with_hook(new_child);
 
         // Re-read ref_child's prev_sibling AFTER detach (it may have changed
         // if new_child was an adjacent sibling).
@@ -91,8 +93,9 @@ impl EcsDom {
         self.link_node(parent, new_child, ref_prev, Some(ref_child));
         self.rev_version(parent);
 
-        let new_index = self.index_in_parent(new_child).unwrap_or(0);
-        if let Some(hook) = self.mutation_hook.as_mut() {
+        if let (Some(new_index), Some(hook)) =
+            (self.index_in_parent(new_child), self.mutation_hook.as_mut())
+        {
             hook.after_insert(new_child, parent, new_index);
         }
 
@@ -124,8 +127,10 @@ impl EcsDom {
             return false;
         }
 
-        // Detach new_child from its current position (validation passed).
-        self.detach(new_child);
+        // Detach new_child from its current position (fires after_remove on
+        // the implicit old-parent removal, per WHATWG replace algorithm step
+        // "If node has a parent, then remove node").
+        self.detach_with_hook(new_child);
 
         // Capture old_child's index AFTER detach so that — when new_child was
         // an earlier sibling of old_child in the same parent — the index
@@ -328,15 +333,18 @@ impl EcsDom {
     }
 
     /// Returns the index of `entity` in its parent's child list, or `None` if
-    /// `entity` has no parent.
+    /// `entity` has no parent OR the sibling walk hits the corruption
+    /// guard [`MAX_ANCESTOR_DEPTH`].
     ///
     /// Walks the `prev_sibling` chain to count predecessors (O(siblings)).
     /// Used by [`MutationHook`](super::MutationHook) fire sites to capture
     /// the pre-mutation index without paying the O(n²) cost of
     /// `children_iter(parent).count()`.
     ///
-    /// Guarded by [`MAX_ANCESTOR_DEPTH`] to prevent infinite loops on
-    /// corrupted sibling chains.
+    /// `None` on depth-cap is intentional: hook consumers (e.g. Range
+    /// live-tracking) depend on the returned index for correctness, so
+    /// signalling corruption is safer than handing them a truncated
+    /// count.
     #[must_use]
     pub fn index_in_parent(&self, entity: Entity) -> Option<usize> {
         self.get_parent(entity)?;
@@ -347,11 +355,31 @@ impl EcsDom {
             index += 1;
             depth += 1;
             if depth > MAX_ANCESTOR_DEPTH {
-                break;
+                return None;
             }
             current = self.get_prev_sibling(prev);
         }
         Some(index)
+    }
+
+    /// Detach `child` from its current parent and fire `after_remove` on
+    /// the installed [`MutationHook`](super::MutationHook), if any.
+    ///
+    /// Used by `append_child` / `insert_before` / `replace_child` to
+    /// notify consumers of the **implicit** removal that happens when a
+    /// node is moved between parents (WHATWG DOM "insert" algorithm step
+    /// "If node has a parent, then remove node"). Returns `false` when
+    /// `child` has no parent (nothing to detach).
+    fn detach_with_hook(&mut self, child: Entity) -> bool {
+        let Some(old_parent) = self.get_parent(child) else {
+            return false;
+        };
+        let old_index = self.index_in_parent(child);
+        self.detach(child);
+        if let (Some(idx), Some(hook)) = (old_index, self.mutation_hook.as_mut()) {
+            hook.after_remove(child, old_parent, idx);
+        }
+        true
     }
 
     /// Return the first child of `parent` that is an element (has a

@@ -184,8 +184,9 @@ fn replace_child_fires_remove_then_insert_at_same_index() {
 fn replace_child_with_earlier_sibling_reports_post_shift_index() {
     // When new_child is an earlier sibling of old_child in the same parent,
     // detach(new_child) shifts old_child down by one. The hook MUST report
-    // the post-shift index (where the removal/insertion actually happens),
-    // per WHATWG DOM §5.5 "remove a node" step 4.
+    // the post-shift index for the old_child removal (WHATWG DOM §5.5
+    // "remove a node" step 4). The implicit detach of new_child also fires
+    // its own after_remove at new_child's pre-detach index.
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
     let new_child = elem(&mut dom, "n");
@@ -200,12 +201,18 @@ fn replace_child_with_earlier_sibling_reports_post_shift_index() {
     let events = install_mock(&mut dom);
     assert!(dom.replace_child(parent, new_child, old_child));
 
-    // After detach(new_child): [a, old, b] → old at index 1.
+    // detach(new_child) fires Remove(new_child, parent, 0).
+    // After detach: [a, old, b] → old at index 1.
     // Replace removes old at index 1, inserts new at index 1.
     let log = events.lock().unwrap().clone();
     assert_eq!(
         log,
         vec![
+            MockEvent::Remove {
+                node: new_child,
+                parent,
+                index: 0
+            },
             MockEvent::Remove {
                 node: old_child,
                 parent,
@@ -403,4 +410,130 @@ fn index_in_parent_returns_none_for_orphan() {
     let mut dom = EcsDom::new();
     let orphan = elem(&mut dom, "div");
     assert_eq!(dom.index_in_parent(orphan), None);
+}
+
+#[test]
+fn append_child_fires_after_remove_for_old_parent_on_move() {
+    // Moving a node between parents must fire `after_remove` on the
+    // implicit detach from the old parent (per WHATWG insert algorithm
+    // step "If node has a parent, then remove node") so Range live-
+    // tracking sees the §5.5 step 4-6 adjustment.
+    let mut dom = EcsDom::new();
+    let old_parent = elem(&mut dom, "section");
+    let new_parent = elem(&mut dom, "article");
+    let child = elem(&mut dom, "p");
+    assert!(dom.append_child(old_parent, child));
+
+    let events = install_mock(&mut dom);
+    assert!(dom.append_child(new_parent, child));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![
+            MockEvent::Remove {
+                node: child,
+                parent: old_parent,
+                index: 0
+            },
+            MockEvent::Insert {
+                node: child,
+                parent: new_parent,
+                index: 0
+            },
+        ]
+    );
+}
+
+#[test]
+fn insert_before_fires_after_remove_for_old_parent_on_move() {
+    let mut dom = EcsDom::new();
+    let old_parent = elem(&mut dom, "section");
+    let new_parent = elem(&mut dom, "article");
+    let anchor = elem(&mut dom, "a");
+    let child = elem(&mut dom, "p");
+    assert!(dom.append_child(old_parent, child));
+    assert!(dom.append_child(new_parent, anchor));
+
+    let events = install_mock(&mut dom);
+    assert!(dom.insert_before(new_parent, child, anchor));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![
+            MockEvent::Remove {
+                node: child,
+                parent: old_parent,
+                index: 0
+            },
+            MockEvent::Insert {
+                node: child,
+                parent: new_parent,
+                index: 0
+            },
+        ]
+    );
+}
+
+#[test]
+fn replace_child_fires_after_remove_for_new_child_old_parent() {
+    // WHATWG "replace a child" step 4: "If node's parent is not null,
+    // remove node". This implicit removal must fire `after_remove` on
+    // the new_child's old parent, in addition to the
+    // remove(old_child) + insert(new_child) pair on `parent`.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let other_parent = elem(&mut dom, "section");
+    let new_child = elem(&mut dom, "n");
+    let old_child = elem(&mut dom, "o");
+    assert!(dom.append_child(other_parent, new_child));
+    assert!(dom.append_child(parent, old_child));
+
+    let events = install_mock(&mut dom);
+    assert!(dom.replace_child(parent, new_child, old_child));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![
+            MockEvent::Remove {
+                node: new_child,
+                parent: other_parent,
+                index: 0
+            },
+            MockEvent::Remove {
+                node: old_child,
+                parent,
+                index: 0
+            },
+            MockEvent::Insert {
+                node: new_child,
+                parent,
+                index: 0
+            },
+        ]
+    );
+}
+
+#[test]
+fn append_child_orphan_does_not_fire_after_remove() {
+    // Sanity: an orphan child (no old parent) generates only the
+    // after_insert callback; there is no implicit removal to report.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let orphan = elem(&mut dom, "a");
+
+    let events = install_mock(&mut dom);
+    assert!(dom.append_child(parent, orphan));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::Insert {
+            node: orphan,
+            parent,
+            index: 0
+        }]
+    );
 }
