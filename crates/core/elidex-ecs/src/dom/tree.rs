@@ -27,7 +27,7 @@ impl EcsDom {
             return false;
         }
 
-        self.detach_with_hook(child);
+        self.detach_with_hook(child, parent);
 
         let last_child = self.read_rel(parent, |rel| rel.last_child);
         self.link_node(parent, child, last_child, None);
@@ -83,7 +83,7 @@ impl EcsDom {
 
         // Detach new_child from its current position (fires after_remove
         // on the implicit old-parent removal, per WHATWG insert algorithm).
-        self.detach_with_hook(new_child);
+        self.detach_with_hook(new_child, parent);
 
         // Re-read ref_child's prev_sibling AFTER detach (it may have changed
         // if new_child was an adjacent sibling).
@@ -126,7 +126,7 @@ impl EcsDom {
         // Detach new_child from its current position (fires after_remove on
         // the implicit old-parent removal, per WHATWG replace algorithm step
         // "If node has a parent, then remove node").
-        self.detach_with_hook(new_child);
+        self.detach_with_hook(new_child, parent);
 
         // Capture old_child's index AFTER detach so that — when new_child was
         // an earlier sibling of old_child in the same parent — the index
@@ -419,23 +419,29 @@ impl EcsDom {
     /// "If node has a parent, then remove node"). Returns `false` when
     /// `child` has no parent (nothing to detach).
     ///
+    /// `new_parent` is the parent the caller is about to re-link `child`
+    /// into. When `old_parent == new_parent` the caller's post-link
+    /// `rev_version(new_parent)` already covers the bump, so the
+    /// version-tracking call here is skipped to avoid a redundant
+    /// ancestor-walk per same-parent move.
+    ///
     /// Per the light-tree-only contract of `MutationHook`, the
     /// `after_remove` callback is suppressed when `child` is itself a
     /// shadow root — shadow roots have a `TreeRelation.parent` set to
     /// the host (via the internal `attach_shadow → append_child`
     /// plumbing), but are not exposed as DOM children.
-    fn detach_with_hook(&mut self, child: Entity) -> bool {
+    fn detach_with_hook(&mut self, child: Entity, new_parent: Entity) -> bool {
         let Some(old_parent) = self.get_parent(child) else {
             return false;
         };
         let old_index = self.index_in_parent(child);
         self.detach(child);
-        // The old parent's child list changed — bump its version so
-        // cached queries / live collections rooted at the old subtree
-        // see the mutation (parity with `remove_child` /
-        // `replace_child` which both call `rev_version(parent)` on the
-        // primary parent).
-        self.rev_version(old_parent);
+        // Only bump the old parent's version when it differs from the
+        // new parent. Same-parent moves rely on the caller's
+        // post-link `rev_version(new_parent)`.
+        if old_parent != new_parent {
+            self.rev_version(old_parent);
+        }
         if let Some(idx) = old_index {
             self.fire_after_remove(child, old_parent, idx);
         }

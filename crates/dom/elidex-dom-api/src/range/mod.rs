@@ -148,9 +148,13 @@ pub fn adjust_ranges_for_removal(
 /// stay where they are so a Range collapsed at the insertion point
 /// continues to bracket the inserted node from the start).
 ///
-/// Dead helper in this prereq PR — used by D-8 PR-A's
-/// `LiveRangeRegistry` when wiring the `after_insert` hook.
-pub fn adjust_ranges_for_insertion(ranges: &mut [Range], parent: Entity, index: usize) {
+/// Dead helper in this prereq PR — used by D-8 PR-A's in-crate
+/// `LiveRangeRegistry` when wiring the `after_insert` hook. Kept
+/// `pub(crate)` so it stays out of `elidex-dom-api`'s public API
+/// surface until that consumer lands; `#[allow(dead_code)]` because
+/// only the `#[cfg(test)]` block currently exercises it.
+#[allow(dead_code)]
+pub(crate) fn adjust_ranges_for_insertion(ranges: &mut [Range], parent: Entity, index: usize) {
     for range in ranges.iter_mut() {
         if range.start_container == parent && range.start_offset > index {
             range.start_offset += 1;

@@ -82,8 +82,17 @@ impl DomApiHandler for SetTextContentNodeKind {
         match dom.node_kind(this) {
             Some(NodeKind::Document | NodeKind::DocumentType) => Ok(JsValue::Undefined),
             Some(NodeKind::Text | NodeKind::CdataSection) => {
-                // `set_text_data` bumps `rev_version(this)` internally.
-                let _ = dom.set_text_data(this, &text);
+                // `set_text_data` bumps `rev_version(this)` internally
+                // and returns `None` only when the entity lacks a
+                // `TextContent` component — a malformed `NodeKind::Text`
+                // entity (e.g. legacy world.spawn paths). WHATWG §3.6
+                // does not mandate an error for that case; we follow
+                // major browsers in silently no-op'ing so misuse stays
+                // visible-on-debug (via the absent text update) without
+                // tearing down the JS frame.
+                if dom.set_text_data(this, &text).is_none() {
+                    // No-op: malformed entity, see comment above.
+                }
                 Ok(JsValue::Undefined)
             }
             Some(NodeKind::Comment) => {
