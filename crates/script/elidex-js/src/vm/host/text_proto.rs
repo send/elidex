@@ -148,13 +148,20 @@ fn native_text_split_text(
     // change. WHATWG §5.5 "Split text steps" boundary re-targeting from
     // `entity` to `new_entity` is bespoke and handled by PR-A inline; this
     // call only covers the simpler clamp-to-new-length aspect.
+    //
     // `TextContent` presence was verified at function entry; nothing
     // between that check and this call removes the component, so
-    // `set_text_data` returning `None` would mean a deeper invariant
-    // violation. Use `expect` so any violation surfaces loudly in
-    // both debug and release builds instead of silently leaving the
-    // DOM with a truncated original and an inserted trailing node.
-    dom.set_text_data(entity, &left)
-        .expect("splitText: TextContent disappeared between entry-time check and set_text_data");
+    // `set_text_data` returning `None` should never happen in practice.
+    // We still treat the `None` arm as a recoverable internal error
+    // (rollback the inserted trailing node + return a `VmError`) rather
+    // than panicking, so untrusted JS cannot crash the engine even if
+    // the invariant ever breaks.
+    if dom.set_text_data(entity, &left).is_none() {
+        let _ = dom.destroy_entity(new_entity);
+        return Err(VmError::type_error(
+            "Failed to execute 'splitText' on 'Text': \
+             internal invariant violation (TextContent disappeared mid-operation).",
+        ));
+    }
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }

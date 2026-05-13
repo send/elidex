@@ -18,9 +18,15 @@
 //! - `after_attribute_change` — needs `old_value` + `namespace` for §4.3.5;
 //!   committing a wrong signature now is breaking-change risk
 //!
-//! `MutationHook` operates on light-tree mutations only. Shadow root
-//! boundaries are tracked by consumers as needed (e.g. `LiveRangeRegistry`
-//! per WHATWG §5.5).
+//! `EcsDom` applies a **shallow** light-tree filter at fire sites:
+//! callbacks are suppressed when EITHER `node` OR `parent` is itself a
+//! [`ShadowRoot`](crate::ShadowRoot). Mutations DEEPER inside a shadow
+//! tree (where `parent` is a normal element inside the shadow tree) DO
+//! still fire — `EcsDom` does not walk the ancestor chain to find each
+//! mutation's tree root, since that would add O(depth) cost to every
+//! call. Consumers that need strict light-tree-only events
+//! (e.g. `LiveRangeRegistry` per WHATWG §5.5) MUST filter by tree root
+//! themselves on each callback.
 
 use hecs::Entity;
 
