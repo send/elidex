@@ -33,12 +33,8 @@ impl EcsDom {
         self.link_node(parent, child, last_child, None);
         self.rev_version(parent);
 
-        if !self.is_shadow_root(child) {
-            if let (Some(new_index), Some(hook)) =
-                (self.index_in_parent(child), self.mutation_hook.as_mut())
-            {
-                hook.after_insert(child, parent, new_index);
-            }
+        if let Some(new_index) = self.index_in_parent(child) {
+            self.fire_after_insert(child, parent, new_index);
         }
 
         true
@@ -56,16 +52,11 @@ impl EcsDom {
         if !self.is_child_of(child, parent) {
             return false;
         }
-        let suppress_hook = self.is_shadow_root(child);
-        let removed_index = if suppress_hook {
-            None
-        } else {
-            self.index_in_parent(child)
-        };
+        let removed_index = self.index_in_parent(child);
         self.detach(child);
         self.rev_version(parent);
-        if let (Some(idx), Some(hook)) = (removed_index, self.mutation_hook.as_mut()) {
-            hook.after_remove(child, parent, idx);
+        if let Some(idx) = removed_index {
+            self.fire_after_remove(child, parent, idx);
         }
         true
     }
@@ -100,12 +91,8 @@ impl EcsDom {
         self.link_node(parent, new_child, ref_prev, Some(ref_child));
         self.rev_version(parent);
 
-        if !self.is_shadow_root(new_child) {
-            if let (Some(new_index), Some(hook)) =
-                (self.index_in_parent(new_child), self.mutation_hook.as_mut())
-            {
-                hook.after_insert(new_child, parent, new_index);
-            }
+        if let Some(new_index) = self.index_in_parent(new_child) {
+            self.fire_after_insert(new_child, parent, new_index);
         }
 
         true
@@ -159,18 +146,9 @@ impl EcsDom {
         self.clear_rel(old_child);
         self.rev_version(parent);
 
-        if let (Some(idx), Some(hook)) = (old_index, self.mutation_hook.as_mut()) {
-            // Suppress per the light-tree-only contract — shadow roots
-            // are not exposed DOM children, so their replacement should
-            // not surface as a hook event.
-            let old_is_shadow = self.world.get::<&ShadowRoot>(old_child).is_ok();
-            let new_is_shadow = self.world.get::<&ShadowRoot>(new_child).is_ok();
-            if !old_is_shadow {
-                hook.after_remove(old_child, parent, idx);
-            }
-            if !new_is_shadow {
-                hook.after_insert(new_child, parent, idx);
-            }
+        if let Some(idx) = old_index {
+            self.fire_after_remove(old_child, parent, idx);
+            self.fire_after_insert(new_child, parent, idx);
         }
 
         true
@@ -229,15 +207,8 @@ impl EcsDom {
         }
 
         // Capture parent + pre-removal index for hook fire before detach.
-        // Suppress hook events when `entity` is itself a shadow root —
-        // per the light-tree-only contract on `MutationHook`.
-        let suppress_hook = self.is_shadow_root(entity);
         let parent = self.get_parent(entity);
-        let removed_index = if suppress_hook {
-            None
-        } else {
-            parent.and_then(|_| self.index_in_parent(entity))
-        };
+        let removed_index = parent.and_then(|_| self.index_in_parent(entity));
 
         self.detach(entity);
 
@@ -251,17 +222,20 @@ impl EcsDom {
             child = next;
         }
 
+        // Fire BEFORE despawn so the shadow-root suppression check
+        // inside `fire_after_remove` (which inspects `entity`'s
+        // `ShadowRoot` component) still sees the live entity. Consumers
+        // observing during the callback may still inspect the entity
+        // (e.g. `is_shadow_root`); the next instruction despawns it.
+        if let (Some(p), Some(idx)) = (parent, removed_index) {
+            self.fire_after_remove(entity, p, idx);
+        }
+
         let _ = self.world.despawn(entity);
 
         // Bump version on parent after successful removal.
         if let Some(p) = parent {
             self.rev_version(p);
-        }
-
-        if let (Some(p), Some(idx), Some(hook)) =
-            (parent, removed_index, self.mutation_hook.as_mut())
-        {
-            hook.after_remove(entity, p, idx);
         }
 
         true
@@ -405,6 +379,37 @@ impl EcsDom {
         self.world.get::<&ShadowRoot>(entity).is_ok()
     }
 
+    /// Centralized `after_insert` fire site for tree mutations.
+    ///
+    /// Per the light-tree-only contract of
+    /// [`MutationHook`](super::MutationHook), the callback is suppressed
+    /// when **either** `node` or `parent` is itself a shadow root —
+    /// shadow roots are internal to the engine and shadow-tree
+    /// mutations under the root must not surface to light-tree
+    /// consumers (e.g. Range live-tracking). Deeper mutations within
+    /// the shadow tree (where `parent` is a normal element inside the
+    /// shadow tree) are NOT filtered here — those consumers should
+    /// filter by tree root if they want light-tree-only events.
+    fn fire_after_insert(&mut self, node: Entity, parent: Entity, index: usize) {
+        if self.is_shadow_root(node) || self.is_shadow_root(parent) {
+            return;
+        }
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_insert(node, parent, index);
+        }
+    }
+
+    /// Centralized `after_remove` fire site for tree mutations.
+    /// Suppression rules match [`Self::fire_after_insert`].
+    fn fire_after_remove(&mut self, node: Entity, parent: Entity, index: usize) {
+        if self.is_shadow_root(node) || self.is_shadow_root(parent) {
+            return;
+        }
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_remove(node, parent, index);
+        }
+    }
+
     /// Detach `child` from its current parent and fire `after_remove` on
     /// the installed [`MutationHook`](super::MutationHook), if any.
     ///
@@ -423,15 +428,10 @@ impl EcsDom {
         let Some(old_parent) = self.get_parent(child) else {
             return false;
         };
-        let suppress_hook = self.is_shadow_root(child);
-        let old_index = if suppress_hook {
-            None
-        } else {
-            self.index_in_parent(child)
-        };
+        let old_index = self.index_in_parent(child);
         self.detach(child);
-        if let (Some(idx), Some(hook)) = (old_index, self.mutation_hook.as_mut()) {
-            hook.after_remove(child, old_parent, idx);
+        if let Some(idx) = old_index {
+            self.fire_after_remove(child, old_parent, idx);
         }
         true
     }

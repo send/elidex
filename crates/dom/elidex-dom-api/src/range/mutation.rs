@@ -73,15 +73,19 @@ impl Range {
 
         // Same container, text node: just delete the substring.
         if self.start_container == self.end_container {
-            let text = dom
+            // Build the spliced new_text from borrowed slices of `tc.0`,
+            // dropping the immutable borrow before the `set_text_data`
+            // mutable call. Avoids an intermediate full-string clone.
+            let new_text = dom
                 .world()
                 .get::<&TextContent>(self.start_container)
-                .map(|tc| tc.0.clone())
-                .ok();
-            if let Some(text) = text {
-                let start = utf16_offset_to_byte_clamped(&text, self.start_offset);
-                let end = utf16_offset_to_byte_clamped(&text, self.end_offset);
-                let new_text = format!("{}{}", &text[..start], &text[end..]);
+                .ok()
+                .map(|tc| {
+                    let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
+                    let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
+                    format!("{}{}", &tc.0[..start], &tc.0[end..])
+                });
+            if let Some(new_text) = new_text {
                 let _ = dom.set_text_data(self.start_container, &new_text);
                 self.end_offset = self.start_offset;
                 return;
@@ -97,24 +101,34 @@ impl Range {
         }
 
         // Different containers: simplified approach.
-        // 1. Truncate start text node.
-        if let Ok(start_text) = dom
+        // 1. Truncate start text node — keep only the leading slice
+        //    `[..start]`. Build the new String inside a short scope so
+        //    the immutable `TextContent` borrow is released before the
+        //    `set_text_data` mutable call, avoiding the full clone.
+        let start_head = dom
             .world()
             .get::<&TextContent>(self.start_container)
-            .map(|tc| tc.0.clone())
-        {
-            let start = utf16_offset_to_byte_clamped(&start_text, self.start_offset);
-            let _ = dom.set_text_data(self.start_container, &start_text[..start]);
+            .ok()
+            .map(|tc| {
+                let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
+                tc.0[..start].to_owned()
+            });
+        if let Some(head) = start_head {
+            let _ = dom.set_text_data(self.start_container, &head);
         }
 
-        // 2. Truncate end text node.
-        if let Ok(end_text) = dom
+        // 2. Truncate end text node — keep only the trailing slice
+        //    `[end..]`.
+        let end_tail = dom
             .world()
             .get::<&TextContent>(self.end_container)
-            .map(|tc| tc.0.clone())
-        {
-            let end = utf16_offset_to_byte_clamped(&end_text, self.end_offset);
-            let _ = dom.set_text_data(self.end_container, &end_text[end..]);
+            .ok()
+            .map(|tc| {
+                let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
+                tc.0[end..].to_owned()
+            });
+        if let Some(tail) = end_tail {
+            let _ = dom.set_text_data(self.end_container, &tail);
         }
 
         // 3. Remove fully-contained nodes between start and end.

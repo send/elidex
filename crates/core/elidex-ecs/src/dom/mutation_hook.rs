@@ -33,11 +33,14 @@ use hecs::Entity;
 /// transfer `EcsDom` across threads. `hecs::World` is `Send + Sync`, so this is
 /// not adding a constraint beyond what `EcsDom` already permits.
 pub trait MutationHook: Send + Sync {
-    /// Called AFTER a node has been removed from its parent.
+    /// Called AFTER a node has been removed from its parent (but, in the
+    /// `destroy_entity` case, BEFORE the entity is despawned — so
+    /// inspecting `node` via `dom.contains(node)` / component queries
+    /// inside the callback still works).
     ///
-    /// - `node`: the removed entity (may still be alive in the world, or may
-    ///   have been despawned in the `destroy_entity` case — consumers MUST
-    ///   tolerate destroyed entities).
+    /// - `node`: the removed entity (alive when this fires; in the
+    ///   `destroy_entity` path despawn happens immediately after the
+    ///   callback returns).
     /// - `parent`: the former parent (still alive).
     /// - `removed_index`: the pre-removal index of `node` in `parent`'s child
     ///   list, captured BEFORE detach. Per WHATWG DOM §4.4 "remove" step 4,
@@ -45,9 +48,10 @@ pub trait MutationHook: Send + Sync {
     ///   (`adjust_ranges_for_removal`).
     ///
     /// Consumers (e.g. `LiveRangeRegistry`) MUST tolerate dangling boundary
-    /// container references and lazily collapse such Ranges on next access
-    /// (e.g. by checking `dom.contains(boundary_container)` before use). Per
-    /// the `destroy_entity` lazy-collapse contract, descendant entities
+    /// container references that surface across mutations and lazily
+    /// collapse such Ranges on next access (e.g. by checking
+    /// `dom.contains(boundary_container)` before use). Per the
+    /// `destroy_entity` lazy-collapse contract, descendant entities
     /// orphaned by a destroy do NOT receive individual `after_remove` calls.
     fn after_remove(&mut self, _node: Entity, _parent: Entity, _removed_index: usize) {}
 

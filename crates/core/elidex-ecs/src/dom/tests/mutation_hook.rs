@@ -536,6 +536,42 @@ fn attach_shadow_does_not_fire_hook_events() {
 }
 
 #[test]
+fn append_child_into_shadow_root_does_not_fire_hook_events() {
+    // Light-tree-only contract: a mutation whose **parent** is a shadow
+    // root is a shadow-tree mutation and must not surface to light-tree
+    // consumers like Range live-tracking.
+    use crate::ShadowRootMode;
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let shadow = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow on <div>");
+    let shadow_child = elem(&mut dom, "span");
+
+    let events = install_mock(&mut dom);
+    assert!(dom.append_child(shadow, shadow_child));
+
+    assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn remove_child_from_shadow_root_does_not_fire_hook_events() {
+    use crate::ShadowRootMode;
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let shadow = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow on <div>");
+    let shadow_child = elem(&mut dom, "span");
+    assert!(dom.append_child(shadow, shadow_child));
+
+    let events = install_mock(&mut dom);
+    assert!(dom.remove_child(shadow, shadow_child));
+
+    assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
 fn destroy_shadow_root_does_not_fire_hook_events() {
     use crate::ShadowRootMode;
     let mut dom = EcsDom::new();
