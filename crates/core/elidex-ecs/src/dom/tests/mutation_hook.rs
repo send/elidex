@@ -517,6 +517,53 @@ fn replace_child_fires_after_remove_for_new_child_old_parent() {
 }
 
 #[test]
+fn index_in_parent_skips_shadow_root_siblings() {
+    // The host's shadow root is a `prev_sibling`-reachable entity but
+    // NOT exposed in `children_iter` / `children`. Counting it would
+    // make MutationHook indices diverge from the light-tree indices
+    // Range live-tracking depends on.
+    use crate::ShadowRootMode;
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let _shadow = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow on <div>");
+    let light_child = elem(&mut dom, "p");
+    assert!(dom.append_child(host, light_child));
+
+    // Despite the shadow-root sitting in the prev_sibling chain,
+    // the light-DOM `p` is at exposed index 0.
+    assert_eq!(dom.index_in_parent(light_child), Some(0));
+}
+
+#[test]
+fn append_child_after_attach_shadow_reports_light_tree_index() {
+    // Regression: appending a light-DOM child to a shadow host must
+    // fire `after_insert` with the light-tree index, not the raw
+    // prev_sibling count that would include the shadow root.
+    use crate::ShadowRootMode;
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let _shadow = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow on <div>");
+    let light_child = elem(&mut dom, "p");
+
+    let events = install_mock(&mut dom);
+    assert!(dom.append_child(host, light_child));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::Insert {
+            node: light_child,
+            parent: host,
+            index: 0
+        }]
+    );
+}
+
+#[test]
 fn append_child_orphan_does_not_fire_after_remove() {
     // Sanity: an orphan child (no old parent) generates only the
     // after_insert callback; there is no implicit removal to report.

@@ -55,13 +55,16 @@ pub trait MutationHook: Send + Sync {
     ///
     /// - `node`: the newly-attached entity.
     /// - `parent`: the parent that received `node`.
-    /// - `index`: the **pre-insertion** index in `parent`'s child list,
-    ///   equivalent to "the index `node` now occupies". For `append_child`,
-    ///   this equals the old child count before link. For
-    ///   `insert_before(parent, new, ref)`, this equals `ref`'s pre-detach
-    ///   index in parent. Per WHATWG DOM §5.5 "Insert steps", Range
-    ///   boundaries at `(parent, offset)` where `offset > index` need `+=1`
-    ///   (strict comparison).
+    /// - `index`: the position `node` occupies after insertion — measured
+    ///   over light-tree exposed siblings (shadow roots excluded).
+    ///   Equivalently, the insertion index computed AFTER any implicit
+    ///   detach of `node` from a prior parent and AFTER linking. For
+    ///   `append_child`, this equals the post-detach child count of
+    ///   `parent`. For `insert_before(parent, new, ref)`, this equals
+    ///   `ref`'s post-detach index in parent (the slot `new` now
+    ///   occupies). Per WHATWG DOM §5.5 "Insert steps", Range boundaries
+    ///   at `(parent, offset)` where `offset > index` need `+=1` (strict
+    ///   comparison).
     fn after_insert(&mut self, _node: Entity, _parent: Entity, _index: usize) {}
 
     /// Called AFTER a Text / CData entity's `TextContent` changes.

@@ -332,13 +332,16 @@ impl EcsDom {
         self.read_rel(entity, |rel| rel.prev_sibling)
     }
 
-    /// Returns the index of `entity` in its parent's child list, or `None` if
-    /// `entity` has no parent OR the sibling walk hits the corruption
-    /// guard [`MAX_ANCESTOR_DEPTH`].
+    /// Returns the **exposed** (light-tree) index of `entity` in its
+    /// parent's child list, or `None` if `entity` has no parent OR the
+    /// sibling walk hits the corruption guard [`MAX_ANCESTOR_DEPTH`].
     ///
     /// Walks the `prev_sibling` chain to count predecessors (O(siblings)).
-    /// Used by [`MutationHook`](super::MutationHook) fire sites to capture
-    /// the pre-mutation index without paying the O(n²) cost of
+    /// Shadow-root siblings are **skipped** so the count matches the
+    /// indices yielded by [`Self::children_iter`] / [`Self::children`],
+    /// which excludes [`ShadowRoot`] entities from the exposed child
+    /// list. Used by [`MutationHook`](super::MutationHook) fire sites to
+    /// capture the pre-mutation index without paying the O(n²) cost of
     /// `children_iter(parent).count()`.
     ///
     /// `None` on depth-cap is intentional: hook consumers (e.g. Range
@@ -352,7 +355,12 @@ impl EcsDom {
         let mut current = self.get_prev_sibling(entity);
         let mut depth = 0;
         while let Some(prev) = current {
-            index += 1;
+            // Skip shadow-root siblings — they are not exposed as DOM
+            // children, so light-tree consumers see the host's
+            // remaining children with the lower index.
+            if self.world.get::<&ShadowRoot>(prev).is_err() {
+                index += 1;
+            }
             depth += 1;
             if depth > MAX_ANCESTOR_DEPTH {
                 return None;
