@@ -27,13 +27,20 @@ pub(crate) fn get_char_data(entity: Entity, dom: &EcsDom) -> Result<String, DomA
 }
 
 /// Write character data (text or comment) to an entity.
+///
+/// Text / CData writes route through [`EcsDom::set_text_data`] so the
+/// installed `MutationHook` (e.g. `LiveRangeRegistry`) receives the
+/// `after_text_change` callback (WHATWG DOM §5.5 "set/replace data steps"
+/// Range live-tracking).  Comment writes update `CommentData` in place; per
+/// WHATWG §5.5 Range live-tracking does not cover Comment nodes, so no
+/// hook fires for that branch.
 pub(crate) fn set_char_data(
     entity: Entity,
     dom: &mut EcsDom,
     data: &str,
 ) -> Result<(), DomApiError> {
-    if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(entity) {
-        data.clone_into(&mut tc.0);
+    if dom.world().get::<&TextContent>(entity).is_ok() {
+        let _ = dom.set_text_data(entity, data.to_owned());
         return Ok(());
     }
     if let Ok(mut cd) = dom.world_mut().get::<&mut CommentData>(entity) {
@@ -365,6 +372,11 @@ impl DomApiHandler for ReplaceData {
 /// Creates a new text node containing the data from `offset` onward, truncates
 /// this node's data to `[0, offset)`, and inserts the new node after this one.
 /// Returns the new node as an `ObjectRef`.
+///
+// TODO(D-8 PR-A): WHATWG DOM §5.5 "Split text steps" requires Range
+// boundary re-targeting from `this` to the new text node for boundaries
+// at offset > split_offset. `LiveRangeRegistry` handles this inline within
+// this method when installed; no `MutationHook` trait method covers it.
 pub struct SplitText;
 
 impl DomApiHandler for SplitText {

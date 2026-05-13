@@ -133,8 +133,11 @@ fn native_text_split_text(
             ));
         }
     }
-    if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
-        text.0 = left;
-    }
+    // Route through `set_text_data` so an installed `MutationHook` (e.g.
+    // D-8 PR-A `LiveRangeRegistry`) sees the head-truncate as a normal text
+    // change. WHATWG §5.5 "Split text steps" boundary re-targeting from
+    // `entity` to `new_entity` is bespoke and handled by PR-A inline; this
+    // call only covers the simpler clamp-to-new-length aspect.
+    let _ = dom.set_text_data(entity, left);
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }

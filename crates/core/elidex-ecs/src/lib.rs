@@ -18,7 +18,7 @@ pub use dom::equality::{
     DOCUMENT_POSITION_FOLLOWING, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC,
     DOCUMENT_POSITION_PRECEDING,
 };
-pub use dom::{EcsDom, MAX_ANCESTOR_DEPTH};
+pub use dom::{EcsDom, MutationHook, MAX_ANCESTOR_DEPTH};
 
 // Re-export hecs Entity for downstream consumers.
 pub use hecs::Entity;

@@ -16,9 +16,12 @@
 //!   mutate the tree.
 
 pub(crate) mod equality;
+mod mutation_hook;
 mod shadow;
 mod tree;
 mod tree_clone;
+
+pub use mutation_hook::MutationHook;
 
 use crate::components::{
     AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowRoot,
@@ -41,6 +44,13 @@ pub struct EcsDom {
     world: World,
     /// Cached document root entity, set by [`create_document_root()`](Self::create_document_root).
     document_root: Option<Entity>,
+    /// Optional mutation hook; fires from `append_child` / `insert_before` /
+    /// `remove_child` / `replace_child` / `destroy_entity` / `set_text_data`.
+    /// The trait `MutationHook: Send + Sync` supertrait already propagates
+    /// the bounds; the explicit markers on the trait-object type are kept
+    /// for one canonical spelling shared with `set_mutation_hook` /
+    /// `take_mutation_hook` signatures.
+    mutation_hook: Option<Box<dyn MutationHook + Send + Sync>>,
 }
 
 impl EcsDom {
@@ -49,7 +59,61 @@ impl EcsDom {
         Self {
             world: World::new(),
             document_root: None,
+            mutation_hook: None,
         }
+    }
+
+    // ---- Mutation hook ----
+
+    /// Install a mutation hook. Returns the previously-installed hook, if any.
+    ///
+    /// The hook receives `after_remove` / `after_insert` / `after_text_change`
+    /// callbacks from tree-mutation primitives and from
+    /// [`Self::set_text_data`]. First user: D-8 PR-A `LiveRangeRegistry`
+    /// (Range live-tracking per WHATWG DOM §5.5).
+    pub fn set_mutation_hook(
+        &mut self,
+        hook: Box<dyn MutationHook + Send + Sync>,
+    ) -> Option<Box<dyn MutationHook + Send + Sync>> {
+        self.mutation_hook.replace(hook)
+    }
+
+    /// Drop the mutation hook, if one was installed.
+    pub fn clear_mutation_hook(&mut self) {
+        self.mutation_hook = None;
+    }
+
+    /// Take the mutation hook out without dropping it. Returns the previous
+    /// hook, or `None` if none was installed.
+    pub fn take_mutation_hook(&mut self) -> Option<Box<dyn MutationHook + Send + Sync>> {
+        self.mutation_hook.take()
+    }
+
+    /// Replace the `TextContent` of an entity. Returns the new UTF-16 length
+    /// on success, or `None` if the entity has no `TextContent` component.
+    ///
+    /// Fires `after_text_change` on the mutation hook (if installed).
+    ///
+    /// This is the canonical write path for **Text / CData** mutations.
+    /// `CharacterData` handlers in `elidex-dom-api` route `TextContent`
+    /// updates through this method to ensure Range live-tracking hook fire
+    /// consistency.
+    ///
+    /// **NOT for Comment nodes** — Comment uses a separate `CommentData`
+    /// component which is NOT covered by Range live-tracking spec (§5.5
+    /// covers Text only, not Comment). Comment writes continue to use the
+    /// existing `set_char_data` Comment branch unchanged.
+    pub fn set_text_data(&mut self, entity: Entity, text: String) -> Option<usize> {
+        let new_utf16_len = {
+            let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
+            let len = text.encode_utf16().count();
+            tc.0 = text;
+            len
+        };
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_text_change(entity, new_utf16_len);
+        }
+        Some(new_utf16_len)
     }
 
     /// Provides read-only access to the underlying `hecs::World`.

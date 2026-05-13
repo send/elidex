@@ -82,9 +82,7 @@ impl DomApiHandler for SetTextContentNodeKind {
         match dom.node_kind(this) {
             Some(NodeKind::Document | NodeKind::DocumentType) => Ok(JsValue::Undefined),
             Some(NodeKind::Text | NodeKind::CdataSection) => {
-                if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(this) {
-                    text.clone_into(&mut tc.0);
-                }
+                let _ = dom.set_text_data(this, text);
                 dom.rev_version(this);
                 Ok(JsValue::Undefined)
             }
@@ -134,9 +132,7 @@ impl DomApiHandler for SetNodeValue {
 
         match dom.node_kind(this) {
             Some(NodeKind::Text | NodeKind::CdataSection) => {
-                if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(this) {
-                    value.clone_into(&mut tc.0);
-                }
+                let _ = dom.set_text_data(this, value);
                 dom.rev_version(this);
             }
             Some(NodeKind::Comment) => {

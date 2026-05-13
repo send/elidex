@@ -87,7 +87,9 @@ pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
     IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
 };
-pub use range::{adjust_ranges_for_removal, adjust_ranges_for_text_change, Range};
+pub use range::{
+    adjust_ranges_for_insertion, adjust_ranges_for_removal, adjust_ranges_for_text_change, Range,
+};
 pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
 pub use traversal::{
     NodeIterator, TreeWalker, SHOW_ALL, SHOW_COMMENT, SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,

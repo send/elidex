@@ -14,6 +14,7 @@ mod clone;
 mod creation;
 mod destroy;
 mod equality;
+mod mutation_hook;
 mod node_kind;
 mod shadow_dom;
 mod traversal;

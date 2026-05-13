@@ -87,20 +87,41 @@ impl Range {
 
 /// Adjust all live ranges when a child at `index` is removed from `parent`.
 ///
-/// Per WHATWG DOM §5.5, when a node is removed, any Range whose boundary
-/// point references the removed node must be adjusted. This simplified
-/// implementation handles the most common cases:
+/// Per WHATWG DOM §5.5 "remove a node" steps 4-6, when a node is removed
+/// any Range whose boundary point references the removed node OR an
+/// **inclusive descendant** of it must be adjusted:
 ///
-/// 1. If a boundary container is the removed node, collapse that boundary
-///    to `(parent, index)`.
+/// 1. If a boundary container is an inclusive descendant of `node`,
+///    collapse that boundary to `(parent, index)`.
 /// 2. If a boundary container is `parent` and its offset is greater than
 ///    `index`, decrement the offset.
 ///
-/// This function should be called before the actual removal from the DOM.
-pub fn adjust_ranges_for_removal(ranges: &mut [Range], node: Entity, parent: Entity, index: usize) {
+/// `dom` is required to walk the descendant relationship for case (1).
+///
+/// **Calling order**: invoke either BEFORE the actual `EcsDom::remove_child`
+/// or AFTER `EcsDom::detach(child)`. The descendant walk uses
+/// [`EcsDom::is_ancestor_or_self`], which walks from `descendant`'s parent
+/// chain upward — that chain remains intact post-detach because
+/// `EcsDom::detach` only clears the removed node's own parent / sibling
+/// links, NOT its own `first_child` / `last_child` (descendants still
+/// point at the removed node as their parent). The
+/// [`MutationHook::after_remove`](elidex_ecs::MutationHook::after_remove)
+/// callback fires post-detach for this exact reason.
+///
+/// `destroy_entity` differs: it orphans all children before firing the hook,
+/// so the descendant walk does NOT find them — consumers must lazy-collapse
+/// dangling boundaries on next access per the `destroy_entity` contract.
+pub fn adjust_ranges_for_removal(
+    ranges: &mut [Range],
+    node: Entity,
+    parent: Entity,
+    index: usize,
+    dom: &EcsDom,
+) {
     for range in ranges.iter_mut() {
-        // Adjust start boundary.
-        if range.start_container == node {
+        // Adjust start boundary. `is_ancestor_or_self` is inclusive, so the
+        // direct-equality case (`container == node`) is subsumed.
+        if dom.is_ancestor_or_self(node, range.start_container) {
             range.start_container = parent;
             range.start_offset = index;
         } else if range.start_container == parent && range.start_offset > index {
@@ -108,11 +129,32 @@ pub fn adjust_ranges_for_removal(ranges: &mut [Range], node: Entity, parent: Ent
         }
 
         // Adjust end boundary.
-        if range.end_container == node {
+        if dom.is_ancestor_or_self(node, range.end_container) {
             range.end_container = parent;
             range.end_offset = index;
         } else if range.end_container == parent && range.end_offset > index {
             range.end_offset -= 1;
+        }
+    }
+}
+
+/// Adjust all live ranges when a child is inserted at `index` in `parent`.
+///
+/// Per WHATWG DOM §5.5 "insert a node" steps, Range boundaries at
+/// `(parent, offset)` where `offset > index` need their offset
+/// incremented by 1 (strict comparison; boundaries at exactly `index`
+/// stay where they are so a Range collapsed at the insertion point
+/// continues to bracket the inserted node from the start).
+///
+/// Dead helper in this prereq PR — used by D-8 PR-A's
+/// `LiveRangeRegistry` when wiring the `after_insert` hook.
+pub fn adjust_ranges_for_insertion(ranges: &mut [Range], parent: Entity, index: usize) {
+    for range in ranges.iter_mut() {
+        if range.start_container == parent && range.start_offset > index {
+            range.start_offset += 1;
+        }
+        if range.end_container == parent && range.end_offset > index {
+            range.end_offset += 1;
         }
     }
 }
@@ -463,7 +505,7 @@ mod tests {
 
         let mut ranges = [r];
         // Remove child at index 1 (c1).
-        super::adjust_ranges_for_removal(&mut ranges, c1, parent, 1);
+        super::adjust_ranges_for_removal(&mut ranges, c1, parent, 1, &dom);
 
         // start_offset was 1 (== index), not > index, so unchanged.
         assert_eq!(ranges[0].start_offset, 1);
@@ -483,13 +525,81 @@ mod tests {
         r.set_end(child, 4);
 
         let mut ranges = [r];
-        super::adjust_ranges_for_removal(&mut ranges, child, parent, 0);
+        super::adjust_ranges_for_removal(&mut ranges, child, parent, 0, &dom);
 
         // Both boundaries should collapse to (parent, 0).
         assert_eq!(ranges[0].start_container, parent);
         assert_eq!(ranges[0].start_offset, 0);
         assert_eq!(ranges[0].end_container, parent);
         assert_eq!(ranges[0].end_offset, 0);
+    }
+
+    #[test]
+    fn adjust_ranges_for_removal_descendant_container_collapses() {
+        // WHATWG DOM §5.5 "remove a node" steps 4-6: boundaries whose
+        // container is an inclusive descendant of the removed node must
+        // collapse to (parent, index), not just direct-equality containers.
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let section = dom.create_element("section", Attributes::default());
+        let p = dom.create_element("p", Attributes::default());
+        let inner_text = dom.create_text("hello");
+        dom.append_child(parent, section);
+        dom.append_child(section, p);
+        dom.append_child(p, inner_text);
+
+        // Range boundaries sit on inner_text (a descendant of `section`).
+        let mut r = Range::new(inner_text);
+        r.set_start(inner_text, 2);
+        r.set_end(inner_text, 4);
+
+        let mut ranges = [r];
+        super::adjust_ranges_for_removal(&mut ranges, section, parent, 0, &dom);
+
+        // Both boundaries must collapse to (parent, 0).
+        assert_eq!(ranges[0].start_container, parent);
+        assert_eq!(ranges[0].start_offset, 0);
+        assert_eq!(ranges[0].end_container, parent);
+        assert_eq!(ranges[0].end_offset, 0);
+    }
+
+    #[test]
+    fn adjust_ranges_for_insertion_increments_strict_greater() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let c0 = dom.create_element("a", Attributes::default());
+        let c1 = dom.create_element("b", Attributes::default());
+        dom.append_child(parent, c0);
+        dom.append_child(parent, c1);
+
+        // Boundaries at offset 1 and 2 in `parent`. Inserting at index 1
+        // shifts only the offset > 1, leaving offset == 1 in place.
+        let mut r = Range::new(parent);
+        r.set_start(parent, 1);
+        r.set_end(parent, 2);
+        let mut ranges = [r];
+        super::adjust_ranges_for_insertion(&mut ranges, parent, 1);
+
+        assert_eq!(ranges[0].start_offset, 1);
+        assert_eq!(ranges[0].end_offset, 3);
+    }
+
+    #[test]
+    fn adjust_ranges_for_insertion_leaves_other_containers_alone() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let other = dom.create_element("section", Attributes::default());
+        let mut r = Range::new(parent);
+        r.set_start(other, 0);
+        r.set_end(other, 5);
+
+        let mut ranges = [r];
+        super::adjust_ranges_for_insertion(&mut ranges, parent, 0);
+
+        assert_eq!(ranges[0].start_container, other);
+        assert_eq!(ranges[0].start_offset, 0);
+        assert_eq!(ranges[0].end_container, other);
+        assert_eq!(ranges[0].end_offset, 5);
     }
 
     #[test]

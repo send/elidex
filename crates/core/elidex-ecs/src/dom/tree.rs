@@ -33,6 +33,11 @@ impl EcsDom {
         self.link_node(parent, child, last_child, None);
         self.rev_version(parent);
 
+        let new_index = self.index_in_parent(child).unwrap_or(0);
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_insert(child, parent, new_index);
+        }
+
         true
     }
 
@@ -48,8 +53,12 @@ impl EcsDom {
         if !self.is_child_of(child, parent) {
             return false;
         }
+        let removed_index = self.index_in_parent(child);
         self.detach(child);
         self.rev_version(parent);
+        if let (Some(idx), Some(hook)) = (removed_index, self.mutation_hook.as_mut()) {
+            hook.after_remove(child, parent, idx);
+        }
         true
     }
 
@@ -82,6 +91,11 @@ impl EcsDom {
         self.link_node(parent, new_child, ref_prev, Some(ref_child));
         self.rev_version(parent);
 
+        let new_index = self.index_in_parent(new_child).unwrap_or(0);
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_insert(new_child, parent, new_index);
+        }
+
         true
     }
 
@@ -113,6 +127,12 @@ impl EcsDom {
         // Detach new_child from its current position (validation passed).
         self.detach(new_child);
 
+        // Capture old_child's index AFTER detach so that — when new_child was
+        // an earlier sibling of old_child in the same parent — the index
+        // reflects old_child's actual position at the moment of removal
+        // (WHATWG DOM §5.5 "remove a node" step 4).
+        let old_index = self.index_in_parent(old_child);
+
         // Re-read old_child's siblings AFTER detach (they may have changed
         // if new_child was an adjacent sibling).
         let (old_prev, old_next) =
@@ -124,6 +144,11 @@ impl EcsDom {
         // Clear old_child's tree links.
         self.clear_rel(old_child);
         self.rev_version(parent);
+
+        if let (Some(idx), Some(hook)) = (old_index, self.mutation_hook.as_mut()) {
+            hook.after_remove(old_child, parent, idx);
+            hook.after_insert(new_child, parent, idx);
+        }
 
         true
     }
@@ -138,6 +163,21 @@ impl EcsDom {
     /// `ShadowHost` component is removed. If the entity is a shadow host,
     /// the shadow root's `ShadowRoot` component is removed. This prevents
     /// stale cross-references after destruction.
+    ///
+    /// # Mutation hook contract
+    ///
+    /// Fires [`MutationHook::after_remove`](super::MutationHook::after_remove)
+    /// exactly once if `entity` has a parent, with the pre-removal index in
+    /// the parent's child list. Descendant entities orphaned by the destroy
+    /// do NOT receive individual `after_remove` calls — this is a "hard
+    /// delete" with no per-descendant notification.
+    ///
+    /// Consumers (e.g. `LiveRangeRegistry`) MUST tolerate dangling boundary
+    /// container references and lazily collapse such Ranges on next access
+    /// (e.g. by checking [`Self::contains`] before use). Shadow roots have
+    /// no light-tree parent, so destroying a shadow root does not fire
+    /// `after_remove` (`get_parent` returns `None`); shadow-tree boundaries
+    /// are the consumer's responsibility per WHATWG §5.5.
     ///
     /// Returns `false` if the entity does not exist.
     #[must_use = "returns false if the entity does not exist"]
@@ -163,8 +203,9 @@ impl EcsDom {
             let _ = self.world.remove_one::<ShadowRoot>(sr);
         }
 
-        // Capture parent for version bump before detach.
+        // Capture parent + pre-removal index for hook fire before detach.
         let parent = self.get_parent(entity);
+        let removed_index = parent.and_then(|_| self.index_in_parent(entity));
 
         self.detach(entity);
 
@@ -183,6 +224,12 @@ impl EcsDom {
         // Bump version on parent after successful removal.
         if let Some(p) = parent {
             self.rev_version(p);
+        }
+
+        if let (Some(p), Some(idx), Some(hook)) =
+            (parent, removed_index, self.mutation_hook.as_mut())
+        {
+            hook.after_remove(entity, p, idx);
         }
 
         true
@@ -278,6 +325,33 @@ impl EcsDom {
     #[must_use]
     pub fn get_prev_sibling(&self, entity: Entity) -> Option<Entity> {
         self.read_rel(entity, |rel| rel.prev_sibling)
+    }
+
+    /// Returns the index of `entity` in its parent's child list, or `None` if
+    /// `entity` has no parent.
+    ///
+    /// Walks the `prev_sibling` chain to count predecessors (O(siblings)).
+    /// Used by [`MutationHook`](super::MutationHook) fire sites to capture
+    /// the pre-mutation index without paying the O(n²) cost of
+    /// `children_iter(parent).count()`.
+    ///
+    /// Guarded by [`MAX_ANCESTOR_DEPTH`] to prevent infinite loops on
+    /// corrupted sibling chains.
+    #[must_use]
+    pub fn index_in_parent(&self, entity: Entity) -> Option<usize> {
+        self.get_parent(entity)?;
+        let mut index = 0usize;
+        let mut current = self.get_prev_sibling(entity);
+        let mut depth = 0;
+        while let Some(prev) = current {
+            index += 1;
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                break;
+            }
+            current = self.get_prev_sibling(prev);
+        }
+        Some(index)
     }
 
     /// Return the first child of `parent` that is an element (has a
