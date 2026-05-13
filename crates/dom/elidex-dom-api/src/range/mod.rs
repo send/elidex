@@ -98,19 +98,21 @@ impl Range {
 ///
 /// `dom` is required to walk the descendant relationship for case (1).
 ///
-/// **Calling order**: invoke either BEFORE the actual `EcsDom::remove_child`
-/// or AFTER `EcsDom::detach(child)`. The descendant walk uses
-/// [`EcsDom::is_ancestor_or_self`], which walks from `descendant`'s parent
-/// chain upward — that chain remains intact post-detach because
-/// `EcsDom::detach` only clears the removed node's own parent / sibling
-/// links, NOT its own `first_child` / `last_child` (descendants still
-/// point at the removed node as their parent). The
+/// **Calling order**: invoke either BEFORE `EcsDom::remove_child` /
+/// `EcsDom::replace_child`, or from within
 /// [`MutationHook::after_remove`](elidex_ecs::MutationHook::after_remove)
-/// callback fires post-detach for this exact reason.
+/// (which is the public-API hook point that fires once the node has been
+/// detached but its subtree's parent links still point at it). The
+/// descendant walk uses [`EcsDom::is_ancestor_or_self`], which walks
+/// from `descendant`'s parent chain upward — that chain remains intact
+/// at the `after_remove` callback because the engine only clears the
+/// removed node's OWN parent / sibling links and leaves its
+/// `first_child` / `last_child` (and the descendants' `parent`) alone.
 ///
-/// `destroy_entity` differs: it orphans all children before firing the hook,
-/// so the descendant walk does NOT find them — consumers must lazy-collapse
-/// dangling boundaries on next access per the `destroy_entity` contract.
+/// `destroy_entity` differs: it orphans all children before firing the
+/// hook, so the descendant walk does NOT find them — consumers must
+/// lazy-collapse dangling boundaries on next access per the
+/// `destroy_entity` contract.
 pub fn adjust_ranges_for_removal(
     ranges: &mut [Range],
     node: Entity,

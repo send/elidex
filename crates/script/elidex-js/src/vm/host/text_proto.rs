@@ -148,13 +148,13 @@ fn native_text_split_text(
     // change. WHATWG §5.5 "Split text steps" boundary re-targeting from
     // `entity` to `new_entity` is bespoke and handled by PR-A inline; this
     // call only covers the simpler clamp-to-new-length aspect.
-    // `TextContent` presence was verified at function entry, so the
-    // `set_text_data` call returns `Some`; we assert that in debug
-    // builds and proceed silently in release.
-    let new_len = dom.set_text_data(entity, &left);
-    debug_assert!(
-        new_len.is_some(),
-        "set_text_data unexpectedly returned None after entry-time TextContent check"
-    );
+    // `TextContent` presence was verified at function entry; nothing
+    // between that check and this call removes the component, so
+    // `set_text_data` returning `None` would mean a deeper invariant
+    // violation. Use `expect` so any violation surfaces loudly in
+    // both debug and release builds instead of silently leaving the
+    // DOM with a truncated original and an inserted trailing node.
+    dom.set_text_data(entity, &left)
+        .expect("splitText: TextContent disappeared between entry-time check and set_text_data");
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }

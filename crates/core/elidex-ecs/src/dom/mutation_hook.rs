@@ -26,8 +26,12 @@ use hecs::Entity;
 
 /// Trait fired by [`crate::EcsDom`] mutation primitives after each mutation completes.
 ///
-/// Each method has a default empty impl so the trait is non-breaking
-/// extensible: later PRs can add new methods without breaking existing impls.
+/// Each method has a default empty impl so that **existing** impls continue
+/// to compile when new methods are added in the same crate. Adding a method
+/// to this trait is still a breaking change for downstream impls under
+/// strict semver, since adding the method changes the trait's vtable;
+/// callers across crate boundaries must recompile when this trait gains
+/// methods.
 ///
 /// `Send + Sync` is required because some Worker-context impls (future) may
 /// transfer `EcsDom` across threads. `hecs::World` is `Send + Sync`, so this is
