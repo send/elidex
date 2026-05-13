@@ -430,6 +430,12 @@ impl EcsDom {
         };
         let old_index = self.index_in_parent(child);
         self.detach(child);
+        // The old parent's child list changed — bump its version so
+        // cached queries / live collections rooted at the old subtree
+        // see the mutation (parity with `remove_child` /
+        // `replace_child` which both call `rev_version(parent)` on the
+        // primary parent).
+        self.rev_version(old_parent);
         if let Some(idx) = old_index {
             self.fire_after_remove(child, old_parent, idx);
         }

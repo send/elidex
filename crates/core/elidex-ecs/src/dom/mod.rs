@@ -92,7 +92,11 @@ impl EcsDom {
     /// Replace the `TextContent` of an entity. Returns the new UTF-16 length
     /// on success, or `None` if the entity has no `TextContent` component.
     ///
-    /// Fires `after_text_change` on the mutation hook (if installed).
+    /// On success, bumps [`Self::rev_version`] for `entity` (the canonical
+    /// cache-invalidation step per the version-tracking docs above) and
+    /// fires `after_text_change` on the mutation hook (if installed). This
+    /// makes `set_text_data` self-contained: callers do not need to
+    /// `rev_version` themselves after.
     ///
     /// This is the canonical write path for **Text / CData** mutations.
     /// `CharacterData` handlers in `elidex-dom-api` route `TextContent`
@@ -114,6 +118,7 @@ impl EcsDom {
             text.clone_into(&mut tc.0);
             len
         };
+        self.rev_version(entity);
         if let Some(hook) = self.mutation_hook.as_mut() {
             hook.after_text_change(entity, new_utf16_len);
         }

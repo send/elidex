@@ -406,6 +406,65 @@ fn index_in_parent_walks_prev_sibling_chain() {
 }
 
 #[test]
+fn set_text_data_bumps_inclusive_descendants_version() {
+    // `set_text_data` is the canonical Text/CData write path and MUST
+    // bump `inclusive_descendants_version` itself so callers (and
+    // downstream caches: live collections / layout / render) see the
+    // mutation without needing a redundant `rev_version` call. Use a
+    // document-rooted tree so `rev_version`'s global-counter path is
+    // exercised and ancestor versions propagate as live collections
+    // expect.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hello");
+    assert!(dom.append_child(doc, parent));
+    assert!(dom.append_child(parent, text));
+
+    let before_doc = dom.inclusive_descendants_version(doc);
+    let before_text = dom.inclusive_descendants_version(text);
+
+    dom.set_text_data(text, "world");
+
+    assert!(
+        dom.inclusive_descendants_version(text) > before_text,
+        "text node version did not advance after set_text_data"
+    );
+    assert!(
+        dom.inclusive_descendants_version(doc) > before_doc,
+        "doc-root version did not advance — live collections rooted at \
+         document would miss the text mutation"
+    );
+}
+
+#[test]
+fn cross_parent_move_bumps_old_parent_version() {
+    // When a node is implicitly detached from its old parent during an
+    // append/insert/replace to a new parent, the old parent's child
+    // list changed — its version must advance so cached queries rooted
+    // at the old subtree see the mutation.
+    let mut dom = EcsDom::new();
+    let old_parent = elem(&mut dom, "section");
+    let new_parent = elem(&mut dom, "article");
+    let child = elem(&mut dom, "p");
+    assert!(dom.append_child(old_parent, child));
+
+    let before_old = dom.inclusive_descendants_version(old_parent);
+    let before_new = dom.inclusive_descendants_version(new_parent);
+
+    assert!(dom.append_child(new_parent, child));
+
+    assert!(
+        dom.inclusive_descendants_version(old_parent) > before_old,
+        "old parent version did not advance on cross-parent move"
+    );
+    assert!(
+        dom.inclusive_descendants_version(new_parent) > before_new,
+        "new parent version did not advance"
+    );
+}
+
+#[test]
 fn index_in_parent_returns_none_for_orphan() {
     let mut dom = EcsDom::new();
     let orphan = elem(&mut dom, "div");
