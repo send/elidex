@@ -92,11 +92,21 @@ fn native_text_split_text(
     let offset = super::super::coerce::to_uint32(ctx.vm, offset_arg)? as usize;
 
     let dom = ctx.host().dom();
-    let current = dom
-        .world()
-        .get::<&elidex_ecs::TextContent>(entity)
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
+    // Verify the receiver actually carries a `TextContent` payload
+    // BEFORE any mutation. The brand check above accepts entities
+    // tagged `NodeKind::Text` without a `TextContent` payload (via
+    // `node_kind_inferred`); catching that early lets us surface a
+    // clean `TypeError` without firing `after_insert` for a trailing
+    // node that we would then need to roll back.
+    let current = match dom.world().get::<&elidex_ecs::TextContent>(entity) {
+        Ok(tc) => tc.0.clone(),
+        Err(_) => {
+            return Err(VmError::type_error(
+                "Failed to execute 'splitText' on 'Text': \
+                 receiver is missing a TextContent payload.",
+            ));
+        }
+    };
     let units: Vec<u16> = current.encode_utf16().collect();
     let len = units.len();
     if offset > len {
@@ -138,18 +148,13 @@ fn native_text_split_text(
     // change. WHATWG §5.5 "Split text steps" boundary re-targeting from
     // `entity` to `new_entity` is bespoke and handled by PR-A inline; this
     // call only covers the simpler clamp-to-new-length aspect.
-    //
-    // `set_text_data` returns `None` only when `entity` lacks a
-    // `TextContent` component. The brand check above accepts entities
-    // tagged `NodeKind::Text` without a `TextContent` payload (via
-    // `node_kind_inferred`), so this is reachable albeit unusual. Roll
-    // back the inserted trailing node so the split is atomic.
-    if dom.set_text_data(entity, left).is_none() {
-        let _ = dom.destroy_entity(new_entity);
-        return Err(VmError::type_error(
-            "Failed to execute 'splitText' on 'Text': \
-             receiver is missing a TextContent payload.",
-        ));
-    }
+    // `TextContent` presence was verified at function entry, so the
+    // `set_text_data` call returns `Some`; we assert that in debug
+    // builds and proceed silently in release.
+    let new_len = dom.set_text_data(entity, &left);
+    debug_assert!(
+        new_len.is_some(),
+        "set_text_data unexpectedly returned None after entry-time TextContent check"
+    );
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }

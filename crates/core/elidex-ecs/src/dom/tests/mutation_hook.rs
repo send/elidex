@@ -273,7 +273,7 @@ fn set_text_data_fires_after_text_change() {
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
-    assert_eq!(dom.set_text_data(text, "Hi".to_string()), Some(2));
+    assert_eq!(dom.set_text_data(text, "Hi"), Some(2));
 
     let log = events.lock().unwrap().clone();
     assert_eq!(
@@ -291,7 +291,7 @@ fn set_text_data_on_non_text_entity_returns_none_and_does_not_fire() {
     let element = elem(&mut dom, "div");
 
     let events = install_mock(&mut dom);
-    assert_eq!(dom.set_text_data(element, "ignored".to_string()), None);
+    assert_eq!(dom.set_text_data(element, "ignored"), None);
 
     assert!(events.lock().unwrap().is_empty());
 }
@@ -305,7 +305,7 @@ fn set_text_data_utf16_length_counts_surrogate_pair_as_two() {
 
     let events = install_mock(&mut dom);
     // "A<emoji>B" = 3 chars but 4 UTF-16 code units (surrogate pair = 2).
-    let len = dom.set_text_data(text, "A\u{1F600}B".to_string());
+    let len = dom.set_text_data(text, "A\u{1F600}B");
     assert_eq!(len, Some(4));
 
     let log = events.lock().unwrap().clone();
@@ -326,7 +326,7 @@ fn set_text_data_empty_string() {
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
-    assert_eq!(dom.set_text_data(text, String::new()), Some(0));
+    assert_eq!(dom.set_text_data(text, ""), Some(0));
 
     let log = events.lock().unwrap().clone();
     assert_eq!(

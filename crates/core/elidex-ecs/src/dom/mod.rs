@@ -99,15 +99,19 @@ impl EcsDom {
     /// updates through this method to ensure Range live-tracking hook fire
     /// consistency.
     ///
+    /// Takes `&str` and uses [`str::clone_into`] so the existing
+    /// `TextContent` buffer's capacity is reused — frequent CharacterData
+    /// updates do not re-allocate.
+    ///
     /// **NOT for Comment nodes** — Comment uses a separate `CommentData`
     /// component which is NOT covered by Range live-tracking spec (§5.5
     /// covers Text only, not Comment). Comment writes continue to use the
     /// existing `set_char_data` Comment branch unchanged.
-    pub fn set_text_data(&mut self, entity: Entity, text: String) -> Option<usize> {
+    pub fn set_text_data(&mut self, entity: Entity, text: &str) -> Option<usize> {
         let new_utf16_len = {
             let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
             let len = text.encode_utf16().count();
-            tc.0 = text;
+            text.clone_into(&mut tc.0);
             len
         };
         if let Some(hook) = self.mutation_hook.as_mut() {

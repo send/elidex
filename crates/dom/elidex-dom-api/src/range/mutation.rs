@@ -82,7 +82,7 @@ impl Range {
                 let start = utf16_offset_to_byte_clamped(&text, self.start_offset);
                 let end = utf16_offset_to_byte_clamped(&text, self.end_offset);
                 let new_text = format!("{}{}", &text[..start], &text[end..]);
-                let _ = dom.set_text_data(self.start_container, new_text);
+                let _ = dom.set_text_data(self.start_container, &new_text);
                 self.end_offset = self.start_offset;
                 return;
             }
@@ -104,7 +104,7 @@ impl Range {
             .map(|tc| tc.0.clone())
         {
             let start = utf16_offset_to_byte_clamped(&start_text, self.start_offset);
-            let _ = dom.set_text_data(self.start_container, start_text[..start].to_string());
+            let _ = dom.set_text_data(self.start_container, &start_text[..start]);
         }
 
         // 2. Truncate end text node.
@@ -114,7 +114,7 @@ impl Range {
             .map(|tc| tc.0.clone())
         {
             let end = utf16_offset_to_byte_clamped(&end_text, self.end_offset);
-            let _ = dom.set_text_data(self.end_container, end_text[end..].to_string());
+            let _ = dom.set_text_data(self.end_container, &end_text[end..]);
         }
 
         // 3. Remove fully-contained nodes between start and end.
@@ -165,7 +165,7 @@ impl Range {
                 let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
                 let extracted = text[start_byte..end_byte].to_string();
                 let remaining = format!("{}{}", &text[..start_byte], &text[end_byte..]);
-                let _ = dom.set_text_data(self.start_container, remaining);
+                let _ = dom.set_text_data(self.start_container, &remaining);
                 if !extracted.is_empty() {
                     let text_node = dom.create_text(&extracted);
                     let _ = dom.append_child(frag, text_node);
@@ -196,8 +196,7 @@ impl Range {
                 .unwrap_or_default();
             let start_byte = utf16_offset_to_byte_clamped(&text, self.start_offset);
             let tail = text[start_byte..].to_string();
-            let head = text[..start_byte].to_string();
-            let _ = dom.set_text_data(self.start_container, head);
+            let _ = dom.set_text_data(self.start_container, &text[..start_byte]);
             if !tail.is_empty() {
                 let text_node = dom.create_text(&tail);
                 let _ = dom.append_child(frag, text_node);
@@ -240,8 +239,7 @@ impl Range {
                 .unwrap_or_default();
             let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
             let head = text[..end_byte].to_string();
-            let tail = text[end_byte..].to_string();
-            let _ = dom.set_text_data(self.end_container, tail);
+            let _ = dom.set_text_data(self.end_container, &text[end_byte..]);
             if !head.is_empty() {
                 let text_node = dom.create_text(&head);
                 let _ = dom.append_child(frag, text_node);
@@ -270,10 +268,9 @@ impl Range {
 
             if let Some(parent) = parent {
                 let byte_offset = utf16_offset_to_byte_clamped(&text, self.start_offset);
-                let head = text[..byte_offset].to_string();
                 let tail = text[byte_offset..].to_string();
 
-                let _ = dom.set_text_data(self.start_container, head);
+                let _ = dom.set_text_data(self.start_container, &text[..byte_offset]);
 
                 let tail_node = dom.create_text(&tail);
 

@@ -42,9 +42,10 @@ pub(crate) fn set_char_data(
     // Try the Text/CData branch first: `set_text_data` returns `Some`
     // iff the entity has a `TextContent` component, so its `Option`
     // result doubles as the branch discriminator and saves a duplicate
-    // lookup. The `to_owned()` is wasted on the rare Comment fallthrough,
-    // but the common Text path stays single-lookup + single-allocation.
-    if dom.set_text_data(entity, data.to_owned()).is_some() {
+    // lookup. `set_text_data` takes `&str` and reuses the existing
+    // `TextContent` buffer capacity, so the Text path stays
+    // single-lookup with no extra allocation.
+    if dom.set_text_data(entity, data).is_some() {
         return Ok(());
     }
     if let Ok(mut cd) = dom.world_mut().get::<&mut CommentData>(entity) {
