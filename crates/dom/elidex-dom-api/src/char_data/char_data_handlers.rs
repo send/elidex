@@ -34,6 +34,11 @@ pub(crate) fn get_char_data(entity: Entity, dom: &EcsDom) -> Result<String, DomA
 /// Range live-tracking).  Comment writes update `CommentData` in place; per
 /// WHATWG §5.5 Range live-tracking does not cover Comment nodes, so no
 /// hook fires for that branch.
+///
+/// Both branches are self-contained for cache invalidation: the Text
+/// path inherits the `rev_version(entity)` call inside `set_text_data`,
+/// and the Comment path bumps `rev_version(entity)` explicitly. Callers
+/// MUST NOT re-bump `rev_version` after this call.
 pub(crate) fn set_char_data(
     entity: Entity,
     dom: &mut EcsDom,
@@ -48,8 +53,19 @@ pub(crate) fn set_char_data(
     if dom.set_text_data(entity, data).is_some() {
         return Ok(());
     }
-    if let Ok(mut cd) = dom.world_mut().get::<&mut CommentData>(entity) {
-        data.clone_into(&mut cd.0);
+    let comment_present = {
+        if let Ok(mut cd) = dom.world_mut().get::<&mut CommentData>(entity) {
+            data.clone_into(&mut cd.0);
+            true
+        } else {
+            false
+        }
+    };
+    if comment_present {
+        // Comment writes don't go through `set_text_data` (it's
+        // Text/CData-only per the docstring), so bump the version
+        // here to match the Text path's invariant.
+        dom.rev_version(entity);
         return Ok(());
     }
     Err(DomApiError {
@@ -201,7 +217,6 @@ impl DomApiHandler for SetData {
     ) -> Result<JsValue, DomApiError> {
         let data = require_string_arg(args, 0)?;
         set_char_data(this, dom, &data)?;
-        dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
 }
@@ -282,7 +297,6 @@ impl DomApiHandler for AppendData {
         let mut existing = get_char_data(this, dom)?;
         existing.push_str(&append_str);
         set_char_data(this, dom, &existing)?;
-        dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
 }
@@ -310,7 +324,6 @@ impl DomApiHandler for InsertData {
         }
         let result = splice_utf16(&data, offset, 0, Some(&insert_str));
         set_char_data(this, dom, &result)?;
-        dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
 }
@@ -338,7 +351,6 @@ impl DomApiHandler for DeleteData {
         }
         let result = splice_utf16(&data, offset, count, None);
         set_char_data(this, dom, &result)?;
-        dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
 }
@@ -367,7 +379,6 @@ impl DomApiHandler for ReplaceData {
         }
         let result = splice_utf16(&data, offset, count, Some(&replace_str));
         set_char_data(this, dom, &result)?;
-        dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
 }

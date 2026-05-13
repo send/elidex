@@ -326,8 +326,9 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
         .get::<&TextContent>(entity)
         .ok()
         .map(|tc| tc.0.clone());
+    // `set_text_data` bumps `rev_version(entity)` internally, so we
+    // do not call it here.
     dom.set_text_data(entity, text)?;
-    dom.rev_version(entity);
     Some(MutationRecord {
         old_value,
         ..empty_record(MutationKind::CharacterData, entity)
