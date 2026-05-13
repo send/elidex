@@ -73,13 +73,20 @@ impl Range {
 
         // Same container, text node: just delete the substring.
         if self.start_container == self.end_container {
-            if let Ok(mut tc) = dom
-                .world_mut()
-                .get::<&mut TextContent>(self.start_container)
-            {
-                let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
-                let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
-                tc.0 = format!("{}{}", &tc.0[..start], &tc.0[end..]);
+            // Build the spliced new_text from borrowed slices of `tc.0`,
+            // dropping the immutable borrow before the `set_text_data`
+            // mutable call. Avoids an intermediate full-string clone.
+            let new_text = dom
+                .world()
+                .get::<&TextContent>(self.start_container)
+                .ok()
+                .map(|tc| {
+                    let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
+                    let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
+                    format!("{}{}", &tc.0[..start], &tc.0[end..])
+                });
+            if let Some(new_text) = new_text {
+                let _ = dom.set_text_data(self.start_container, &new_text);
                 self.end_offset = self.start_offset;
                 return;
             }
@@ -94,19 +101,34 @@ impl Range {
         }
 
         // Different containers: simplified approach.
-        // 1. Truncate start text node.
-        if let Ok(mut tc) = dom
-            .world_mut()
-            .get::<&mut TextContent>(self.start_container)
-        {
-            let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
-            tc.0 = tc.0[..start].to_string();
+        // 1. Truncate start text node — keep only the leading slice
+        //    `[..start]`. Build the new String inside a short scope so
+        //    the immutable `TextContent` borrow is released before the
+        //    `set_text_data` mutable call, avoiding the full clone.
+        let start_head = dom
+            .world()
+            .get::<&TextContent>(self.start_container)
+            .ok()
+            .map(|tc| {
+                let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
+                tc.0[..start].to_owned()
+            });
+        if let Some(head) = start_head {
+            let _ = dom.set_text_data(self.start_container, &head);
         }
 
-        // 2. Truncate end text node.
-        if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(self.end_container) {
-            let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
-            tc.0 = tc.0[end..].to_string();
+        // 2. Truncate end text node — keep only the trailing slice
+        //    `[end..]`.
+        let end_tail = dom
+            .world()
+            .get::<&TextContent>(self.end_container)
+            .ok()
+            .map(|tc| {
+                let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
+                tc.0[end..].to_owned()
+            });
+        if let Some(tail) = end_tail {
+            let _ = dom.set_text_data(self.end_container, &tail);
         }
 
         // 3. Remove fully-contained nodes between start and end.
@@ -157,12 +179,7 @@ impl Range {
                 let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
                 let extracted = text[start_byte..end_byte].to_string();
                 let remaining = format!("{}{}", &text[..start_byte], &text[end_byte..]);
-                if let Ok(mut tc) = dom
-                    .world_mut()
-                    .get::<&mut TextContent>(self.start_container)
-                {
-                    tc.0 = remaining;
-                }
+                let _ = dom.set_text_data(self.start_container, &remaining);
                 if !extracted.is_empty() {
                     let text_node = dom.create_text(&extracted);
                     let _ = dom.append_child(frag, text_node);
@@ -193,13 +210,7 @@ impl Range {
                 .unwrap_or_default();
             let start_byte = utf16_offset_to_byte_clamped(&text, self.start_offset);
             let tail = text[start_byte..].to_string();
-            let head = text[..start_byte].to_string();
-            if let Ok(mut tc) = dom
-                .world_mut()
-                .get::<&mut TextContent>(self.start_container)
-            {
-                tc.0 = head;
-            }
+            let _ = dom.set_text_data(self.start_container, &text[..start_byte]);
             if !tail.is_empty() {
                 let text_node = dom.create_text(&tail);
                 let _ = dom.append_child(frag, text_node);
@@ -242,10 +253,7 @@ impl Range {
                 .unwrap_or_default();
             let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
             let head = text[..end_byte].to_string();
-            let tail = text[end_byte..].to_string();
-            if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(self.end_container) {
-                tc.0 = tail;
-            }
+            let _ = dom.set_text_data(self.end_container, &text[end_byte..]);
             if !head.is_empty() {
                 let text_node = dom.create_text(&head);
                 let _ = dom.append_child(frag, text_node);
@@ -274,15 +282,9 @@ impl Range {
 
             if let Some(parent) = parent {
                 let byte_offset = utf16_offset_to_byte_clamped(&text, self.start_offset);
-                let head = text[..byte_offset].to_string();
                 let tail = text[byte_offset..].to_string();
 
-                if let Ok(mut tc) = dom
-                    .world_mut()
-                    .get::<&mut TextContent>(self.start_container)
-                {
-                    tc.0 = head;
-                }
+                let _ = dom.set_text_data(self.start_container, &text[..byte_offset]);
 
                 let tail_node = dom.create_text(&tail);
 

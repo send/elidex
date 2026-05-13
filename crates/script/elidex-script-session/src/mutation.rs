@@ -321,11 +321,14 @@ fn apply_remove_attribute(dom: &mut EcsDom, entity: Entity, name: &str) -> Optio
 }
 
 fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<MutationRecord> {
-    let mut tc = dom.world_mut().get::<&mut TextContent>(entity).ok()?;
-    let old_value = Some(tc.0.clone());
-    text.clone_into(&mut tc.0);
-    drop(tc);
-    dom.rev_version(entity);
+    let old_value = dom
+        .world()
+        .get::<&TextContent>(entity)
+        .ok()
+        .map(|tc| tc.0.clone());
+    // `set_text_data` bumps `rev_version(entity)` internally, so we
+    // do not call it here.
+    dom.set_text_data(entity, text)?;
     Some(MutationRecord {
         old_value,
         ..empty_record(MutationKind::CharacterData, entity)

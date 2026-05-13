@@ -116,9 +116,7 @@ impl Normalize {
                         .map(|t| t.0.clone())
                         .unwrap_or_default();
                     let merged = prev_text_val + &text;
-                    if let Ok(mut tc) = dom.world_mut().get::<&mut TextContent>(prev) {
-                        tc.0 = merged;
-                    }
+                    let _ = dom.set_text_data(prev, &merged);
                     let ok = dom.remove_child(entity, child);
                     debug_assert!(ok, "remove_child: child from get_first_child walk");
                     dom.rev_version(entity);

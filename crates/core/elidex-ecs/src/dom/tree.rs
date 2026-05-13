@@ -27,11 +27,15 @@ impl EcsDom {
             return false;
         }
 
-        self.detach(child);
+        self.detach_with_hook(child, parent);
 
         let last_child = self.read_rel(parent, |rel| rel.last_child);
         self.link_node(parent, child, last_child, None);
         self.rev_version(parent);
+
+        if let Some(new_index) = self.index_in_parent(child) {
+            self.fire_after_insert(child, parent, new_index);
+        }
 
         true
     }
@@ -48,8 +52,12 @@ impl EcsDom {
         if !self.is_child_of(child, parent) {
             return false;
         }
+        let removed_index = self.index_in_parent(child);
         self.detach(child);
         self.rev_version(parent);
+        if let Some(idx) = removed_index {
+            self.fire_after_remove(child, parent, idx);
+        }
         true
     }
 
@@ -73,14 +81,19 @@ impl EcsDom {
             return false;
         }
 
-        // Detach new_child from its current position.
-        self.detach(new_child);
+        // Detach new_child from its current position (fires after_remove
+        // on the implicit old-parent removal, per WHATWG insert algorithm).
+        self.detach_with_hook(new_child, parent);
 
         // Re-read ref_child's prev_sibling AFTER detach (it may have changed
         // if new_child was an adjacent sibling).
         let ref_prev = self.read_rel(ref_child, |rel| rel.prev_sibling);
         self.link_node(parent, new_child, ref_prev, Some(ref_child));
         self.rev_version(parent);
+
+        if let Some(new_index) = self.index_in_parent(new_child) {
+            self.fire_after_insert(new_child, parent, new_index);
+        }
 
         true
     }
@@ -110,8 +123,16 @@ impl EcsDom {
             return false;
         }
 
-        // Detach new_child from its current position (validation passed).
-        self.detach(new_child);
+        // Detach new_child from its current position (fires after_remove on
+        // the implicit old-parent removal, per WHATWG replace algorithm step
+        // "If node has a parent, then remove node").
+        self.detach_with_hook(new_child, parent);
+
+        // Capture old_child's index AFTER detach so that — when new_child was
+        // an earlier sibling of old_child in the same parent — the index
+        // reflects old_child's actual position at the moment of removal
+        // (WHATWG DOM §5.5 "remove a node" step 4).
+        let old_index = self.index_in_parent(old_child);
 
         // Re-read old_child's siblings AFTER detach (they may have changed
         // if new_child was an adjacent sibling).
@@ -124,6 +145,11 @@ impl EcsDom {
         // Clear old_child's tree links.
         self.clear_rel(old_child);
         self.rev_version(parent);
+
+        if let Some(idx) = old_index {
+            self.fire_after_remove(old_child, parent, idx);
+            self.fire_after_insert(new_child, parent, idx);
+        }
 
         true
     }
@@ -138,6 +164,23 @@ impl EcsDom {
     /// `ShadowHost` component is removed. If the entity is a shadow host,
     /// the shadow root's `ShadowRoot` component is removed. This prevents
     /// stale cross-references after destruction.
+    ///
+    /// # Mutation hook contract
+    ///
+    /// Fires [`MutationHook::after_remove`](super::MutationHook::after_remove)
+    /// exactly once if `entity` has a parent AND `entity` is not itself a
+    /// shadow root, with the pre-removal index in the parent's child
+    /// list. Descendant entities orphaned by the destroy do NOT receive
+    /// individual `after_remove` calls — this is a "hard delete" with no
+    /// per-descendant notification.
+    ///
+    /// Consumers (e.g. `LiveRangeRegistry`) MUST tolerate dangling boundary
+    /// container references and lazily collapse such Ranges on next access
+    /// (e.g. by checking [`Self::contains`] before use). Shadow roots are
+    /// suppressed explicitly per the light-tree-only contract: although
+    /// `attach_shadow` sets `TreeRelation.parent = Some(host)`, shadow
+    /// roots are not exposed as DOM children, and shadow-tree boundaries
+    /// are the consumer's responsibility per WHATWG §5.5.
     ///
     /// Returns `false` if the entity does not exist.
     #[must_use = "returns false if the entity does not exist"]
@@ -163,8 +206,9 @@ impl EcsDom {
             let _ = self.world.remove_one::<ShadowRoot>(sr);
         }
 
-        // Capture parent for version bump before detach.
+        // Capture parent + pre-removal index for hook fire before detach.
         let parent = self.get_parent(entity);
+        let removed_index = parent.and_then(|_| self.index_in_parent(entity));
 
         self.detach(entity);
 
@@ -176,6 +220,15 @@ impl EcsDom {
             let next = self.read_rel(c, |rel| rel.next_sibling);
             self.clear_rel(c);
             child = next;
+        }
+
+        // Fire BEFORE despawn so the shadow-root suppression check
+        // inside `fire_after_remove` (which inspects `entity`'s
+        // `ShadowRoot` component) still sees the live entity. Consumers
+        // observing during the callback may still inspect the entity
+        // (e.g. `is_shadow_root`); the next instruction despawns it.
+        if let (Some(p), Some(idx)) = (parent, removed_index) {
+            self.fire_after_remove(entity, p, idx);
         }
 
         let _ = self.world.despawn(entity);
@@ -278,6 +331,121 @@ impl EcsDom {
     #[must_use]
     pub fn get_prev_sibling(&self, entity: Entity) -> Option<Entity> {
         self.read_rel(entity, |rel| rel.prev_sibling)
+    }
+
+    /// Returns the **exposed** (light-tree) index of `entity` in its
+    /// parent's child list, or `None` if `entity` has no parent OR the
+    /// sibling walk hits the corruption guard [`MAX_ANCESTOR_DEPTH`].
+    ///
+    /// Walks the `prev_sibling` chain to count predecessors (O(siblings)).
+    /// Shadow-root siblings are **skipped** so the count matches the
+    /// indices yielded by [`Self::children_iter`] / [`Self::children`],
+    /// which excludes [`ShadowRoot`] entities from the exposed child
+    /// list. Used by [`MutationHook`](super::MutationHook) fire sites to
+    /// capture the pre-mutation index without paying the O(n²) cost of
+    /// `children_iter(parent).count()`.
+    ///
+    /// `None` on depth-cap is intentional: hook consumers (e.g. Range
+    /// live-tracking) depend on the returned index for correctness, so
+    /// signalling corruption is safer than handing them a truncated
+    /// count.
+    #[must_use]
+    pub fn index_in_parent(&self, entity: Entity) -> Option<usize> {
+        self.get_parent(entity)?;
+        let mut index = 0usize;
+        let mut current = self.get_prev_sibling(entity);
+        let mut depth = 0;
+        while let Some(prev) = current {
+            // Skip shadow-root siblings — they are not exposed as DOM
+            // children, so light-tree consumers see the host's
+            // remaining children with the lower index.
+            if self.world.get::<&ShadowRoot>(prev).is_err() {
+                index += 1;
+            }
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                return None;
+            }
+            current = self.get_prev_sibling(prev);
+        }
+        Some(index)
+    }
+
+    /// Returns `true` if `entity` carries a [`ShadowRoot`] component.
+    /// Shadow roots are internal to the engine and not exposed as
+    /// light-tree children; [`MutationHook`](super::MutationHook) fire
+    /// sites suppress events whose subject is a shadow root.
+    pub(super) fn is_shadow_root(&self, entity: Entity) -> bool {
+        self.world.get::<&ShadowRoot>(entity).is_ok()
+    }
+
+    /// Centralized `after_insert` fire site for tree mutations.
+    ///
+    /// Per the light-tree-only contract of
+    /// [`MutationHook`](super::MutationHook), the callback is suppressed
+    /// when **either** `node` or `parent` is itself a shadow root —
+    /// shadow roots are internal to the engine and shadow-tree
+    /// mutations under the root must not surface to light-tree
+    /// consumers (e.g. Range live-tracking). Deeper mutations within
+    /// the shadow tree (where `parent` is a normal element inside the
+    /// shadow tree) are NOT filtered here — those consumers should
+    /// filter by tree root if they want light-tree-only events.
+    fn fire_after_insert(&mut self, node: Entity, parent: Entity, index: usize) {
+        if self.is_shadow_root(node) || self.is_shadow_root(parent) {
+            return;
+        }
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_insert(node, parent, index);
+        }
+    }
+
+    /// Centralized `after_remove` fire site for tree mutations.
+    /// Suppression rules match [`Self::fire_after_insert`].
+    fn fire_after_remove(&mut self, node: Entity, parent: Entity, index: usize) {
+        if self.is_shadow_root(node) || self.is_shadow_root(parent) {
+            return;
+        }
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_remove(node, parent, index);
+        }
+    }
+
+    /// Detach `child` from its current parent and fire `after_remove` on
+    /// the installed [`MutationHook`](super::MutationHook), if any.
+    ///
+    /// Used by `append_child` / `insert_before` / `replace_child` to
+    /// notify consumers of the **implicit** removal that happens when a
+    /// node is moved between parents (WHATWG DOM "insert" algorithm step
+    /// "If node has a parent, then remove node"). Returns `false` when
+    /// `child` has no parent (nothing to detach).
+    ///
+    /// `new_parent` is the parent the caller is about to re-link `child`
+    /// into. When `old_parent == new_parent` the caller's post-link
+    /// `rev_version(new_parent)` already covers the bump, so the
+    /// version-tracking call here is skipped to avoid a redundant
+    /// ancestor-walk per same-parent move.
+    ///
+    /// Per the light-tree-only contract of `MutationHook`, the
+    /// `after_remove` callback is suppressed when `child` is itself a
+    /// shadow root — shadow roots have a `TreeRelation.parent` set to
+    /// the host (via the internal `attach_shadow → append_child`
+    /// plumbing), but are not exposed as DOM children.
+    fn detach_with_hook(&mut self, child: Entity, new_parent: Entity) -> bool {
+        let Some(old_parent) = self.get_parent(child) else {
+            return false;
+        };
+        let old_index = self.index_in_parent(child);
+        self.detach(child);
+        // Only bump the old parent's version when it differs from the
+        // new parent. Same-parent moves rely on the caller's
+        // post-link `rev_version(new_parent)`.
+        if old_parent != new_parent {
+            self.rev_version(old_parent);
+        }
+        if let Some(idx) = old_index {
+            self.fire_after_remove(child, old_parent, idx);
+        }
+        true
     }
 
     /// Return the first child of `parent` that is an element (has a

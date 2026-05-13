@@ -88,6 +88,12 @@ pub use node_methods::{
     IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
 };
 pub use range::{adjust_ranges_for_removal, adjust_ranges_for_text_change, Range};
+// `adjust_ranges_for_insertion` is intentionally NOT re-exported yet —
+// it is a forward-stub for D-8 PR-A's `LiveRangeRegistry` (an in-crate
+// consumer reachable via `crate::range::adjust_ranges_for_insertion`).
+// PR-A will widen the visibility to `pub use` if/when an external
+// consumer needs it, keeping the public API surface minimal until
+// then.
 pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
 pub use traversal::{
     NodeIterator, TreeWalker, SHOW_ALL, SHOW_COMMENT, SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,

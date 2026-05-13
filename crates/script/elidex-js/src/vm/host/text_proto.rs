@@ -92,11 +92,21 @@ fn native_text_split_text(
     let offset = super::super::coerce::to_uint32(ctx.vm, offset_arg)? as usize;
 
     let dom = ctx.host().dom();
-    let current = dom
-        .world()
-        .get::<&elidex_ecs::TextContent>(entity)
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
+    // Verify the receiver actually carries a `TextContent` payload
+    // BEFORE any mutation. The brand check above accepts entities
+    // tagged `NodeKind::Text` without a `TextContent` payload (via
+    // `node_kind_inferred`); catching that early lets us surface a
+    // clean `TypeError` without firing `after_insert` for a trailing
+    // node that we would then need to roll back.
+    let current = match dom.world().get::<&elidex_ecs::TextContent>(entity) {
+        Ok(tc) => tc.0.clone(),
+        Err(_) => {
+            return Err(VmError::type_error(
+                "Failed to execute 'splitText' on 'Text': \
+                 receiver is missing a TextContent payload.",
+            ));
+        }
+    };
     let units: Vec<u16> = current.encode_utf16().collect();
     let len = units.len();
     if offset > len {
@@ -133,8 +143,25 @@ fn native_text_split_text(
             ));
         }
     }
-    if let Ok(mut text) = dom.world_mut().get::<&mut elidex_ecs::TextContent>(entity) {
-        text.0 = left;
+    // Route through `set_text_data` so an installed `MutationHook` (e.g.
+    // D-8 PR-A `LiveRangeRegistry`) sees the head-truncate as a normal text
+    // change. WHATWG §5.5 "Split text steps" boundary re-targeting from
+    // `entity` to `new_entity` is bespoke and handled by PR-A inline; this
+    // call only covers the simpler clamp-to-new-length aspect.
+    //
+    // `TextContent` presence was verified at function entry; nothing
+    // between that check and this call removes the component, so
+    // `set_text_data` returning `None` should never happen in practice.
+    // We still treat the `None` arm as a recoverable internal error
+    // (rollback the inserted trailing node + return a `VmError`) rather
+    // than panicking, so untrusted JS cannot crash the engine even if
+    // the invariant ever breaks.
+    if dom.set_text_data(entity, &left).is_none() {
+        let _ = dom.destroy_entity(new_entity);
+        return Err(VmError::type_error(
+            "Failed to execute 'splitText' on 'Text': \
+             internal invariant violation (TextContent disappeared mid-operation).",
+        ));
     }
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }
