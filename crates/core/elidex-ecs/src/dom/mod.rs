@@ -89,6 +89,53 @@ impl EcsDom {
         self.mutation_hook.take()
     }
 
+    /// Fire [`MutationHook::after_split_text`] from a caller in another
+    /// crate. WHATWG DOM §4.10 "split a Text node" step 8.
+    ///
+    /// **Caller ordering contract** (per the trait method's docs): MUST
+    /// be invoked AFTER `new_node` has been inserted as a sibling of
+    /// `node` but BEFORE `node`'s text is truncated via
+    /// [`Self::set_text_data`]. If the order is reversed, the
+    /// `after_text_change` callback fired by `set_text_data` would
+    /// clamp boundaries on `node` to the truncated length and destroy
+    /// the offset needed for migration.
+    ///
+    /// Engine-independent `split_text_at_offset` in `elidex-dom-api`
+    /// owns the canonical split algorithm and routes the hook fire
+    /// through this thin pub helper so the mutation-hook field can stay
+    /// private.
+    pub fn fire_after_split_text(&mut self, node: Entity, new_node: Entity, offset_utf16: usize) {
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_split_text(node, new_node, offset_utf16);
+        }
+    }
+
+    /// Fire [`MutationHook::after_normalize_merge`] from a caller in
+    /// another crate. WHATWG DOM §4.5 "normalize" step 6.4.
+    ///
+    /// **Caller ordering contract** (per the trait method's docs): MUST
+    /// be invoked AFTER `prev` has absorbed `merged_child`'s data but
+    /// BEFORE `merged_child` is detached from its parent — firing
+    /// before detach lets the consumer migrate boundaries on
+    /// `merged_child` to `(prev, prev_old_len + off)` instead of
+    /// collapsing them to `(parent, child_idx)` via the subsequent
+    /// `after_remove` callback.
+    ///
+    /// Engine-independent `Normalize` handler in `elidex-dom-api` owns
+    /// the canonical merge algorithm and routes the hook fire through
+    /// this thin pub helper so the mutation-hook field can stay
+    /// private.
+    pub fn fire_after_normalize_merge(
+        &mut self,
+        merged_child: Entity,
+        prev: Entity,
+        prev_old_len_utf16: usize,
+    ) {
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_normalize_merge(merged_child, prev, prev_old_len_utf16);
+        }
+    }
+
     /// Replace the `TextContent` of an entity. Returns the new UTF-16 length
     /// on success, or `None` if the entity has no `TextContent` component.
     ///
@@ -121,6 +168,73 @@ impl EcsDom {
         self.rev_version(entity);
         if let Some(hook) = self.mutation_hook.as_mut() {
             hook.after_text_change(entity, new_utf16_len);
+        }
+        Some(new_utf16_len)
+    }
+
+    /// Primitive UTF-16 splice on a Text / CData entity's `TextContent`
+    /// (WHATWG DOM §4.10 "replace data" steps 1-7 storage mutation,
+    /// step 8-11 boundary adjustment is the hook consumer's
+    /// responsibility). Returns the new UTF-16 length on success, or
+    /// `None` if the entity has no `TextContent` component.
+    ///
+    /// **Bounds validation is the CALLER's responsibility** — this is
+    /// the engine-level splice primitive that `CharacterData` handlers
+    /// in `elidex-dom-api` (`appendData` / `insertData` / `deleteData`
+    /// / `replaceData`) route through after raising `IndexSizeError`
+    /// for `offset > utf16_len`. `count` IS clamped to `len - offset`
+    /// here to match the spec's silent clamp ("if offset+count is
+    /// greater than length, end at length", §11.2 step 6).
+    ///
+    /// Splitting through a surrogate pair (offset / end mid-pair) is
+    /// **spec-valid** — UTF-16 offsets ignore character boundaries —
+    /// and produces lone surrogates in the intermediate `Vec<u16>`.
+    /// Rust's `String` storage cannot represent lone surrogates, so the
+    /// result is rendered through `from_utf16_lossy` which substitutes
+    /// `U+FFFD` for each unpaired half. This matches the lossy-not-panic
+    /// contract pinned by `tests_character_data::*surrogate_pair*` and
+    /// mirrors `elidex-dom-api::char_data::splice_utf16`.
+    ///
+    /// On success:
+    /// - splices the UTF-16 view of `TextContent` in place,
+    /// - bumps [`Self::rev_version`] (cache invalidation),
+    /// - fires [`MutationHook::after_replace_data`] with
+    ///   `(entity, offset, count, replacement_utf16_len)`.
+    ///
+    /// **NOT for Comment nodes** (Comment uses `CommentData`, not
+    /// covered by WHATWG §5.5 Range live-tracking).
+    pub fn replace_text_data(
+        &mut self,
+        entity: Entity,
+        offset_utf16: usize,
+        count_utf16: usize,
+        replacement: &str,
+    ) -> Option<usize> {
+        let replacement_units: Vec<u16> = replacement.encode_utf16().collect();
+        let replacement_len = replacement_units.len();
+        let new_utf16_len = {
+            let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
+            let units: Vec<u16> = tc.0.encode_utf16().collect();
+            let len = units.len();
+            debug_assert!(
+                offset_utf16 <= len,
+                "replace_text_data: offset {offset_utf16} exceeds UTF-16 length {len}; \
+                 caller must validate via `offset > utf16_len(&data)` before invocation"
+            );
+            let end = offset_utf16.saturating_add(count_utf16).min(len);
+            let mut out: Vec<u16> =
+                Vec::with_capacity(len - (end - offset_utf16) + replacement_len);
+            out.extend_from_slice(&units[..offset_utf16]);
+            out.extend_from_slice(&replacement_units);
+            out.extend_from_slice(&units[end..]);
+            let new_len = out.len();
+            let spliced = String::from_utf16_lossy(&out);
+            spliced.clone_into(&mut tc.0);
+            new_len
+        };
+        self.rev_version(entity);
+        if let Some(hook) = self.mutation_hook.as_mut() {
+            hook.after_replace_data(entity, offset_utf16, count_utf16, replacement_len);
         }
         Some(new_utf16_len)
     }
@@ -415,6 +529,39 @@ impl EcsDom {
     #[must_use]
     pub fn node_kind(&self, entity: Entity) -> Option<NodeKind> {
         self.world.get::<&NodeKind>(entity).ok().map(|k| *k)
+    }
+
+    /// Forward-stub returning `true` for any element entity — elidex
+    /// currently tracks only the HTML namespace, so every element is
+    /// in the HTML namespace by construction.
+    ///
+    /// Used by `Range::create_contextual_fragment` in `elidex-dom-api`
+    /// (DOM Parsing
+    /// §3.2 step 2) to gate the `<html>`-as-context override, where
+    /// only HTML-namespace `<html>` is rewritten to `<body>` for
+    /// parser-scope selection (SVG / MathML `<html>` must stay as-is).
+    /// Once SVG / MathML elements land they will carry an explicit
+    /// namespace component and this stub will branch on it; until then
+    /// the spec-conformant fast-path is `true`.
+    ///
+    /// ## Forward-stub contract
+    ///
+    /// **HTML-only**: elidex does not yet model SVG / MathML / XHTML
+    /// namespaces on element entities. When namespace tracking lands
+    /// (via a future `ElementNamespace` component or qualified-name
+    /// parser pass), this stub MUST be reworked to branch on the
+    /// actual namespace; call sites are designed to assume the stub
+    /// returns `true` only for HTML-namespace elements. Until then
+    /// `is_html_namespace(svg_element_someday) == true` is a known
+    /// forward deviation acceptable for HTML-only pages — tracked at
+    /// the `#11-element-namespace-tracking` defer slot.
+    ///
+    /// Returns `false` only when `entity` is not an element (defensive;
+    /// non-elements cannot be range contexts in practice — Text /
+    /// Comment contexts route through their parent first).
+    #[must_use]
+    pub fn is_html_namespace(&self, entity: Entity) -> bool {
+        self.is_element(entity)
     }
 
     /// Effective `NodeKind` — returns the explicit component when

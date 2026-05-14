@@ -3,16 +3,20 @@
 //! First user: D-8 PR-A `LiveRangeRegistry` (Range live-tracking per
 //! WHATWG DOM §5.5).
 //!
-//! Spec section coverage in this prereq PR:
+//! Spec section coverage (D-8 PR-A complete set, 6 methods):
 //! - §5.5 "Insert steps" → [`MutationHook::after_insert`] (pre-insertion index)
 //! - §5.5 "Remove steps" → [`MutationHook::after_remove`] (pre-removal index,
 //!   captured before detach)
-//! - §5.5 "Set/Replace data steps" → [`MutationHook::after_text_change`] via
-//!   the [`crate::EcsDom::set_text_data`] chokepoint
-//!
-//! DEFERRED to D-8 PR-A (LiveRangeRegistry will handle inline):
-//! - §5.5 "Split text steps" — boundary re-targeting from old to new text node
-//!   (bespoke per-method spec algorithm, NOT derivable from current 3 hooks)
+//! - §5.5 "Set data steps" (whole-string write) →
+//!   [`MutationHook::after_text_change`] via the
+//!   [`crate::EcsDom::set_text_data`] chokepoint
+//! - §4.10 "replace data" middle-splice (appendData / insertData /
+//!   deleteData / replaceData) → [`MutationHook::after_replace_data`] via
+//!   the [`crate::EcsDom::replace_text_data`] chokepoint
+//! - §4.10 "split text" → [`MutationHook::after_split_text`] (caller-side
+//!   fire via [`crate::EcsDom::fire_after_split_text`])
+//! - §4.5 "normalize" step 6.4 → [`MutationHook::after_normalize_merge`]
+//!   (caller-side fire via [`crate::EcsDom::fire_after_normalize_merge`])
 //!
 //! DEFERRED to future MutationObserver PR:
 //! - `after_attribute_change` — needs `old_value` + `namespace` for §4.3.5;
@@ -81,17 +85,100 @@ pub trait MutationHook: Send + Sync {
     ///   comparison).
     fn after_insert(&mut self, _node: Entity, _parent: Entity, _index: usize) {}
 
-    /// Called AFTER a Text / CData entity's `TextContent` changes.
+    /// Called AFTER a Text / CData entity's `TextContent` is rewritten as
+    /// a single whole-string assignment (e.g. `set_text_data` /
+    /// `textContent` setter / `Normalize` whole-text replacement).
     ///
     /// - `node`: the entity whose `TextContent` was rewritten.
     /// - `new_utf16_len`: the new UTF-16 length of the `TextContent`. WHATWG
-    ///   DOM §5.5 "Set/Replace data steps" clamps Range boundaries on `node`
-    ///   to `min(offset, new_utf16_len)`.
+    ///   DOM §5.5 "Set data steps" clamps Range boundaries on `node` to
+    ///   `min(offset, new_utf16_len)`.
     ///
-    /// Note: `splitText` boundary re-targeting from old to new text node is
-    /// NOT covered by this hook — D-8 PR-A `LiveRangeRegistry` handles it
-    /// inline within `Text.splitText` impl. Comment nodes are NOT covered by
-    /// WHATWG §5.5 Range live-tracking, so `CommentData` writes do not fire
-    /// this hook.
+    /// Comment nodes are NOT covered by WHATWG §5.5 Range live-tracking, so
+    /// `CommentData` writes do not fire this hook.
+    ///
+    /// Middle-splice operations (appendData / insertData / deleteData /
+    /// replaceData) fire [`Self::after_replace_data`] instead, not this
+    /// method — the spec boundary-adjustment math is different.
     fn after_text_change(&mut self, _node: Entity, _new_utf16_len: usize) {}
+
+    /// Called AFTER an `appendData` / `insertData` / `deleteData` /
+    /// `replaceData` splice on a Text / CData entity (WHATWG DOM §4.10
+    /// "replace data" steps 8-11). Fires from the
+    /// [`crate::EcsDom::replace_text_data`] chokepoint.
+    ///
+    /// - `node`: the entity whose `TextContent` was spliced.
+    /// - `offset_utf16`: the UTF-16 offset where the splice started.
+    /// - `count_utf16`: the UTF-16 count that was removed at `offset`.
+    /// - `new_data_len_utf16`: the UTF-16 length of the inserted/replacement
+    ///   string (0 for `deleteData`, replacement-string length for the
+    ///   other three).
+    ///
+    /// Range live-tracking boundary adjustment per §4.10 step 8-11:
+    /// - Boundary on `node` with `off ∈ [offset, offset + count]` →
+    ///   collapse to `offset`.
+    /// - Boundary on `node` with `off > offset + count` →
+    ///   `off += new_data_len - count`.
+    /// - Other boundaries unchanged.
+    fn after_replace_data(
+        &mut self,
+        _node: Entity,
+        _offset_utf16: usize,
+        _count_utf16: usize,
+        _new_data_len_utf16: usize,
+    ) {
+    }
+
+    /// Called AFTER a `Text.splitText(offset)` operation (WHATWG DOM §4.10
+    /// "split a Text node" step 8).
+    ///
+    /// **Ordering invariant**: this hook fires AFTER `new_node` has been
+    /// inserted as a sibling of `node` but **BEFORE** `node`'s text is
+    /// truncated. Boundary-on-`node` boundaries with `off > offset` must be
+    /// MIGRATED to `(new_node, off - offset)` BEFORE the subsequent
+    /// `set_text_data(node, head)` fires [`Self::after_text_change`] (which
+    /// would otherwise clamp those boundaries on `node` to `head_len` and
+    /// destroy the offset needed for migration).
+    ///
+    /// - `node`: the original Text node (still holds the full pre-split
+    ///   text at the moment this fires).
+    /// - `new_node`: the newly-inserted sibling Text node holding the tail
+    ///   `[offset..]`.
+    /// - `offset_utf16`: the UTF-16 split point.
+    ///
+    /// Range live-tracking boundary adjustment per §4.10 step 8:
+    /// - Boundary on `node` with `off > offset` →
+    ///   migrate to `(new_node, off - offset)`.
+    /// - Boundary on `parent` with `idx > node_idx` → `idx += 1`
+    ///   (parent now has one extra child at `node_idx + 1`).
+    fn after_split_text(&mut self, _node: Entity, _new_node: Entity, _offset_utf16: usize) {}
+
+    /// Called BEFORE the remove-merged-child step of `Node.normalize()`
+    /// (WHATWG DOM §4.5 "normalize" step 6.4) on adjacent Text-node merge.
+    ///
+    /// **Ordering invariant**: this hook fires AFTER `prev` has absorbed
+    /// `merged_child`'s data but BEFORE `merged_child` is detached from its
+    /// parent. Firing before detach lets the consumer compute the migration
+    /// without the subsequent [`Self::after_remove`] callback collapsing the
+    /// boundary to `(parent, child_idx)` instead.
+    ///
+    /// - `merged_child`: the empty/redundant Text node about to be removed.
+    /// - `prev`: the Text node that absorbed `merged_child`'s data
+    ///   (`prev`'s `TextContent` already reflects the merged string when
+    ///   this fires).
+    /// - `prev_old_len_utf16`: the UTF-16 length of `prev`'s data BEFORE
+    ///   the merge (the migration offset shift).
+    ///
+    /// Range live-tracking boundary adjustment per §4.5 step 6.4:
+    /// - Boundary on `merged_child` at `off` →
+    ///   migrate to `(prev, prev_old_len + off)`.
+    /// - Boundary on `parent` at `child_idx` of `merged_child` →
+    ///   migrate to `(prev, prev_old_len)` (the merged splice point).
+    fn after_normalize_merge(
+        &mut self,
+        _merged_child: Entity,
+        _prev: Entity,
+        _prev_old_len_utf16: usize,
+    ) {
+    }
 }

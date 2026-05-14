@@ -115,8 +115,18 @@ impl Normalize {
                         .get::<&TextContent>(prev)
                         .map(|t| t.0.clone())
                         .unwrap_or_default();
+                    // WHATWG DOM §4.5 "normalize" step 6.4: capture
+                    // prev_text_val's UTF-16 length BEFORE the merge so
+                    // Range live-tracking can migrate boundaries on
+                    // `child` to `(prev, prev_old_len + off)`. Fire the
+                    // hook BEFORE remove_child so the boundary migration
+                    // runs before the subsequent `after_remove`
+                    // collapse would redirect them to `(entity,
+                    // child_idx)`.
+                    let prev_old_len = prev_text_val.encode_utf16().count();
                     let merged = prev_text_val + &text;
                     let _ = dom.set_text_data(prev, &merged);
+                    dom.fire_after_normalize_merge(child, prev, prev_old_len);
                     let ok = dom.remove_child(entity, child);
                     debug_assert!(ok, "remove_child: child from get_first_child walk");
                     dom.rev_version(entity);

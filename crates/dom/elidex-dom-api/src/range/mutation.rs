@@ -312,22 +312,52 @@ impl Range {
     /// Clone the contents of this range into a document fragment.
     ///
     /// Similar to `extract_contents` but does not modify the original DOM.
-    /// Currently a stub that extracts and re-inserts (TODO: proper clone).
+    /// Currently a stub that returns `None` so VM-side bindings can
+    /// throw `NotSupportedError` (WebIDL convention for unimplemented
+    /// methods on shipped interfaces). Full impl requires deep-cloning
+    /// DOM nodes (`clone_node_deep` already exists on EcsDom) PLUS the
+    /// partial-selection cases at the start / end of the range that
+    /// `extract_contents` handles for cross-container ranges. Tracked
+    /// at `#11-range-clone-and-surround-contents` defer slot — re-eval
+    /// when first WPT failure cites the absence.
     #[must_use]
     pub fn clone_contents(&self, _dom: &EcsDom) -> Option<Entity> {
-        // Stub — full implementation requires deep-cloning DOM nodes.
         None
     }
 
     /// Surround the range contents with a new parent node.
     ///
-    /// Currently a stub (requires extract + append + insert sequence).
-    pub fn surround_contents(&mut self, _dom: &mut EcsDom, _new_parent: Entity) {
-        // Stub — full implementation requires:
-        // 1. Check that range doesn't partially select a non-Text node
-        // 2. Extract contents
-        // 3. Append extracted to new_parent
-        // 4. Insert new_parent at range start
-        // 5. Select new_parent
+    /// Currently a stub returning `None` so VM-side bindings can throw
+    /// `InvalidStateError` per WHATWG DOM §4.4 — same defer slot as
+    /// [`Self::clone_contents`].
+    pub fn surround_contents(&mut self, _dom: &mut EcsDom, _new_parent: Entity) -> Option<()> {
+        None
+    }
+
+    /// Parse `markup` in the context of this range and return the
+    /// resulting fragment (DOM Parsing §3.2 "createContextualFragment").
+    ///
+    /// Stub for PR-A: returns `None` so VM-side bindings can throw a
+    /// well-defined error. Full impl requires:
+    /// 1. Resolve context element (start_container if Element, else
+    ///    its parent — Text / Comment / CData boundary contexts).
+    /// 2. Apply the `<html>` → `<body>` rewrite per §3.2 step 2 GATED
+    ///    on `dom.is_html_namespace(context)` (see
+    ///    [`elidex_ecs::EcsDom::is_html_namespace`] forward-stub).
+    /// 3. Call `elidex_html_parser::parse_html_fragment(markup,
+    ///    context_tag, fragment, dom)` — requires `elidex-dom-api` to
+    ///    take an `elidex-html-parser` dependency, which is currently
+    ///    avoided to keep the handler crate parser-independent. The
+    ///    sibling `insertAdjacentHTML` routes parsing through
+    ///    `elidex-script-session::mutation` (the canonical parser
+    ///    boundary); replicating that path here is a clean follow-up.
+    ///
+    /// Tracked at `#11-range-create-contextual-fragment` defer slot —
+    /// the `is_html_namespace` stub + `Range.owner_document` field are
+    /// already in place so the follow-up is purely the parser-call
+    /// wiring.
+    #[must_use]
+    pub fn create_contextual_fragment(&self, _markup: &str, _dom: &mut EcsDom) -> Option<Entity> {
+        None
     }
 }

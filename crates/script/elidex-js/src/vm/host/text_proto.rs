@@ -28,6 +28,7 @@ use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertySt
 use super::super::VmInner;
 use super::event_target::entity_from_this;
 
+use elidex_dom_api::char_data::split_text::{split_text_at_offset, SplitTextError};
 use elidex_ecs::NodeKind;
 
 impl VmInner {
@@ -60,10 +61,30 @@ impl VmInner {
 
 /// `Text.prototype.splitText(offset)` — WHATWG §4.11.
 ///
-/// Splits the Text node at the given UTF-16 code-unit offset.  The
-/// original node retains the substring `[0..offset]`; a new Text is
-/// allocated for `[offset..]` and inserted as the next sibling of
-/// `this`.  Returns the new Text wrapper.
+/// Marshalling-only wrapper around the engine-independent
+/// [`elidex_dom_api::char_data::split_text::split_text_at_offset`]
+/// algorithm, per the CLAUDE.md layering mandate ("VM host/ は
+/// marshalling 用途 (entity 取得 / 単純 attribute read / wrapper
+/// 生成) に限定"). Brand check + WebIDL `unsigned long` coercion
+/// happen here; the actual splice + Range live-tracking ordering
+/// (insert → fire_after_split_text → set_text_data) is in
+/// elidex-dom-api.
+///
+/// ## Caller-side Range parent-side adjustment (known deviation)
+///
+/// `split_text_at_offset` fires
+/// [`elidex_ecs::EcsDom::fire_after_split_text`] which (via the
+/// [`elidex_dom_api::range::LiveRangeRegistry`] bridge) applies only
+/// the **node-side** boundary migration (`off > offset` on the
+/// original text → `(new_node, off - offset)`). WHATWG §4.10 step 8
+/// also calls for a **parent-side** strict-greater increment, but
+/// the `after_insert` hook that fires from
+/// [`elidex_ecs::EcsDom::insert_before`] / `append_child` (inside
+/// `split_text_at_offset`) uses a strict-greater rule too — measured
+/// against `node_idx + 1` rather than `node_idx`. The single offset
+/// `node_idx + 1` therefore silently lags spec by one slot. See the
+/// `#11-split-text-parent-side-edge` defer slot for the follow-up
+/// trait-signature extension that would resolve this.
 ///
 /// Errors:
 /// - `RangeError` when `offset > length`.
@@ -91,77 +112,27 @@ fn native_text_split_text(
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let offset = super::super::coerce::to_uint32(ctx.vm, offset_arg)? as usize;
 
-    let dom = ctx.host().dom();
-    // Verify the receiver actually carries a `TextContent` payload
-    // BEFORE any mutation. The brand check above accepts entities
-    // tagged `NodeKind::Text` without a `TextContent` payload (via
-    // `node_kind_inferred`); catching that early lets us surface a
-    // clean `TypeError` without firing `after_insert` for a trailing
-    // node that we would then need to roll back.
-    let current = match dom.world().get::<&elidex_ecs::TextContent>(entity) {
-        Ok(tc) => tc.0.clone(),
-        Err(_) => {
-            return Err(VmError::type_error(
+    let new_entity =
+        split_text_at_offset(entity, offset, ctx.host().dom()).map_err(|e| match e {
+            SplitTextError::NotTextNode => VmError::type_error(
+                "Failed to execute 'splitText' on 'Text': this is not a Text node.",
+            ),
+            SplitTextError::MissingTextContent => VmError::type_error(
                 "Failed to execute 'splitText' on 'Text': \
                  receiver is missing a TextContent payload.",
-            ));
-        }
-    };
-    let units: Vec<u16> = current.encode_utf16().collect();
-    let len = units.len();
-    if offset > len {
-        return Err(VmError::range_error(format!(
-            "Failed to execute 'splitText' on 'Text': \
-             offset {offset} exceeds data length {len}."
-        )));
-    }
-    let (left_units, right_units) = units.split_at(offset);
-    // WHATWG §4.11 splitText offsets are UTF-16 code units, so the
-    // split can land between a surrogate pair per spec.  Our Rust
-    // `String` storage cannot represent lone surrogates; the lossy
-    // coercion here maps them to U+FFFD — a known Phase 2 limitation
-    // tied to the CharacterData WTF-16 buffer work (see
-    // `character_data_proto` module doc).
-    let left = String::from_utf16_lossy(left_units);
-    let right = String::from_utf16_lossy(right_units);
-
-    // Allocate the trailing Text node and thread it into place
-    // BEFORE mutating the original, so a rejected insertion leaves
-    // the tree unchanged and the original node's data intact.
-    let new_entity = dom.create_text(right);
-    if let Some(parent) = dom.get_parent(entity) {
-        let inserted = if let Some(next) = dom.get_next_sibling(entity) {
-            dom.insert_before(parent, new_entity, next)
-        } else {
-            dom.append_child(parent, new_entity)
-        };
-        if !inserted {
-            let _ = dom.destroy_entity(new_entity);
-            return Err(VmError::type_error(
+            ),
+            SplitTextError::OffsetOutOfBounds { offset, len } => VmError::range_error(format!(
+                "Failed to execute 'splitText' on 'Text': \
+                 offset {offset} exceeds data length {len}."
+            )),
+            SplitTextError::InsertFailed => VmError::type_error(
                 "Failed to execute 'splitText' on 'Text': \
                  could not insert the trailing Text node.",
-            ));
-        }
-    }
-    // Route through `set_text_data` so an installed `MutationHook` (e.g.
-    // D-8 PR-A `LiveRangeRegistry`) sees the head-truncate as a normal text
-    // change. WHATWG §5.5 "Split text steps" boundary re-targeting from
-    // `entity` to `new_entity` is bespoke and handled by PR-A inline; this
-    // call only covers the simpler clamp-to-new-length aspect.
-    //
-    // `TextContent` presence was verified at function entry; nothing
-    // between that check and this call removes the component, so
-    // `set_text_data` returning `None` should never happen in practice.
-    // We still treat the `None` arm as a recoverable internal error
-    // (rollback the inserted trailing node + return a `VmError`) rather
-    // than panicking, so untrusted JS cannot crash the engine even if
-    // the invariant ever breaks.
-    if dom.set_text_data(entity, &left).is_none() {
-        let _ = dom.destroy_entity(new_entity);
-        return Err(VmError::type_error(
-            "Failed to execute 'splitText' on 'Text': \
-             internal invariant violation (TextContent disappeared mid-operation).",
-        ));
-    }
+            ),
+            SplitTextError::InternalInvariant => VmError::type_error(
+                "Failed to execute 'splitText' on 'Text': \
+                 internal invariant violation (TextContent disappeared mid-operation).",
+            ),
+        })?;
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(new_entity)))
 }

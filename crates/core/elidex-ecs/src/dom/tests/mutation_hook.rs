@@ -27,6 +27,22 @@ enum MockEvent {
         node: Entity,
         new_utf16_len: usize,
     },
+    ReplaceData {
+        node: Entity,
+        offset: usize,
+        count: usize,
+        new_data_len: usize,
+    },
+    SplitText {
+        node: Entity,
+        new_node: Entity,
+        offset: usize,
+    },
+    NormalizeMerge {
+        merged_child: Entity,
+        prev: Entity,
+        prev_old_len: usize,
+    },
 }
 
 #[derive(Default, Clone)]
@@ -53,6 +69,39 @@ impl MutationHook for MockHook {
         self.events.lock().unwrap().push(MockEvent::TextChange {
             node,
             new_utf16_len,
+        });
+    }
+    fn after_replace_data(
+        &mut self,
+        node: Entity,
+        offset_utf16: usize,
+        count_utf16: usize,
+        new_data_len_utf16: usize,
+    ) {
+        self.events.lock().unwrap().push(MockEvent::ReplaceData {
+            node,
+            offset: offset_utf16,
+            count: count_utf16,
+            new_data_len: new_data_len_utf16,
+        });
+    }
+    fn after_split_text(&mut self, node: Entity, new_node: Entity, offset_utf16: usize) {
+        self.events.lock().unwrap().push(MockEvent::SplitText {
+            node,
+            new_node,
+            offset: offset_utf16,
+        });
+    }
+    fn after_normalize_merge(
+        &mut self,
+        merged_child: Entity,
+        prev: Entity,
+        prev_old_len_utf16: usize,
+    ) {
+        self.events.lock().unwrap().push(MockEvent::NormalizeMerge {
+            merged_child,
+            prev,
+            prev_old_len: prev_old_len_utf16,
         });
     }
 }
@@ -690,6 +739,165 @@ fn append_child_after_attach_shadow_reports_light_tree_index() {
             index: 0
         }]
     );
+}
+
+#[test]
+fn replace_text_data_fires_after_replace_data_with_offset_count_replacement_len() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hello");
+    assert!(dom.append_child(parent, text));
+
+    let events = install_mock(&mut dom);
+    // Replace "ell" (offset=1, count=3) with "XYZ" (replacement_len=3) →
+    // "hXYZo" (new total length 5).
+    assert_eq!(dom.replace_text_data(text, 1, 3, "XYZ"), Some(5));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::ReplaceData {
+            node: text,
+            offset: 1,
+            count: 3,
+            new_data_len: 3,
+        }]
+    );
+    let tc = dom.world().get::<&TextContent>(text).expect("TextContent");
+    assert_eq!(tc.0, "hXYZo");
+}
+
+#[test]
+fn replace_text_data_clamps_count_silently() {
+    // WHATWG §11.2 step 6: "if offset + count is greater than length,
+    // end at length". `replace_text_data` is the engine primitive, so
+    // it applies the clamp internally; bounds-validation (IndexSizeError
+    // for offset > len) is the caller's responsibility.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("abcde");
+    assert!(dom.append_child(parent, text));
+
+    let events = install_mock(&mut dom);
+    // count=99 past end → clamped to 4; "abcde" with offset=1 + delete
+    // "bcde" + insert "Z" → "aZ" (length 2). Hook still reports
+    // *original* count=99 (consumer applies its own clamp logic per
+    // §4.10 step 8-11; this matches the spec's "passed count" not the
+    // engine-clamped count).
+    assert_eq!(dom.replace_text_data(text, 1, 99, "Z"), Some(2));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::ReplaceData {
+            node: text,
+            offset: 1,
+            count: 99,
+            new_data_len: 1,
+        }]
+    );
+    let tc = dom.world().get::<&TextContent>(text).expect("TextContent");
+    assert_eq!(tc.0, "aZ");
+}
+
+#[test]
+fn replace_text_data_on_non_text_entity_returns_none_and_does_not_fire() {
+    let mut dom = EcsDom::new();
+    let element = elem(&mut dom, "div");
+
+    let events = install_mock(&mut dom);
+    assert_eq!(dom.replace_text_data(element, 0, 0, "x"), None);
+
+    assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn replace_text_data_bumps_inclusive_descendants_version() {
+    // Mirrors `set_text_data_bumps_inclusive_descendants_version`: the
+    // splice primitive must self-bump rev_version so callers don't
+    // need a redundant call.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hello");
+    assert!(dom.append_child(doc, parent));
+    assert!(dom.append_child(parent, text));
+
+    let before_doc = dom.inclusive_descendants_version(doc);
+    let before_text = dom.inclusive_descendants_version(text);
+
+    dom.replace_text_data(text, 1, 2, "X");
+
+    assert!(
+        dom.inclusive_descendants_version(text) > before_text,
+        "text node version did not advance after replace_text_data"
+    );
+    assert!(
+        dom.inclusive_descendants_version(doc) > before_doc,
+        "doc-root version did not advance — live collections rooted at \
+         document would miss the splice"
+    );
+}
+
+#[test]
+fn fire_after_split_text_helper_routes_to_hook() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hello world");
+    let new_text = dom.create_text("");
+    assert!(dom.append_child(parent, text));
+    assert!(dom.append_child(parent, new_text));
+
+    let events = install_mock(&mut dom);
+    dom.fire_after_split_text(text, new_text, 5);
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::SplitText {
+            node: text,
+            new_node: new_text,
+            offset: 5,
+        }]
+    );
+}
+
+#[test]
+fn fire_after_normalize_merge_helper_routes_to_hook() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let prev = dom.create_text("hello");
+    let merged_child = dom.create_text("world");
+    assert!(dom.append_child(parent, prev));
+    assert!(dom.append_child(parent, merged_child));
+
+    let events = install_mock(&mut dom);
+    // prev_old_len = 5 (len of "hello" before absorbing "world").
+    dom.fire_after_normalize_merge(merged_child, prev, 5);
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::NormalizeMerge {
+            merged_child,
+            prev,
+            prev_old_len: 5,
+        }]
+    );
+}
+
+#[test]
+fn fire_helpers_silent_when_no_hook_installed() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hi");
+    let new_text = dom.create_text("");
+    assert!(dom.append_child(parent, text));
+    assert!(dom.append_child(parent, new_text));
+
+    // No hook installed — helpers must be no-ops, not panic.
+    dom.fire_after_split_text(text, new_text, 1);
+    dom.fire_after_normalize_merge(new_text, text, 2);
 }
 
 #[test]
