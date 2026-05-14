@@ -124,9 +124,24 @@ impl Normalize {
                     // collapse would redirect them to `(entity,
                     // child_idx)`.
                     let prev_old_len = prev_text_val.encode_utf16().count();
+                    // WHATWG §4.5 step 6.4 wants the parent-side
+                    // boundary at `child`'s index to migrate to
+                    // `(prev, prev_old_len)`. Capture the index BEFORE
+                    // remove_child fires its `after_remove` collapse
+                    // rule (which leaves `off == idx` unchanged) — the
+                    // Bridge consumes the index to apply the equality
+                    // migration, then `remove_child`'s `after_remove`
+                    // handles the `off > idx → -=1` case.
+                    let child_idx = dom.index_in_parent(child);
                     let merged = prev_text_val + &text;
                     let _ = dom.set_text_data(prev, &merged);
-                    dom.fire_after_normalize_merge(child, prev, prev_old_len);
+                    dom.fire_after_normalize_merge(
+                        child,
+                        prev,
+                        prev_old_len,
+                        Some(entity),
+                        child_idx,
+                    );
                     let ok = dom.remove_child(entity, child);
                     debug_assert!(ok, "remove_child: child from get_first_child walk");
                     dom.rev_version(entity);

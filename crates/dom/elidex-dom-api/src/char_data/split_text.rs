@@ -135,11 +135,15 @@ pub fn split_text_at_offset(
     let owner = dom.get_associated_document(entity);
     let new_node = dom.create_text_with_owner(tail, owner);
 
-    // Step 5: insert new_node as next sibling (or append if entity is
-    // the last child). Fires `after_insert(new_node, parent, idx+1)`.
-    // Skips entirely when entity is orphan — parent-side adjustment
-    // is vacuous in that case.
-    if let Some(parent) = dom.get_parent(entity) {
+    // Step 5: capture entity's pre-insert parent + index (used by the
+    // after_split_text hook for parent-side boundary adjustment per
+    // spec §4.10 step 7.2), then insert new_node as next sibling (or
+    // append if entity is the last child). Fires
+    // `after_insert(new_node, parent, idx+1)`. Skips entirely when
+    // entity is orphan — parent-side adjustment is vacuous in that case.
+    let parent_opt = dom.get_parent(entity);
+    let node_index = parent_opt.and_then(|_| dom.index_in_parent(entity));
+    if let Some(parent) = parent_opt {
         let inserted = if let Some(next) = dom.get_next_sibling(entity) {
             dom.insert_before(parent, new_node, next)
         } else {
@@ -152,8 +156,11 @@ pub fn split_text_at_offset(
     }
 
     // Step 6: fire after_split_text BEFORE truncate. Boundaries on
-    // entity at off > offset migrate to (new_node, off - offset).
-    dom.fire_after_split_text(entity, new_node, offset_utf16);
+    // entity at off >= offset migrate to (new_node, off - offset);
+    // parent-side boundary at exactly `node_index + 1` shifts +1
+    // (the `after_insert` hook fired by step 5 already handled the
+    // `off > node_index + 1` cases).
+    dom.fire_after_split_text(entity, new_node, offset_utf16, parent_opt, node_index);
 
     // Step 7: truncate entity to head. Fires after_text_change which
     // clamps boundaries still on entity (those with off ≤ offset) to

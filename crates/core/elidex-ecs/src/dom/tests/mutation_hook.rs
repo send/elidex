@@ -37,11 +37,15 @@ enum MockEvent {
         node: Entity,
         new_node: Entity,
         offset: usize,
+        parent: Option<Entity>,
+        node_index: Option<usize>,
     },
     NormalizeMerge {
         merged_child: Entity,
         prev: Entity,
         prev_old_len: usize,
+        parent: Option<Entity>,
+        merged_child_index: Option<usize>,
     },
 }
 
@@ -85,11 +89,20 @@ impl MutationHook for MockHook {
             new_data_len: new_data_len_utf16,
         });
     }
-    fn after_split_text(&mut self, node: Entity, new_node: Entity, offset_utf16: usize) {
+    fn after_split_text(
+        &mut self,
+        node: Entity,
+        new_node: Entity,
+        offset_utf16: usize,
+        parent: Option<Entity>,
+        node_index: Option<usize>,
+    ) {
         self.events.lock().unwrap().push(MockEvent::SplitText {
             node,
             new_node,
             offset: offset_utf16,
+            parent,
+            node_index,
         });
     }
     fn after_normalize_merge(
@@ -97,11 +110,15 @@ impl MutationHook for MockHook {
         merged_child: Entity,
         prev: Entity,
         prev_old_len_utf16: usize,
+        parent: Option<Entity>,
+        merged_child_index: Option<usize>,
     ) {
         self.events.lock().unwrap().push(MockEvent::NormalizeMerge {
             merged_child,
             prev,
             prev_old_len: prev_old_len_utf16,
+            parent,
+            merged_child_index,
         });
     }
 }
@@ -849,7 +866,7 @@ fn fire_after_split_text_helper_routes_to_hook() {
     assert!(dom.append_child(parent, new_text));
 
     let events = install_mock(&mut dom);
-    dom.fire_after_split_text(text, new_text, 5);
+    dom.fire_after_split_text(text, new_text, 5, Some(parent), Some(0));
 
     let log = events.lock().unwrap().clone();
     assert_eq!(
@@ -858,6 +875,8 @@ fn fire_after_split_text_helper_routes_to_hook() {
             node: text,
             new_node: new_text,
             offset: 5,
+            parent: Some(parent),
+            node_index: Some(0),
         }]
     );
 }
@@ -873,7 +892,7 @@ fn fire_after_normalize_merge_helper_routes_to_hook() {
 
     let events = install_mock(&mut dom);
     // prev_old_len = 5 (len of "hello" before absorbing "world").
-    dom.fire_after_normalize_merge(merged_child, prev, 5);
+    dom.fire_after_normalize_merge(merged_child, prev, 5, Some(parent), Some(1));
 
     let log = events.lock().unwrap().clone();
     assert_eq!(
@@ -882,6 +901,8 @@ fn fire_after_normalize_merge_helper_routes_to_hook() {
             merged_child,
             prev,
             prev_old_len: 5,
+            parent: Some(parent),
+            merged_child_index: Some(1),
         }]
     );
 }
@@ -896,8 +917,8 @@ fn fire_helpers_silent_when_no_hook_installed() {
     assert!(dom.append_child(parent, new_text));
 
     // No hook installed — helpers must be no-ops, not panic.
-    dom.fire_after_split_text(text, new_text, 1);
-    dom.fire_after_normalize_merge(new_text, text, 2);
+    dom.fire_after_split_text(text, new_text, 1, Some(parent), Some(0));
+    dom.fire_after_normalize_merge(new_text, text, 2, Some(parent), Some(1));
 }
 
 #[test]

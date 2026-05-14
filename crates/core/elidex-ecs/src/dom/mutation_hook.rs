@@ -130,11 +130,11 @@ pub trait MutationHook: Send + Sync {
     }
 
     /// Called AFTER a `Text.splitText(offset)` operation (WHATWG DOM §4.10
-    /// "split a Text node" step 8).
+    /// "split a Text node" step 7).
     ///
     /// **Ordering invariant**: this hook fires AFTER `new_node` has been
     /// inserted as a sibling of `node` but **BEFORE** `node`'s text is
-    /// truncated. Boundary-on-`node` boundaries with `off > offset` must be
+    /// truncated. Boundary-on-`node` boundaries with `off >= offset` must be
     /// MIGRATED to `(new_node, off - offset)` BEFORE the subsequent
     /// `set_text_data(node, head)` fires [`Self::after_text_change`] (which
     /// would otherwise clamp those boundaries on `node` to `head_len` and
@@ -145,13 +145,30 @@ pub trait MutationHook: Send + Sync {
     /// - `new_node`: the newly-inserted sibling Text node holding the tail
     ///   `[offset..]`.
     /// - `offset_utf16`: the UTF-16 split point.
+    /// - `parent`: the parent of `node`, or `None` if `node` was orphan
+    ///   pre-split (in which case no parent-side adjustment applies).
+    /// - `node_index`: the pre-split index of `node` in `parent`'s child
+    ///   list, or `None` matched with `parent: None`.
     ///
-    /// Range live-tracking boundary adjustment per §4.10 step 8:
-    /// - Boundary on `node` with `off > offset` →
-    ///   migrate to `(new_node, off - offset)`.
+    /// Range live-tracking boundary adjustment per §4.10 step 7:
+    /// - Boundary on `node` with `off >= offset` →
+    ///   migrate to `(new_node, off - offset)` (covers both spec rules
+    ///   7.3 strict-greater and 7.4 equality cases).
     /// - Boundary on `parent` with `idx > node_idx` → `idx += 1`
-    ///   (parent now has one extra child at `node_idx + 1`).
-    fn after_split_text(&mut self, _node: Entity, _new_node: Entity, _offset_utf16: usize) {}
+    ///   (spec §4.10 step 7.2; the [`Self::after_insert`] hook fired by
+    ///   the prior `insert_before` already handles `idx > node_idx + 1`
+    ///   via strict-greater compare against the inserted-at index — the
+    ///   consumer here must ONLY apply the missing `idx == node_idx + 1`
+    ///   increment to avoid double-shifting).
+    fn after_split_text(
+        &mut self,
+        _node: Entity,
+        _new_node: Entity,
+        _offset_utf16: usize,
+        _parent: Option<Entity>,
+        _node_index: Option<usize>,
+    ) {
+    }
 
     /// Called BEFORE the remove-merged-child step of `Node.normalize()`
     /// (WHATWG DOM §4.5 "normalize" step 6.4) on adjacent Text-node merge.
@@ -168,17 +185,26 @@ pub trait MutationHook: Send + Sync {
     ///   this fires).
     /// - `prev_old_len_utf16`: the UTF-16 length of `prev`'s data BEFORE
     ///   the merge (the migration offset shift).
+    /// - `parent`: the parent of `merged_child`, or `None` if no parent
+    ///   was set (vacuous case).
+    /// - `merged_child_index`: the pre-removal index of `merged_child` in
+    ///   `parent`'s child list, or `None` matched with `parent: None`.
     ///
     /// Range live-tracking boundary adjustment per §4.5 step 6.4:
     /// - Boundary on `merged_child` at `off` →
     ///   migrate to `(prev, prev_old_len + off)`.
-    /// - Boundary on `parent` at `child_idx` of `merged_child` →
+    /// - Boundary on `parent` at exactly `child_idx` of `merged_child` →
     ///   migrate to `(prev, prev_old_len)` (the merged splice point).
+    ///   The subsequent [`Self::after_remove`] handles boundaries at
+    ///   `off > child_idx` via the standard `-= 1` decrement — the
+    ///   consumer here must NOT double-decrement those.
     fn after_normalize_merge(
         &mut self,
         _merged_child: Entity,
         _prev: Entity,
         _prev_old_len_utf16: usize,
+        _parent: Option<Entity>,
+        _merged_child_index: Option<usize>,
     ) {
     }
 }

@@ -161,17 +161,41 @@ impl MutationHook for Bridge {
         }
     }
 
-    fn after_split_text(&mut self, node: Entity, new_node: Entity, offset_utf16: usize) {
-        // The Bridge cannot reach EcsDom inside the hook callback (no
-        // `&EcsDom` parameter), so it cannot resolve `parent` /
-        // `node_index` for the parent-side boundary increment. Per
-        // plan v3 §A1 / spec §4.10 step 8, parent-side adjustment is
-        // applied by the engine-indep `split_text_at_offset` caller
-        // BEFORE calling `EcsDom::fire_after_split_text` — that caller
-        // has `&mut EcsDom` and can pass the parent/index args
-        // separately. The hook here only handles the node-side
-        // migration (`off > offset` → `(new_node, off - offset)`).
+    fn after_split_text(
+        &mut self,
+        node: Entity,
+        new_node: Entity,
+        offset_utf16: usize,
+        parent: Option<Entity>,
+        node_index: Option<usize>,
+    ) {
+        // Bridge runs AFTER the `insert_before` / `append_child` hook
+        // (`after_insert`) has already fired with the new node's
+        // post-insert index (`node_index + 1`). `after_insert` shifted
+        // every parent-side boundary with `off > node_index + 1` by
+        // +1. The split-text rule (spec §4.10 step 7.2) wants `off >
+        // node_index` to shift — the only remaining slot is `off ==
+        // node_index + 1`, which we top up here.
+        //
+        // Node-side migration: `off >= offset` → `(new_node, off -
+        // offset)`, covering both spec rule 7.3 (strict greater) and
+        // rule 7.4 (equality maps to offset 0). The helper applies
+        // the inclusive lower-bound semantics; we still null the
+        // parent args because we ALREADY applied the delta-only
+        // increment above and don't want the helper to double-shift
+        // boundaries the `after_insert` hook already handled.
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
+        if let (Some(parent), Some(node_idx)) = (parent, node_index) {
+            let equal_slot = node_idx + 1;
+            for range in guard.values_mut() {
+                if range.start_container == parent && range.start_offset == equal_slot {
+                    range.start_offset += 1;
+                }
+                if range.end_container == parent && range.end_offset == equal_slot {
+                    range.end_offset += 1;
+                }
+            }
+        }
         for range in guard.values_mut() {
             adjust_ranges_for_split_text(
                 std::slice::from_mut(range),
@@ -189,12 +213,37 @@ impl MutationHook for Bridge {
         merged_child: Entity,
         prev: Entity,
         prev_old_len_utf16: usize,
+        parent: Option<Entity>,
+        merged_child_index: Option<usize>,
     ) {
-        // Same rationale as `after_split_text`: parent-side
-        // boundary migration is applied by the engine-indep
-        // `Normalize` handler BEFORE the hook fires; the hook only
-        // covers the merged_child-on-boundary migration.
+        // Bridge fires BEFORE the `Normalize` handler's `remove_child`
+        // (which itself fires `after_remove` shifting parent-side
+        // boundaries with `off > merged_child_index` by `-= 1`). Spec
+        // §4.5 step 6.4 wants the parent-side boundary at exactly
+        // `off == merged_child_index` to migrate to `(prev,
+        // prev_old_len)` — the merge splice point. The subsequent
+        // `after_remove` handles `off > merged_child_index` itself; we
+        // apply ONLY the equality migration here to avoid double-
+        // decrement.
+        //
+        // The merged_child-side migration (rule 6.4.a:
+        // `(merged_child, off)` → `(prev, prev_old_len + off)`)
+        // applies regardless of parent; we call the helper with null
+        // parent args so it does not re-walk the parent-side rules
+        // that this Bridge inlines.
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
+        if let (Some(parent), Some(idx)) = (parent, merged_child_index) {
+            for range in guard.values_mut() {
+                if range.start_container == parent && range.start_offset == idx {
+                    range.start_container = prev;
+                    range.start_offset = prev_old_len_utf16;
+                }
+                if range.end_container == parent && range.end_offset == idx {
+                    range.end_container = prev;
+                    range.end_offset = prev_old_len_utf16;
+                }
+            }
+        }
         for range in guard.values_mut() {
             adjust_ranges_for_normalize_merge(
                 std::slice::from_mut(range),
@@ -523,13 +572,86 @@ mod tests {
         let id = reg.register(r);
 
         // Split at offset 5: end_offset 8 > 5 → migrate to (new_t, 3).
-        bridge.after_split_text(t, new_t, 5);
+        bridge.after_split_text(t, new_t, 5, Some(parent), Some(0));
 
         reg.with_range(id, &dom, |range, _| {
             assert_eq!(range.start_container, t);
             assert_eq!(range.start_offset, 3);
             assert_eq!(range.end_container, new_t);
             assert_eq!(range.end_offset, 3);
+        })
+        .expect("range present");
+    }
+
+    #[test]
+    fn bridge_after_split_text_parent_boundary_at_equal_slot_shifts() {
+        // Spec §4.10 step 7.2 requires the parent boundary at exactly
+        // `node_idx + 1` to shift. The `after_insert` hook fired by
+        // the prior `insert_before` only shifts boundaries with
+        // `off > node_idx + 1`, so the Bridge tops up the equality
+        // case. Boundary at `parent + node_idx` (= the slot BEFORE the
+        // original node) must stay unchanged because the node is not
+        // re-inserted there.
+        let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "p");
+        let t = dom.create_text("hello world");
+        let trailing = elem(&mut dom, "span");
+        let _ = dom.append_child(parent, t);
+        let _ = dom.append_child(parent, trailing);
+
+        // Boundary in the gap between `t` (idx 0) and `trailing` (idx 1):
+        // offset 1.
+        let mut r_gap = Range::new(parent);
+        r_gap.set_start(parent, 1);
+        r_gap.set_end(parent, 1);
+        let id_gap = reg.register(r_gap);
+
+        // Boundary before `t` (idx 0): offset 0 — must stay.
+        let mut r_before = Range::new(parent);
+        r_before.set_start(parent, 0);
+        r_before.set_end(parent, 0);
+        let id_before = reg.register(r_before);
+
+        bridge.after_split_text(t, dom.create_text(""), 5, Some(parent), Some(0));
+
+        reg.with_range(id_gap, &dom, |range, _| {
+            assert_eq!(range.start_offset, 2, "equal-slot boundary shifted +1");
+            assert_eq!(range.end_offset, 2);
+        })
+        .expect("gap range present");
+        reg.with_range(id_before, &dom, |range, _| {
+            assert_eq!(range.start_offset, 0, "before-node boundary unchanged");
+            assert_eq!(range.end_offset, 0);
+        })
+        .expect("before range present");
+    }
+
+    #[test]
+    fn bridge_after_split_text_node_side_equality_migrates_to_new_node_zero() {
+        // Spec §4.10 step 7.4: boundary on `node` at exactly `offset`
+        // migrates to `(new_node, 0)` (the `>= offset` lower-bound
+        // covers this — see `after_split_text` trait doc).
+        let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "p");
+        let t = dom.create_text("hello world");
+        let new_t = dom.create_text("");
+        let _ = dom.append_child(parent, t);
+        let _ = dom.append_child(parent, new_t);
+
+        let mut r = Range::new(t);
+        r.set_start(t, 5);
+        r.set_end(t, 5);
+        let id = reg.register(r);
+
+        bridge.after_split_text(t, new_t, 5, Some(parent), Some(0));
+
+        reg.with_range(id, &dom, |range, _| {
+            assert_eq!(range.start_container, new_t);
+            assert_eq!(range.start_offset, 0);
+            assert_eq!(range.end_container, new_t);
+            assert_eq!(range.end_offset, 0);
         })
         .expect("range present");
     }
@@ -547,7 +669,7 @@ mod tests {
         let id = reg.register(r);
 
         // prev had len 5 ("hello") before absorbing "world".
-        bridge.after_normalize_merge(merged, prev, 5);
+        bridge.after_normalize_merge(merged, prev, 5, None, None);
 
         reg.with_range(id, &dom, |range, _| {
             assert_eq!(range.start_container, prev);
@@ -556,6 +678,53 @@ mod tests {
             assert_eq!(range.end_offset, 9);
         })
         .expect("range present");
+    }
+
+    #[test]
+    fn bridge_after_normalize_merge_parent_boundary_at_idx_migrates_to_splice_point() {
+        // Spec §4.5 step 6.4: boundary on `parent` at exactly
+        // `merged_child_index` migrates to `(prev, prev_old_len)` — the
+        // merge splice point. The Bridge applies ONLY the equality
+        // case; boundaries at `off > merged_child_index` are handled by
+        // the subsequent `after_remove` hook fired from the Normalize
+        // handler's `remove_child(parent, merged_child)`.
+        let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
+        let mut dom = EcsDom::new();
+        let parent = elem(&mut dom, "p");
+        let prev = dom.create_text("helloworld"); // post-merge state
+        let merged = dom.create_text(""); // post-merge empty, pre-detach
+        let trailing = elem(&mut dom, "span");
+        let _ = dom.append_child(parent, prev);
+        let _ = dom.append_child(parent, merged);
+        let _ = dom.append_child(parent, trailing);
+
+        // Boundary in the gap between `prev` and `merged_child` (idx 1):
+        // must migrate to (prev, 5) post-merge.
+        let mut r_eq = Range::new(parent);
+        r_eq.set_start(parent, 1);
+        r_eq.set_end(parent, 1);
+        let id_eq = reg.register(r_eq);
+
+        // Boundary BEFORE `prev` (idx 0): must stay unchanged.
+        let mut r_before = Range::new(parent);
+        r_before.set_start(parent, 0);
+        r_before.set_end(parent, 0);
+        let id_before = reg.register(r_before);
+
+        bridge.after_normalize_merge(merged, prev, 5, Some(parent), Some(1));
+
+        reg.with_range(id_eq, &dom, |range, _| {
+            assert_eq!(range.start_container, prev);
+            assert_eq!(range.start_offset, 5);
+            assert_eq!(range.end_container, prev);
+            assert_eq!(range.end_offset, 5);
+        })
+        .expect("eq range present");
+        reg.with_range(id_before, &dom, |range, _| {
+            assert_eq!(range.start_container, parent);
+            assert_eq!(range.start_offset, 0);
+        })
+        .expect("before range present");
     }
 
     #[test]

@@ -301,11 +301,14 @@ pub(crate) fn adjust_ranges_for_split_text(
     node_index: Option<usize>,
 ) {
     for range in ranges.iter_mut() {
-        if range.start_container == node && range.start_offset > offset {
+        // WHATWG §4.10 step 7.3 (`off > offset` migrate) + step 7.4
+        // (`off == offset` migrate with offset 0); combined as
+        // `>= offset` since `off - offset == 0` for the equality case.
+        if range.start_container == node && range.start_offset >= offset {
             range.start_container = new_node;
             range.start_offset -= offset;
         }
-        if range.end_container == node && range.end_offset > offset {
+        if range.end_container == node && range.end_offset >= offset {
             range.end_container = new_node;
             range.end_offset -= offset;
         }

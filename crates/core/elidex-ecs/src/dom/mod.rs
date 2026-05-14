@@ -104,9 +104,16 @@ impl EcsDom {
     /// owns the canonical split algorithm and routes the hook fire
     /// through this thin pub helper so the mutation-hook field can stay
     /// private.
-    pub fn fire_after_split_text(&mut self, node: Entity, new_node: Entity, offset_utf16: usize) {
+    pub fn fire_after_split_text(
+        &mut self,
+        node: Entity,
+        new_node: Entity,
+        offset_utf16: usize,
+        parent: Option<Entity>,
+        node_index: Option<usize>,
+    ) {
         if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_split_text(node, new_node, offset_utf16);
+            hook.after_split_text(node, new_node, offset_utf16, parent, node_index);
         }
     }
 
@@ -130,9 +137,17 @@ impl EcsDom {
         merged_child: Entity,
         prev: Entity,
         prev_old_len_utf16: usize,
+        parent: Option<Entity>,
+        merged_child_index: Option<usize>,
     ) {
         if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_normalize_merge(merged_child, prev, prev_old_len_utf16);
+            hook.after_normalize_merge(
+                merged_child,
+                prev,
+                prev_old_len_utf16,
+                parent,
+                merged_child_index,
+            );
         }
     }
 
