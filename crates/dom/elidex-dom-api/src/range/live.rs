@@ -171,13 +171,15 @@ impl MutationHook for Bridge {
         // node_index` to shift — the only remaining slot is `off ==
         // node_index + 1`, which we top up here.
         //
-        // Node-side migration: `off >= offset` → `(new_node, off -
-        // offset)`, covering both spec rule 7.3 (strict greater) and
-        // rule 7.4 (equality maps to offset 0). The helper applies
-        // the inclusive lower-bound semantics; we still null the
-        // parent args because we ALREADY applied the delta-only
-        // increment above and don't want the helper to double-shift
-        // boundaries the `after_insert` hook already handled.
+        // Node-side migration: `off > offset` → `(new_node, off -
+        // offset)`, strict-greater per spec §4.10 step 7.2 / 7.3 —
+        // boundaries at exactly `offset` stay on the original node at
+        // its new end (PR186 R2 #2). The helper applies that strict
+        // bound for the node-side rules; we pass null parent args to
+        // skip the helper's parent-side step, because the delta
+        // top-up above + the `after_insert` hook already cover
+        // §4.10 step 7's parent-side rule (`off > node_idx → +1`)
+        // exhaustively.
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
         if let (Some(parent), Some(node_idx)) = (parent, node_index) {
             let equal_slot = node_idx + 1;
@@ -476,6 +478,40 @@ mod tests {
         reg.with_range(id, &dom, |range, _| {
             assert_eq!(range.start_offset, 2);
             assert_eq!(range.end_offset, 3);
+        })
+        .expect("range present");
+    }
+
+    #[test]
+    fn bridge_after_replace_data_with_overflow_count_uses_clamped_span() {
+        // PR186 R3 #1 regression: `replace_text_data` must pass the
+        // CLAMPED count to `after_replace_data` so the bridge
+        // boundary-adjustment math operates on the actual spliced
+        // span. With offset=1, count=99 (clamped to 4), replacement=""
+        // on "hello": a boundary at off=5 (the OLD end) should shift
+        // by `replacement_len - clamped_count = 0 - 4 = -4` →
+        // off=1, NOT collapse to offset=1 via the "inside splice"
+        // rule that would fire if the unclamped count=99 were passed.
+        let mut dom = EcsDom::new();
+        let (mut reg, bridge) = LiveRangeRegistry::new_pair();
+        dom.set_mutation_hook(Box::new(bridge));
+        let parent = elem(&mut dom, "p");
+        let t = dom.create_text("hello");
+        let _ = dom.append_child(parent, t);
+
+        let mut r = Range::new(t);
+        r.set_start(t, 5);
+        r.set_end(t, 5);
+        let id = reg.register(r);
+
+        // count=99 past end → clamped to 4 ("ello"). Result: "h" +
+        // "" + "" = "h" (length 1). Boundary at 5 was past the
+        // splice end; spec rule shifts it by `0 - 4 = -4` → 1.
+        assert_eq!(dom.replace_text_data(t, 1, 99, ""), Some(1));
+
+        reg.with_range(id, &dom, |range, _| {
+            assert_eq!(range.start_offset, 1);
+            assert_eq!(range.end_offset, 1);
         })
         .expect("range present");
     }

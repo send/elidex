@@ -70,21 +70,21 @@ impl VmInner {
 /// (insert → fire_after_split_text → set_text_data) is in
 /// elidex-dom-api.
 ///
-/// ## Caller-side Range parent-side adjustment (known deviation)
+/// ## Range live-tracking ordering (informational)
 ///
-/// `split_text_at_offset` fires
-/// [`elidex_ecs::EcsDom::fire_after_split_text`] which (via the
-/// [`elidex_dom_api::range::LiveRangeRegistry`] bridge) applies only
-/// the **node-side** boundary migration (`off > offset` on the
-/// original text → `(new_node, off - offset)`). WHATWG §4.10 step 8
-/// also calls for a **parent-side** strict-greater increment, but
-/// the `after_insert` hook that fires from
-/// [`elidex_ecs::EcsDom::insert_before`] / `append_child` (inside
-/// `split_text_at_offset`) uses a strict-greater rule too — measured
-/// against `node_idx + 1` rather than `node_idx`. The single offset
-/// `node_idx + 1` therefore silently lags spec by one slot. See the
-/// `#11-split-text-parent-side-edge` defer slot for the follow-up
-/// trait-signature extension that would resolve this.
+/// `split_text_at_offset` orchestrates a three-step Range boundary
+/// dance: `insert_before(new_node)` fires `after_insert` (parent-side
+/// `off > node_idx + 1 → +1`), then `fire_after_split_text` carrying
+/// the pre-split `parent` + `node_index` fires the
+/// [`elidex_ecs::MutationHook::after_split_text`] callback (node-side
+/// `off > offset → (new_node, off - offset)` + parent-side
+/// `off == node_idx + 1 → +1` delta top-up), then
+/// `set_text_data(head)` truncates the original node. The combined
+/// hook sequence implements WHATWG §4.10 step 7 in full when the
+/// standard `LiveRangeRegistry::Bridge` is the installed hook.
+/// Engines installing a custom hook that ignores the parent /
+/// node_index args inherit only the `after_insert` shift (lag at
+/// `node_idx + 1`); such hooks should document the gap explicitly.
 ///
 /// Errors:
 /// - `RangeError` when `offset > length`.

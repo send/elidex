@@ -227,7 +227,7 @@ impl EcsDom {
     ) -> Option<usize> {
         let replacement_units: Vec<u16> = replacement.encode_utf16().collect();
         let replacement_len = replacement_units.len();
-        let new_utf16_len = {
+        let (new_utf16_len, clamped_count) = {
             let mut tc = self.world.get::<&mut TextContent>(entity).ok()?;
             let units: Vec<u16> = tc.0.encode_utf16().collect();
             let len = units.len();
@@ -237,19 +237,26 @@ impl EcsDom {
                  caller must validate via `offset > utf16_len(&data)` before invocation"
             );
             let end = offset_utf16.saturating_add(count_utf16).min(len);
-            let mut out: Vec<u16> =
-                Vec::with_capacity(len - (end - offset_utf16) + replacement_len);
+            let clamped_count = end - offset_utf16;
+            let mut out: Vec<u16> = Vec::with_capacity(len - clamped_count + replacement_len);
             out.extend_from_slice(&units[..offset_utf16]);
             out.extend_from_slice(&replacement_units);
             out.extend_from_slice(&units[end..]);
             let new_len = out.len();
             let spliced = String::from_utf16_lossy(&out);
             spliced.clone_into(&mut tc.0);
-            new_len
+            (new_len, clamped_count)
         };
         self.rev_version(entity);
         if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_replace_data(entity, offset_utf16, count_utf16, replacement_len);
+            // WHATWG §11.2 step 6 clamps the live-range adjustment to
+            // the actual spliced span (`end - offset`), not the
+            // caller's possibly-overflowing `count_utf16`. Passing the
+            // unclamped value would make `adjust_ranges_for_replace_data`
+            // treat boundaries near the OLD end as inside the splice
+            // region and collapse them to `offset` instead of shifting
+            // by `new_data_len - clamped_count` — PR186 R3 #1 fix.
+            hook.after_replace_data(entity, offset_utf16, clamped_count, replacement_len);
         }
         Some(new_utf16_len)
     }

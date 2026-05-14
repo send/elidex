@@ -807,11 +807,11 @@ fn replace_text_data_clamps_count_silently() {
     assert!(dom.append_child(parent, text));
 
     let events = install_mock(&mut dom);
-    // count=99 past end → clamped to 4; "abcde" with offset=1 + delete
-    // "bcde" + insert "Z" → "aZ" (length 2). Hook still reports
-    // *original* count=99 (consumer applies its own clamp logic per
-    // §4.10 step 8-11; this matches the spec's "passed count" not the
-    // engine-clamped count).
+    // count=99 past end → clamped to 4 ("bcde"). "abcde" with
+    // offset=1 + delete "bcde" + insert "Z" → "aZ" (length 2). Hook
+    // reports the CLAMPED count (4), per WHATWG §11.2 step 6 — Range
+    // live-tracking math depends on the actual spliced span, not the
+    // caller's possibly-overflowing argument (PR186 R3 #1).
     assert_eq!(dom.replace_text_data(text, 1, 99, "Z"), Some(2));
 
     let log = events.lock().unwrap().clone();
@@ -820,7 +820,7 @@ fn replace_text_data_clamps_count_silently() {
         vec![MockEvent::ReplaceData {
             node: text,
             offset: 1,
-            count: 99,
+            count: 4,
             new_data_len: 1,
         }]
     );

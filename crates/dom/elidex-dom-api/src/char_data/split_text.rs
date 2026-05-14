@@ -24,14 +24,16 @@
 //! The `insert_before` / `append_child` step fires `after_insert` for
 //! the new sibling — `parent`-side Range boundaries adjust via the
 //! standard insertion-step rule (off > new_node_idx → +1). Spec
-//! §4.10 step 8 requires a slightly different rule (off > entity_idx
-//! → +1), which differs at the single offset `entity_idx + 1`.
-//! `after_insert` does NOT shift the boundary at that exact slot, so
-//! a Range start/end positioned in the gap between `entity` and its
-//! pre-split next-sibling silently lags by one slot per spec. This
-//! is a known minor deviation tracked at `#11-split-text-parent-side-edge`
-//! defer slot — covered by 0 WPT failures today and not exercised
-//! by any of our integration tests; defer until WPT cites it.
+//! §4.10 step 7.2 requires `off > entity_idx → +1`, which differs at
+//! the single offset `entity_idx + 1`. The
+//! [`elidex_ecs::MutationHook::after_split_text`] callback that
+//! follows the insert is fired with the pre-split `parent` +
+//! `node_index` so the consumer (`LiveRangeRegistry::Bridge`) tops up
+//! that exact slot — the standard bridge therefore implements
+//! §4.10 step 7 in full. Callers that install a CUSTOM hook which
+//! ignores the parent / node_index args inherit the after_insert-only
+//! behaviour (lag at `entity_idx + 1`); document the limitation on
+//! such hooks if the gap matters for their use case.
 
 use elidex_ecs::{EcsDom, Entity, NodeKind};
 
