@@ -326,9 +326,15 @@ impl TreeWalker {
 pub enum NodeFilterResult {
     /// Accept this node; return it from the traversal.
     Accept,
-    /// Reject this node AND skip its descendants (only applies to
-    /// pre-order traversal; for `nextSibling`-style walks behaves
-    /// like Skip).
+    /// Reject this node AND skip its descendants. Per WHATWG DOM §7.3:
+    /// pre-order traversal ([`step_with_filter`]) walks past the
+    /// rejected subtree to the rejected node's next sibling / ancestor
+    /// sibling; sibling-only walks (`nextSibling` / `previousSibling`)
+    /// skip the rejected node entirely without descending — both rules
+    /// reach the same observable result of "no descendant of a
+    /// rejected node is visited", but the implementation of
+    /// `step_with_filter` ALWAYS prunes descendants regardless of which
+    /// walk kicked it off.
     Reject,
     /// Skip this node but descend into its descendants.
     Skip,
@@ -343,8 +349,8 @@ impl NodeFilterResult {
     /// ## VM-side coercion contract
     ///
     /// The caller (VM-side `node_filter_dispatch.rs` in PR-A2) MUST
-    /// apply WebIDL [`unsigned short`] coercion BEFORE invoking this
-    /// helper: `ToUint16` per ES2020 §7.1.7 wraps negative numbers
+    /// apply WebIDL `unsigned short` coercion (see [WebIDL]) BEFORE
+    /// invoking this helper: `ToUint16` per ES2020 §7.1.7 wraps negative numbers
     /// (`-1` → `65535`), `NaN` / `Infinity` → `0`, fractions truncate
     /// toward zero. Values outside the `{1, 2}` accept/reject set map
     /// to `Skip` regardless of the source bit pattern — this function

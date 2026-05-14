@@ -55,7 +55,18 @@ struct MockHook {
 }
 
 impl MutationHook for MockHook {
-    fn after_remove(&mut self, node: Entity, parent: Entity, removed_index: usize) {
+    fn after_remove(
+        &mut self,
+        node: Entity,
+        parent: Entity,
+        removed_index: usize,
+        _descendants: &[Entity],
+    ) {
+        // General-purpose tests don't assert on the descendants
+        // snapshot. The dedicated
+        // `destroy_entity_passes_inclusive_descendants_snapshot` test
+        // uses a separate `DescendantSnapshotHook` to pin the snapshot
+        // shape + order.
         self.events.lock().unwrap().push(MockEvent::Remove {
             node,
             parent,
@@ -941,4 +952,98 @@ fn append_child_orphan_does_not_fire_after_remove() {
             index: 0
         }]
     );
+}
+
+// ---------------------------------------------------------------------------
+// after_remove descendants snapshot (PR186 R2 #3 regression)
+// ---------------------------------------------------------------------------
+
+type DescendantSnapshotLog = Vec<(Entity, Vec<Entity>)>;
+
+#[derive(Default, Clone)]
+struct DescendantSnapshotHook {
+    snapshot: Arc<Mutex<DescendantSnapshotLog>>,
+}
+
+impl MutationHook for DescendantSnapshotHook {
+    fn after_remove(
+        &mut self,
+        node: Entity,
+        _parent: Entity,
+        _removed_index: usize,
+        descendants: &[Entity],
+    ) {
+        self.snapshot
+            .lock()
+            .unwrap()
+            .push((node, descendants.to_vec()));
+    }
+}
+
+#[test]
+fn destroy_entity_passes_inclusive_descendants_snapshot() {
+    // PR186 R2 #3: `destroy_entity` MUST snapshot the light-tree
+    // inclusive-descendant set BEFORE orphaning children, so a Range
+    // boundary consumer can collapse boundaries on still-live
+    // descendants without depending on intact parent links.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let target = elem(&mut dom, "section");
+    let child_a = elem(&mut dom, "p");
+    let grandchild = dom.create_text("inner");
+    let child_b = elem(&mut dom, "span");
+    assert!(dom.append_child(parent, target));
+    assert!(dom.append_child(target, child_a));
+    assert!(dom.append_child(child_a, grandchild));
+    assert!(dom.append_child(target, child_b));
+
+    let hook = DescendantSnapshotHook::default();
+    let snapshot_handle = hook.snapshot.clone();
+    dom.set_mutation_hook(Box::new(hook));
+
+    assert!(dom.destroy_entity(target));
+
+    let log = snapshot_handle.lock().unwrap().clone();
+    assert_eq!(log.len(), 1, "exactly one after_remove fires for target");
+    let (recorded_node, descendants) = &log[0];
+    assert_eq!(*recorded_node, target);
+    // Snapshot must include target + every light-tree descendant.
+    // Order within the snapshot is implementation-defined (DFS via
+    // children_iter / explicit stack), but the SET is fixed.
+    let mut sorted = descendants.clone();
+    sorted.sort();
+    let mut expected = vec![target, child_a, grandchild, child_b];
+    expected.sort();
+    assert_eq!(
+        sorted, expected,
+        "snapshot includes target + child_a + grandchild + child_b"
+    );
+}
+
+#[test]
+fn remove_child_passes_inclusive_descendants_snapshot() {
+    // Sanity: plain `remove_child` also passes the snapshot, in case
+    // a hook consumer relies on it uniformly across remove paths.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let target = elem(&mut dom, "section");
+    let child = elem(&mut dom, "p");
+    assert!(dom.append_child(parent, target));
+    assert!(dom.append_child(target, child));
+
+    let hook = DescendantSnapshotHook::default();
+    let snapshot_handle = hook.snapshot.clone();
+    dom.set_mutation_hook(Box::new(hook));
+
+    assert!(dom.remove_child(parent, target));
+
+    let log = snapshot_handle.lock().unwrap().clone();
+    assert_eq!(log.len(), 1);
+    let (recorded_node, descendants) = &log[0];
+    assert_eq!(*recorded_node, target);
+    let mut sorted = descendants.clone();
+    sorted.sort();
+    let mut expected = vec![target, child];
+    expected.sort();
+    assert_eq!(sorted, expected);
 }

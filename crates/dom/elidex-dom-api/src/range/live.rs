@@ -49,15 +49,15 @@
 //! still fire normally — consumers needing strict semantics filter
 //! by tree root themselves.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use elidex_ecs::{EcsDom, Entity, MutationHook};
 
 use super::{
-    adjust_ranges_for_insertion, adjust_ranges_for_normalize_merge, adjust_ranges_for_removal,
-    adjust_ranges_for_replace_data, adjust_ranges_for_split_text, adjust_ranges_for_text_change,
-    Range,
+    adjust_ranges_for_insertion, adjust_ranges_for_normalize_merge,
+    adjust_ranges_for_removal_snapshot, adjust_ranges_for_replace_data,
+    adjust_ranges_for_split_text, adjust_ranges_for_text_change, Range,
 };
 
 // ---------------------------------------------------------------------------
@@ -75,57 +75,51 @@ use super::{
 pub struct RangeId(pub u64);
 
 // ---------------------------------------------------------------------------
-// PendingMutation
-// ---------------------------------------------------------------------------
-
-/// Events queued from [`MutationHook`] callbacks that need `&EcsDom`
-/// access to finalise (descendant walks). Drained by the HostData-side
-/// consumer ([`LiveRangeRegistry::finalize_pending`]) on every Range
-/// read-path access.
-///
-/// Only `after_remove` queues — the five other hooks apply
-/// synchronously inside the [`MutationHook`] callback (no `&EcsDom`
-/// needed for [`adjust_ranges_for_insertion`] / `_text_change` /
-/// `_replace_data` / `_split_text` / `_normalize_merge`).
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum PendingMutation {
-    Remove {
-        node: Entity,
-        parent: Entity,
-        removed_index: usize,
-    },
-}
-
-// ---------------------------------------------------------------------------
 // Bridge
 // ---------------------------------------------------------------------------
 
 /// `EcsDom.mutation_hook`-side adapter. Forwards [`MutationHook`]
-/// callbacks into the shared `Arc<Mutex<>>` state owned jointly with
-/// the HostData-side [`LiveRangeRegistry`].
+/// callbacks into the shared `Arc<Mutex<HashMap<RangeId, Range>>>`
+/// owned jointly with the HostData-side [`LiveRangeRegistry`].
 ///
 /// Constructed only via [`LiveRangeRegistry::new_pair`]; the pair-shape
-/// keeps the two halves' shared handles bound at construction time so
-/// no callsite can mismatched-pair them.
+/// keeps the shared `ranges` handle bound at construction time so no
+/// callsite can mismatch-pair them.
 ///
-/// `Send + Sync` because all fields are `Arc<Mutex<_: Send>>` — the
-/// inner `HashMap<RangeId, Range>` and `VecDeque<PendingMutation>` are
-/// both `Send`; `Range` contains only `Entity` and `usize`.
+/// All hooks apply boundary adjustments SYNCHRONOUSLY (PR186 R2 #3):
+/// the engine pre-snapshots inclusive descendants before any
+/// `destroy_entity` orphaning, so the consumer no longer needs to
+/// defer the descendant walk to a separate read-path drain phase. The
+/// earlier queue (`PendingMutation`) has been removed accordingly.
+///
+/// `Send + Sync` because the only field is `Arc<Mutex<HashMap<...>>>`
+/// over `Send` data — `Range` contains only `Entity` and `usize`.
 pub struct Bridge {
     ranges: Arc<Mutex<HashMap<RangeId, Range>>>,
-    pending_remove: Arc<Mutex<VecDeque<PendingMutation>>>,
 }
 
 impl MutationHook for Bridge {
-    fn after_remove(&mut self, node: Entity, parent: Entity, removed_index: usize) {
-        self.pending_remove
-            .lock()
-            .expect("pending_remove mutex poisoned")
-            .push_back(PendingMutation::Remove {
-                node,
+    fn after_remove(
+        &mut self,
+        _node: Entity,
+        parent: Entity,
+        removed_index: usize,
+        descendants: &[Entity],
+    ) {
+        // PR186 R2 #3 fix: the engine pre-snapshots descendants
+        // before any `destroy_entity` orphaning runs, so we apply the
+        // boundary collapse SYNCHRONOUSLY using the snapshot — no
+        // need to queue + walk dom later (which would miss orphaned
+        // descendants whose parent links have already been cleared).
+        let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
+        for range in guard.values_mut() {
+            adjust_ranges_for_removal_snapshot(
+                std::slice::from_mut(range),
+                descendants,
                 parent,
                 removed_index,
-            });
+            );
+        }
     }
 
     fn after_insert(&mut self, _node: Entity, parent: Entity, index: usize) {
@@ -264,35 +258,30 @@ impl MutationHook for Bridge {
 /// HostData-side consumer of [`MutationHook`] events for Range
 /// live-tracking.
 ///
-/// Owns the Range hash, the RangeId monotonic counter, and the
-/// HostData half of the shared `Arc<Mutex<>>` state. Read paths
-/// ([`Self::with_range`] / [`Self::with_range_mut`]) call
-/// [`Self::finalize_pending`] first so descendant-walk events queued
-/// by [`Bridge::after_remove`] are applied before the JS-visible
-/// boundary state is read.
+/// Owns the Range hash + the RangeId monotonic counter, sharing the
+/// `ranges` `Arc<Mutex<>>` with the EcsDom-side [`Bridge`]. Hook
+/// callbacks apply boundary adjustments synchronously (PR186 R2 #3
+/// fix: descendants snapshot eliminates the prior queue); the
+/// remaining read-path concern is the orphan-then-destroy case where
+/// no hook fires for an entity with no parent — [`Self::finalize_pending`]
+/// runs a dangling-collapse pass to catch those.
 pub struct LiveRangeRegistry {
     ranges: Arc<Mutex<HashMap<RangeId, Range>>>,
-    pending_remove: Arc<Mutex<VecDeque<PendingMutation>>>,
     next_id: u64,
 }
 
 impl LiveRangeRegistry {
-    /// Construct a paired registry + bridge sharing the two
-    /// `Arc<Mutex<>>` handles. The bridge is intended for
+    /// Construct a paired registry + bridge sharing the `ranges`
+    /// `Arc<Mutex<>>` handle. The bridge is intended for
     /// [`EcsDom::set_mutation_hook`] at `Vm::bind` time.
     #[must_use]
     pub fn new_pair() -> (Self, Bridge) {
         let ranges = Arc::new(Mutex::new(HashMap::new()));
-        let pending_remove = Arc::new(Mutex::new(VecDeque::new()));
         let registry = Self {
             ranges: Arc::clone(&ranges),
-            pending_remove: Arc::clone(&pending_remove),
             next_id: 0,
         };
-        let bridge = Bridge {
-            ranges,
-            pending_remove,
-        };
+        let bridge = Bridge { ranges };
         (registry, bridge)
     }
 
@@ -324,70 +313,27 @@ impl LiveRangeRegistry {
             .remove(&id)
     }
 
-    /// Clear all registered Ranges + drop pending events. Called from
-    /// `Vm::unbind` to release Entity references before the
-    /// next-bound `EcsDom` invalidates them.
+    /// Clear all registered Ranges. Called from `Vm::unbind` to
+    /// release Entity references before the next-bound `EcsDom`
+    /// invalidates them.
     pub fn clear(&mut self) {
         self.ranges.lock().expect("ranges mutex poisoned").clear();
-        self.pending_remove
-            .lock()
-            .expect("pending_remove mutex poisoned")
-            .clear();
     }
 
-    /// Drain queued `after_remove` events using `dom` for descendant
-    /// walks (§5.5 step 4 inclusive-descendant collapse), then apply
-    /// the dangling-collapse fallback (boundary container no longer
-    /// exists in `dom` → collapse to `owner_document`).
+    /// Apply the dangling-collapse fallback (boundary container no
+    /// longer exists in `dom` → collapse to `owner_document`).
     ///
-    /// The dangling-collapse pass runs UNCONDITIONALLY — not gated on
-    /// queue non-emptiness — because [`elidex_ecs::EcsDom::destroy_entity`]
-    /// of an entity with **no parent** fires no `after_remove` hook
-    /// (the prereq #185 contract: fire only when `(parent,
-    /// removed_index)` is `Some`). The corner case is rare but
-    /// reachable: `destroy_entity(parent)` orphans `child`, then
+    /// Runs UNCONDITIONALLY on every read access because
+    /// [`elidex_ecs::EcsDom::destroy_entity`] of an entity with **no
+    /// parent** fires no `after_remove` hook (prereq #185 fire-gate
+    /// `(parent, removed_index).is_some()`). The corner case:
+    /// `destroy_entity(parent)` orphans `child`, then
     /// `destroy_entity(child)` despawns it without a hook fire. A
-    /// boundary on `child` then needs dangling-collapse on next
-    /// access. Cost is O(R) per call where R = live range count
-    /// (typically < 10), so the always-on model is cheap enough to
-    /// skip a separate orphan-destroy hook for PR-A.
+    /// boundary on `child` needs dangling-collapse on next access.
+    /// Cost is O(R) per call where R = live range count (typically
+    /// < 10).
     pub fn finalize_pending(&mut self, dom: &EcsDom) {
-        let drained: Vec<PendingMutation> = {
-            let mut pending = self
-                .pending_remove
-                .lock()
-                .expect("pending_remove mutex poisoned");
-            pending.drain(..).collect()
-        };
-
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
-        for event in drained {
-            match event {
-                PendingMutation::Remove {
-                    node,
-                    parent,
-                    removed_index,
-                } => {
-                    for range in guard.values_mut() {
-                        adjust_ranges_for_removal(
-                            std::slice::from_mut(range),
-                            node,
-                            parent,
-                            removed_index,
-                            dom,
-                        );
-                    }
-                }
-            }
-        }
-
-        // Dangling-collapse: see method-level doc for rationale.
-        // owner_document fallback target itself may be destroyed
-        // (e.g. test fixtures); in that case keep the previous
-        // container identity but zero the offset so the boundary is
-        // at least dimensionally well-formed (`!dom.contains(...)` is
-        // surfaced as undefined / null by VM-side accessors per
-        // WebIDL).
         for range in guard.values_mut() {
             if !dom.contains(range.start_container) {
                 if dom.contains(range.owner_document) {
@@ -628,10 +574,12 @@ mod tests {
     }
 
     #[test]
-    fn bridge_after_split_text_node_side_equality_migrates_to_new_node_zero() {
-        // Spec §4.10 step 7.4: boundary on `node` at exactly `offset`
-        // migrates to `(new_node, 0)` (the `>= offset` lower-bound
-        // covers this — see `after_split_text` trait doc).
+    fn bridge_after_split_text_node_side_equality_stays_on_original() {
+        // Spec §4.10 step 7.2 / 7.3 use strict-greater (`off > offset`)
+        // to migrate boundaries to `new_node`. The equality case
+        // (`off == offset`) stays on the original `node` at its new
+        // end — a Range collapsed at the split point is preserved on
+        // the original node, NOT migrated to `(new_node, 0)`.
         let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
         let mut dom = EcsDom::new();
         let parent = elem(&mut dom, "p");
@@ -648,10 +596,10 @@ mod tests {
         bridge.after_split_text(t, new_t, 5, Some(parent), Some(0));
 
         reg.with_range(id, &dom, |range, _| {
-            assert_eq!(range.start_container, new_t);
-            assert_eq!(range.start_offset, 0);
-            assert_eq!(range.end_container, new_t);
-            assert_eq!(range.end_offset, 0);
+            assert_eq!(range.start_container, t, "equality boundary stays on node");
+            assert_eq!(range.start_offset, 5);
+            assert_eq!(range.end_container, t);
+            assert_eq!(range.end_offset, 5);
         })
         .expect("range present");
     }
@@ -749,18 +697,12 @@ mod tests {
         r.owner_document = parent;
         let id = reg.register(r);
 
-        // Mid-mutation: queue after_remove. The boundaries should NOT
-        // yet be adjusted (queue is the lazy buffer).
-        bridge.after_remove(child, parent, 0);
+        // Apply after_remove synchronously with the snapshot. Since
+        // the snapshot includes `child` + `grandchild`, the boundary
+        // on `grandchild` collapses to (parent, 0) per §5.5 step 4.
+        bridge.after_remove(child, parent, 0, &[child, grandchild]);
 
-        // Reading WITHOUT draining... actually `with_range` always
-        // drains. We verify the drain by reading and observing the
-        // collapsed state.
         reg.with_range(id, &dom, |range, _| {
-            // child is still in the tree (we did NOT actually remove
-            // it — we only fired the hook for testing).
-            // is_ancestor_or_self(child, grandchild) is true, so the
-            // boundary collapses to (parent, 0) per §5.5 step 4.
             assert_eq!(range.start_container, parent);
             assert_eq!(range.start_offset, 0);
             assert_eq!(range.end_container, parent);
@@ -783,6 +725,46 @@ mod tests {
 
         reg.with_range(id, &dom, |range, _| {
             assert_eq!(range.start_container, n);
+        })
+        .expect("range present");
+    }
+
+    #[test]
+    fn destroy_entity_collapses_boundary_on_live_descendant() {
+        // PR186 R2 #3 regression: `destroy_entity` fires the
+        // `after_remove` hook BEFORE orphaning children, so a Range
+        // boundary on a still-live descendant of the destroyed subtree
+        // is reached via `is_ancestor_or_self` and collapsed to
+        // `(parent, removed_index)` per WHATWG §5.5 remove step 4.
+        let (mut reg, bridge) = LiveRangeRegistry::new_pair();
+        let mut dom = EcsDom::new();
+        dom.set_mutation_hook(Box::new(bridge));
+        let parent = elem(&mut dom, "div");
+        let target = elem(&mut dom, "section");
+        let descendant = dom.create_text("hello");
+        let _ = dom.append_child(parent, target);
+        let _ = dom.append_child(target, descendant);
+
+        let mut r = Range::new(descendant);
+        r.owner_document = parent;
+        r.set_start(descendant, 2);
+        r.set_end(descendant, 4);
+        let id = reg.register(r);
+
+        // Pre-condition: target is at index 0 inside parent.
+        assert!(dom.destroy_entity(target));
+
+        // Post-condition: boundary collapsed to (parent, 0) — the
+        // removed_index of `target`. WITHOUT the destroy_entity
+        // ordering fix, the descendant walk via `is_ancestor_or_self`
+        // would not reach `target` from `descendant` (children's parent
+        // links cleared pre-fire) and the boundary would silently stay
+        // on the orphaned `descendant`.
+        reg.with_range(id, &dom, |range, _| {
+            assert_eq!(range.start_container, parent);
+            assert_eq!(range.start_offset, 0);
+            assert_eq!(range.end_container, parent);
+            assert_eq!(range.end_offset, 0);
         })
         .expect("range present");
     }
@@ -880,7 +862,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_drops_all_ranges_and_pending() {
+    fn clear_drops_all_ranges() {
         let (mut reg, mut bridge) = LiveRangeRegistry::new_pair();
         let mut dom = EcsDom::new();
         let parent = elem(&mut dom, "div");
@@ -888,12 +870,13 @@ mod tests {
         let _ = dom.append_child(parent, child);
 
         let _id = reg.register(Range::new(parent));
-        bridge.after_remove(child, parent, 0);
+        bridge.after_remove(child, parent, 0, &[child]);
 
         assert_eq!(reg.len(), 1);
         reg.clear();
         assert!(reg.is_empty());
-        // Pending was cleared too: finalize is a no-op now.
+        // Post-clear, dangling-collapse on an empty range set is a
+        // no-op.
         reg.finalize_pending(&dom);
     }
 

@@ -156,10 +156,11 @@ pub fn split_text_at_offset(
     }
 
     // Step 6: fire after_split_text BEFORE truncate. Boundaries on
-    // entity at off >= offset migrate to (new_node, off - offset);
-    // parent-side boundary at exactly `node_index + 1` shifts +1
-    // (the `after_insert` hook fired by step 5 already handled the
-    // `off > node_index + 1` cases).
+    // entity at off > offset migrate to (new_node, off - offset)
+    // (strict-greater per spec §4.10 step 7.2/7.3 — equality boundaries
+    // stay on the original node); parent-side boundary at exactly
+    // `node_index + 1` shifts +1 (the `after_insert` hook fired by
+    // step 5 already handled the `off > node_index + 1` cases).
     dom.fire_after_split_text(entity, new_node, offset_utf16, parent_opt, node_index);
 
     // Step 7: truncate entity to head. Fires after_text_change which

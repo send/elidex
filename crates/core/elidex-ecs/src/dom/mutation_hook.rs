@@ -67,7 +67,26 @@ pub trait MutationHook: Send + Sync {
     /// `dom.contains(boundary_container)` before use). Per the
     /// `destroy_entity` lazy-collapse contract, descendant entities
     /// orphaned by a destroy do NOT receive individual `after_remove` calls.
-    fn after_remove(&mut self, _node: Entity, _parent: Entity, _removed_index: usize) {}
+    ///
+    /// `descendants` is a snapshot of `node` plus every light-tree
+    /// inclusive descendant captured by the engine BEFORE any
+    /// `destroy_entity`-style orphaning (PR186 R2 #3 fix): the
+    /// snapshot lets the consumer decide whether a Range boundary
+    /// container falls inside the about-to-be-removed subtree without
+    /// having to walk a parent chain that may have been cleared by
+    /// the time the hook returns. For plain `remove_child` /
+    /// `replace_child` the subtree is still tree-linked at call time
+    /// so the snapshot duplicates what `is_ancestor_or_self` would
+    /// find; for `destroy_entity` the snapshot is the only way for
+    /// the consumer to reach orphaned descendants.
+    fn after_remove(
+        &mut self,
+        _node: Entity,
+        _parent: Entity,
+        _removed_index: usize,
+        _descendants: &[Entity],
+    ) {
+    }
 
     /// Called AFTER a node has been inserted into a parent.
     ///
@@ -134,11 +153,12 @@ pub trait MutationHook: Send + Sync {
     ///
     /// **Ordering invariant**: this hook fires AFTER `new_node` has been
     /// inserted as a sibling of `node` but **BEFORE** `node`'s text is
-    /// truncated. Boundary-on-`node` boundaries with `off >= offset` must be
+    /// truncated. Boundary-on-`node` boundaries with `off > offset` must be
     /// MIGRATED to `(new_node, off - offset)` BEFORE the subsequent
     /// `set_text_data(node, head)` fires [`Self::after_text_change`] (which
     /// would otherwise clamp those boundaries on `node` to `head_len` and
-    /// destroy the offset needed for migration).
+    /// destroy the offset needed for migration). Boundaries with `off ==
+    /// offset` stay on `node` at the truncated end per spec.
     ///
     /// - `node`: the original Text node (still holds the full pre-split
     ///   text at the moment this fires).
@@ -151,9 +171,11 @@ pub trait MutationHook: Send + Sync {
     ///   list, or `None` matched with `parent: None`.
     ///
     /// Range live-tracking boundary adjustment per §4.10 step 7:
-    /// - Boundary on `node` with `off >= offset` →
-    ///   migrate to `(new_node, off - offset)` (covers both spec rules
-    ///   7.3 strict-greater and 7.4 equality cases).
+    /// - Boundary on `node` with `off > offset` →
+    ///   migrate to `(new_node, off - offset)` (spec §4.10 step 7.2 /
+    ///   7.3 strict-greater). Boundaries at `off == offset` stay on
+    ///   `node` (collapsed-at-split-point ranges are preserved on the
+    ///   original node, per Chrome / Firefox observable behaviour).
     /// - Boundary on `parent` with `idx > node_idx` → `idx += 1`
     ///   (spec §4.10 step 7.2; the [`Self::after_insert`] hook fired by
     ///   the prior `insert_before` already handles `idx > node_idx + 1`
