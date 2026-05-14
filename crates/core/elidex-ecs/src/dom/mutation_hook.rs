@@ -68,24 +68,48 @@ pub trait MutationHook: Send + Sync {
     /// `destroy_entity` lazy-collapse contract, descendant entities
     /// orphaned by a destroy do NOT receive individual `after_remove` calls.
     ///
+    /// This method does NOT receive the descendants snapshot — that
+    /// information is delivered via the sibling
+    /// [`Self::after_remove_with_descendants`] method, whose default
+    /// impl delegates here. Consumers that need to reach the
+    /// removed subtree (e.g. Range live-tracking) should override
+    /// [`Self::after_remove_with_descendants`]; consumers that only
+    /// care about the `(node, parent, removed_index)` shape (e.g.
+    /// Mutation Observer's basic record) keep overriding this
+    /// method.
+    fn after_remove(&mut self, _node: Entity, _parent: Entity, _removed_index: usize) {}
+
+    /// Snapshot-aware variant of [`Self::after_remove`] fired by
+    /// [`crate::EcsDom`] mutation primitives (`remove_child` /
+    /// `replace_child` / `destroy_entity`). The default impl
+    /// delegates to [`Self::after_remove`] for back-compat — existing
+    /// hooks that only override the 3-arg [`Self::after_remove`]
+    /// continue to receive the basic event shape.
+    ///
     /// `descendants` is a snapshot of `node` plus every light-tree
     /// inclusive descendant captured by the engine BEFORE any
-    /// `destroy_entity`-style orphaning (PR186 R2 #3 fix): the
-    /// snapshot lets the consumer decide whether a Range boundary
-    /// container falls inside the about-to-be-removed subtree without
-    /// having to walk a parent chain that may have been cleared by
-    /// the time the hook returns. For plain `remove_child` /
-    /// `replace_child` the subtree is still tree-linked at call time
-    /// so the snapshot duplicates what `is_ancestor_or_self` would
-    /// find; for `destroy_entity` the snapshot is the only way for
-    /// the consumer to reach orphaned descendants.
-    fn after_remove(
+    /// `destroy_entity`-style orphaning (PR186 R2 #3 / R4 #1
+    /// additive-trait fix): the snapshot lets the consumer decide
+    /// whether a Range boundary container falls inside the
+    /// about-to-be-removed subtree without having to walk a parent
+    /// chain that may have been cleared by the time the hook
+    /// returns. For plain `remove_child` / `replace_child` the
+    /// subtree is still tree-linked at call time so the snapshot
+    /// duplicates what `is_ancestor_or_self` would find; for
+    /// `destroy_entity` the snapshot is the only way for the
+    /// consumer to reach orphaned descendants.
+    ///
+    /// Overriding this method effectively replaces the basic
+    /// `after_remove` call — the engine fires
+    /// `after_remove_with_descendants` only, never both.
+    fn after_remove_with_descendants(
         &mut self,
-        _node: Entity,
-        _parent: Entity,
-        _removed_index: usize,
+        node: Entity,
+        parent: Entity,
+        removed_index: usize,
         _descendants: &[Entity],
     ) {
+        self.after_remove(node, parent, removed_index);
     }
 
     /// Called AFTER a node has been inserted into a parent.

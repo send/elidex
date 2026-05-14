@@ -428,7 +428,7 @@ impl EcsDom {
         // parent link is about to be cleared.
         let descendants = self.collect_inclusive_descendants(node);
         if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_remove(node, parent, index, &descendants);
+            hook.after_remove_with_descendants(node, parent, index, &descendants);
         }
     }
 

@@ -4,31 +4,33 @@
 //! `EcsDom` tree / text-data primitives into the active set of JS-visible
 //! `Range` objects so their boundaries follow tree mutations per spec.
 //!
-//! # Architecture (PR-A plan v3 §A2–§A6)
+//! # Architecture (PR-A plan v3 §A2–§A6, post-R2/R4 simplification)
 //!
 //! Two halves split across the HostData / EcsDom boundary:
 //!
-//! - [`LiveRangeRegistry`] (HostData-side consumer) owns the Range hash
-//!   and the RangeId counter. JS-visible Range accessors route through
-//!   it. Calls
-//!   [`LiveRangeRegistry::finalize_pending`] on every read-path access
-//!   to drain queued events that need `&EcsDom`.
+//! - [`LiveRangeRegistry`] (HostData-side consumer) owns the Range
+//!   hash and the RangeId counter. JS-visible Range accessors route
+//!   through it. [`LiveRangeRegistry::finalize_pending`] runs a
+//!   dangling-collapse fallback pass on every read-path access for
+//!   the orphan-then-destroy corner case where no hook fires.
 //! - [`Bridge`] (`EcsDom.mutation_hook` consumer) is a small struct
-//!   that implements [`elidex_ecs::MutationHook`] by forwarding into
-//!   the same `Arc<Mutex<>>`-shared state. It queues the only event
-//!   that needs `&EcsDom` (`after_remove` — descendant walk) and
-//!   applies the other five synchronously.
+//!   that implements [`elidex_ecs::MutationHook`] by forwarding all
+//!   six hook callbacks into the shared `ranges`
+//!   `Arc<Mutex<HashMap<RangeId, Range>>>` and applying boundary
+//!   adjustments SYNCHRONOUSLY. The engine pre-snapshots inclusive
+//!   descendants before any `destroy_entity` orphaning (PR186 R2 #3)
+//!   so no deferred / queue-drain phase is needed.
 //!
 //! Pair construction goes through [`LiveRangeRegistry::new_pair`] —
-//! the registry and the bridge share two `Arc<Mutex<>>` handles (the
-//! Range map and the pending-remove queue).
+//! the registry and the bridge share a single `Arc<Mutex<>>` handle
+//! over the Range map.
 //!
-//! ## Lock ordering invariant
+//! ## Lock invariant
 //!
-//! The two `Arc<Mutex<>>` handles (`ranges`, `pending_remove`) are
-//! independent — Bridge hooks acquire exactly one, registry methods
-//! drain the queue then acquire the map (in that order). No callsite
-//! holds both simultaneously, so deadlock is impossible.
+//! `ranges` is the only mutex shared between the registry and the
+//! bridge. Each hook callback (and each registry method) acquires
+//! the mutex once for the duration of its read or adjustment.
+//! There is no second lock to deadlock against.
 //!
 //! ## Shallow light-tree contract (lesson #229, prereq #185)
 //!
@@ -99,7 +101,7 @@ pub struct Bridge {
 }
 
 impl MutationHook for Bridge {
-    fn after_remove(
+    fn after_remove_with_descendants(
         &mut self,
         _node: Entity,
         parent: Entity,
@@ -736,7 +738,7 @@ mod tests {
         // Apply after_remove synchronously with the snapshot. Since
         // the snapshot includes `child` + `grandchild`, the boundary
         // on `grandchild` collapses to (parent, 0) per §5.5 step 4.
-        bridge.after_remove(child, parent, 0, &[child, grandchild]);
+        bridge.after_remove_with_descendants(child, parent, 0, &[child, grandchild]);
 
         reg.with_range(id, &dom, |range, _| {
             assert_eq!(range.start_container, parent);
@@ -906,7 +908,7 @@ mod tests {
         let _ = dom.append_child(parent, child);
 
         let _id = reg.register(Range::new(parent));
-        bridge.after_remove(child, parent, 0, &[child]);
+        bridge.after_remove_with_descendants(child, parent, 0, &[child]);
 
         assert_eq!(reg.len(), 1);
         reg.clear();

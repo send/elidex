@@ -55,18 +55,19 @@ struct MockHook {
 }
 
 impl MutationHook for MockHook {
-    fn after_remove(
-        &mut self,
-        node: Entity,
-        parent: Entity,
-        removed_index: usize,
-        _descendants: &[Entity],
-    ) {
+    fn after_remove(&mut self, node: Entity, parent: Entity, removed_index: usize) {
         // General-purpose tests don't assert on the descendants
         // snapshot. The dedicated
         // `destroy_entity_passes_inclusive_descendants_snapshot` test
-        // uses a separate `DescendantSnapshotHook` to pin the snapshot
-        // shape + order.
+        // uses a separate `DescendantSnapshotHook` to override
+        // `after_remove_with_descendants` and pin the snapshot shape
+        // + order.
+        //
+        // MockHook only overrides the basic `after_remove` method;
+        // the default impl of `after_remove_with_descendants`
+        // delegates here, so MockHook captures the same event shape
+        // it always has — additive-trait migration is transparent
+        // for this consumer (PR186 R4 #1).
         self.events.lock().unwrap().push(MockEvent::Remove {
             node,
             parent,
@@ -966,7 +967,7 @@ struct DescendantSnapshotHook {
 }
 
 impl MutationHook for DescendantSnapshotHook {
-    fn after_remove(
+    fn after_remove_with_descendants(
         &mut self,
         node: Entity,
         _parent: Entity,
