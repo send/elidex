@@ -279,6 +279,19 @@ fn node_iterator_detach_is_noop() {
 }
 
 #[test]
+fn node_iterator_detach_brand_check_throws_on_non_iterator() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Copilot R1 — WebIDL brand check on no-op operation.
+    let res = vm.eval("NodeIterator.prototype.detach.call({});");
+    assert!(
+        res.is_err(),
+        "detach.call(non-NodeIterator) must throw TypeError"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn node_iterator_accessors_reflect_state() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };

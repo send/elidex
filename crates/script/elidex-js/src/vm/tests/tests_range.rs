@@ -241,6 +241,37 @@ fn detach_is_noop() {
 }
 
 #[test]
+fn detach_brand_check_throws_on_non_range() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Copilot R1 — WebIDL operation must reject non-Range receiver
+    // even though detach is a legacy no-op.
+    let res = vm.eval("Range.prototype.detach.call({});");
+    assert!(
+        res.is_err(),
+        "detach.call(non-Range) must throw TypeError (brand check)"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn delete_contents_collapses_range() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 1); r.setEnd(t, 4);\
+         r.deleteContents();"
+    ))
+    .unwrap();
+    // WHATWG §4.4 deleteContents step 3: range collapses to (start_container, start_offset).
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 1.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 1.0);
+    assert_eq!(eval_str(&mut vm, "r.collapsed ? 'yes' : 'no'"), "yes");
+    vm.unbind();
+}
+
+#[test]
 fn to_string_concatenates_text() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };

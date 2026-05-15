@@ -348,10 +348,13 @@ fn native_node_iterator_previous_node(
 }
 
 fn native_node_iterator_detach(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // WHATWG §6.1 — `detach()` is a legacy no-op since 2014.
+    // WHATWG §6.1 — `detach()` is a legacy no-op since 2014, but as a
+    // WebIDL operation it still must reject non-NodeIterator
+    // receivers per WebIDL §3.10 brand-check (Copilot R1).
+    let _ = require_node_iterator_receiver(ctx, this, "detach")?;
     Ok(JsValue::Undefined)
 }

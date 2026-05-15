@@ -807,11 +807,14 @@ fn native_range_clone_range(
 }
 
 fn native_range_detach(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // WHATWG DOM §4.4 — legacy no-op since 2014.
+    // WHATWG DOM §4.4 — legacy no-op since 2014, but as a WebIDL
+    // operation it still must reject non-Range receivers per WebIDL
+    // §3.10 "operations" + brand-check requirement (Copilot R1).
+    let _ = require_range_receiver(ctx, this, "detach")?;
     Ok(JsValue::Undefined)
 }
 
@@ -833,6 +836,40 @@ fn native_range_to_string(
 // Mutating methods
 // ---------------------------------------------------------------------------
 
+/// Snapshot the registered Range, then commit `mutated` back over it.
+/// Copilot R1: `deleteContents` / `extractContents` / `insertNode`
+/// engine-indep impls perform boundary updates (notably the
+/// post-delete collapse to the start point per WHATWG §4.4
+/// `deleteContents` step 3) that are NOT recoverable from the
+/// mutation hooks alone — `set_text_data` hooks only clamp offsets to
+/// the new length, missing the spec-required collapse.  Persist the
+/// post-op boundary state explicitly.
+fn commit_range_after_mutation(
+    ctx: &mut NativeContext<'_>,
+    id: RangeId,
+    method: &'static str,
+    mutated: &Range,
+) -> Result<(), VmError> {
+    let host = ctx.host();
+    let (dom, registry) = host.split_dom_and_live_ranges();
+    let applied = registry.with_range_mut(id, dom, |r, _| {
+        r.start_container = mutated.start_container;
+        r.start_offset = mutated.start_offset;
+        r.end_container = mutated.end_container;
+        r.end_offset = mutated.end_offset;
+    });
+    if applied.is_none() {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_invalid_state_error,
+            format!(
+                "Failed to execute '{method}' on 'Range': \
+                 the Range has been detached"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn native_range_delete_contents(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -840,9 +877,9 @@ fn native_range_delete_contents(
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "deleteContents")?;
     // Mutating Range methods need `&mut EcsDom` + `&mut LiveRangeRegistry`
-    // — the with_range_mut split gives `&EcsDom` only.  Instead snapshot
-    // the Range, run the deletion through `&mut EcsDom`, then re-read
-    // the mutated Range (boundary adjustments fire via the bridge).
+    // — the with_range_mut split gives `&EcsDom` only.  Snapshot the
+    // Range, run the deletion through `&mut EcsDom`, then commit the
+    // post-op boundary state back to the registry (Copilot R1).
     let mut range = {
         let host = ctx.host();
         let (dom, registry) = host.split_dom_and_live_ranges();
@@ -859,10 +896,7 @@ fn native_range_delete_contents(
     let host = ctx.host();
     let dom = host.dom();
     range.delete_contents(dom);
-    // Mutation hooks fired by EcsDom during delete_contents already
-    // applied boundary adjustments to the registered Range; nothing
-    // to write back.
-    let _ = range;
+    commit_range_after_mutation(ctx, id, "deleteContents", &range)?;
     Ok(JsValue::Undefined)
 }
 
@@ -888,6 +922,7 @@ fn native_range_extract_contents(
     let host = ctx.host();
     let dom = host.dom();
     let fragment = range.extract_contents(dom);
+    commit_range_after_mutation(ctx, id, "extractContents", &range)?;
     Ok(JsValue::Object(ctx.vm.create_element_wrapper(fragment)))
 }
 
@@ -914,6 +949,7 @@ fn native_range_insert_node(
     let host = ctx.host();
     let dom = host.dom();
     range.insert_node(dom, node);
+    commit_range_after_mutation(ctx, id, "insertNode", &range)?;
     Ok(JsValue::Undefined)
 }
 
